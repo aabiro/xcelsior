@@ -62,9 +62,7 @@ REQUIRED_WIZARD_CHECKS = frozenset(
         "Security Posture",
     }
 )
-REQUIRED_VERSION_COMPONENTS = frozenset(
-    {"runc", "docker", "nvidia_driver", "nvidia_toolkit"}
-)
+REQUIRED_VERSION_COMPONENTS = frozenset({"runc", "docker", "nvidia_driver", "nvidia_toolkit"})
 _SENSITIVE_KEY = re.compile(
     r"(?:secret|token|password|credential|private|serial|uuid|mac(?:_address)?|"
     r"ip(?:_address)?|tee_evidence|jwt)",
@@ -140,10 +138,7 @@ def helper_signature_message(
     report_digest: str,
 ) -> bytes:
     return (
-        "xcelsior-host-compat-v1\n"
-        f"{session_id}\n"
-        f"{challenge}\n"
-        f"{report_digest}"
+        "xcelsior-host-compat-v1\n" f"{session_id}\n" f"{challenge}\n" f"{report_digest}"
     ).encode("utf-8")
 
 
@@ -206,13 +201,9 @@ def _load_helper_public_key(encoded: str) -> tuple[bytes, Ed25519PublicKey]:
     try:
         der = base64.b64decode(encoded, validate=True)
     except (ValueError, TypeError) as exc:
-        raise AdmissionPreconditionFailed(
-            "helper_public_key_spki must be base64 DER"
-        ) from exc
+        raise AdmissionPreconditionFailed("helper_public_key_spki must be base64 DER") from exc
     if not der or len(der) > 512:
-        raise AdmissionPreconditionFailed(
-            "helper_public_key_spki has an invalid size"
-        )
+        raise AdmissionPreconditionFailed("helper_public_key_spki has an invalid size")
     try:
         public_key = serialization.load_der_public_key(der)
     except (ValueError, TypeError) as exc:
@@ -220,9 +211,7 @@ def _load_helper_public_key(encoded: str) -> tuple[bytes, Ed25519PublicKey]:
             "helper_public_key_spki is not a valid public key"
         ) from exc
     if not isinstance(public_key, Ed25519PublicKey):
-        raise AdmissionPreconditionFailed(
-            "compatibility helpers must use an Ed25519 public key"
-        )
+        raise AdmissionPreconditionFailed("compatibility helpers must use an Ed25519 public key")
     return der, public_key
 
 
@@ -272,17 +261,13 @@ def summarize_provider_report(report: Mapping[str, Any]) -> dict[str, Any]:
     """Reduce provider output to bounded, non-secret compatibility evidence."""
     encoded = canonical_json(report)
     if len(encoded) > MAX_REPORT_BYTES:
-        raise AdmissionPreconditionFailed(
-            f"compatibility report exceeds {MAX_REPORT_BYTES} bytes"
-        )
+        raise AdmissionPreconditionFailed(f"compatibility report exceeds {MAX_REPORT_BYTES} bytes")
 
     version_map = _version_map(report)
     compatible, version_reasons = check_node_versions(version_map)
     check_map = _check_map(report)
     all_checks_present = REQUIRED_WIZARD_CHECKS.issubset(check_map)
-    hardware_passed = all_checks_present and all(
-        check_map[name] for name in REQUIRED_WIZARD_CHECKS
-    )
+    hardware_passed = all_checks_present and all(check_map[name] for name in REQUIRED_WIZARD_CHECKS)
 
     benchmark = report.get("benchmark")
     if not isinstance(benchmark, Mapping):
@@ -316,12 +301,8 @@ def summarize_provider_report(report: Mapping[str, Any]) -> dict[str, Any]:
         "checks": checks_summary,
         "gpu": {
             "model": str(benchmark.get("gpu_model") or "")[:80],
-            "total_vram_gb": _safe_number(
-                benchmark.get("total_vram_gb"), maximum=1024
-            ),
-            "compute_capability": str(
-                benchmark.get("compute_capability") or ""
-            )[:24],
+            "total_vram_gb": _safe_number(benchmark.get("total_vram_gb"), maximum=1024),
+            "compute_capability": str(benchmark.get("compute_capability") or "")[:24],
             "driver_version": str(benchmark.get("driver_version") or "")[:32],
         },
         "benchmark": {
@@ -329,25 +310,17 @@ def summarize_provider_report(report: Mapping[str, Any]) -> dict[str, Any]:
             "pcie_bandwidth_gbps": _safe_number(
                 benchmark.get("pcie_bandwidth_gbps"), maximum=10_000
             ),
-            "gpu_temp_celsius": _safe_number(
-                benchmark.get("gpu_temp_celsius"), maximum=200
-            ),
+            "gpu_temp_celsius": _safe_number(benchmark.get("gpu_temp_celsius"), maximum=200),
             "elapsed_s": _safe_number(benchmark.get("elapsed_s"), maximum=86_400),
         },
         "network": {
             "jitter_ms": _safe_number(network.get("jitter_ms"), maximum=60_000),
-            "packet_loss_pct": _safe_number(
-                network.get("packet_loss_pct"), maximum=100
-            ),
-            "throughput_mbps": _safe_number(
-                network.get("throughput_mbps"), maximum=10_000_000
-            ),
+            "packet_loss_pct": _safe_number(network.get("packet_loss_pct"), maximum=100),
+            "throughput_mbps": _safe_number(network.get("throughput_mbps"), maximum=10_000_000),
         },
         # The raw helper fingerprint may contain a GPU UUID/serial.  Only its
         # one-way hash crosses the control-plane boundary.
-        "provider_fingerprint_hash": (
-            sha256_hex(raw_fingerprint) if raw_fingerprint else ""
-        ),
+        "provider_fingerprint_hash": (sha256_hex(raw_fingerprint) if raw_fingerprint else ""),
     }
     if len(canonical_json(summary)) > MAX_SUMMARY_BYTES:
         raise AdmissionPreconditionFailed("sanitized evidence summary is too large")
@@ -439,8 +412,7 @@ def create_compatibility_session(
         if existing is not None:
             if (
                 str(_row_value(existing, "requested_by", 1)) != actor_id
-                or str(_row_value(existing, "helper_key_fingerprint", 2))
-                != key_fingerprint
+                or str(_row_value(existing, "helper_key_fingerprint", 2)) != key_fingerprint
             ):
                 raise AdmissionConflict(
                     "idempotency_key was already used with different session inputs"
@@ -563,9 +535,7 @@ def _insert_evidence(
         or str(_row_value(existing, "evidence_type", 2)) != evidence_type
         or str(_row_value(existing, "verdict", 3)) != verdict
     ):
-        raise AdmissionConflict(
-            "idempotency_key was already used with different evidence"
-        )
+        raise AdmissionConflict("idempotency_key was already used with different evidence")
     return str(_row_value(existing, "evidence_id", 0))
 
 
@@ -617,9 +587,7 @@ def submit_compatibility_evidence(
         admission_state = str(_row_value(row, "admission_state", 9))
 
         if requested_by != actor_id:
-            raise AdmissionUnauthorized(
-                "Compatibility session belongs to a different principal"
-            )
+            raise AdmissionUnauthorized("Compatibility session belongs to a different principal")
         if not hmac.compare_digest(token_hash, sha256_hex(submit_token)):
             raise AdmissionUnauthorized("Compatibility session token is invalid")
         challenge = _derive_session_value("challenge", session_id)
@@ -652,9 +620,7 @@ def submit_compatibility_evidence(
                 "evidence": [
                     {
                         "evidence_id": str(_row_value(item, "evidence_id", 0)),
-                        "evidence_type": str(
-                            _row_value(item, "evidence_type", 1)
-                        ),
+                        "evidence_type": str(_row_value(item, "evidence_type", 1)),
                         "verdict": str(_row_value(item, "verdict", 2)),
                         "trust_level": "advisory",
                     }
@@ -676,17 +642,11 @@ def submit_compatibility_evidence(
                 helper_signature_message(session_id, challenge, report_digest),
             )
         except Exception as exc:
-            raise AdmissionUnauthorized(
-                "Compatibility helper proof-of-possession failed"
-            ) from exc
+            raise AdmissionUnauthorized("Compatibility helper proof-of-possession failed") from exc
 
         evidence_expiry = now + timedelta(seconds=ADVISORY_EVIDENCE_TTL_SECONDS)
-        compatibility_verdict = (
-            "pass" if summary["compatibility_passed"] else "fail"
-        )
-        hardware_verdict = (
-            "pass" if summary["hardware_verification_passed"] else "fail"
-        )
+        compatibility_verdict = "pass" if summary["compatibility_passed"] else "fail"
+        hardware_verdict = "pass" if summary["hardware_verification_passed"] else "fail"
         evidence = []
         for evidence_type, verdict in (
             ("compatibility", compatibility_verdict),
@@ -742,9 +702,7 @@ def submit_compatibility_evidence(
             "admitted": admission_state == "admitted",
             "evidence": evidence,
             "reused": False,
-            "next_step": (
-                "Operator/trusted-verifier review is required before admission"
-            ),
+            "next_step": ("Operator/trusted-verifier review is required before admission"),
             "recommended_runtime": recommend_runtime(
                 str(summary.get("gpu", {}).get("model") or "unknown")
             )[0],
@@ -922,9 +880,7 @@ def _latest_authoritative_evidence(
             "evidence_type": str(_row_value(row, "evidence_type", 1)),
             "verdict": str(_row_value(row, "verdict", 2)),
             "source_type": str(_row_value(row, "source_type", 3)),
-            "verifier_principal": str(
-                _row_value(row, "verifier_principal", 4)
-            ),
+            "verifier_principal": str(_row_value(row, "verifier_principal", 4)),
             "observed_at": _row_value(row, "observed_at", 5),
             "expires_at": _row_value(row, "expires_at", 6),
             "summary": _row_value(row, "summary", 7) or {},
@@ -989,9 +945,7 @@ def _sync_marketplace(
         return "disabled"
 
     gpu_model = str(payload.get("gpu_model") or "").strip()
-    provider_id = str(
-        payload.get("owner") or payload.get("provider_id") or host_id
-    ).strip()
+    provider_id = str(payload.get("owner") or payload.get("provider_id") or host_id).strip()
     vram_gb = max(
         0,
         int(
@@ -1005,12 +959,7 @@ def _sync_marketplace(
     )
     ask_cents = max(
         1,
-        int(
-            round(
-                _safe_number(payload.get("cost_per_hour"), maximum=1000)
-                * 100
-            )
-        ),
+        int(round(_safe_number(payload.get("cost_per_hour"), maximum=1000) * 100)),
     )
     gpu_count = max(1, min(int(payload.get("gpu_count") or 1), 64))
     if not gpu_model or vram_gb <= 0:
@@ -1117,9 +1066,7 @@ def decide_admission(
         raise AdmissionPreconditionFailed("action must be admit, reject, or revoke")
     reason = str(reason or "").strip()
     if len(reason) < 3 or len(reason) > 1000:
-        raise AdmissionPreconditionFailed(
-            "reason must contain between 3 and 1000 characters"
-        )
+        raise AdmissionPreconditionFailed("reason must contain between 3 and 1000 characters")
     key = str(idempotency_key or "").strip()
     if not key or len(key) > 200:
         raise AdmissionPreconditionFailed(
@@ -1155,22 +1102,16 @@ def decide_admission(
                 str(_row_value(duplicate, "action", 2)) != action
                 or str(_row_value(duplicate, "reason", 3)) != reason
             ):
-                raise AdmissionConflict(
-                    "idempotency_key was already used for a different decision"
-                )
+                raise AdmissionConflict("idempotency_key was already used for a different decision")
             resulting = str(_row_value(duplicate, "resulting_state", 4))
             return {
                 "decision_id": str(_row_value(duplicate, "decision_id", 0)),
                 "host_id": host_id,
-                "decision_version": int(
-                    _row_value(duplicate, "decision_version", 1)
-                ),
+                "decision_version": int(_row_value(duplicate, "decision_version", 1)),
                 "action": action,
                 "admission_state": resulting,
                 "admitted": resulting == "admitted",
-                "evidence_ids": list(
-                    _row_value(duplicate, "evidence_ids", 5) or []
-                ),
+                "evidence_ids": list(_row_value(duplicate, "evidence_ids", 5) or []),
                 "reused": True,
             }
 
@@ -1209,20 +1150,14 @@ def decide_admission(
                 )
             resulting_state = "rejected"
             evidence_ids = [
-                str(item["evidence_id"])
-                for item in latest.values()
-                if item.get("evidence_id")
+                str(item["evidence_id"]) for item in latest.values() if item.get("evidence_id")
             ]
         else:
             if current_state != "admitted":
-                raise AdmissionPreconditionFailed(
-                    "Only an admitted host can be revoked"
-                )
+                raise AdmissionPreconditionFailed("Only an admitted host can be revoked")
             resulting_state = "revoked"
             evidence_ids = [
-                str(item["evidence_id"])
-                for item in latest.values()
-                if item.get("evidence_id")
+                str(item["evidence_id"]) for item in latest.values() if item.get("evidence_id")
             ]
 
         tenant_id = _tenant_from_host(host)
@@ -1232,9 +1167,7 @@ def decide_admission(
         payload = dict(payload)
         old_status = str(_row_value(host, "status", 4) or "pending")
         if resulting_state == "admitted":
-            new_status = (
-                old_status if old_status in {"dead", "draining"} else "active"
-            )
+            new_status = old_status if old_status in {"dead", "draining"} else "active"
         elif resulting_state == "revoked":
             new_status = "disabled"
         else:
@@ -1383,9 +1316,7 @@ def admission_status(host_id: str) -> dict[str, Any]:
             "host_id": host_id,
             "status": str(_row_value(host, "status", 1)),
             "admission_state": str(_row_value(host, "admission_state", 2)),
-            "admission_version": int(
-                _row_value(host, "admission_version", 3) or 0
-            ),
+            "admission_version": int(_row_value(host, "admission_version", 3) or 0),
             "admitted_at": _row_value(host, "admitted_at", 4),
             "decision_id": (
                 str(_row_value(host, "admission_decision_id", 5))
@@ -1406,12 +1337,8 @@ def admission_status(host_id: str) -> dict[str, Any]:
             },
             "advisory_evidence": [
                 {
-                    "evidence_id": str(
-                        _row_value(row, "evidence_id", 0)
-                    ),
-                    "evidence_type": str(
-                        _row_value(row, "evidence_type", 1)
-                    ),
+                    "evidence_id": str(_row_value(row, "evidence_id", 0)),
+                    "evidence_type": str(_row_value(row, "evidence_type", 1)),
                     "verdict": str(_row_value(row, "verdict", 2)),
                     "source_type": str(_row_value(row, "source_type", 3)),
                     "observed_at": _row_value(row, "observed_at", 4),

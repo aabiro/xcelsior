@@ -109,6 +109,7 @@ def test_concurrent_first_load_only_mints_one_key():
     from concurrent.futures import ThreadPoolExecutor
 
     token = _register_and_get_token("qc-concurrent@xcelsior.ca")
+
     def load():
         with TestClient(app) as isolated:
             response = isolated.get("/api/mcp/quick-connect?surface=cli", headers=_auth(token))
@@ -129,8 +130,10 @@ def test_failed_rotation_preserves_previous_credential(monkeypatch):
 
     token = _register_and_get_token("qc-atomic@xcelsior.ca")
     first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+
     def fail(**kwargs):
         raise RuntimeError("Key storage unavailable")
+
     monkeypatch.setattr(oauth_service, "issue_agent_api_key", fail)
     with pytest.raises(RuntimeError, match="Key storage unavailable"):
         client.get("/api/mcp/quick-connect?regenerate=true", headers=_auth(token))
@@ -143,9 +146,7 @@ def test_failed_rotation_preserves_previous_credential(monkeypatch):
 def test_regenerate_rotates_the_client():
     token = _register_and_get_token("qc-regen@xcelsior.ca")
     first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
-    rotated = client.get(
-        "/api/mcp/quick-connect?regenerate=true", headers=_auth(token)
-    ).json()
+    rotated = client.get("/api/mcp/quick-connect?regenerate=true", headers=_auth(token)).json()
     assert rotated["client_id"] != first["client_id"]
 
 
@@ -163,9 +164,9 @@ def test_regenerate_revokes_the_previous_key():
     token = _register_and_get_token("qc-revoke@xcelsior.ca")
     first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["access_token"]
     assert _authenticates(first)
-    second = client.get(
-        "/api/mcp/quick-connect?regenerate=true", headers=_auth(token)
-    ).json()["access_token"]
+    second = client.get("/api/mcp/quick-connect?regenerate=true", headers=_auth(token)).json()[
+        "access_token"
+    ]
     assert second and second != first
     assert not _authenticates(first)
     assert _authenticates(second)

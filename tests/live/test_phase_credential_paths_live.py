@@ -203,23 +203,23 @@ def test_p4_an_unapproved_pipeline_will_not_run():
     )
     if created.status_code == 403:
         pytest.skip("this credential lacks the scope to quote a pipeline")
-    assert created.status_code == 200, (
-        f"could not create a pipeline to test against ({created.status_code}): {created.text[:200]}"
-    )
+    assert (
+        created.status_code == 200
+    ), f"could not create a pipeline to test against ({created.status_code}): {created.text[:200]}"
     plan_id = (created.json() or {}).get("plan_id")
     assert plan_id, f"the pipeline was created with no plan id: {created.text[:200]}"
 
     ran = _post(f"/api/v1/pipelines/{plan_id}/execute", {})
-    assert ran.status_code == 409, (
-        f"an unapproved pipeline returned {ran.status_code}; the approval is not binding"
-    )
+    assert (
+        ran.status_code == 409
+    ), f"an unapproved pipeline returned {ran.status_code}; the approval is not binding"
     # `problem_response` emits RFC 7807, where the code is top-level — not the
     # `{"ok": false, "error": {...}}` envelope the auth layer uses. Reading the
     # wrong one gives `None`, which compares unequal to everything and would
     # have read as "refused for the wrong reason" against correct behaviour.
-    assert ran.json().get("code") == "approval_required", (
-        f"refused, but not for the reason the clause names: {ran.text[:200]}"
-    )
+    assert (
+        ran.json().get("code") == "approval_required"
+    ), f"refused, but not for the reason the clause names: {ran.text[:200]}"
 
 
 def test_p4_a_pipeline_belonging_to_nobody_is_not_found():

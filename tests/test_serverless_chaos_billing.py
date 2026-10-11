@@ -118,8 +118,9 @@ class TestWorkerDeathMidInference:
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 50.0}
 
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             period_end = allocated + 60.0
             result1 = charge_serverless_execution(
@@ -136,9 +137,7 @@ class TestWorkerDeathMidInference:
             assert first_amount > 0
 
             # Same period_end after cycle recorded — must not bill again.
-            with patch(
-                "serverless.metering.last_billed_period_end", return_value=period_end
-            ):
+            with patch("serverless.metering.last_billed_period_end", return_value=period_end):
                 result2 = charge_serverless_execution(
                     billing,
                     repo,
@@ -200,8 +199,9 @@ class TestWorkerDeathMidInference:
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
         allocated = time.time() - 120.0
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             bill = charge_serverless_execution(
                 billing,

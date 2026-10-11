@@ -140,18 +140,14 @@ def test_a_non_image_avatar_is_refused(user_headers) -> None:
 
 
 def test_updating_the_profile(user_headers) -> None:
-    r = client.put(
-        "/api/auth/me/profile", json={"name": "Renamed Probe"}, headers=user_headers
-    )
+    r = client.put("/api/auth/me/profile", json={"name": "Renamed Probe"}, headers=user_headers)
     assert r.status_code == 200, r.text[:200]
     assert r.json().get("ok") is True
 
 
 def test_the_profile_route_refuses_a_role_it_cannot_change(user_headers) -> None:
     """It used to accept `role`, return `{"ok": true}`, and change nothing."""
-    r = client.put(
-        "/api/auth/me/profile", json={"role": "provider"}, headers=user_headers
-    )
+    r = client.put("/api/auth/me/profile", json={"role": "provider"}, headers=user_headers)
     assert r.status_code == 400, (
         f"PUT /api/auth/me/profile returned {r.status_code} for a role change it "
         "does not perform; silence here reads as success"

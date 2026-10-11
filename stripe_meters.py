@@ -130,7 +130,12 @@ def enqueue_meter_event(
                 ),
             )
             conn.commit()
-        return {"enqueued": True, "event_id": event_id, "event_name": event_name, "value": float(value)}
+        return {
+            "enqueued": True,
+            "event_id": event_id,
+            "event_name": event_name,
+            "value": float(value),
+        }
     except Exception as exc:
         # Table may not exist yet — never break billing.
         log.warning("meter outbox enqueue failed (non-fatal): %s", exc)
@@ -195,7 +200,12 @@ def drain_meter_outbox(*, limit: int = 100, stripe_mod=None) -> dict[str, int]:
                 stripe_cust = ""
         if not stripe_cust:
             skipped += 1
-            _mark(event_id, status="pending", attempts=int(row["attempts"] or 0) + 1, err="no_stripe_customer")
+            _mark(
+                event_id,
+                status="pending",
+                attempts=int(row["attempts"] or 0) + 1,
+                err="no_stripe_customer",
+            )
             continue
         try:
             value_int = max(1, int(round(float(row["value"]))))

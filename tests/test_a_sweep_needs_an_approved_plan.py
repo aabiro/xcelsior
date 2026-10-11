@@ -70,7 +70,9 @@ def _calls(name: str) -> set[str]:
 def test_both_routes_exist_and_parse():
     """Two empty bodies satisfy every 'does not call' assertion below."""
     assert len(_calls("api_create_image_sweep")) > 5, "the creating route parsed nearly empty"
-    assert len(_calls("api_execute_image_sweep_plan")) > 5, "the executing route parsed nearly empty"
+    assert (
+        len(_calls("api_execute_image_sweep_plan")) > 5
+    ), "the executing route parsed nearly empty"
 
 
 # ── The creating route must not be able to launch ─────────────────────
@@ -113,9 +115,9 @@ def test_the_estimate_is_per_member_times_the_count():
     """A plan that under-quotes a bulk spend is consent for a smaller number."""
     body = _source("api_create_image_sweep")
     assert "estimate_launch_hold_cad" in body, "the estimate is no longer the real fund-gate hold"
-    assert "* body.count" in body.replace("  ", " "), (
-        "the estimate no longer multiplies by the member count"
-    )
+    assert "* body.count" in body.replace(
+        "  ", " "
+    ), "the estimate no longer multiplies by the member count"
 
 
 # ── The executing route must refuse an unapproved plan ────────────────
@@ -123,18 +125,18 @@ def test_the_estimate_is_per_member_times_the_count():
 
 def test_execution_refuses_a_plan_that_is_not_approved():
     body = _source("api_execute_image_sweep_plan")
-    assert 'plan["status"] != "approved"' in body, (
-        "the execute route no longer checks that the plan was approved"
-    )
+    assert (
+        'plan["status"] != "approved"' in body
+    ), "the execute route no longer checks that the plan was approved"
     assert "approval_required" in body, "the refusal no longer names itself"
 
 
 def test_execution_refuses_a_plan_belonging_to_another_tenant():
     """Not-found rather than forbidden: no existence oracle for plan ids."""
     body = _source("api_execute_image_sweep_plan")
-    assert 'str(plan["tenant_id"]) != principal.tenant_id' in body, (
-        "the execute route no longer checks plan ownership"
-    )
+    assert (
+        'str(plan["tenant_id"]) != principal.tenant_id' in body
+    ), "the execute route no longer checks plan ownership"
     assert "PlanNotFound" in body, (
         "a plan owned by someone else must read as absent; `forbidden` confirms "
         "that a plan with that id exists"
@@ -153,9 +155,9 @@ def test_execution_refuses_a_plan_whose_arguments_changed():
 def test_execution_refuses_a_plan_for_a_different_action():
     """An approved plan is approval for *that* action, not for any spend."""
     body = _source("api_execute_image_sweep_plan")
-    assert 'plan["action_type"] != "create_image_sweep"' in body, (
-        "an approved plan for some other action could be spent on a sweep"
-    )
+    assert (
+        'plan["action_type"] != "create_image_sweep"' in body
+    ), "an approved plan for some other action could be spent on a sweep"
 
 
 def test_a_replayed_execution_returns_the_same_sweep():

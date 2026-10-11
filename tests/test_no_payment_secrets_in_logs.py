@@ -119,9 +119,9 @@ def test_ordinary_long_numbers_are_left_alone():
         "job 1785859874797 finished after 1234567890123 ns, "
         "wrote 987654321098765 bytes, request 20260804195512"
     )
-    assert _scrub(benign) == benign, (
-        "ordinary numbers were redacted; this scrubber will be switched off"
-    )
+    assert (
+        _scrub(benign) == benign
+    ), "ordinary numbers were redacted; this scrubber will be switched off"
 
 
 def test_the_filter_scrubs_a_real_log_record():

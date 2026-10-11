@@ -68,9 +68,7 @@ def _tests_using_db_fixtures(path: pathlib.Path) -> list[tuple[str, bool]]:
         params = {a.arg for a in node.args.args}
         if not (params & DB_FIXTURES):
             continue
-        marked = any(
-            "needs_db" in ast.unparse(dec) for dec in node.decorator_list
-        )
+        marked = any("needs_db" in ast.unparse(dec) for dec in node.decorator_list)
         found.append((node.name, marked))
     return found
 
@@ -155,9 +153,7 @@ def test_the_marker_is_registered():
     Registering it makes the intent greppable and the filter durable.
     """
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "needs_db:" in pyproject, (
-        "the `needs_db` marker is not registered in pyproject.toml"
-    )
+    assert "needs_db:" in pyproject, "the `needs_db` marker is not registered in pyproject.toml"
 
 
 def _has_import_time_skip(path: pathlib.Path) -> bool:
@@ -191,9 +187,7 @@ def test_every_gate_file_touching_a_database_can_survive_without_one():
             continue
         if _has_import_time_skip(path):
             continue
-        unmarked = [
-            name for name, marked in _tests_using_db_fixtures(path) if not marked
-        ]
+        unmarked = [name for name, marked in _tests_using_db_fixtures(path) if not marked]
         # No fixture users and no import-time skip means the database is reached
         # directly inside the tests, which is the stalling shape.
         if unmarked or "_get_pg_pool" in text:

@@ -48,9 +48,7 @@ def _register_and_fund() -> dict:
         json={"email": email, "password": "StrongPass123!", "name": "Sec"},
     )
     assert reg.status_code == 200
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     body = login.json()
     user = reg.json().get("user") or body.get("user") or {}
     headers = {"Authorization": f"Bearer {body['access_token']}"}
@@ -176,10 +174,11 @@ class TestQueueTTL:
                 (time.time() - 7200, job["job_id"]),
             )
         svc = ServerlessService(repo)
-        with patch.object(svc.repo, "list_workers_stale_heartbeat", return_value=[]), patch.object(
-            svc.repo, "list_jobs_past_request_timeout", return_value=[]
-        ), patch.object(svc.repo, "list_stuck_booting_workers", return_value=[]), patch.object(
-            svc.repo, "list_booting_workers", return_value=[]
+        with (
+            patch.object(svc.repo, "list_workers_stale_heartbeat", return_value=[]),
+            patch.object(svc.repo, "list_jobs_past_request_timeout", return_value=[]),
+            patch.object(svc.repo, "list_stuck_booting_workers", return_value=[]),
+            patch.object(svc.repo, "list_booting_workers", return_value=[]),
         ):
             from serverless.reaper import reap_all
 
@@ -216,7 +215,9 @@ class TestWebhookBodyCap:
             return _FakeResp()
 
         monkeypatch.setattr(urllib.request, "urlopen", _capture_urlopen)
-        job = repo.enqueue_job(ep["endpoint_id"], owner, {"x": 1}, webhook_url="https://example.com/h")
+        job = repo.enqueue_job(
+            ep["endpoint_id"], owner, {"x": 1}, webhook_url="https://example.com/h"
+        )
         big = {"data": "z" * WEBHOOK_MAX_BODY_BYTES}
         done = repo.complete_job(job["job_id"], output=big)
         assert done is not None
@@ -224,6 +225,7 @@ class TestWebhookBodyCap:
         assert posted
         assert len(posted[0]) <= WEBHOOK_MAX_BODY_BYTES
         repo.soft_delete_endpoint(ep["endpoint_id"], owner)
+
 
 class TestAgentKeyPrefixCollision:
     """An agent key must never be mistaken for a serverless endpoint key.

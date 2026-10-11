@@ -71,13 +71,13 @@ def _assert_message_is_actionable(stderr: str, flag: str, workers: str) -> None:
     one. Assert the three things an operator needs instead: which variable is
     at fault, how many workers provoked it, and what to do about it.
     """
-    assert flag in stderr, f"the refusal does not name {flag}, so nobody knows what to change:\n{stderr[-500:]}"
-    assert f"GUNICORN_WORKERS={workers}" in stderr, (
-        f"the refusal does not say the worker count that provoked it:\n{stderr[-500:]}"
-    )
-    assert "GUNICORN_WORKERS=1" in stderr, (
-        f"the refusal offers no remediation:\n{stderr[-500:]}"
-    )
+    assert (
+        flag in stderr
+    ), f"the refusal does not name {flag}, so nobody knows what to change:\n{stderr[-500:]}"
+    assert (
+        f"GUNICORN_WORKERS={workers}" in stderr
+    ), f"the refusal does not say the worker count that provoked it:\n{stderr[-500:]}"
+    assert "GUNICORN_WORKERS=1" in stderr, f"the refusal offers no remediation:\n{stderr[-500:]}"
 
 
 @pytest.mark.parametrize("workers", ["2", "4"])
@@ -91,9 +91,7 @@ def test_per_process_runtime_limits_with_many_workers_refuses_to_boot(workers: s
     multiplied by the worker count. It presents the same way the auth bug did:
     intermittent, correct-looking, and unlogged.
     """
-    result = _load(
-        {"XCELSIOR_SHARED_RUNTIME_LIMITS": "false", "GUNICORN_WORKERS": workers}
-    )
+    result = _load({"XCELSIOR_SHARED_RUNTIME_LIMITS": "false", "GUNICORN_WORKERS": workers})
     assert result.returncode != 0, (
         f"gunicorn accepted per-process runtime limits with {workers} workers; "
         "WebSocket tickets would be redeemable only on the worker that issued them"

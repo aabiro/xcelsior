@@ -29,8 +29,7 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger "
-                "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
             ).fetchone()
             is not None
         )
@@ -64,9 +63,7 @@ def fleet():
             conn.execute("DELETE FROM job_attempts WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["hosts"]:
-            conn.execute(
-                "DELETE FROM host_gpu_devices WHERE host_id=%s", (hid,)
-            )
+            conn.execute("DELETE FROM host_gpu_devices WHERE host_id=%s", (hid,))
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
         conn.commit()
 
@@ -107,8 +104,17 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0):
     return payload
 
 
-def _mk_job(fleet, job_id, *, gpu_model, num_gpus=1, vram_needed_gb=8.0,
-            priority=10, status="queued", scheduler=None):
+def _mk_job(
+    fleet,
+    job_id,
+    *,
+    gpu_model,
+    num_gpus=1,
+    vram_needed_gb=8.0,
+    priority=10,
+    status="queued",
+    scheduler=None,
+):
     payload = {
         "job_id": job_id,
         "name": job_id,
@@ -135,8 +141,7 @@ def _mk_job(fleet, job_id, *, gpu_model, num_gpus=1, vram_needed_gb=8.0,
 def _job_row(job_id):
     with _pool.connection() as conn:
         row = conn.execute(
-            "SELECT job_id, status, host_id, active_attempt_id, phase "
-            "FROM jobs WHERE job_id=%s",
+            "SELECT job_id, status, host_id, active_attempt_id, phase " "FROM jobs WHERE job_id=%s",
             (job_id,),
         ).fetchone()
     if row is None:
@@ -163,9 +168,7 @@ def _cfg_canary(marker, hosts):
 
 
 class TestLegacyQueueSkipsOwnedJobs:
-    def test_process_queue_skips_canary_owned_job(
-        self, fleet, reset_cp_config, monkeypatch
-    ):
+    def test_process_queue_skips_canary_owned_job(self, fleet, reset_cp_config, monkeypatch):
         """Under canary, legacy process_queue must not assign owned jobs."""
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"
@@ -181,9 +184,7 @@ class TestLegacyQueueSkipsOwnedJobs:
         _mk_job(fleet, free_job, gpu_model=free_model)
 
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
-        monkeypatch.setenv(
-            "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", model.lower()
-        )
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", model.lower())
         monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_HOSTS", host_id)
 
         import scheduler as sched
@@ -191,26 +192,19 @@ class TestLegacyQueueSkipsOwnedJobs:
         # Ensure config reloads from env.
         monkeypatch.setattr(sched, "_cp_config", None)
 
-        assert sched._control_plane_owns_job(
-            {"gpu_model": model, "job_id": owned_job}
-        )
-        assert not sched._control_plane_owns_job(
-            {"gpu_model": free_model, "job_id": free_job}
-        )
+        assert sched._control_plane_owns_job({"gpu_model": model, "job_id": owned_job})
+        assert not sched._control_plane_owns_job({"gpu_model": free_model, "job_id": free_job})
 
         assigned = sched.process_queue()
         assigned_ids = {
-            (a[0]["job_id"] if isinstance(a, tuple) else a.get("job_id"))
-            for a in assigned
+            (a[0]["job_id"] if isinstance(a, tuple) else a.get("job_id")) for a in assigned
         }
         # owned must not appear; free may be assigned by legacy.
         assert owned_job not in assigned_ids
         assert _job_row(owned_job)["status"] == "queued"
         assert _job_row(owned_job)["active_attempt_id"] is None
 
-    def test_process_queue_active_owns_everything(
-        self, fleet, reset_cp_config, monkeypatch
-    ):
+    def test_process_queue_active_owns_everything(self, fleet, reset_cp_config, monkeypatch):
         """Under active, every job is owned — legacy process_queue is a no-op."""
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"
@@ -253,9 +247,7 @@ class TestLegacyQueueSkipsOwnedJobs:
         assert lease is not None
         assert cmd is not None
 
-    def test_all_legacy_walkers_skip_owned(
-        self, fleet, reset_cp_config, monkeypatch
-    ):
+    def test_all_legacy_walkers_skip_owned(self, fleet, reset_cp_config, monkeypatch):
         """binpack / filtered / ranked walkers honor the same partition."""
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"
@@ -303,9 +295,7 @@ class TestDirectHostLaunchDefersOwned:
         _mk_job(fleet, job_id, gpu_model=model)
 
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
-        monkeypatch.setenv(
-            "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", model.lower()
-        )
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", model.lower())
         import scheduler as sched
 
         monkeypatch.setattr(sched, "_cp_config", None)
@@ -362,17 +352,13 @@ class TestDirectHostLaunchDefersOwned:
         )
         assert run_job_calls == []
         # No assigned transition for owned job on the direct path.
-        assert not any(
-            c[0] == job_id and c[1] == "assigned" for c in assign_calls
-        )
+        assert not any(c[0] == job_id and c[1] == "assigned" for c in assign_calls)
         row = _job_row(job_id)
         assert row["status"] == "queued"
         assert row["active_attempt_id"] is None
         # preferred pin recorded on payload
         with _pool.connection() as conn:
-            payload = conn.execute(
-                "SELECT payload FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone()
+            payload = conn.execute("SELECT payload FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
         p = payload[0] if not isinstance(payload, dict) else payload["payload"]
         if isinstance(p, str):
             p = json.loads(p)
@@ -393,9 +379,7 @@ class TestDirectHostLaunchDefersOwned:
 
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
         # Canary only owns a different model — this job is free for legacy.
-        monkeypatch.setenv(
-            "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", "rtx-canary-only"
-        )
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", "rtx-canary-only")
         import scheduler as sched
 
         monkeypatch.setattr(sched, "_cp_config", None)
@@ -461,9 +445,7 @@ class TestDirectHostLaunchDefersOwned:
 
 
 class TestProcessAssignedNoDoubleStart:
-    def test_skips_attempt_owned_and_never_calls_run_job(
-        self, fleet, reset_cp_config, monkeypatch
-    ):
+    def test_skips_attempt_owned_and_never_calls_run_job(self, fleet, reset_cp_config, monkeypatch):
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"
         host_id = f"h-{marker}-1"
@@ -489,8 +471,7 @@ class TestProcessAssignedNoDoubleStart:
         # only our attempt-owned job is under test (residue must not start it).
         started = sched.process_assigned()
         started_ids = {
-            (s[0]["job_id"] if isinstance(s, tuple) else s.get("job_id"))
-            for s in started
+            (s[0]["job_id"] if isinstance(s, tuple) else s.get("job_id")) for s in started
         }
         assert job_id not in started_ids
         assert job_id not in run_job_calls
@@ -498,9 +479,7 @@ class TestProcessAssignedNoDoubleStart:
         assert _job_row(job_id)["status"] == "assigned"
         assert _job_row(job_id)["active_attempt_id"] is not None
 
-    def test_fail_closed_when_ownership_lookup_fails(
-        self, fleet, reset_cp_config, monkeypatch
-    ):
+    def test_fail_closed_when_ownership_lookup_fails(self, fleet, reset_cp_config, monkeypatch):
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"
         host_id = f"h-{marker}-1"

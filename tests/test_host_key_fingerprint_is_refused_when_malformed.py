@@ -257,9 +257,9 @@ def test_a_status_change_on_the_same_host_keeps_the_fingerprint():
     try:
         update_job_status(job_id, "completed", host_id="host-same")
         with tx() as conn:
-            assert _stored_fingerprint(conn, job_id) == REAL, (
-                "the fingerprint was cleared without the host changing"
-            )
+            assert (
+                _stored_fingerprint(conn, job_id) == REAL
+            ), "the fingerprint was cleared without the host changing"
     finally:
         with tx() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
@@ -381,9 +381,9 @@ def test_a_requeue_drops_the_previous_containers_fingerprint():
     try:
         requeue_job(job_id, user_initiated=True)
         with tx() as conn:
-            assert _stored_fingerprint(conn, job_id) is None, (
-                "a requeued job still carries the dead container's fingerprint"
-            )
+            assert (
+                _stored_fingerprint(conn, job_id) is None
+            ), "a requeued job still carries the dead container's fingerprint"
     finally:
         with tx() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))

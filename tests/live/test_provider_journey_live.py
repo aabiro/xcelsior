@@ -77,9 +77,7 @@ def test_registration_returns_an_onboarding_handoff_not_a_completed_account(prov
 
 
 def test_the_account_reports_outstanding_requirements(provider) -> None:
-    r = requests.get(
-        f"{BASE}/api/providers/{provider['provider_id']}", headers=auth(), timeout=30
-    )
+    r = requests.get(f"{BASE}/api/providers/{provider['provider_id']}", headers=auth(), timeout=30)
     r.raise_for_status()
     body = r.json()
     payouts_enabled = (body.get("provider") or body).get("payouts_enabled")

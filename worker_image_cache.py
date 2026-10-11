@@ -103,6 +103,7 @@ def cache_evict_lru(exclude_images: set | None = None):
     Never evicts currently-running container images or images in *exclude_images*.
     """
     import worker_agent  # lazy import — worker_agent.* is the source of truth so
+
     # tests/operators patching worker_agent.IMAGE_CACHE_MAX_GB still take effect.
 
     exclude_images = exclude_images or set()
@@ -208,7 +209,9 @@ def cache_prepull_popular(popular_images, max_concurrent=3):
     import worker_agent  # lazy import — shares worker_agent's shutdown/active-container state
 
     if worker_agent._active_containers:
-        log.debug("Skipping image pre-pull — %d active job(s)", len(worker_agent._active_containers))
+        log.debug(
+            "Skipping image pre-pull — %d active job(s)", len(worker_agent._active_containers)
+        )
         return
 
     to_pull = []

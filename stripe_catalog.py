@@ -64,7 +64,9 @@ def price_lookup_key(
 
 
 def variant_sku(gpu_model: str, vram_gb: int, form_factor: str, high_frequency: bool) -> str:
-    return _slug("xcelsior", gpu_model, str(vram_gb), form_factor, "hf1" if high_frequency else "hf0")
+    return _slug(
+        "xcelsior", gpu_model, str(vram_gb), form_factor, "hf1" if high_frequency else "hf0"
+    )
 
 
 def load_manifest() -> dict[str, Any]:

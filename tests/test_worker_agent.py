@@ -1117,9 +1117,7 @@ class TestHostKeyObservationIsNotOverCounted:
 
         import worker_agent
 
-        monkeypatch.setattr(
-            worker_agent, "read_container_host_key_fingerprint", lambda c: ""
-        )
+        monkeypatch.setattr(worker_agent, "read_container_host_key_fingerprint", lambda c: "")
         with caplog.at_level(logging.INFO, logger="xcelsior-worker"):
             for _ in range(3):
                 worker_agent._log_container_host_key_fingerprint("xcl-1", "job-1")

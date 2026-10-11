@@ -80,7 +80,7 @@ def test_the_handler_can_authenticate_at_all() -> None:
 
     from routes.verification import api_verified_hosts
 
-    assert "request" in inspect.signature(api_verified_hosts).parameters, (
-        "api_verified_hosts takes no Request, so it cannot authenticate anyone"
-    )
+    assert (
+        "request" in inspect.signature(api_verified_hosts).parameters
+    ), "api_verified_hosts takes no Request, so it cannot authenticate anyone"
     assert "_require_auth(" in inspect.getsource(api_verified_hosts)

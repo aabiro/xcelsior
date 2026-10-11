@@ -51,9 +51,9 @@ except Exception as _e:  # pragma: no cover
 #: `verify_subject_absence`. Adding one means a new table arrived in the same
 #: unresolved state and that should be a deliberate act, not a silent one.
 ACKNOWLEDGED_UNRESOLVED = {
-    "audit_events_v2",       # 072 — the audit stream
-    "audit_checkpoints",     # 075 — signed Merkle manifests over it
-    "placement_decisions",   # 105/106 — the placement trail, P5 clause 3
+    "audit_events_v2",  # 072 — the audit stream
+    "audit_checkpoints",  # 075 — signed Merkle manifests over it
+    "placement_decisions",  # 105/106 — the placement trail, P5 clause 3
 }
 
 
@@ -64,8 +64,7 @@ def _worm_tables(conn) -> set[str]:
     every child, so counting children would list the same table four times and
     grow the set every month.
     """
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT DISTINCT c.relname
           FROM pg_trigger t
           JOIN pg_class c ON c.oid = t.tgrelid
@@ -73,8 +72,7 @@ def _worm_tables(conn) -> set[str]:
          WHERE NOT t.tgisinternal
            AND pg_get_functiondef(p.oid) ILIKE '%%append-only%%'
            AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
-        """
-    ).fetchall()
+        """).fetchall()
     return {str(r[0]) for r in rows}
 
 

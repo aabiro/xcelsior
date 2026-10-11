@@ -1,4 +1,5 @@
 """Events pagination over the real store, including equal timestamps and new arrivals."""
+
 import base64
 import json
 import time
@@ -26,8 +27,14 @@ def history(monkeypatch):
             conn.execute(
                 "INSERT INTO events (event_id,event_type,entity_type,entity_id,timestamp,actor,data,metadata) "
                 "VALUES (%s,%s,'test',%s,%s,'test',%s,%s)",
-                (event_id, kind, kind, at, Jsonb({"severity": "error"} if i == 2 else {}),
-                 Jsonb({"severity": "warning"} if i == 4 else {})),
+                (
+                    event_id,
+                    kind,
+                    kind,
+                    at,
+                    Jsonb({"severity": "error"} if i == 2 else {}),
+                    Jsonb({"severity": "warning"} if i == 4 else {}),
+                ),
             )
     yield kind, list(reversed(ids)), store
     with store._conn() as conn:
@@ -78,10 +85,18 @@ def test_severity_filters_apply_before_paging(history, severity, index):
     assert body["next_cursor"] is None
 
 
-@pytest.mark.parametrize("value", ["not-base64!", "e30", "W10", *[
-    base64.urlsafe_b64encode(json.dumps(item).encode()).decode()
-    for item in ([float("nan"), "id"], [True, "id"], [1, ""], [1, 2], [1, 2, 3])
-]])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not-base64!",
+        "e30",
+        "W10",
+        *[
+            base64.urlsafe_b64encode(json.dumps(item).encode()).decode()
+            for item in ([float("nan"), "id"], [True, "id"], [1, ""], [1, 2], [1, 2, 3])
+        ],
+    ],
+)
 def test_invalid_cursors_are_client_errors(history, value):
     kind, _, _ = history
     with TestClient(app) as client:
@@ -91,6 +106,7 @@ def test_invalid_cursors_are_client_errors(history, value):
 
 def test_events_still_require_platform_admin(monkeypatch):
     import routes._deps as deps
+
     monkeypatch.setattr(deps, "AUTH_REQUIRED", True)
     with TestClient(app) as client:
         response = client.get("/api/events")

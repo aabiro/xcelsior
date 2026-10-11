@@ -35,10 +35,18 @@ client = TestClient(app)
 
 ADMIN_ONLY = [
     ("GET", "/api/connect/accounts", None),
-    ("POST", "/api/connect/accounts", {"display_name": "Probe", "contact_email": "p@x.ca", "country": "CA"}),
+    (
+        "POST",
+        "/api/connect/accounts",
+        {"display_name": "Probe", "contact_email": "p@x.ca", "country": "CA"},
+    ),
     ("GET", "/api/connect/accounts/acct_probe/onboarding-link", None),
     ("GET", "/api/connect/accounts/acct_probe/status", None),
-    ("POST", "/api/connect/products", {"name": "Probe", "price_cents": 100, "currency": "cad", "account_id": "acct_probe"}),
+    (
+        "POST",
+        "/api/connect/products",
+        {"name": "Probe", "price_cents": 100, "currency": "cad", "account_id": "acct_probe"},
+    ),
 ]
 
 PUBLIC_BY_DESIGN = [
@@ -59,7 +67,9 @@ def signed_in_non_admin():
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.mark.parametrize("method, path, body", ADMIN_ONLY, ids=[f"{m} {p}" for m, p, _ in ADMIN_ONLY])
+@pytest.mark.parametrize(
+    "method, path, body", ADMIN_ONLY, ids=[f"{m} {p}" for m, p, _ in ADMIN_ONLY]
+)
 def test_a_non_admin_cannot_manage_connect(signed_in_non_admin, method, path, body) -> None:
     kw = {"headers": signed_in_non_admin}
     if body is not None:
@@ -79,7 +89,9 @@ def test_the_account_listing_does_not_leak_without_a_stripe_key(signed_in_non_ad
     assert "stripe_account_id" not in r.text
 
 
-@pytest.mark.parametrize("method, path, body", PUBLIC_BY_DESIGN, ids=[f"{m} {p}" for m, p, _ in PUBLIC_BY_DESIGN])
+@pytest.mark.parametrize(
+    "method, path, body", PUBLIC_BY_DESIGN, ids=[f"{m} {p}" for m, p, _ in PUBLIC_BY_DESIGN]
+)
 def test_the_storefront_and_webhook_stay_reachable(method, path, body) -> None:
     """Gating these would break a buyer who is not signed in, and break Stripe.
 

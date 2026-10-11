@@ -18,8 +18,7 @@ try:
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
-            _c.execute("SELECT to_regclass('scheduler_shadow_decisions')").fetchone()[0]
-            is not None
+            _c.execute("SELECT to_regclass('scheduler_shadow_decisions')").fetchone()[0] is not None
         )
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
@@ -47,9 +46,7 @@ def fleet():
         return
     with _pool.connection() as conn:
         for jid in ids["jobs"]:
-            conn.execute(
-                "DELETE FROM scheduler_shadow_decisions WHERE job_id=%s", (jid,)
-            )
+            conn.execute("DELETE FROM scheduler_shadow_decisions WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["hosts"]:
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
@@ -155,10 +152,16 @@ def _decisions_for(job_ids):
     for row in rows:
         if not isinstance(row, dict):
             row = {
-                "job_id": row[0], "outcome": row[1], "selected_host_id": row[2],
-                "queue_reason_code": row[3], "placement_score": row[4],
-                "explanation": row[5], "compared_at": row[6], "comparison": row[7],
-                "legacy_host_id": row[8], "snapshot_at": row[9],
+                "job_id": row[0],
+                "outcome": row[1],
+                "selected_host_id": row[2],
+                "queue_reason_code": row[3],
+                "placement_score": row[4],
+                "explanation": row[5],
+                "compared_at": row[6],
+                "comparison": row[7],
+                "legacy_host_id": row[8],
+                "snapshot_at": row[9],
             }
         out.setdefault(str(row["job_id"]), []).append(row)
     return out
@@ -171,14 +174,19 @@ class TestSnapshot:
         _mk_host(fleet, f"h-{marker}-a", gpu_model=model, gpu_count=2)
         # Stale host: last heartbeat far in the past.
         _mk_host(
-            fleet, f"h-{marker}-stale", gpu_model=model,
+            fleet,
+            f"h-{marker}-stale",
+            gpu_model=model,
             last_seen=time.time() - 3600,
         )
         _mk_job(fleet, f"j-{marker}-hi", gpu_model=model, priority=5)
         _mk_job(fleet, f"j-{marker}-lo", gpu_model=model, priority=1)
         # Active job consumes one of host-a's two GPUs.
         _mk_job(
-            fleet, f"j-{marker}-run", gpu_model=model, status="running",
+            fleet,
+            f"j-{marker}-run",
+            gpu_model=model,
+            status="running",
         )
         with _pool.connection() as conn:
             conn.execute(
@@ -190,7 +198,11 @@ class TestSnapshot:
         with control_plane_transaction() as conn:
             snap = take_snapshot(conn, host_freshness_timeout_sec=300)
 
-        mine = [j for j in snap.jobs if str(j.get("job_id", "")).endswith(("-hi", "-lo")) and marker in str(j.get("job_id"))]
+        mine = [
+            j
+            for j in snap.jobs
+            if str(j.get("job_id", "")).endswith(("-hi", "-lo")) and marker in str(j.get("job_id"))
+        ]
         assert [j["job_id"] for j in mine] == [f"j-{marker}-hi", f"j-{marker}-lo"]
 
         hosts = {h["host_id"]: h for h in snap.hosts}
@@ -205,14 +217,19 @@ class TestSimulation:
     def test_capacity_charged_across_cycle(self):
         """Third job must not fit once two simulated placements land."""
         host = {
-            "host_id": "h1", "status": "active", "administrative_state": "admitted",
-            "gpu_model": "RTX 4090", "gpu_count": 2, "free_gpu_count": 2,
-            "free_vram_gb": 24.0, "total_vram_gb": 24.0, "cost_per_hour": 1.0,
+            "host_id": "h1",
+            "status": "active",
+            "administrative_state": "admitted",
+            "gpu_model": "RTX 4090",
+            "gpu_count": 2,
+            "free_gpu_count": 2,
+            "free_vram_gb": 24.0,
+            "total_vram_gb": 24.0,
+            "cost_per_hour": 1.0,
             "inventory_generation": 0,
         }
         jobs = [
-            {"job_id": f"j{i}", "gpu_model": "RTX 4090", "num_gpus": 1,
-             "vram_needed_gb": 8.0}
+            {"job_id": f"j{i}", "gpu_model": "RTX 4090", "num_gpus": 1, "vram_needed_gb": 8.0}
             for i in range(3)
         ]
         snap = SchedulerSnapshot(taken_at=None, jobs=jobs, hosts=[host])
@@ -225,9 +242,7 @@ class TestSimulation:
         assert summary["failed_constraints"].get("insufficient_gpus") == 1
 
     def test_no_hosts_reason(self):
-        snap = SchedulerSnapshot(
-            taken_at=None, jobs=[{"job_id": "j1"}], hosts=[]
-        )
+        snap = SchedulerSnapshot(taken_at=None, jobs=[{"job_id": "j1"}], hosts=[])
         (decision,) = simulate_cycle(snap)
         assert decision.outcome == "queue"
         assert decision.queue_reason_code == "no_hosts"
@@ -240,9 +255,7 @@ class TestShadowRunner:
         model = f"TESTGPU-{marker}"
         _mk_host(fleet, f"h-{marker}-1", gpu_model=model, gpu_count=2)
         placeable = _mk_job(fleet, f"j-{marker}-fit", gpu_model=model, priority=99999)
-        _mk_job(
-            fleet, f"j-{marker}-big", gpu_model=model, priority=99998, num_gpus=8
-        )
+        _mk_job(fleet, f"j-{marker}-big", gpu_model=model, priority=99998, num_gpus=8)
         del placeable
 
         report = ShadowRunner(_config()).run_once()
@@ -269,9 +282,7 @@ class TestShadowRunner:
         _mk_host(fleet, f"h-{marker}-2", gpu_model=model, gpu_count=1)
         _mk_job(fleet, f"j-{marker}-agree", gpu_model=model, priority=99999)
         _mk_job(fleet, f"j-{marker}-differ", gpu_model=model, priority=99998)
-        _mk_job(
-            fleet, f"j-{marker}-stuck", gpu_model=model, priority=99997, num_gpus=8
-        )
+        _mk_job(fleet, f"j-{marker}-stuck", gpu_model=model, priority=99997, num_gpus=8)
         _mk_job(fleet, f"j-{marker}-gone", gpu_model=model, priority=99996, num_gpus=8)
 
         runner = ShadowRunner(_config())
@@ -279,9 +290,7 @@ class TestShadowRunner:
         first = _decisions_for([f"j-{marker}-agree", f"j-{marker}-differ"])
         agree_host = first[f"j-{marker}-agree"][0]["selected_host_id"]
         differ_host = first[f"j-{marker}-differ"][0]["selected_host_id"]
-        other_host = (
-            f"h-{marker}-1" if differ_host != f"h-{marker}-1" else f"h-{marker}-2"
-        )
+        other_host = f"h-{marker}-1" if differ_host != f"h-{marker}-1" else f"h-{marker}-2"
 
         # Legacy "acts": agrees on one job, differs on another, leaves
         # 'stuck' queued, and 'gone' disappears entirely.
@@ -302,8 +311,10 @@ class TestShadowRunner:
 
         rows = _decisions_for(
             [
-                f"j-{marker}-agree", f"j-{marker}-differ",
-                f"j-{marker}-stuck", f"j-{marker}-gone",
+                f"j-{marker}-agree",
+                f"j-{marker}-differ",
+                f"j-{marker}-stuck",
+                f"j-{marker}-gone",
             ]
         )
         assert rows[f"j-{marker}-agree"][0]["comparison"] == "match_place"

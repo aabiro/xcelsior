@@ -66,7 +66,9 @@ def history_with_blank_models():
 def test_the_lookup_has_no_nameless_gpu(history_with_blank_models):
     prices = client.get("/spot-prices").json()["prices"]
     assert prices.get("RTX 4090") == 0.42, "the real row must still come through"
-    assert not set(BLANKS) & set(prices), f"blank models in `prices`: {sorted(set(BLANKS) & set(prices))!r}"
+    assert not set(BLANKS) & set(
+        prices
+    ), f"blank models in `prices`: {sorted(set(BLANKS) & set(prices))!r}"
 
 
 def test_the_rows_have_no_nameless_gpu(history_with_blank_models):

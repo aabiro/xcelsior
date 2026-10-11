@@ -44,7 +44,9 @@ import pytest
 
 httpx = pytest.importorskip("httpx", reason="live gates install httpx explicitly")
 
-BASE = (os.environ.get("XCELSIOR_LIVE_BASE_URL") or os.environ.get("XCELSIOR_STAGING_URL") or "").rstrip("/")
+BASE = (
+    os.environ.get("XCELSIOR_LIVE_BASE_URL") or os.environ.get("XCELSIOR_STAGING_URL") or ""
+).rstrip("/")
 USER_TOKEN = os.environ.get("XCELSIOR_LIVE_USER_TOKEN", "")
 
 #: The scope the throwaway client is given — deliberately unrelated to billing
@@ -69,7 +71,10 @@ _NEEDS_LIVE = (
     "(a NON-admin session token)"
 )
 
-HEADERS = {"User-Agent": "xcelsior-live-gates/1.0 (+named scope refusal)", "Accept": "application/json"}
+HEADERS = {
+    "User-Agent": "xcelsior-live-gates/1.0 (+named scope refusal)",
+    "Accept": "application/json",
+}
 
 #: Markers identifying a 403 as an edge's rather than the application's.
 _EDGE_MARKERS = ("error code:", "cloudflare", "attention required", "<!doctype html")
@@ -143,7 +148,8 @@ def test_the_named_endpoints_refuse_a_token_missing_their_scope(narrow_token, me
     """Gate P0 clause 1, endpoint by endpoint."""
     with httpx.Client(base_url=BASE, timeout=30, headers=HEADERS) as client:
         response = client.request(
-            method, path,
+            method,
+            path,
             headers={"Authorization": f"Bearer {narrow_token}", "Content-Type": "application/json"},
             json={},
         )
@@ -172,6 +178,6 @@ def test_a_refusal_says_it_is_about_scope(narrow_token):
             headers={"Authorization": f"Bearer {narrow_token}", "Content-Type": "application/json"},
             json={},
         )
-    assert "scope" in response.text.lower(), (
-        f"the refusal does not mention scope: {response.text[:200]}"
-    )
+    assert (
+        "scope" in response.text.lower()
+    ), f"the refusal does not mention scope: {response.text[:200]}"

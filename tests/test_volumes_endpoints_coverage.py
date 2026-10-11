@@ -35,12 +35,8 @@ def cleanup_vids():
         with pool.connection() as conn:
             conn.row_factory = dict_row
             for vid in vids:
-                conn.execute(
-                    "DELETE FROM volume_snapshots WHERE volume_id = %s", (vid,)
-                )
-                conn.execute(
-                    "DELETE FROM volume_attachments WHERE volume_id = %s", (vid,)
-                )
+                conn.execute("DELETE FROM volume_snapshots WHERE volume_id = %s", (vid,))
+                conn.execute("DELETE FROM volume_attachments WHERE volume_id = %s", (vid,))
                 conn.execute("DELETE FROM volumes WHERE volume_id = %s", (vid,))
             conn.commit()
     except Exception:

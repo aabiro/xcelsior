@@ -190,8 +190,6 @@ def get_btc_cad_rate() -> float:
         raise RuntimeError(f"Unable to fetch BTC/CAD rate: {e}") from e
 
 
-
-
 # ── Deposit Lifecycle ─────────────────────────────────────────────────
 
 
@@ -257,8 +255,7 @@ def _deposit_by_idempotency_key(customer_id: str, key: str) -> dict | None:
     with pg_transaction() as conn:
         return _fetch_one(
             conn,
-            "SELECT * FROM ln_deposits "
-            " WHERE customer_id = %s AND idempotency_key = %s",
+            "SELECT * FROM ln_deposits " " WHERE customer_id = %s AND idempotency_key = %s",
             (customer_id, key),
         )
 
@@ -280,9 +277,7 @@ def _deposit_result(row: dict) -> dict:
     }
 
 
-def create_deposit(
-    customer_id: str, amount_cad: float, idempotency_key: str = ""
-) -> dict:
+def create_deposit(customer_id: str, amount_cad: float, idempotency_key: str = "") -> dict:
     """Create a Lightning invoice for a CAD deposit.
 
     Returns:
@@ -303,9 +298,7 @@ def create_deposit(
         existing = _deposit_by_idempotency_key(customer_id, key)
         if existing is not None:
             if int(existing.get("amount_micros") or 0) != round(amount_cad * 1_000_000):
-                raise DepositKeyConflict(
-                    "that idempotency key was used for a different amount"
-                )
+                raise DepositKeyConflict("that idempotency key was used for a different amount")
             log.info(
                 "LN deposit replay (key=%s) returned existing %s",
                 key,
@@ -422,7 +415,9 @@ def check_deposit(deposit_id: str) -> dict | None:
 
     with pg_transaction() as conn:
         dep = _fetch_one(
-            conn, "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE deposit_id = %s", (deposit_id,)
+            conn,
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE deposit_id = %s",
+            (deposit_id,),
         )
         if not dep:
             return None
@@ -499,13 +494,19 @@ def mark_credited(deposit_id: str, wallet_ledger_entry_id: str | None = None) ->
 def get_pending_deposits() -> list[dict]:
     """Get all pending (unpaid) Lightning deposits for confirmation checking."""
     with pg_transaction() as conn:
-        return _fetch_all(conn, "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'pending'")
+        return _fetch_all(
+            conn,
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'pending'",
+        )
 
 
 def get_paid_uncredited() -> list[dict]:
     """Get all paid but not yet credited deposits."""
     with pg_transaction() as conn:
-        return _fetch_all(conn, "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'paid'")
+        return _fetch_all(
+            conn,
+            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'paid'",
+        )
 
 
 def get_customer_deposits(customer_id: str, limit: int = 20) -> list[dict]:
@@ -572,9 +573,7 @@ def process_ln_deposits(credit_callback=None):
         # float: a stored 25.0 can be 24.999999999999996, and that error
         # would be posted to the wallet ledger verbatim.
         minor = dep.get("amount_cad_minor")
-        amount_cad = (
-            minor_to_cad(minor) if minor is not None else float(dep["amount_cad"])
-        )
+        amount_cad = minor_to_cad(minor) if minor is not None else float(dep["amount_cad"])
         try:
             ledger_entry_id = None
             if credit_callback:

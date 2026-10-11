@@ -56,6 +56,7 @@ def _test_sources() -> list[tuple[Path, str]]:
         if (rel.startswith("tests/") or "/tests/" in rel) and p.name != SELF
     ]
 
+
 #: Generators whose output has no currency check yet. Each entry is debt.
 #: Adding to this list is not allowed — see the count assertion below.
 UNGATED_BACKLOG = {
@@ -117,7 +118,10 @@ def _generators() -> list[str]:
     try:
         tracked = subprocess.run(
             ["git", "-C", str(SCRIPTS.parent), "ls-files", "--", "scripts"],
-            capture_output=True, text=True, check=True, timeout=30,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         ).stdout.split()
     except (OSError, subprocess.SubprocessError):
         # Not a git checkout (an sdist, say): fall back to what is on disk.
@@ -125,7 +129,8 @@ def _generators() -> list[str]:
     names = {
         name.rsplit("/", 1)[-1]
         for name in tracked
-        if name.count("/") == 1 and any(fnmatch.fnmatch(name.rsplit("/", 1)[-1], g) for g in GENERATOR_GLOBS)
+        if name.count("/") == 1
+        and any(fnmatch.fnmatch(name.rsplit("/", 1)[-1], g) for g in GENERATOR_GLOBS)
     }
     return sorted(names)
 
@@ -143,9 +148,7 @@ def _is_gated(generator: str) -> list[str]:
 
 
 def test_every_generator_is_gated_or_explicitly_listed_as_debt() -> None:
-    unaccounted = [
-        g for g in _generators() if not _is_gated(g) and g not in UNGATED_BACKLOG
-    ]
+    unaccounted = [g for g in _generators() if not _is_gated(g) and g not in UNGATED_BACKLOG]
     assert not unaccounted, (
         f"these generators write output that nothing checks for staleness: "
         f"{unaccounted}. Add a currency gate (see "

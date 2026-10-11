@@ -340,15 +340,13 @@ class TestAlembicMigrationFiles:
         """Migration 036 — shared team wallet column on teams."""
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT column_name, is_nullable, column_default
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name = 'teams'
                   AND column_name = 'billing_customer_id'
-                """
-            ).fetchone()
+                """).fetchone()
         assert row is not None
         name = row["column_name"] if isinstance(row, dict) else row[0]
         assert name == "billing_customer_id"

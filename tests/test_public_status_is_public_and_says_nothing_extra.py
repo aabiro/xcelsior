@@ -45,12 +45,19 @@ class _Req:
         self.cookies = {}
 
 
-def _fake_probe(detail="unreachable: connection to server at \"10.0.0.5\", port 5432, user \"xcelsior\""):
+def _fake_probe(
+    detail='unreachable: connection to server at "10.0.0.5", port 5432, user "xcelsior"',
+):
     return {
         "ok": True,
         "verdict": "degraded",
         "services": [
-            {"name": "API", "state": "operational", "detail": "Control plane reachable", "required": True},
+            {
+                "name": "API",
+                "state": "operational",
+                "detail": "Control plane reachable",
+                "required": True,
+            },
             {"name": "Database", "state": "down", "detail": detail, "required": True},
         ],
     }

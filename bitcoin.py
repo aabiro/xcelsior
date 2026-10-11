@@ -233,7 +233,9 @@ def _wait_for_wallet_load(
         except Exception:
             pass
         time.sleep(1.0)
-    raise RuntimeError(f"Bitcoin wallet '{wallet_name}' did not finish loading within {max_wait_sec}s")
+    raise RuntimeError(
+        f"Bitcoin wallet '{wallet_name}' did not finish loading within {max_wait_sec}s"
+    )
 
 
 def _ensure_wallet_ready(
@@ -602,9 +604,7 @@ class DepositKeyConflict(Exception):
     """
 
 
-def create_deposit(
-    customer_id: str, amount_cad: float, idempotency_key: str = ""
-) -> dict:
+def create_deposit(customer_id: str, amount_cad: float, idempotency_key: str = "") -> dict:
     """Create a new BTC deposit request.
 
     Generates a unique address, locks the BTC/CAD rate for 30 minutes.
@@ -633,9 +633,7 @@ def create_deposit(
         if existing is not None:
             wanted = round(amount_cad * 1_000_000)
             if int(existing.get("amount_micros") or 0) != wanted:
-                raise DepositKeyConflict(
-                    "that idempotency key was used for a different amount"
-                )
+                raise DepositKeyConflict("that idempotency key was used for a different amount")
             log.info(
                 "BTC deposit replay (key=%s) returned existing %s",
                 key,
@@ -718,8 +716,7 @@ def _deposit_by_idempotency_key(customer_id: str, key: str) -> dict | None:
     """
     with _conn() as c:
         row = c.execute(
-            "SELECT * FROM crypto_deposits "
-            " WHERE customer_id = %s AND idempotency_key = %s",
+            "SELECT * FROM crypto_deposits " " WHERE customer_id = %s AND idempotency_key = %s",
             (customer_id, key),
         ).fetchone()
         return dict(row) if row else None

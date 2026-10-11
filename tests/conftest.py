@@ -83,9 +83,7 @@ for _key, _val in _TEST_ENV_DEFAULTS.items():
 # Scheduler/serverless integration tests must never append generated host scores
 # to a tracked repository fixture.
 _TEST_STATE_DIR = tempfile.mkdtemp(prefix="xcelsior_pytest_state_")
-os.environ["XCELSIOR_COMPUTE_SCORES_FILE"] = os.path.join(
-    _TEST_STATE_DIR, "compute_scores.json"
-)
+os.environ["XCELSIOR_COMPUTE_SCORES_FILE"] = os.path.join(_TEST_STATE_DIR, "compute_scores.json")
 
 # Tests must not depend on a local Redis service for OAuth/device auth cache.
 os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"

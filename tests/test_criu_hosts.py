@@ -87,9 +87,18 @@ def test_host_accepts_resumable_job_only_on_criu_hosts():
     job = {
         "job_id": "j-resume",
         "num_gpus": 1,
-        "resume_from": {"success": True, "checkpoint_name": "ckpt", "created_at": __import__("time").time()},
+        "resume_from": {
+            "success": True,
+            "checkpoint_name": "ckpt",
+            "created_at": __import__("time").time(),
+        },
     }
-    criu_host = {"host_id": "h-criu", "status": "active", "gpu_count": 1, "checkpoint_class": "gpu-criu"}
+    criu_host = {
+        "host_id": "h-criu",
+        "status": "active",
+        "gpu_count": 1,
+        "checkpoint_class": "gpu-criu",
+    }
     plain_host = {"host_id": "h-plain", "status": "active", "gpu_count": 1, "checkpoint_class": ""}
     assert host_accepts_job(criu_host, job, jobs=[]) is True
     assert host_accepts_job(plain_host, job, jobs=[]) is False

@@ -30,19 +30,19 @@ INSIDE = [
     "::1",
     "localhost",
     "testclient",
-    "100.64.0.1",        # first address of the tailnet
-    "100.127.255.254",   # last usable address of the tailnet
+    "100.64.0.1",  # first address of the tailnet
+    "100.127.255.254",  # last usable address of the tailnet
     "100.100.100.100",
-    "::ffff:100.64.0.1", # IPv4-mapped IPv6, inside the range
+    "::ffff:100.64.0.1",  # IPv4-mapped IPv6, inside the range
     "[::ffff:100.64.0.1]",
-    "100.64.0.1%eth0",   # zone id
+    "100.64.0.1%eth0",  # zone id
 ]
 
 OUTSIDE = [
-    "100.0.0.1",         # 100.0.0.0/8 but BELOW the CGNAT range — public
-    "100.63.255.255",    # one address below the range
-    "100.128.0.0",       # one address above the range
-    "100.200.1.1",       # public
+    "100.0.0.1",  # 100.0.0.0/8 but BELOW the CGNAT range — public
+    "100.63.255.255",  # one address below the range
+    "100.128.0.0",  # one address above the range
+    "100.200.1.1",  # public
     "10.0.0.5",
     "192.168.1.5",
     "8.8.8.8",

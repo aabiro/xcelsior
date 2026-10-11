@@ -242,6 +242,5 @@ def assert_delegable(scopes: object, *, actor: object) -> None:
     operator = sorted(requested & OPERATOR_SCOPES)
     if operator:
         raise ScopeDelegationError(
-            "These scopes may only be granted by a platform administrator: "
-            + ", ".join(operator)
+            "These scopes may only be granted by a platform administrator: " + ", ".join(operator)
         )

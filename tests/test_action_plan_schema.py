@@ -25,9 +25,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has_069 = (
-            _c.execute("SELECT to_regclass('action_plans')").fetchone()[0] is not None
-        )
+        _has_069 = _c.execute("SELECT to_regclass('action_plans')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -40,7 +38,6 @@ from psycopg.errors import (
     ForeignKeyViolation,
     UniqueViolation,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -297,28 +294,25 @@ class TestOAuthWorkspaceContext:
     def test_client_credentials_without_workspace_rejected(self, cleanup):
         with _pool.connection() as conn:
             with pytest.raises(CheckViolation):
-                _insert_client(
-                    cleanup, conn, ["client_credentials"], workspace=None
-                )
+                _insert_client(cleanup, conn, ["client_credentials"], workspace=None)
 
     def test_system_managed_without_workspace_rejected(self, cleanup):
         with _pool.connection() as conn:
             with pytest.raises(CheckViolation):
                 _insert_client(
-                    cleanup, conn, ["authorization_code"], workspace=None,
+                    cleanup,
+                    conn,
+                    ["authorization_code"],
+                    workspace=None,
                     is_system_managed=1,
                 )
 
     def test_client_credentials_with_workspace_accepted(self, cleanup):
         with _pool.connection() as conn:
-            _insert_client(
-                cleanup, conn, ["client_credentials"], workspace="ws-b21"
-            )
+            _insert_client(cleanup, conn, ["client_credentials"], workspace="ws-b21")
 
     def test_interactive_client_without_workspace_allowed(self, cleanup):
         # A first-party interactive client is not a machine principal; it is
         # not required to carry a workspace, so the constraint must not fire.
         with _pool.connection() as conn:
-            _insert_client(
-                cleanup, conn, ["authorization_code"], workspace=None
-            )
+            _insert_client(cleanup, conn, ["authorization_code"], workspace=None)

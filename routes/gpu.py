@@ -168,7 +168,9 @@ def api_gpu_available(request: Request):
                     region=host.get("region", ""),
                     province=host.get("province", "") or "",
                     count_available=free_slots,
-                    price_per_hour_cad=float(host.get("cost_per_hour") or host.get("price_per_hour") or 0),
+                    price_per_hour_cad=float(
+                        host.get("cost_per_hour") or host.get("price_per_hour") or 0
+                    ),
                     host_id=host_id,
                 )
         except Exception as e:

@@ -35,7 +35,11 @@ def api_attestation_schema():
 def api_scip_partner_loi():
     """Partner LOI submitted for SCIP / attested-host pipeline (row 8)."""
     loi = scip_partner_loi()
-    return {"ok": True, "loi": loi, "submitted": str(loi.get("status") or "").lower() == "submitted"}
+    return {
+        "ok": True,
+        "loi": loi,
+        "submitted": str(loi.get("status") or "").lower() == "submitted",
+    }
 
 
 @router.get("/api/v2/platform/scip-alignment", tags=["Platform"])
@@ -124,9 +128,7 @@ def api_should_i_run_pel_job(body: ShouldIRunPelRequest, request: Request):
 
     est_total = max(token_cost, gpu_cost)
     if est_total > balance:
-        reasons.append(
-            f"Estimated cost ${est_total:.4f} CAD exceeds wallet ${balance:.2f} CAD"
-        )
+        reasons.append(f"Estimated cost ${est_total:.4f} CAD exceeds wallet ${balance:.2f} CAD")
 
     return {
         "ok": True,

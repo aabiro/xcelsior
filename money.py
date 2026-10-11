@@ -65,9 +65,7 @@ MICROS_PER_CAD = 1_000_000
 def cad_to_micros(amount_cad: float | str | Decimal) -> int:
     """CAD dollars -> integer micro-CAD, without a binary-float round trip."""
     return int(
-        (Decimal(str(amount_cad)) * MICROS_PER_CAD).quantize(
-            Decimal("1"), rounding=ROUND_HALF_UP
-        )
+        (Decimal(str(amount_cad)) * MICROS_PER_CAD).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     )
 
 

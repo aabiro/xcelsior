@@ -102,6 +102,7 @@ router = APIRouter()
 def _validated_resource_indicator(body: dict) -> str:
     return normalize_resource_indicator(body.get("resource"))
 
+
 # OAuth configuration
 VALID_KEY_SCOPES = {"full-access", "read-only"}
 _OAUTH_BASE_URL = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
@@ -554,6 +555,7 @@ def oauth_authorization_server_metadata(request: Request):
 @router.get("/.well-known/jwks.json", tags=["Auth"])
 def oauth_jwks_document():
     from oauth_service import oauth_jwks
+
     return oauth_jwks()
 
 
@@ -659,11 +661,14 @@ def _oauth_consent_page(
         if client_uri.lower().startswith("https://")
         else ""
     )
-    rows = "".join(
-        f'<li><span class="dot"></span><span>{esc(describe_scope(scope))}'
-        f'<code>{esc(scope)}</code></span></li>'
-        for scope in scopes
-    ) or '<li><span class="dot"></span><span>Sign you in only</span></li>'
+    rows = (
+        "".join(
+            f'<li><span class="dot"></span><span>{esc(describe_scope(scope))}'
+            f"<code>{esc(scope)}</code></span></li>"
+            for scope in scopes
+        )
+        or '<li><span class="dot"></span><span>Sign you in only</span></li>'
+    )
     resource_line = (
         f'<p class="resource">Access is limited to <code>{esc(resource)}</code>.</p>'
         if resource
@@ -770,17 +775,25 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
     redirect_uri = str(params.get("redirect_uri", "")).strip()
     code_challenge = str(params.get("code_challenge", "")).strip()
     if response_type != "code":
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 400, "Unsupported request",
-            "This authorization link is malformed (response_type=code is required). "
-            "Please start the connection again from your app.",
-        ))
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                400,
+                "Unsupported request",
+                "This authorization link is malformed (response_type=code is required). "
+                "Please start the connection again from your app.",
+            )
+        )
     if not client_id or not redirect_uri or not code_challenge:
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 400, "Incomplete request",
-            "This authorization link is missing required parameters. "
-            "Please start the connection again from your app.",
-        ))
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                400,
+                "Incomplete request",
+                "This authorization link is missing required parameters. "
+                "Please start the connection again from your app.",
+            )
+        )
 
     try:
         client = get_client(client_id)
@@ -788,37 +801,58 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
         # A CIMD client id that resolves to a missing, malformed, or
         # self-inconsistent document lands here. Say which, rather than
         # "unknown client" — the difference is what a connector author needs.
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 400, "Untrusted application", exc.description,
-        )) from exc
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                400,
+                "Untrusted application",
+                exc.description,
+            )
+        ) from exc
     if not client:
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 400, "Unknown application",
-            "We couldn't find an Xcelsior app matching that client ID. It may have been "
-            "deleted, or the link is out of date. Create a new client in Settings → AI Agents.",
-        ))
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                400,
+                "Unknown application",
+                "We couldn't find an Xcelsior app matching that client ID. It may have been "
+                "deleted, or the link is out of date. Create a new client in Settings → AI Agents.",
+            )
+        )
     if "authorization_code" not in list(client.get("grant_types") or []):
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 403, "Not permitted",
-            "This application isn't allowed to sign you in interactively. "
-            "Check its grant types in Settings → AI Agents.",
-        ))
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                403,
+                "Not permitted",
+                "This application isn't allowed to sign you in interactively. "
+                "Check its grant types in Settings → AI Agents.",
+            )
+        )
     try:
         _validate_oauth_client_redirect(client, redirect_uri)
     except OAuthGrantError:
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 400, "Redirect not allowed",
-            "The redirect URL in this request isn't registered for this application. "
-            "Update the client's allowed redirect URIs in Settings → AI Agents.",
-        )) from None
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                400,
+                "Redirect not allowed",
+                "The redirect URL in this request isn't registered for this application. "
+                "Update the client's allowed redirect URIs in Settings → AI Agents.",
+            )
+        ) from None
 
     raw_resource = str(params.get("resource", "")).strip()
     resource = canonical_mcp_resource(raw_resource) if raw_resource else None
     if raw_resource and resource is None:
-        raise _AuthorizeRejection(_oauth_browser_error(
-            request, 400, "Unsupported resource",
-            "This authorization request targets an unsupported protected resource.",
-        ))
+        raise _AuthorizeRejection(
+            _oauth_browser_error(
+                request,
+                400,
+                "Unsupported resource",
+                "This authorization request targets an unsupported protected resource.",
+            )
+        )
     # A client pinned to one protected resource gets that resource by default,
     # so a connector that omits the indicator still receives an MCP-bound token
     # instead of a general API token.
@@ -831,11 +865,15 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
     if requested:
         invalid = [scope for scope in requested if allowed_scopes and scope not in allowed_scopes]
         if invalid:
-            raise _AuthorizeRejection(_oauth_browser_error(
-                request, 400, "Unsupported permissions",
-                "This application asked for permissions it is not registered for: "
-                + ", ".join(sorted(set(invalid))),
-            ))
+            raise _AuthorizeRejection(
+                _oauth_browser_error(
+                    request,
+                    400,
+                    "Unsupported permissions",
+                    "This application asked for permissions it is not registered for: "
+                    + ", ".join(sorted(set(invalid))),
+                )
+            )
         scopes = requested
     else:
         scopes = allowed_scopes
@@ -851,8 +889,16 @@ class _AuthorizeRejection(Exception):
 
 
 def _issue_code_and_redirect(
-    *, request: Request, user: dict, client: dict, redirect_uri: str, state: str,
-    code_challenge: str, code_challenge_method: str, scopes: list[str], resource: str,
+    *,
+    request: Request,
+    user: dict,
+    client: dict,
+    redirect_uri: str,
+    state: str,
+    code_challenge: str,
+    code_challenge_method: str,
+    scopes: list[str],
+    resource: str,
 ):
     from db import ConsentStore, OAuthStore
     from oauth_registration import registration_expiry
@@ -911,25 +957,37 @@ def oauth_authorize(request: Request):
     )
     if already_consented:
         return _issue_code_and_redirect(
-            request=request, user=user, client=client, redirect_uri=redirect_uri,
-            state=state, code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method, scopes=scopes, resource=resource,
+            request=request,
+            user=user,
+            client=client,
+            redirect_uri=redirect_uri,
+            state=state,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            scopes=scopes,
+            resource=resource,
         )
 
-    consent_key = stash_consent_request({
-        "user_id": user_id,
-        "email": str(user.get("email") or ""),
-        "client_id": str(client["client_id"]),
-        "redirect_uri": redirect_uri,
-        "state": state,
-        "code_challenge": code_challenge,
-        "code_challenge_method": code_challenge_method,
-        "scopes": scopes,
-        "resource": resource,
-    })
+    consent_key = stash_consent_request(
+        {
+            "user_id": user_id,
+            "email": str(user.get("email") or ""),
+            "client_id": str(client["client_id"]),
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+            "scopes": scopes,
+            "resource": resource,
+        }
+    )
     return HTMLResponse(
         content=_oauth_consent_page(
-            client=client, user=user, scopes=scopes, resource=resource, consent_key=consent_key,
+            client=client,
+            user=user,
+            scopes=scopes,
+            resource=resource,
+            consent_key=consent_key,
         )
     )
 
@@ -945,7 +1003,9 @@ async def oauth_authorize_decision(request: Request):
     staged = take_consent_request(str(body.get("consent_key", "")).strip())
     if not staged:
         return _oauth_browser_error(
-            request, 400, "Request expired",
+            request,
+            400,
+            "Request expired",
             "This approval screen is no longer valid. Start the connection again from your app.",
         )
 
@@ -955,7 +1015,9 @@ async def oauth_authorize_decision(request: Request):
     # submitting it would be consenting on someone else's behalf.
     if not user or user_id != str(staged.get("user_id") or ""):
         return _oauth_browser_error(
-            request, 403, "Sign-in changed",
+            request,
+            403,
+            "Sign-in changed",
             "The signed-in account changed while this approval was open. "
             "Start the connection again from your app.",
         )
@@ -964,12 +1026,15 @@ async def oauth_authorize_decision(request: Request):
     state = str(staged.get("state") or "")
     if not redirect_uri:  # pragma: no cover - staged requests always carry one
         return _oauth_browser_error(
-            request, 400, "Incomplete request",
+            request,
+            400,
+            "Incomplete request",
             "This approval is missing its callback URL. Start the connection again from your app.",
         )
     if str(body.get("decision", "")).strip().lower() != "approve":
         return _redirect_with(
-            redirect_uri, state,
+            redirect_uri,
+            state,
             error="access_denied",
             error_description="The user declined the authorization request.",
         )
@@ -977,16 +1042,16 @@ async def oauth_authorize_decision(request: Request):
     client = get_client(str(staged.get("client_id") or ""))
     if not client:
         return _oauth_browser_error(
-            request, 400, "Unknown application",
+            request,
+            400,
+            "Unknown application",
             "That application is no longer registered. Start the connection again from your app.",
         )
     scopes = [str(scope) for scope in (staged.get("scopes") or [])]
     resource = str(staged.get("resource") or "")
     ConsentStore.record(
         grant_id=new_grant_id(),
-        tenant_id=str(
-            user.get("team_id") or user.get("customer_id") or user_id
-        ),
+        tenant_id=str(user.get("team_id") or user.get("customer_id") or user_id),
         user_id=user_id,
         email=str(user.get("email") or ""),
         client_id=str(client["client_id"]),
@@ -1011,10 +1076,15 @@ async def oauth_authorize_decision(request: Request):
         },
     )
     return _issue_code_and_redirect(
-        request=request, user=user, client=client, redirect_uri=redirect_uri, state=state,
+        request=request,
+        user=user,
+        client=client,
+        redirect_uri=redirect_uri,
+        state=state,
         code_challenge=str(staged.get("code_challenge") or ""),
         code_challenge_method=str(staged.get("code_challenge_method") or "S256"),
-        scopes=scopes, resource=resource,
+        scopes=scopes,
+        resource=resource,
     )
 
 
@@ -1192,8 +1262,7 @@ def _refuse_undelegatable_scopes(scopes: list[str] | None, user: dict) -> None:
     if refused:
         raise HTTPException(
             403,
-            "These scopes may only be granted by a platform administrator: "
-            + ", ".join(refused),
+            "These scopes may only be granted by a platform administrator: " + ", ".join(refused),
         )
 
 
@@ -1262,7 +1331,9 @@ def api_list_oauth_clients(request: Request):
 
 
 @router.get("/api/mcp/quick-connect", tags=["Auth"])
-def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: Literal["mcp", "cli"] = "mcp"):
+def api_mcp_quick_connect(
+    request: Request, regenerate: bool = False, surface: Literal["mcp", "cli"] = "mcp"
+):
     """Return a dedicated MCP or CLI API key, revealed only on minting.
 
     Each surface has its own client, audience and independently revocable key.
@@ -1278,7 +1349,9 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: L
 
     # Serialize creation/rotation for this identity and surface across workers.
     # Client replacement, old-key revocation and minting commit together.
-    lock_key = f"quick-connect:{user['email']}:{_oauth_workspace_team_id(user) or 'personal'}:{surface}"
+    lock_key = (
+        f"quick-connect:{user['email']}:{_oauth_workspace_team_id(user) or 'personal'}:{surface}"
+    )
     with auth_transaction(lock_key):
         client = get_or_create_mcp_quick_connect_client(
             created_by_email=user["email"],
@@ -1298,11 +1371,7 @@ def api_mcp_quick_connect(request: Request, regenerate: bool = False, surface: L
         if replaced_client_id:
             AgentKeyStore.revoke_all_for_client(user_id, replaced_client_id)
 
-        live = [
-            k
-            for k in AgentKeyStore.list_for_user(user_id)
-            if k["client_id"] == client_id
-        ]
+        live = [k for k in AgentKeyStore.list_for_user(user_id) if k["client_id"] == client_id]
         existing = live[0] if live else None
 
         # A copied key may not have been used yet. Reads never invalidate it;
@@ -1983,9 +2052,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
         # signing in fine through this one. The flag was not a stale cache of a
         # fact; it was a fact the system had just been told and discarded.
         if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(
-                email, {"oauth_provider": provider, "email_verified": 1}
-            )
+            UserStore.update_user(email, {"oauth_provider": provider, "email_verified": 1})
         else:
             user["oauth_provider"] = provider
             user["email_verified"] = 1
@@ -2109,7 +2176,9 @@ def _facebook_signed_request(signed_request: str, *, purpose: str) -> dict[str, 
         _refuse(f"undecodable: {exc}")
         return {}
 
-    expected = hmac.new(client_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).digest()
+    expected = hmac.new(
+        client_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+    ).digest()
     if not hmac.compare_digest(sig, expected):
         _refuse("signature mismatch")
         return {}
@@ -2165,7 +2234,6 @@ async def facebook_delete_data(request: Request):
         "url": f"https://xcelsior.ca/deactivate?code={confirmation_code}",
         "confirmation_code": confirmation_code,
     }
-
 
 
 @router.get("/api/auth/me", tags=["Auth"])
@@ -2244,7 +2312,9 @@ def api_auth_introspect(request: Request):
         "user_id": user.get("user_id"),
         "customer_id": user.get("customer_id"),
         "scopes": list(user.get("scopes") or []),
-        "workspace_id": user.get("tenant_id") or user.get("workspace_customer_id") or user.get("customer_id"),
+        "workspace_id": user.get("tenant_id")
+        or user.get("workspace_customer_id")
+        or user.get("customer_id"),
         "team_id": user.get("team_id"),
         "subject": user.get("user_id") or user.get("client_id"),
         "audience": user.get("audience"),
@@ -2350,7 +2420,9 @@ def api_auth_get_avatar(request: Request):
     from artifacts import StorageBackend, get_artifact_manager
     from user_avatars import legacy_avatar_file_for_user, local_avatar_path_for_key
 
-    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    full_user = (
+        UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    )
     prefs = _parse_user_preferences(full_user or {})
     avatar_key = (prefs.get("avatar_key") or "").strip()
 
@@ -2398,7 +2470,9 @@ def api_auth_delete_avatar(request: Request):
     user = _require_user_grant(request)
     from user_avatars import delete_avatar_objects, delete_legacy_avatar_files
 
-    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    full_user = (
+        UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    )
     prefs = _parse_user_preferences(full_user or {})
     avatar_key = (prefs.get("avatar_key") or "").strip() or None
     from db import AvatarStore
@@ -3043,7 +3117,9 @@ def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Requ
         if not row or not row.get("pending_email"):
             raise HTTPException(400, "This confirmation link is invalid or has already been used")
         if time.time() > (row["email_change_expires"] or 0):
-            raise HTTPException(400, "This confirmation link has expired. Please request a new email change.")
+            raise HTTPException(
+                400, "This confirmation link has expired. Please request a new email change."
+            )
         old_email = row["email"]
         new_email = row["pending_email"]
         try:
@@ -3057,7 +3133,10 @@ def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Requ
             for em, u in list(_users_db.items()):
                 if u.get("email_change_token") == token and u.get("pending_email"):
                     if time.time() > u.get("email_change_expires", 0):
-                        raise HTTPException(400, "This confirmation link has expired. Please request a new email change.")
+                        raise HTTPException(
+                            400,
+                            "This confirmation link has expired. Please request a new email change.",
+                        )
                     new_email = u["pending_email"]
                     if new_email in _users_db:
                         raise HTTPException(409, "That email is now registered to another account")
@@ -3069,7 +3148,9 @@ def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Requ
                     old_email = em
                     break
             else:
-                raise HTTPException(400, "This confirmation link is invalid or has already been used")
+                raise HTTPException(
+                    400, "This confirmation link is invalid or has already been used"
+                )
 
     # In-app notification + confirmation email to the new address
     try:

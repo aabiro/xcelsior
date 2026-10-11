@@ -103,7 +103,10 @@ def test_the_published_host_key_matches_what_the_endpoint_presents(instance):
     host = inst.get("ssh_host") or "connect.xcelsior.ca"
     scan = subprocess.run(
         f"ssh-keyscan -p {int(port)} {host} 2>/dev/null | ssh-keygen -lf -",
-        shell=True, capture_output=True, text=True, timeout=60,
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert "SHA256:" in scan.stdout, f"ssh-keyscan produced nothing: {scan.stderr[:200]}"
     assert published in scan.stdout, (

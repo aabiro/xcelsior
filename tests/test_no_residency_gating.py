@@ -66,10 +66,10 @@ EXCLUDED_DIRS = (
     ".mypy_cache",
     ".ruff_cache",
     "htmlcov",
-    "target",          # Rust/Tauri build output, incl. vendored licence files
-    "site-assets",     # vendored third-party marketing bundle
+    "target",  # Rust/Tauri build output, incl. vendored licence files
+    "site-assets",  # vendored third-party marketing bundle
     "coverage",
-    ".hypothesis",     # property-test corpus: machine-generated string soup
+    ".hypothesis",  # property-test corpus: machine-generated string soup
     # Applied migration history. A migration that removed a column must name it;
     # rewriting one would falsify the record of what the schema used to be.
     "migrations/versions",
@@ -78,20 +78,44 @@ EXCLUDED_DIRS = (
 # Individual files that record the removal itself, or are third-party verbatim.
 EXCLUDED_FILES = (
     "tests/test_no_residency_gating.py",
-    "docs/mcp_tools_chatgpt.md",   # verbatim third-party research output
+    "docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
     "docs/mcp_tools_gemini.md",
     "docs/mcp_tools_grok.md",
-    "stripe_embed.md",            # verbatim Stripe documentation dump
+    "stripe_embed.md",  # verbatim Stripe documentation dump
     # Submitted as written; JSON carries no comment syntax for the marker.
     "docs/compliance/scip_partner_loi.json",
 )
 
 # Binary and lockfile extensions: scanning them yields noise, not signal.
 SKIP_SUFFIXES = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".pdf",
-    ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".webm", ".mov", ".zip",
-    ".gz", ".tar", ".so", ".dylib", ".dll", ".bin", ".wasm", ".lock",
-    ".appimage", ".deb", ".rpm", ".node",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".svg",
+    ".pdf",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".mp4",
+    ".webm",
+    ".mov",
+    ".zip",
+    ".gz",
+    ".tar",
+    ".so",
+    ".dylib",
+    ".dll",
+    ".bin",
+    ".wasm",
+    ".lock",
+    ".appimage",
+    ".deb",
+    ".rpm",
+    ".node",
     # Local, untracked backups of a developer's own env file. Editing someone's
     # backup to satisfy a test would be rewriting their record of a past state.
     ".bak",

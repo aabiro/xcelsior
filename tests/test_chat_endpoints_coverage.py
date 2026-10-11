@@ -23,9 +23,7 @@ def user_headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Chat Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -130,7 +128,9 @@ def test_ai_delete_conversation_not_found(user_headers):
 def ai_conversation_id(user_headers, monkeypatch):
     import routes.chat as chat_routes
 
-    async def _fake_stream(message, conversation_id, user, page_context="", *, rate_limit_checked=False):
+    async def _fake_stream(
+        message, conversation_id, user, page_context="", *, rate_limit_checked=False
+    ):
         yield 'data: {"type":"done"}\n\n'
 
     monkeypatch.setattr(chat_routes, "stream_ai_response", _fake_stream)
@@ -144,9 +144,7 @@ def ai_conversation_id(user_headers, monkeypatch):
     assert "text/event-stream" in (r.headers.get("content-type") or "")
     from ai_assistant import list_conversations
 
-    user_id = (
-        client.get("/api/auth/me", headers=user_headers).json()["user"]["user_id"]
-    )
+    user_id = client.get("/api/auth/me", headers=user_headers).json()["user"]["user_id"]
     convs = list_conversations(user_id, limit=1)
     assert convs, "expected a conversation after ai chat"
     return convs[0]["conversation_id"]
@@ -179,7 +177,9 @@ def test_ai_confirm_unknown_id(user_headers):
 def test_ai_analytics_chat_mocked(user_headers, monkeypatch):
     import routes.chat as chat_routes
 
-    async def _fake_stream(message, conversation_id, user, page_context="", *, rate_limit_checked=False):
+    async def _fake_stream(
+        message, conversation_id, user, page_context="", *, rate_limit_checked=False
+    ):
         yield 'data: {"type":"done"}\n\n'
 
     monkeypatch.setattr(chat_routes, "stream_ai_response", _fake_stream)
@@ -199,7 +199,9 @@ def test_ai_analytics_chat_mocked(user_headers, monkeypatch):
 def test_ai_chat_mocked(user_headers, monkeypatch):
     import routes.chat as chat_routes
 
-    async def _fake_stream(message, conversation_id, user, page_context="", *, rate_limit_checked=False):
+    async def _fake_stream(
+        message, conversation_id, user, page_context="", *, rate_limit_checked=False
+    ):
         yield 'data: {"type":"token","content":"ok"}\n\n'
         yield 'data: {"type":"done"}\n\n'
 

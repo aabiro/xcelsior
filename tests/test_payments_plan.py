@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ── Criterion 1: hard-stop + dynamic PMs ───────────────────────────────
 
 
@@ -167,8 +166,7 @@ class TestMeterDualWrite:
         # Ensure outbox table exists (migration 079 may not be applied in CI).
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS stripe_meter_event_outbox (
                     event_id TEXT PRIMARY KEY,
                     customer_id TEXT NOT NULL,
@@ -183,8 +181,7 @@ class TestMeterDualWrite:
                     updated_at DOUBLE PRECISION NOT NULL,
                     sent_at DOUBLE PRECISION
                 )
-                """
-            )
+                """)
             conn.commit()
 
         stripe_meters.set_outbox_backend(None)  # real Postgres path
@@ -227,9 +224,7 @@ class TestMeterDualWrite:
         assert eng.get_wallet(cid)["balance_cad"] == pytest.approx(bal_after_charge, abs=0.001)
 
         with pool.connection() as conn:
-            conn.execute(
-                "DELETE FROM stripe_meter_event_outbox WHERE customer_id = %s", (cid,)
-            )
+            conn.execute("DELETE FROM stripe_meter_event_outbox WHERE customer_id = %s", (cid,))
             conn.commit()
 
     def test_infer_event_gpu_hours(self):
@@ -460,9 +455,7 @@ class TestPricingSanity:
     def test_key_gpu_rates_competitive_cad(self):
         from db import _GPU_PRICING_BASE
 
-        by_key = {
-            (m, v, ff, hf): rate for m, v, ff, hf, rate in _GPU_PRICING_BASE
-        }
+        by_key = {(m, v, ff, hf): rate for m, v, ff, hf, rate in _GPU_PRICING_BASE}
         assert by_key[("RTX 2060", 6, "PCIe", False)] == pytest.approx(0.08, abs=0.001)
         assert by_key[("RTX 3060", 12, "PCIe", False)] == pytest.approx(0.12, abs=0.001)
         assert by_key[("RTX 4090", 24, "PCIe", False)] == pytest.approx(0.49, abs=0.001)

@@ -772,8 +772,6 @@ def get_lifecycle_manager() -> DataLifecycleManager:
     return _lifecycle_manager
 
 
-
-
 # ── Cryptographic Shredding ──────────────────────────────────────────
 # PII in events is encrypted with a per-user key. Erasure = destroy
 # the user's key → historical events become permanently anonymized.

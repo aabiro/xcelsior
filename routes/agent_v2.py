@@ -65,8 +65,7 @@ def _lease_conflict(exc: LeaseError) -> HTTPException:
     # detail={"error": {...}} is preserved verbatim in the response body.
     return HTTPException(
         status_code=409,
-        detail={"error": {"code": exc.code, "message": str(exc),
-                          "details": exc.details}},
+        detail={"error": {"code": exc.code, "message": str(exc), "details": exc.details}},
     )
 
 
@@ -141,15 +140,11 @@ def api_v2_command_ack(command_id: str, req: CommandAckRequest, request: Request
     _require_agent_auth(request, host_id=req.host_id)
     try:
         outcome = run_transaction(
-            lambda c: ack_command(
-                c, command_id=command_id, host_id=req.host_id, result=req.result
-            ),
+            lambda c: ack_command(c, command_id=command_id, host_id=req.host_id, result=req.result),
             what="v2_command_ack",
         )
     except CommandProtocolError as exc:
-        raise HTTPException(
-            409, detail={"error": {"code": "ack_rejected", "message": str(exc)}}
-        )
+        raise HTTPException(409, detail={"error": {"code": "ack_rejected", "message": str(exc)}})
     return {"ok": True, "duplicate": outcome.duplicate, "result": outcome.result}
 
 
@@ -177,9 +172,7 @@ def api_v2_command_nack(command_id: str, req: CommandNackRequest, request: Reque
             what="v2_command_nack",
         )
     except CommandProtocolError as exc:
-        raise HTTPException(
-            409, detail={"error": {"code": "nack_rejected", "message": str(exc)}}
-        )
+        raise HTTPException(409, detail={"error": {"code": "nack_rejected", "message": str(exc)}})
     return {"ok": True, "status": status}
 
 

@@ -9,6 +9,7 @@ projects ``job.v1.legacy_status_changed`` onto ``xcelsior_events`` NOTIFY
 from __future__ import annotations
 
 import os
+
 os.environ["XCELSIOR_DB_BACKEND"] = "postgres"
 
 import json
@@ -18,17 +19,13 @@ import uuid
 
 import pytest
 
-
 try:
     from db import _get_pg_pool, resolve_postgres_dsn
 
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0]
-            is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -165,9 +162,7 @@ class TestUpdateJobStatusEnqueuesOutbox:
         assert updated.get("status") == "assigned"
 
         rows = _outbox_rows(job_id)
-        legacy = [
-            r for r in rows if r["event_type"] == "job.v1.legacy_status_changed"
-        ]
+        legacy = [r for r in rows if r["event_type"] == "job.v1.legacy_status_changed"]
         assert len(legacy) >= 1, f"no outbox row for {job_id}: {rows}"
         payload = legacy[-1]["payload"]
         if isinstance(payload, str):
@@ -192,28 +187,22 @@ class TestUpdateJobStatusEnqueuesOutbox:
 
         sched.update_job_status(job_id, "assigned", host_id="h-stout-d")
 
-
         with _Listener() as listener:
-            stats = OutboxDispatcher(
-                f"stout-{uuid.uuid4().hex[:6]}", default_handlers()
-            ).run_once()
+            stats = OutboxDispatcher(f"stout-{uuid.uuid4().hex[:6]}", default_handlers()).run_once()
             messages = listener.collect()
 
         assert stats["published"] >= 1
         mine = [
             m
             for m in messages
-            if m.get("type") == "job_status"
-            and m.get("data", {}).get("job_id") == job_id
+            if m.get("type") == "job_status" and m.get("data", {}).get("job_id") == job_id
         ]
         assert mine, f"no NOTIFY/SSE for {job_id}: {messages}"
         assert mine[0]["data"]["status"] == "assigned"
         assert mine[0]["data"]["host_id"] == "h-stout-d"
 
         rows = _outbox_rows(job_id)
-        legacy = [
-            r for r in rows if r["event_type"] == "job.v1.legacy_status_changed"
-        ]
+        legacy = [r for r in rows if r["event_type"] == "job.v1.legacy_status_changed"]
         assert legacy and legacy[-1]["published_at"] is not None
 
     def test_idempotent_repeat_running_does_not_double_append(self, cleanup_job):
@@ -226,9 +215,7 @@ class TestUpdateJobStatusEnqueuesOutbox:
         sched.update_job_status(job_id, "assigned", host_id="h-i")
         # Force payload path to running (skip invalid transition noise).
         with _pool.connection() as conn:
-            conn.execute(
-                "UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,)
-            )
+            conn.execute("UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,))
             conn.execute(
                 """UPDATE jobs SET payload =
                        jsonb_set(payload, '{status}', '"running"')
@@ -289,12 +276,7 @@ class TestUpdateJobStatusEnqueuesOutbox:
 
         # Append failed → no durable outbox row; emit_event fallback used.
         legacy = [
-            r
-            for r in _outbox_rows(job_id)
-            if r["event_type"] == "job.v1.legacy_status_changed"
+            r for r in _outbox_rows(job_id) if r["event_type"] == "job.v1.legacy_status_changed"
         ]
         assert legacy == []
-        assert any(
-            et == "job_status" and data.get("job_id") == job_id
-            for et, data in emit_calls
-        )
+        assert any(et == "job_status" and data.get("job_id") == job_id for et, data in emit_calls)

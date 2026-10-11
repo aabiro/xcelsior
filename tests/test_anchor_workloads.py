@@ -76,11 +76,11 @@ class TestAnchorWorkloadsHTTP:
             "workloads": [],
         }
         assert len(discovered) >= 3, f"expected ≥3 anchor repos, found {discovered}"
-        executed = [execute_anchor_builder(k) for k in ("pel-embed", "pel-chat", "pt-signal", "ara-agent")]
-        evidence["executed_builders"] = executed
-        evidence["local_builders"] = [
-            e for e in executed if e.get("executed_on") == "local_import"
+        executed = [
+            execute_anchor_builder(k) for k in ("pel-embed", "pel-chat", "pt-signal", "ara-agent")
         ]
+        evidence["executed_builders"] = executed
+        evidence["local_builders"] = [e for e in executed if e.get("executed_on") == "local_import"]
         # Reachability gated the *collection* and not the assertion below, so an
         # unreachable Mac reported as "expected ≥2 Mac SSH builders, got []" —
         # a code failure for what is a network outage. The distinction matters
@@ -183,9 +183,7 @@ class TestAnchorWorkloadsHTTP:
             )
             assert mac_ep.status_code == 200
             mac_ep_id = mac_ep.json()["endpoint"]["endpoint_id"]
-            mac_url = (
-                f"{mac_reachable_api}/v1/serverless/{mac_ep_id}/openai/v1/chat/completions"
-            )
+            mac_url = f"{mac_reachable_api}/v1/serverless/{mac_ep_id}/openai/v1/chat/completions"
             mac_result = post_openai_from_mac(
                 url=mac_url,
                 headers={**headers, "idempotency-key": "mac-pt-signal"},
@@ -211,11 +209,7 @@ class TestAnchorWorkloadsHTTP:
         evidence["mac_ssh_inference"] = mac_ssh_inference
         evidence["mac_reachable"] = _mac_projects_reachable()
         evidence["mac_driven_workloads"] = len(
-            [
-                w
-                for w in evidence["workloads"]
-                if w.get("payload_source") == "mac_ssh"
-            ]
+            [w for w in evidence["workloads"] if w.get("payload_source") == "mac_ssh"]
         )
         evidence["mac_driven_inference"] = len(mac_ssh_inference)
         local_real = [
@@ -226,9 +220,9 @@ class TestAnchorWorkloadsHTTP:
             and w.get("builder", {}).get("module")
         ]
         evidence["local_real_builders"] = len(local_real)
-        assert len(local_real) >= 2 or len(mac_ssh_inference) >= 1, (
-            "need ≥2 local_import workloads from real repos or ≥1 mac_ssh-driven inference"
-        )
+        assert (
+            len(local_real) >= 2 or len(mac_ssh_inference) >= 1
+        ), "need ≥2 local_import workloads from real repos or ≥1 mac_ssh-driven inference"
         if _mac_projects_reachable():
             assert len(mac_ssh_inference) >= 1, evidence.get("mac_remote_inference_probe")
         os.makedirs(SCRATCH, exist_ok=True)

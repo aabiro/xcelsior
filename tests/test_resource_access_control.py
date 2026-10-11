@@ -105,8 +105,6 @@ def test_events_all_requires_admin(two_users):
     assert r.status_code == 403
 
 
-
-
 def _schedule_account_cleanup(request, response):
     """Delete whatever Connect account this registration created, afterwards."""
     account_id = account_id_from_registration(
@@ -287,5 +285,3 @@ def test_v1_inference_poll_forbidden_cross_account(two_users):
     job_id = submitted.json()["job_id"]
     r = client.get(f"/v1/inference/{job_id}", headers=user_b["headers"])
     assert r.status_code == 403
-
-

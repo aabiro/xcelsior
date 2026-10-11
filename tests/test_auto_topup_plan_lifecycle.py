@@ -196,12 +196,16 @@ def test_a_consumed_plan_replays_its_original_response(tenant):
     response = {"ok": True, "marker": "first-apply"}
     with control_plane_transaction() as conn:
         plans_repo.mark_consumed(
-            conn, plan_id, job_id=f"auto-topup:{tenant}", wallet_hold_id=None,
-            idempotent_response=response, idempotency_key=f"auto-topup-plan:{plan_id}",
+            conn,
+            plan_id,
+            job_id=f"auto-topup:{tenant}",
+            wallet_hold_id=None,
+            idempotent_response=response,
+            idempotency_key=f"auto-topup-plan:{plan_id}",
         )
     with control_plane_transaction() as conn:
         again = plans_repo.get_plan_for_update(conn, plan_id)
     assert again["status"] == "succeeded"
-    assert dict(again["idempotent_response"])["marker"] == "first-apply", (
-        "the second read did not return the first apply's response"
-    )
+    assert (
+        dict(again["idempotent_response"])["marker"] == "first-apply"
+    ), "the second read did not return the first apply's response"

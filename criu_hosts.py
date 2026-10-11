@@ -226,9 +226,17 @@ def docker_checkpoint_local(
     except OSError as exc:
         log.warning("checkpoint meta write failed job=%s: %s", job_id, exc)
     if rc != 0:
-        log.error("docker checkpoint failed job=%s container=%s: %s", job_id, container_name, stderr)
+        log.error(
+            "docker checkpoint failed job=%s container=%s: %s", job_id, container_name, stderr
+        )
         return None
-    log.info("CHECKPOINT OK job=%s container=%s name=%s class=%s", job_id, container_name, checkpoint_name, checkpoint_class)
+    log.info(
+        "CHECKPOINT OK job=%s container=%s name=%s class=%s",
+        job_id,
+        container_name,
+        checkpoint_name,
+        checkpoint_class,
+    )
     return meta
 
 

@@ -124,13 +124,15 @@ def agent(tmp_path):
             "promotion_id": "prom-1",
             "volume_id": volume,
             "manifest_sha256": "d" * 64,
-            "files": [{
-                "artifact_id": "art-1",
-                "logical_name": name,
-                "size_bytes": len(PAYLOAD),
-                "sha256": sha256,
-                "url": f"http://127.0.0.1:{srv.port}/object",
-            }],
+            "files": [
+                {
+                    "artifact_id": "art-1",
+                    "logical_name": name,
+                    "size_bytes": len(PAYLOAD),
+                    "sha256": sha256,
+                    "url": f"http://127.0.0.1:{srv.port}/object",
+                }
+            ],
         }
 
     srv.set_manifest = manifest
@@ -228,9 +230,9 @@ def test_a_logical_name_cannot_escape_the_destination(agent, evil):
         assert not forbidden.exists(), f"a logical name escaped to {forbidden}"
 
     landed = sorted(os.listdir(promoted)) if promoted.exists() else []
-    assert all(name not in ("..", ".") and "/" not in name for name in landed), (
-        f"a traversal component survived into the destination: {landed}"
-    )
+    assert all(
+        name not in ("..", ".") and "/" not in name for name in landed
+    ), f"a traversal component survived into the destination: {landed}"
 
 
 def test_a_missing_promotion_id_is_refused(agent):

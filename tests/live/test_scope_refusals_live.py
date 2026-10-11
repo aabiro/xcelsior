@@ -38,7 +38,9 @@ import pytest
 
 httpx = pytest.importorskip("httpx", reason="live gates install httpx explicitly")
 
-BASE = (os.environ.get("XCELSIOR_LIVE_BASE_URL") or os.environ.get("XCELSIOR_STAGING_URL") or "").rstrip("/")
+BASE = (
+    os.environ.get("XCELSIOR_LIVE_BASE_URL") or os.environ.get("XCELSIOR_STAGING_URL") or ""
+).rstrip("/")
 TOKEN = os.environ.get("XCELSIOR_NONADMIN_TOKEN", "")
 
 #: Drain or evict any host on the platform. `control_plane_v1._require_host_operator`
@@ -60,7 +62,9 @@ HEADERS = {
 #: _the_origin` is still exercised in runs with no live credentials — including
 #: ordinary CI. A guard against a false pass that only runs during a real
 #: dispatch is a guard that is absent exactly when it is cheapest to break.
-_NEEDS_LIVE = "live gate: set XCELSIOR_LIVE_BASE_URL (or XCELSIOR_STAGING_URL) and XCELSIOR_NONADMIN_TOKEN"
+_NEEDS_LIVE = (
+    "live gate: set XCELSIOR_LIVE_BASE_URL (or XCELSIOR_STAGING_URL) and XCELSIOR_NONADMIN_TOKEN"
+)
 
 
 #: Markers that identify a 403 as the edge's, not the application's. Cloudflare's
@@ -248,6 +252,8 @@ def test_the_application_refusal_is_accepted():
     """The other direction: a real origin refusal must pass cleanly."""
     origin = httpx.Response(
         403,
-        json={"detail": "These scopes may only be granted by a platform administrator: hosts:evict"},
+        json={
+            "detail": "These scopes may only be granted by a platform administrator: hosts:evict"
+        },
     )
     assert_refusal_came_from_the_origin(origin)

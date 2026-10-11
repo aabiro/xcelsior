@@ -95,8 +95,7 @@ def test_no_inference_scope_at_all_cannot_read(client, monkeypatch):
     verb, path = READ_ROUTE
     response = client.request(verb, path)
     assert response.status_code == 403, (
-        f"a credential with no inference scope got {response.status_code} from a "
-        "serverless read"
+        f"a credential with no inference scope got {response.status_code} from a " "serverless read"
     )
 
 
@@ -109,9 +108,9 @@ def test_the_right_scope_is_admitted(client, monkeypatch):
     _as(monkeypatch, _machine(["inference:write", "inference:read"]))
     verb, path = WRITE_ROUTE
     response = client.request(verb, path)
-    assert response.status_code != 403, (
-        "a credential holding inference:write was refused by the scope check"
-    )
+    assert (
+        response.status_code != 403
+    ), "a credential holding inference:write was refused by the scope check"
 
 
 def test_quick_connect_holds_what_these_routes_now_demand():

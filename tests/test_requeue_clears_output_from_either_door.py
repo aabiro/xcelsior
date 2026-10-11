@@ -112,9 +112,7 @@ def test_automatic_failover_keeps_its_evidence():
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        test_names = {
-            n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)
-        }
+        test_names = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)}
         if "user_initiated" not in test_names:
             continue
         called = {

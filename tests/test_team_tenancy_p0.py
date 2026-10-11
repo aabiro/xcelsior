@@ -36,15 +36,13 @@ def _register_and_login(label: str) -> dict:
     )
     assert reg.status_code == 200, reg.text[:200]
     reg_body = reg.json()
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text[:200]
     body = login.json()
     user = reg_body.get("user") or body.get("user") or {}
-    assert UserStore.get_user(email) is not None, (
-        f"register did not persist {email}: reg={str(reg_body)[:200]}"
-    )
+    assert (
+        UserStore.get_user(email) is not None
+    ), f"register did not persist {email}: reg={str(reg_body)[:200]}"
     return {
         "email": email,
         "customer_id": user["customer_id"],

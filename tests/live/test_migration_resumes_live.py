@@ -65,7 +65,9 @@ def running_job(two_hosts):
         headers=auth(),
         json={
             "name": f"migration-resume-{int(time.time())}",
-            "vram_needed_gb": 1, "num_gpus": 1, "interactive": True,
+            "vram_needed_gb": 1,
+            "num_gpus": 1,
+            "interactive": True,
             "host_id": source,
         },
         timeout=60,
@@ -104,11 +106,22 @@ def _uptime_probe(job_id: str) -> int:
     if not key:
         pytest.skip("set XCELSIOR_LIVE_SSH_KEY to read in-container state")
     out = subprocess.run(
-        ["ssh", "-i", key, "-p", str(int(inst["ssh_port"])),
-         "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=20",
-         f"root@{inst.get('ssh_host') or 'connect.xcelsior.ca'}",
-         "cut -d. -f1 /proc/uptime"],
-        capture_output=True, text=True, timeout=120,
+        [
+            "ssh",
+            "-i",
+            key,
+            "-p",
+            str(int(inst["ssh_port"])),
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=20",
+            f"root@{inst.get('ssh_host') or 'connect.xcelsior.ca'}",
+            "cut -d. -f1 /proc/uptime",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert out.returncode == 0, out.stderr[:300]
     return int(out.stdout.strip()) // 60
@@ -132,9 +145,7 @@ def test_a_migrated_job_resumes_with_its_state(running_job, two_hosts):
 
 def test_the_control_plane_agrees_the_job_moved(running_job, two_hosts):
     _, target = two_hosts
-    inst = requests.get(
-        f"{BASE}/instance/{running_job}", headers=auth(), timeout=30
-    ).json()
+    inst = requests.get(f"{BASE}/instance/{running_job}", headers=auth(), timeout=30).json()
     inst = inst.get("instance", inst)
     assert str(inst.get("host_id")) == target
     assert str(inst.get("status")) == "running"
@@ -142,9 +153,7 @@ def test_the_control_plane_agrees_the_job_moved(running_job, two_hosts):
 
 def test_the_fingerprint_moved_with_the_container(running_job):
     """A migrated container has new host keys; the old one must not be served."""
-    inst = requests.get(
-        f"{BASE}/instance/{running_job}", headers=auth(), timeout=30
-    ).json()
+    inst = requests.get(f"{BASE}/instance/{running_job}", headers=auth(), timeout=30).json()
     inst = inst.get("instance", inst)
     published = inst.get("host_key_fingerprint")
     if not published:
@@ -153,7 +162,10 @@ def test_the_fingerprint_moved_with_the_container(running_job):
     host = inst.get("ssh_host") or "connect.xcelsior.ca"
     scan = subprocess.run(
         f"ssh-keyscan -p {port} {host} 2>/dev/null | ssh-keygen -lf -",
-        shell=True, capture_output=True, text=True, timeout=60,
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert published in scan.stdout, (
         "the published fingerprint is the pre-migration container's — a user "

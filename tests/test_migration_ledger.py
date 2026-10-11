@@ -190,9 +190,7 @@ def validate_revision_ids_match_filename(
     Grandfathered ids are accommodated explicitly so the exception is
     visible rather than implied by a loose regex.
     """
-    grandfathered = (
-        GRANDFATHERED_REVISION_IDS if grandfathered is None else grandfathered
-    )
+    grandfathered = GRANDFATHERED_REVISION_IDS if grandfathered is None else grandfathered
     for mig in migrations:
         allowed = grandfathered.get(mig.expected_revision)
         if allowed is not None:
@@ -217,11 +215,7 @@ def validate_revision_ids_match_filename(
 
 
 def find_contract_cleanups(migrations: list[Migration]) -> list[Migration]:
-    return [
-        m
-        for m in migrations
-        if any(marker in m.slug for marker in CONTRACT_CLEANUP_MARKERS)
-    ]
+    return [m for m in migrations if any(marker in m.slug for marker in CONTRACT_CLEANUP_MARKERS)]
 
 
 def validate_contract_cleanup_is_last(migrations: list[Migration]) -> None:
@@ -234,8 +228,7 @@ def validate_contract_cleanup_is_last(migrations: list[Migration]) -> None:
     if not cleanups:
         return
     assert len(cleanups) == 1, (
-        f"expected at most one contract-cleanup migration, found "
-        f"{[m.name for m in cleanups]}."
+        f"expected at most one contract-cleanup migration, found " f"{[m.name for m in cleanups]}."
     )
     cleanup = cleanups[0]
     assert cleanup == migrations[-1], (
@@ -339,9 +332,7 @@ def test_expected_head_agrees_with_bootstrap_gate() -> None:
     stale revision.
     """
     source = BOOTSTRAP_TEST.read_text(encoding="utf-8")
-    match = re.search(
-        r"^EXPECTED_HEAD\s*=\s*(['\"])(?P<value>[^'\"]+)\1", source, re.MULTILINE
-    )
+    match = re.search(r"^EXPECTED_HEAD\s*=\s*(['\"])(?P<value>[^'\"]+)\1", source, re.MULTILINE)
     assert match, (
         f"{BOOTSTRAP_TEST.name} no longer declares EXPECTED_HEAD; this "
         f"cross-check needs updating."
@@ -418,7 +409,9 @@ def test_catches_chain_skip() -> None:
 
 def test_catches_non_none_base_down_revision() -> None:
     chain = [_mig(1, "001", "000"), _mig(2, "002", "001")]
-    with pytest.raises(AssertionError, match="must have\ndown_revision = None|down_revision = None"):
+    with pytest.raises(
+        AssertionError, match="must have\ndown_revision = None|down_revision = None"
+    ):
         validate_chain_follows_filename_order(chain)
 
 
@@ -426,9 +419,7 @@ def test_catches_hash_revision_id_on_new_migration() -> None:
     """The 060 mistake, repeated after the rule took effect."""
     chain = [_mig(66, "beefcafe1234", None)]
     with pytest.raises(AssertionError, match="rule 2 requires"):
-        validate_revision_ids_match_filename(
-            chain, first_enforced=66, grandfathered={}
-        )
+        validate_revision_ids_match_filename(chain, first_enforced=66, grandfathered={})
 
 
 def test_allows_grandfathered_hash_revision_id() -> None:
@@ -490,16 +481,13 @@ def test_parser_handles_annotated_assignment_style() -> None:
     """Migration 060 onward uses `revision: str = '...'`."""
     mig = _parse_migration(
         "060_shared_state_to_pg.py",
-        "revision: str = 'a0985327493e'\n"
-        "down_revision: Union[str, None] = '059'\n",
+        "revision: str = 'a0985327493e'\n" "down_revision: Union[str, None] = '059'\n",
     )
     assert (mig.revision, mig.down_revision) == ("a0985327493e", "059")
 
 
 def test_parser_handles_none_down_revision() -> None:
-    mig = _parse_migration(
-        "001_initial.py", 'revision = "001"\ndown_revision = None\n'
-    )
+    mig = _parse_migration("001_initial.py", 'revision = "001"\ndown_revision = None\n')
     assert mig.down_revision is None
 
 

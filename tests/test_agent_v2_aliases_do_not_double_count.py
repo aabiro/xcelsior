@@ -34,7 +34,8 @@ def test_every_alias_is_classified() -> None:
     """The ratchet holds unclassified at zero; aliases are not exempt."""
     table = _classification()
     missing = [
-        f"{method.upper()} {v2}" for _, method, v2 in ALIASES
+        f"{method.upper()} {v2}"
+        for _, method, v2 in ALIASES
         if f"{method.upper()} {v2}" not in table
     ]
     assert not missing, f"aliases absent from the classification: {missing}"
@@ -62,6 +63,6 @@ def test_each_alias_names_the_v1_route_it_duplicates() -> None:
         for v1, method, v2 in ALIASES
         if v1 not in table[f"{method.upper()} {v2}"]["notes"]
     ]
-    assert not unexplained, (
-        f"these alias notes do not name the v1 route they duplicate: {unexplained}"
-    )
+    assert (
+        not unexplained
+    ), f"these alias notes do not name the v1 route they duplicate: {unexplained}"

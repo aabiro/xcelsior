@@ -19,8 +19,7 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger "
-                "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
             ).fetchone()
             is not None
         )
@@ -53,8 +52,9 @@ def fleet():
         conn.commit()
 
 
-def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0,
-             admitted=True, status="active"):
+def _mk_host(
+    fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0, admitted=True, status="active"
+):
     payload = {
         "host_id": host_id,
         "gpu_model": gpu_model,
@@ -86,12 +86,26 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0,
     return payload
 
 
-def _mk_job(fleet, job_id, *, gpu_model, num_gpus=1, vram_needed_gb=8.0,
-            priority=0, status="queued", scheduler=None, trace_id=None):
+def _mk_job(
+    fleet,
+    job_id,
+    *,
+    gpu_model,
+    num_gpus=1,
+    vram_needed_gb=8.0,
+    priority=0,
+    status="queued",
+    scheduler=None,
+    trace_id=None,
+):
     payload = {
-        "job_id": job_id, "name": job_id, "gpu_model": gpu_model,
-        "num_gpus": num_gpus, "vram_needed_gb": vram_needed_gb,
-        "priority": priority, "status": status,
+        "job_id": job_id,
+        "name": job_id,
+        "gpu_model": gpu_model,
+        "num_gpus": num_gpus,
+        "vram_needed_gb": vram_needed_gb,
+        "priority": priority,
+        "status": status,
         "trace_id": trace_id,
     }
     if scheduler:
@@ -119,9 +133,14 @@ def _job_row(job_id):
     if row is None or isinstance(row, dict):
         return row
     return {
-        "status": row[0], "phase": row[1], "desired_state": row[2],
-        "effective_priority": row[3], "queued_at": row[4], "host_id": row[5],
-        "active_attempt_id": row[6], "reason_code": row[7],
+        "status": row[0],
+        "phase": row[1],
+        "desired_state": row[2],
+        "effective_priority": row[3],
+        "queued_at": row[4],
+        "host_id": row[5],
+        "active_attempt_id": row[6],
+        "reason_code": row[7],
         "next_schedule_at": row[8],
     }
 
@@ -137,7 +156,8 @@ def _host_row(host_id):
     if row is None or isinstance(row, dict):
         return row
     return {
-        "administrative_state": row[0], "availability_state": row[1],
+        "administrative_state": row[0],
+        "availability_state": row[1],
         "inventory_generation": row[2],
     }
 
@@ -159,12 +179,8 @@ class TestProjectionTriggers:
         job_id = f"j-{marker}-b"
         _mk_job(fleet, job_id, gpu_model=f"m-{marker}")
         with _pool.connection() as conn:
-            conn.execute(
-                "UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,)
-            )
-            conn.execute(
-                "UPDATE jobs SET status='stopping' WHERE job_id=%s", (job_id,)
-            )
+            conn.execute("UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,))
+            conn.execute("UPDATE jobs SET status='stopping' WHERE job_id=%s", (job_id,))
             conn.commit()
         row = _job_row(job_id)
         assert row["phase"] == "running"
@@ -220,14 +236,15 @@ class TestInventorySync:
         marker = uuid.uuid4().hex[:8]
         host_id = f"h-{marker}-inv"
         payload = _mk_host(
-            fleet, host_id, gpu_model=f"RTX-{marker}", gpu_count=2,
+            fleet,
+            host_id,
+            gpu_model=f"RTX-{marker}",
+            gpu_count=2,
             total_vram_gb=48.0,
         )
         gen0 = _host_row(host_id)["inventory_generation"]
 
-        result = run_transaction(
-            lambda c: sync_host_gpu_inventory(c, payload), what="test_inv"
-        )
+        result = run_transaction(lambda c: sync_host_gpu_inventory(c, payload), what="test_inv")
         assert result.created == 2 and result.changed
         with _pool.connection() as conn:
             rows = conn.execute(
@@ -241,25 +258,22 @@ class TestInventorySync:
         assert _host_row(host_id)["inventory_generation"] == gen0 + 1
 
         # Idempotent: second sync is a no-op, generation stays put.
-        again = run_transaction(
-            lambda c: sync_host_gpu_inventory(c, payload), what="test_inv"
-        )
+        again = run_transaction(lambda c: sync_host_gpu_inventory(c, payload), what="test_inv")
         assert not again.changed
         assert _host_row(host_id)["inventory_generation"] == gen0 + 1
 
         # Shrink: retire the surplus slot, bump the generation.
         payload["gpu_count"] = 1
-        shrunk = run_transaction(
-            lambda c: sync_host_gpu_inventory(c, payload), what="test_inv"
-        )
+        shrunk = run_transaction(lambda c: sync_host_gpu_inventory(c, payload), what="test_inv")
         assert shrunk.retired == 1
         assert _host_row(host_id)["inventory_generation"] == gen0 + 2
 
 
 class TestCanaryPartition:
     def test_owns_job_modes(self):
-        base = dict(mode=SchedulerMode.CANARY, replica_id="t",
-                    canary_gpu_models=frozenset({"rtx 4090"}))
+        base = dict(
+            mode=SchedulerMode.CANARY, replica_id="t", canary_gpu_models=frozenset({"rtx 4090"})
+        )
         cfg = SchedulerConfig(**base)
         assert cfg.owns_job({"gpu_model": "RTX 4090"})
         assert cfg.owns_job({"gpu_model": "rtx 4090"})
@@ -274,7 +288,8 @@ class TestCanaryPartition:
 
     def test_host_scope(self):
         cfg = SchedulerConfig(
-            mode=SchedulerMode.CANARY, replica_id="t",
+            mode=SchedulerMode.CANARY,
+            replica_id="t",
             canary_host_ids=frozenset({"h-1"}),
         )
         assert cfg.host_in_scope("h-1")
@@ -316,8 +331,7 @@ class TestSchedulerServiceTick:
 
         with _pool.connection() as conn:
             attempt = conn.execute(
-                "SELECT status, placement_explanation FROM job_attempts "
-                "WHERE attempt_id=%s",
+                "SELECT status, placement_explanation FROM job_attempts " "WHERE attempt_id=%s",
                 (resv.attempt_id,),
             ).fetchone()
             lease = conn.execute(
@@ -393,7 +407,8 @@ class TestSchedulerServiceTick:
         report = SchedulerService(cfg).tick()
         assert report.placements == []
         assert (job_id, "no_eligible_host") in report.released or (
-            job_id, "no_hosts"
+            job_id,
+            "no_hosts",
         ) in report.released
 
         row = _job_row(job_id)

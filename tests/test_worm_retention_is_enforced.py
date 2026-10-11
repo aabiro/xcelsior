@@ -107,9 +107,9 @@ def test_a_row_delete_is_refused_and_the_partition_drop_removes_the_same_rows(
     with pytest.raises(Exception) as refused:
         with pg_transaction() as conn:
             conn.execute("DELETE FROM placement_decisions WHERE tenant_id = %s", (tenant,))
-    assert "append" in str(refused.value).lower() or "worm" in str(refused.value).lower(), (
-        f"DELETE failed, but not because the table is append-only: {refused.value}"
-    )
+    assert (
+        "append" in str(refused.value).lower() or "worm" in str(refused.value).lower()
+    ), f"DELETE failed, but not because the table is append-only: {refused.value}"
 
     with pg_transaction() as conn:
         assert _count(conn, tenant) == 1, "the refused DELETE removed rows anyway"
@@ -120,9 +120,9 @@ def test_a_row_delete_is_refused_and_the_partition_drop_removes_the_same_rows(
     assert f"placement_decisions_{ANCIENT}" in dropped, dropped
 
     with pg_transaction() as conn:
-        assert _count(conn, tenant) == 0, (
-            "the partition was dropped but the rows are still readable"
-        )
+        assert (
+            _count(conn, tenant) == 0
+        ), "the partition was dropped but the rows are still readable"
 
 
 # ── The window ────────────────────────────────────────────────────────
@@ -204,9 +204,9 @@ def test_every_partitioned_table_is_swept_by_the_same_task():
         "the maintenance task no longer iterates the table list; a new WORM "
         "table would silently keep everything"
     )
-    assert "drop_expired_partitions" in source, (
-        "the maintenance task no longer prunes; retention would be asserted only"
-    )
+    assert (
+        "drop_expired_partitions" in source
+    ), "the maintenance task no longer prunes; retention would be asserted only"
     assert len(PARTITIONED_TABLES) >= 2
 
 

@@ -16,9 +16,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -117,9 +115,7 @@ def _dispatch_until_settled(agg, *, max_batches=100):
     The integration database is shared by the suite, so unrelated valid
     outbox work may sort ahead of the event created by this test.
     """
-    dispatcher = OutboxDispatcher(
-        f"test-{uuid.uuid4().hex[:6]}", default_handlers()
-    )
+    dispatcher = OutboxDispatcher(f"test-{uuid.uuid4().hex[:6]}", default_handlers())
     totals = {"published": 0, "unroutable": 0}
     for _ in range(max_batches):
         stats = dispatcher.run_once()
@@ -130,17 +126,21 @@ def _dispatch_until_settled(agg, *, max_batches=100):
             return totals
         if stats["claimed"] == 0:
             break
-    raise AssertionError(
-        f"outbox event for {agg} did not settle after {max_batches} batches"
-    )
+    raise AssertionError(f"outbox event for {agg} did not settle after {max_batches} batches")
 
 
 class TestSseProjection:
     def _evt(self, event_type, payload):
         return OutboxEvent(
-            event_id="e1", aggregate_type="job", aggregate_id="job-x",
-            event_type=event_type, payload=payload, headers={},
-            destination_class="default", idempotency_key="k", attempt_count=1,
+            event_id="e1",
+            aggregate_type="job",
+            aggregate_id="job-x",
+            event_type=event_type,
+            payload=payload,
+            headers={},
+            destination_class="default",
+            idempotency_key="k",
+            attempt_count=1,
         )
 
     def test_placement_reserved(self):
@@ -149,26 +149,24 @@ class TestSseProjection:
         )
         assert msg == {
             "type": "job_status",
-            "data": {"job_id": "job-x", "status": "assigned", "host_id": "h1",
-                     "attempt_id": "a1"},
+            "data": {"job_id": "job-x", "status": "assigned", "host_id": "h1", "attempt_id": "a1"},
         }
 
     def test_attempt_status_vocabulary(self):
         for reported, legacy in (
-            ("lease_claimed", "leased"), ("starting", "starting"),
-            ("running", "running"), ("succeeded", "completed"),
+            ("lease_claimed", "leased"),
+            ("starting", "starting"),
+            ("running", "running"),
+            ("succeeded", "completed"),
             ("failed", "failed"),
         ):
             msg = sse_payload_for(
-                self._evt("job.v1.attempt_status_changed",
-                          {"status": reported, "host_id": "h1"})
+                self._evt("job.v1.attempt_status_changed", {"status": reported, "host_id": "h1"})
             )
             assert msg is not None and msg["data"]["status"] == legacy
 
     def test_lease_expired_requeues(self):
-        msg = sse_payload_for(
-            self._evt("job.v1.lease_expired", {"reason": "lease_claim_timeout"})
-        )
+        msg = sse_payload_for(self._evt("job.v1.lease_expired", {"reason": "lease_claim_timeout"}))
         assert msg is not None
         assert msg["data"]["status"] == "queued"
         assert msg["data"]["reason"] == "lease_claim_timeout"
@@ -180,7 +178,8 @@ class TestSseProjection:
 class TestDispatcherDelivery:
     def test_delivers_notify_and_settles(self, cleanup):
         agg = _mk_event(
-            cleanup, "job.v1.placement_reserved",
+            cleanup,
+            "job.v1.placement_reserved",
             {"host_id": "h-obx", "attempt_id": "a-obx"},
         )
         with _Listener() as listener:
@@ -203,7 +202,9 @@ class TestDispatcherDelivery:
 
     def test_agent_wake_settles(self, cleanup):
         agg = _mk_event(
-            cleanup, "job.v1.placement_reserved", {"host_id": "h"},
+            cleanup,
+            "job.v1.placement_reserved",
+            {"host_id": "h"},
             destination="agent_wake",
         )
         _dispatch_until_settled(agg)
@@ -223,27 +224,48 @@ class TestDispatcherDelivery:
             conn.execute(
                 "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
                 "VALUES (%s, 'active', %s, %s, 'admitted')",
-                (host_id, time.time(), json.dumps({
-                    "host_id": host_id, "gpu_model": model, "gpu_count": 2,
-                    "free_vram_gb": 48.0, "total_vram_gb": 48.0,
-                    "cost_per_hour": 1.0, "admitted": True,
-                    "last_seen": time.time(),
-                })),
+                (
+                    host_id,
+                    time.time(),
+                    json.dumps(
+                        {
+                            "host_id": host_id,
+                            "gpu_model": model,
+                            "gpu_count": 2,
+                            "free_vram_gb": 48.0,
+                            "total_vram_gb": 48.0,
+                            "cost_per_hour": 1.0,
+                            "admitted": True,
+                            "last_seen": time.time(),
+                        }
+                    ),
+                ),
             )
             conn.execute(
                 "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
                 "VALUES (%s, 'queued', 0, %s, %s)",
-                (job_id, time.time(), json.dumps({
-                    "job_id": job_id, "name": job_id, "gpu_model": model,
-                    "num_gpus": 1, "vram_needed_gb": 8.0, "status": "queued",
-                })),
+                (
+                    job_id,
+                    time.time(),
+                    json.dumps(
+                        {
+                            "job_id": job_id,
+                            "name": job_id,
+                            "gpu_model": model,
+                            "num_gpus": 1,
+                            "vram_needed_gb": 8.0,
+                            "status": "queued",
+                        }
+                    ),
+                ),
             )
             conn.commit()
         cleanup["hosts"].append(host_id)
         cleanup["jobs"].append(job_id)
 
         cfg = SchedulerConfig(
-            mode=SchedulerMode.CANARY, replica_id=f"obx-{marker}",
+            mode=SchedulerMode.CANARY,
+            replica_id=f"obx-{marker}",
             canary_gpu_models=frozenset({model.lower()}),
             canary_host_ids=frozenset({host_id}),
         )
@@ -267,15 +289,18 @@ class TestRetention:
         with _pool.connection() as conn:
             conn.execute(
                 "UPDATE outbox_events SET published_at = clock_timestamp() - interval '30 days' "
-                "WHERE aggregate_id=%s", (old_pub,),
+                "WHERE aggregate_id=%s",
+                (old_pub,),
             )
             conn.execute(
                 "UPDATE outbox_events SET published_at = clock_timestamp() "
-                "WHERE aggregate_id=%s", (fresh_pub,),
+                "WHERE aggregate_id=%s",
+                (fresh_pub,),
             )
             conn.execute(
                 "UPDATE outbox_events SET created_at = clock_timestamp() - interval '30 days' "
-                "WHERE aggregate_id=%s", (never_pub,),
+                "WHERE aggregate_id=%s",
+                (never_pub,),
             )
             conn.commit()
         # The shared test DB may carry ACTIVE projection checkpoints registered

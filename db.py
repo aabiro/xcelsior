@@ -282,11 +282,11 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     # ── NVIDIA Data Center ──
     # Competitive CAD list rates: below RunPod cloud, above rock-bottom Vast;
     # platform cut separate. 2060 → 3060/4090 fleet path priced for global demand.
-    ("B200",     192, "OAM",  False,  9.50),
-    ("H200",     141, "SXM",  False,  4.20),
-    ("H100",      80, "SXM",  False,  3.10),
-    ("H100",      80, "PCIe", False,  2.60),
-    ("H100 NVL",  94, "PCIe", False,  2.90),
+    ("B200", 192, "OAM", False, 9.50),
+    ("H200", 141, "SXM", False, 4.20),
+    ("H100", 80, "SXM", False, 3.10),
+    ("H100", 80, "PCIe", False, 2.60),
+    ("H100 NVL", 94, "PCIe", False, 2.90),
     ("A100", 80, "SXM", False, 1.85),
     ("A100", 80, "PCIe", False, 1.55),
     ("A100", 40, "SXM", False, 1.35),
@@ -478,11 +478,9 @@ def _ensure_pg_tables(conn):
         # Migrated stamp without gpu_pricing means the expand chain is
         # incomplete or a wrong database was pointed at the pool.
         log.error(
-            "gpu_pricing seed failed on Alembic-managed DB (A1.6 seed-only "
-            "path): %s",
+            "gpu_pricing seed failed on Alembic-managed DB (A1.6 seed-only " "path): %s",
             e,
         )
-
 
 
 @contextmanager
@@ -576,7 +574,7 @@ class DatabaseOps:
         _max_premium_bps = pct_to_bps(_pref.get("max_premium_pct"))
         if _max_premium_bps is not None:
             _max_premium_bps = max(0, min(100_000_000, _max_premium_bps))
-        _min_tier = (str(_pref.get("min_tier") or "").strip().lower() or None)
+        _min_tier = str(_pref.get("min_tier") or "").strip().lower() or None
         _require_verified = bool(_pref.get("require_verified") or False)
 
         if backend == "postgres":
@@ -1098,7 +1096,9 @@ def _ensure_auth_schema(conn) -> None:
         _auth_schema_ensured = True
 
 
-_auth_transaction_connection: ContextVar[Any | None] = ContextVar("auth_transaction_connection", default=None)
+_auth_transaction_connection: ContextVar[Any | None] = ContextVar(
+    "auth_transaction_connection", default=None
+)
 
 
 @contextmanager
@@ -1204,9 +1204,7 @@ class AvatarStore:
         if not uid:
             return False
         with auth_connection() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM user_avatars WHERE user_id = %s", (uid,)
-            ).fetchone()
+            row = conn.execute("SELECT 1 FROM user_avatars WHERE user_id = %s", (uid,)).fetchone()
         return row is not None
 
 
@@ -1310,16 +1308,15 @@ class UserStore:
         fields. Raises if new_email already belongs to another account.
         """
         with auth_connection() as conn:
-            taken = conn.execute(
-                "SELECT 1 FROM users WHERE email = %s", (new_email,)
-            ).fetchone()
+            taken = conn.execute("SELECT 1 FROM users WHERE email = %s", (new_email,)).fetchone()
             if taken:
                 raise ValueError("Email already in use")
             # Re-point every table keyed by the old address, then the user row.
             conn.execute("UPDATE sessions SET email = %s WHERE email = %s", (new_email, old_email))
             conn.execute("UPDATE api_keys SET email = %s WHERE email = %s", (new_email, old_email))
             conn.execute(
-                "UPDATE oauth_refresh_tokens SET email = %s WHERE email = %s", (new_email, old_email)
+                "UPDATE oauth_refresh_tokens SET email = %s WHERE email = %s",
+                (new_email, old_email),
             )
             conn.execute(
                 "UPDATE web_push_subscriptions SET user_email = %s WHERE user_email = %s",
@@ -2996,8 +2993,17 @@ class AgentKeyStore:
                      key_hash, scopes, audience)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (key_id, user_id, tenant_id, client_id, name, key_prefix,
-                 key_hash, scopes, audience),
+                (
+                    key_id,
+                    user_id,
+                    tenant_id,
+                    client_id,
+                    name,
+                    key_prefix,
+                    key_hash,
+                    scopes,
+                    audience,
+                ),
             )
 
     @staticmethod
@@ -3025,8 +3031,11 @@ class AgentKeyStore:
         clause = "" if include_revoked else " AND revoked_at IS NULL"
         with auth_connection() as conn:
             rows = conn.execute(
-                cast(Any, f"SELECT * FROM agent_api_keys WHERE user_id = %s{clause} "
-                          "ORDER BY created_at DESC"),
+                cast(
+                    Any,
+                    f"SELECT * FROM agent_api_keys WHERE user_id = %s{clause} "
+                    "ORDER BY created_at DESC",
+                ),
                 (user_id,),
             ).fetchall()
             return [dict(r) for r in rows]

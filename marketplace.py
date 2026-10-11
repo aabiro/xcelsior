@@ -319,8 +319,14 @@ class MarketplaceEngine:
                    VALUES (%s, %s, %s, %s, %s, %s, %s,
                            (SELECT owner_id FROM jobs WHERE job_id = %s))""",
                 (
-                    allocation_id, offer_id, job_id, gpu_count,
-                    price_cents, allocation_type, now, job_id,
+                    allocation_id,
+                    offer_id,
+                    job_id,
+                    gpu_count,
+                    price_cents,
+                    allocation_type,
+                    now,
+                    job_id,
                 ),
             )
 

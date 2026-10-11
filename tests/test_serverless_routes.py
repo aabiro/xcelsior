@@ -38,9 +38,7 @@ def _register_and_fund() -> dict:
     )
     assert reg.status_code == 200, reg.text[:300]
     reg_body = reg.json()
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text[:200]
     body = login.json()
     user = reg_body.get("user") or body.get("user") or {}
@@ -107,9 +105,7 @@ def test_serverless_endpoint_action_plan_is_approved_and_exactly_once(user_heade
         "max_workers": 1,
         "env": {"HF_TOKEN": "must-be-encrypted"},
     }
-    preview = client.post(
-        "/api/v1/serverless/endpoint-plans", headers=user_headers, json=payload
-    )
+    preview = client.post("/api/v1/serverless/endpoint-plans", headers=user_headers, json=payload)
     assert preview.status_code == 200, preview.text[:500]
     plan = preview.json()
     assert plan["preview"] is True
@@ -138,6 +134,7 @@ def test_serverless_endpoint_action_plan_is_approved_and_exactly_once(user_heade
     assert second.json()["idempotent"] is True
     client.delete(f"/api/v2/serverless/endpoints/{endpoint_id}", headers=user_headers)
     from db import _get_pg_pool
+
     with _get_pg_pool().connection() as conn:
         conn.execute(
             "UPDATE serverless_endpoints SET action_plan_id=NULL WHERE endpoint_id=%s",
@@ -302,7 +299,6 @@ def test_serverless_run_job(user_headers, endpoint_id):
     assert r.json().get("status") == "IN_QUEUE"
     assert r.json().get("id")
     assert r.json().get("warm")
-
 
 
 def test_serverless_openai_models(user_headers, endpoint_id):

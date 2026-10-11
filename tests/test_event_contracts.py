@@ -75,8 +75,11 @@ def test_all_registered_contracts_are_valid_and_secret_free():
 def test_track_a_emitted_names_are_registered_not_renamed():
     registered = {c.event_type for c in CONTRACTS}
     for emitted in (
-        "job.v1.submitted", "job.v1.legacy_status_changed", "job.v1.queue_blocked",
-        "host.v1.status_changed", "pricing.v1.spot_prices_updated",
+        "job.v1.submitted",
+        "job.v1.legacy_status_changed",
+        "job.v1.queue_blocked",
+        "host.v1.status_changed",
+        "pricing.v1.spot_prices_updated",
         "job.v1.placement_reserved",
     ):
         assert emitted in registered, f"Track A emits {emitted} but it is not registered"

@@ -1084,7 +1084,6 @@ def get_reference_rate(
     if spot:
         rate *= 1 - SPOT_DISCOUNT_FACTOR
 
-
     return round(rate, 4)
 
 

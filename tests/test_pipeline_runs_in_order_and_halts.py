@@ -177,9 +177,9 @@ def test_two_executors_do_not_claim_the_same_stage(pipeline):
             second = claim_next_stage(conn_b, pipeline["plan_id"])
 
     assert first is not None
-    assert second is None or second["stage_index"] != first["stage_index"], (
-        "two executors claimed the same stage — it would run twice"
-    )
+    assert (
+        second is None or second["stage_index"] != first["stage_index"]
+    ), "two executors claimed the same stage — it would run twice"
 
 
 def test_materialising_twice_does_not_duplicate_the_graph(pipeline):
@@ -291,7 +291,7 @@ def test_a_stage_that_would_exceed_the_ceiling_never_starts(pipeline):
     """
     from control_plane.pipelines import canonical_graph, run_pipeline
 
-    stages, _ = canonical_graph(THREE_STAGES)   # quotes: 1000, 500, 250
+    stages, _ = canonical_graph(THREE_STAGES)  # quotes: 1000, 500, 250
     ran: list[str] = []
 
     def handler(stage):
@@ -300,13 +300,14 @@ def test_a_stage_that_would_exceed_the_ceiling_never_starts(pipeline):
 
     # Room for train (1000) and evaluate (500) but not serve (250 more = 1750).
     result = run_pipeline(
-        pipeline["plan_id"], pipeline["tenant_id"], stages, handler,
+        pipeline["plan_id"],
+        pipeline["tenant_id"],
+        stages,
+        handler,
         approved_micros=1600,
     )
 
-    assert ran == ["train", "evaluate"], (
-        f"a stage ran past the approved ceiling: {ran}"
-    )
+    assert ran == ["train", "evaluate"], f"a stage ran past the approved ceiling: {ran}"
     rows = _states(pipeline["plan_id"])
     assert [r[1] for r in rows] == ["succeeded", "succeeded", "skipped"]
     assert rows[2][2] == "budget_exceeded"
@@ -332,7 +333,10 @@ def test_an_overrunning_stage_eats_into_what_remains(pipeline):
         return {"ok": True, "spent_micros": 1500 if stage["name"] == "train" else 0}
 
     run_pipeline(
-        pipeline["plan_id"], pipeline["tenant_id"], stages, handler,
+        pipeline["plan_id"],
+        pipeline["tenant_id"],
+        stages,
+        handler,
         approved_micros=1600,
     )
 
@@ -353,7 +357,9 @@ def test_no_ceiling_means_no_refusal(pipeline):
 
     stages, _ = canonical_graph(THREE_STAGES)
     result = run_pipeline(
-        pipeline["plan_id"], pipeline["tenant_id"], stages,
+        pipeline["plan_id"],
+        pipeline["tenant_id"],
+        stages,
         lambda s: {"ok": True, "spent_micros": 10_000},
         approved_micros=0,
     )
@@ -373,9 +379,11 @@ def test_the_ceiling_is_checked_before_the_handler_not_after(pipeline):
     calls: list[str] = []
 
     run_pipeline(
-        pipeline["plan_id"], pipeline["tenant_id"], stages,
+        pipeline["plan_id"],
+        pipeline["tenant_id"],
+        stages,
         lambda s: (calls.append(s["name"]), {"ok": True})[1],
-        approved_micros=1,   # not even the first stage fits
+        approved_micros=1,  # not even the first stage fits
     )
     assert calls == [], "the handler ran for a stage the ceiling had already refused"
     assert [r[1] for r in _states(pipeline["plan_id"])] == ["skipped"] * 3
@@ -393,11 +401,13 @@ def test_continue_proceeds_past_a_failed_stage(pipeline):
     """
     from control_plane.pipelines import canonical_graph, run_pipeline
 
-    stages, _ = canonical_graph([
-        dict(THREE_STAGES[0]),
-        dict(THREE_STAGES[1], on_failure="continue"),
-        dict(THREE_STAGES[2]),
-    ])
+    stages, _ = canonical_graph(
+        [
+            dict(THREE_STAGES[0]),
+            dict(THREE_STAGES[1], on_failure="continue"),
+            dict(THREE_STAGES[2]),
+        ]
+    )
     ran: list[str] = []
 
     def handler(stage):
@@ -406,11 +416,11 @@ def test_continue_proceeds_past_a_failed_stage(pipeline):
 
     result = run_pipeline(pipeline["plan_id"], pipeline["tenant_id"], stages, handler)
 
-    assert ran == ["train", "evaluate", "serve"], (
-        f"`continue` did not continue: {ran}"
-    )
+    assert ran == ["train", "evaluate", "serve"], f"`continue` did not continue: {ran}"
     assert [r[1] for r in _states(pipeline["plan_id"])] == [
-        "succeeded", "failed", "succeeded",
+        "succeeded",
+        "failed",
+        "succeeded",
     ]
     assert result["failed"] is True, "a pipeline containing a failed stage reported clean"
 
@@ -418,10 +428,12 @@ def test_continue_proceeds_past_a_failed_stage(pipeline):
 def test_retry_reattempts_then_succeeds(pipeline):
     from control_plane.pipelines import canonical_graph, run_pipeline
 
-    stages, _ = canonical_graph([
-        dict(THREE_STAGES[0], on_failure="retry", max_attempts=3),
-        dict(THREE_STAGES[1]),
-    ])
+    stages, _ = canonical_graph(
+        [
+            dict(THREE_STAGES[0], on_failure="retry", max_attempts=3),
+            dict(THREE_STAGES[1]),
+        ]
+    )
     attempts: list[str] = []
 
     def handler(stage):
@@ -447,10 +459,12 @@ def test_an_exhausted_retry_halts_rather_than_continuing(pipeline):
     """
     from control_plane.pipelines import canonical_graph, run_pipeline
 
-    stages, _ = canonical_graph([
-        dict(THREE_STAGES[0], on_failure="retry", max_attempts=2),
-        dict(THREE_STAGES[1]),
-    ])
+    stages, _ = canonical_graph(
+        [
+            dict(THREE_STAGES[0], on_failure="retry", max_attempts=2),
+            dict(THREE_STAGES[1]),
+        ]
+    )
     attempts: list[str] = []
 
     def handler(stage):
@@ -477,7 +491,9 @@ def test_retry_never_exceeds_max_attempts(pipeline):
     stages, _ = canonical_graph([dict(THREE_STAGES[0], on_failure="retry", max_attempts=3)])
     attempts = []
     run_pipeline(
-        pipeline["plan_id"], pipeline["tenant_id"], stages,
+        pipeline["plan_id"],
+        pipeline["tenant_id"],
+        stages,
         lambda s: (attempts.append(1), {"ok": False})[1],
     )
     assert len(attempts) == 3, f"ran {len(attempts)} attempts against max_attempts=3"
@@ -499,10 +515,12 @@ def test_a_failed_attempt_still_counts_against_the_ceiling(pipeline):
     """
     from control_plane.pipelines import canonical_graph, run_pipeline
 
-    stages, _ = canonical_graph([
-        dict(THREE_STAGES[0], on_failure="retry", max_attempts=5, estimate_micros=100),
-        dict(THREE_STAGES[1], estimate_micros=100),
-    ])
+    stages, _ = canonical_graph(
+        [
+            dict(THREE_STAGES[0], on_failure="retry", max_attempts=5, estimate_micros=100),
+            dict(THREE_STAGES[1], estimate_micros=100),
+        ]
+    )
     attempts = []
 
     def handler(stage):
@@ -510,7 +528,10 @@ def test_a_failed_attempt_still_counts_against_the_ceiling(pipeline):
         return {"ok": False, "spent_micros": 400, "failure_code": "expensive"}
 
     run_pipeline(
-        pipeline["plan_id"], pipeline["tenant_id"], stages, handler,
+        pipeline["plan_id"],
+        pipeline["tenant_id"],
+        stages,
+        handler,
         approved_micros=900,
     )
 

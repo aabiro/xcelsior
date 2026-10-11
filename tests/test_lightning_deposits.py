@@ -37,8 +37,9 @@ def _ln_enabled(monkeypatch):
     monkeypatch.setattr(ln, "LN_ENABLED", True)
 
 
-def _insert_deposit(deposit_id: str, *, status: str, customer_id: str,
-                    amount_cad: float = 25.0) -> None:
+def _insert_deposit(
+    deposit_id: str, *, status: str, customer_id: str, amount_cad: float = 25.0
+) -> None:
     with pg_transaction() as conn:
         conn.execute(
             """INSERT INTO ln_deposits
@@ -77,12 +78,12 @@ def deposits():
     """Track seeded deposit ids and clean up only those rows."""
     created: list[str] = []
 
-    def _make(status: str, *, customer_id: str | None = None,
-              amount_cad: float = 25.0) -> tuple[str, str]:
+    def _make(
+        status: str, *, customer_id: str | None = None, amount_cad: float = 25.0
+    ) -> tuple[str, str]:
         deposit_id = f"lntest-{uuid.uuid4().hex[:12]}"
         cust = customer_id or f"cust-{uuid.uuid4().hex[:8]}"
-        _insert_deposit(deposit_id, status=status, customer_id=cust,
-                        amount_cad=amount_cad)
+        _insert_deposit(deposit_id, status=status, customer_id=cust, amount_cad=amount_cad)
         created.append(deposit_id)
         return deposit_id, cust
 
@@ -90,9 +91,7 @@ def deposits():
 
     if created:
         with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM ln_deposits WHERE deposit_id = ANY(%s)", (created,)
-            )
+            conn.execute("DELETE FROM ln_deposits WHERE deposit_id = ANY(%s)", (created,))
 
 
 # ───────────────────── query-layer regressions ─────────────────────
@@ -182,13 +181,11 @@ def test_sweep_credits_a_paid_deposit_exactly_once(deposits):
     deposit_id, customer_id = deposits("paid", amount_cad=42.5)
     credits: list[tuple] = []
 
-    ln.process_ln_deposits(
-        credit_callback=lambda c, a, d: credits.append((c, a, d))
-    )
+    ln.process_ln_deposits(credit_callback=lambda c, a, d: credits.append((c, a, d)))
 
-    assert credits == [(customer_id, 42.5, deposit_id)], (
-        f"expected exactly one credit for the paid deposit, got {credits}"
-    )
+    assert credits == [
+        (customer_id, 42.5, deposit_id)
+    ], f"expected exactly one credit for the paid deposit, got {credits}"
     assert _status_of(deposit_id) == "credited"
 
 
@@ -335,12 +332,10 @@ def test_clnrest_tls_context_verifies_certificates():
     """A database transaction cannot compensate for an unverified endpoint."""
     import ssl
 
-    assert ln._ssl_ctx.verify_mode == ssl.CERT_REQUIRED, (
-        "the clnrest SSL context must verify certificates"
-    )
-    assert ln._ssl_ctx.check_hostname is True, (
-        "the clnrest SSL context must verify the hostname"
-    )
+    assert (
+        ln._ssl_ctx.verify_mode == ssl.CERT_REQUIRED
+    ), "the clnrest SSL context must verify certificates"
+    assert ln._ssl_ctx.check_hostname is True, "the clnrest SSL context must verify the hostname"
 
 
 def test_no_sqlite_database_path_remains():
@@ -357,12 +352,12 @@ def test_no_sqlite_database_path_remains():
 @pytest.mark.parametrize(
     "dollars,cents",
     [
-        (0.07, 7),        # 0.07 is 0.070000000000000007 in binary float
+        (0.07, 7),  # 0.07 is 0.070000000000000007 in binary float
         (19.99, 1999),
         (25.0, 2500),
         (1000.00, 100_000),
         (0.01, 1),
-        (1.005, 101),     # ROUND_HALF_UP, the currency convention
+        (1.005, 101),  # ROUND_HALF_UP, the currency convention
         ("12.34", 1234),  # a decimal string never touches float at all
     ],
 )
@@ -408,9 +403,9 @@ def test_new_deposits_store_exact_minor_units(deposits):
     assert rate_exact is not None
     from decimal import Decimal as _D
 
-    assert isinstance(rate_exact, _D), (
-        f"btc_cad_rate_exact must come back as Decimal, got {type(rate_exact)}"
-    )
+    assert isinstance(
+        rate_exact, _D
+    ), f"btc_cad_rate_exact must come back as Decimal, got {type(rate_exact)}"
 
 
 def test_writer_that_omits_typed_columns_still_gets_them(deposits):
@@ -432,9 +427,19 @@ def test_writer_that_omits_typed_columns_still_gets_them(deposits):
                 btc_cad_rate, status, created_at, expires_at)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
-                deposit_id, "cust-legacy", f"lbl-{deposit_id}", "bolt", "hash",
-                1_000_000, 1000, 0.00001, 3_330_000, 99_999.99, "pending",
-                time.time(), time.time() + 3600,
+                deposit_id,
+                "cust-legacy",
+                f"lbl-{deposit_id}",
+                "bolt",
+                "hash",
+                1_000_000,
+                1000,
+                0.00001,
+                3_330_000,
+                99_999.99,
+                "pending",
+                time.time(),
+                time.time() + 3600,
             ),
         )
     try:
@@ -450,9 +455,7 @@ def test_writer_that_omits_typed_columns_still_gets_them(deposits):
         assert row[2] is not None, "trigger did not project expires_at_ts"
     finally:
         with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM ln_deposits WHERE deposit_id = %s", (deposit_id,)
-            )
+            conn.execute("DELETE FROM ln_deposits WHERE deposit_id = %s", (deposit_id,))
 
 
 def test_zero_epoch_sentinels_project_to_null(deposits):
@@ -487,8 +490,7 @@ def test_credit_and_mark_stamp_typed_timestamps(deposits):
 
     with pg_transaction() as conn:
         row = conn.execute(
-            "SELECT credited_at, credited_at_ts FROM ln_deposits "
-            "WHERE deposit_id = %s",
+            "SELECT credited_at, credited_at_ts FROM ln_deposits " "WHERE deposit_id = %s",
             (deposit_id,),
         ).fetchone()
 
@@ -543,8 +545,19 @@ def test_amount_check_constraint_rejects_non_positive():
                     expires_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
-                    deposit_id, "c", f"lbl-{deposit_id}", "b", "h",
-                    0, 0, 0.0, 0.0, 0, 100_000.0, "pending",
-                    time.time(), time.time() + 3600,
+                    deposit_id,
+                    "c",
+                    f"lbl-{deposit_id}",
+                    "b",
+                    "h",
+                    0,
+                    0,
+                    0.0,
+                    0.0,
+                    0,
+                    100_000.0,
+                    "pending",
+                    time.time(),
+                    time.time() + 3600,
                 ),
             )

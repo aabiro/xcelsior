@@ -673,7 +673,10 @@ class TestLifecycleRoutes:
     def test_endpoints_check_job_ownership(self):
         """Ownership check: user can only act on their own instances."""
         assert "Not authorized to {action}" in _ROUTES_SRC
-        assert '_check_job_write_access(user, job_id)' in _ROUTES_SRC or "_check_job_access" in _ROUTES_SRC
+        assert (
+            "_check_job_write_access(user, job_id)" in _ROUTES_SRC
+            or "_check_job_access" in _ROUTES_SRC
+        )
 
     def test_stop_broadcasts_sse_event(self):
         assert "instance_stopped" in _ROUTES_SRC

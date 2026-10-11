@@ -260,9 +260,7 @@ def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
     ), "job_id is required for worker callback / metrics correlation"
 
 
-def test_start_fenced_history_requeues_without_start_container(
-    cleanup_ids, captured_enqueue
-):
+def test_start_fenced_history_requeues_without_start_container(cleanup_ids, captured_enqueue):
     """P5.5 resume: stopped fenced job → queued for new attempt, no start_container."""
     _mkwallet(cleanup_ids, "v2-start@test")
     _mkhost(cleanup_ids, "h-v2-stopped")
@@ -376,9 +374,9 @@ def test_stop_active_fenced_attempt_uses_v2_command_and_stays_stopping(
     assert result.get("status") == "stopping"
     assert captured_enqueue == []
     with _pool.connection() as conn:
-        job_status = conn.execute(
-            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-        ).fetchone()[0]
+        job_status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[
+            0
+        ]
         command = conn.execute(
             """SELECT command, attempt_id, fencing_token, status, args
                  FROM agent_commands
@@ -413,9 +411,7 @@ def _mk_active_lease(job_id, host_id, attempt_id):
     return fence
 
 
-def test_terminate_active_fenced_attempt_enqueues_stop_remove(
-    cleanup_ids, captured_enqueue
-):
+def test_terminate_active_fenced_attempt_enqueues_stop_remove(cleanup_ids, captured_enqueue):
     """P5.5: attempt-owned terminate → fenced stop_attempt (preserve=False)."""
     host_id = "h-v2-terminate"
     _mkhost(cleanup_ids, host_id)
@@ -471,9 +467,7 @@ def test_terminate_active_fenced_attempt_enqueues_stop_remove(
     assert vol_detach_risk == "stopping"
 
 
-def test_terminate_idempotent_second_call_reuses_command(
-    cleanup_ids, captured_enqueue
-):
+def test_terminate_idempotent_second_call_reuses_command(cleanup_ids, captured_enqueue):
     host_id = "h-v2-term-idem"
     _mkhost(cleanup_ids, host_id)
     job_id = _mkjob(
@@ -529,9 +523,7 @@ def test_terminate_enqueue_refuse_leaves_job_running(cleanup_ids, captured_enque
     assert result.get("terminated") is False
     assert result.get("reason") == "no_active_fenced_authority"
     with _pool.connection() as conn:
-        status = conn.execute(
-            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-        ).fetchone()[0]
+        status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
         n_cmd = conn.execute(
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]

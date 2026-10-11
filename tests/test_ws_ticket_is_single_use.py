@@ -105,7 +105,7 @@ def test_a_replayed_ticket_is_refused(path):
 
 
 def test_an_expired_ticket_is_refused(path):
-    """"Short-lived" is the other half of the clause."""
+    """ "Short-lived" is the other half of the clause."""
     issued = _issue(ttl_sec=1)
     time.sleep(1.2)
     assert _consume(issued["ticket"]) is None, f"[{path}] an expired ticket was accepted"
@@ -114,25 +114,25 @@ def test_an_expired_ticket_is_refused(path):
 def test_a_ticket_for_another_purpose_is_refused(path):
     """A ticket minted to stream logs must not open a terminal."""
     issued = _issue()
-    assert _consume(issued["ticket"], purpose="logs") is None, (
-        f"[{path}] a terminal ticket was accepted for a different purpose"
-    )
+    assert (
+        _consume(issued["ticket"], purpose="logs") is None
+    ), f"[{path}] a terminal ticket was accepted for a different purpose"
 
 
 def test_a_ticket_for_another_target_is_refused(path):
     """One instance's ticket must not reach another instance."""
     issued = _issue()
-    assert _consume(issued["ticket"], target="job-2") is None, (
-        f"[{path}] a ticket issued for job-1 was accepted for job-2"
-    )
+    assert (
+        _consume(issued["ticket"], target="job-2") is None
+    ), f"[{path}] a ticket issued for job-1 was accepted for job-2"
 
 
 def test_a_ticket_from_another_address_is_refused(path):
     """The pin that limits a leaked ticket to the network that requested it."""
     issued = _issue()
-    assert _consume(issued["ticket"], ip="198.51.100.4") is None, (
-        f"[{path}] a ticket was accepted from an address it was not issued to"
-    )
+    assert (
+        _consume(issued["ticket"], ip="198.51.100.4") is None
+    ), f"[{path}] a ticket was accepted from an address it was not issued to"
 
 
 def test_an_unknown_ticket_is_refused(path):
@@ -149,6 +149,6 @@ def test_a_refused_replay_does_not_consume_a_second_ticket(path):
     second = _issue()
     assert _consume(first["ticket"]) is not None
     assert _consume(first["ticket"]) is None
-    assert _consume(second["ticket"]) is not None, (
-        f"[{path}] consuming one ticket invalidated another"
-    )
+    assert (
+        _consume(second["ticket"]) is not None
+    ), f"[{path}] consuming one ticket invalidated another"

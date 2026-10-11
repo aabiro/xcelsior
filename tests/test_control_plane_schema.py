@@ -38,7 +38,6 @@ from psycopg.errors import (
     UniqueViolation,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
@@ -125,9 +124,9 @@ class TestSchemaPresence:
                 "gpu_device_allocations",
                 "placement_leases",
             ):
-                assert conn.execute(
-                    "SELECT to_regclass(%s)", (table,)
-                ).fetchone()[0] == table, f"missing table {table}"
+                assert (
+                    conn.execute("SELECT to_regclass(%s)", (table,)).fetchone()[0] == table
+                ), f"missing table {table}"
 
     def test_jobs_control_plane_columns_exist(self):
         with _pool.connection() as conn:
@@ -139,13 +138,30 @@ class TestSchemaPresence:
                 ).fetchall()
             }
         for col in (
-            "tenant_id", "team_id", "owner_id", "desired_state", "phase",
-            "reason_code", "reason_details", "generation", "observed_generation",
-            "version", "active_attempt_id", "spec", "spec_hash", "queued_at",
-            "next_schedule_at", "updated_at", "effective_priority",
-            "fair_share_finish", "schedule_claim_owner", "schedule_claim_token",
-            "schedule_claim_expires_at", "schedule_attempt_count",
-            "last_schedule_conflict_at", "wallet_hold_id",
+            "tenant_id",
+            "team_id",
+            "owner_id",
+            "desired_state",
+            "phase",
+            "reason_code",
+            "reason_details",
+            "generation",
+            "observed_generation",
+            "version",
+            "active_attempt_id",
+            "spec",
+            "spec_hash",
+            "queued_at",
+            "next_schedule_at",
+            "updated_at",
+            "effective_priority",
+            "fair_share_finish",
+            "schedule_claim_owner",
+            "schedule_claim_token",
+            "schedule_claim_expires_at",
+            "schedule_attempt_count",
+            "last_schedule_conflict_at",
+            "wallet_hold_id",
         ):
             assert col in cols, f"jobs missing column {col}"
 
@@ -159,12 +175,24 @@ class TestSchemaPresence:
                 ).fetchall()
             }
         for col in (
-            "tenant_id", "provider_id", "owner_id", "region", "country",
-            "province", "administrative_state", "availability_state",
-            "generation", "observed_generation", "version",
-            "inventory_generation", "last_observed_at",
-            "observation_session_id", "drain_deadline", "drain_reason",
-            "capabilities", "conditions",
+            "tenant_id",
+            "provider_id",
+            "owner_id",
+            "region",
+            "country",
+            "province",
+            "administrative_state",
+            "availability_state",
+            "generation",
+            "observed_generation",
+            "version",
+            "inventory_generation",
+            "last_observed_at",
+            "observation_session_id",
+            "drain_deadline",
+            "drain_reason",
+            "capabilities",
+            "conditions",
         ):
             assert col in cols, f"hosts missing column {col}"
 
@@ -187,9 +215,7 @@ class TestJobProjectionConstraints:
     def test_invalid_phase_normalized_by_trigger(self, cleanup_ids):
         job_id = _mkjob(cleanup_ids, phase="warming_up")
         with _pool.connection() as conn:
-            row = conn.execute(
-                "SELECT phase FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone()
+            row = conn.execute("SELECT phase FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
         assert row[0] == "pending"  # projected from status='queued'
 
     def test_invalid_desired_state_normalized_by_trigger(self, cleanup_ids):
@@ -233,8 +259,7 @@ class TestOneActiveAttemptPerJob:
         with _pool.connection() as conn:
             attempt_id, _ = _mkattempt(conn, job_id, number=1, status="reserved")
             conn.execute(
-                "UPDATE job_attempts SET status='failed', ended_at=now() "
-                "WHERE attempt_id=%s",
+                "UPDATE job_attempts SET status='failed', ended_at=now() " "WHERE attempt_id=%s",
                 (attempt_id,),
             )
             attempt2, fence2 = _mkattempt(conn, job_id, number=2, status="reserved")
@@ -334,8 +359,7 @@ class TestExclusiveAllocation:
             )
             with pytest.raises(CheckViolation):
                 conn.execute(
-                    "UPDATE gpu_device_allocations SET status='released' "
-                    "WHERE attempt_id=%s",
+                    "UPDATE gpu_device_allocations SET status='released' " "WHERE attempt_id=%s",
                     (attempt_id,),
                 )
 
@@ -410,9 +434,7 @@ class TestActiveAttemptPointer:
                 "UPDATE jobs SET active_attempt_id=%s WHERE job_id=%s",
                 (attempt_id, job_id),
             )
-            conn.execute(
-                "DELETE FROM job_attempts WHERE attempt_id=%s", (attempt_id,)
-            )
+            conn.execute("DELETE FROM job_attempts WHERE attempt_id=%s", (attempt_id,))
             row = conn.execute(
                 "SELECT active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
             ).fetchone()
@@ -452,9 +474,7 @@ class TestGpuDeviceInventory:
                    RETURNING gpu_device_id""",
                 (host_id, f"MIG-{uuid.uuid4()}", parent_id),
             ).fetchone()[0]
-            conn.execute(
-                "DELETE FROM host_gpu_devices WHERE gpu_device_id=%s", (parent_id,)
-            )
+            conn.execute("DELETE FROM host_gpu_devices WHERE gpu_device_id=%s", (parent_id,))
             row = conn.execute(
                 "SELECT 1 FROM host_gpu_devices WHERE gpu_device_id=%s", (child_id,)
             ).fetchone()
@@ -475,19 +495,16 @@ def cleanup_commands():
     with _pool.connection() as conn:
         conn.execute("DELETE FROM agent_commands WHERE host_id=%s", (marker,))
         conn.execute("DELETE FROM outbox_events WHERE aggregate_id=%s", (marker,))
-        conn.execute(
-            "DELETE FROM reconciliation_queue WHERE resource_id=%s", (marker,)
-        )
+        conn.execute("DELETE FROM reconciliation_queue WHERE resource_id=%s", (marker,))
         conn.execute("DELETE FROM scheduled_tasks WHERE task_name=%s", (marker,))
-        conn.execute(
-            "DELETE FROM api_idempotency_keys WHERE principal=%s", (marker,)
-        )
+        conn.execute("DELETE FROM api_idempotency_keys WHERE principal=%s", (marker,))
         conn.commit()
 
 
 class TestDurableCommands:
-    def _insert(self, conn, host_id, *, status="pending", idem=None,
-                claim_owner=None, claim_expires=False):
+    def _insert(
+        self, conn, host_id, *, status="pending", idem=None, claim_owner=None, claim_expires=False
+    ):
         return conn.execute(
             """INSERT INTO agent_commands
                    (host_id, command, args, status, idempotency_key,
@@ -528,7 +545,10 @@ class TestDurableCommands:
         host = cleanup_commands
         with _pool.connection() as conn:
             self._insert(
-                conn, host, status="claimed", claim_owner="worker-1",
+                conn,
+                host,
+                status="claimed",
+                claim_owner="worker-1",
                 claim_expires=True,
             )
             conn.commit()
@@ -609,8 +629,7 @@ class TestScheduledTasksAndIdempotency:
         with _pool.connection() as conn:
             with pytest.raises(CheckViolation):
                 conn.execute(
-                    "INSERT INTO scheduled_tasks (task_name, interval_seconds) "
-                    "VALUES (%s, 0)",
+                    "INSERT INTO scheduled_tasks (task_name, interval_seconds) " "VALUES (%s, 0)",
                     (marker,),
                 )
 
@@ -658,12 +677,8 @@ class TestObservations:
                    VALUES (%s, %s, 'boot-1', 'running') RETURNING id""",
                 (obs_id, host_id),
             ).fetchone()[0]
-            conn.execute(
-                "DELETE FROM host_observations WHERE observation_id=%s", (obs_id,)
-            )
-            gone = conn.execute(
-                "SELECT 1 FROM observed_workloads WHERE id=%s", (wl_id,)
-            ).fetchone()
+            conn.execute("DELETE FROM host_observations WHERE observation_id=%s", (obs_id,))
+            gone = conn.execute("SELECT 1 FROM observed_workloads WHERE id=%s", (wl_id,)).fetchone()
             conn.commit()
             assert gone is None
 
@@ -706,9 +721,7 @@ class TestTelemetryTables:
                 assert row[0]["temp"] == 71 and row[1] == 1
         finally:
             with _pool.connection() as conn:
-                conn.execute(
-                    "DELETE FROM telemetry_latest WHERE host_id=%s", (host_id,)
-                )
+                conn.execute("DELETE FROM telemetry_latest WHERE host_id=%s", (host_id,))
                 conn.commit()
 
     def test_telemetry_samples_partition_routing(self, cleanup_ids):
@@ -725,8 +738,7 @@ class TestTelemetryTables:
                 # Current timestamp lands in a monthly partition; a far-future
                 # one lands in the DEFAULT partition instead of erroring.
                 conn.execute(
-                    "INSERT INTO telemetry_samples (host_id, sample) "
-                    "VALUES (%s, '{}'::jsonb)",
+                    "INSERT INTO telemetry_samples (host_id, sample) " "VALUES (%s, '{}'::jsonb)",
                     (host_id,),
                 )
                 conn.execute(
@@ -746,15 +758,12 @@ class TestTelemetryTables:
                 assert total == 2 and in_default == 1
         finally:
             with _pool.connection() as conn:
-                conn.execute(
-                    "DELETE FROM telemetry_samples WHERE host_id=%s", (host_id,)
-                )
+                conn.execute("DELETE FROM telemetry_samples WHERE host_id=%s", (host_id,))
                 conn.commit()
 
     def test_partition_maintenance_task_seeded(self):
         with _pool.connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 INSERT INTO scheduled_tasks (task_name, interval_seconds, payload)
                 VALUES (
                     'telemetry_partition_maintenance',
@@ -762,15 +771,13 @@ class TestTelemetryTables:
                     '{"table": "telemetry_samples", "months_ahead": 2, "retention_months": 6}'::jsonb
                 )
                 ON CONFLICT (task_name) DO NOTHING
-                """
-            )
+                """)
             conn.commit()
             row = conn.execute(
                 "SELECT interval_seconds FROM scheduled_tasks "
                 "WHERE task_name='telemetry_partition_maintenance'"
             ).fetchone()
         assert row is not None and row[0] == 86400
-
 
 
 class TestServiceHeartbeats:
@@ -804,7 +811,5 @@ class TestServiceHeartbeats:
                 assert row[0] == "057" and row[1] is True
         finally:
             with _pool.connection() as conn:
-                conn.execute(
-                    "DELETE FROM service_heartbeats WHERE replica_id=%s", (replica,)
-                )
+                conn.execute("DELETE FROM service_heartbeats WHERE replica_id=%s", (replica,))
                 conn.commit()

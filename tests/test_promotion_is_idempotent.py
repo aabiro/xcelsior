@@ -79,9 +79,13 @@ def promotable(monkeypatch):
             )
 
     principal = {
-        "email": "demo@xcelsior.ca", "user_id": f"user-{tag}", "role": "user",
-        "auth_type": "oauth_access_token", "session_type": "browser",
-        "client_id": "xcelsior-web", "scopes": ["volumes:write", "volumes:read"],
+        "email": "demo@xcelsior.ca",
+        "user_id": f"user-{tag}",
+        "role": "user",
+        "auth_type": "oauth_access_token",
+        "session_type": "browser",
+        "client_id": "xcelsior-web",
+        "scopes": ["volumes:write", "volumes:read"],
         "customer_id": tenant,
     }
     monkeypatch.setattr(_deps, "_get_current_user", lambda request: dict(principal))
@@ -98,7 +102,9 @@ def promotable(monkeypatch):
 
     yield {
         "client": TestClient(api_mod.app),
-        "tenant": tenant, "job_id": job_id, "volume_id": volume_id,
+        "tenant": tenant,
+        "job_id": job_id,
+        "volume_id": volume_id,
     }
 
     with pg_transaction() as conn:
@@ -168,9 +174,7 @@ def test_a_job_with_no_artifacts_is_refused_rather_than_promoted_empty(promotabl
     """An empty promotion would reach `succeeded` having copied nothing, which
     reads to a model as "your weights are saved"."""
     with pg_transaction() as conn:
-        conn.execute(
-            "DELETE FROM storage.artifacts WHERE tenant_id = %s", (promotable["tenant"],)
-        )
+        conn.execute("DELETE FROM storage.artifacts WHERE tenant_id = %s", (promotable["tenant"],))
     r = _promote(promotable)
     assert r.status_code == 409
     assert _rows(promotable["tenant"]) == 0
@@ -184,16 +188,22 @@ def test_the_hold_is_taken_exactly_once_across_a_replay(promotable):
     """
     _promote(promotable)
     with pg_transaction() as conn:
-        held_after_first = int(conn.execute(
-            "SELECT count(*) FROM storage.artifacts "
-            " WHERE tenant_id = %s AND legal_hold = true", (promotable["tenant"],)
-        ).fetchone()[0])
+        held_after_first = int(
+            conn.execute(
+                "SELECT count(*) FROM storage.artifacts "
+                " WHERE tenant_id = %s AND legal_hold = true",
+                (promotable["tenant"],),
+            ).fetchone()[0]
+        )
     _promote(promotable)
     with pg_transaction() as conn:
-        held_after_replay = int(conn.execute(
-            "SELECT count(*) FROM storage.artifacts "
-            " WHERE tenant_id = %s AND legal_hold = true", (promotable["tenant"],)
-        ).fetchone()[0])
+        held_after_replay = int(
+            conn.execute(
+                "SELECT count(*) FROM storage.artifacts "
+                " WHERE tenant_id = %s AND legal_hold = true",
+                (promotable["tenant"],),
+            ).fetchone()[0]
+        )
 
     assert held_after_first == 2, "the first call did not hold the manifest"
     assert held_after_replay == 2, "a replay changed the hold"

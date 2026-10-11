@@ -21,10 +21,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0]
-            is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -173,27 +170,17 @@ def test_sse_payload_for_queue_blocked_and_spot_prices():
 def test_persist_queue_reason_appends_queue_blocked_outbox(cleanup, monkeypatch):
     import scheduler as sched
 
-    job = sched.submit_job(
-        f"qb-{uuid.uuid4().hex[:6]}", 8.0, tier="on-demand"
-    )
+    job = sched.submit_job(f"qb-{uuid.uuid4().hex[:6]}", 8.0, tier="on-demand")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
-    durable = sched._persist_queue_reason(
-        job, "insufficient_vram", "Not enough free VRAM"
-    )
+    durable = sched._persist_queue_reason(job, "insufficient_vram", "Not enough free VRAM")
     assert durable is True
 
-    rows = [
-        r
-        for r in _outbox_for(job_id)
-        if r["event_type"] == "job.v1.queue_blocked"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.queue_blocked"]
     assert len(rows) >= 1
     payload = _payload(rows[-1])
     assert payload.get("error") == "insufficient_vram"
@@ -224,9 +211,7 @@ def test_binpack_skip_path_uses_outbox_not_dual_emit(cleanup, monkeypatch):
     cleanup["jobs"].append(job_id)
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
     # Clear process-local throttle so this job is eligible.
     sched._job_error_notified.clear()
 
@@ -236,56 +221,39 @@ def test_binpack_skip_path_uses_outbox_not_dual_emit(cleanup, monkeypatch):
     assigned = sched.process_queue_binpack()
     assert assigned == [] or isinstance(assigned, list)
 
-    rows = [
-        r
-        for r in _outbox_for(job_id)
-        if r["event_type"] == "job.v1.queue_blocked"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.queue_blocked"]
     assert len(rows) >= 1, f"expected queue_blocked outbox for {job_id}"
-    assert [c for c in emit_calls if c[0] == "job_error"] == [], (
-        f"dual fan-out when outbox durable: {emit_calls}"
-    )
+    assert [
+        c for c in emit_calls if c[0] == "job_error"
+    ] == [], f"dual fan-out when outbox durable: {emit_calls}"
 
 
 def test_queue_blocked_outbox_dispatches_to_notify(cleanup):
     import scheduler as sched
 
-    job = sched.submit_job(
-        f"qb-listen-{uuid.uuid4().hex[:6]}", 8.0, tier="on-demand"
-    )
+    job = sched.submit_job(f"qb-listen-{uuid.uuid4().hex[:6]}", 8.0, tier="on-demand")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 
-    assert sched._persist_queue_reason(
-        job, "no_hosts_online", "No GPU hosts online"
-    )
+    assert sched._persist_queue_reason(job, "no_hosts_online", "No GPU hosts online")
 
     def _has_mine(msgs):
         return any(
-            m.get("type") == "job_error"
-            and m.get("data", {}).get("job_id") == job_id
-            for m in msgs
+            m.get("type") == "job_error" and m.get("data", {}).get("job_id") == job_id for m in msgs
         )
 
     with _Listener() as listener:
-        messages = listener.drain_until(
-            _has_mine, dispatcher_id=f"qb-{uuid.uuid4().hex[:6]}"
-        )
+        messages = listener.drain_until(_has_mine, dispatcher_id=f"qb-{uuid.uuid4().hex[:6]}")
 
     mine = [
         m
         for m in messages
-        if m.get("type") == "job_error"
-        and m.get("data", {}).get("job_id") == job_id
+        if m.get("type") == "job_error" and m.get("data", {}).get("job_id") == job_id
     ]
     assert mine, f"no NOTIFY job_error for {job_id}"
     assert mine[0]["data"].get("error") == "no_hosts_online"
 
-    rows = [
-        r
-        for r in _outbox_for(job_id)
-        if r["event_type"] == "job.v1.queue_blocked"
-    ]
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.queue_blocked"]
     assert rows and rows[-1]["published_at"] is not None
 
 
@@ -296,9 +264,7 @@ def test_update_spot_prices_appends_outbox(cleanup, monkeypatch):
     import scheduler as sched
 
     emit_calls: list = []
-    monkeypatch.setattr(
-        sched, "emit_event", lambda et, data: emit_calls.append((et, data))
-    )
+    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
     # Force a non-empty price map without depending on live catalog state.
     fake_prices = {"RTX 4090": 0.55, "A100 40GB": 1.25}
@@ -306,9 +272,7 @@ def test_update_spot_prices_appends_outbox(cleanup, monkeypatch):
     def _fake_update():
         return dict(fake_prices)
 
-    monkeypatch.setattr(
-        "spot_pricing.update_all_spot_prices", _fake_update
-    )
+    monkeypatch.setattr("spot_pricing.update_all_spot_prices", _fake_update)
     # Also patch import path used inside update_spot_prices.
     import spot_pricing as sp
 
@@ -317,11 +281,7 @@ def test_update_spot_prices_appends_outbox(cleanup, monkeypatch):
     result = sched.update_spot_prices()
     assert result == fake_prices
 
-    rows = [
-        r
-        for r in _outbox_for("spot")
-        if r["event_type"] == "pricing.v1.spot_prices_updated"
-    ]
+    rows = [r for r in _outbox_for("spot") if r["event_type"] == "pricing.v1.spot_prices_updated"]
     assert len(rows) >= 1, f"no spot outbox: {_outbox_for('spot')}"
     payload = _payload(rows[-1])
     prices = payload.get("prices") or {}
@@ -349,9 +309,7 @@ def test_spot_prices_outbox_dispatches_to_notify(cleanup, monkeypatch):
         )
 
     with _Listener() as listener:
-        messages = listener.drain_until(
-            _has_mine, dispatcher_id=f"sp-{uuid.uuid4().hex[:6]}"
-        )
+        messages = listener.drain_until(_has_mine, dispatcher_id=f"sp-{uuid.uuid4().hex[:6]}")
 
     mine = [
         m

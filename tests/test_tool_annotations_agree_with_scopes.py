@@ -168,9 +168,10 @@ def test_every_destructive_tool_requires_a_mutating_scope():
         for tool in sorted(_named_set("DESTRUCTIVE"))
         if tool in scopes and not _is_mutating(scopes[tool])
     ]
-    assert not offenders, (
-        "these tools are published as destructive but require only a read "
-        "scope: " + "; ".join(offenders)
+    assert (
+        not offenders
+    ), "these tools are published as destructive but require only a read " "scope: " + "; ".join(
+        offenders
     )
 
 
@@ -235,9 +236,9 @@ def test_the_scope_registry_still_types_the_other_tables():
         "widens the key type to string and silently disables every "
         "completeness check in this package."
     )
-    assert "export type ToolName = keyof typeof TOOL_SCOPE_REGISTRY;" in text, (
-        "ToolName is no longer derived from the registry's key set"
-    )
+    assert (
+        "export type ToolName = keyof typeof TOOL_SCOPE_REGISTRY;" in text
+    ), "ToolName is no longer derived from the registry's key set"
 
 
 def test_the_policy_and_description_tables_are_keyed_by_tool_name():

@@ -34,7 +34,8 @@ def run_replica(dsn: str, replica_id: str, host_ids: list[str], marker: str) -> 
                 # Scoped to this test's jobs (gpu_model carries the marker)
                 # so replicas never churn on shared-DB residue.
                 claimed = claim_next_job(
-                    conn, replica_id=replica_id,
+                    conn,
+                    replica_id=replica_id,
                     scope_gpu_models=[f"stress-{marker}"],
                 )
                 conn.commit()
@@ -53,8 +54,11 @@ def run_replica(dsn: str, replica_id: str, host_ids: list[str], marker: str) -> 
             # test DB gets its claim released untouched.
             if not claimed.job_id.startswith(f"job-{marker}"):
                 release_claim(
-                    conn, claimed.job_id, claimed.claim_token,
-                    reason_code="foreign_test_job", requeue_delay_sec=30.0,
+                    conn,
+                    claimed.job_id,
+                    claimed.claim_token,
+                    reason_code="foreign_test_job",
+                    requeue_delay_sec=30.0,
                 )
                 conn.commit()
                 continue
@@ -85,8 +89,11 @@ def run_replica(dsn: str, replica_id: str, host_ids: list[str], marker: str) -> 
                 # All candidates conflicted: durable reason + long backoff
                 # so this replica set stops re-claiming a hopeless job.
                 release_claim(
-                    conn, claimed.job_id, claimed.claim_token,
-                    reason_code="no_capacity", requeue_delay_sec=3600.0,
+                    conn,
+                    claimed.job_id,
+                    claimed.claim_token,
+                    reason_code="no_capacity",
+                    requeue_delay_sec=3600.0,
                 )
                 conn.commit()
                 stats["released"] += 1

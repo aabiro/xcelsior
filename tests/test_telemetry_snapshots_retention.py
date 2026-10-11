@@ -21,7 +21,9 @@ def test_retention_runs_against_the_real_postgres_column_type():
     with pg_connection() as conn:
         # Shadow the table on this connection using the migrated schema's
         # types. Never delete the test suite's shared telemetry records.
-        conn.execute("CREATE TEMP TABLE telemetry_snapshots ON COMMIT DROP AS SELECT * FROM public.telemetry_snapshots WITH NO DATA")
+        conn.execute(
+            "CREATE TEMP TABLE telemetry_snapshots ON COMMIT DROP AS SELECT * FROM public.telemetry_snapshots WITH NO DATA"
+        )
         conn.execute("""
             INSERT INTO telemetry_snapshots (id, recorded_at)
             VALUES (1, EXTRACT(EPOCH FROM now() - interval '20 days')),
@@ -65,7 +67,9 @@ def test_telemetry_retention_task_wires_to_db(monkeypatch):
         def __exit__(self, *args):
             pass
 
-    monkeypatch.setattr("control_plane.telemetry_retention.pg_connection", lambda: MockPoolContext())
+    monkeypatch.setattr(
+        "control_plane.telemetry_retention.pg_connection", lambda: MockPoolContext()
+    )
 
     result = telemetry_retention_task()
     assert result["ok"] is True

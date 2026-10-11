@@ -117,8 +117,12 @@ def test_user_images_sweeper_registered_with_300s_interval():
 def test_is_fenced_history_job_classifier():
     import bg_worker
 
-    assert bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=False) is False
-    assert bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=False) is True
+    assert (
+        bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=False) is False
+    )
+    assert (
+        bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=False) is True
+    )
     assert bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=True) is True
     assert bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=True) is True
 

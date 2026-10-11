@@ -1158,6 +1158,7 @@ def cmd_config(args):
 
 def main():
     import sys
+
     if "-h" not in sys.argv and "--help" not in sys.argv:
         print(
             "Note: xcelsior CLI is an ADMIN-ONLY operator tool with in-process scheduler access.",
@@ -1285,9 +1286,10 @@ def main():
     p_haddca.add_argument("--free-vram", type=float, default=None, help="Free VRAM (GB)")
     p_haddca.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
     p_haddca.add_argument("--country", default="", help="ISO country code, e.g. CA, US, DE")
-    p_haddca.add_argument("--region", default="", help="Region or sub-national code, e.g. ON, CA-west")
+    p_haddca.add_argument(
+        "--region", default="", help="Region or sub-national code, e.g. ON, CA-west"
+    )
     p_haddca.set_defaults(func=cmd_host_add_located)
-
 
     # xcelsior host-profile [profile]
     p_hprofile = sub.add_parser("host-profile", help="Show reusable provider host profiles")
@@ -1325,7 +1327,6 @@ def main():
     p_haccept.add_argument("--json", action="store_true", help="Print report JSON")
     p_haccept.set_defaults(func=cmd_host_accept)
 
-
     # xcelsior pool
     p_pool = sub.add_parser("pool", help="List autoscale pool")
     p_pool.set_defaults(func=cmd_pool)
@@ -1361,7 +1362,9 @@ def main():
     p_mlist.add_argument("--vram", type=float, required=True, help="VRAM (GB)")
     p_mlist.add_argument("--price", type=float, required=True, help="Price per hour")
     p_mlist.add_argument("--region", default="", help="Region (e.g. ca-on, us-east)")
-    p_mlist.add_argument("--province", default="", choices=[""] + CA_PROVINCES, help="Province/territory code")
+    p_mlist.add_argument(
+        "--province", default="", choices=[""] + CA_PROVINCES, help="Province/territory code"
+    )
     p_mlist.add_argument("--desc", default="", help="Description")
     p_mlist.add_argument("--owner", default="anonymous", help="Owner name")
     p_mlist.set_defaults(func=cmd_market_list)
@@ -1470,7 +1473,6 @@ def main():
     p_lb.add_argument("--type", default="host", help="Entity type (host/user)")
     p_lb.add_argument("--limit", type=int, default=10, help="Number of entries")
     p_lb.set_defaults(func=cmd_leaderboard)
-
 
     # ── v2.2 CLI Commands ─────────────────────────────────────────────
 

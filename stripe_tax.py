@@ -175,9 +175,9 @@ def calculate_wallet_deposit_tax(
             breakdown.append(
                 {
                     "amount": int(getattr(b, "amount", 0) or 0),
-                    "percentage": float(getattr(rate, "percentage_decimal", 0) or 0)
-                    if rate
-                    else 0.0,
+                    "percentage": (
+                        float(getattr(rate, "percentage_decimal", 0) or 0) if rate else 0.0
+                    ),
                     "tax_type": getattr(rate, "tax_type", "") if rate else "",
                     "state": getattr(rate, "state", "") if rate else "",
                     "country": getattr(rate, "country", "") if rate else "",

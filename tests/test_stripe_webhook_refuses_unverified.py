@@ -90,9 +90,7 @@ def stripe_enabled_with_a_secret(monkeypatch):
 
     if not getattr(sc, "STRIPE_ENABLED", False) or sc.stripe is None:
         pytest.skip("stripe SDK not enabled in this environment")
-    monkeypatch.setattr(
-        sc, "_webhook_secret_candidates", lambda: ["whsec_the_configured_one"]
-    )
+    monkeypatch.setattr(sc, "_webhook_secret_candidates", lambda: ["whsec_the_configured_one"])
     return sc
 
 
@@ -116,12 +114,8 @@ def test_a_wrong_signature_is_refused_with_400(stripe_enabled_with_a_secret):
 
 def test_a_missing_signature_header_is_refused_with_400(stripe_enabled_with_a_secret):
     """No header at all is the same failure with less effort."""
-    r = client.post(
-        WEBHOOK_PATH, content=_body(), headers={"Content-Type": "application/json"}
-    )
-    assert r.status_code == 400, (
-        f"an unsigned body was answered {r.status_code}: {r.text[:200]}"
-    )
+    r = client.post(WEBHOOK_PATH, content=_body(), headers={"Content-Type": "application/json"})
+    assert r.status_code == 400, f"an unsigned body was answered {r.status_code}: {r.text[:200]}"
 
 
 def test_a_missing_secret_is_503_not_400(monkeypatch):

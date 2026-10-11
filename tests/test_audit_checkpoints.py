@@ -102,7 +102,9 @@ def test_key_rotation_preserves_old_manifest(monkeypatch):
         cid = create_checkpoint(conn, interval_start=start, interval_end=end)  # signed v1
         conn.commit()
     # Rotate: v2 active, v1 RETAINED → the old manifest still verifies.
-    monkeypatch.setenv("XCELSIOR_AUDIT_SIGNING_KEYS", json.dumps({"v1": "secret-one", "v2": "secret-two"}))
+    monkeypatch.setenv(
+        "XCELSIOR_AUDIT_SIGNING_KEYS", json.dumps({"v1": "secret-one", "v2": "secret-two"})
+    )
     monkeypatch.setenv("XCELSIOR_AUDIT_SIGNING_ACTIVE", "v2")
     with _pool.connection() as conn:
         assert verify_checkpoint(conn, cid) == (True, "ok")
@@ -119,9 +121,15 @@ def test_checkpoints_chain_prev_manifest_hash():
         c1 = create_checkpoint(conn, interval_start=start, interval_end=end)
         conn.commit()
     with _pool.connection() as conn:
-        c2 = create_checkpoint(conn, interval_start="2026-07-11 00:00:00+00", interval_end="2026-07-12 00:00:00+00")
+        c2 = create_checkpoint(
+            conn, interval_start="2026-07-11 00:00:00+00", interval_end="2026-07-12 00:00:00+00"
+        )
         conn.commit()
     with _pool.connection() as conn:
-        h1 = conn.execute("SELECT manifest_sha256 FROM audit_checkpoints WHERE checkpoint_id=%s", (c1,)).fetchone()[0]
-        prev2 = conn.execute("SELECT prev_manifest_hash FROM audit_checkpoints WHERE checkpoint_id=%s", (c2,)).fetchone()[0]
+        h1 = conn.execute(
+            "SELECT manifest_sha256 FROM audit_checkpoints WHERE checkpoint_id=%s", (c1,)
+        ).fetchone()[0]
+        prev2 = conn.execute(
+            "SELECT prev_manifest_hash FROM audit_checkpoints WHERE checkpoint_id=%s", (c2,)
+        ).fetchone()[0]
     assert prev2 == h1  # the second manifest chains the first

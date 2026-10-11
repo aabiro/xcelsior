@@ -62,9 +62,9 @@ def test_the_prefix_carries_the_trailing_slash_that_makes_this_work():
     Dropping the slash reintroduces the bug and every parametrised case above
     still reads plausibly to someone skimming.
     """
-    assert "/host/" in AgentIngressMiddleware.WORKER_PREFIXES, (
-        "the worker prefix lost its trailing slash; /hosts is swallowed again"
-    )
-    assert "/host" not in AgentIngressMiddleware.WORKER_PREFIXES, (
-        "a bare '/host' prefix matches '/hosts' by startswith"
-    )
+    assert (
+        "/host/" in AgentIngressMiddleware.WORKER_PREFIXES
+    ), "the worker prefix lost its trailing slash; /hosts is swallowed again"
+    assert (
+        "/host" not in AgentIngressMiddleware.WORKER_PREFIXES
+    ), "a bare '/host' prefix matches '/hosts' by startswith"

@@ -103,11 +103,16 @@ def test_no_wildcard_scope_survives_in_either_layer():
     # because a worker test failed. A grep for the pattern finds it directly.
     for module in sorted((ROOT / "routes").glob("*.py")):
         body = module.read_text(encoding="utf-8")
-        for pattern in ('"api" in granted', '"api" not in held', '"api" in held',
-                        '"api" in scopes', '"api" in user'):
+        for pattern in (
+            '"api" in granted',
+            '"api" not in held',
+            '"api" in held',
+            '"api" in scopes',
+            '"api" in user',
+        ):
             assert pattern not in body, f"{module.name} reintroduces an `api` bypass: {pattern}"
 
     auth = (ROOT / "routes" / "auth.py").read_text(encoding="utf-8")
-    assert 'default_factory=lambda: ["api"]' not in auth, (
-        "client registration defaults to a wildcard scope again"
-    )
+    assert (
+        'default_factory=lambda: ["api"]' not in auth
+    ), "client registration defaults to a wildcard scope again"

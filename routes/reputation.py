@@ -87,7 +87,9 @@ def api_trust_tiers(request: Request):
 
 
 @router.get("/api/reputation/leaderboard", tags=["Reputation"])
-def api_reputation_leaderboard(request: Request, entity_type: str = "host", limit: int = Query(20, ge=1, le=1000)):
+def api_reputation_leaderboard(
+    request: Request, entity_type: str = "host", limit: int = Query(20, ge=1, le=1000)
+):
     """Top hosts/users by reputation score."""
     user = _require_auth(request)
     _require_scope(user, "reputation:read")
@@ -195,8 +197,7 @@ def _journey_signals(user: dict) -> dict[str, int]:
     has_sms = False
     try:
         has_sms = any(
-            m.get("method_type") == "sms" and m.get("enabled")
-            for m in MfaStore.list_methods(email)
+            m.get("method_type") == "sms" and m.get("enabled") for m in MfaStore.list_methods(email)
         )
     except Exception:
         has_sms = False
@@ -295,7 +296,13 @@ def api_reputation_journey(request: Request):
     _require_scope(user, "reputation:read")
     subject = _reputation_subject_id(user)
     if not subject:
-        return {"ok": True, "milestones": [], "claimable_count": 0, "completed_count": 0, "total_count": 0}
+        return {
+            "ok": True,
+            "milestones": [],
+            "claimable_count": 0,
+            "completed_count": 0,
+            "total_count": 0,
+        }
     return {"ok": True, **_build_journey(user, subject)}
 
 

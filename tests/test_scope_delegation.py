@@ -117,8 +117,7 @@ def _oauthstore_methods_writing_scopes() -> set[str]:
     """Methods of `OAuthStore` whose body mentions the scopes column."""
     tree = ast.parse(DB.read_text(encoding="utf-8"))
     store = next(
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.ClassDef) and n.name == "OAuthStore"
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "OAuthStore"
     )
     writing = set()
     for fn in store.body:
@@ -141,8 +140,7 @@ def _oauthstore_methods_writing_scopes() -> set[str]:
 def _methods_calling_the_guard() -> set[str]:
     tree = ast.parse(DB.read_text(encoding="utf-8"))
     store = next(
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.ClassDef) and n.name == "OAuthStore"
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "OAuthStore"
     )
     calling = set()
     for fn in store.body:
@@ -259,12 +257,18 @@ def test_the_system_allowlist_covers_what_the_system_paths_actually_use():
     from oauth_registration import CONNECTOR_ALLOWED_SCOPES
     from oauth_service import MCP_QUICK_CONNECT_SCOPES
 
-    actually_used = set(MCP_QUICK_CONNECT_SCOPES) | set(CONNECTOR_ALLOWED_SCOPES) | {
-        # the seeded first-party clients
-        "profile", "email", "offline_access",
-        # the legacy blanket scope on seeded machine clients
-        "api",
-    }
+    actually_used = (
+        set(MCP_QUICK_CONNECT_SCOPES)
+        | set(CONNECTOR_ALLOWED_SCOPES)
+        | {
+            # the seeded first-party clients
+            "profile",
+            "email",
+            "offline_access",
+            # the legacy blanket scope on seeded machine clients
+            "api",
+        }
+    )
     missing = sorted(actually_used - SYSTEM_ALLOWED_SCOPES)
     assert not missing, (
         f"the system paths use {missing}, which SYSTEM_ALLOWED_SCOPES does not "

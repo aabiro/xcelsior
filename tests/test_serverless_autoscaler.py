@@ -158,7 +158,9 @@ class TestReaper:
     def test_stale_heartbeat_reaps_worker(self, owner_id):
         repo = ServerlessRepo()
         ep = repo.create_endpoint(
-            EndpointCreate(owner_id=owner_id, name="reap", mode="preset", model_ref="m", min_workers=0)
+            EndpointCreate(
+                owner_id=owner_id, name="reap", mode="preset", model_ref="m", min_workers=0
+            )
         )
         worker = repo.create_worker(str(ep["endpoint_id"]), scheduler_job_id="sched-x")
         repo.update_worker(
@@ -190,15 +192,18 @@ class TestReaper:
             "scaling_policy_type": "queue_request_count",
             "scaling_policy_value": 1,
         }
-        with patch.object(svc.repo, "list_workers_stale_heartbeat", return_value=[]), patch.object(
-            svc.repo, "list_jobs_past_request_timeout", return_value=[]
-        ), patch.object(svc.repo, "list_stuck_booting_workers", return_value=[worker]), patch.object(
-            svc.repo, "list_booting_workers", return_value=[]
-        ), patch.object(svc.repo, "get_endpoint", return_value=ep), patch.object(
-            svc, "deprovision_worker"
-        ), patch.object(svc, "_endpoint_needs_workers", return_value=True), patch.object(
-            svc, "provision_worker", return_value={"worker_id": "swk-new"}
-        ) as mock_prov:
+        with (
+            patch.object(svc.repo, "list_workers_stale_heartbeat", return_value=[]),
+            patch.object(svc.repo, "list_jobs_past_request_timeout", return_value=[]),
+            patch.object(svc.repo, "list_stuck_booting_workers", return_value=[worker]),
+            patch.object(svc.repo, "list_booting_workers", return_value=[]),
+            patch.object(svc.repo, "get_endpoint", return_value=ep),
+            patch.object(svc, "deprovision_worker"),
+            patch.object(svc, "_endpoint_needs_workers", return_value=True),
+            patch.object(
+                svc, "provision_worker", return_value={"worker_id": "swk-new"}
+            ) as mock_prov,
+        ):
             from serverless.reaper import reap_all
 
             stats = reap_all(svc)

@@ -105,9 +105,9 @@ def test_each_lever_still_refuses_an_anonymous_caller(handler):
         "this became _require_auth, the route now admits anonymous callers as "
         "admin wherever AUTH_REQUIRED is false"
     )
-    assert 'raise HTTPException(401, "Not authenticated")' in source, (
-        f"{handler} lost its explicit anonymous refusal"
-    )
+    assert (
+        'raise HTTPException(401, "Not authenticated")' in source
+    ), f"{handler} lost its explicit anonymous refusal"
 
 
 def test_require_scope_is_a_no_op_for_interactive_sessions():

@@ -46,7 +46,11 @@ def hosts():
 def _queue(conn, host_id, *, command=sweep.REVERIFY_COMMAND, status="pending", ttl=600):
     # `ck_agent_commands_claim_shape` requires an owner and an expiry on a
     # claimed row — a claim that names nobody is not a claim.
-    claim = ("worker-1", "clock_timestamp() + interval '5 min'") if status == "claimed" else (None, "NULL")
+    claim = (
+        ("worker-1", "clock_timestamp() + interval '5 min'")
+        if status == "claimed"
+        else (None, "NULL")
+    )
     conn.execute(
         f"""INSERT INTO agent_commands
               (host_id, command, args, status, created_at, expires_at,
@@ -72,8 +76,13 @@ def asked(monkeypatch):
 
     def _enqueue(host_id, command, args=None, created_by=None, ttl_sec=900):
         calls.append(
-            {"host_id": host_id, "command": command, "args": args or {},
-             "created_by": created_by, "ttl_sec": ttl_sec}
+            {
+                "host_id": host_id,
+                "command": command,
+                "args": args or {},
+                "created_by": created_by,
+                "ttl_sec": ttl_sec,
+            }
         )
         return len(calls)
 
@@ -104,9 +113,9 @@ def test_the_command_is_in_both_allowlists():
     from routes.agent import _AGENT_COMMAND_ALLOWED as api_side
 
     assert sweep.REVERIFY_COMMAND in api_side, "the API would reject the enqueue"
-    assert sweep.REVERIFY_COMMAND in worker_agent._AGENT_COMMAND_ALLOWED, (
-        "the agent would hard-refuse the command the sweep sends"
-    )
+    assert (
+        sweep.REVERIFY_COMMAND in worker_agent._AGENT_COMMAND_ALLOWED
+    ), "the agent would hard-refuse the command the sweep sends"
 
 
 # ── The pass itself ───────────────────────────────────────────────────
@@ -122,8 +131,7 @@ def test_every_overdue_host_is_asked_once(monkeypatch, hosts, asked):
     assert {c["command"] for c in asked} == {sweep.REVERIFY_COMMAND}
     assert asked[0]["created_by"] == "verification_sweep"
     assert asked[0]["ttl_sec"] == sweep.SWEEP_INTERVAL_SEC, (
-        "a request that outlives the interval lets a backlog build for an "
-        "offline host"
+        "a request that outlives the interval lets a backlog build for an " "offline host"
     )
 
 
@@ -205,8 +213,12 @@ def test_nothing_due_asks_nobody(monkeypatch, asked):
     _with_due(monkeypatch, [])
     summary = sweep.run_sweep()
     assert summary == {
-        "enabled": True, "due": 0, "asked": 0,
-        "already_pending": 0, "failed": 0, "skipped_over_limit": 0,
+        "enabled": True,
+        "due": 0,
+        "asked": 0,
+        "already_pending": 0,
+        "failed": 0,
+        "skipped_over_limit": 0,
     }
     assert asked == []
 
@@ -248,9 +260,9 @@ def test_the_real_due_query_finds_the_production_condition(hosts, asked):
 
     try:
         summary = sweep.run_sweep()
-        assert overdue in {c["host_id"] for c in asked}, (
-            "the sweep did not ask the host whose stamp is months past due"
-        )
+        assert overdue in {
+            c["host_id"] for c in asked
+        }, "the sweep did not ask the host whose stamp is months past due"
         assert current not in {c["host_id"] for c in asked}
         assert unverified not in {c["host_id"] for c in asked}, (
             "an unverified host has nothing to re-verify; asking it would burn a "
@@ -315,9 +327,9 @@ def test_expired_commands_are_pruned_without_an_agent_draining():
     host = f"prune-{tag}"
     try:
         with pg_transaction() as conn:
-            _queue(conn, host, ttl=-60)      # expired
-            _queue(conn, host, ttl=-120)     # expired
-            _queue(conn, host, ttl=3600)     # live
+            _queue(conn, host, ttl=-60)  # expired
+            _queue(conn, host, ttl=-120)  # expired
+            _queue(conn, host, ttl=3600)  # live
             before = conn.execute(
                 "SELECT count(*) FROM agent_commands WHERE host_id = %s", (host,)
             ).fetchone()[0]

@@ -27,9 +27,7 @@ def user_headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Host Cov"},
     ).json()
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200
     return {
         "email": email,
@@ -63,8 +61,7 @@ def test_hosts_register_web(user_headers):
     from marketplace import get_marketplace_engine
 
     assert all(
-        listing.get("host_id") != host["host_id"]
-        for listing in get_marketplace(active_only=True)
+        listing.get("host_id") != host["host_id"] for listing in get_marketplace(active_only=True)
     )
     assert get_marketplace_engine().get_offer_for_host(host["host_id"]) is None
 

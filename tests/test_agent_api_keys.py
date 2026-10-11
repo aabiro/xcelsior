@@ -173,7 +173,9 @@ class TestRotation:
 
     def test_listing_excludes_revoked_keys(self, user):
         bundle = _issue(user)
-        assert any(k["key_id"] == bundle["key_id"] for k in AgentKeyStore.list_for_user(user["user_id"]))
+        assert any(
+            k["key_id"] == bundle["key_id"] for k in AgentKeyStore.list_for_user(user["user_id"])
+        )
         AgentKeyStore.revoke(bundle["key_id"], user["user_id"])
         assert not any(
             k["key_id"] == bundle["key_id"] for k in AgentKeyStore.list_for_user(user["user_id"])

@@ -63,6 +63,7 @@ def auth_enforced():
     finally:
         deps.AUTH_REQUIRED = original
 
+
 _LEGAL_REQUEST = {
     "request_type": "subpoena",
     "requesting_country": "CA",
@@ -121,9 +122,7 @@ def test_the_handlers_do_not_make_the_scope_check_conditional():
     for name in ("api_record_legal_request", "api_respond_legal_request"):
         source = inspect.getsource(getattr(mod, name))
         # Comments describe the defect on purpose; only executable lines count.
-        code = "\n".join(
-            line for line in source.splitlines() if not line.lstrip().startswith("#")
-        )
+        code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
         assert "if user:" not in code, (
             f"{name} guards its scope check behind `if user:`, so an "
             "unauthenticated caller skips it entirely"

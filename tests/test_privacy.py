@@ -444,7 +444,3 @@ class TestRetentionSummary:
         summary = self.mgr.get_retention_summary()
         assert "logs" in summary["policies"]
         assert summary["policies"]["logs"]["retention_days"] == 7
-
-
-
-

@@ -870,7 +870,10 @@ class TestDockerClientFactory:
         monkeypatch.setenv("XCELSIOR_SSH_KEY_PATH", str(missing_key))
         monkeypatch.setattr(term_mod, "_ensure_remote_host_key_pinned", lambda *_: None)
 
-        with patch("docker.DockerClient") as mock_cls, pytest.raises(term_mod.DockerException) as exc:
+        with (
+            patch("docker.DockerClient") as mock_cls,
+            pytest.raises(term_mod.DockerException) as exc,
+        ):
             term_mod._docker_client(host_ip="10.0.0.5", ssh_user="xcelsior")
 
         mock_cls.assert_not_called()
@@ -1172,7 +1175,11 @@ class TestWsInstanceResolution:
     def test_all_startup_states_wait_and_surface_the_actual_failure(self, monkeypatch, status):
         monkeypatch.setattr(term_mod, "_validate_ws_auth", lambda *a, **kw: {"user_id": "user-1"})
         initial = {"job_id": "startup", "owner": "user-1", "status": status}
-        failed = {**initial, "status": "failed", "error_message": "required volume mount failed: test-volume"}
+        failed = {
+            **initial,
+            "status": "failed",
+            "error_message": "required volume mount failed: test-volume",
+        }
         states = iter([initial, failed])
         monkeypatch.setattr(scheduler, "get_job", lambda _: next(states))
         with client.websocket_connect("/ws/terminal/startup") as ws:
