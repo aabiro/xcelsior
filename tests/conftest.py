@@ -28,8 +28,24 @@ os.environ["XCELSIOR_SKIP_DOTENV"] = "1"
 
 _env_test = os.path.join(PROJECT_ROOT, ".env.test")
 # Never override env vars already set (GitHub Actions sets sqlite backend, etc.).
+# No fallback to `.env` when `.env.test` is absent (a fresh clone or a worktree):
+# that file is the developer's real configuration, so the suite inherited live
+# SMTP/storage credentials and production posture (agent ingress `deny` turned
+# four hosts tests into 410s, and signups sent real admin emails). Without
+# `.env.test`, stop with instructions rather than run on the wrong configuration
+# (code defaults alone have no test database, so the suite would hang). CI
+# provides its whole environment and needs no file.
 if os.path.exists(_env_test):
     load_dotenv(_env_test, override=False)
+elif not os.environ.get("CI"):
+    import pytest
+
+    pytest.exit(
+        f"tests run on {_env_test} only, and it is missing (a fresh clone or a git "
+        "worktree: copy it from your main checkout). Your .env is never loaded: it "
+        "holds live credentials.",
+        returncode=4,
+    )
 
 # CI job env must win over .env.test (workflow sets postgres + limits).
 if os.environ.get("CI"):
