@@ -4032,9 +4032,13 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
         if reply.get("ok"):
             state["ollama_pids"] = list(reply.get("stopped") or [])
             if state["ollama_pids"]:
-                log.info("exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s", job_id, state["ollama_pids"])
+                log.info(
+                    "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s", job_id, state["ollama_pids"]
+                )
         else:
-            log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, reply.get("error"))
+            log.warning(
+                "exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, reply.get("error")
+            )
     except Exception as e:
         log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, e)
 
