@@ -113,8 +113,8 @@ machines by definition.
 
 It now binds `100.64.0.1` (override with `SPIRE_BIND_ADDRESS`), and agents point
 at `SPIRE_SERVER_ADDRESS=100.64.0.1` — a **bare address**, because `agent.conf`
-carries `server_port = "8081"` separately and a host:port value there produces
-`100.64.0.1:8081:8081`.
+carries `server_port = "8091"` separately and a host:port value there produces
+`100.64.0.1:8091:8091`.
 
 Publishing it with its own public TLS certificate was the alternative and it is
 the wrong shape: a second trust boundary wrapped around the service whose entire
@@ -174,6 +174,30 @@ Against the real binaries, locally, with no production access:
 
 Held by `tests/test_tls_ingress_router_is_coherent.py` and
 `tests/test_agent_gateway_points_at_a_live_backend.py`.
+
+### Note 5 — new hosts enroll themselves (issue #67)
+
+`POST /api/hosts/{host_id}/enrollment` (owner only) mints a single-use join token
+aliased to `spiffe://xcelsior.ca/node/host/<host_id>`, creates the worker entry
+exactly as `register-host.sh` does (`-dns <host_id>`, `unix:user:xcelsior`, 1h), and
+mints a single-use Headscale pre-auth key. `install.sh` (and so the wizard) joins
+the mesh through its own `tailscaled-xcelsior` instance, installs a pinned
+`spire-agent`, and keeps the worker's SVID in `/run/xcelsior-svid` via
+`xcelsior-svid.timer`. The worker's `CN=<host_id>` is what the nginx gateway maps,
+so onboarding needs no Envoy cutover: add the upstream root to
+`/etc/nginx/certs/agent-client-ca.pem` next to the existing agent CA.
+
+* Port **8091**: `*:8081` is held by another service on prod-hetzner.
+* `ca_ttl = 1440h`, `agent_ttl = 720h`: an agent SVID cannot outlive the CA, and
+  the join token is spent after the first attestation, so a 24h CA stranded any
+  host switched off for a day. Hosts may now be off for 30 days; `install.sh
+  --update` re-enrolls after that.
+* `register-host.sh` used `-dnsName`, which SPIRE 1.11's CLI rejects; it is `-dns`.
+
+API settings: `XCELSIOR_SPIRE_SERVER_CMD` (e.g. `docker exec xcelsior-spire-spire-server-1
+/opt/spire/bin/spire-server`), `XCELSIOR_SPIRE_SERVER_SOCKET`, `XCELSIOR_SPIRE_SERVER_ADDRESS`
+(`100.64.0.1`), `XCELSIOR_SPIRE_SERVER_PORT`, `XCELSIOR_HEADSCALE_URL`,
+`XCELSIOR_HEADSCALE_API_KEY` (`headscale apikeys create`), `XCELSIOR_HEADSCALE_USER_ID`.
 
 ### Still open
 
