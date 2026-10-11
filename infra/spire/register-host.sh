@@ -65,7 +65,7 @@ register_one() {
         -spiffeID "$spiffe_id"
         -parentID "$parent_id"
         -x509SVIDTTL 3600
-        -dnsName "$host_id"
+        -dns "$host_id"
     )
     for sel in "${selectors[@]}"; do
         args+=(-selector "$sel")

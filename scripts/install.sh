@@ -28,7 +28,16 @@ VENV_PYTHON="$VENV_DIR/bin/python3"
 PRIVD_DIR="/usr/local/libexec/xcelsior"
 PRIVD_CONF="/etc/xcelsior/privileged.conf"
 AGENT_TLS_DIR="/etc/xcelsior/agent-tls"
-readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.2"
+# Host identity for agent.xcelsior.ca (issue #67): a SPIRE agent attests once with
+# a single-use join token, then the worker gets hourly X.509-SVIDs (CN=<host_id>).
+SPIRE_VERSION="1.11.2"
+SPIRE_SHA256_AMD64="ac53853d478175f15cec8a3757d71638d0821126c0d69583ed4141399e01c49f"
+SPIRE_SHA256_ARM64="256a8c027eb028c40d27b8d9620763923537102178b3abf698ea12882856cca4"
+SVID_DIR="/run/xcelsior-svid"
+SPIRE_SOCKET="/run/spire/agent/public/api.sock"
+# Our own tailscaled instance: never touches a provider's personal Tailscale.
+MESH_SOCKET="/var/run/tailscale-xcelsior.sock"
+readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.3"
 AGENT_SIGNING_PUB_EMBEDDED='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
 -----END PUBLIC KEY-----'
@@ -303,6 +312,225 @@ EOF
     ok "xcelsior-privd listening on /run/xcelsior-privd.sock (settings: $PRIVD_CONF)"
 }
 
+_set_env() {
+    # Replace KEY=... in worker.env, or append it.
+    local key="$1" value="$2"
+    if grep -q "^$key=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s#^$key=.*#$key=$value#" "$ENV_FILE"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+    fi
+}
+
+_api_bearer() {
+    # The worker's own credential: an API key, or an OAuth client exchanged for a token.
+    local token client_id client_secret
+    token="$(_env_value XCELSIOR_API_TOKEN)"
+    if [ -n "$token" ]; then
+        printf '%s' "$token"
+        return 0
+    fi
+    client_id="$(_env_value XCELSIOR_OAUTH_CLIENT_ID)"
+    client_secret="$(_env_value XCELSIOR_OAUTH_CLIENT_SECRET)"
+    [ -n "$client_id" ] && [ -n "$client_secret" ] || return 1
+    curl -fsS -X POST "$XCELSIOR_API/oauth/token" \
+        --data-urlencode grant_type=client_credentials \
+        --data-urlencode "client_id=$client_id" --data-urlencode "client_secret=$client_secret" \
+        | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])'
+}
+
+join_mesh() {
+    local login_server="$1" auth_key="$2" host_id="$3"
+    if ! command -v tailscaled >/dev/null 2>&1; then
+        info "Installing Tailscale (used only for the Xcelsior private network)..."
+        curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
+    fi
+    if ! systemctl is-active --quiet tailscaled-xcelsior 2>/dev/null; then
+        local unit_tmp
+        unit_tmp="$(mktemp)"
+        cat > "$unit_tmp" <<EOF
+[Unit]
+Description=Tailscale node for the Xcelsior private network (separate from any personal tailnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=$(command -v tailscaled) --state=/var/lib/tailscale-xcelsior/tailscaled.state --socket=$MESH_SOCKET --port=41642 --tun=xcelsior0
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        sudo install -m 0644 "$unit_tmp" /etc/systemd/system/tailscaled-xcelsior.service
+        rm -f "$unit_tmp"
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now tailscaled-xcelsior >/dev/null
+        sleep 2
+    fi
+    sudo tailscale --socket="$MESH_SOCKET" up --login-server="$login_server" \
+        --authkey="$auth_key" --hostname="$host_id" --accept-dns=false >/dev/null
+    sudo tailscale --socket="$MESH_SOCKET" set --operator="$SERVICE_USER" >/dev/null 2>&1 || true
+    _set_env XCELSIOR_TAILSCALE_SOCKET "$MESH_SOCKET"
+    ok "Joined the Xcelsior private network as $(sudo tailscale --socket="$MESH_SOCKET" ip -4 | head -n1)"
+}
+
+install_spire_agent() {
+    local address="$1" port="$2" trust_domain="$3" token="$4" bundle="$5"
+    local arch sha tarball
+    case "$(uname -m)" in
+        x86_64) arch=amd64; sha="$SPIRE_SHA256_AMD64" ;;
+        aarch64|arm64) arch=arm64; sha="$SPIRE_SHA256_ARM64" ;;
+        *) fail "No SPIRE agent build for $(uname -m)" ;;
+    esac
+    if [ ! -x /opt/spire/bin/spire-agent ] || ! /opt/spire/bin/spire-agent --version 2>&1 | grep -q "$SPIRE_VERSION"; then
+        info "Installing spire-agent $SPIRE_VERSION..."
+        tarball="$(mktemp)"
+        curl -fsSL -o "$tarball" \
+            "https://github.com/spiffe/spire/releases/download/v$SPIRE_VERSION/spire-$SPIRE_VERSION-linux-$arch-musl.tar.gz"
+        echo "$sha  $tarball" | sha256sum -c --quiet - || { rm -f "$tarball"; fail "spire-agent checksum mismatch"; }
+        sudo install -d -m 0755 /opt/spire/bin
+        tar -xzf "$tarball" -O "spire-$SPIRE_VERSION/bin/spire-agent" | sudo tee /opt/spire/bin/spire-agent >/dev/null
+        sudo chmod 0755 /opt/spire/bin/spire-agent
+        rm -f "$tarball"
+    fi
+    sudo install -d -m 0755 /etc/spire/agent
+    sudo install -d -m 0700 /var/lib/spire/agent
+    sudo install -m 0644 "$bundle" /etc/spire/agent/bootstrap.crt
+    sudo tee /etc/spire/agent/agent.conf >/dev/null <<EOF
+agent {
+  data_dir          = "/var/lib/spire/agent"
+  log_level         = "WARN"
+  server_address    = "$address"
+  server_port       = "$port"
+  socket_path       = "$SPIRE_SOCKET"
+  trust_domain      = "$trust_domain"
+  trust_bundle_path = "/etc/spire/agent/bootstrap.crt"
+  # Single use: after the first attestation the agent renews its own identity.
+  join_token        = "$token"
+}
+plugins {
+  NodeAttestor "join_token" { plugin_data {} }
+  # On disk, so a restart renews instead of re-attesting with the used token.
+  KeyManager "disk" { plugin_data { directory = "/var/lib/spire/agent" } }
+  WorkloadAttestor "unix" { plugin_data {} }
+}
+EOF
+    sudo chmod 0600 /etc/spire/agent/agent.conf
+    local unit_tmp
+    unit_tmp="$(mktemp)"
+    cat > "$unit_tmp" <<EOF
+[Unit]
+Description=SPIRE agent (Xcelsior host identity)
+After=network-online.target tailscaled-xcelsior.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/spire/bin/spire-agent run -config /etc/spire/agent/agent.conf
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    sudo install -m 0644 "$unit_tmp" /etc/systemd/system/spire-agent.service
+    # Refreshes the worker's certificate well inside its 1 h lifetime.
+    cat > "$unit_tmp" <<EOF
+[Unit]
+Description=Fetch the Xcelsior worker's X.509-SVID from the SPIRE agent
+After=spire-agent.service
+Requires=spire-agent.service
+
+[Service]
+Type=oneshot
+User=$SERVICE_USER
+Group=$SERVICE_USER
+RuntimeDirectory=xcelsior-svid
+RuntimeDirectoryPreserve=yes
+ExecStart=/bin/sh -c 'mkdir -p $SVID_DIR/.next; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do /opt/spire/bin/spire-agent api fetch x509 -socketPath $SPIRE_SOCKET -write $SVID_DIR/.next >/dev/null 2>&1 && mv -f $SVID_DIR/.next/svid.0.key $SVID_DIR/svid.0.key && mv -f $SVID_DIR/.next/svid.0.pem $SVID_DIR/svid.0.pem && exit 0; sleep 5; done; exit 1'
+EOF
+    sudo install -m 0644 "$unit_tmp" /etc/systemd/system/xcelsior-svid.service
+    cat > "$unit_tmp" <<EOF
+[Unit]
+Description=Refresh the Xcelsior worker's X.509-SVID
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=20min
+
+[Install]
+WantedBy=timers.target
+EOF
+    sudo install -m 0644 "$unit_tmp" /etc/systemd/system/xcelsior-svid.timer
+    rm -f "$unit_tmp"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now spire-agent >/dev/null
+    sudo systemctl enable --now xcelsior-svid.timer >/dev/null
+    sudo systemctl start xcelsior-svid.service || fail "No identity from the SPIRE agent (journalctl -u spire-agent -u xcelsior-svid)"
+    ok "Host identity issued: $(openssl x509 -in "$SVID_DIR/svid.0.pem" -noout -subject 2>/dev/null)"
+}
+
+enroll_host() {
+    local host_id scheduler bearer reply code
+    host_id="$(_env_value XCELSIOR_HOST_ID)"
+    scheduler="$(_env_value XCELSIOR_SCHEDULER_URL)"
+    if [ -n "$(_env_value XCELSIOR_AGENT_CLIENT_CERT)" ] && [ "$scheduler" != "$XCELSIOR_API" ]; then
+        # A hand-issued certificate, or a SPIRE identity that still renews: nothing to do.
+        if [ "$(_env_value XCELSIOR_AGENT_CLIENT_CERT)" != "$SVID_DIR/svid.0.pem" ] \
+            || sudo systemctl start xcelsior-svid.service >/dev/null 2>&1; then
+            ok "Host already has a gateway identity ($scheduler)"
+            return 0
+        fi
+        # Offline past the agent's 30-day identity: the join token is spent, so enroll again.
+        warn "This host's identity can no longer be renewed (offline over 30 days?); enrolling again"
+        sudo systemctl stop spire-agent >/dev/null 2>&1 || true
+        sudo rm -rf /var/lib/spire/agent
+    fi
+    [ -n "$host_id" ] || fail "XCELSIOR_HOST_ID is missing from $ENV_FILE"
+    info "Connecting $host_id to Xcelsior (private network + host identity)..."
+    bearer="$(_api_bearer)" || fail "No API key or OAuth client in $ENV_FILE"
+    reply="$(mktemp)"
+    chmod 600 "$reply"
+    code=$(curl -sS -o "$reply" -w '%{http_code}' -X POST -H "Authorization: Bearer $bearer" \
+        "$XCELSIOR_API/api/hosts/$host_id/enrollment" || true)
+    case "$code" in
+        200) ;;
+        404) rm -f "$reply"; fail "Host $host_id is not registered to this account (Dashboard -> Hosts)" ;;
+        429) rm -f "$reply"; fail "Too many enrollment attempts for $host_id; try again in an hour" ;;
+        503) rm -f "$reply"; fail "Xcelsior cannot connect new hosts automatically right now; contact support" ;;
+        *) rm -f "$reply"; fail "Enrollment failed (HTTP ${code:-none}); retry with: bash install.sh --update" ;;
+    esac
+    local fields
+    fields="$(mktemp -d)"
+    python3 - "$reply" "$fields" <<'PY'
+import json, os, sys
+r = json.load(open(sys.argv[1]))
+out = sys.argv[2]
+values = {
+    "login_server": r["mesh"]["login_server"], "auth_key": r["mesh"]["auth_key"],
+    "address": r["spire"]["server_address"], "port": str(r["spire"]["server_port"]),
+    "trust_domain": r["spire"]["trust_domain"], "token": r["spire"]["join_token"],
+    "bundle.pem": r["spire"]["trust_bundle_pem"], "scheduler_url": r["scheduler_url"],
+}
+for name, value in values.items():
+    fd = os.open(os.path.join(out, name), os.O_WRONLY | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(value)
+PY
+    rm -f "$reply"
+    join_mesh "$(cat "$fields/login_server")" "$(cat "$fields/auth_key")" "$host_id"
+    install_spire_agent "$(cat "$fields/address")" "$(cat "$fields/port")" \
+        "$(cat "$fields/trust_domain")" "$(cat "$fields/token")" "$fields/bundle.pem"
+    _set_env XCELSIOR_SCHEDULER_URL "$(cat "$fields/scheduler_url")"
+    _set_env XCELSIOR_AGENT_V2_PATHS 1
+    _set_env XCELSIOR_AGENT_CLIENT_CERT "$SVID_DIR/svid.0.pem"
+    _set_env XCELSIOR_AGENT_CLIENT_KEY "$SVID_DIR/svid.0.key"
+    local mesh_ip
+    mesh_ip="$(sudo tailscale --socket="$MESH_SOCKET" ip -4 2>/dev/null | head -n1 || true)"
+    [ -n "$mesh_ip" ] && _set_env XCELSIOR_HOST_IP "$mesh_ip"
+    rm -rf "$fields"
+    ok "Enrolled: worker traffic goes to $(_env_value XCELSIOR_SCHEDULER_URL) with this host's own identity"
+}
+
 migrate_agent_tls() {
     # The worker can no longer read your home directory: move mTLS client files
     # it was pointed at into /etc/xcelsior/agent-tls (readable by root and the service group).
@@ -425,6 +653,7 @@ EOF
     migrate_agent_tls
     install_privd "$stage/lib/worker_privileged.py"
     rm -rf "$stage"
+    enroll_host
     if [ -f "$CONFIG_DIR/worker_agent.py" ]; then
         info "The agent now runs from $INSTALL_DIR; the old copy in $CONFIG_DIR (worker_agent.py, lib/, venv/) is unused and can be deleted."
     fi
@@ -579,8 +808,8 @@ install_systemd() {
     cat > "$unit_tmp" <<EOF
 [Unit]
 Description=Xcelsior Worker Agent
-After=network-online.target docker.service xcelsior-privd.socket
-Wants=network-online.target xcelsior-privd.socket
+After=network-online.target docker.service xcelsior-privd.socket xcelsior-svid.service
+Wants=network-online.target xcelsior-privd.socket xcelsior-svid.timer
 Requires=docker.service
 
 [Service]
@@ -631,31 +860,35 @@ EOF
 # ── Post-install verification (B9) ───────────────────────────────────
 
 verify_host_online() {
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-    local host_id="${XCELSIOR_HOST_ID:-}"
+    # The public /host/<id> surface is retired (410); ask the product API, as the owner.
+    local host_id bearer started i row last_seen status admitted
+    host_id="$(_env_value XCELSIOR_HOST_ID)"
     [ -z "$host_id" ] && return 0
-
-    info "Checking host registration and admission state (up to 60s)..."
-    local i host_state status admitted
-    for i in $(seq 1 12); do
-        host_state=$(curl -fsSL --max-time 5 "$XCELSIOR_API/host/$host_id" 2>/dev/null \
-            | python3 -c "import sys,json; h=json.load(sys.stdin).get('host') or {}; print(f\"{h.get('status','')}|{str(h.get('admitted') is True).lower()}\")" 2>/dev/null || true)
-        status="${host_state%%|*}"
-        admitted="${host_state#*|}"
-        if [ "$admitted" = "true" ] && { [ "$status" = "online" ] || [ "$status" = "active" ]; }; then
-            ok "Host $host_id is authoritatively admitted and $status"
+    bearer="$(_api_bearer)" || return 0
+    started=$(date +%s)
+    info "Waiting for the first heartbeat from $host_id (up to 90s)..."
+    for i in $(seq 1 18); do
+        row=$(curl -fsS --max-time 5 -H "Authorization: Bearer $bearer" \
+            "$XCELSIOR_API/hosts?active_only=false" 2>/dev/null | python3 -c '
+import json, sys
+host = next((h for h in json.load(sys.stdin).get("hosts", []) if h.get("host_id") == sys.argv[1]), {})
+print(int(float(host.get("last_seen") or 0)), host.get("status", ""), str(host.get("admitted") is True).lower(), sep="|")
+' "$host_id" 2>/dev/null || true)
+        last_seen="${row%%|*}"
+        status="$(printf '%s' "$row" | cut -d'|' -f2)"
+        admitted="${row##*|}"
+        if [ -n "$last_seen" ] && [ "$last_seen" -ge "$started" ] 2>/dev/null; then
+            if [ "$admitted" = "true" ]; then
+                ok "Host $host_id is connected, admitted and $status"
+            else
+                ok "Host $host_id is connected (heartbeat received)"
+                info "It is pending admission review and not eligible for work yet; the dashboard shows its status"
+            fi
             return 0
-        fi
-        if [ "$status" = "pending" ]; then
-            warn "Host $host_id is registered but pending authoritative verification"
-            warn "It is not listed or eligible for work yet; check the dashboard for admission status"
-            return 1
         fi
         sleep 5
     done
-    warn "Host not yet visible in the dashboard — check logs:"
-    warn "  journalctl -u xcelsior-worker -n 50 --no-pager"
+    warn "No heartbeat from $host_id yet. Check: journalctl -u xcelsior-worker -n 50 --no-pager"
     return 1
 }
 
