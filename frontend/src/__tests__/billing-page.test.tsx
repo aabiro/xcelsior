@@ -171,8 +171,8 @@ describe("BillingPage free credits flow", () => {
     });
     apiMocks.claimFreeCredits.mockResolvedValue({
       ok: true,
-      amount_cad: 10,
-      balance_cad: 15,
+      amount_cad: 5,
+      balance_cad: 10,
       already_claimed: false,
     });
   });
@@ -194,7 +194,7 @@ describe("BillingPage free credits flow", () => {
 
     await screen.findByText("dash.billing.credits_transferring_title");
     await waitFor(() => {
-      expect(screen.getAllByText("$15.00").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("$10.00").length).toBeGreaterThan(0);
     });
 
     await act(async () => {

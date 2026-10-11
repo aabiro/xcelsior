@@ -61,7 +61,7 @@ from reputation import GPU_REFERENCE_PRICING_CAD, estimate_job_cost
 router = APIRouter()
 
 # Billing constants
-_FREE_CREDIT_AMOUNT = 10.0  # CAD
+_FREE_CREDIT_AMOUNT = 5.0  # CAD
 _MIN_TOPUP_CAD = 5.0
 _MAX_TOPUP_CAD = 10000.0
 from reserved_pricing import RESERVED_TIERS as _RESERVED_TIERS
@@ -786,7 +786,7 @@ def api_admin_credit(customer_id: str, req: AdminCreditRequest, request: Request
 
 @router.post("/api/billing/free-credits/{customer_id}", tags=["Billing"])
 def api_claim_free_credits(customer_id: str, request: Request):
-    """Claim one-time $10 CAD signup bonus.
+    """Claim a one-time $5 CAD bonus after a saved card and $5 CAD card top-up.
 
     Uses an idempotency key derived from the customer_id so the bonus
     can only be claimed once per customer.
@@ -808,10 +808,37 @@ def api_claim_free_credits(customer_id: str, request: Request):
 
     idempotency_key = f"free-credits-{customer_id}"
     be = get_billing_engine()
-    result = be.deposit(
+    _check_billing_payment_rate_limit(customer_id, "welcome-bonus")
+    # Preserve idempotent retries, including bonuses issued under the old policy.
+    be._ensure_wallet_table()
+    with be._conn() as conn:
+        existing = conn.execute(
+            "SELECT tx_id, amount_micros FROM wallet_transactions WHERE customer_id = %s "
+            "AND idempotency_key = %s",
+            (customer_id, idempotency_key),
+        ).fetchone()
+    if existing:
+        return {
+            "ok": True,
+            "amount_cad": micros_to_cad(existing["amount_micros"]),
+            "balance_cad": be.get_wallet(customer_id)["balance_cad"],
+            "already_claimed": True,
+        }
+    try:
+        eligible = be.welcome_bonus_eligible(customer_id)
+    except Exception:
+        log.exception("Welcome bonus payment verification failed for %s", customer_id)
+        raise HTTPException(503, "Could not verify your card payment. Please try again later.")
+    if not eligible:
+        raise HTTPException(
+            403,
+            "Save a card and complete a card top-up of at least $5 CAD before claiming "
+            "your $5 welcome bonus. Refunded or disputed payments do not qualify.",
+        )
+    result = be.grant_credit(
         customer_id,
         _FREE_CREDIT_AMOUNT,
-        "Welcome bonus — $10 free credits",
+        "Welcome bonus — $5 free credits",
         idempotency_key=idempotency_key,
     )
     already_claimed = result.get("dedup", False)
