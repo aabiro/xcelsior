@@ -337,9 +337,7 @@ class TestStripeSplitPayout:
         assert result.platform_share_micros == 15_000_000
         assert result.provider_share_micros == 85_000_000
         assert result.gst_hst_micros == 13_000_000
-        assert result.provider_share_micros + result.platform_share_micros == (
-            result.total_micros
-        )
+        assert result.provider_share_micros + result.platform_share_micros == (result.total_micros)
 
 
 # ═══════════════════════════════════════════════════════════════════════

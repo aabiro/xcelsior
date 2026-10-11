@@ -389,6 +389,3 @@ class TestGetReferenceRate:
         spot = get_reference_rate("RTX 4090", spot=True)
         assert spot < base
         assert spot == round(base * (1 - SPOT_DISCOUNT_FACTOR), 4)
-
-
-

@@ -124,8 +124,7 @@ def test_the_scanner_ignores_the_same_text_in_prose():
     """
     module = ast.parse('"""Bad: assert r.status_code in (401, 403, 200)."""\nx = 1\n')
     offenders = [
-        n for n in ast.walk(module)
-        if isinstance(n, ast.Assert) and _status_code_membership(n.test)
+        n for n in ast.walk(module) if isinstance(n, ast.Assert) and _status_code_membership(n.test)
     ]
     assert not offenders, "prose describing the defect was read as the defect"
 

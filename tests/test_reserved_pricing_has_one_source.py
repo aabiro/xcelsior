@@ -51,9 +51,9 @@ def test_the_term_lengths_match_the_commitment_names():
     for months, tier in RESERVED_TIERS.items():
         days = _RESERVED_TERM_DAYS[tier["key"]]
         expected = months * 30.4
-        assert abs(days - expected) <= 16, (
-            f"{tier['key']} runs for {days} days, which is not {months} months"
-        )
+        assert (
+            abs(days - expected) <= 16
+        ), f"{tier['key']} runs for {days} days, which is not {months} months"
 
 
 def test_the_discount_curve_rewards_longer_commitments():
@@ -66,9 +66,9 @@ def test_the_discount_curve_rewards_longer_commitments():
 
     ordered = sorted(RESERVED_TIERS.items())
     percentages = [tier["discount_pct"] for _, tier in ordered]
-    assert percentages == sorted(percentages), (
-        f"the discount curve is not monotonic across terms: {ordered}"
-    )
+    assert percentages == sorted(
+        percentages
+    ), f"the discount curve is not monotonic across terms: {ordered}"
 
 
 def test_neither_module_restates_the_percentages():

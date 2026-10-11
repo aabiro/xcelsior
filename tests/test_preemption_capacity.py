@@ -17,7 +17,6 @@ os.environ["XCELSIOR_ENV"] = "test"
 
 import scheduler
 
-
 scheduler.HOSTS_FILE = os.path.join(_tmpdir, "hosts.json")
 scheduler.JOBS_FILE = os.path.join(_tmpdir, "jobs.json")
 scheduler.BILLING_FILE = os.path.join(_tmpdir, "billing.json")

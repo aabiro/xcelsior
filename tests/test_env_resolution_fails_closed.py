@@ -42,8 +42,22 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: Everything that must NOT be treated as development. Unset and empty are the
 #: ones that actually happened; the typos are the shape that made them possible.
-NOT_RELAXED = [None, "", "   ", "\t", "production", "prod", "PROD", "staging",
-               "preprod", "prodution", "producton", "Production ", "live", "wat"]
+NOT_RELAXED = [
+    None,
+    "",
+    "   ",
+    "\t",
+    "production",
+    "prod",
+    "PROD",
+    "staging",
+    "preprod",
+    "prodution",
+    "producton",
+    "Production ",
+    "live",
+    "wat",
+]
 
 #: The only values that may relax a security control.
 RELAXED = ["dev", "development", "test", "local", "DEV", " test "]
@@ -195,7 +209,7 @@ def test_the_guard_catches_a_planted_fail_open_comparison():
     broken scanner looks like. Both historical shapes are planted.
     """
     equality = ast.parse('if os.environ.get("XCELSIOR_ENV") == "production": strict()')
-    assert _fail_open_comparisons(equality), "the guard no longer sees `== \"production\"`"
+    assert _fail_open_comparisons(equality), 'the guard no longer sees `== "production"`'
 
     dev_default = ast.parse(
         'if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"prod", "production"}: strict()'

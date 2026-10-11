@@ -520,6 +520,7 @@ def _filter_host_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -
 def _filter_spot_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -> list[dict]:
     return _filter_host_capacity(job, candidates, jobs)
 
+
 # GPU driver / CUDA context overhead — nvidia-smi always reports free_vram_gb
 # as slightly less than total_vram_gb (typically 0.3–1.0 GB lost to driver,
 # display output, and reserved system memory). Without this tolerance,
@@ -553,12 +554,12 @@ def _gpu_model_candidates(candidates: list[dict], requested_gpu_model: str) -> l
     requested = (requested_gpu_model or "").strip().lower()
     if not requested:
         return candidates
-    return [
-        h for h in candidates if (h.get("gpu_model") or "").strip().lower() == requested
-    ]
+    return [h for h in candidates if (h.get("gpu_model") or "").strip().lower() == requested]
 
 
-def _allocate_host_score(job: dict, host: dict, *, volume_host_ids: set[str] | None = None) -> tuple:
+def _allocate_host_score(
+    job: dict, host: dict, *, volume_host_ids: set[str] | None = None
+) -> tuple:
     """Sort key for host preference (higher is better)."""
     num_gpus_needed = job.get("num_gpus", 1) or 1
     volume_host_ids = volume_host_ids or set()
@@ -641,7 +642,6 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
         return []
     candidates = admitted_candidates
 
-
     return candidates
 
 
@@ -679,7 +679,9 @@ def allocate(job, hosts, jobs: list[dict] | None = None):
         except Exception:
             pass
 
-    best = max(candidates, key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids))
+    best = max(
+        candidates, key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids)
+    )
     log.info(
         "ALLOCATE job=%s -> host=%s (%s, %sGB free, %d GPUs, admitted=%s, runtime=%s)",
         job.get("name", "?"),
@@ -700,9 +702,7 @@ def _job_may_trigger_preemption(job: dict) -> bool:
 
 def _running_jobs_on_host(jobs: list[dict], host_id: str) -> list[dict]:
     return [
-        j
-        for j in jobs
-        if j.get("host_id") == host_id and j.get("status") in _ACTIVE_GPU_STATUSES
+        j for j in jobs if j.get("host_id") == host_id and j.get("status") in _ACTIVE_GPU_STATUSES
     ]
 
 
@@ -725,9 +725,7 @@ def identify_preemption_candidates(
         return []
 
     shortfall = (total_used + needed) - total_gpus
-    preemptible = [
-        j for j in _running_jobs_on_host(jobs, host_id) if j.get("preemptible")
-    ]
+    preemptible = [j for j in _running_jobs_on_host(jobs, host_id) if j.get("preemptible")]
     preemptible.sort(
         key=lambda j: (
             int(j.get("priority", 0) or 0),
@@ -801,7 +799,9 @@ def allocate_with_preemption(job, hosts, jobs: list[dict] | None = None):
     return None, []
 
 
-def identify_drain_preemption_candidates(host_id: str, jobs: list[dict] | None = None) -> list[dict]:
+def identify_drain_preemption_candidates(
+    host_id: str, jobs: list[dict] | None = None
+) -> list[dict]:
     """Jobs to evict when a host is draining: spot first, then on-demand."""
     jobs = jobs or list_jobs()
     hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
@@ -882,7 +882,6 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
             candidates = multi
         else:
             return None  # Gang scheduling: all GPUs must be on one host
-
 
     jobs = list_jobs()
     candidates = _filter_spot_capacity(job, candidates, jobs)
@@ -1090,7 +1089,9 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
         ]
         if not with_gpu:
             admitted_upgrades = [h for h in with_vram if h.get("admitted", False)]
-            upgrade_candidates = _gpu_model_candidates(admitted_upgrades, job.get("gpu_model") or "")
+            upgrade_candidates = _gpu_model_candidates(
+                admitted_upgrades, job.get("gpu_model") or ""
+            )
             if upgrade_candidates:
                 jobs = list_jobs()
                 if not _filter_host_capacity(job, upgrade_candidates, jobs):
@@ -1282,9 +1283,7 @@ def register_host(
         gpu_count = max(1, int(existing.get("gpu_count", 1) or 1)) if existing else 1
         admitted_before_update = bool(existing and existing.get("admitted") is True)
         initial_status = (
-            "pending"
-            if pending_until_admitted and not admitted_before_update
-            else "active"
+            "pending" if pending_until_admitted and not admitted_before_update else "active"
         )
         entry = {
             "host_id": host_id,
@@ -1295,7 +1294,9 @@ def register_host(
             "cost_per_hour": cost_per_hour,
             "gpu_count": gpu_count,
             "spot_enabled": True if spot_enabled is None else bool(spot_enabled),
-            "spot_gpu_slots": gpu_count if spot_gpu_slots is None else max(0, min(int(spot_gpu_slots), gpu_count)),
+            "spot_gpu_slots": (
+                gpu_count if spot_gpu_slots is None else max(0, min(int(spot_gpu_slots), gpu_count))
+            ),
             "spot_min_cents": 0 if spot_min_cents is None else max(0, int(spot_min_cents)),
             "registered_at": time.time(),
             "last_seen": time.time(),
@@ -1369,7 +1370,9 @@ def register_host(
     engine.mirror_to_secondary(DatabaseOps.upsert_host, entry)
 
     if not outbox_enqueued:
-        emit_event("host_update", {"host_id": host_id, "status": entry.get("status") or initial_status})
+        emit_event(
+            "host_update", {"host_id": host_id, "status": entry.get("status") or initial_status}
+        )
 
     if existing:
         log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
@@ -1434,9 +1437,7 @@ def update_host_spot_settings(
         from marketplace import get_marketplace_engine
 
         me = get_marketplace_engine()
-        marketplace_eligible = (
-            host.get("admitted") is True and host.get("status") == "active"
-        )
+        marketplace_eligible = host.get("admitted") is True and host.get("status") == "active"
         if marketplace_eligible:
             ask_cents = max(
                 1,
@@ -2067,24 +2068,16 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
             if authority is None:
                 return None
             active_attempt_id = (
-                authority.get("active_attempt_id")
-                if isinstance(authority, dict)
-                else authority[0]
+                authority.get("active_attempt_id") if isinstance(authority, dict) else authority[0]
             )
             authority_host_id = (
-                authority.get("host_id")
-                if isinstance(authority, dict)
-                else authority[1]
+                authority.get("host_id") if isinstance(authority, dict) else authority[1]
             )
             authority_fence = (
-                authority.get("fencing_token")
-                if isinstance(authority, dict)
-                else authority[2]
+                authority.get("fencing_token") if isinstance(authority, dict) else authority[2]
             )
             locked_col_status = (
-                authority.get("status")
-                if isinstance(authority, dict)
-                else authority[3]
+                authority.get("status") if isinstance(authority, dict) else authority[3]
             )
             tuple_matches = (
                 active_attempt_id is not None
@@ -2223,8 +2216,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                 conn.execute("SAVEPOINT legacy_status_outbox_append")
             except Exception as e:
                 log.warning(
-                    "outbox SAVEPOINT create failed job=%s: %s "
-                    "(falling back to emit_event)",
+                    "outbox SAVEPOINT create failed job=%s: %s " "(falling back to emit_event)",
                     job_id,
                     e,
                 )
@@ -2255,8 +2247,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                         # Outer transaction is doomed — do not return success
                         # with an in-memory status the DB will not keep.
                         log.error(
-                            "outbox SAVEPOINT rollback failed job=%s: %s "
-                            "(original: %s)",
+                            "outbox SAVEPOINT rollback failed job=%s: %s " "(original: %s)",
                             job_id,
                             rb_err,
                             e,
@@ -2312,9 +2303,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         try:
             from billing import get_billing_engine
 
-            get_billing_engine().release_wallet_hold_for_job(
-                job_id, reason=f"job_{status}"
-            )
+            get_billing_engine().release_wallet_hold_for_job(job_id, reason=f"job_{status}")
         except Exception as e:
             log.debug("wallet hold release on %s for %s: %s", status, job_id, e)
 
@@ -2647,9 +2636,7 @@ def _attempt_owned_job_ids():
                 "SELECT job_id FROM jobs "
                 "WHERE status = 'assigned' AND active_attempt_id IS NOT NULL"
             ).fetchall()
-        return {
-            str(r["job_id"] if isinstance(r, dict) else r[0]) for r in rows
-        }
+        return {str(r["job_id"] if isinstance(r, dict) else r[0]) for r in rows}
     except Exception as e:
         log.error("attempt-owned job lookup failed (fail-closed): %s", e)
         return None
@@ -3631,8 +3618,10 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
                 (job_id,),
             ).fetchone()
             _owned = (
-                _row.get("active_attempt_id") if isinstance(_row, dict) else _row[0]
-            ) if _row else None
+                (_row.get("active_attempt_id") if isinstance(_row, dict) else _row[0])
+                if _row
+                else None
+            )
             if _owned:
                 log.warning(
                     "REQUEUE REJECTED job=%s — attempt-owned (attempt=%s); "
@@ -3645,7 +3634,9 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
         # Cancelled is terminal for automated failover. A user may explicitly
         # relaunch it through the authenticated requeue endpoint.
         if j["status"] == "cancelled" and not user_initiated:
-            log.warning("REQUEUE REJECTED job=%s status=cancelled — explicit relaunch required", job_id)
+            log.warning(
+                "REQUEUE REJECTED job=%s status=cancelled — explicit relaunch required", job_id
+            )
             return None
 
         if j["status"] not in (
@@ -5109,6 +5100,7 @@ SPOT_REQUEUE_BACKOFF = os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF", "").lower
 )
 SPOT_REQUEUE_BACKOFF_BASE_SEC = float(os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF_BASE", "30"))
 
+
 def load_spot_prices():
     """Load recent spot price history (in-memory / DB-backed via spot_pricing)."""
     from spot_pricing import get_in_memory_history
@@ -5263,8 +5255,7 @@ def preempt_job(job_id):
                     "previous_host_id": worker_host_id,
                 },
                 idempotency_key=(
-                    f"job_preempted:{job_id}:"
-                    f"{preempted_job.get('preemption_count')}"
+                    f"job_preempted:{job_id}:" f"{preempted_job.get('preemption_count')}"
                 ),
             )
 
@@ -5547,9 +5538,7 @@ def allocate_best_host(job, hosts):
         # constrained request must not be told it got a verified host after
         # this branch; that would be a false statement in the audit trail C1
         # is built to hold.
-        log.warning(
-            "verification filter unavailable, placing across all hosts: %s", exc
-        )
+        log.warning("verification filter unavailable, placing across all hosts: %s", exc)
 
     # 2. VRAM filter (with driver-overhead tolerance)
     _needed = job.get("vram_needed_gb", 0) or 0

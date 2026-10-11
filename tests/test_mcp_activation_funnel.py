@@ -46,9 +46,9 @@ def _register(email: str, *, admin: bool = False) -> tuple[str, str]:
         verified = client.post("/api/auth/verify-email", json={"token": verification})
         token = verified.json().get("access_token")
     if not token:
-        token = client.post(
-            "/api/auth/login", json={"email": email, "password": password}
-        ).json()["access_token"]
+        token = client.post("/api/auth/login", json={"email": email, "password": password}).json()[
+            "access_token"
+        ]
     if admin:
         import routes._deps as _deps_mod
         from db import UserStore
@@ -61,9 +61,9 @@ def _register(email: str, *, admin: bool = False) -> tuple[str, str]:
         if email in _deps_mod._users_db:
             _deps_mod._users_db[email].update({"is_admin": 1, "role": "admin"})
         client.cookies.clear()
-        token = client.post(
-            "/api/auth/login", json={"email": email, "password": password}
-        ).json()["access_token"]
+        token = client.post("/api/auth/login", json={"email": email, "password": password}).json()[
+            "access_token"
+        ]
     me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert me.status_code == 200, me.text
     body = me.json()

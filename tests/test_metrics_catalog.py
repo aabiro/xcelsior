@@ -97,9 +97,10 @@ REQUIRED_CATALOG_METRICS = [
 def test_registry_contains_zero_unbounded_cardinality_labels():
     """All registered prometheus collectors must pass the cardinality audit."""
     violations = audit_metric_label_cardinality(REGISTRY._collector_to_names.keys())
-    assert not violations, (
-        f"Unbounded high-cardinality label violations found in metric registry:\n"
-        + "\n".join(violations)
+    assert (
+        not violations
+    ), f"Unbounded high-cardinality label violations found in metric registry:\n" + "\n".join(
+        violations
     )
 
 

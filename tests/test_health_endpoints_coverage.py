@@ -128,9 +128,7 @@ def test_ssh_keygen_is_guarded_by_the_admin_check():
     import routes.health as health
 
     source = inspect.getsource(health.api_generate_ssh_key)
-    assert "_require_admin(request)" in source, (
-        "/ssh/keygen no longer requires admin"
-    )
+    assert "_require_admin(request)" in source, "/ssh/keygen no longer requires admin"
 
 
 def test_ssh_keygen_refuses_an_ordinary_authenticated_user():
@@ -153,9 +151,7 @@ def test_ssh_keygen_refuses_an_ordinary_authenticated_user():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Health"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     r = client.post("/ssh/keygen", headers=headers)
     assert r.status_code == 403, (

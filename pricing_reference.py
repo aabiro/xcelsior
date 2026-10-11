@@ -90,13 +90,11 @@ def build_gpu_pricing_reference() -> dict[str, dict[str, Any]]:
 
     try:
         with pg_connection() as conn:
-            rows = conn.execute(
-                """SELECT gpu_model, vram_gb, tier, pricing_mode,
+            rows = conn.execute("""SELECT gpu_model, vram_gb, tier, pricing_mode,
                           base_rate_micros::double precision / 1000000.0 AS base_rate_cad
                    FROM gpu_pricing
                    WHERE active = TRUE
-                   ORDER BY gpu_model, vram_gb ASC, tier, pricing_mode"""
-            ).fetchall()
+                   ORDER BY gpu_model, vram_gb ASC, tier, pricing_mode""").fetchall()
     except Exception as exc:
         log.warning("gpu_pricing reference query failed: %s", exc)
         return {}

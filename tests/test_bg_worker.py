@@ -44,6 +44,7 @@ def clean_tasks():
 def test_task_registration_and_execution(clean_tasks):
     # Setup test task
     executed = []
+
     def my_task():
         executed.append(True)
 
@@ -59,6 +60,7 @@ def test_task_registration_and_execution(clean_tasks):
     assert count == 0
     assert len(executed) == 1
 
+
 def test_task_failure_handling(clean_tasks):
     def failing_task():
         raise RuntimeError("boom")
@@ -70,6 +72,8 @@ def test_task_failure_handling(clean_tasks):
     assert count == 0  # 0 successful
 
     with pg_connection() as conn:
-        row = conn.execute("SELECT last_status, last_error FROM scheduled_tasks WHERE task_name='test_fail'").fetchone()
-        assert row[0] == 'failed'
-        assert 'boom' in row[1]
+        row = conn.execute(
+            "SELECT last_status, last_error FROM scheduled_tasks WHERE task_name='test_fail'"
+        ).fetchone()
+        assert row[0] == "failed"
+        assert "boom" in row[1]

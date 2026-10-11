@@ -136,10 +136,11 @@ def test_cmd_host_add_located(capsys):
     assert "ca1" in capsys.readouterr().out
 
 
-
 def test_cmd_pool_add(capsys):
     entry = {"host_id": "p1", "gpu_model": "RTX 4090", "vram_gb": 24}
-    args = SimpleNamespace(host_id="p1", ip="10.0.0.3", gpu="RTX 4090", vram=24, rate=2.0, country="CA")
+    args = SimpleNamespace(
+        host_id="p1", ip="10.0.0.3", gpu="RTX 4090", vram=24, rate=2.0, country="CA"
+    )
     with patch("cli.add_to_pool", return_value=entry):
         cli.cmd_pool_add(args)
     assert "p1" in capsys.readouterr().out
@@ -231,7 +232,9 @@ def test_cmd_slurm_submit(capsys):
         dry_run=True,
         image="",
     )
-    with patch("slurm_adapter.slurm_submit_cli", return_value={"ok": True, "dry_run": True}) as submit:
+    with patch(
+        "slurm_adapter.slurm_submit_cli", return_value={"ok": True, "dry_run": True}
+    ) as submit:
         cli.cmd_slurm_submit(args)
     submit.assert_called_once()
     assert "ok" in capsys.readouterr().out.lower() or "dry_run" in capsys.readouterr().out.lower()
@@ -244,7 +247,9 @@ def test_cmd_slurm_cancel(capsys):
 
 
 def test_cmd_slurm_cancel_error(capsys):
-    with patch("slurm_adapter.cancel_slurm_job", return_value={"cancelled": False, "error": "gone"}):
+    with patch(
+        "slurm_adapter.cancel_slurm_job", return_value={"cancelled": False, "error": "gone"}
+    ):
         cli.cmd_slurm_cancel(SimpleNamespace(slurm_id="999"))
     assert "gone" in capsys.readouterr().out
 
@@ -269,7 +274,17 @@ def test_cmd_host_profile_list(capsys):
         }
     ]
     with patch("host_profiles.list_host_profiles", return_value=profiles):
-        cli.cmd_host_profile(SimpleNamespace(profile=None, host_id="h1", ip="10.0.0.1", json=False, country="CA", region="", owner="me"))
+        cli.cmd_host_profile(
+            SimpleNamespace(
+                profile=None,
+                host_id="h1",
+                ip="10.0.0.1",
+                json=False,
+                country="CA",
+                region="",
+                owner="me",
+            )
+        )
     assert "rtx4090" in capsys.readouterr().out
 
 
@@ -430,7 +445,6 @@ def test_cmd_ssh_keygen(capsys):
     assert "id_test" in out
 
 
-
 def test_cmd_pool_list(capsys):
     pool = [
         {
@@ -481,7 +495,9 @@ def test_cmd_market_list(capsys):
         "price_per_hour": 2.0,
         "owner": "alice",
     }
-    args = SimpleNamespace(host_id="rig1", gpu="RTX 4090", vram=24, price=2.0, desc="", owner="alice")
+    args = SimpleNamespace(
+        host_id="rig1", gpu="RTX 4090", vram=24, price=2.0, desc="", owner="alice"
+    )
     with patch("cli.list_rig", return_value=listing):
         cli.cmd_market_list(args)
     assert "rig1" in capsys.readouterr().out
@@ -590,7 +606,6 @@ def test_cmd_leaderboard(capsys):
     assert "h1" in capsys.readouterr().out
 
 
-
 def test_cmd_logout_removes_token(capsys, tmp_path):
     token_file = tmp_path / "token.json"
     token_file.write_text("{}", encoding="utf-8")
@@ -652,7 +667,9 @@ def test_cmd_config_set_and_list(capsys, tmp_path):
     cfg_file = tmp_path / "config.toml"
     with patch.object(cli, "CONFIG_FILE", str(cfg_file)):
         with patch.object(cli, "CONFIG_DIR", str(tmp_path)):
-            cli.cmd_config(SimpleNamespace(action="set", key="api.url", value="https://xcelsior.ca"))
+            cli.cmd_config(
+                SimpleNamespace(action="set", key="api.url", value="https://xcelsior.ca")
+            )
             cli.cmd_config(SimpleNamespace(action="list", key=None, value=None))
     out = capsys.readouterr().out
     assert "api.url" in out or "xcelsior.ca" in out

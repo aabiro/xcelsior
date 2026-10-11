@@ -87,9 +87,7 @@ def test_both_sides_encode_a_host_id_identically(host_id: str, locale: str) -> N
 def test_the_issuer_does_not_depend_on_the_operators_locale(host_id: str) -> None:
     """Registering the same host from two terminals must give one SPIFFE ID."""
     results = {loc: _shell_component(host_id, locale=loc) for loc in ("C", "en_US.UTF-8")}
-    assert len(set(results.values())) == 1, (
-        f"{host_id!r} encodes differently per locale: {results}"
-    )
+    assert len(set(results.values())) == 1, f"{host_id!r} encodes differently per locale: {results}"
 
 
 # ── Who gets an identity ───────────────────────────────────────────────
@@ -107,15 +105,13 @@ def test_registration_selects_admitted_hosts_on_the_authoritative_column() -> No
     host or keeps issuing identities to one whose admission was revoked —
     the second being the direction that matters.
     """
-    assert "admission_state = 'admitted'" in SCRIPT_TEXT, (
-        "--all does not select on hosts.admission_state"
-    )
+    assert (
+        "admission_state = 'admitted'" in SCRIPT_TEXT
+    ), "--all does not select on hosts.admission_state"
     # The projection must not be what gates issuance.
     gating = [
         ln
         for ln in SCRIPT_TEXT.splitlines()
         if "payload->>'admitted'" in ln and not ln.lstrip().startswith("#")
     ]
-    assert not gating, (
-        f"identity issuance still gates on the projected payload field: {gating}"
-    )
+    assert not gating, f"identity issuance still gates on the projected payload field: {gating}"

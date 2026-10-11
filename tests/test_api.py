@@ -225,6 +225,7 @@ def clean_data(monkeypatch):
     # Clear in-memory telemetry and rate limit buckets
     from routes.agent import _host_telemetry
     from routes._deps import _RATE_BUCKETS, _AUTH_RATE_BUCKETS, _api_keys, _sessions, _users_db
+
     _host_telemetry.clear()
     _RATE_BUCKETS.clear()
     _AUTH_RATE_BUCKETS.clear()
@@ -1240,12 +1241,9 @@ class TestTiersEndpoint:
         assert "urgent" in r.json()["tiers"]
 
 
-
 class TestMarketplaceEndpoints:
     def test_list_rig(self):
-        scheduler.register_host(
-            "h1", "10.0.0.1", "RTX 4090", 24, 24, pending_until_admitted=True
-        )
+        scheduler.register_host("h1", "10.0.0.1", "RTX 4090", 24, 24, pending_until_admitted=True)
         _authoritatively_admit("h1")
         token = client.post(
             "/api/auth/register",
@@ -1352,9 +1350,7 @@ class TestMarketplaceEndpoints:
         assert get_marketplace_engine().get_offer_for_host("admitted-v2") is not None
 
     def test_get_marketplace(self):
-        scheduler.register_host(
-            "h1", "10.0.0.1", "RTX 4090", 24, 24, pending_until_admitted=True
-        )
+        scheduler.register_host("h1", "10.0.0.1", "RTX 4090", 24, 24, pending_until_admitted=True)
         _authoritatively_admit("h1")
         token = client.post(
             "/api/auth/register",
@@ -1943,7 +1939,10 @@ class TestOAuthServer:
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         reg_resp = client.post(
             "/api/auth/register",
-            json={"email": f"machine-rotate-{os.urandom(4).hex()}@xcelsior.ca", "password": "testpass123"},
+            json={
+                "email": f"machine-rotate-{os.urandom(4).hex()}@xcelsior.ca",
+                "password": "testpass123",
+            },
         )
         assert reg_resp.status_code == 200, reg_resp.text
         reg = reg_resp.json()
@@ -2036,7 +2035,10 @@ class TestOAuthServer:
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         reg_resp = client.post(
             "/api/auth/register",
-            json={"email": f"machine-disabled-{os.urandom(4).hex()}@xcelsior.ca", "password": "testpass123"},
+            json={
+                "email": f"machine-disabled-{os.urandom(4).hex()}@xcelsior.ca",
+                "password": "testpass123",
+            },
         )
         assert reg_resp.status_code == 200, reg_resp.text
         reg = reg_resp.json()
@@ -2211,8 +2213,18 @@ class TestAnalytics:
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s))""",
                 # Integer micros, satisfying ck_payout_splits_exact_money:
                 # provider + platform == total, source + rounding == total.
-                (job_id, provider_id, provider_id, 5_000_000, 5_000_000,
-                 4_250_000, 750_000, 650_000, "", now - 600),
+                (
+                    job_id,
+                    provider_id,
+                    provider_id,
+                    5_000_000,
+                    5_000_000,
+                    4_250_000,
+                    750_000,
+                    650_000,
+                    "",
+                    now - 600,
+                ),
             )
 
         r = client.get(

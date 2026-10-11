@@ -93,13 +93,11 @@ def _unreachable_handlers(source: str, where: str) -> list[str]:
 
 
 def _route_sources() -> list[tuple[str, str]]:
-    return [
-        (p.name, p.read_text(encoding="utf-8"))
-        for p in sorted((ROOT / "routes").glob("*.py"))
-    ]
+    return [(p.name, p.read_text(encoding="utf-8")) for p in sorted((ROOT / "routes").glob("*.py"))]
 
 
 # ── the scan ─────────────────────────────────────────────────────────
+
 
 def test_no_route_promises_a_capability_its_credential_cannot_reach() -> None:
     offenders: list[str] = []
@@ -112,6 +110,7 @@ def test_no_route_promises_a_capability_its_credential_cannot_reach() -> None:
 
 
 # ── the scan must be capable of finding something ────────────────────
+
 
 def test_the_inputs_are_not_empty() -> None:
     """Either set going empty turns the scan above into a guard that cannot fail."""

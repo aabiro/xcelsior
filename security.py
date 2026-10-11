@@ -1204,7 +1204,9 @@ def decrypt_secret(ciphertext):
     try:
         return _get_fernet().decrypt(ciphertext).decode("utf-8")
     except InvalidToken as exc:
-        raise ValueError("Stored secret could not be decrypted — encryption key may have changed") from exc
+        raise ValueError(
+            "Stored secret could not be decrypted — encryption key may have changed"
+        ) from exc
 
 
 def build_secrets_mount_args(user_secrets, container_name):

@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import time
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -61,7 +60,7 @@ printf 'valid fixture dump\\n' >"$output"
     )
     _write_executable(
         fake_bin / "pg_restore",
-        "#!/usr/bin/env bash\nset -euo pipefail\n[[ \"$1\" == \"--list\" ]]\n",
+        '#!/usr/bin/env bash\nset -euo pipefail\n[[ "$1" == "--list" ]]\n',
     )
 
     old_dump = backup_dir / "restore_fixture_old.dump"
@@ -108,8 +107,6 @@ printf 'valid fixture dump\\n' >"$output"
     assert len(dumps) == 1
     assert Path(f"{dumps[0]}.sha256").is_file()
     assert oct(dumps[0].stat().st_mode & 0o777) == "0o600"
-    success_metrics = (metrics_dir / "xcelsior_backup_success.prom").read_text(
-        encoding="utf-8"
-    )
+    success_metrics = (metrics_dir / "xcelsior_backup_success.prom").read_text(encoding="utf-8")
     assert "xcelsior_backup_last_success_timestamp_seconds" in success_metrics
     assert "xcelsior_backup_last_size_bytes" in success_metrics

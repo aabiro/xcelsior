@@ -226,9 +226,7 @@ def test_an_ordinary_decline_registers_nothing(monkeypatch):
     monkeypatch.setattr(stripe_connect, "stripe", _Raising, raising=False)
 
     registered: list[dict] = []
-    monkeypatch.setattr(
-        engine, "_register_payment_intent", lambda **kw: registered.append(kw)
-    )
+    monkeypatch.setattr(engine, "_register_payment_intent", lambda **kw: registered.append(kw))
 
     with pytest.raises(stripe.CardError):
         engine.charge_saved_card(

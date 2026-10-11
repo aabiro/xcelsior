@@ -51,9 +51,20 @@ LOCAL_TOOLING_PREFIX = "scripts/local/"
 # has BOTH `.venv` and `venv`; any directory containing `pyvenv.cfg` is
 # treated as a virtualenv so a third one cannot silently slip through.
 _SKIP_PARTS = {
-    ".venv", "venv", "node_modules", "build", "dist", "__pycache__",
-    "tests", "migrations", "frontend", "mcp", "desktop", "sprites",
-    ".git", "site-packages",
+    ".venv",
+    "venv",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+    "tests",
+    "migrations",
+    "frontend",
+    "mcp",
+    "desktop",
+    "sprites",
+    ".git",
+    "site-packages",
 }
 
 _SQLITE_IMPORT_RE = re.compile(r"^\s*(?:import\s+sqlite3|from\s+sqlite3\s+import)", re.M)
@@ -126,13 +137,10 @@ def test_retired_shared_state_modules_are_clean() -> None:
     for name in ("lightning.py", "slurm_adapter.py"):
         text = (PROJECT_ROOT / name).read_text(encoding="utf-8")
         assert not _SQLITE_IMPORT_RE.search(text), (
-            f"{name} imports sqlite3 again; deposit and mapping state is "
-            f"owned by PostgreSQL"
+            f"{name} imports sqlite3 again; deposit and mapping state is " f"owned by PostgreSQL"
         )
         for dead in ("LN_DB_PATH", "SLURM_MAP_FILE", "slurm_jobs.json"):
-            assert dead not in text, (
-                f"{name} reintroduced file-backed state authority ({dead})"
-            )
+            assert dead not in text, f"{name} reintroduced file-backed state authority ({dead})"
 
 
 def test_worker_journal_is_documented_as_non_authority() -> None:
@@ -180,9 +188,7 @@ def test_production_refuses_a_non_postgres_backend() -> None:
     SQLite or dual backend in production, so this gate asserts that check
     still exists rather than trusting the comment.
     """
-    text = (PROJECT_ROOT / "control_plane" / "startup_validation.py").read_text(
-        encoding="utf-8"
-    )
+    text = (PROJECT_ROOT / "control_plane" / "startup_validation.py").read_text(encoding="utf-8")
     assert "XCELSIOR_DB_BACKEND=postgres" in text, (
         "the production startup validator no longer names the required "
         "backend; the SQLite exceptions in SQLITE_ALLOWED depend on it"

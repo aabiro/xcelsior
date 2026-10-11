@@ -33,14 +33,12 @@ def _pool():
 
 def _require_080() -> None:
     with _pool().connection() as conn:
-        exists = conn.execute(
-            """
+        exists = conn.execute("""
             SELECT 1
               FROM information_schema.columns
              WHERE table_name = 'payout_splits'
                AND column_name = 'settlement_key'
-            """
-        ).fetchone()
+            """).fetchone()
     if not exists:
         pytest.skip("migration 080 is not installed on the test database")
 

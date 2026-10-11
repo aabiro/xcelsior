@@ -23,8 +23,12 @@ from db import pg_transaction
 from money import cad_to_micros, micros_to_cad
 
 WALLET_MINOR_TABLES = {
-    "wallets": ("balance_micros", "total_deposited_micros", "total_spent_micros",
-                "total_refunded_micros"),
+    "wallets": (
+        "balance_micros",
+        "total_deposited_micros",
+        "total_spent_micros",
+        "total_refunded_micros",
+    ),
     "wallet_transactions": ("amount_micros", "balance_after_micros"),
     "wallet_holds": ("amount_micros",),
 }
@@ -52,9 +56,7 @@ def wallet():
                 "DELETE FROM wallet_transactions WHERE customer_id = ANY(%s)",
                 (created,),
             )
-            conn.execute(
-                "DELETE FROM wallets WHERE customer_id = ANY(%s)", (created,)
-            )
+            conn.execute("DELETE FROM wallets WHERE customer_id = ANY(%s)", (created,))
 
 
 def _row(customer_id: str):
@@ -70,8 +72,7 @@ def _row(customer_id: str):
 
 @pytest.mark.parametrize(
     "dollars,cents",
-    [(0.07, 70_000), (19.99, 19_990_000), (0.0073, 7_300), (0.000001, 1),
-     ("12.34", 12_340_000)],
+    [(0.07, 70_000), (19.99, 19_990_000), (0.0073, 7_300), (0.000001, 1), ("12.34", 12_340_000)],
 )
 def test_cad_to_micros_is_exact(dollars, cents):
     assert cad_to_micros(dollars) == cents
@@ -112,7 +113,6 @@ def test_integer_accumulation_does_not_drift(wallet):
     assert row[0] == 70_000_000, f"integer balance drifted: {row[0]}"
 
 
-
 def test_ledger_sum_equals_stored_balance(wallet):
     """The equality finance reconciliation depends on (`DA§8.7`)."""
     customer_id = wallet(0)
@@ -123,8 +123,7 @@ def test_ledger_sum_equals_stored_balance(wallet):
         for i, amount in enumerate(postings):
             running += amount
             conn.execute(
-                "UPDATE wallets SET balance_micros = balance_micros + %s "
-                "WHERE customer_id = %s",
+                "UPDATE wallets SET balance_micros = balance_micros + %s " "WHERE customer_id = %s",
                 (amount, customer_id),
             )
             conn.execute(
@@ -132,8 +131,7 @@ def test_ledger_sum_equals_stored_balance(wallet):
                    (tx_id, customer_id, tx_type, amount_micros,
                     balance_after_micros, description, created_at, idempotency_key)
                    VALUES (%s, %s, 'adjust', %s, %s, '', 0, %s)""",
-                (f"tx-{customer_id}-{i}", customer_id, amount, running,
-                 f"key-{customer_id}-{i}"),
+                (f"tx-{customer_id}-{i}", customer_id, amount, running, f"key-{customer_id}-{i}"),
             )
 
     with pg_transaction() as conn:
@@ -154,10 +152,6 @@ def test_ledger_sum_equals_stored_balance(wallet):
 
 
 # ───────────── rolling-deploy safety: both writer generations ─────────────
-
-
-
-
 
 
 def test_micros_columns_are_integers():
@@ -197,6 +191,7 @@ def test_balance_may_be_negative(wallet):
         )
     assert _row(customer_id) == (-5_000_000,)
 
+
 def test_no_float_money_column_survives_on_wallets():
     """Migration 087 removed the float twins; only integers remain.
 
@@ -206,14 +201,12 @@ def test_no_float_money_column_survives_on_wallets():
     from db import _get_pg_pool
 
     with _get_pg_pool().connection() as conn:
-        rows = conn.execute(
-            """SELECT column_name FROM information_schema.columns
+        rows = conn.execute("""SELECT column_name FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name IN ('wallets', 'wallet_transactions',
                                      'wallet_holds', 'usage_meters',
                                      'payout_splits')
-                  AND column_name LIKE '%_cad'"""
-        ).fetchall()
+                  AND column_name LIKE '%_cad'""").fetchall()
     assert not [r[0] for r in rows], f"float money columns still present: {rows}"
 
 
@@ -222,11 +215,9 @@ def test_no_projection_trigger_survives():
     from db import _get_pg_pool
 
     with _get_pg_pool().connection() as conn:
-        rows = conn.execute(
-            """SELECT tg.tgname FROM pg_trigger tg
+        rows = conn.execute("""SELECT tg.tgname FROM pg_trigger tg
                  JOIN pg_class cl ON cl.oid = tg.tgrelid
                 WHERE NOT tg.tgisinternal
                   AND cl.relname IN ('wallets', 'wallet_transactions',
-                                     'wallet_holds', 'usage_meters')"""
-        ).fetchall()
+                                     'wallet_holds', 'usage_meters')""").fetchall()
     assert not [r[0] for r in rows], f"projection triggers still present: {rows}"

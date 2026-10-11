@@ -205,7 +205,9 @@ def test_upgrade_agent_updates_sibling_modules_on_success(fake_agent_file, tmp_p
     assert sibling_dest.with_suffix(".py.bak").read_bytes() == b"# old sibling contents\n"
 
 
-def test_upgrade_agent_aborts_everything_on_sibling_sha_mismatch(fake_agent_file, tmp_path, monkeypatch):
+def test_upgrade_agent_aborts_everything_on_sibling_sha_mismatch(
+    fake_agent_file, tmp_path, monkeypatch
+):
     import worker_image_cache
 
     original = fake_agent_file.read_bytes()

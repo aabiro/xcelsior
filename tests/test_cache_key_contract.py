@@ -52,8 +52,7 @@ def test_two_environments_do_not_collide(monkeypatch):
     monkeypatch.setenv("XCELSIOR_ENV", "test")
     test = cache_key("oauth", "access_token", secret="same-token")
     assert prod != test, (
-        "two deployments sharing one Redis instance must not read each "
-        "other's auth state"
+        "two deployments sharing one Redis instance must not read each " "other's auth state"
     )
 
 
@@ -89,8 +88,8 @@ def test_hashing_is_deterministic_and_distinct():
 @pytest.mark.parametrize(
     "bad_segment",
     [
-        "user@example.com",   # an email smuggled into a public position
-        "has:colon",          # would forge a segment boundary
+        "user@example.com",  # an email smuggled into a public position
+        "has:colon",  # would forge a segment boundary
         "has space",
         "",
         "x" * 65,
@@ -232,16 +231,12 @@ def test_incr_sets_ttl_in_one_transaction():
     ops = [c[0] for c in fake.calls if c[0] in ("incr", "expire")]
     assert ops == ["incr", "expire"]
     expire_call = next(c for c in fake.calls if c[0] == "expire")
-    assert expire_call[3] is True, (
-        "EXPIRE must use NX so later increments do not extend a window"
-    )
+    assert expire_call[3] is True, "EXPIRE must use NX so later increments do not extend a window"
 
 
 # ───────────────── no direct key construction remains ─────────────────
 
-_KEY_LITERAL_RE = re.compile(
-    r"""["']((?:xcelsior|serverless|xc)[:][^"']*)["']""", re.IGNORECASE
-)
+_KEY_LITERAL_RE = re.compile(r"""["']((?:xcelsior|serverless|xc)[:][^"']*)["']""", re.IGNORECASE)
 
 # Files allowed to mention a raw key-shaped literal (the contract module
 # defines the namespace; tests assert on it).
@@ -285,9 +280,7 @@ def test_no_module_builds_a_redis_key_by_hand():
 
 def test_rate_limit_store_hashes_its_bucket_key():
     """`dashboard-test:{owner_id}` composites often contain an email."""
-    source = (PROJECT_ROOT / "serverless" / "rate_limit_store.py").read_text(
-        encoding="utf-8"
-    )
+    source = (PROJECT_ROOT / "serverless" / "rate_limit_store.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     fn = next(
         n
@@ -297,13 +290,10 @@ def test_rate_limit_store_hashes_its_bucket_key():
     calls = [
         c
         for c in ast.walk(fn)
-        if isinstance(c, ast.Call)
-        and isinstance(c.func, ast.Name)
-        and c.func.id == "cache_key"
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "cache_key"
     ]
     assert calls, (
-        "check_key_rate_limit_redis must build its bucket key through "
-        "cache_keys.cache_key"
+        "check_key_rate_limit_redis must build its bucket key through " "cache_keys.cache_key"
     )
     assert any(
         kw.arg == "secret" for call in calls for kw in call.keywords

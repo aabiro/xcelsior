@@ -79,8 +79,7 @@ def test_ownership_is_still_checked_as_well():
 
     source = _source(terminal, "api_terminal_ticket")
     assert "_check_terminal_access(" in source, (
-        "the terminal ticket route no longer checks that the caller owns the "
-        "instance"
+        "the terminal ticket route no longer checks that the caller owns the " "instance"
     )
 
 
@@ -99,9 +98,9 @@ def test_the_terminal_socket_still_only_accepts_a_terminal_ticket():
     import routes.terminal as terminal
 
     source = _source(terminal, "ws_terminal")
-    assert 'purpose="terminal"' in source, (
-        "the terminal websocket no longer pins the ticket purpose"
-    )
+    assert (
+        'purpose="terminal"' in source
+    ), "the terminal websocket no longer pins the ticket purpose"
     assert "instance_stream" not in source, (
         "the terminal websocket now accepts the streaming purpose; the two "
         "ticket types are no longer distinct"

@@ -24,9 +24,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _conn:
         _has_schema = (
-            _conn.execute(
-                "SELECT to_regclass('privacy_deletion_requests')"
-            ).fetchone()[0]
+            _conn.execute("SELECT to_regclass('privacy_deletion_requests')").fetchone()[0]
             is not None
         )
 except Exception as _exc:  # pragma: no cover
@@ -115,12 +113,8 @@ def subject(monkeypatch):
             "DELETE FROM chat_conversations WHERE user_email IN (%s, %s)",
             (email, f"erased+{request['subject_reference_hash'][:24]}@deleted.invalid"),
         )
-        conn.execute(
-            "DELETE FROM ai_confirmations WHERE user_id = %s", (user_id,)
-        )
-        conn.execute(
-            "DELETE FROM ai_conversations WHERE user_id = %s", (user_id,)
-        )
+        conn.execute("DELETE FROM ai_confirmations WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM ai_conversations WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM casl_consent WHERE user_id = %s", (user_id,))
         conn.execute(
@@ -131,19 +125,13 @@ def subject(monkeypatch):
             "DELETE FROM retention_records WHERE entity_id IN (%s, %s, %s)",
             (user_id, email, request["subject_reference_hash"]),
         )
-        conn.execute(
-            "DELETE FROM user_encryption_keys WHERE user_id = %s", (user_id,)
-        )
-        conn.execute(
-            "DELETE FROM wallet_holds WHERE customer_id = %s", (customer_id,)
-        )
+        conn.execute("DELETE FROM user_encryption_keys WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM wallet_holds WHERE customer_id = %s", (customer_id,))
         conn.execute(
             "DELETE FROM wallet_transactions WHERE customer_id = %s",
             (customer_id,),
         )
-        conn.execute(
-            "DELETE FROM payment_intents WHERE customer_id = %s", (customer_id,)
-        )
+        conn.execute("DELETE FROM payment_intents WHERE customer_id = %s", (customer_id,))
         conn.execute("DELETE FROM invoices WHERE customer_id = %s", (customer_id,))
         conn.execute("DELETE FROM wallets WHERE customer_id = %s", (customer_id,))
         conn.execute(

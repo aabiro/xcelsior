@@ -242,9 +242,7 @@ def main():
 
         telemetry_partition_maintenance_task()
 
-    register_task(
-        "telemetry_partition_maintenance", _telemetry_partition_maintenance, 86_400
-    )
+    register_task("telemetry_partition_maintenance", _telemetry_partition_maintenance, 86_400)
 
     # 1a-iv. Signed audit checkpoints (§13.6/§12.2, Track B B4.5): daily, seal
     # the previous interval into a signed Merkle manifest and self-verify it.

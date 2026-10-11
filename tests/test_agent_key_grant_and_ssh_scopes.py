@@ -138,7 +138,11 @@ def _scopes_required_by(function_name: str) -> list[str]:
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
             if name != "_require_scope":
                 continue
-            found += [a.value for a in call.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            found += [
+                a.value
+                for a in call.args
+                if isinstance(a, ast.Constant) and isinstance(a.value, str)
+            ]
         return found
     pytest.fail(f"{function_name} not found in routes/ssh.py — was it renamed?")
 

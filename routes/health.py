@@ -73,17 +73,28 @@ def _network_download_response(owner_id: str):
     from routes._deps import _take_shared_rate_slot
 
     allowed = _take_shared_rate_slot(
-        "runtime.network_diagnostic_rate_limit", owner_id, time.time(),
-        limit=4, window_sec=60,
-        buckets=_NETWORK_DIAGNOSTIC_BUCKETS, lock=_NETWORK_DIAGNOSTIC_LOCK,
+        "runtime.network_diagnostic_rate_limit",
+        owner_id,
+        time.time(),
+        limit=4,
+        window_sec=60,
+        buckets=_NETWORK_DIAGNOSTIC_BUCKETS,
+        lock=_NETWORK_DIAGNOSTIC_LOCK,
     )
     if not allowed:
-        raise HTTPException(429, "Retry network diagnostics in one minute", headers={"Retry-After": "60"})
-    return Response(_NETWORK_SAMPLE, media_type="application/octet-stream", headers={
-        "Cache-Control": "no-store, no-transform",
-        "Content-Encoding": "identity",
-        "X-Content-Type-Options": "nosniff",
-    })
+        raise HTTPException(
+            429, "Retry network diagnostics in one minute", headers={"Retry-After": "60"}
+        )
+    return Response(
+        _NETWORK_SAMPLE,
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "no-store, no-transform",
+            "Content-Encoding": "identity",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
 
 # Templates and device code constants
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -859,9 +870,7 @@ def _public_view(payload: dict) -> dict:
     """
     return {
         **payload,
-        "services": [
-            {**svc, "detail": ""} for svc in payload.get("services", [])
-        ],
+        "services": [{**svc, "detail": ""} for svc in payload.get("services", [])],
     }
 
 
@@ -928,7 +937,12 @@ def _probe_artifact_storage() -> tuple[str, str, str, bool]:
     try:
         pool.submit(client.list_objects, "", 1).result(timeout=_ARTIFACT_PROBE_TIMEOUT_SEC)
     except _ProbeTimeout:
-        return name, "degraded", f"{config.backend}: no answer in {_ARTIFACT_PROBE_TIMEOUT_SEC:g}s", False
+        return (
+            name,
+            "degraded",
+            f"{config.backend}: no answer in {_ARTIFACT_PROBE_TIMEOUT_SEC:g}s",
+            False,
+        )
     except Exception as exc:
         return name, "down", f"{config.backend}: {exc}", False
     finally:
@@ -1063,9 +1077,7 @@ def _compute_service_status() -> dict:
     try:
         import httpx as _httpx
 
-        mcp_health_url = os.environ.get(
-            "XCELSIOR_MCP_HEALTH_URL", "http://127.0.0.1:8770/readyz"
-        )
+        mcp_health_url = os.environ.get("XCELSIOR_MCP_HEALTH_URL", "http://127.0.0.1:8770/readyz")
         with _httpx.Client(timeout=3.0) as _http:
             probe = _http.get(mcp_health_url)
         if probe.status_code == 200:
@@ -1475,13 +1487,11 @@ def metrics_prometheus():
             # (`inference_store.store_inference_result`, reached from
             # `inference.py`), and it carries both halves of the ratio as typed
             # columns rather than JSON.
-            tps_row = conn4.execute(
-                """SELECT COALESCE(SUM(output_tokens), 0) /
+            tps_row = conn4.execute("""SELECT COALESCE(SUM(output_tokens), 0) /
                           GREATEST(COALESCE(SUM(latency_ms), 0) / 1000.0, 1) AS tps
                      FROM inference_results
                     WHERE output_tokens IS NOT NULL
-                      AND latency_ms IS NOT NULL"""
-            ).fetchone()
+                      AND latency_ms IS NOT NULL""").fetchone()
             tps = round(tps_row["tps"], 2) if tps_row else 0
         lines.extend(
             [

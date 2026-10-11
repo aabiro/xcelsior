@@ -62,7 +62,13 @@ def test_admin_unit_economics():
     assert "serverless" in body
     assert isinstance(body.get("serverless_by_model_size"), list)
     for row in body["serverless_by_model_size"]:
-        assert set(row) >= {"band", "gpu_revenue_cad", "token_revenue_cad", "gpu_seconds", "billed_cycles"}
+        assert set(row) >= {
+            "band",
+            "gpu_revenue_cad",
+            "token_revenue_cad",
+            "gpu_seconds",
+            "billed_cycles",
+        }
 
 
 def test_admin_infrastructure():

@@ -104,9 +104,9 @@ def test_an_unconfigured_secret_fails_closed(monkeypatch, path) -> None:
     monkeypatch.setenv("XCELSIOR_ENV", "production")
     monkeypatch.setitem(auth_mod._OAUTH_PROVIDERS["facebook"], "client_secret", "")
     r = client.post(path, data={"signed_request": _signed(SECRET, _payload())})
-    assert r.status_code == 400, (
-        f"{path} accepted a signed_request with no configured secret ({r.status_code})"
-    )
+    assert (
+        r.status_code == 400
+    ), f"{path} accepted a signed_request with no configured secret ({r.status_code})"
 
 
 @pytest.mark.parametrize("path", PATHS)

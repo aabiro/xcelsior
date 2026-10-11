@@ -73,9 +73,9 @@ def test_history_lists_the_card_once_at_its_newest_price(raw_is_newer):
     finally:
         _forget(old, new)
     assert RAW not in prices, f"the driver's name is still its own market: {sorted(prices)}"
-    assert prices[CANONICAL] == (0.12 if raw_is_newer else 0.03), (
-        "where two names collapse into one, the newest row is the price"
-    )
+    assert prices[CANONICAL] == (
+        0.12 if raw_is_newer else 0.03
+    ), "where two names collapse into one, the newest row is the price"
 
 
 def test_a_raw_name_quotes_the_catalogue_rate():

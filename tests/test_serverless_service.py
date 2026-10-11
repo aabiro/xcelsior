@@ -350,7 +350,11 @@ class TestOpenAIProxy:
 
     def test_capability_gate_rejects_vision(self):
         ep = {"mode": "preset"}
-        body = {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}]}
+        body = {
+            "messages": [
+                {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}
+            ]
+        }
         with pytest.raises(OpenAIProxyError) as exc:
             capability_gate("chat/completions", ep, body)
         assert exc.value.code == "vision_not_supported"
@@ -375,18 +379,30 @@ class TestStreams:
 
 
 class TestServiceValidation:
-    def test_vllm_preset_persists_the_runnable_image_port_and_cache(self, monkeypatch, repo, owner_id):
+    def test_vllm_preset_persists_the_runnable_image_port_and_cache(
+        self, monkeypatch, repo, owner_id
+    ):
         from serverless.registry_models import ResolvedPresetModel
 
         monkeypatch.setattr(ServerlessService, "wallet_preflight", lambda *_: None)
         monkeypatch.setattr("serverless.service.replicate_cache_volumes", lambda *a, **kw: {})
         monkeypatch.setattr("serverless.service._preset_lmcache_env", lambda: {})
-        monkeypatch.setattr("serverless.registry_models.ensure_preset_model_local", lambda ref: ResolvedPresetModel(ref, ref))
+        monkeypatch.setattr(
+            "serverless.registry_models.ensure_preset_model_local",
+            lambda ref: ResolvedPresetModel(ref, ref),
+        )
         service = ServerlessService(repo)
-        endpoint = service.create_endpoint(EndpointCreate(
-            owner_id=owner_id, name="runnable-vllm-preset", mode="preset",
-            model_ref="Qwen/Qwen3-8B", min_workers=0, http_port=9123,
-        ), emit_sse=False)
+        endpoint = service.create_endpoint(
+            EndpointCreate(
+                owner_id=owner_id,
+                name="runnable-vllm-preset",
+                mode="preset",
+                model_ref="Qwen/Qwen3-8B",
+                min_workers=0,
+                http_port=9123,
+            ),
+            emit_sse=False,
+        )
         try:
             stored = repo.get_endpoint(endpoint["endpoint_id"], owner_id=owner_id)
             assert stored["image_ref"] == "vllm/vllm-openai:v0.8.5"
@@ -515,7 +531,9 @@ class TestServiceValidation:
         )
         svc = ServerlessService(repo)
         monkeypatch.setattr(svc, "_broadcast", lambda *args, **kwargs: None)
-        monkeypatch.setattr("serverless.service.record_cold_start_line_item", lambda *args, **kwargs: {})
+        monkeypatch.setattr(
+            "serverless.service.record_cold_start_line_item", lambda *args, **kwargs: {}
+        )
         ready = svc.mark_worker_ready(str(worker["worker_id"]), host_id="host-test")
         assert ready is not None
         assert ready["billing_exempt"] is True

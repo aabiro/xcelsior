@@ -119,9 +119,10 @@ def test_dashboard_reads_refuse_another_owners_endpoint(endpoint, suffix) -> Non
     r = client.get(
         f"/api/v2/serverless/endpoints/{ep['endpoint_id']}/{suffix}", headers=other_headers
     )
-    assert r.status_code in (403, 404), (
-        f"another account read {suffix} for an endpoint it does not own ({r.status_code})"
-    )
+    assert r.status_code in (
+        403,
+        404,
+    ), f"another account read {suffix} for an endpoint it does not own ({r.status_code})"
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────
@@ -265,9 +266,10 @@ def test_inference_compat_delete_removes_the_endpoint(funded) -> None:
     assert delete.status_code == 200, delete.text[:300]
 
     after = client.get(f"/api/v2/inference/endpoints/{eid}", headers=funded)
-    assert after.status_code in (404, 410), (
-        f"the endpoint still reads back after deletion ({after.status_code})"
-    )
+    assert after.status_code in (
+        404,
+        410,
+    ), f"the endpoint still reads back after deletion ({after.status_code})"
 
 
 def test_inference_compat_routes_reject_an_unknown_endpoint(funded) -> None:
@@ -339,7 +341,7 @@ def test_the_vanity_slug_runsync_path_resolves_the_same_endpoint(endpoint) -> No
         json={"input": {"prompt": "hello"}},
         headers=headers,
     )
-    assert r.status_code != 404, (
-        f"the vanity-slug invoke path did not resolve: {r.status_code} {r.text[:300]}"
-    )
+    assert (
+        r.status_code != 404
+    ), f"the vanity-slug invoke path did not resolve: {r.status_code} {r.text[:300]}"
     assert r.status_code < 500, r.text[:300]

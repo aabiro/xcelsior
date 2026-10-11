@@ -19,9 +19,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has = _c.execute(
-            "SELECT to_regclass('public.job_attempts')"
-        ).fetchone()[0] is not None
+        _has = _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool: {_e}")
     _pool = None
@@ -115,9 +113,7 @@ def _mkjob(cleanup, *, owner, host_id, status, container_name=None):
                 status,
                 time.time(),
                 host_id,
-                json.dumps(
-                    {"owner": owner, "name": job_id, "container_name": cname}
-                ),
+                json.dumps({"owner": owner, "name": job_id, "container_name": cname}),
             ),
         )
         conn.commit()
@@ -177,9 +173,7 @@ def test_start_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     host = f"h-rr-s-{uuid.uuid4().hex[:6]}"
     _mkwallet(cleanup_ids, owner)
     _mkhost(cleanup_ids, host)
-    job_id = _mkjob(
-        cleanup_ids, owner=owner, host_id=host, status="stopped"
-    )
+    job_id = _mkjob(cleanup_ids, owner=owner, host_id=host, status="stopped")
     _mk_attempt(job_id, host, active=False)
 
     from billing import BillingEngine
@@ -224,9 +218,7 @@ def test_start_idempotent_when_already_queued(cleanup_ids, captured_enqueue):
     assert captured_enqueue == []
 
 
-def test_restart_running_fenced_enqueues_stop_attempt(
-    cleanup_ids, captured_enqueue
-):
+def test_restart_running_fenced_enqueues_stop_attempt(cleanup_ids, captured_enqueue):
     owner = "rr-run@test"
     host = f"h-rr-r-{uuid.uuid4().hex[:6]}"
     _mkwallet(cleanup_ids, owner)
@@ -367,9 +359,9 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
-    assert after[0] == "stopped", (
-        f"sticky lifecycle_intent would requeue; got status={after[0]!r} intent={after[1]!r}"
-    )
+    assert (
+        after[0] == "stopped"
+    ), f"sticky lifecycle_intent would requeue; got status={after[0]!r} intent={after[1]!r}"
     assert after[1] is None
 
 
@@ -409,6 +401,6 @@ def test_static_controller_reachable():
 
     billing = Path("billing.py").read_text(encoding="utf-8")
     assert "request_fresh_attempt_resume" in billing
-    assert "intent=\"restart\"" in billing or "intent='restart'" in billing
+    assert 'intent="restart"' in billing or "intent='restart'" in billing
     assert 'reason": "fenced_resume_requires_new_attempt"' not in billing
     assert 'reason": "fenced_restart_requires_controller"' not in billing

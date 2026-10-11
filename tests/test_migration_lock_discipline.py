@@ -191,12 +191,8 @@ def test_per_table_transactions_survive_the_same_traffic(scratch_db):
 
     def add(table: str, column: str):
         def apply(conn):
-            conn.execute(
-                text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} bigint")
-            )
-            conn.execute(
-                text(f"UPDATE {table} SET {column} = ROUND(amount_cad * 1000000)::bigint")
-            )
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} bigint"))
+            conn.execute(text(f"UPDATE {table} SET {column} = ROUND(amount_cad * 1000000)::bigint"))
 
         return apply
 

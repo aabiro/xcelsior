@@ -27,9 +27,7 @@ def user_headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Verify Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 

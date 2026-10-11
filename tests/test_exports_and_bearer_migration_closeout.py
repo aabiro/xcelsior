@@ -114,9 +114,7 @@ def test_shared_bearer_respects_host_allowlist(monkeypatch):
         "role": "admin",
         "is_admin": True,
     }
-    ok, reason = allow_shared_bearer_for_host(
-        master, host_id="h-bad", host_owner="other"
-    )
+    ok, reason = allow_shared_bearer_for_host(master, host_id="h-bad", host_owner="other")
     assert ok is False
     assert reason == "shared_bearer_host_not_allowlisted"
     ok2, _ = allow_shared_bearer_for_host(master, host_id="h-ok", host_owner="other")
@@ -187,9 +185,7 @@ def test_agent_auth_production_shared_bearer_route(monkeypatch):
     monkeypatch.setattr(
         agent_mod,
         "list_hosts",
-        lambda active_only=False: [
-            {"host_id": "host-z", "admitted": True, "owner": "provider-y"}
-        ],
+        lambda active_only=False: [{"host_id": "host-z", "admitted": True, "owner": "provider-y"}],
     )
 
     class _Req:

@@ -35,7 +35,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "frontend" / "public"
 
 #: Absolute asset URLs on the production origin, as embedded in server HTML.
-ASSET_URL = re.compile(r'https://xcelsior\.ca/([A-Za-z0-9._/-]+\.(?:svg|png|ico|jpg|jpeg))')
+ASSET_URL = re.compile(r"https://xcelsior\.ca/([A-Za-z0-9._/-]+\.(?:svg|png|ico|jpg|jpeg))")
 
 
 def _referenced() -> dict[str, list[str]]:
@@ -58,9 +58,7 @@ def test_the_scan_finds_the_references_at_all():
 
 def test_every_referenced_asset_exists():
     missing = {
-        asset: sources
-        for asset, sources in _referenced().items()
-        if not (PUBLIC / asset).is_file()
+        asset: sources for asset, sources in _referenced().items() if not (PUBLIC / asset).is_file()
     }
     assert not missing, (
         "these assets are referenced in server-rendered HTML and do not exist "
@@ -83,7 +81,8 @@ def test_the_retired_brand_generation_is_not_referenced():
             asset
         ).name.startswith("xcelsior-icon"):
             offenders.append(f"{asset} (from {', '.join(sources)})")
-    assert not offenders, (
-        "these reference the retired brand generation rather than site-assets/: "
-        + "; ".join(sorted(offenders))
+    assert (
+        not offenders
+    ), "these reference the retired brand generation rather than site-assets/: " + "; ".join(
+        sorted(offenders)
     )

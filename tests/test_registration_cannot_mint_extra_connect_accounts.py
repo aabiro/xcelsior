@@ -84,9 +84,7 @@ def _account() -> tuple[dict[str, str], str]:
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Reg Pin"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}, email
 
@@ -185,8 +183,7 @@ def test_the_email_is_still_pinned(recorded_registrations):
     other = f"someone-else-{uuid.uuid4().hex[:8]}@xcelsior.ca"
     response = _register(headers, other, f"any-{uuid.uuid4().hex[:8]}")
     assert response.status_code == 403, (
-        f"registering a provider under another party's email returned "
-        f"{response.status_code}"
+        f"registering a provider under another party's email returned " f"{response.status_code}"
     )
     assert recorded_registrations == []
 
@@ -226,6 +223,6 @@ def test_an_admin_who_names_nothing_resolves_to_their_own(recorded_registrations
 
     response = _register(headers, email, "")
     assert response.status_code == 200, response.text
-    assert recorded_registrations and recorded_registrations[0], (
-        "an admin registering without naming an id got no provider identity"
-    )
+    assert (
+        recorded_registrations and recorded_registrations[0]
+    ), "an admin registering without naming an id got no provider identity"

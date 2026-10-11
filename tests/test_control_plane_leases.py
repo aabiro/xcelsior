@@ -16,9 +16,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -86,9 +84,7 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
     fleet["hosts"].append(host_id)
     with _pool.connection() as conn:
         # Scoped claim (gpu_model == job_id): immune to queue residue.
-        claimed = claim_next_job(
-            conn, replica_id="lease-test", scope_gpu_models=[job_id]
-        )
+        claimed = claim_next_job(conn, replica_id="lease-test", scope_gpu_models=[job_id])
         conn.commit()
     assert claimed is not None and claimed.job_id == job_id
     return run_transaction(
@@ -124,8 +120,7 @@ class TestClaimGate:
         assert grant.fencing_token == resv.fencing_token
         with _pool.connection() as conn:
             lease = conn.execute(
-                "SELECT status, last_worker_session_id FROM placement_leases "
-                "WHERE lease_id=%s",
+                "SELECT status, last_worker_session_id FROM placement_leases " "WHERE lease_id=%s",
                 (resv.lease_id,),
             ).fetchone()
             attempt = conn.execute(
@@ -249,8 +244,7 @@ class TestFenceGate:
         resv = _reserved(fleet)
         with _pool.connection() as conn:
             conn.execute(
-                "UPDATE job_attempts SET status='lost', ended_at=now() "
-                "WHERE attempt_id=%s",
+                "UPDATE job_attempts SET status='lost', ended_at=now() " "WHERE attempt_id=%s",
                 (resv.attempt_id,),
             )
             conn.commit()
@@ -275,8 +269,7 @@ class TestExpirySweep:
                     (resv.lease_id,),
                 ).fetchone()[0],
                 "attempt": conn.execute(
-                    "SELECT status, failure_code FROM job_attempts "
-                    "WHERE attempt_id=%s",
+                    "SELECT status, failure_code FROM job_attempts " "WHERE attempt_id=%s",
                     (resv.attempt_id,),
                 ).fetchone(),
                 "allocations": conn.execute(
@@ -289,8 +282,7 @@ class TestExpirySweep:
                     (resv.attempt_id,),
                 ).fetchone()[0],
                 "job": conn.execute(
-                    "SELECT phase, active_attempt_id, reason_code FROM jobs "
-                    "WHERE job_id=%s",
+                    "SELECT phase, active_attempt_id, reason_code FROM jobs " "WHERE job_id=%s",
                     (resv.job_id,),
                 ).fetchone(),
             }

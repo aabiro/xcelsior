@@ -104,9 +104,7 @@ def test_tenant_reads_its_own_tool_calls():
     _write_audit(bearer, tenant, "list_instances")
     _write_audit(bearer, tenant, "create_instance")
 
-    response = client.get(
-        "/api/v1/mcp/tool-audit", headers={"Authorization": f"Bearer {bearer}"}
-    )
+    response = client.get("/api/v1/mcp/tool-audit", headers={"Authorization": f"Bearer {bearer}"})
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["tenant_id"] == tenant
@@ -117,8 +115,13 @@ def test_tenant_reads_its_own_tool_calls():
     record = body["records"][0]
     # The fields an enterprise security review asks to see.
     for field in (
-        "occurred_at", "tool_name", "scopes_evaluated", "redacted_args_hash",
-        "latency_ms", "trace_id", "outcome",
+        "occurred_at",
+        "tool_name",
+        "scopes_evaluated",
+        "redacted_args_hash",
+        "latency_ms",
+        "trace_id",
+        "outcome",
     ):
         assert field in record, field
 

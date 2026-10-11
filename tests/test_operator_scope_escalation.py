@@ -132,9 +132,7 @@ def test_the_operator_list_matches_what_the_consent_screen_calls_operator():
     listed here, this fails rather than silently leaving it delegable.
     """
     described_operator = {
-        scope
-        for scope, text in oauth_service.SCOPE_DESCRIPTIONS.items()
-        if "(operator)" in text
+        scope for scope, text in oauth_service.SCOPE_DESCRIPTIONS.items() if "(operator)" in text
     }
     assert described_operator == set(OPERATOR_SCOPES), (
         "operator scopes drifted from their descriptions: "

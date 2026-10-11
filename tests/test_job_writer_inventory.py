@@ -79,7 +79,11 @@ def _calls_submit_job(tree: ast.Module) -> bool:
         for node in ast.walk(stmt):
             if isinstance(node, ast.Call):
                 f = node.func
-                name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
+                name = (
+                    f.id
+                    if isinstance(f, ast.Name)
+                    else (f.attr if isinstance(f, ast.Attribute) else "")
+                )
                 if name == "submit_job":
                     return True
     return False

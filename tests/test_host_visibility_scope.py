@@ -203,9 +203,9 @@ def test_the_single_host_routes_apply_the_same_filter():
     stranger = _user("provider-a", scopes=["hosts:read"])
     with pytest.raises(HTTPException) as excinfo:
         _require_host_visible(stranger, _host("provider-b"))
-    assert excinfo.value.status_code == 404, (
-        "a host the caller cannot see must read as absent; 403 confirms it exists"
-    )
+    assert (
+        excinfo.value.status_code == 404
+    ), "a host the caller cannot see must read as absent; 403 confirms it exists"
 
     # And the owner is unaffected.
     _require_host_visible(stranger, _host("provider-a"))

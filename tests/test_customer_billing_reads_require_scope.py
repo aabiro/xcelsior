@@ -196,9 +196,10 @@ def test_every_route_the_helper_guards_is_now_covered():
     import ast
     import pathlib
 
-    source = pathlib.Path(
-        inspect.getsourcefile(_require_customer_access)
-    ).resolve().parent / "billing.py"
+    source = (
+        pathlib.Path(inspect.getsourcefile(_require_customer_access)).resolve().parent
+        / "billing.py"
+    )
     tree = ast.parse(source.read_text(encoding="utf-8"))
     guarded = {
         node.name

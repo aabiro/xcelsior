@@ -80,7 +80,8 @@ def _write_evidence(payload: dict) -> None:
 
 class TestBillingPeriodicHarness:
     def test_auto_billing_cycle_charges_max_gpu_when_token_small(
-        self, fake_vllm_port,
+        self,
+        fake_vllm_port,
     ):
         """Production path with gpu_tier set: blended = max(gpu_slice, token_accrual)."""
         headers, owner = _funded_headers()

@@ -615,7 +615,6 @@ class TestMarketplace:
         assert listing["total_platform_fees"] == bill["platform_fee"]
 
 
-
 class TestAutoscale:
     def test_add_to_pool(self):
         entry = scheduler.add_to_pool("h1", "10.0.0.1", "RTX 4090", 24)

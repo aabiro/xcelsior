@@ -51,7 +51,10 @@ def ledger(monkeypatch):
     for i, at in enumerate(times):
         _insert(cid, f"{cid}-tx{i}", at)
     # Newest first, ties broken by tx_id descending: the order the API promises.
-    expected = [f"{cid}-tx{i}" for i, _ in sorted(enumerate(times), key=lambda p: (p[1], f"{cid}-tx{p[0]}"), reverse=True)]
+    expected = [
+        f"{cid}-tx{i}"
+        for i, _ in sorted(enumerate(times), key=lambda p: (p[1], f"{cid}-tx{p[0]}"), reverse=True)
+    ]
     yield cid, expected
     with pg_connection() as conn:
         conn.execute("DELETE FROM wallet_transactions WHERE customer_id = %s", (cid,))
@@ -88,9 +91,9 @@ def test_a_charge_landing_mid_read_does_not_shift_the_next_page(ledger):
     first = _page(cid, 3)
     _insert(cid, f"{cid}-new", time.time())  # newest of all, arrives while reading
     second = _page(cid, 3, first["next_cursor"])
-    assert [t["tx_id"] for t in second["transactions"]] == expected[3:6], (
-        "with offsets the new head row pushes page one's last row onto page two"
-    )
+    assert [t["tx_id"] for t in second["transactions"]] == expected[
+        3:6
+    ], "with offsets the new head row pushes page one's last row onto page two"
 
 
 def test_the_last_page_says_so(ledger):

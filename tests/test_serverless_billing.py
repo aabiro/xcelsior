@@ -34,9 +34,7 @@ class TestNovitaPricingQuote:
         # $3.60/hr single GPU → $0.001/s → 0.1 ¢/s
         rate_sec = worker_rate_cad_per_second(3.60, 1)
         assert rate_sec == pytest.approx(0.001, rel=1e-3)
-        quote = pricing_for_endpoint(
-            {"gpu_tier": "RTX 4090", "region": "ca-east", "gpu_count": 2}
-        )
+        quote = pricing_for_endpoint({"gpu_tier": "RTX 4090", "region": "ca-east", "gpu_count": 2})
         assert quote["billing_model"] == "worker_running_seconds"
         assert quote["gpu_count"] == 2
         assert "rate_cents_per_second_per_worker" in quote
@@ -68,9 +66,11 @@ class TestIncrementalBilling:
             "name": "test",
         }
 
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=1100.0
-        ), patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}):
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=1100.0),
+            patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}),
+        ):
             result = charge_serverless_execution(
                 billing,
                 repo,
@@ -92,12 +92,12 @@ class TestIncrementalBilling:
         worker = {"scheduler_job_id": "j1", "allocated_at": time.time() - 30}
         endpoint = {"endpoint_id": "e1", "owner_id": "c1", "gpu_tier": "x", "region": "ca-east"}
 
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=1.0), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
-        ), patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}):
-            result = charge_serverless_execution(
-                billing, repo, worker, endpoint, final=False
-            )
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=1.0),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
+            patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}),
+        ):
+            result = charge_serverless_execution(billing, repo, worker, endpoint, final=False)
         assert result["charged"] is False
         assert result["reason"] == "below_minimum_interval"
         billing.charge.assert_not_called()
@@ -159,13 +159,23 @@ class TestBlendedMeter:
         repo.peek_endpoint_token_cost.return_value = 5.00  # token cost ≫ gpu cost
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
-        worker = {"worker_id": "w1", "scheduler_job_id": "j1", "allocated_at": 1000.0, "host_id": "h1"}
-        endpoint = {
-            "endpoint_id": "ep1", "owner_id": "c1", "gpu_tier": "RTX 4090",
-            "region": "ca-east", "gpu_count": 1, "name": "t",
+        worker = {
+            "worker_id": "w1",
+            "scheduler_job_id": "j1",
+            "allocated_at": 1000.0,
+            "host_id": "h1",
         }
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        endpoint = {
+            "endpoint_id": "ep1",
+            "owner_id": "c1",
+            "gpu_tier": "RTX 4090",
+            "region": "ca-east",
+            "gpu_count": 1,
+            "name": "t",
+        }
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             # 120s @ 3.60/hr = 0.12 CAD GPU; token cost 5.00 → blended bills 5.00
             result = charge_serverless_execution(
@@ -184,14 +194,25 @@ class TestBlendedMeter:
         repo.peek_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
         billing.charge.return_value = {"charged": False, "reason": "insufficient_balance"}
-        worker = {"worker_id": "w0", "scheduler_job_id": "j0", "allocated_at": 1000.0, "host_id": "h1"}
-        endpoint = {
-            "endpoint_id": "ep0", "owner_id": "c1", "gpu_tier": "RTX 4090",
-            "region": "ca-east", "gpu_count": 1, "name": "t",
-            "mode": "preset", "model_ref": "Qwen/Qwen3-8B",
+        worker = {
+            "worker_id": "w0",
+            "scheduler_job_id": "j0",
+            "allocated_at": 1000.0,
+            "host_id": "h1",
         }
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        endpoint = {
+            "endpoint_id": "ep0",
+            "owner_id": "c1",
+            "gpu_tier": "RTX 4090",
+            "region": "ca-east",
+            "gpu_count": 1,
+            "name": "t",
+            "mode": "preset",
+            "model_ref": "Qwen/Qwen3-8B",
+        }
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
@@ -205,14 +226,25 @@ class TestBlendedMeter:
         repo.peek_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
-        worker = {"worker_id": "w2", "scheduler_job_id": "j2", "allocated_at": 1000.0, "host_id": "h1"}
-        endpoint = {
-            "endpoint_id": "ep2", "owner_id": "c1", "gpu_tier": "RTX 4090",
-            "region": "ca-east", "gpu_count": 1, "name": "t",
-            "mode": "preset", "model_ref": "Qwen/Qwen3-8B",
+        worker = {
+            "worker_id": "w2",
+            "scheduler_job_id": "j2",
+            "allocated_at": 1000.0,
+            "host_id": "h1",
         }
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        endpoint = {
+            "endpoint_id": "ep2",
+            "owner_id": "c1",
+            "gpu_tier": "RTX 4090",
+            "region": "ca-east",
+            "gpu_count": 1,
+            "name": "t",
+            "mode": "preset",
+            "model_ref": "Qwen/Qwen3-8B",
+        }
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
@@ -227,14 +259,25 @@ class TestBlendedMeter:
         repo.peek_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
-        worker = {"worker_id": "w3", "scheduler_job_id": "j3", "allocated_at": 1000.0, "host_id": "h1"}
-        endpoint = {
-            "endpoint_id": "ep3", "owner_id": "c1", "gpu_tier": "RTX 4090",
-            "region": "ca-east", "gpu_count": 1, "name": "t",
-            "mode": "custom", "image_ref": "xcelsior/serverless-base:cuda12.4",
+        worker = {
+            "worker_id": "w3",
+            "scheduler_job_id": "j3",
+            "allocated_at": 1000.0,
+            "host_id": "h1",
         }
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        endpoint = {
+            "endpoint_id": "ep3",
+            "owner_id": "c1",
+            "gpu_tier": "RTX 4090",
+            "region": "ca-east",
+            "gpu_count": 1,
+            "name": "t",
+            "mode": "custom",
+            "image_ref": "xcelsior/serverless-base:cuda12.4",
+        }
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
@@ -249,14 +292,25 @@ class TestBlendedMeter:
         repo.peek_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
-        worker = {"worker_id": "w5", "scheduler_job_id": "j5", "allocated_at": 1000.0, "host_id": "h1"}
-        endpoint = {
-            "endpoint_id": "ep5", "owner_id": "c1", "gpu_tier": "RTX 4090",
-            "region": "ca-east", "gpu_count": 1, "name": "t",
-            "mode": "custom", "image_ref": "xcelsior/serverless-base",
+        worker = {
+            "worker_id": "w5",
+            "scheduler_job_id": "j5",
+            "allocated_at": 1000.0,
+            "host_id": "h1",
         }
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        endpoint = {
+            "endpoint_id": "ep5",
+            "owner_id": "c1",
+            "gpu_tier": "RTX 4090",
+            "region": "ca-east",
+            "gpu_count": 1,
+            "name": "t",
+            "mode": "custom",
+            "image_ref": "xcelsior/serverless-base",
+        }
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
@@ -270,14 +324,25 @@ class TestBlendedMeter:
         repo.peek_endpoint_token_cost.return_value = 5.00
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
-        worker = {"worker_id": "w4", "scheduler_job_id": "j4", "allocated_at": 1000.0, "host_id": "h1"}
-        endpoint = {
-            "endpoint_id": "ep4", "owner_id": "c1", "gpu_tier": "RTX 4090",
-            "region": "ca-east", "gpu_count": 1, "name": "t",
-            "mode": "preset", "model_ref": "Qwen/Qwen3-8B",
+        worker = {
+            "worker_id": "w4",
+            "scheduler_job_id": "j4",
+            "allocated_at": 1000.0,
+            "host_id": "h1",
         }
-        with patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60), patch(
-            "serverless.metering.last_billed_period_end", return_value=None
+        endpoint = {
+            "endpoint_id": "ep4",
+            "owner_id": "c1",
+            "gpu_tier": "RTX 4090",
+            "region": "ca-east",
+            "gpu_count": 1,
+            "name": "t",
+            "mode": "preset",
+            "model_ref": "Qwen/Qwen3-8B",
+        }
+        with (
+            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
@@ -397,7 +462,9 @@ class TestDualWriteMatrix:
         # Token wins when throughput is high on a cheap GPU slice
         assert blended_period_amount(0.05, 0.25) == 0.25
         # Cached tokens lower the token side
-        cached = token_cost_metadata(1_000_000, 1_000_000, model_ref="Mistral-7B", cached_tokens=900_000)
+        cached = token_cost_metadata(
+            1_000_000, 1_000_000, model_ref="Mistral-7B", cached_tokens=900_000
+        )
         uncached = token_cost_metadata(1_000_000, 1_000_000, model_ref="Mistral-7B")
         assert cached["total_token_cost_cad"] < uncached["total_token_cost_cad"]
 

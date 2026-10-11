@@ -134,7 +134,9 @@ def _available_cad_cents(stripe_mod=None) -> int:
             available = bal.get("available")
         total = 0
         for entry in available or []:
-            currency = entry.get("currency") if isinstance(entry, dict) else getattr(entry, "currency", "")
+            currency = (
+                entry.get("currency") if isinstance(entry, dict) else getattr(entry, "currency", "")
+            )
             amount = entry.get("amount") if isinstance(entry, dict) else getattr(entry, "amount", 0)
             if str(currency).lower() == "cad":
                 total += int(amount or 0)
@@ -979,7 +981,9 @@ class StripeConnectManager:
             "amount_cad": credit_cad,
             "credit_amount_cad": credit_cad,
             "tax_amount_cad": round(int(tax_info.get("tax_amount_cents") or 0) / 100.0, 2),
-            "charge_amount_cad": round(int(tax_info.get("amount_total") or credit_cents) / 100.0, 2),
+            "charge_amount_cad": round(
+                int(tax_info.get("amount_total") or credit_cents) / 100.0, 2
+            ),
             "tax_calculation_id": tax_info.get("tax_calculation_id") or "",
             "tax_breakdown": tax_info.get("breakdown") or [],
             "tax_enabled": bool(tax_info.get("tax_enabled")),

@@ -120,9 +120,11 @@ class TestRequestTimeoutReaper:
             )
 
         svc = ServerlessService(repo)
-        with patch.object(svc.repo, "list_workers_stale_heartbeat", return_value=[]), patch.object(
-            svc.repo, "list_stuck_booting_workers", return_value=[]
-        ), patch.object(svc.repo, "list_booting_workers", return_value=[]):
+        with (
+            patch.object(svc.repo, "list_workers_stale_heartbeat", return_value=[]),
+            patch.object(svc.repo, "list_stuck_booting_workers", return_value=[]),
+            patch.object(svc.repo, "list_booting_workers", return_value=[]),
+        ):
             from serverless.reaper import reap_all
 
             stats = reap_all(svc)
@@ -149,10 +151,11 @@ class TestStaleWorkerReaper:
         repo.claim_next_job(ep_id, worker_id)
 
         svc = ServerlessService(repo)
-        with patch.object(svc, "deprovision_worker") as mock_dep, patch.object(
-            svc.repo, "list_jobs_past_request_timeout", return_value=[]
-        ), patch.object(svc.repo, "list_stuck_booting_workers", return_value=[]), patch.object(
-            svc.repo, "list_booting_workers", return_value=[]
+        with (
+            patch.object(svc, "deprovision_worker") as mock_dep,
+            patch.object(svc.repo, "list_jobs_past_request_timeout", return_value=[]),
+            patch.object(svc.repo, "list_stuck_booting_workers", return_value=[]),
+            patch.object(svc.repo, "list_booting_workers", return_value=[]),
         ):
             from serverless.reaper import reap_all
 
@@ -204,9 +207,11 @@ class TestBootFailureHardening:
         from serverless.reaper import _kill_scheduler_job
 
         job = {"job_id": "sched-orphan", "status": "queued", "host_id": ""}
-        with patch("scheduler.list_hosts", return_value=[]), patch(
-            "scheduler.kill_job"
-        ) as kill_job, patch("scheduler.update_job_status") as update_status:
+        with (
+            patch("scheduler.list_hosts", return_value=[]),
+            patch("scheduler.kill_job") as kill_job,
+            patch("scheduler.update_job_status") as update_status,
+        ):
             assert _kill_scheduler_job(job) is True
         kill_job.assert_not_called()
         update_status.assert_called_once_with("sched-orphan", "cancelled")

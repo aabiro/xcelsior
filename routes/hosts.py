@@ -353,7 +353,9 @@ def api_register_host(h: HostIn, request: Request):
     entry["country"] = h.country.upper()
     entry["province"] = h.province.upper() if h.province else ""
     if h.region or h.province or not entry.get("region"):
-        entry["region"] = normalize_region(h.region, country=entry["country"], province=entry["province"])
+        entry["region"] = normalize_region(
+            h.region, country=entry["country"], province=entry["province"]
+        )
     # P1.2: record what the agent says about itself so rolling-upgrade logic
     # can target only out-of-date hosts and detect hashes that don't match
     # anything the control plane has signed off on.
@@ -851,9 +853,7 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     from spot_pricing import suggested_spot_min_cents
 
     spot_min = (
-        h.spot_min_cents
-        if h.spot_min_cents is not None
-        else suggested_spot_min_cents(h.gpu_model)
+        h.spot_min_cents if h.spot_min_cents is not None else suggested_spot_min_cents(h.gpu_model)
     )
     platform_rate = platform_rate_cad(h.gpu_model)
     cost_per_hour = h.cost_per_hour if h.cost_per_hour > 0 else platform_rate
@@ -997,7 +997,9 @@ def api_host_spot_preview(host_id: str, request: Request, spot_min_cents: int | 
     floor = (
         spot_min_cents
         if spot_min_cents is not None
-        else int(host.get("spot_min_cents", suggested_spot_min_cents(host.get("gpu_model", ""))) or 0)
+        else int(
+            host.get("spot_min_cents", suggested_spot_min_cents(host.get("gpu_model", ""))) or 0
+        )
     )
     preview = effective_spot_rate_cad(str(host.get("gpu_model") or ""), floor)
     return {"ok": True, "host_id": resolved, "spot_preview": preview}

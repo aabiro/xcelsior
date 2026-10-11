@@ -35,10 +35,5 @@ def test_posthog_deletion_uses_private_api_host(monkeypatch):
 
     assert outcome.status == "completed"
     assert requests
-    assert {request["base_url"] for request in requests} == {
-        "https://us.posthog.com"
-    }
-    assert all(
-        ".i.posthog.com" not in str(request["base_url"])
-        for request in requests
-    )
+    assert {request["base_url"] for request in requests} == {"https://us.posthog.com"}
+    assert all(".i.posthog.com" not in str(request["base_url"]) for request in requests)
