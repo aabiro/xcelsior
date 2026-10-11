@@ -817,7 +817,7 @@ xcelsior earnings --period 30d                   # Earnings summary
 curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only
 \`\`\`
 
-It checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and key, verifies the signature of every agent module it downloads, writes \`~/.xcelsior/worker.env\` (mode 600), installs and starts the \`xcelsior-worker\` systemd service, then waits for the first heartbeat and reports the admission state. Nothing else needs to be created by hand.
+It checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and key, verifies the signature of every agent module it downloads, writes \`~/.xcelsior/worker.env\` (mode 600), installs and starts the \`xcelsior-worker\` systemd service (as a dedicated \`xcelsior\` user, not root), then waits for the first heartbeat and reports the admission state. Nothing else needs to be created by hand.
 
 ### 3. Verify
 
