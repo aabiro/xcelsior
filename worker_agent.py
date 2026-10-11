@@ -662,19 +662,8 @@ def _ip_is_local(ip: str) -> bool:
 # ── Compute Score Benchmark ──────────────────────────────────────────
 
 
-def run_compute_benchmark():
-    """Run comprehensive benchmark suite for all 6 verification checks.
-
-    Collects: TFLOPS (FP16 matmul), CUDA/driver versions, compute capability,
-    PCIe bandwidth, sustained thermal readings, and GPU identity data.
-    Returns a full report dict that verification.py can consume, or None.
-    """
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                """
+#: The verification benchmark, run by the agent's own Python or in BENCHMARK_IMAGE.
+_BENCHMARK_SCRIPT = """
 import time, json, subprocess, re
 report = {}
 
@@ -781,21 +770,80 @@ try:
 
 except ImportError:
     print(json.dumps({"error": "no_torch"}))
-""",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,  # Longer timeout for thermal test
-        )
+"""
+
+#: Where the benchmark runs when the agent's venv has no PyTorch, which is how
+#: install.sh sets it up (the wheels are ~2.5 GB that only this benchmark needs).
+#: Without a benchmark the host never sends a verification report and stays
+#: pending. CUDA 12.4 runtime: needs driver 550+, the documented minimum.
+BENCHMARK_IMAGE = os.environ.get(
+    "XCELSIOR_BENCHMARK_IMAGE", "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime"
+)
+
+
+def _run_benchmark(cmd: list[str], timeout: int) -> dict | None:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if result.returncode == 0 and result.stdout.strip():
-            data = json.loads(result.stdout.strip())
-            if "error" in data:
-                log.warning("Benchmark skipped: %s", data["error"])
-                return None
-            return data
+            return json.loads(result.stdout.strip().splitlines()[-1])
+        log.warning("Benchmark exited %s: %s", result.returncode, result.stderr.strip()[-300:])
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
         log.warning("Benchmark failed: %s", e)
     return None
+
+
+def _ensure_image(image: str) -> bool:
+    try:
+        if (
+            subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode
+            == 0
+        ):
+            return True
+        log.info("Pulling benchmark image %s (first run only)...", image)
+        pulled = subprocess.run(
+            ["docker", "pull", image], capture_output=True, text=True, timeout=1800
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.warning("Benchmark image %s unavailable: %s", image, e)
+        return False
+    if pulled.returncode != 0:
+        log.warning("Could not pull %s: %s", image, pulled.stderr.strip()[-300:])
+    return pulled.returncode == 0
+
+
+def run_compute_benchmark():
+    """Run comprehensive benchmark suite for all 6 verification checks.
+
+    Collects: TFLOPS (FP16 matmul), CUDA/driver versions, compute capability,
+    PCIe bandwidth, sustained thermal readings, and GPU identity data.
+    Returns a full report dict that verification.py can consume, or None.
+    """
+    data = _run_benchmark([sys.executable, "-c", _BENCHMARK_SCRIPT], timeout=300)
+    if data == {"error": "no_torch"} and _ensure_image(BENCHMARK_IMAGE):
+        log.info("No PyTorch in the agent's venv; benchmarking in %s", BENCHMARK_IMAGE)
+        data = _run_benchmark(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--gpus",
+                "all",
+                "--network",
+                "none",
+                "--label",
+                "ai.xcelsior.benchmark=true",
+                "--entrypoint",
+                "python",
+                BENCHMARK_IMAGE,
+                "-c",
+                _BENCHMARK_SCRIPT,
+            ],
+            timeout=420,
+        )
+    if data and "error" in data:
+        log.warning("Benchmark skipped: %s", data["error"])
+        return None
+    return data
 
 
 def run_network_benchmark(scheduler_url: str | None = None):
@@ -3714,6 +3762,10 @@ def report_verification(full_report):
 _reverify_running = threading.Event()
 
 
+#: Set by run_verification_cycle; the heartbeat loop reports it once known.
+_latest_compute_score: float | None = None
+
+
 def run_verification_cycle(gpu_info: dict, versions: dict):
     """Benchmark this host and submit its verification report. Returns the XCU score.
 
@@ -3730,7 +3782,9 @@ def run_verification_cycle(gpu_info: dict, versions: dict):
         log.info("Benchmark skipped (PyTorch/CUDA not available)")
         return None
 
+    global _latest_compute_score
     compute_score = bench.get("tflops", 0) / 10  # XCU
+    _latest_compute_score = compute_score
     log.info("GPU Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
     log.info(
         "  CUDA %s | Driver %s | CC %s",
@@ -6955,7 +7009,8 @@ def heartbeat_loop(host_ip, compute_score=None):
     while not _shutdown.is_set():
         try:
             gpu_info = get_gpu_info()
-            success = heartbeat(gpu_info, host_ip, compute_score)
+            score = compute_score if compute_score is not None else _latest_compute_score
+            success = heartbeat(gpu_info, host_ip, score)
 
             if success:
                 consecutive_failures = 0
@@ -7446,10 +7501,11 @@ def main():
         log.warning("Agent will continue heartbeats but will NOT accept work.")
         log.warning("Upgrade vulnerable components to become eligible.")
 
-    # ── Step 4: Comprehensive benchmark ──
-    compute_score = run_verification_cycle(gpu_info, versions)
-
-    # ── Step 5: Initial heartbeat ──
+    # ── Step 4: Initial heartbeat ──
+    # Before the benchmark: it takes a minute or more (longer when the benchmark
+    # image must be pulled), and install.sh and the wizard wait ~60 s for this
+    # heartbeat. The benchmark runs in the background below (Step 7c).
+    compute_score = None
     heartbeat(gpu_info, host_ip, compute_score)
 
     # ── Banner ──
@@ -7549,6 +7605,11 @@ def main():
 
     # ── Step 7b: Clean up orphaned volume mounts ──
     cleanup_orphaned_volume_mounts()
+
+    # ── Step 7c: Benchmark + verification report, in the background ──
+    # After adoption, so a job that survived the restart is known: the benchmark
+    # saturates the GPU and is deferred while one runs (see _start_reverification).
+    _start_reverification()
 
     # ── Step 8: Start background threads ──
     threads = []
