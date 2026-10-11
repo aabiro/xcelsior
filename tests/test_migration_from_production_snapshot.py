@@ -122,18 +122,33 @@ def _seed_053_production_shape(db_dsn: str) -> dict[str, int]:
     with _connect(db_dsn) as conn:
         # ── hosts: every admission shape 059's trigger distinguishes ──
         host_rows = [
-            ("host-admitted", "active", {"admitted": True, "gpu_count": 2,
-                                         "gpu_model": "RTX 4090", "total_vram_gb": 48}),
-            ("host-pending", "pending", {"admitted": False, "gpu_count": 1,
-                                         "gpu_model": "RTX 3060", "total_vram_gb": 12}),
-            ("host-draining", "draining", {"admitted": True, "gpu_count": 1,
-                                           "gpu_model": "A100", "total_vram_gb": 80}),
-            ("host-offline", "offline", {"admitted": True, "gpu_count": 1,
-                                         "gpu_model": "L40S", "total_vram_gb": 48}),
+            (
+                "host-admitted",
+                "active",
+                {"admitted": True, "gpu_count": 2, "gpu_model": "RTX 4090", "total_vram_gb": 48},
+            ),
+            (
+                "host-pending",
+                "pending",
+                {"admitted": False, "gpu_count": 1, "gpu_model": "RTX 3060", "total_vram_gb": 12},
+            ),
+            (
+                "host-draining",
+                "draining",
+                {"admitted": True, "gpu_count": 1, "gpu_model": "A100", "total_vram_gb": 80},
+            ),
+            (
+                "host-offline",
+                "offline",
+                {"admitted": True, "gpu_count": 1, "gpu_model": "L40S", "total_vram_gb": 48},
+            ),
             # A host whose payload omits `admitted` entirely — the shape
             # that predates the flag. It must still project, not NULL out.
-            ("host-legacy", "active", {"gpu_count": 1, "gpu_model": "RTX 2060",
-                                       "total_vram_gb": 6}),
+            (
+                "host-legacy",
+                "active",
+                {"gpu_count": 1, "gpu_model": "RTX 2060", "total_vram_gb": 6},
+            ),
         ]
         for host_id, status, payload in host_rows:
             conn.execute(
@@ -185,15 +200,31 @@ def _seed_053_production_shape(db_dsn: str) -> dict[str, int]:
             "INSERT INTO leases (lease_id, job_id, host_id, granted_at, "
             "expires_at, last_renewed, duration_sec, status) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            ("lease-active", "job-running", "host-admitted",
-             now - 60, now + 3600, now - 30, 3600, "active"),
+            (
+                "lease-active",
+                "job-running",
+                "host-admitted",
+                now - 60,
+                now + 3600,
+                now - 30,
+                3600,
+                "active",
+            ),
         )
         conn.execute(
             "INSERT INTO leases (lease_id, job_id, host_id, granted_at, "
             "expires_at, last_renewed, duration_sec, status) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            ("lease-expired", "job-completed", "host-admitted",
-             now - 7200, now - 3600, now - 7200, 3600, "expired"),
+            (
+                "lease-expired",
+                "job-completed",
+                "host-admitted",
+                now - 7200,
+                now - 3600,
+                now - 7200,
+                3600,
+                "expired",
+            ),
         )
         counts["leases"] = 2
 
@@ -259,9 +290,9 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
     with _connect(dsn) as conn:
         # ── head reached ──
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert rev is not None and rev[0] == EXPECTED_HEAD, (
-            f"expected head {EXPECTED_HEAD}, database is at {rev}"
-        )
+        assert (
+            rev is not None and rev[0] == EXPECTED_HEAD
+        ), f"expected head {EXPECTED_HEAD}, database is at {rev}"
 
         # ── no data loss or duplication ──
         for table, expected in seeded.items():
@@ -278,9 +309,9 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
         unmapped = conn.execute(
             "SELECT count(*) FROM jobs WHERE phase IS NULL OR desired_state IS NULL"
         ).fetchone()
-        assert unmapped is not None and unmapped[0] == 0, (
-            f"{unmapped[0]} job rows have no phase/desired_state projection"
-        )
+        assert (
+            unmapped is not None and unmapped[0] == 0
+        ), f"{unmapped[0]} job rows have no phase/desired_state projection"
         unobserved = conn.execute(
             "SELECT count(*) FROM hosts WHERE last_observed_at IS NULL"
         ).fetchone()
@@ -306,9 +337,9 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
         ).fetchone()
         assert row is not None
         tenant_id, team_id, owner_id = row
-        assert tenant_id and tenant_id.startswith("tenant-"), (
-            f"tenant_id not projected from payload: {tenant_id!r}"
-        )
+        assert tenant_id and tenant_id.startswith(
+            "tenant-"
+        ), f"tenant_id not projected from payload: {tenant_id!r}"
         assert team_id and team_id.startswith("team-")
         assert owner_id and owner_id.startswith("user-")
 
@@ -322,8 +353,7 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
 
         # ── 054 backfill: queue ordering columns are populated ──
         missing_queue_cols = conn.execute(
-            "SELECT count(*) FROM jobs WHERE queued_at IS NULL "
-            "OR effective_priority IS NULL"
+            "SELECT count(*) FROM jobs WHERE queued_at IS NULL " "OR effective_priority IS NULL"
         ).fetchone()
         assert missing_queue_cols is not None and missing_queue_cols[0] == 0, (
             "jobs are missing queued_at/effective_priority — the scheduler's "
@@ -354,14 +384,12 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
         )
 
         # ── uniqueness invariants hold over migrated data (§8.1) ──
-        dupes = conn.execute(
-            """
+        dupes = conn.execute("""
             SELECT job_id, count(*) FROM job_attempts
              WHERE status IN ('reserved','command_pending','lease_offered',
                               'lease_claimed','starting','running')
              GROUP BY job_id HAVING count(*) > 1
-            """
-        ).fetchall()
+            """).fetchall()
         assert not dupes, f"migrated data violates uq_job_one_active_attempt: {dupes}"
 
         # ── 059 trigger: host admission derived from the payload flag ──
@@ -382,7 +410,9 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
         )
 
         # ── money totals survive exactly ──
-        total = conn.execute("SELECT sum(amount_micros)::double precision / 1000000.0 FROM billing_cycles").fetchone()
+        total = conn.execute(
+            "SELECT sum(amount_micros)::double precision / 1000000.0 FROM billing_cycles"
+        ).fetchone()
         assert total is not None
         assert abs(total[0] - sum(SEEDED_AMOUNT_CAD)) < 1e-9, (
             f"billing total changed during upgrade: seeded "
@@ -408,9 +438,9 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
         # Legacy truth is untouched by the round trip.
         for table, expected in seeded.items():
             actual = conn.execute(f"SELECT count(*) FROM {table}").fetchone()
-            assert actual is not None and actual[0] == expected, (
-                f"{table} lost rows during downgrade to {BASELINE_REVISION}"
-            )
+            assert (
+                actual is not None and actual[0] == expected
+            ), f"{table} lost rows during downgrade to {BASELINE_REVISION}"
 
     _alembic(dsn, "upgrade", "head")
 

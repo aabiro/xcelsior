@@ -99,9 +99,9 @@ def test_the_customer_component_reads_the_aggregate_and_not_the_per_host_map():
 
 def test_the_browser_actually_calls_the_route():
     """Typed is not called; called is not rendered. Check all three."""
-    assert "placement-explanation" in API_TS.read_text(encoding="utf-8"), (
-        "frontend/src/lib/api.ts no longer declares the placement-explanation call"
-    )
+    assert "placement-explanation" in API_TS.read_text(
+        encoding="utf-8"
+    ), "frontend/src/lib/api.ts no longer declares the placement-explanation call"
     page = strip_ts_comments(PAGE.read_text(encoding="utf-8"))
     assert "fetchPlacementExplanation(" in page, (
         "the instance page does not fetch the explanation, so the component "
@@ -129,9 +129,9 @@ def test_the_timeline_and_lease_routes_reach_the_browser_too():
         assert route in api, f"frontend/src/lib/api.ts no longer declares {route}"
 
     page = strip_ts_comments(PAGE.read_text(encoding="utf-8"))
-    assert "fetchInstanceTimeline(" in page and "fetchActiveLease(" in page, (
-        "the instance page does not fetch the attempts or the lease"
-    )
+    assert (
+        "fetchInstanceTimeline(" in page and "fetchActiveLease(" in page
+    ), "the instance page does not fetch the attempts or the lease"
     assert "<AttemptTimeline" in page, "fetched but never rendered"
 
 

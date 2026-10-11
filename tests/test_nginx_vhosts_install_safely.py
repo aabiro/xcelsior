@@ -43,7 +43,11 @@ def _source(name: str) -> str:
 
 
 def _directives(text: str) -> list[str]:
-    return [line.split("#", 1)[0].rstrip() for line in text.splitlines() if line.split("#", 1)[0].strip()]
+    return [
+        line.split("#", 1)[0].rstrip()
+        for line in text.splitlines()
+        if line.split("#", 1)[0].strip()
+    ]
 
 
 # ── Rendering ─────────────────────────────────────────────────────────────
@@ -51,12 +55,16 @@ def _directives(text: str) -> list[str]:
 
 def test_the_repo_is_written_for_the_router():
     """If this stops being true the direct rendering is untested, not unneeded."""
-    assert any("proxy_protocol" in line for line in _directives(_source("xcelsior")) if "listen" in line)
+    assert any(
+        "proxy_protocol" in line for line in _directives(_source("xcelsior")) if "listen" in line
+    )
 
 
 @pytest.mark.parametrize("name", rnv.VHOSTS)
 def test_direct_rendering_serves_tls_on_443_without_proxy_protocol(name):
-    out = _directives(rnv.render(_source(name), topology="direct", api_live="green", mcp_live="green"))
+    out = _directives(
+        rnv.render(_source(name), topology="direct", api_live="green", mcp_live="green")
+    )
     listens = [line for line in out if line.strip().startswith("listen")]
     assert not [line for line in listens if "proxy_protocol" in line]
     assert not [line for line in listens if "8444" in line]
@@ -76,7 +84,10 @@ def test_router_rendering_keeps_the_layout(name):
 
 def _upstream(text: str, name: str) -> dict[str, bool]:
     body = re.search(rf"upstream\s+{name}\s*\{{(.*?)\}}", text, re.S).group(1)
-    return {m.group(1): bool(m.group(2)) for m in re.finditer(r"server\s+(127\.0\.0\.1:\d+)(\s+backup)?;", body)}
+    return {
+        m.group(1): bool(m.group(2))
+        for m in re.finditer(r"server\s+(127\.0\.0\.1:\d+)(\s+backup)?;", body)
+    }
 
 
 @pytest.mark.parametrize("api", ["green", "blue"])
@@ -121,9 +132,24 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
     (tmp_path / "logs").mkdir()
     cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
     subprocess.run(
-        [openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=xcelsior.ca",
-         "-days", "1", "-keyout", str(key), "-out", str(cert)],
-        check=True, capture_output=True,
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-subj",
+            "/CN=xcelsior.ca",
+            "-days",
+            "1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
+        check=True,
+        capture_output=True,
     )
     live = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Healthz)
     threading.Thread(target=live.serve_forever, daemon=True).start()
@@ -138,13 +164,19 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
     conf = re.sub(r"listen \[::\]:\d+\b[^;]*;", "", conf)
     conf = re.sub(r"listen 80\b[^;]*;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf)
     conf = re.sub(r"listen 443\b", f"listen 127.0.0.1:{tls}", conf)
-    conf = re.sub(r"listen 127\.0\.0\.1:9555;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf)
+    conf = re.sub(
+        r"listen 127\.0\.0\.1:9555;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf
+    )
     (tmp_path / "site.conf").write_text(conf)
     (tmp_path / "nginx.conf").write_text(
         f"pid {tmp_path}/nginx.pid;\nerror_log {tmp_path}/logs/error.log;\nevents {{}}\n"
         f"http {{\n  access_log {tmp_path}/logs/access.log;\n  include {tmp_path}/site.conf;\n}}\n"
     )
-    started = subprocess.run([nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")], capture_output=True, text=True)
+    started = subprocess.run(
+        [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")],
+        capture_output=True,
+        text=True,
+    )
     assert started.returncode == 0, started.stderr
     try:
         deadline = time.time() + 5
@@ -157,7 +189,9 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
         ctx = ssl.create_default_context()
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
         # No PROXY header: in the direct layout the client speaks TLS straight away.
-        with ctx.wrap_socket(socket.create_connection(("127.0.0.1", tls), timeout=5), server_hostname="xcelsior.ca") as s:
+        with ctx.wrap_socket(
+            socket.create_connection(("127.0.0.1", tls), timeout=5), server_hostname="xcelsior.ca"
+        ) as s:
             s.sendall(b"GET /healthz HTTP/1.1\r\nHost: xcelsior.ca\r\nConnection: close\r\n\r\n")
             data = b""
             while chunk := s.recv(65536):
@@ -165,7 +199,10 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
         status = int(data.split(b"\r\n", 1)[0].split()[1])
         assert status == 200 and b"\r\nlive\r\n" in data, data[:300]
     finally:
-        subprocess.run([nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"], capture_output=True)
+        subprocess.run(
+            [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"],
+            capture_output=True,
+        )
         live.shutdown()
 
 
@@ -183,7 +220,12 @@ STUBS = {
 
 @pytest.fixture
 def host(tmp_path):
-    bin_dir, etc, src, backups = tmp_path / "bin", tmp_path / "etc", tmp_path / "src", tmp_path / "backups"
+    bin_dir, etc, src, backups = (
+        tmp_path / "bin",
+        tmp_path / "etc",
+        tmp_path / "src",
+        tmp_path / "backups",
+    )
     for d in (bin_dir, etc / "sites-available", etc / "sites-enabled", src, backups):
         d.mkdir(parents=True)
     for name, body in STUBS.items():
@@ -205,7 +247,9 @@ def host(tmp_path):
 
 
 def _install(env) -> subprocess.CompletedProcess:
-    return subprocess.run(["bash", str(INSTALLER)], env=env, capture_output=True, text=True, timeout=30)
+    return subprocess.run(
+        ["bash", str(INSTALLER)], env=env, capture_output=True, text=True, timeout=30
+    )
 
 
 def _serving(etc) -> dict[str, str]:
@@ -225,7 +269,9 @@ def test_a_config_nginx_rejects_is_rolled_back(host):
     (src / "xcelsior.conf").write_text("BROKEN\n")
     r = _install(env)
     assert r.returncode != 0
-    assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}, "the previous vhosts must be serving again"
+    assert _serving(etc) == {
+        n: f"old {n}" for n in rnv.VHOSTS
+    }, "the previous vhosts must be serving again"
 
 
 def test_a_site_that_stops_answering_is_rolled_back(host):

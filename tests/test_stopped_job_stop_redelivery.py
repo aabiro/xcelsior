@@ -30,8 +30,7 @@ try:
             is not None
         )
         _has_job_attempts = (
-            _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0]
-            is not None
+            _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0] is not None
         )
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
@@ -110,9 +109,7 @@ def _mk_stopped_fenced_history(cleanup, *, host_id: str, age_sec: float = 300.0)
         "submitted_at": stale,
     }
     with _pool.connection() as conn:
-        fence = conn.execute(
-            "SELECT nextval('placement_fencing_token_seq')"
-        ).fetchone()[0]
+        fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id,
@@ -146,9 +143,7 @@ def _mk_stopped_attempt_owned(cleanup, *, host_id: str, age_sec: float = 300.0) 
         "submitted_at": stale,
     }
     with _pool.connection() as conn:
-        fence = conn.execute(
-            "SELECT nextval('placement_fencing_token_seq')"
-        ).fetchone()[0]
+        fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
         # Job row first (FK parent), then attempt, then active pointer.
         conn.execute(
             """INSERT INTO jobs
@@ -241,9 +236,7 @@ def test_attempt_owned_stopped_job_gets_no_unfenced_stop(cleanup):
 
     bg_worker.reconcile_paused_stopped_jobs()
     cmds = _stop_cmds_for(job_id)
-    assert cmds == [], (
-        f"attempt-owned job {job_id} must not receive unfenced stop (got {cmds})"
-    )
+    assert cmds == [], f"attempt-owned job {job_id} must not receive unfenced stop (got {cmds})"
 
 
 def test_legacy_and_fenced_classes_side_by_side(cleanup):

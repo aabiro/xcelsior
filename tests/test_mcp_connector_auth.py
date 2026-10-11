@@ -27,7 +27,6 @@ from oauth_service import (
     redirect_uri_matches,
 )
 
-
 # ── Canonical resource identifier (BLOCKER 1, X0.2) ───────────────────────
 
 
@@ -96,9 +95,7 @@ def test_wildcard_port_registration_accepts_any_loopback_path():
 
 
 def test_loopback_path_still_has_to_match_when_registered():
-    assert not redirect_uri_matches(
-        "http://127.0.0.1:8976/callback", "http://127.0.0.1:8976/other"
-    )
+    assert not redirect_uri_matches("http://127.0.0.1:8976/callback", "http://127.0.0.1:8976/other")
 
 
 def test_port_widening_never_applies_to_a_routable_host():
@@ -454,9 +451,10 @@ def test_a_loopback_callback_is_local_not_guessed():
 def test_a_metadata_document_client_id_attributes_even_over_loopback():
     from oauth_registration import classify_surface
 
-    assert classify_surface(
-        "http://127.0.0.1:51423/callback", "https://claude.ai/mcp/client.json"
-    ) == "claude"
+    assert (
+        classify_surface("http://127.0.0.1:51423/callback", "https://claude.ai/mcp/client.json")
+        == "claude"
+    )
 
 
 def test_an_unrecognised_callback_is_unknown_rather_than_mislabelled():

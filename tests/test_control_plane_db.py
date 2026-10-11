@@ -19,10 +19,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('scheduled_tasks')").fetchone()[0]
-            is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('scheduled_tasks')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -64,9 +61,7 @@ def _insert_task(conn, name):
 def _task_exists(name) -> bool:
     with _pool.connection() as conn:
         return (
-            conn.execute(
-                "SELECT 1 FROM scheduled_tasks WHERE task_name=%s", (name,)
-            ).fetchone()
+            conn.execute("SELECT 1 FROM scheduled_tasks WHERE task_name=%s", (name,)).fetchone()
             is not None
         )
 
@@ -88,9 +83,7 @@ class TestControlPlaneTransaction:
         assert not _task_exists(task_name)
 
     def test_local_timeouts_applied(self):
-        with control_plane_transaction(
-            statement_timeout_ms=1234, lock_timeout_ms=567
-        ) as conn:
+        with control_plane_transaction(statement_timeout_ms=1234, lock_timeout_ms=567) as conn:
             assert conn.execute("SHOW statement_timeout").fetchone()[0] == "1234ms"
             assert conn.execute("SHOW lock_timeout").fetchone()[0] == "567ms"
 

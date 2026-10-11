@@ -3093,9 +3093,7 @@ def v2_adopt_attempts() -> int:
             outcome = (
                 str(pending.get("terminal_status"))
                 if isinstance(pending, dict) and pending.get("terminal_status")
-                else "succeeded"
-                if exit_code == 0
-                else "failed"
+                else "succeeded" if exit_code == 0 else "failed"
             )
             report_outcome = v2_report_attempt_status(
                 auth,
@@ -4654,7 +4652,8 @@ def run_job(job):
             extra_docker_args.extend(_sl_port_args)
         if effective_command and not is_interactive:
             effective_command, entrypoint_args = _container_command(
-                effective_command, serverless=is_serverless,
+                effective_command,
+                serverless=is_serverless,
             )
             extra_docker_args.extend(entrypoint_args)
         if is_interactive:
@@ -4686,7 +4685,9 @@ def run_job(job):
             # so interactive instances have these on $PATH without paying an
             # apt-install tax at boot. We skip the mount when the dir doesn't
             # exist on the host so unprovisioned dev machines still work.
-            host_tools_dir = os.environ.get("XCELSIOR_TOOLS_DIR", os.path.join(_WORKER_STATE_DIR, "tools"))
+            host_tools_dir = os.environ.get(
+                "XCELSIOR_TOOLS_DIR", os.path.join(_WORKER_STATE_DIR, "tools")
+            )
             try:
                 if os.path.isdir(host_tools_dir):
                     extra_docker_args.extend(["-v", f"{host_tools_dir}:/opt/xcelsior/bin:ro"])
@@ -6307,8 +6308,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     + set_root_shell
                     + " ; "
                     # Silence default debian/ubuntu motd noise so ours is the only banner shown
-                    "rm -f /etc/update-motd.d/* 2>/dev/null; "
-                    ": > /etc/motd 2>/dev/null || true",
+                    "rm -f /etc/update-motd.d/* 2>/dev/null; " ": > /etc/motd 2>/dev/null || true",
                 ],
                 capture_output=True,
                 timeout=_remaining(15),

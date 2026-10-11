@@ -198,13 +198,13 @@ def test_an_http_refusal_is_not_reported_as_unreachability(capsys) -> None:
             cli.cmd_login(SimpleNamespace(api_url=None))
 
     err = capsys.readouterr().err
-    assert "Could not reach" not in err, (
-        f"a 401 from a responding API was reported as unreachability: {err}"
-    )
+    assert (
+        "Could not reach" not in err
+    ), f"a 401 from a responding API was reported as unreachability: {err}"
     assert "401" in err, f"the refusal does not say what the API answered: {err}"
-    assert "invalid_client" in err, (
-        f"the body says exactly what is wrong and the message drops it: {err}"
-    )
+    assert (
+        "invalid_client" in err
+    ), f"the body says exactly what is wrong and the message drops it: {err}"
 
 
 def test_an_unreachable_api_still_reports_as_unreachable(capsys) -> None:

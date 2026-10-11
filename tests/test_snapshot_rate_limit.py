@@ -150,6 +150,6 @@ def test_the_shared_path_is_the_one_being_used():
         "shared runtime state is unavailable here, so the limiter is running on "
         "its per-process fallback and the cross-worker test cannot be trusted"
     )
-    assert "user-shared-probe" in (state or {}), (
-        f"the call was not recorded in shared state; buckets={state}"
-    )
+    assert "user-shared-probe" in (
+        state or {}
+    ), f"the call was not recorded in shared state; buckets={state}"

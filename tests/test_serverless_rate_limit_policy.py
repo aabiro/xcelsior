@@ -67,9 +67,7 @@ class TestCheckBehaviorWhenGlobalLimiterDown:
     # so these exercise the degradation-policy branch directly.
 
     def test_dev_uses_local_deque(self, monkeypatch):
-        monkeypatch.setenv(
-            "XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY", "disabled-for-development"
-        )
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY", "disabled-for-development")
         check_key_rate_limit("k-dev", rpm=2)
         check_key_rate_limit("k-dev", rpm=2)
         with pytest.raises(RateLimitExceeded):
@@ -89,9 +87,7 @@ class TestCheckBehaviorWhenGlobalLimiterDown:
             pytest.fail("expected fail-closed denial")
 
     def test_upstream_enforced_passes_through(self, monkeypatch):
-        monkeypatch.setenv(
-            "XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY", "upstream-enforced"
-        )
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_RATE_LIMIT_POLICY", "upstream-enforced")
         # No per-process quota is fabricated: many calls, never denied.
         for _ in range(50):
             info = check_key_rate_limit("k-up", rpm=1)
@@ -112,6 +108,7 @@ class TestRedisTimeoutBound:
     @pytest.fixture(autouse=True)
     def _reset_redis_cache(self):
         import serverless.rate_limit_store as rls
+
         rls._REDIS_TRIED = False
         rls._REDIS_CLIENT = None
         yield
@@ -120,6 +117,7 @@ class TestRedisTimeoutBound:
 
     def test_timeout_default_floor_and_bad_value(self, monkeypatch):
         import serverless.rate_limit_store as rls
+
         monkeypatch.delenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", raising=False)
         assert rls._redis_timeout_sec() == 2.0
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "0.01")
@@ -132,6 +130,7 @@ class TestRedisTimeoutBound:
     def test_get_redis_passes_bounded_timeouts(self, monkeypatch):
         import serverless.rate_limit_store as rls
         import redis
+
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_RATE_LIMITS", "true")
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_URL", "redis://localhost:6379/0")
         monkeypatch.setenv("XCELSIOR_SERVERLESS_REDIS_TIMEOUT_SEC", "1.5")

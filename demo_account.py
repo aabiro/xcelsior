@@ -53,13 +53,13 @@ DEMO_NAME = os.environ.get("XCELSIOR_DEMO_NAME", "Demo Account")
 # old one is replaced, never kept alongside. The tailnet entries below are the
 # durable path; `XCELSIOR_DEMO_IP_WHITELIST_EXTRA` changes this without a deploy.
 _DEFAULT_WHITELIST = [
-    "207.219.90.237/32",    # public IP (home / ASUS), 2026-10-05
-    "100.64.0.6/32",        # tailscale — ASUS (aaryn-tuf-rtx2060)
-    "100.64.0.3/32",        # tailscale — Mac (volume server)
-    "192.168.1.0/24",       # home LAN (both machines)
+    "207.219.90.237/32",  # public IP (home / ASUS), 2026-10-05
+    "100.64.0.6/32",  # tailscale — ASUS (aaryn-tuf-rtx2060)
+    "100.64.0.3/32",  # tailscale — Mac (volume server)
+    "192.168.1.0/24",  # home LAN (both machines)
     "fd7a:115c:a1e0::/48",  # tailscale IPv6 (whole tailnet ULA)
-    "127.0.0.1/32",         # localhost (local dev + smoke server)
-    "::1/128",              # localhost IPv6
+    "127.0.0.1/32",  # localhost (local dev + smoke server)
+    "::1/128",  # localhost IPv6
 ]
 
 

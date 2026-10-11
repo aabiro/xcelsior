@@ -73,9 +73,7 @@ def list_stuck_legacy_job_ids(
                 "COALESCE((payload->>'updated_at')::float, submitted_at) < %s",
                 (status, cutoff),
             )
-        return [
-            str(r[0] if not isinstance(r, dict) else r["job_id"]) for r in cur.fetchall()
-        ]
+        return [str(r[0] if not isinstance(r, dict) else r["job_id"]) for r in cur.fetchall()]
 
     if conn is not None:
         return _select(conn)

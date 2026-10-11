@@ -79,7 +79,12 @@ def test_worm_rejects_update_and_delete():
         conn.rollback()
     # The row survives both attempts.
     with _pool.connection() as conn:
-        assert conn.execute("SELECT count(*) FROM audit_events_v2 WHERE event_id=%s", (eid,)).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM audit_events_v2 WHERE event_id=%s", (eid,)
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_stream_sequence_unique_backstop_within_partition():
@@ -139,6 +144,12 @@ def test_no_request_handler_creates_audit_partitions():
     offenders = []
     for path in (REPO / "routes").glob("*.py"):
         src = path.read_text()
-        if "PARTITION OF audit_events_v2" in src or "CREATE TABLE" in src and "audit_events_v2" in src:
+        if (
+            "PARTITION OF audit_events_v2" in src
+            or "CREATE TABLE" in src
+            and "audit_events_v2" in src
+        ):
             offenders.append(path.name)
-    assert not offenders, f"request handler creates audit partitions inline (forbidden): {offenders}"
+    assert (
+        not offenders
+    ), f"request handler creates audit partitions inline (forbidden): {offenders}"

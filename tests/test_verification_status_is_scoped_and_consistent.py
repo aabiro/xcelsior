@@ -103,9 +103,9 @@ def test_status_is_present_whether_or_not_a_record_exists(signed_in, verified_ho
     """The badge bug: `status` used to be missing on exactly the verified hosts."""
     known = client.get(f"/api/verify/{verified_host}/status", headers=signed_in)
     assert known.status_code == 200, known.text[:300]
-    assert "status" in known.json(), (
-        f"a host WITH a record returned no top-level status: {known.json()}"
-    )
+    assert (
+        "status" in known.json()
+    ), f"a host WITH a record returned no top-level status: {known.json()}"
     assert known.json()["status"], "status is present but empty"
 
     unknown = client.get(

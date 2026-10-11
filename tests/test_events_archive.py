@@ -29,8 +29,16 @@ except Exception as _e:  # pragma: no cover
 from events import EventSnapshotManager
 
 _LIVE_EVENTS_COLUMNS = {
-    "event_id", "event_type", "entity_type", "entity_id", "timestamp",
-    "actor", "data", "metadata", "prev_hash", "event_hash",
+    "event_id",
+    "event_type",
+    "entity_type",
+    "entity_id",
+    "timestamp",
+    "actor",
+    "data",
+    "metadata",
+    "prev_hash",
+    "event_hash",
 }
 
 
@@ -72,15 +80,26 @@ def test_archive_moves_old_events_and_preserves_chain_hash(scratch):
 
     with _pool.connection() as conn:
         # Old event left the hot table …
-        assert conn.execute("SELECT count(*) FROM events WHERE event_id=%s", (old_id,)).fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT count(*) FROM events WHERE event_id=%s", (old_id,)).fetchone()[0]
+            == 0
+        )
         # … and arrived in cold storage with its chain hash preserved.
         arch = conn.execute(
             "SELECT chain_hash FROM events_archive WHERE event_id=%s", (old_id,)
         ).fetchone()
         assert arch is not None and arch[0] == "chainhash_old"
         # The fresh event is untouched.
-        assert conn.execute("SELECT count(*) FROM events WHERE event_id=%s", (fresh_id,)).fetchone()[0] == 1
-        assert conn.execute("SELECT count(*) FROM events_archive WHERE event_id=%s", (fresh_id,)).fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT count(*) FROM events WHERE event_id=%s", (fresh_id,)).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM events_archive WHERE event_id=%s", (fresh_id,)
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_archive_query_references_only_live_events_columns():
@@ -97,7 +116,7 @@ def test_archive_query_references_only_live_events_columns():
     # target), so only flag them where the query reads FROM/WHERE `events`.
     select_from_events = re.search(r"FROM\s+events\b(.*?)RETURNING", src, re.S | re.I)
     where_events = re.findall(r"(?:FROM|DELETE FROM)\s+events\b[^%]*?WHERE\s+(\w+)", src, re.I)
-    read_region = (select_from_events.group(1) if select_from_events else "")
+    read_region = select_from_events.group(1) if select_from_events else ""
     for col in forbidden:
         assert col not in read_region, f"archive reads `{col}` from events (not a live column)"
     for col in where_events:

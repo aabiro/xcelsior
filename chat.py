@@ -65,9 +65,13 @@ def check_chat_rate_limit(ip: str) -> bool:
     from routes._deps import _take_shared_rate_slot
 
     return _take_shared_rate_slot(
-        _CHAT_RATE_STATE_NAMESPACE, _hash_ip(ip), time.time(),
-        limit=CHAT_RATE_LIMIT, window_sec=60,
-        buckets=_chat_rate_buckets, lock=_chat_rate_lock,
+        _CHAT_RATE_STATE_NAMESPACE,
+        _hash_ip(ip),
+        time.time(),
+        limit=CHAT_RATE_LIMIT,
+        window_sec=60,
+        buckets=_chat_rate_buckets,
+        lock=_chat_rate_lock,
     )
 
 
@@ -250,7 +254,12 @@ def get_conversation_messages(conversation_id: str, *, user_email: str) -> Optio
             (conversation_id,),
         ).fetchall()
         return [
-            {"message_id": str(m["id"]), "role": m["role"], "content": m["content"], "timestamp": m["created_at"]}
+            {
+                "message_id": str(m["id"]),
+                "role": m["role"],
+                "content": m["content"],
+                "timestamp": m["created_at"],
+            }
             for m in msgs[-MAX_HISTORY_MESSAGES:]
         ]
 

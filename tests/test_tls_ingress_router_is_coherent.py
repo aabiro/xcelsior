@@ -68,17 +68,15 @@ def test_only_the_stream_router_binds_443() -> None:
         f"{offenders} still bind 443 alongside the stream router; nginx will "
         "refuse to start and the box loses TLS for every vhost, not just these"
     )
-    assert re.search(r"^\s*listen\s+443\b", ROUTER.read_text(), re.M), (
-        "the stream router does not bind 443, so nothing does"
-    )
+    assert re.search(
+        r"^\s*listen\s+443\b", ROUTER.read_text(), re.M
+    ), "the stream router does not bind 443, so nothing does"
 
 
 def test_the_router_does_not_send_traffic_to_headscales_port() -> None:
     # Comments stripped first: this file *explains* why it avoids 8443, and
     # matching that sentence would fail the check on its own rationale.
-    body = "\n".join(
-        ln.split("#", 1)[0] for ln in ROUTER.read_text().splitlines()
-    )
+    body = "\n".join(ln.split("#", 1)[0] for ln in ROUTER.read_text().splitlines())
     ports = {int(m) for m in re.findall(r"127\.0\.0\.1:(\d+)", body)}
     assert HEADSCALE_PORT not in ports, (
         f"the router proxies to {HEADSCALE_PORT}, which Headscale already holds "

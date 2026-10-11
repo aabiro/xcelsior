@@ -127,9 +127,9 @@ def test_totp_verify_refuses_a_wrong_code(client, account) -> None:
     r = client.post(
         "/api/auth/mfa/totp/verify", json={"code": "000000"}, headers=account["headers"]
     )
-    assert r.status_code == 400, (
-        f"a wrong TOTP code returned {r.status_code}; the factor would be no factor"
-    )
+    assert (
+        r.status_code == 400
+    ), f"a wrong TOTP code returned {r.status_code}; the factor would be no factor"
 
 
 def test_totp_verify_without_setup_is_refused(client, account) -> None:
@@ -153,9 +153,7 @@ def test_sms_setup_and_verify_round_trip(client, account) -> None:
     code = setup.json().get("test_code")
     assert code, "the test environment did not hand back the code to verify with"
 
-    r = client.post(
-        "/api/auth/mfa/sms/verify", json={"code": code}, headers=account["headers"]
-    )
+    r = client.post("/api/auth/mfa/sms/verify", json={"code": code}, headers=account["headers"])
     assert r.status_code == 200, r.text[:300]
 
 
@@ -196,9 +194,7 @@ def test_sms_verify_refuses_a_wrong_code(client, account) -> None:
         json={"phone_number": "+14165551234"},
         headers=account["headers"],
     )
-    r = client.post(
-        "/api/auth/mfa/sms/verify", json={"code": "000000"}, headers=account["headers"]
-    )
+    r = client.post("/api/auth/mfa/sms/verify", json={"code": "000000"}, headers=account["headers"])
     assert r.status_code == 400
 
 
@@ -209,9 +205,9 @@ def _login_challenge(client, email: str) -> str:
     r = client.post("/api/auth/login", json={"email": email, "password": PASSWORD})
     assert r.status_code == 200, r.text[:300]
     body = r.json()
-    assert body.get("mfa_required") is True, (
-        f"login did not demand a second factor after enrolment: {body}"
-    )
+    assert (
+        body.get("mfa_required") is True
+    ), f"login did not demand a second factor after enrolment: {body}"
     return body["challenge_id"]
 
 

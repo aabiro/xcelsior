@@ -81,9 +81,24 @@ def running_nginx(tmp_path):
     (tmp_path / "logs").mkdir()
     cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
     subprocess.run(
-        [openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=xcelsior.ca",
-         "-days", "1", "-keyout", str(key), "-out", str(cert)],
-        check=True, capture_output=True,
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-subj",
+            "/CN=xcelsior.ca",
+            "-days",
+            "1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
+        check=True,
+        capture_output=True,
     )
     dead = _free_port()  # nothing listens here: every upstream is "down"
     tls_port = _free_port()
@@ -95,7 +110,9 @@ def running_nginx(tmp_path):
     conf = re.sub(r"listen \[::\]:\d+\b[^;]*;", "", conf)
     conf = re.sub(r"listen 80\b[^;]*;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf)
     conf = re.sub(r"listen (443|8444)\b", f"listen 127.0.0.1:{tls_port}", conf)
-    conf = re.sub(r"listen 127\.0\.0\.1:9555;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf)
+    conf = re.sub(
+        r"listen 127\.0\.0\.1:9555;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf
+    )
     tls_listen = re.search(rf"listen 127\.0\.0\.1:{tls_port}[^;]*;", conf)
     assert tls_listen, "the TLS server block was not found to rebind"
     (tmp_path / "site.conf").write_text(conf)
@@ -104,7 +121,9 @@ def running_nginx(tmp_path):
         f"http {{\n  access_log {tmp_path}/logs/access.log;\n  include {tmp_path}/site.conf;\n}}\n"
     )
     started = subprocess.run(
-        [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")], capture_output=True, text=True
+        [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")],
+        capture_output=True,
+        text=True,
     )
     if started.returncode != 0:
         pytest.fail(f"nginx would not start on the repo config:\n{started.stderr}")
@@ -118,7 +137,10 @@ def running_nginx(tmp_path):
                 time.sleep(0.05)
         yield tls_port, "proxy_protocol" in tls_listen.group(0)
     finally:
-        subprocess.run([nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"], capture_output=True)
+        subprocess.run(
+            [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"],
+            capture_output=True,
+        )
 
 
 def _get(port: int, proxy_protocol: bool, path: str) -> tuple[int, dict[str, str], str]:
@@ -129,14 +151,18 @@ def _get(port: int, proxy_protocol: bool, path: str) -> tuple[int, dict[str, str
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     with ctx.wrap_socket(raw, server_hostname="xcelsior.ca") as tls:
-        tls.sendall(f"GET {path} HTTP/1.1\r\nHost: xcelsior.ca\r\nConnection: close\r\n\r\n".encode())
+        tls.sendall(
+            f"GET {path} HTTP/1.1\r\nHost: xcelsior.ca\r\nConnection: close\r\n\r\n".encode()
+        )
         data = b""
         while chunk := tls.recv(65536):
             data += chunk
     head, _, body = data.decode("utf-8", "replace").partition("\r\n\r\n")
     lines = head.split("\r\n")
     status = int(lines[0].split()[1])
-    headers = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:])}
+    headers = {
+        k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:])
+    }
     return status, headers, body
 
 

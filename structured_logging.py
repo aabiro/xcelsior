@@ -158,9 +158,7 @@ def configure_structured_logging(
         return logger
 
     renderer: structlog.types.Processor = (
-        structlog.processors.JSONRenderer()
-        if json_format
-        else structlog.dev.ConsoleRenderer()
+        structlog.processors.JSONRenderer() if json_format else structlog.dev.ConsoleRenderer()
     )
 
     formatter = structlog.stdlib.ProcessorFormatter(

@@ -115,7 +115,11 @@ def api_v1_mcp_tool_audit(body: _McpAuditIn, request: Request):
 
 
 def _iso(value) -> str | None:
-    return value.isoformat() if hasattr(value, "isoformat") else (value if value is None else str(value))
+    return (
+        value.isoformat()
+        if hasattr(value, "isoformat")
+        else (value if value is None else str(value))
+    )
 
 
 # Bounded so one export cannot become an unbounded table scan, and cursor-paged
@@ -149,9 +153,7 @@ def api_v1_mcp_tool_audit_export(request: Request):
         or ""
     )
     if not tenant:
-        raise ProblemException(
-            status=404, code="tenant_not_found", detail="tenant not found"
-        )
+        raise ProblemException(status=404, code="tenant_not_found", detail="tenant not found")
 
     params = request.query_params
     try:
@@ -180,11 +182,26 @@ def api_v1_mcp_tool_audit_export(request: Request):
     # Named explicitly rather than `SELECT *` so a column added to the table
     # later cannot silently become part of a customer-facing payload.
     columns = (
-        "audit_id", "occurred_at", "tool_name", "tool_version", "transport",
-        "client_id", "principal_id", "team_id", "scopes_evaluated",
-        "redacted_args_hash", "action_plan_id", "idempotency_key",
-        "api_route", "api_status", "problem_type", "resource_id",
-        "latency_ms", "trace_id", "approval_method", "outcome",
+        "audit_id",
+        "occurred_at",
+        "tool_name",
+        "tool_version",
+        "transport",
+        "client_id",
+        "principal_id",
+        "team_id",
+        "scopes_evaluated",
+        "redacted_args_hash",
+        "action_plan_id",
+        "idempotency_key",
+        "api_route",
+        "api_status",
+        "problem_type",
+        "resource_id",
+        "latency_ms",
+        "trace_id",
+        "approval_method",
+        "outcome",
     )
     with _get_pg_pool().connection() as conn:
         rows = conn.execute(
@@ -273,8 +290,10 @@ def api_v1_mcp_activation_funnel(request: Request):
     surface_by_tenant: dict[str, str] = {}
     first_seen: dict[str, object] = {}
     for row in grants:
-        record = dict(row) if isinstance(row, dict) else dict(
-            zip(("surface", "tenant_id", "granted_at"), row, strict=True)
+        record = (
+            dict(row)
+            if isinstance(row, dict)
+            else dict(zip(("surface", "tenant_id", "granted_at"), row, strict=True))
         )
         tenant = str(record.get("tenant_id") or "")
         if not tenant:
@@ -326,7 +345,9 @@ def api_v1_mcp_activation_funnel(request: Request):
         engine = get_billing_engine()
         for tenant in tenants:
             history = engine.get_wallet_history(tenant, limit=200) or []
-            if any(str(entry.get("type") or entry.get("kind") or "") == "charge" for entry in history):
+            if any(
+                str(entry.get("type") or entry.get("kind") or "") == "charge" for entry in history
+            ):
                 paid.add(tenant)
     except Exception as exc:  # pragma: no cover - billing is not the gate here
         log_billing_gap = str(exc)
@@ -352,14 +373,16 @@ def api_v1_mcp_activation_funnel(request: Request):
     previous = len(tenants)
     for name, population in stages:
         count = len(population)
-        funnel.append({
-            "stage": name,
-            "tenants": count,
-            # Conversion from the *previous* stage, which is where a cliff shows
-            # up. Conversion from the top hides which step lost people.
-            "conversion_from_previous": round(count / previous, 4) if previous else None,
-            "by_surface": by_surface(population),
-        })
+        funnel.append(
+            {
+                "stage": name,
+                "tenants": count,
+                # Conversion from the *previous* stage, which is where a cliff shows
+                # up. Conversion from the top hides which step lost people.
+                "conversion_from_previous": round(count / previous, 4) if previous else None,
+                "by_surface": by_surface(population),
+            }
+        )
         previous = count or previous
 
     biggest_drop = None
@@ -425,12 +448,12 @@ def _require_control_plane_read(request: Request) -> dict:
     user = _require_auth(request)
     scopes = set(user.get("scopes") or ())
     global_access = _is_platform_admin(user) or (
-        str(user.get("grant_type", "")) == "client_credentials"
-        and "control_plane:read" in scopes
+        str(user.get("grant_type", "")) == "client_credentials" and "control_plane:read" in scopes
     )
     if not global_access:
         raise ProblemException(
-            status=403, code="forbidden",
+            status=403,
+            code="forbidden",
             detail="platform admin or control_plane:read is required",
         )
     return user
@@ -447,7 +470,9 @@ def _job_for_caller(request: Request, job_id: str) -> dict:
     user = _require_auth(request)
     job = get_job(job_id)
     if not job or (not _is_platform_admin(user) and not _user_owns_job(user, job)):
-        raise ProblemException(status=404, code="instance_not_found", detail=f"instance {job_id} not found")
+        raise ProblemException(
+            status=404, code="instance_not_found", detail=f"instance {job_id} not found"
+        )
     return job
 
 
@@ -455,10 +480,21 @@ def _attempts_for_job(job_id: str) -> list[dict]:
     from db import _get_pg_pool
 
     cols = [
-        "attempt_id", "attempt_number", "status", "host_id", "spec_hash",
-        "placement_score", "placement_explanation", "failure_code", "failure_details",
-        "reserved_at", "command_created_at", "lease_claimed_at", "started_at",
-        "ended_at", "trace_id",
+        "attempt_id",
+        "attempt_number",
+        "status",
+        "host_id",
+        "spec_hash",
+        "placement_score",
+        "placement_explanation",
+        "failure_code",
+        "failure_details",
+        "reserved_at",
+        "command_created_at",
+        "lease_claimed_at",
+        "started_at",
+        "ended_at",
+        "trace_id",
     ]
     with _get_pg_pool().connection() as conn:
         rows = conn.execute(
@@ -468,7 +504,13 @@ def _attempts_for_job(job_id: str) -> list[dict]:
     out = []
     for row in rows:
         rec = dict(zip(cols, row))
-        for ts in ("reserved_at", "command_created_at", "lease_claimed_at", "started_at", "ended_at"):
+        for ts in (
+            "reserved_at",
+            "command_created_at",
+            "lease_claimed_at",
+            "started_at",
+            "ended_at",
+        ):
             rec[ts] = _iso(rec[ts])
         out.append(rec)
     return out
@@ -493,7 +535,9 @@ def _require_host_operator(request: Request, scope: str) -> dict:
 def _host_or_problem(host_id: str) -> tuple[str, dict]:
     resolved, hosts = _resolve_host_id(host_id)
     if not resolved:
-        raise ProblemException(status=404, code="host_not_found", detail=f"host {host_id} not found")
+        raise ProblemException(
+            status=404, code="host_not_found", detail=f"host {host_id} not found"
+        )
     host = next(h for h in hosts if h["host_id"] == resolved)
     return resolved, host
 
@@ -535,6 +579,7 @@ class _EvictionPlanIn(BaseModel):
 def _operator_plan_principal(user: dict):
     from control_plane.launch.service import Principal
     from routes._deps import _canonical_owner_id, _effective_billing_customer_id, _user_team_id
+
     return Principal(
         principal_id=_canonical_owner_id(user),
         tenant_id=_effective_billing_customer_id(user),
@@ -558,24 +603,42 @@ def api_v1_create_eviction_plan(host_id: str, request: Request, body: _EvictionP
         raise ProblemException(status=409, code="host_not_draining", detail="drain the host first")
     _check_version(resolved, body.expected_version)
     principal = _operator_plan_principal(user)
-    canonical = {"host_id": resolved, "expected_version": body.expected_version, "reason": body.reason}
-    digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    canonical = {
+        "host_id": resolved,
+        "expected_version": body.expected_version,
+        "reason": body.reason,
+    }
+    digest = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     with control_plane_transaction() as conn:
         plan = plans_repo.create_quoted_plan(
-            conn, action_type="evict_host_workloads",
-            principal_id=principal.principal_id, client_id=principal.client_id,
-            tenant_id=principal.tenant_id, team_id=principal.team_id,
-            canonical_args=canonical, canonical_args_hash=digest, spec_hash=digest,
-            quote_id=f"eviction:{digest[:20]}", pricing_version="not-applicable",
-            estimate_micros=0, currency="CAD",
+            conn,
+            action_type="evict_host_workloads",
+            principal_id=principal.principal_id,
+            client_id=principal.client_id,
+            tenant_id=principal.tenant_id,
+            team_id=principal.team_id,
+            canonical_args=canonical,
+            canonical_args_hash=digest,
+            spec_hash=digest,
+            quote_id=f"eviction:{digest[:20]}",
+            pricing_version="not-applicable",
+            estimate_micros=0,
+            currency="CAD",
             price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
-            required_scopes=["hosts:evict"], approval_mode="human", ttl_sec=plan_ttl_sec(),
+            required_scopes=["hosts:evict"],
+            approval_mode="human",
+            ttl_sec=plan_ttl_sec(),
             trace_id=_request_trace_id(request),
         )
     pid = str(plan["plan_id"])
     return {
-        "ok": True, "preview": True, "plan_id": pid,
-        "approval_state": plan["status"], "impact": "running workloads will be fenced and evicted",
+        "ok": True,
+        "preview": True,
+        "plan_id": pid,
+        "approval_state": plan["status"],
+        "impact": "running workloads will be fenced and evicted",
         "approval_url": f"/dashboard/launch-plans/{pid}",
         "expires_at": _iso(plan["expires_at"]),
     }
@@ -607,11 +670,20 @@ def api_v1_execute_eviction_plan(host_id: str, plan_id: UUID, request: Request):
         plans_repo.mark_executing(conn, str(plan_id))
 
     evicted = run_drain_preemptions(host_id)
-    response = {"ok": True, "host_id": host_id, "evicted": [j["job_id"] for j in evicted], "plan_id": str(plan_id)}
+    response = {
+        "ok": True,
+        "host_id": host_id,
+        "evicted": [j["job_id"] for j in evicted],
+        "plan_id": str(plan_id),
+    }
     with control_plane_transaction() as conn:
         plans_repo.mark_consumed(
-            conn, str(plan_id), job_id=host_id, wallet_hold_id=None,
-            idempotent_response=response, idempotency_key=f"eviction-plan:{plan_id}",
+            conn,
+            str(plan_id),
+            job_id=host_id,
+            wallet_hold_id=None,
+            idempotent_response=response,
+            idempotency_key=f"eviction-plan:{plan_id}",
         )
     return response
 
@@ -632,10 +704,13 @@ def api_v1_drain_host(host_id: str, request: Request, body: _OpIn | None = None)
     _check_version(resolved, body.expected_version if body else None)
 
     updated = set_host_draining(resolved, draining=True)
-    append_user_audit_event(
-        "host.drained", "host", resolved, user, data={"evicted": False}
-    )
-    return {"ok": True, "host": updated, "evicted": [], "note": "new placements stopped; running workloads untouched"}
+    append_user_audit_event("host.drained", "host", resolved, user, data={"evicted": False})
+    return {
+        "ok": True,
+        "host": updated,
+        "evicted": [],
+        "note": "new placements stopped; running workloads untouched",
+    }
 
 
 @router.post("/api/v1/hosts/{host_id}/undrain")
@@ -651,7 +726,9 @@ def api_v1_undrain_host(host_id: str, request: Request, body: _OpIn | None = Non
 
     updated = set_host_draining(resolved, draining=False)
     if not updated:
-        raise ProblemException(status=404, code="host_not_found", detail=f"host {host_id} not found")
+        raise ProblemException(
+            status=404, code="host_not_found", detail=f"host {host_id} not found"
+        )
     append_user_audit_event("host.undrained", "host", resolved, user)
     return {"ok": True, "host": updated}
 
@@ -753,9 +830,7 @@ def api_v1_reconciliation_findings(
     user = _require_auth(request)
     scopes = set(user.get("scopes") or ())
     machine = str(user.get("grant_type", "")) == "client_credentials"
-    global_access = _is_platform_admin(user) or (
-        machine and "control_plane:read" in scopes
-    )
+    global_access = _is_platform_admin(user) or (machine and "control_plane:read" in scopes)
     if not global_access:
         if not machine:
             raise ProblemException(
@@ -779,8 +854,7 @@ def api_v1_reconciliation_findings(
         )
     elif status == "all":
         query = (
-            "SELECT * FROM reconciliation_findings "
-            "ORDER BY created_at DESC LIMIT %s OFFSET %s"
+            "SELECT * FROM reconciliation_findings " "ORDER BY created_at DESC LIMIT %s OFFSET %s"
         )
     else:
         raise ProblemException(
@@ -792,9 +866,7 @@ def api_v1_reconciliation_findings(
     try:
         raw_cursor = cursor or "MA"
         offset = int(
-            base64.urlsafe_b64decode(
-                raw_cursor + "=" * ((4 - len(raw_cursor) % 4) % 4)
-            ).decode()
+            base64.urlsafe_b64decode(raw_cursor + "=" * ((4 - len(raw_cursor) % 4) % 4)).decode()
         )
     except (ValueError, TypeError):
         raise ProblemException(status=422, code="invalid_cursor", detail="cursor is invalid")
@@ -811,6 +883,7 @@ def api_v1_reconciliation_findings(
         findings.append(rec)
     if not global_access:
         from scheduler import get_job
+
         findings = [
             finding
             for finding in findings
@@ -819,11 +892,14 @@ def api_v1_reconciliation_findings(
             and _user_owns_job(user, job)
         ]
     return {
-        "ok": True, "status": status, "scope": "global" if global_access else "tenant",
+        "ok": True,
+        "status": status,
+        "scope": "global" if global_access else "tenant",
         "findings": findings,
         "next_cursor": (
             base64.urlsafe_b64encode(str(offset + limit).encode()).decode().rstrip("=")
-            if len(rows) == limit else None
+            if len(rows) == limit
+            else None
         ),
     }
 
@@ -855,14 +931,25 @@ def api_v1_instance_active_lease(job_id: str, request: Request):
     if not row:
         return {"ok": True, "job_id": job_id, "lease": None}
     keys = [
-        "lease_id", "attempt_id", "host_id", "status", "offered_at",
-        "claim_deadline", "claimed_at", "last_renewed_at", "expires_at",
+        "lease_id",
+        "attempt_id",
+        "host_id",
+        "status",
+        "offered_at",
+        "claim_deadline",
+        "claimed_at",
+        "last_renewed_at",
+        "expires_at",
     ]
     lease = dict(zip(keys, row))
     host_id = str(lease.pop("host_id"))
     lease["host_alias"] = f"host-{hashlib.sha256(host_id.encode()).hexdigest()[:10]}"
     for key, value in list(lease.items()):
-        lease[key] = _iso(value) if hasattr(value, "isoformat") else str(value) if isinstance(value, UUID) else value
+        lease[key] = (
+            _iso(value)
+            if hasattr(value, "isoformat")
+            else str(value) if isinstance(value, UUID) else value
+        )
     return {"ok": True, "job_id": job_id, "lease": lease}
 
 
@@ -900,18 +987,25 @@ def api_v1_instance_retry(job_id: str, request: Request, body: _OpIn | None = No
     expected_version = body.expected_version if body else None
     if expected_version is not None and int(job.get("version") or 0) != expected_version:
         raise ProblemException(
-            status=409, code="version_conflict",
+            status=409,
+            code="version_conflict",
             detail="instance changed; re-read before retrying",
             extra={"current_version": int(job.get("version") or 0)},
         )
     status = str(job.get("status") or "")
     if status == "completed":
-        raise ProblemException(status=409, code="already_completed", detail="a completed instance cannot be retried")
+        raise ProblemException(
+            status=409, code="already_completed", detail="a completed instance cannot be retried"
+        )
     if status == "queued":
-        raise ProblemException(status=409, code="already_queued", detail="instance is already queued")
+        raise ProblemException(
+            status=409, code="already_queued", detail="instance is already queued"
+        )
     result = requeue_job(job_id, user_initiated=True, expected_version=expected_version)
     if not result:
-        raise ProblemException(status=409, code="retry_failed", detail="instance could not be requeued")
+        raise ProblemException(
+            status=409, code="retry_failed", detail="instance could not be requeued"
+        )
     return {"ok": True, "job_id": job_id, "status": "queued"}
 
 
@@ -951,9 +1045,17 @@ def api_v1_host_observations(host_id: str, request: Request, limit: int = Query(
     resolved, _ = _host_or_problem(host_id)
     limit = max(1, min(int(limit), 200))
     cols = [
-        "observation_id", "session_id", "inventory_generation", "agent_version",
-        "capabilities", "conditions", "gpu_inventory", "observed_workload_count",
-        "command_journal_watermark", "worker_reported_at", "received_at",
+        "observation_id",
+        "session_id",
+        "inventory_generation",
+        "agent_version",
+        "capabilities",
+        "conditions",
+        "gpu_inventory",
+        "observed_workload_count",
+        "command_journal_watermark",
+        "worker_reported_at",
+        "received_at",
     ]
     with _get_pg_pool().connection() as conn:
         rows = conn.execute(
@@ -1041,9 +1143,7 @@ def api_v1_control_plane_health(request: Request):
         for r in task_rows
     ]
     failed_tasks = [t["task_name"] for t in tasks if t["last_status"] == "failed"]
-    projection_dead = sum(
-        int(sink.get("dead_lettered") or 0) for sink in projection["sinks"]
-    )
+    projection_dead = sum(int(sink.get("dead_lettered") or 0) for sink in projection["sinks"])
     degraded = bool(
         outbox_dead
         or failed_tasks
@@ -1095,8 +1195,14 @@ def api_v1_instance_reconcile(job_id: str, request: Request, body: _OpIn | None 
 
     user = _require_auth(request)
     job = _job_for_caller(request, job_id)  # tenant-scope / not-found guard
-    if body and body.expected_version is not None and int(job.get("version") or 0) != body.expected_version:
-        raise ProblemException(status=409, code="version_conflict", detail="instance changed; re-read first")
+    if (
+        body
+        and body.expected_version is not None
+        and int(job.get("version") or 0) != body.expected_version
+    ):
+        raise ProblemException(
+            status=409, code="version_conflict", detail="instance changed; re-read first"
+        )
     requested_by = str(user.get("email") or user.get("customer_id") or user.get("user_id") or "api")
     with _get_pg_pool().connection() as conn:
         conn.execute(
@@ -1135,10 +1241,13 @@ def api_v1_retry_agent_command(command_id: UUID, request: Request, body: _OpIn):
             raise ProblemException(status=404, code="command_not_found", detail="command not found")
         status, attempts, idempotency_key = row
         if int(attempts or 0) != body.expected_version:
-            raise ProblemException(status=409, code="version_conflict", detail="command changed; re-read first")
+            raise ProblemException(
+                status=409, code="version_conflict", detail="command changed; re-read first"
+            )
         if status not in {"failed", "dead_letter"}:
             raise ProblemException(
-                status=409, code="command_not_retryable",
+                status=409,
+                code="command_not_retryable",
                 detail="only failed or dead-letter commands can be retried",
             )
         conn.execute(
@@ -1153,6 +1262,9 @@ def api_v1_retry_agent_command(command_id: UUID, request: Request, body: _OpIn):
         )
         conn.commit()
     return {
-        "ok": True, "command_id": str(command_id), "status": "pending",
-        "idempotency_key": idempotency_key, "audit_preserved": True,
+        "ok": True,
+        "command_id": str(command_id),
+        "status": "pending",
+        "idempotency_key": idempotency_key,
+        "audit_preserved": True,
     }

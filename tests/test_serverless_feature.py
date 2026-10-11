@@ -35,9 +35,7 @@ def _register() -> tuple[dict, str]:
         json={"email": email, "password": "StrongPass123!", "name": "Flag"},
     )
     assert reg.status_code == 200
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     body = login.json()
     user = reg.json().get("user") or body.get("user") or {}
     headers = {"Authorization": f"Bearer {body['access_token']}"}

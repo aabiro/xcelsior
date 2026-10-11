@@ -89,7 +89,11 @@ def _repo() -> ServerlessRepo:
 
 def _serialize_endpoint(ep: dict) -> dict:
     eid = str(ep.get("endpoint_id") or "")
-    from serverless.vanity import clean_endpoint_display_name, endpoint_vanity_slug, vanity_invoke_path
+    from serverless.vanity import (
+        clean_endpoint_display_name,
+        endpoint_vanity_slug,
+        vanity_invoke_path,
+    )
 
     clean_name = clean_endpoint_display_name(str(ep.get("name") or ""))
     slug = endpoint_vanity_slug(clean_name, eid)
@@ -300,7 +304,9 @@ def _preflight_dashboard_test(ep: dict) -> dict[str, str]:
     except RateLimitExceeded as exc:
         raise HTTPException(
             429,
-            detail={"error": {"code": "rate_limited", "message": "Dashboard test rate limit exceeded"}},
+            detail={
+                "error": {"code": "rate_limited", "message": "Dashboard test rate limit exceeded"}
+            },
             headers=rate_limit_headers(exc.info),
         ) from exc
 
@@ -334,7 +340,9 @@ def _check_endpoint_budget(ep: dict) -> None:
         limit_f = float(limit)
     except (TypeError, ValueError):
         return
-    accrued = float(ep.get("total_cost_cad") or 0.0) + float(ep.get("unbilled_token_cost_cad") or 0.0)
+    accrued = float(ep.get("total_cost_cad") or 0.0) + float(
+        ep.get("unbilled_token_cost_cad") or 0.0
+    )
     if accrued >= limit_f:
         raise HTTPException(
             402,
@@ -410,9 +418,7 @@ def _warm_worker_row(endpoint_id: str) -> dict | None:
     ep = repo.get_endpoint(endpoint_id)
     if not ep:
         return None
-    worker = repo.find_ready_worker_with_capacity(
-        endpoint_id, int(ep.get("max_concurrency") or 1)
-    )
+    worker = repo.find_ready_worker_with_capacity(endpoint_id, int(ep.get("max_concurrency") or 1))
     if not worker:
         return None
     row = repo.get_worker_job_row(str(worker["worker_id"]))
@@ -428,27 +434,49 @@ def _warm_summary(endpoint_id: str, *, ensure: bool = False, billable: bool = Tr
         return {
             "endpoint_id": endpoint_id,
             "state": "ready",
-            "ready_count": max(1, sum(1 for w in workers if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE))),
-            "booting_count": sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING),
+            "ready_count": max(
+                1,
+                sum(
+                    1
+                    for w in workers
+                    if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE)
+                ),
+            ),
+            "booting_count": sum(
+                1 for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING
+            ),
             "active_count": sum(
                 1
                 for w in workers
-                if str(w.get("state") or "") in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+                if str(w.get("state") or "")
+                in (
+                    WORKER_STATE_BOOTING,
+                    WORKER_STATE_READY,
+                    WORKER_STATE_IDLE,
+                    WORKER_STATE_DRAINING,
+                )
             ),
             "workers": workers,
         }
     if ensure:
         return _svc().warm_endpoint(endpoint_id, billable=billable)
     workers = _repo().list_workers(endpoint_id) if _repo().get_endpoint(endpoint_id) else []
-    ready_count = sum(1 for w in workers if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE))
+    ready_count = sum(
+        1 for w in workers if str(w.get("state") or "") in (WORKER_STATE_READY, WORKER_STATE_IDLE)
+    )
     booting_count = sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_BOOTING)
     active_count = sum(
         1
         for w in workers
-        if str(w.get("state") or "") in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
+        if str(w.get("state") or "")
+        in (WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING)
     )
     error_count = sum(1 for w in workers if str(w.get("state") or "") == WORKER_STATE_ERROR)
-    state = "ready" if ready_count else "booting" if booting_count else "failed" if error_count else "scaled_down"
+    state = (
+        "ready"
+        if ready_count
+        else "booting" if booting_count else "failed" if error_count else "scaled_down"
+    )
     return {
         "endpoint_id": endpoint_id,
         "state": state,
@@ -539,6 +567,7 @@ def api_serverless_create_endpoint(body: ServerlessEndpointCreate, request: Requ
 
 def _serverless_plan_principal(user: dict):
     from control_plane.launch.service import Principal
+
     return Principal(
         principal_id=_canonical_owner_id(user),
         tenant_id=_effective_billing_customer_id(user),
@@ -581,7 +610,9 @@ def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Req
         policy = plans_repo.load_client_policy(
             conn, client_id=principal.client_id, tenant_id=principal.tenant_id
         )
-        decision = spend_policy.evaluate(policy_spec, estimate_micros=estimate_micros, policy=policy)
+        decision = spend_policy.evaluate(
+            policy_spec, estimate_micros=estimate_micros, policy=policy
+        )
         plan = plans_repo.create_quoted_plan(
             conn,
             action_type="create_serverless_endpoint",
@@ -603,8 +634,11 @@ def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Req
         )
     plan_id = str(plan["plan_id"])
     return {
-        "ok": True, "preview": True, "plan_id": plan_id,
-        "approval_state": plan["status"], "canonical_spec": {**canonical, "env": redact_env_for_api(canonical["env"])},
+        "ok": True,
+        "preview": True,
+        "plan_id": plan_id,
+        "approval_state": plan["status"],
+        "canonical_spec": {**canonical, "env": redact_env_for_api(canonical["env"])},
         "estimate": {**pricing, "approved_max_micros": estimate_micros, "currency": "CAD"},
         "availability": {"policy_valid": True},
         "approval_url": f"/dashboard/launch-plans/{plan_id}",
@@ -642,8 +676,10 @@ def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
 
     body = ServerlessEndpointCreate.model_validate(canonical)
     spec = _body_to_endpoint_create(
-        body, _serverless_scope_owner_id(user),
-        env_already_encrypted=True, action_plan_id=plan_id,
+        body,
+        _serverless_scope_owner_id(user),
+        env_already_encrypted=True,
+        action_plan_id=plan_id,
     )
     ep = _svc().create_endpoint(spec)
     response = {"ok": True, "endpoint": _serialize_endpoint(ep), "plan_id": plan_id}
@@ -652,8 +688,12 @@ def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
         if locked and locked["status"] == "succeeded":
             return {**dict(locked["idempotent_response"]), "idempotent": True}
         plans_repo.mark_consumed(
-            conn, plan_id, job_id=str(ep["endpoint_id"]), wallet_hold_id=None,
-            idempotent_response=response, idempotency_key=f"serverless-plan:{plan_id}",
+            conn,
+            plan_id,
+            job_id=str(ep["endpoint_id"]),
+            wallet_hold_id=None,
+            idempotent_response=response,
+            idempotency_key=f"serverless-plan:{plan_id}",
         )
     return response
 
@@ -752,9 +792,7 @@ class BatchCreateRequest(BaseModel):
 
 
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/batches", tags=["Serverless"])
-def api_serverless_create_batch(
-    endpoint_id: str, body: BatchCreateRequest, request: Request
-):
+def api_serverless_create_batch(endpoint_id: str, body: BatchCreateRequest, request: Request):
     """OpenAI-style async batch — discounted token/GPU billing for bulk inference."""
     user, _key, ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
     # `user` is None when the caller authenticated with an endpoint API key —
@@ -862,8 +900,12 @@ def _get_worker_for_endpoint(endpoint_id: str, worker_id: str, user: dict) -> di
     return worker
 
 
-@router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs", tags=["Serverless"])
-def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Request, limit: int = Query(100, ge=1, le=1000)):
+@router.get(
+    "/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs", tags=["Serverless"]
+)
+def api_serverless_worker_logs(
+    endpoint_id: str, worker_id: str, request: Request, limit: int = Query(100, ge=1, le=1000)
+):
     user = _require_auth(request)
     _require_scope(user, "inference:read")
     worker = _get_worker_for_endpoint(endpoint_id, worker_id, user)
@@ -880,7 +922,10 @@ def api_serverless_worker_logs(endpoint_id: str, worker_id: str, request: Reques
     }
 
 
-@router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream", tags=["Serverless"])
+@router.get(
+    "/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream",
+    tags=["Serverless"],
+)
 async def api_serverless_worker_logs_stream(endpoint_id: str, worker_id: str, request: Request):
     user = _require_auth(request)
     _require_scope(user, "inference:read")
@@ -908,7 +953,9 @@ def _pct(value: Any) -> float:
         return 0.0
 
 
-@router.get("/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry", tags=["Serverless"])
+@router.get(
+    "/api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry", tags=["Serverless"]
+)
 def api_serverless_worker_telemetry(endpoint_id: str, worker_id: str, request: Request):
     user = _require_auth(request)
     _require_scope(user, "inference:read")
@@ -1077,7 +1124,9 @@ def api_serverless_test_run(endpoint_id: str, body: RunJobRequest, request: Requ
     except QueueFullError as e:
         raise HTTPException(
             429,
-            detail={"error": {"code": "queue_full", "message": f"Queue full ({e.depth}/{e.limit})"}},
+            detail={
+                "error": {"code": "queue_full", "message": f"Queue full ({e.depth}/{e.limit})"}
+            },
         )
     _svc().log_job_enqueued(job, correlation_id=str(job["job_id"]))
     warm = _svc().warm_endpoint(endpoint_id, billable=False)
@@ -1109,7 +1158,9 @@ def api_serverless_test_runsync(endpoint_id: str, body: RunJobRequest, request: 
     except QueueFullError as e:
         raise HTTPException(
             429,
-            detail={"error": {"code": "queue_full", "message": f"Queue full ({e.depth}/{e.limit})"}},
+            detail={
+                "error": {"code": "queue_full", "message": f"Queue full ({e.depth}/{e.limit})"}
+            },
         )
     warm = _svc().warm_endpoint(endpoint_id, billable=False)
     _svc().dispatcher.dispatch_for_endpoint(ep)
@@ -1127,7 +1178,12 @@ def api_serverless_test_runsync(endpoint_id: str, body: RunJobRequest, request: 
         if status in ("FAILED", "CANCELLED"):
             raise HTTPException(
                 500,
-                detail={"error": {"code": "job_failed", "message": str((current or {}).get("error") or status)}},
+                detail={
+                    "error": {
+                        "code": "job_failed",
+                        "message": str((current or {}).get("error") or status),
+                    }
+                },
             )
         time.sleep(0.25)
     raise HTTPException(
@@ -1141,8 +1197,13 @@ def api_serverless_test_runsync(endpoint_id: str, body: RunJobRequest, request: 
     )
 
 
-@router.post("/api/v2/serverless/endpoints/{endpoint_id}/test/openai/v1/chat/completions", tags=["Serverless"])
-async def api_serverless_test_openai_chat(endpoint_id: str, body: ChatCompletionRequest, request: Request):
+@router.post(
+    "/api/v2/serverless/endpoints/{endpoint_id}/test/openai/v1/chat/completions",
+    tags=["Serverless"],
+)
+async def api_serverless_test_openai_chat(
+    endpoint_id: str, body: ChatCompletionRequest, request: Request
+):
     user = _require_auth(request)
     _require_scope(user, "inference:write")
     ep = _get_endpoint_for_user(endpoint_id, user)
@@ -1188,16 +1249,16 @@ async def api_serverless_test_openai_chat(endpoint_id: str, body: ChatCompletion
                 except Exception as e:
                     yield format_error_chunk("stream_error", str(e)).encode("utf-8")
 
-            return StreamingResponse(_stream(), media_type="text/event-stream", headers=SSE_RESPONSE_HEADERS)
+            return StreamingResponse(
+                _stream(), media_type="text/event-stream", headers=SSE_RESPONSE_HEADERS
+            )
         return proxy_chat_completions(worker_row, ep, payload)
     except OpenAIProxyError as e:
         raise HTTPException(e.status_code, detail={"error": {"code": e.code, "message": e.message}})
 
 
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/keys", tags=["Serverless"])
-def api_serverless_create_key(
-    endpoint_id: str, body: ApiKeyCreateRequest, request: Request
-):
+def api_serverless_create_key(endpoint_id: str, body: ApiKeyCreateRequest, request: Request):
     user = _require_auth(request)
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
@@ -1264,7 +1325,9 @@ def api_serverless_revoke_key(endpoint_id: str, key_id: str, request: Request):
 
 @router.post("/v1/serverless/{endpoint_id}/run", tags=["Serverless"])
 @router.post("/v1/serverless/{endpoint_id}/{endpoint_slug}/run", tags=["Serverless"])
-def api_serverless_run(endpoint_id: str, body: RunJobRequest, request: Request, endpoint_slug: str = ""):
+def api_serverless_run(
+    endpoint_id: str, body: RunJobRequest, request: Request, endpoint_slug: str = ""
+):
     user, key_row, ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
     owner_id = str(ep["owner_id"])
     try:
@@ -1331,7 +1394,9 @@ def api_serverless_run(endpoint_id: str, body: RunJobRequest, request: Request, 
 
 @router.post("/v1/serverless/{endpoint_id}/runsync", tags=["Serverless"])
 @router.post("/v1/serverless/{endpoint_id}/{endpoint_slug}/runsync", tags=["Serverless"])
-def api_serverless_runsync(endpoint_id: str, body: RunJobRequest, request: Request, endpoint_slug: str = ""):
+def api_serverless_runsync(
+    endpoint_id: str, body: RunJobRequest, request: Request, endpoint_slug: str = ""
+):
     user, key_row, ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
     owner_id = str(ep["owner_id"])
     try:
@@ -1425,7 +1490,9 @@ def api_serverless_runsync(endpoint_id: str, body: RunJobRequest, request: Reque
 
 @router.get("/v1/serverless/{endpoint_id}/status/{job_id}", tags=["Serverless"])
 @router.get("/v1/serverless/{endpoint_id}/{endpoint_slug}/status/{job_id}", tags=["Serverless"])
-def api_serverless_job_status(endpoint_id: str, job_id: str, request: Request, endpoint_slug: str = ""):
+def api_serverless_job_status(
+    endpoint_id: str, job_id: str, request: Request, endpoint_slug: str = ""
+):
     _resolve_serverless_endpoint_auth(request, endpoint_id, write=False)
     job = _repo().get_job(job_id, endpoint_id=endpoint_id)
     if not job:
@@ -1446,7 +1513,9 @@ def api_serverless_job_status(endpoint_id: str, job_id: str, request: Request, e
 
 @router.get("/v1/serverless/{endpoint_id}/stream/{job_id}", tags=["Serverless"])
 @router.get("/v1/serverless/{endpoint_id}/{endpoint_slug}/stream/{job_id}", tags=["Serverless"])
-async def api_serverless_job_stream(endpoint_id: str, job_id: str, request: Request, endpoint_slug: str = ""):
+async def api_serverless_job_stream(
+    endpoint_id: str, job_id: str, request: Request, endpoint_slug: str = ""
+):
     _resolve_serverless_endpoint_auth(request, endpoint_id, write=False)
     job = _repo().get_job(job_id, endpoint_id=endpoint_id)
     if not job:
@@ -1484,7 +1553,9 @@ async def api_serverless_job_stream(endpoint_id: str, job_id: str, request: Requ
 
 @router.post("/v1/serverless/{endpoint_id}/cancel/{job_id}", tags=["Serverless"])
 @router.post("/v1/serverless/{endpoint_id}/{endpoint_slug}/cancel/{job_id}", tags=["Serverless"])
-def api_serverless_cancel_job(endpoint_id: str, job_id: str, request: Request, endpoint_slug: str = ""):
+def api_serverless_cancel_job(
+    endpoint_id: str, job_id: str, request: Request, endpoint_slug: str = ""
+):
     _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
     job = _svc().cancel_inflight_job(job_id, endpoint_id, reason="cancelled by client")
     if not job:
@@ -1496,8 +1567,12 @@ def api_serverless_cancel_job(endpoint_id: str, job_id: str, request: Request, e
 
 
 @router.post("/v1/serverless/{endpoint_id}/openai/v1/chat/completions", tags=["Serverless"])
-@router.post("/v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/chat/completions", tags=["Serverless"])
-async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionRequest, request: Request, endpoint_slug: str = ""):
+@router.post(
+    "/v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/chat/completions", tags=["Serverless"]
+)
+async def api_serverless_openai_chat(
+    endpoint_id: str, body: ChatCompletionRequest, request: Request, endpoint_slug: str = ""
+):
     _user, key_row, _ep = _resolve_serverless_endpoint_auth(request, endpoint_id, write=True)
     try:
         _run_rate_limit(key_row)
@@ -1621,7 +1696,9 @@ async def api_serverless_openai_chat(endpoint_id: str, body: ChatCompletionReque
             store_cache_entry(_repo(), endpoint_id, payload, result, usage)
             return result
         except OpenAIProxyError as e:
-            raise HTTPException(e.status_code, detail={"error": {"code": e.code, "message": e.message}})
+            raise HTTPException(
+                e.status_code, detail={"error": {"code": e.code, "message": e.message}}
+            )
 
 
 class EmbeddingRequest(BaseModel):
@@ -1631,7 +1708,9 @@ class EmbeddingRequest(BaseModel):
 
 
 @router.post("/v1/serverless/{endpoint_id}/openai/v1/embeddings", tags=["Serverless"])
-@router.post("/v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/embeddings", tags=["Serverless"])
+@router.post(
+    "/v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/embeddings", tags=["Serverless"]
+)
 def api_serverless_openai_embeddings(
     endpoint_id: str, body: EmbeddingRequest, request: Request, endpoint_slug: str = ""
 ):
@@ -1698,7 +1777,9 @@ def api_serverless_openai_embeddings(
             )
             return result
         except OpenAIProxyError as e:
-            raise HTTPException(e.status_code, detail={"error": {"code": e.code, "message": e.message}})
+            raise HTTPException(
+                e.status_code, detail={"error": {"code": e.code, "message": e.message}}
+            )
 
 
 @router.get("/v1/serverless/{endpoint_id}/openai/v1/models", tags=["Serverless"])
@@ -1748,7 +1829,9 @@ def _require_worker_callback(request: Request) -> None:
 
 
 @router.post("/api/v2/serverless/workers/{worker_id}/ready", tags=["Serverless"])
-def api_serverless_worker_ready(worker_id: str, request: Request, body: WorkerReadyBody | None = None):
+def api_serverless_worker_ready(
+    worker_id: str, request: Request, body: WorkerReadyBody | None = None
+):
     _require_worker_callback(request)
     host_id = str((body.host_id if body else "") or "")
     w = _svc().mark_worker_ready(worker_id, host_id=host_id)

@@ -75,8 +75,7 @@ RESERVED_PRICING_TIERS = {
         "commitment": tier["commitment"],
         "discount_pct": tier["discount_pct"],
         "description": (
-            f"{tier['discount_pct']}% off on-demand rates for "
-            f"{tier['commitment']} commitment"
+            f"{tier['discount_pct']}% off on-demand rates for " f"{tier['commitment']} commitment"
         ),
         "min_hours_per_day": tier["min_hours_per_day"],
     }
@@ -552,7 +551,9 @@ def _paypal_verify_webhook_signature(request: Request, event: dict) -> bool:
         timeout=15,
     )
     if verify_resp.status_code >= 400:
-        log.error("PayPal webhook verify HTTP %s: %s", verify_resp.status_code, verify_resp.text[:300])
+        log.error(
+            "PayPal webhook verify HTTP %s: %s", verify_resp.status_code, verify_resp.text[:300]
+        )
         return False
     return verify_resp.json().get("verification_status") == "SUCCESS"
 
@@ -613,11 +614,7 @@ def _paypal_handle_capture_completed(resource: dict) -> None:
     capture_id = resource.get("id", "")
     amount = resource.get("amount") or {}
     amount_cad = float(amount.get("value") or 0)
-    order_id = (
-        (resource.get("supplementary_data") or {})
-        .get("related_ids", {})
-        .get("order_id", "")
-    )
+    order_id = (resource.get("supplementary_data") or {}).get("related_ids", {}).get("order_id", "")
     if not order_id or amount_cad <= 0:
         return
     order = _paypal_get_order(order_id)
@@ -893,7 +890,9 @@ def api_wallet_history(
     customer_id: str,
     request: Request,
     limit: int = Query(50, ge=1, le=1000),
-    before: str | None = Query(None, max_length=256, description="`next_cursor` from the previous page"),
+    before: str | None = Query(
+        None, max_length=256, description="`next_cursor` from the previous page"
+    ),
 ):
     """Transaction history for a wallet, newest first, one page at a time.
 
@@ -980,7 +979,11 @@ def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12,
     )
     invoices = []
     for _ in range(limit):
-        next_month = month.replace(year=month.year + 1, month=1) if month.month == 12 else month.replace(month=month.month + 1)
+        next_month = (
+            month.replace(year=month.year + 1, month=1)
+            if month.month == 12
+            else month.replace(month=month.month + 1)
+        )
         period_start, period_end = month.timestamp(), next_month.timestamp()
         inv = be.generate_invoice(customer_id, "", period_start, period_end, 0.13, persist=False)
         if inv.line_items:
@@ -997,7 +1000,11 @@ def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12,
                     "status": inv.status,
                 }
             )
-        month = month.replace(year=month.year - 1, month=12) if month.month == 1 else month.replace(month=month.month - 1)
+        month = (
+            month.replace(year=month.year - 1, month=12)
+            if month.month == 1
+            else month.replace(month=month.month - 1)
+        )
     return {"ok": True, "invoices": invoices, "count": len(invoices)}
 
 
@@ -1018,6 +1025,7 @@ def api_download_invoice(
     _require_customer_access(request, customer_id)
     import io
     import csv as csv_mod
+
     period_start, period_end = _invoice_period(period_start, period_end)
 
     be = get_billing_engine()
@@ -1031,7 +1039,9 @@ def api_download_invoice(
         writer = csv_mod.writer(output)
         writer.writerow(["Xcelsior Invoice", inv.invoice_id, date_str])
         writer.writerow([])
-        writer.writerow(["Description", "GPU", "Quantity", "Unit", "Rate (CAD/unit)", "Amount (CAD)"])
+        writer.writerow(
+            ["Description", "GPU", "Quantity", "Unit", "Rate (CAD/unit)", "Amount (CAD)"]
+        )
         for item in inv.line_items:
             writer.writerow(
                 [
@@ -1069,11 +1079,13 @@ def api_download_invoice(
         "-" * 60,
     ]
     for item in inv.line_items:
-        lines.extend([
-            item["description"],
-            f"  {item['quantity']:.4f} {item['unit']} at "
-            f"${item['unit_price_cad']:.6f}/unit: ${item['subtotal_cad']:.6f} CAD",
-        ])
+        lines.extend(
+            [
+                item["description"],
+                f"  {item['quantity']:.4f} {item['unit']} at "
+                f"${item['unit_price_cad']:.6f}/unit: ${item['subtotal_cad']:.6f} CAD",
+            ]
+        )
     lines += [
         "-" * 60,
         f"Subtotal: ${inv.subtotal_cad:.2f}",
@@ -1156,9 +1168,7 @@ def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
     # by the privacy and serverless routes; both casings are read because a
     # client that sets it lowercase is not making a mistake.
     idem = (
-        request.headers.get("Idempotency-Key")
-        or request.headers.get("idempotency-key")
-        or ""
+        request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key") or ""
     ).strip()[:200]
 
     try:
@@ -1258,9 +1268,7 @@ def api_ln_create_deposit(req: LnDepositRequest, request: Request):
         raise HTTPException(503, "Lightning deposits are not enabled")
     _validate_topup_amount(req.amount_cad, user)
     idem = (
-        request.headers.get("Idempotency-Key")
-        or request.headers.get("idempotency-key")
-        or ""
+        request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key") or ""
     ).strip()[:200]
     try:
         result = _ln_mod.create_deposit(req.customer_id, req.amount_cad, idem)
@@ -2412,7 +2420,11 @@ def api_billing_resume_verification(stripe_intent_id: str, request: Request):
     # says does not exist.
     _mapping_get = getattr(intent, "get", None)
     secret = str(
-        (_mapping_get("client_secret") if callable(_mapping_get) else getattr(intent, "client_secret", ""))
+        (
+            _mapping_get("client_secret")
+            if callable(_mapping_get)
+            else getattr(intent, "client_secret", "")
+        )
         or ""
     )
     if not secret:
@@ -2543,8 +2555,10 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
         # Handling only the first sends the second down the generic failure
         # path, which tells a user who simply has not confirmed yet that
         # something went wrong.
-        if (code in _AUTHENTICATION_DECLINES) or (decline_code in _AUTHENTICATION_DECLINES) or (
-            any(d in str(exc) for d in _AUTHENTICATION_DECLINES)
+        if (
+            (code in _AUTHENTICATION_DECLINES)
+            or (decline_code in _AUTHENTICATION_DECLINES)
+            or (any(d in str(exc) for d in _AUTHENTICATION_DECLINES))
         ):
             # The declined intent is the one the cardholder must confirm.
             # Stripe attaches it to the error, and `charge_saved_card` has
@@ -2559,8 +2573,10 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
                     or ""
                 )
             base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
-            resume = f"{base}/dashboard/billing?resume={pending_id}" if pending_id else (
-                f"{base}/dashboard/billing"
+            resume = (
+                f"{base}/dashboard/billing?resume={pending_id}"
+                if pending_id
+                else (f"{base}/dashboard/billing")
             )
             raise HTTPException(
                 402,
@@ -2638,8 +2654,16 @@ def _auto_topup_canonical(body: AutoTopupConfig) -> dict:
     }
 
 
-def _apply_auto_topup(be, customer_id: str, user: dict, body: AutoTopupConfig,
-                      previous: dict, widened: bool, *, plan_id: str | None = None) -> dict:
+def _apply_auto_topup(
+    be,
+    customer_id: str,
+    user: dict,
+    body: AutoTopupConfig,
+    previous: dict,
+    widened: bool,
+    *,
+    plan_id: str | None = None,
+) -> dict:
     """Write the setting and record what changed. One writer, two doors.
 
     The direct route and the plan executor both land here so that the audit row
@@ -2858,8 +2882,13 @@ def api_billing_execute_auto_topup_plan(plan_id: str, request: Request):
         "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
     }
     response = _apply_auto_topup(
-        be, customer_id, user, body, previous,
-        _auto_topup_widens(previous, body), plan_id=plan_id,
+        be,
+        customer_id,
+        user,
+        body,
+        previous,
+        _auto_topup_widens(previous, body),
+        plan_id=plan_id,
     )
 
     with control_plane_transaction() as conn:
@@ -2869,14 +2898,16 @@ def api_billing_execute_auto_topup_plan(plan_id: str, request: Request):
         if locked and locked["status"] == "succeeded":
             return {**dict(locked["idempotent_response"] or {}), "idempotent": True}
         plans_repo.mark_consumed(
-            conn, plan_id,
+            conn,
+            plan_id,
             # `job_id` is NOT NULL for a `succeeded` plan
             # (`ck_action_plans_state_machine`), and it doubles as
             # `resulting_resource_id`. This action produces no job, so it names
             # the resource it did change: the wallet whose setting now differs.
             job_id=f"auto-topup:{customer_id}",
             wallet_hold_id=None,
-            idempotent_response=response, idempotency_key=f"auto-topup-plan:{plan_id}",
+            idempotent_response=response,
+            idempotency_key=f"auto-topup-plan:{plan_id}",
         )
     return response
 

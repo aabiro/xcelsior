@@ -79,9 +79,7 @@ def test_it_checks_ownership_before_revealing_anything():
     source = _executable_source()
     guard = source.index("_require_customer_access")
     secret = source.index("client_secret")
-    assert guard < secret, (
-        "the client_secret is reached before ownership is checked"
-    )
+    assert guard < secret, "the client_secret is reached before ownership is checked"
 
 
 def test_a_foreign_intent_is_not_found_rather_than_forbidden():
@@ -103,9 +101,9 @@ def test_only_an_intent_awaiting_verification_can_be_resumed():
         "the endpoint no longer restricts itself to intents that are actually "
         "waiting, so it would hand out secrets for settled payments"
     )
-    assert "HTTPException(\n            409," in source or "409," in source, (
-        "a non-resumable intent should be refused, not silently handled"
-    )
+    assert (
+        "HTTPException(\n            409," in source or "409," in source
+    ), "a non-resumable intent should be refused, not silently handled"
 
 
 def test_it_is_a_post_because_the_response_carries_a_credential():
@@ -126,15 +124,13 @@ def test_the_processor_error_is_not_returned_to_the_caller():
     into an HTTP response either — that is a surface the scrubber never sees.
     """
     source = _executable_source()
-    assert "Could not reach the payment processor" in source, (
-        "the processor's raw error is being returned to the caller"
-    )
+    assert (
+        "Could not reach the payment processor" in source
+    ), "the processor's raw error is being returned to the caller"
     # The 502's detail must be the fixed string, not the exception. `raise ...
     # from exc` keeps the cause for the traceback without putting it on the wire.
     detail = source.split("HTTPException(502,")[1].split(")")[0]
-    assert "exc" not in detail, (
-        f"the 502 detail interpolates the processor's exception: {detail!r}"
-    )
+    assert "exc" not in detail, f"the 502 detail interpolates the processor's exception: {detail!r}"
 
 
 def test_the_listing_and_the_resume_are_separate_endpoints():

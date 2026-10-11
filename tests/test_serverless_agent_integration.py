@@ -39,9 +39,11 @@ class TestProvisionWorkerPayload:
             )
         )
         svc = ServerlessService(repo)
-        with patch.object(svc, "wallet_preflight"), patch(
-            "scheduler.submit_job"
-        ) as mock_submit, patch("scheduler._set_job_fields") as mock_set:
+        with (
+            patch.object(svc, "wallet_preflight"),
+            patch("scheduler.submit_job") as mock_submit,
+            patch("scheduler._set_job_fields") as mock_set,
+        ):
             mock_submit.return_value = {"job_id": "job1234"}
             worker = svc.provision_worker(str(ep["endpoint_id"]))
         assert worker is not None
@@ -63,7 +65,9 @@ class TestProvisionWorkerPayload:
 class TestWorkerExited:
     def test_worker_exited_requeues_in_flight_jobs(self, repo, owner_id):
         ep = repo.create_endpoint(
-            EndpointCreate(owner_id=owner_id, name="exit-test", mode="preset", model_ref="m", min_workers=0)
+            EndpointCreate(
+                owner_id=owner_id, name="exit-test", mode="preset", model_ref="m", min_workers=0
+            )
         )
         worker = repo.create_worker(str(ep["endpoint_id"]), scheduler_job_id="sched1")
         job = repo.enqueue_job(str(ep["endpoint_id"]), owner_id, {"x": 1})
@@ -80,7 +84,9 @@ class TestWorkerExited:
 class TestRepoSchedulerLookup:
     def test_get_worker_by_scheduler_job_id(self, repo, owner_id):
         ep = repo.create_endpoint(
-            EndpointCreate(owner_id=owner_id, name="lookup", mode="preset", model_ref="m", min_workers=0)
+            EndpointCreate(
+                owner_id=owner_id, name="lookup", mode="preset", model_ref="m", min_workers=0
+            )
         )
         worker = repo.create_worker(str(ep["endpoint_id"]), scheduler_job_id="sched-lookup-1")
         found = repo.get_worker_by_scheduler_job_id("sched-lookup-1")

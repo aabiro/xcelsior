@@ -133,14 +133,11 @@ def test_reservations_say_degraded_rather_than_none(monkeypatch, auth) -> None:
 
     monkeypatch.setattr(billing_mod, "get_billing_engine", lambda: _Engine())
 
-    r = client.get(
-        "/api/pricing/reservations", params={"customer_id": "cust-probe"}, headers=auth
-    )
+    r = client.get("/api/pricing/reservations", params={"customer_id": "cust-probe"}, headers=auth)
     assert r.status_code == 200, r.text[:200]
     body = r.json()
     assert body.get("degraded") is True, (
-        "a failed lookup still tells the customer they hold no reserved "
-        f"instances: {body}"
+        "a failed lookup still tells the customer they hold no reserved " f"instances: {body}"
     )
 
 
@@ -163,10 +160,7 @@ def test_no_handler_in_these_modules_discards_a_caught_exception() -> None:
         for handler in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
             if not handler.name:
                 continue
-            used = any(
-                isinstance(n, ast.Name) and n.id == handler.name
-                for n in ast.walk(handler)
-            )
+            used = any(isinstance(n, ast.Name) and n.id == handler.name for n in ast.walk(handler))
             # `log.exception(...)` records the traceback without referencing the
             # bound name, so an unused binding beside one is style, not silence.
             # What matters is whether the failure leaves any trace at all.
@@ -213,9 +207,9 @@ def test_gst_threshold_refuses_to_guess_when_revenue_cannot_be_read(monkeypatch)
     assert r.status_code < 500, r.text[:300]
     body = r.json()
 
-    assert body.get("determinable") is False, (
-        f"a failed revenue query still produced a registration verdict: {body}"
-    )
+    assert (
+        body.get("determinable") is False
+    ), f"a failed revenue query still produced a registration verdict: {body}"
     assert "must_register" not in body, (
         "the verdict is still present; a caller reading it would act on a "
         f"number that came from an exception: {body}"

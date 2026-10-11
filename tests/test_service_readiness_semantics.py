@@ -23,14 +23,17 @@ from control_plane.readiness import (
 ROOT = Path(__file__).resolve().parent.parent
 
 
-@pytest.mark.parametrize("row,expected", [
-    (None, False),
-    ((None, None, True), False),
-    ((121.0, "succeeded", True), False),
-    ((1.0, "failed", True), False),
-    ((1.0, "succeeded", False), False),
-    ((1.0, "succeeded", True), True),
-])
+@pytest.mark.parametrize(
+    "row,expected",
+    [
+        (None, False),
+        ((None, None, True), False),
+        ((121.0, "succeeded", True), False),
+        ((1.0, "failed", True), False),
+        ((1.0, "succeeded", False), False),
+        ((1.0, "succeeded", True), True),
+    ],
+)
 def test_maintenance_readiness_requires_a_recent_successful_enabled_task(row, expected):
     conn = MagicMock()
     conn.execute.return_value.fetchone.return_value = row
@@ -59,9 +62,9 @@ def test_scheduler_readiness_transitions_on_dependency_break_and_repair():
     # 2. Broken: Stale heartbeat
     stale_conn = MagicMock()
     stale_conn.execute.return_value.fetchone.side_effect = [
-        (1,),        # SELECT 1
-        (120.0,),    # Heartbeat age = 120s (stale, threshold 60s)
-        (0,),        # count jobs
+        (1,),  # SELECT 1
+        (120.0,),  # Heartbeat age = 120s (stale, threshold 60s)
+        (0,),  # count jobs
     ]
     with patch("control_plane.schema_compat.assert_schema_compatible"):
         ok, details = check_scheduler_readiness(conn=stale_conn, max_heartbeat_age_sec=60.0)
@@ -72,9 +75,9 @@ def test_scheduler_readiness_transitions_on_dependency_break_and_repair():
     # 3. Repaired: All healthy
     healthy_conn = MagicMock()
     healthy_conn.execute.return_value.fetchone.side_effect = [
-        (1,),        # SELECT 1
-        (5.0,),      # Heartbeat age = 5s (fresh)
-        (0,),        # count jobs
+        (1,),  # SELECT 1
+        (5.0,),  # Heartbeat age = 5s (fresh)
+        (0,),  # count jobs
     ]
     with patch("control_plane.schema_compat.assert_schema_compatible"):
         ok, details = check_scheduler_readiness(conn=healthy_conn, max_heartbeat_age_sec=60.0)
@@ -90,9 +93,9 @@ def test_reconciler_readiness_transitions_on_dependency_break_and_repair():
     # 1. Broken: Heartbeat missing/stale
     stale_conn = MagicMock()
     stale_conn.execute.return_value.fetchone.side_effect = [
-        (1,),        # SELECT 1
-        (999.0,),    # Heartbeat age = 999s (stale)
-        (0,),        # count queue
+        (1,),  # SELECT 1
+        (999.0,),  # Heartbeat age = 999s (stale)
+        (0,),  # count queue
     ]
     ok, details = check_reconciler_readiness(conn=stale_conn, max_heartbeat_age_sec=60.0)
     assert ok is False
@@ -101,8 +104,8 @@ def test_reconciler_readiness_transitions_on_dependency_break_and_repair():
     # 2. Broken: Queue inaccessible
     queue_broken_conn = MagicMock()
     queue_broken_conn.execute.return_value.fetchone.side_effect = [
-        (1,),        # SELECT 1
-        (5.0,),      # Heartbeat fresh
+        (1,),  # SELECT 1
+        (5.0,),  # Heartbeat fresh
         RuntimeError("relation reconciliation_queue does not exist"),
     ]
     ok, details = check_reconciler_readiness(conn=queue_broken_conn, max_heartbeat_age_sec=60.0)
@@ -112,9 +115,9 @@ def test_reconciler_readiness_transitions_on_dependency_break_and_repair():
     # 3. Repaired: All healthy
     healthy_conn = MagicMock()
     healthy_conn.execute.return_value.fetchone.side_effect = [
-        (1,),        # SELECT 1
-        (10.0,),     # Heartbeat fresh
-        (0,),        # count queue
+        (1,),  # SELECT 1
+        (10.0,),  # Heartbeat fresh
+        (0,),  # count queue
     ]
     ok, details = check_reconciler_readiness(conn=healthy_conn, max_heartbeat_age_sec=60.0)
     assert ok is True
@@ -125,9 +128,11 @@ def test_reconciler_readiness_transitions_on_dependency_break_and_repair():
 
 def test_mcp_readiness_transitions_on_dependency_break_and_repair():
     """MCP readiness is false when any check fails and true when all pass."""
+
     # 1. Broken: Redis down or JWKS failed
     class FakeBrokenResp:
         status_code = 503
+
         def json(self):
             return {
                 "ok": False,
@@ -147,6 +152,7 @@ def test_mcp_readiness_transitions_on_dependency_break_and_repair():
     # 2. Repaired: All pass
     class FakeHealthyResp:
         status_code = 200
+
         def json(self):
             return {
                 "ok": True,

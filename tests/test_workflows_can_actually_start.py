@@ -56,9 +56,7 @@ def _no_duplicates(loader, node, deep=False):
     return mapping
 
 
-_DuplicateKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates
-)
+_DuplicateKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates)
 
 
 def _load(path: Path) -> tuple[dict, list[tuple[str, int]]]:

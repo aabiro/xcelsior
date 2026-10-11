@@ -28,7 +28,9 @@ class WebPushSubscriptionDeletePayload(BaseModel):
 
 
 @router.get("/api/notifications", tags=["Notifications"])
-def api_list_notifications(request: Request, unread: bool = False, limit: int = Query(50, ge=1, le=1000)):
+def api_list_notifications(
+    request: Request, unread: bool = False, limit: int = Query(50, ge=1, le=1000)
+):
     """List notifications for the current user."""
     from routes._deps import _require_scope
 

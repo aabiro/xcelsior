@@ -9,11 +9,7 @@ from api import app
 
 
 def _listener_ids() -> set[int | None]:
-    return {
-        thread.ident
-        for thread in threading.enumerate()
-        if thread.name == "pg-listen"
-    }
+    return {thread.ident for thread in threading.enumerate() if thread.name == "pg-listen"}
 
 
 def test_api_lifespan_stops_its_pg_listener():

@@ -289,7 +289,9 @@ class PayPalConnectManager:
         )
         resp = httpx.get(url, headers=_headers(token), timeout=20)
         if resp.status_code >= 400:
-            log.warning("PayPal merchant-integrations lookup %s: %s", resp.status_code, resp.text[:200])
+            log.warning(
+                "PayPal merchant-integrations lookup %s: %s", resp.status_code, resp.text[:200]
+            )
             return profile
         data = resp.json()
         merchant_id = data.get("merchant_id") or ""
@@ -408,9 +410,7 @@ class PayPalConnectManager:
                     {
                         "amount": {
                             "currency_code": str(settlement["currency"]).upper(),
-                            "value": _paypal_value(
-                                int(settlement["platform_share_micros"])
-                            ),
+                            "value": _paypal_value(int(settlement["platform_share_micros"])),
                         }
                     }
                 ],
@@ -547,7 +547,10 @@ class PayPalConnectManager:
             settlement = dict(row) if row else None
         if settlement is None or str(settlement.get("provider_id") or "") != provider_id:
             raise SettlementNotFound("PayPal settlement order was not found")
-        if expected_customer_id and str(settlement.get("customer_id") or "") != expected_customer_id:
+        if (
+            expected_customer_id
+            and str(settlement.get("customer_id") or "") != expected_customer_id
+        ):
             raise SettlementNotFound("PayPal settlement order was not found")
         if settlement.get("settlement_status") == "paid":
             return {
@@ -601,13 +604,12 @@ class PayPalConnectManager:
             if str(unit.get("custom_id") or "") != expected_custom_id:
                 raise RuntimeError("PayPal order identity does not match settlement authority")
             order_amount = unit.get("amount") or {}
-            if str(order_amount.get("currency_code") or "").upper() != str(
-                claimed["currency"]
-            ).upper():
-                raise RuntimeError("PayPal order currency does not match settlement authority")
-            if cad_to_micros(str(order_amount.get("value") or "0")) != int(
-                claimed["total_micros"]
+            if (
+                str(order_amount.get("currency_code") or "").upper()
+                != str(claimed["currency"]).upper()
             ):
+                raise RuntimeError("PayPal order currency does not match settlement authority")
+            if cad_to_micros(str(order_amount.get("value") or "0")) != int(claimed["total_micros"]):
                 raise RuntimeError("PayPal order amount does not match settlement authority")
 
             if order.get("status") == "COMPLETED":

@@ -97,9 +97,7 @@ def _mk_job(cleanup, *, owner, host_id, status="running"):
 def _mk_active_attempt(job_id, host_id):
     attempt_id = str(uuid.uuid4())
     with _pool.connection() as conn:
-        fence = conn.execute(
-            "SELECT nextval('placement_fencing_token_seq')"
-        ).fetchone()[0]
+        fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
         conn.execute(
             """INSERT INTO job_attempts
                    (attempt_id, job_id, attempt_number, status, host_id,
@@ -313,9 +311,9 @@ class TestLegacyBillingLifecycle:
         assert enqueued[0][2] == "billing_start"
         # At least restarting + running transitions should append outbox rows.
         after_obx = _outbox_legacy_status_count(job_id)
-        assert after_obx >= before_obx + 2, (
-            f"expected durable outbox for start path, before={before_obx} after={after_obx}"
-        )
+        assert (
+            after_obx >= before_obx + 2
+        ), f"expected durable outbox for start path, before={before_obx} after={after_obx}"
 
     def test_legacy_restart_projects_running_via_guarded_path(self, cleanup, monkeypatch):
         """Non-attempt-owned restart uses update_job_status (CAS + outbox)."""
@@ -344,9 +342,9 @@ class TestLegacyBillingLifecycle:
         cmds = [c[0] for c in enqueued]
         assert "pause_container" in cmds and "start_container" in cmds
         after_obx = _outbox_legacy_status_count(job_id)
-        assert after_obx >= before_obx + 2, (
-            f"expected durable outbox for restart path, before={before_obx} after={after_obx}"
-        )
+        assert (
+            after_obx >= before_obx + 2
+        ), f"expected durable outbox for restart path, before={before_obx} after={after_obx}"
 
 
 class TestBillingStopSourceContract:
@@ -368,5 +366,5 @@ class TestBillingStopSourceContract:
         # Bare dual-writer pattern must not remain on legacy arms.
         assert "UPDATE jobs SET status = 'restarting'" not in start_src
         assert "UPDATE jobs SET status = 'restarting'" not in restart_src
-        assert 'UPDATE jobs SET status = %s' not in start_src
-        assert 'UPDATE jobs SET status = %s' not in restart_src
+        assert "UPDATE jobs SET status = %s" not in start_src
+        assert "UPDATE jobs SET status = %s" not in restart_src

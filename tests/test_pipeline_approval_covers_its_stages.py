@@ -67,9 +67,13 @@ def client(monkeypatch):
     tag = uuid.uuid4().hex[:10]
     tenant = f"tenant-{tag}"
     principal = {
-        "email": "demo@xcelsior.ca", "user_id": f"user-{tag}", "role": "user",
-        "auth_type": "oauth_access_token", "session_type": "browser",
-        "client_id": "xcelsior-web", "customer_id": tenant,
+        "email": "demo@xcelsior.ca",
+        "user_id": f"user-{tag}",
+        "role": "user",
+        "auth_type": "oauth_access_token",
+        "session_type": "browser",
+        "client_id": "xcelsior-web",
+        "customer_id": tenant,
         "scopes": ["instances:write", "instances:read", "instances:operate", "inference:write"],
     }
     monkeypatch.setattr(_deps, "_require_auth", lambda request: dict(principal))
@@ -193,10 +197,14 @@ def test_a_graph_needs_every_scope_its_stages_need(client, monkeypatch):
     from routes import _deps
 
     narrow = {
-        "email": "demo@xcelsior.ca", "user_id": "u-narrow", "role": "user",
-        "auth_type": "client_credentials", "grant_type": "client_credentials",
-        "client_id": "narrow", "customer_id": "tenant-narrow",
-        "scopes": ["instances:write", "instances:operate"],   # no inference:write
+        "email": "demo@xcelsior.ca",
+        "user_id": "u-narrow",
+        "role": "user",
+        "auth_type": "client_credentials",
+        "grant_type": "client_credentials",
+        "client_id": "narrow",
+        "customer_id": "tenant-narrow",
+        "scopes": ["instances:write", "instances:operate"],  # no inference:write
     }
     monkeypatch.setattr(_deps, "_require_auth", lambda request: dict(narrow))
     monkeypatch.setattr(ap, "_require_auth", lambda request: dict(narrow))
@@ -249,7 +257,8 @@ def test_the_executor_reports_unwired_stages_rather_than_faking_success(client):
     assert body["failed"] is True
     with pg_transaction() as conn:
         codes = [
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 "SELECT failure_code FROM pipeline_stages WHERE plan_id = %s ORDER BY stage_index",
                 (plan_id,),
             ).fetchall()

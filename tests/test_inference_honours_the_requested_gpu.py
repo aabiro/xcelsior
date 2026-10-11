@@ -90,7 +90,7 @@ def test_a_named_gpu_reaches_the_scheduler(auth_headers, captured_submit) -> Non
 
 @pytest.mark.parametrize("value", ["any", "ANY", " any ", ""])
 def test_no_preference_is_passed_as_no_constraint(auth_headers, captured_submit, value) -> None:
-    """"any" is the documented way to say "I don't care", and the scheduler
+    """ "any" is the documented way to say "I don't care", and the scheduler
     spells that as an omitted `gpu_model` — not as a model literally named
     "any", which would match no host and strand the job."""
     r = _submit(auth_headers, gpu_model=value)

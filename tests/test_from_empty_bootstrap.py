@@ -43,7 +43,6 @@ REQUIRED_AT_HEAD = (
 EXPECTED_HEAD = "119"
 
 
-
 def _admin_dsn() -> str | None:
     """DSN used to CREATE/DROP throwaway databases (connect to 'postgres')."""
     dsn = (
@@ -119,8 +118,7 @@ def _try_create_database(admin_dsn: str, dbname: str) -> bool:
         if r2.returncode == 0:
             return True
         pytest.skip(
-            "cannot CREATE DATABASE "
-            f"(psql: {r.stderr.strip()!r}; sudo: {r2.stderr.strip()!r})"
+            "cannot CREATE DATABASE " f"(psql: {r.stderr.strip()!r}; sudo: {r2.stderr.strip()!r})"
         )
     pytest.skip(f"cannot CREATE DATABASE: {r.stderr.strip()!r}")
 
@@ -280,9 +278,9 @@ def test_migration_056_creates_agent_commands_base():
 def test_from_empty_bootstrap_reaches_head(empty_db):
     """Empty DB → shipped bootstrap → Alembic head + required relations."""
     result = _run_bootstrap(empty_db)
-    assert result.returncode == 0, (
-        f"bootstrap failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"bootstrap failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert "from-empty bootstrap: done" in result.stdout
 
     rev = _alembic_current(empty_db)
@@ -293,9 +291,9 @@ def test_from_empty_bootstrap_reaches_head(empty_db):
 
     # 056 expand columns must exist (proves ALTER path ran, not just CREATE).
     for col in ("command_id", "claim_owner", "idempotency_key", "attempt_id"):
-        assert _column_exists(empty_db, "agent_commands", col), (
-            f"agent_commands.{col} missing after bootstrap"
-        )
+        assert _column_exists(
+            empty_db, "agent_commands", col
+        ), f"agent_commands.{col} missing after bootstrap"
     # 061 residual ensure columns
     for table, col in (
         ("billing_cycles", "token_cost_micros"),

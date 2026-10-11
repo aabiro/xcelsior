@@ -95,9 +95,7 @@ def test_dollars_and_cents_do_not_change_the_order():
     is why `normalise_price_cents` is the only price reader in the ranker.
     """
     ratios = [
-        host_efficiency_score(h) / _legacy_score_host(h)
-        for h in FLEET
-        if _legacy_score_host(h)
+        host_efficiency_score(h) / _legacy_score_host(h) for h in FLEET if _legacy_score_host(h)
     ]
     assert len(set(round(r, 9) for r in ratios)) == 1, (
         "hosts are being scaled by different factors, so the two paths would "
@@ -158,8 +156,7 @@ def test_a_constrained_request_gets_the_efficient_survivor():
     result = choose_host(list(CONSTRAINED), PlacementPreference(require_verified=True))
     assert not isinstance(result, PlacementRefused), getattr(result, "detail", "")
     assert result.host["host_id"] == "fast-dearer", (
-        "the constrained path ranked by price while the unconstrained path "
-        "ranks by efficiency"
+        "the constrained path ranked by price while the unconstrained path " "ranks by efficiency"
     )
 
 
@@ -175,8 +172,7 @@ def test_the_premium_is_still_measured_against_the_cheapest_eligible_host():
 #: otherwise the baseline is itself the answer and the premium is 0%. So the
 #: cheapest host here fails the constraint.
 PREMIUM_FLEET = [
-    _candidate("unverified-cheap", 10, gpu_model="RTX 3060",
-               compute_score=1.0, state="unverified"),
+    _candidate("unverified-cheap", 10, gpu_model="RTX 3060", compute_score=1.0, state="unverified"),
     _candidate("mid", 11, gpu_model="RTX 4080", compute_score=4.0),
     _candidate("fast-dearer", 20, gpu_model="RTX 4090", compute_score=8.3),
 ]
@@ -194,9 +190,9 @@ def test_a_premium_bound_picks_the_best_host_that_fits_it():
         PlacementPreference(require_verified=True, max_premium_pct=15),
     )
     assert not isinstance(result, PlacementRefused), getattr(result, "detail", "")
-    assert result.host["host_id"] == "mid", (
-        "a survivor inside the premium bound was passed over for one outside it"
-    )
+    assert (
+        result.host["host_id"] == "mid"
+    ), "a survivor inside the premium bound was passed over for one outside it"
     assert result.premium_pct == pytest.approx(10.0)
 
 
@@ -224,9 +220,9 @@ def test_a_premium_bound_refuses_with_the_cheapest_survivors_number():
 @pytest.mark.parametrize(
     "hosts, vram",
     [
-        ([], 0),                                    # nothing to place on
-        (FLEET, 999),                               # nothing fits the VRAM ask
-        (FLEET, 24),                                # normal
+        ([], 0),  # nothing to place on
+        (FLEET, 999),  # nothing fits the VRAM ask
+        (FLEET, 24),  # normal
         ([_legacy_host("only", gpu_model="", cost_per_hour=0)], 0),  # unpriced
     ],
 )
@@ -251,6 +247,4 @@ def test_neither_path_carries_its_own_ranker():
         "through control_plane.scheduler.ranking"
     )
     assert "host_efficiency_score" in source
-    assert "host_efficiency_score" in Path(
-        "control_plane/scheduler/preference.py"
-    ).read_text()
+    assert "host_efficiency_score" in Path("control_plane/scheduler/preference.py").read_text()

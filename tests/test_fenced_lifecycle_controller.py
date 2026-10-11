@@ -20,9 +20,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has_cp = _c.execute(
-            "SELECT to_regclass('public.job_attempts')"
-        ).fetchone()[0] is not None
+        _has_cp = _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover
     pytestmark = pytest.mark.skip(f"no pg pool: {_e}")
     _pool = None
@@ -42,9 +40,7 @@ def cleanup_ids():
         for jid in ids["jobs"]:
             conn.execute("DELETE FROM billing_cycles WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (jid,))
-            conn.execute(
-                "DELETE FROM placement_leases WHERE job_id=%s", (jid,)
-            )
+            conn.execute("DELETE FROM placement_leases WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM job_attempts WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["hosts"]:
@@ -206,9 +202,7 @@ def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
     from control_plane.attempts import report_attempt_status
     from control_plane.lifecycle import request_fenced_stop_remove
 
-    assert request_fenced_stop_remove(
-        job_id=job_id, intent="terminate", created_by="test"
-    ).ok
+    assert request_fenced_stop_remove(job_id=job_id, intent="terminate", created_by="test").ok
 
     with _pool.connection() as conn:
         report_attempt_status(
@@ -246,9 +240,7 @@ def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
     from control_plane.attempts import report_attempt_status
     from control_plane.lifecycle import request_fenced_stop_remove
 
-    assert request_fenced_stop_remove(
-        job_id=job_id, intent="cancel", created_by="test"
-    ).ok
+    assert request_fenced_stop_remove(job_id=job_id, intent="cancel", created_by="test").ok
 
     with _pool.connection() as conn:
         report_attempt_status(
@@ -260,9 +252,7 @@ def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
             status="stopped",
         )
         conn.commit()
-        status = conn.execute(
-            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-        ).fetchone()[0]
+        status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
     assert status == "cancelled"
 
 
@@ -278,9 +268,7 @@ def test_legacy_terminate_still_marks_terminal_without_attempt(cleanup_ids):
     assert result.get("terminated") is True
     assert result.get("status") == "terminated"
     with _pool.connection() as conn:
-        status = conn.execute(
-            "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-        ).fetchone()[0]
+        status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
         cmds = conn.execute(
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
@@ -324,9 +312,7 @@ def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
 
     from control_plane.lifecycle import request_fenced_stop_remove
 
-    result = request_fenced_stop_remove(
-        job_id=job_id, intent="terminate", created_by="test"
-    )
+    result = request_fenced_stop_remove(job_id=job_id, intent="terminate", created_by="test")
     assert result.ok is False
     assert result.reason == "no_active_fenced_authority"
     assert result.command_created is False

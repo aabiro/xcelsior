@@ -65,7 +65,12 @@ def _decide(remote: dict[str, str]) -> dict[str, str]:
 
 
 def test_nothing_changed_means_nothing_is_rebuilt():
-    assert _decide(LOCAL) == {"api": "false", "frontend": "false", "nginx": "false", "runtime": "false"}
+    assert _decide(LOCAL) == {
+        "api": "false",
+        "frontend": "false",
+        "nginx": "false",
+        "runtime": "false",
+    }
 
 
 @pytest.mark.parametrize("changed", sorted(LOCAL))

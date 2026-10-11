@@ -283,12 +283,12 @@ def test_the_worker_runs_the_collector_inside_the_container():
 
     agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
     assert "_report_environment_fingerprint" in agent
-    assert '"docker", "cp", collector' in agent, (
-        "the collector is no longer copied into the container"
-    )
-    assert '"docker", "exec"' in agent and "_xcl_fingerprint.py" in agent, (
-        "the collector is no longer executed inside the container"
-    )
+    assert (
+        '"docker", "cp", collector' in agent
+    ), "the collector is no longer copied into the container"
+    assert (
+        '"docker", "exec"' in agent and "_xcl_fingerprint.py" in agent
+    ), "the collector is no longer executed inside the container"
 
 
 def test_a_failed_collection_is_not_reported_as_an_empty_fingerprint():

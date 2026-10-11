@@ -64,7 +64,7 @@ def test_the_reason_is_recorded_where_someone_would_reintroduce_it() -> None:
     """The next person to 'clean up' this shutdown path must see why it is guarded."""
     src = _source()
     idx = src.find('_api_url(f"/host/{HOST_ID}")')
-    context = src[max(0, idx - 2000):idx]
+    context = src[max(0, idx - 2000) : idx]
     assert "CASCADE" in context, (
         "the shutdown path does not explain that host deletion cascades to "
         "admission decisions — without that, this is trivially reintroduced"

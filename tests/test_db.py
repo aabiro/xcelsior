@@ -210,7 +210,6 @@ class TestJobCRUD:
             assert DatabaseOps.load_jobs(conn) == []
 
 
-
 # ── DatabaseOps: Host CRUD ────────────────────────────────────────────
 
 

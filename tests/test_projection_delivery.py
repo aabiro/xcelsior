@@ -88,12 +88,14 @@ def _deliveries(event_id: str, sink: str | None = None) -> list[tuple]:
         if sink:
             rows = conn.execute(
                 "SELECT sink, status, external_id, attempt_count FROM projection_deliveries "
-                "WHERE event_id=%s AND sink=%s", (event_id, sink)
+                "WHERE event_id=%s AND sink=%s",
+                (event_id, sink),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT sink, status, external_id, attempt_count FROM projection_deliveries "
-                "WHERE event_id=%s ORDER BY sink", (event_id,)
+                "WHERE event_id=%s ORDER BY sink",
+                (event_id,),
             ).fetchall()
     return rows
 
@@ -115,9 +117,12 @@ def test_prepare_materializes_one_per_sink_idempotently(scratch):
         conn.commit()
     assert len(_deliveries(eid)) == 2
     with _pool.connection() as conn:
-        assert conn.execute(
-            "SELECT fanout_prepared_at IS NOT NULL FROM outbox_events WHERE event_id=%s", (eid,)
-        ).fetchone()[0] is True
+        assert (
+            conn.execute(
+                "SELECT fanout_prepared_at IS NOT NULL FROM outbox_events WHERE event_id=%s", (eid,)
+            ).fetchone()[0]
+            is True
+        )
 
 
 def test_deliver_exactly_once_and_replay_is_noop(scratch):
@@ -185,7 +190,9 @@ def test_late_sink_gets_nothing_until_explicit_backfill(scratch):
     # A sink added later sees nothing from before it existed …
     with _pool.connection() as conn:
         ensure_sink(conn, "sse")
-        assert prepare_fanout(conn, only_event_ids=[eid]) == 0  # E1 already prepared — not re-fanned
+        assert (
+            prepare_fanout(conn, only_event_ids=[eid]) == 0
+        )  # E1 already prepared — not re-fanned
         conn.commit()
     assert _deliveries(eid, "sse") == []
 

@@ -23,7 +23,9 @@ def test_worker_requirements_install_in_fresh_venv():
         venv = Path(tmp) / "venv"
         subprocess.run(["python3", "-m", "venv", str(venv)], check=True)
         pip = venv / "bin" / "pip"
-        subprocess.run([str(pip), "install", "-r", str(REQUIREMENTS)], check=True, capture_output=True)
+        subprocess.run(
+            [str(pip), "install", "-r", str(REQUIREMENTS)], check=True, capture_output=True
+        )
         py = venv / "bin" / "python3"
         subprocess.run(
             [str(py), "-c", "import requests, dotenv, prometheus_client, cryptography, psutil"],
@@ -123,16 +125,12 @@ def test_install_status_check_reports_pending_without_claiming_admission():
     with tempfile.TemporaryDirectory() as tmp:
         env_file = Path(tmp) / "worker.env"
         env_file.write_text(
-            "XCELSIOR_API=https://example.invalid\n"
-            "XCELSIOR_HOST_ID=pending-host\n"
+            "XCELSIOR_API=https://example.invalid\n" "XCELSIOR_HOST_ID=pending-host\n"
         )
         result = _run_installer_function(
             f"ENV_FILE={env_file}; verify_host_online",
             {
-                "curl": (
-                    "printf '%s\\n' "
-                    "'{\"host\":{\"status\":\"pending\",\"admitted\":false}}'"
-                ),
+                "curl": ("printf '%s\\n' " '\'{"host":{"status":"pending","admitted":false}}\''),
             },
         )
 
@@ -146,16 +144,12 @@ def test_install_status_check_requires_admitted_flag_for_active_success():
     with tempfile.TemporaryDirectory() as tmp:
         env_file = Path(tmp) / "worker.env"
         env_file.write_text(
-            "XCELSIOR_API=https://example.invalid\n"
-            "XCELSIOR_HOST_ID=verified-host\n"
+            "XCELSIOR_API=https://example.invalid\n" "XCELSIOR_HOST_ID=verified-host\n"
         )
         result = _run_installer_function(
             f"ENV_FILE={env_file}; verify_host_online",
             {
-                "curl": (
-                    "printf '%s\\n' "
-                    "'{\"host\":{\"status\":\"active\",\"admitted\":true}}'"
-                ),
+                "curl": ("printf '%s\\n' " '\'{"host":{"status":"active","admitted":true}}\''),
             },
         )
 
@@ -166,8 +160,10 @@ def test_install_status_check_requires_admitted_flag_for_active_success():
 def test_installer_runs_main_when_piped():
     # `curl -fsSL .../install.sh | bash -s -- --help`: BASH_SOURCE[0] is empty there.
     result = subprocess.run(
-        ["/bin/bash", "-s", "--", "--help"], input=INSTALL_SH.read_text(),
-        text=True, capture_output=True,
+        ["/bin/bash", "-s", "--", "--help"],
+        input=INSTALL_SH.read_text(),
+        text=True,
+        capture_output=True,
     )
     assert result.returncode == 0, result.stderr
     assert "Usage:" in result.stdout
@@ -177,7 +173,8 @@ def test_installer_does_not_run_main_when_sourced():
     # The wizard sources install.sh for its functions.
     result = subprocess.run(
         ["/bin/bash", "-c", f"source {INSTALL_SH}; echo sourced", "xcelsior-worker-install"],
-        text=True, capture_output=True,
+        text=True,
+        capture_output=True,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "sourced"

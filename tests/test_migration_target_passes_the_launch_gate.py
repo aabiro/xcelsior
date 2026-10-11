@@ -47,8 +47,9 @@ DAY = 86400.0
 JOB = {"gpu_model": None, "num_gpus": 1, "vram_needed_gb": 8, "region": None}
 
 
-def _insert_host(conn, host_id, *, admission="admitted", status="active", vram=24.0,
-                 cost=0.20, last_seen=None):
+def _insert_host(
+    conn, host_id, *, admission="admitted", status="active", vram=24.0, cost=0.20, last_seen=None
+):
     # `admission_state`, not `administrative_state`: a BEFORE trigger derives
     # the latter, so writing it directly is silently overwritten.
     conn.execute(
@@ -147,9 +148,7 @@ def test_a_host_that_lost_admission_after_launch_is_refused(hosts):
 def test_a_migration_cannot_relax_the_jobs_own_requirements(hosts):
     """Migrating is not an opportunity to land on a smaller card."""
     with pg_transaction() as conn:
-        decision = evaluate_migration_target(
-            conn, {**JOB, "vram_needed_gb": 16}, hosts["small"]
-        )
+        decision = evaluate_migration_target(conn, {**JOB, "vram_needed_gb": 16}, hosts["small"])
     assert isinstance(decision, PlacementRefused)
     assert decision.code == "target_not_admissible"
 
@@ -212,9 +211,7 @@ def test_a_preference_the_target_does_satisfy_allows_it(hosts):
             )
     finally:
         with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM host_verifications WHERE host_id = %s", (hosts["target"],)
-            )
+            conn.execute("DELETE FROM host_verifications WHERE host_id = %s", (hosts["target"],))
 
     assert not isinstance(decision, PlacementRefused), getattr(decision, "detail", "")
     assert decision.host["host_id"] == hosts["target"]

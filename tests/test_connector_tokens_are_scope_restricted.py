@@ -171,9 +171,9 @@ def test_shadow_mode_is_quiet_when_the_token_holds_the_scope(monkeypatch, caplog
     with caplog.at_level(logging.INFO, logger="xcelsior"):
         _deps._require_scope(_connector_token(["billing:write"]), "billing:write")
 
-    assert not [r for r in caplog.records if "connector_scope.shadow" in r.getMessage()], (
-        "shadow mode logged a would-refuse for a token that holds the scope"
-    )
+    assert not [
+        r for r in caplog.records if "connector_scope.shadow" in r.getMessage()
+    ], "shadow mode logged a would-refuse for a token that holds the scope"
 
 
 def test_enforce_mode_refuses_a_connector_token_missing_the_scope(monkeypatch):
@@ -250,7 +250,9 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
 
     repo = pathlib.Path(__file__).resolve().parent.parent
     src = (repo / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
-    published = {t["name"] for t in json.loads((repo / "mcp" / "tool-surface.json").read_text())["tools"]}
+    published = {
+        t["name"] for t in json.loads((repo / "mcp" / "tool-surface.json").read_text())["tools"]
+    }
     held = set(MCP_QUICK_CONNECT_SCOPES)
 
     unsatisfiable = set()

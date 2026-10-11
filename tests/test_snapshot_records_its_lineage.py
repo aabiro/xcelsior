@@ -160,9 +160,9 @@ def test_the_sweep_exists_and_pins_a_digest():
     import pathlib
 
     routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
-    assert '@router.post("/api/v1/image-sweep-plans/{plan_id}/execute"' in routes, (
-        "the sweep execute route is gone; if it moved, point this at it"
-    )
+    assert (
+        '@router.post("/api/v1/image-sweep-plans/{plan_id}/execute"' in routes
+    ), "the sweep execute route is gone; if it moved, point this at it"
 
     start = routes.index("def api_execute_image_sweep_plan(")
     body = routes[start : routes.index("\n@router.", start + 1)]
@@ -293,12 +293,12 @@ def test_the_worker_reads_the_digest_at_push_time():
 
     agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
     assert "def _read_repo_digest(" in agent, "the worker no longer reads a digest"
-    assert '"{{index .RepoDigests 0}}"' in agent, (
-        "the digest is no longer read from docker's own record of the push"
-    )
-    assert '"image_digest": image_digest' in agent, (
-        "the worker no longer reports the digest to /user-images/{id}/complete"
-    )
+    assert (
+        '"{{index .RepoDigests 0}}"' in agent
+    ), "the digest is no longer read from docker's own record of the push"
+    assert (
+        '"image_digest": image_digest' in agent
+    ), "the worker no longer reports the digest to /user-images/{id}/complete"
 
 
 def test_a_digest_that_is_not_one_is_not_recorded():
@@ -310,6 +310,6 @@ def test_a_digest_that_is_not_one_is_not_recorded():
     import pathlib
 
     agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
-    assert 'return digest if "@sha256:" in digest else ""' in agent, (
-        "the worker no longer checks the digest is shaped like one before reporting it"
-    )
+    assert (
+        'return digest if "@sha256:" in digest else ""' in agent
+    ), "the worker no longer checks the digest is shaped like one before reporting it"

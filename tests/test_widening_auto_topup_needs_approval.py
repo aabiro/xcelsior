@@ -230,9 +230,9 @@ def test_an_agent_widening_directly_is_refused(client, monkeypatch):
         "/api/v2/billing/auto-topup",
         json={"enabled": True, "amount_cad": 500.0, "threshold_cad": 5.0},
     )
-    assert r.status_code == 409, (
-        f"an agent raised the unattended charge amount and got {r.status_code}"
-    )
+    assert (
+        r.status_code == 409
+    ), f"an agent raised the unattended charge amount and got {r.status_code}"
     assert "auto-topup-plans" in r.text, "the refusal does not say how to proceed"
 
 
@@ -285,9 +285,9 @@ def test_a_connector_token_widening_directly_is_refused(client, monkeypatch):
         "/api/v2/billing/auto-topup",
         json={"enabled": True, "amount_cad": 500.0, "threshold_cad": 5.0},
     )
-    assert r.status_code == 409, (
-        f"a third-party connector token widened the spend cap and got {r.status_code}"
-    )
+    assert (
+        r.status_code == 409
+    ), f"a third-party connector token widened the spend cap and got {r.status_code}"
 
 
 def test_a_plan_is_refused_for_a_change_that_does_not_widen(client, monkeypatch):

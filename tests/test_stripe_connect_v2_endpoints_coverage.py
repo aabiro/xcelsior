@@ -5,9 +5,7 @@ import os
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
-os.environ.setdefault(
-    "XCELSIOR_STRIPE_SECRET_KEY", "sk_test_ci_placeholder_not_for_production"
-)
+os.environ.setdefault("XCELSIOR_STRIPE_SECRET_KEY", "sk_test_ci_placeholder_not_for_production")
 
 import pytest
 from fastapi.testclient import TestClient

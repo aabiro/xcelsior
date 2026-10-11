@@ -1599,9 +1599,7 @@ def api_cancel_instance(job_id: str, request: Request):
     active_attempt_id = (
         active_attempt["active_attempt_id"]
         if isinstance(active_attempt, dict)
-        else active_attempt[0]
-        if active_attempt
-        else None
+        else active_attempt[0] if active_attempt else None
     )
     if active_attempt_id is not None:
         from control_plane.lifecycle import request_fenced_stop_remove
@@ -1897,16 +1895,16 @@ def api_start_instance(job_id: str, request: Request):
         code = (
             402
             if detail == "insufficient_balance"
-            else 409
-            if detail
-            in (
-                "fenced_resume_requires_new_attempt",
-                "still_attempt_owned",
-                "no_active_fenced_authority",
+            else (
+                409
+                if detail
+                in (
+                    "fenced_resume_requires_new_attempt",
+                    "still_attempt_owned",
+                    "no_active_fenced_authority",
+                )
+                else 400 if detail in ("not_stopped", "not_fenced_history") else 500
             )
-            else 400
-            if detail in ("not_stopped", "not_fenced_history")
-            else 500
         )
         raise HTTPException(status_code=code, detail=detail)
 
@@ -1963,16 +1961,16 @@ def api_restart_instance(job_id: str, request: Request):
         code = (
             402
             if detail == "insufficient_balance"
-            else 409
-            if detail
-            in (
-                "fenced_restart_requires_controller",
-                "no_active_fenced_authority",
-                "still_attempt_owned",
+            else (
+                409
+                if detail
+                in (
+                    "fenced_restart_requires_controller",
+                    "no_active_fenced_authority",
+                    "still_attempt_owned",
+                )
+                else 400 if detail in ("not_restartable", "not_stopped") else 500
             )
-            else 400
-            if detail in ("not_restartable", "not_stopped")
-            else 500
         )
         raise HTTPException(status_code=code, detail=detail)
 
@@ -4067,9 +4065,7 @@ def api_create_image_sweep(body: _SweepIn, request: Request):
         policy = plans_repo.load_client_policy(
             conn, client_id=principal.client_id, tenant_id=principal.tenant_id
         )
-        decision = spend_policy.evaluate(
-            canonical, estimate_micros=estimate_micros, policy=policy
-        )
+        decision = spend_policy.evaluate(canonical, estimate_micros=estimate_micros, policy=policy)
         plan = plans_repo.create_quoted_plan(
             conn,
             action_type="create_image_sweep",

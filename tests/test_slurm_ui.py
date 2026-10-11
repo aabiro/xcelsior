@@ -64,6 +64,7 @@ def _auth_headers() -> dict[str, str]:
     token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
     return {"Authorization": f"Bearer {token}"}
 
+
 GOOD_VERSIONS = {
     "runc": "1.2.4",
     "nvidia_ctk": "1.17.8",
@@ -359,7 +360,6 @@ class TestSLAEnforce:
 # ══════════════════════════════════════════════════════════════════════
 
 
-
 class TestDashboardHTML:
     """Verify Slurm/responsive UI elements exist in dashboard.html."""
 
@@ -413,7 +413,6 @@ class TestDashboardHTML:
         assert "sla-credit-table" in self.html
         assert "sla-hosts-summary" in self.html
 
-
     def test_responsive_media_queries(self):
         assert "@media (max-width: 1024px)" in self.html
         assert "@media (max-width: 768px)" in self.html
@@ -435,7 +434,6 @@ class TestDashboardHTML:
 
     def test_sla_js_function(self):
         assert "fetchSLAHostsSummary" in self.html
-
 
     def test_slurm_in_refresh(self):
         assert "fetchSlurmProfiles()" in self.html

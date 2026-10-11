@@ -77,7 +77,9 @@ DEVICE_CODE_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_INTERVAL_SE
 # Agent / MCP tokens are pasted into client config and left there, so a short TTL
 # just forces clients (e.g. VS Code) into the interactive OAuth fallback. Default
 # to 90 days; override with XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC.
-CLIENT_CREDENTIALS_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", str(86400 * 90)))
+CLIENT_CREDENTIALS_TTL_SEC = int(
+    os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", str(86400 * 90))
+)
 ACCESS_TOKEN_PREFIX = os.environ.get("XCELSIOR_OAUTH_ACCESS_TOKEN_PREFIX", "xoa_")
 AUTH_CACHE_BACKEND = os.environ.get(
     "XCELSIOR_AUTH_CACHE_BACKEND",
@@ -407,8 +409,7 @@ _REDIS_AUTH_HINTS = (
     ),
     (
         "wrongpass",
-        "the password in XCELSIOR_AUTH_REDIS_URL does not match "
-        "XCELSIOR_REDIS_REQUIREPASS",
+        "the password in XCELSIOR_AUTH_REDIS_URL does not match " "XCELSIOR_REDIS_REQUIREPASS",
     ),
 )
 
@@ -475,7 +476,9 @@ class RedisAuthCache:
             )
             self._client.ping()
         except Exception as exc:
-            raise AuthCacheUnavailableError(f"redis unavailable: {_explain_redis_error(exc)}") from exc
+            raise AuthCacheUnavailableError(
+                f"redis unavailable: {_explain_redis_error(exc)}"
+            ) from exc
 
     def get(self, key: str) -> str | None:
         try:
@@ -729,7 +732,9 @@ def store_social_oauth_state(
     )
 
 
-def consume_social_oauth_state(state: str, *, ttl: int = SOCIAL_OAUTH_STATE_TTL_SEC) -> dict[str, Any] | None:
+def consume_social_oauth_state(
+    state: str, *, ttl: int = SOCIAL_OAUTH_STATE_TTL_SEC
+) -> dict[str, Any] | None:
     """Atomically read + delete social OAuth state. Returns None when missing/expired."""
     data = _cache_getdel_json("social_oauth", state)
     if not data or not isinstance(data, dict):
@@ -786,9 +791,7 @@ AGENT_KEY_PREFIX = os.environ.get("XCELSIOR_AGENT_KEY_PREFIX", "xcel_ai_")
 AGENT_KEY_DISPLAY_CHARS = 4
 # Coarse enough to keep the auth path free of a per-request write, fine enough
 # that "never used" versus "in use" stays accurate in the dashboard.
-AGENT_KEY_TOUCH_INTERVAL_SEC = int(
-    os.environ.get("XCELSIOR_AGENT_KEY_TOUCH_INTERVAL_SEC", "300")
-)
+AGENT_KEY_TOUCH_INTERVAL_SEC = int(os.environ.get("XCELSIOR_AGENT_KEY_TOUCH_INTERVAL_SEC", "300"))
 
 
 def looks_like_agent_key(token: str | None) -> bool:
@@ -829,9 +832,7 @@ def issue_agent_api_key(
     # Companion §4.4.10: tenant-owned rows carry the tenant explicitly rather
     # than making every query join back through users. A personal workspace's
     # tenant is the user itself, which matches the wallet and host paths.
-    tenant_id = str(
-        user.get("team_id") or user.get("customer_id") or user_id
-    )
+    tenant_id = str(user.get("team_id") or user.get("customer_id") or user_id)
 
     replaced = 0
     if replace_existing:
@@ -888,9 +889,10 @@ def validate_agent_api_key(token: str) -> dict[str, Any] | None:
     # the hot authentication path of every agent call. Update at most once per
     # AGENT_KEY_TOUCH_INTERVAL_SEC per key.
     last_used = row.get("last_used_at")
-    stale = last_used is None or (
-        datetime.now(UTC) - last_used
-    ).total_seconds() >= AGENT_KEY_TOUCH_INTERVAL_SEC
+    stale = (
+        last_used is None
+        or (datetime.now(UTC) - last_used).total_seconds() >= AGENT_KEY_TOUCH_INTERVAL_SEC
+    )
     if stale:
         try:
             AgentKeyStore.touch_last_used(row["key_id"])
@@ -1008,21 +1010,36 @@ def oauth_jwks() -> dict[str, Any]:
     for kid, item in keys.items():
         public_pem = item.get("public_key_pem")
         if not public_pem and item.get("private_key_pem"):
-            private = serialization.load_pem_private_key(item["private_key_pem"].encode(), password=None)
-            public_pem = private.public_key().public_bytes(
-                serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-            ).decode()
+            private = serialization.load_pem_private_key(
+                item["private_key_pem"].encode(), password=None
+            )
+            public_pem = (
+                private.public_key()
+                .public_bytes(
+                    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+                )
+                .decode()
+            )
         if not public_pem:
             continue
         public = serialization.load_pem_public_key(public_pem.encode())
         if not isinstance(public, rsa.RSAPublicKey):
             continue
         numbers = public.public_numbers()
-        result.append({
-            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": kid,
-            "n": _base64url_encode(numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")),
-            "e": _base64url_encode(numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")),
-        })
+        result.append(
+            {
+                "kty": "RSA",
+                "use": "sig",
+                "alg": "RS256",
+                "kid": kid,
+                "n": _base64url_encode(
+                    numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+                ),
+                "e": _base64url_encode(
+                    numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
+                ),
+            }
+        )
     return {"keys": result}
 
 
@@ -1069,7 +1086,9 @@ def issue_client_credentials_jwt(
             )
         signature = private.sign(signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
     else:
-        signature = hmac.new(key["secret"].encode(), signing_input.encode(), hashlib.sha256).digest()
+        signature = hmac.new(
+            key["secret"].encode(), signing_input.encode(), hashlib.sha256
+        ).digest()
     access_token = f"{signing_input}.{_base64url_encode(signature)}"
     _oauth_tokens_issued.labels("client_credentials").inc()
     return {
@@ -1108,7 +1127,9 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
         if alg == "RS256":
             public_pem = key.get("public_key_pem")
             if not public_pem and key.get("private_key_pem"):
-                private = serialization.load_pem_private_key(key["private_key_pem"].encode(), password=None)
+                private = serialization.load_pem_private_key(
+                    key["private_key_pem"].encode(), password=None
+                )
                 public = private.public_key()
             elif public_pem:
                 public = serialization.load_pem_public_key(public_pem.encode())
@@ -1123,7 +1144,9 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
             # accepted HS256 tokens signed with the committed dev secret.
             if not env_config.is_relaxed_env():
                 return None
-            expected_sig = hmac.new(key["secret"].encode(), signing_input.encode(), hashlib.sha256).digest()
+            expected_sig = hmac.new(
+                key["secret"].encode(), signing_input.encode(), hashlib.sha256
+            ).digest()
             if not hmac.compare_digest(expected_sig, signature):
                 return None
     except Exception:
@@ -1572,7 +1595,9 @@ def get_or_create_mcp_quick_connect_client(
     """
     if surface not in {"mcp", "cli"}:
         raise ValueError("Unknown quick-connect surface")
-    client_name = MCP_QUICK_CONNECT_CLIENT_NAME if surface == "mcp" else CLI_SKILL_CONNECT_CLIENT_NAME
+    client_name = (
+        MCP_QUICK_CONNECT_CLIENT_NAME if surface == "mcp" else CLI_SKILL_CONNECT_CLIENT_NAME
+    )
     # A team switch must never return credentials bound to the previous wallet.
     if team_id:
         client_name = f"{client_name}:{team_id}"
@@ -1714,8 +1739,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     ),
     "ssh:read": "See which SSH keys are on your account",
     "instances:connect": (
-        "Open a terminal on your running instances, and publish their ports to "
-        "the internet"
+        "Open a terminal on your running instances, and publish their ports to " "the internet"
     ),
     # Not operator authority: it answers *your* hosts, which is what a provider
     # needs to run their own rig. Platform-wide visibility is `hosts:fleet`.
@@ -1763,21 +1787,14 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
         "on the team's behalf"
     ),
     "notifications:read": "Read the notifications on your account",
-    "notifications:write": (
-        "Mark your notifications read and manage where they are delivered"
-    ),
+    "notifications:write": ("Mark your notifications read and manage where they are delivered"),
     "chat:read": "Read your conversations with the platform assistant",
     "chat:write": "Send messages to the platform assistant as you",
     "providers:read": (
-        "See your provider account — earnings, payout state and onboarding "
-        "progress"
+        "See your provider account — earnings, payout state and onboarding " "progress"
     ),
-    "providers:write": (
-        "Change your provider account and request payouts of your earnings"
-    ),
-    "marketplace:write": (
-        "List your own GPU capacity on the marketplace, and remove listings"
-    ),
+    "providers:write": ("Change your provider account and request payouts of your earnings"),
+    "marketplace:write": ("List your own GPU capacity on the marketplace, and remove listings"),
     "verification:write": "Submit evidence to have your hosts verified",
     "autoscale:read": "See how serverless capacity scales with demand",
     "autoscale:write": "Change how serverless capacity scales (operator)",

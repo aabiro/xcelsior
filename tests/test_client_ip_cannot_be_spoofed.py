@@ -14,10 +14,17 @@ from routes.billing import _client_ip as billing_client_ip
 
 def scope(kind="http", peer="203.0.113.25", **headers):
     return {
-        "type": kind, "http_version": "1.1", "scheme": "https" if kind == "http" else "wss",
-        "method": "GET", "path": "/", "query_string": b"",
-        "client": (peer, 54321) if peer else None, "server": ("localhost", 9500),
-        "headers": [(key.replace("_", "-").encode(), value.encode()) for key, value in headers.items()],
+        "type": kind,
+        "http_version": "1.1",
+        "scheme": "https" if kind == "http" else "wss",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "client": (peer, 54321) if peer else None,
+        "server": ("localhost", 9500),
+        "headers": [
+            (key.replace("_", "-").encode(), value.encode()) for key, value in headers.items()
+        ],
     }
 
 
@@ -50,8 +57,17 @@ async def test_trusted_nginx_chain_uses_the_last_untrusted_hop(kind, peer):
     # Nginx appends the actual remote address to any caller-supplied XFF.
     # The unrelated CF header must not override that verified result.
     middleware = ProxyHeadersMiddleware(app, trusted_hosts=["127.0.0.1", "::1"])
-    await middleware(scope(kind, peer, x_forwarded_for="198.51.100.99, 203.0.113.25",
-                           x_real_ip="203.0.113.25", cf_connecting_ip="198.51.100.99"), unused, unused)
+    await middleware(
+        scope(
+            kind,
+            peer,
+            x_forwarded_for="198.51.100.99, 203.0.113.25",
+            x_real_ip="203.0.113.25",
+            cf_connecting_ip="198.51.100.99",
+        ),
+        unused,
+        unused,
+    )
     assert set(observed) == {"203.0.113.25"}
 
 
@@ -88,9 +104,12 @@ def test_a_stolen_ticket_cannot_be_redeemed_by_spoofing_its_ip(monkeypatch):
     monkeypatch.setattr(deps, "_USE_SHARED_RUNTIME_LIMITS", False)
     monkeypatch.setattr(deps, "_WS_TICKETS", {})
     ticket = deps._issue_ws_ticket(
-        {"user_id": "owner", "email": "owner@example.test"}, purpose="terminal",
-        target="instance", client_ip="203.0.113.25",
+        {"user_id": "owner", "email": "owner@example.test"},
+        purpose="terminal",
+        target="instance",
+        client_ip="203.0.113.25",
     )["ticket"]
-    attacker = WebSocket(scope("websocket", peer="198.51.100.99",
-                               cf_connecting_ip="203.0.113.25"), unused, unused)
+    attacker = WebSocket(
+        scope("websocket", peer="198.51.100.99", cf_connecting_ip="203.0.113.25"), unused, unused
+    )
     assert deps._consume_ws_ticket(ticket, attacker, purpose="terminal", target="instance") is None

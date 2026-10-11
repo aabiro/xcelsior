@@ -15,9 +15,7 @@ from __future__ import annotations
 import os
 
 BASE = (
-    os.environ.get("XCELSIOR_LIVE_BASE_URL")
-    or os.environ.get("XCELSIOR_STAGING_URL")
-    or ""
+    os.environ.get("XCELSIOR_LIVE_BASE_URL") or os.environ.get("XCELSIOR_STAGING_URL") or ""
 ).rstrip("/")
 TOKEN = os.environ.get("XCELSIOR_LIVE_USER_TOKEN", "")
 

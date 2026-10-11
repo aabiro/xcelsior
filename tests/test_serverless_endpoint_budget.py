@@ -39,10 +39,11 @@ except Exception as _e:  # pragma: no cover
     _pool = None
 else:
     if not _has:  # pragma: no cover
-        pytestmark = pytest.mark.skip("serverless_endpoints.spend_limit_micros missing — upgrade >= 097")
+        pytestmark = pytest.mark.skip(
+            "serverless_endpoints.spend_limit_micros missing — upgrade >= 097"
+        )
 
 from serverless.repo import EndpointCreate, ServerlessRepo
-
 
 # ── Unit: the budget gate ────────────────────────────────────────────
 
@@ -58,7 +59,9 @@ def test_over_budget_denies_with_typed_problem():
 
 
 def test_within_budget_is_allowed():
-    _check_endpoint_budget({"spend_limit_cad": 10.0, "total_cost_cad": 4.0, "unbilled_token_cost_cad": 1.0})
+    _check_endpoint_budget(
+        {"spend_limit_cad": 10.0, "total_cost_cad": 4.0, "unbilled_token_cost_cad": 1.0}
+    )
 
 
 def test_null_limit_is_uncapped():
@@ -78,13 +81,21 @@ def test_exactly_at_limit_is_denied():
 def endpoint():
     repo = ServerlessRepo()
     ep = repo.create_endpoint(
-        EndpointCreate(owner_id=f"own-{uuid.uuid4().hex[:8]}", name="b32", mode="preset", model_ref="m", min_workers=0)
+        EndpointCreate(
+            owner_id=f"own-{uuid.uuid4().hex[:8]}",
+            name="b32",
+            mode="preset",
+            model_ref="m",
+            min_workers=0,
+        )
     )
     yield repo, ep
     if _pool is not None:
         with _pool.connection() as conn:
             conn.execute("DELETE FROM serverless_jobs WHERE endpoint_id=%s", (ep["endpoint_id"],))
-            conn.execute("DELETE FROM serverless_endpoints WHERE endpoint_id=%s", (ep["endpoint_id"],))
+            conn.execute(
+                "DELETE FROM serverless_endpoints WHERE endpoint_id=%s", (ep["endpoint_id"],)
+            )
             conn.commit()
 
 
@@ -109,8 +120,12 @@ def test_enqueue_refused_when_endpoint_over_budget_no_job_created(endpoint):
     depth_before = repo.queue_depth(endpoint_id)
     with pytest.raises(HTTPException) as ei:
         _enqueue_serverless_job(
-            endpoint_id=endpoint_id, owner_id=owner, payload={"input": "x"},
-            ep=ep_over, idempotency_key=None, webhook_url=None,
+            endpoint_id=endpoint_id,
+            owner_id=owner,
+            payload={"input": "x"},
+            ep=ep_over,
+            idempotency_key=None,
+            webhook_url=None,
         )
     assert ei.value.status_code == 402
     assert ei.value.detail["error"]["code"] == "budget_exhausted"
@@ -131,7 +146,11 @@ def test_enqueue_proceeds_within_budget(endpoint):
     ep_ok = repo.get_endpoint(endpoint_id)
 
     job, _ = _enqueue_serverless_job(
-        endpoint_id=endpoint_id, owner_id=owner, payload={"input": "x"},
-        ep=ep_ok, idempotency_key=None, webhook_url=None,
+        endpoint_id=endpoint_id,
+        owner_id=owner,
+        payload={"input": "x"},
+        ep=ep_ok,
+        idempotency_key=None,
+        webhook_url=None,
     )
     assert job.get("job_id")

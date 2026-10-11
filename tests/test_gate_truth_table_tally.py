@@ -200,12 +200,12 @@ def test_the_prose_count_matches_the_table():
     sections = _sections()
     met = sum(c["PASS"] for c in sections.values())
     total = sum(sum(c[v] for v in VERDICTS) for c in sections.values())
-    assert words[stated.group(1).capitalize()] == met, (
-        f"the prose says {stated.group(1)} clauses are met; {met} are"
-    )
-    assert words[stated.group(2).capitalize()] == total, (
-        f"the prose counts {stated.group(2)} clauses; there are {total}"
-    )
+    assert (
+        words[stated.group(1).capitalize()] == met
+    ), f"the prose says {stated.group(1)} clauses are met; {met} are"
+    assert (
+        words[stated.group(2).capitalize()] == total
+    ), f"the prose counts {stated.group(2)} clauses; there are {total}"
 
 
 def test_no_clause_carries_a_verdict_the_tally_has_no_column_for():

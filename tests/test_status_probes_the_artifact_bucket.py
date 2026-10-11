@@ -34,8 +34,13 @@ def storage(monkeypatch):  # noqa: ANN001
     def install(behaviour, backend="s3"):  # noqa: ANN001
         monkeypatch.setattr(artifacts, "StorageClient", lambda cfg: _Client(behaviour))
         monkeypatch.setattr(
-            artifacts.StorageConfig, "from_env",
-            classmethod(lambda cls, prefix="XCELSIOR_STORAGE": cls(backend=backend, bucket="xcelsior-artifacts")),
+            artifacts.StorageConfig,
+            "from_env",
+            classmethod(
+                lambda cls, prefix="XCELSIOR_STORAGE": cls(
+                    backend=backend, bucket="xcelsior-artifacts"
+                )
+            ),
         )
 
     return install
@@ -45,7 +50,9 @@ def test_a_deleted_bucket_reads_as_down(storage) -> None:  # noqa: ANN001
     from artifacts import StorageUnavailable
 
     def missing():
-        raise StorageUnavailable("list_objects failed: NoSuchBucket: The specified bucket does not exist")
+        raise StorageUnavailable(
+            "list_objects failed: NoSuchBucket: The specified bucket does not exist"
+        )
 
     storage(missing)
     name, state, detail, required = health._probe_artifact_storage()
@@ -54,7 +61,9 @@ def test_a_deleted_bucket_reads_as_down(storage) -> None:  # noqa: ANN001
     assert required is False, "a dead bucket degrades the platform; it does not block sign-in"
 
 
-def test_a_hanging_provider_does_not_hang_the_status_page(storage, monkeypatch) -> None:  # noqa: ANN001
+def test_a_hanging_provider_does_not_hang_the_status_page(
+    storage, monkeypatch
+) -> None:  # noqa: ANN001
     monkeypatch.setattr(health, "_ARTIFACT_PROBE_TIMEOUT_SEC", 0.3)
     storage(lambda: time.sleep(5))
     started = time.monotonic()

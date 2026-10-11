@@ -51,7 +51,9 @@ def _resolve(peer: str, xff: str) -> str:
 
     mw = ProxyHeadersMiddleware(app, trusted_hosts=_trusted())
     scope = {
-        "type": "http", "scheme": "http", "client": (peer, 0),
+        "type": "http",
+        "scheme": "http",
+        "client": (peer, 0),
         "headers": [(b"x-forwarded-for", xff.encode())],
     }
     asyncio.run(mw(scope, None, None))

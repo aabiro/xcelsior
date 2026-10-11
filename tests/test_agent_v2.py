@@ -21,8 +21,7 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger "
-                "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
             ).fetchone()
             is not None
         )
@@ -77,13 +76,22 @@ def _place_one(fleet, marker):
     host_id = f"h-{marker}-1"
     job_id = f"j-{marker}-run"
     host_payload = {
-        "host_id": host_id, "gpu_model": model, "gpu_count": 2,
-        "free_vram_gb": 48.0, "total_vram_gb": 48.0, "cost_per_hour": 1.0,
-        "admitted": True, "last_seen": time.time(),
+        "host_id": host_id,
+        "gpu_model": model,
+        "gpu_count": 2,
+        "free_vram_gb": 48.0,
+        "total_vram_gb": 48.0,
+        "cost_per_hour": 1.0,
+        "admitted": True,
+        "last_seen": time.time(),
     }
     job_payload = {
-        "job_id": job_id, "name": job_id, "gpu_model": model,
-        "num_gpus": 1, "vram_needed_gb": 8.0, "status": "queued",
+        "job_id": job_id,
+        "name": job_id,
+        "gpu_model": model,
+        "num_gpus": 1,
+        "vram_needed_gb": 8.0,
+        "status": "queued",
     }
     with _pool.connection() as conn:
         conn.execute(
@@ -119,16 +127,27 @@ def _place_one(fleet, marker):
                  FROM agent_commands WHERE command_id=%s""",
             (resv.command_id,),
         ).fetchone()
-    cmd = row if isinstance(row, dict) else {
-        "command_id": row[0], "command": row[1], "args": row[2],
-        "attempt_id": row[3], "fencing_token": row[4],
-    }
-    return job_id, host_id, {
-        "command_id": str(cmd["command_id"]),
-        "attempt_id": str(cmd["attempt_id"]),
-        "fencing_token": int(cmd["fencing_token"]),
-        "lease_id": cmd["args"]["lease_id"],
-    }
+    cmd = (
+        row
+        if isinstance(row, dict)
+        else {
+            "command_id": row[0],
+            "command": row[1],
+            "args": row[2],
+            "attempt_id": row[3],
+            "fencing_token": row[4],
+        }
+    )
+    return (
+        job_id,
+        host_id,
+        {
+            "command_id": str(cmd["command_id"]),
+            "attempt_id": str(cmd["attempt_id"]),
+            "fencing_token": int(cmd["fencing_token"]),
+            "lease_id": cmd["args"]["lease_id"],
+        },
+    )
 
 
 def _auth(job_id, host_id, refs, **overrides):
@@ -225,7 +244,8 @@ class TestCommandDeliveryPartition:
         r = client.post(
             f"/agent/v2/commands/{refs['command_id']}/nack",
             json={
-                "host_id": host_id, "error_code": "lease_claim_rejected",
+                "host_id": host_id,
+                "error_code": "lease_claim_rejected",
                 "retryable": False,
             },
         )
@@ -254,24 +274,26 @@ class TestFencedLeaseLifecycle:
             r = client.post(
                 "/agent/v2/attempts/status",
                 json={
-                    "job_id": job_id, "attempt_id": refs["attempt_id"],
-                    "host_id": host_id, "fencing_token": refs["fencing_token"],
+                    "job_id": job_id,
+                    "attempt_id": refs["attempt_id"],
+                    "host_id": host_id,
+                    "fencing_token": refs["fencing_token"],
                     "status": status,
                 },
             )
             assert r.status_code == 200, (status, r.text)
         with _pool.connection() as conn:
-            row = conn.execute(
-                "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone()
+            row = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
         assert (row[0] if not isinstance(row, dict) else row["status"]) == "running"
 
         # Terminal success settles everything atomically.
         r = client.post(
             "/agent/v2/attempts/status",
             json={
-                "job_id": job_id, "attempt_id": refs["attempt_id"],
-                "host_id": host_id, "fencing_token": refs["fencing_token"],
+                "job_id": job_id,
+                "attempt_id": refs["attempt_id"],
+                "host_id": host_id,
+                "fencing_token": refs["fencing_token"],
                 "status": "succeeded",
             },
         )
@@ -300,8 +322,10 @@ class TestFencedLeaseLifecycle:
         r = client.post(
             "/agent/v2/attempts/status",
             json={
-                "job_id": job_id, "attempt_id": refs["attempt_id"],
-                "host_id": host_id, "fencing_token": refs["fencing_token"],
+                "job_id": job_id,
+                "attempt_id": refs["attempt_id"],
+                "host_id": host_id,
+                "fencing_token": refs["fencing_token"],
                 "status": "running",
             },
         )
@@ -317,7 +341,8 @@ class TestFencedLeaseLifecycle:
         r = client.post(
             "/agent/v2/attempts/status",
             json={
-                "job_id": job_id, "attempt_id": refs["attempt_id"],
+                "job_id": job_id,
+                "attempt_id": refs["attempt_id"],
                 "host_id": host_id,
                 "fencing_token": refs["fencing_token"] + 999,
                 "status": "running",
@@ -343,16 +368,16 @@ class TestFencedLeaseLifecycle:
         auth = _auth(job_id, host_id, refs)
         assert client.post("/agent/v2/leases/claim", json=auth).status_code == 200
         base = {
-            "job_id": job_id, "attempt_id": refs["attempt_id"],
-            "host_id": host_id, "fencing_token": refs["fencing_token"],
+            "job_id": job_id,
+            "attempt_id": refs["attempt_id"],
+            "host_id": host_id,
+            "fencing_token": refs["fencing_token"],
         }
         assert (
-            client.post("/agent/v2/attempts/status", json={**base, "status": "running"})
-            .status_code == 200
+            client.post("/agent/v2/attempts/status", json={**base, "status": "running"}).status_code
+            == 200
         )
-        r = client.post(
-            "/agent/v2/attempts/status", json={**base, "status": "starting"}
-        )
+        r = client.post("/agent/v2/attempts/status", json={**base, "status": "starting"})
         assert r.status_code == 400
         assert r.json()["error"]["code"] == "out_of_order"
 
@@ -364,9 +389,12 @@ class TestFencedLeaseLifecycle:
         r = client.post(
             "/agent/v2/attempts/status",
             json={
-                "job_id": job_id, "attempt_id": refs["attempt_id"],
-                "host_id": host_id, "fencing_token": refs["fencing_token"],
-                "status": "failed", "failure_code": "container_failed",
+                "job_id": job_id,
+                "attempt_id": refs["attempt_id"],
+                "host_id": host_id,
+                "fencing_token": refs["fencing_token"],
+                "status": "failed",
+                "failure_code": "container_failed",
                 "detail": {"error": "OOM"},
             },
         )
@@ -380,9 +408,14 @@ class TestFencedLeaseLifecycle:
                 (refs["attempt_id"],),
             ).fetchone()
         j = job if isinstance(job, dict) else {"status": job[0], "reason_code": job[1]}
-        a = attempt if isinstance(attempt, dict) else {
-            "status": attempt[0], "failure_code": attempt[1],
-        }
+        a = (
+            attempt
+            if isinstance(attempt, dict)
+            else {
+                "status": attempt[0],
+                "failure_code": attempt[1],
+            }
+        )
         assert j["status"] == "failed" and j["reason_code"] == "container_failed"
         assert a["status"] == "failed" and a["failure_code"] == "container_failed"
 
@@ -398,16 +431,22 @@ class TestFencedLeaseLifecycle:
         ).json()["commands"]
         start = next(c for c in claimed if c["command_id"] == refs["command_id"])
         assert start["command"] == "start_attempt"
-        assert client.post(
-            f"/agent/v2/commands/{refs['command_id']}/ack",
-            json={"host_id": host_id, "result": {"lease_claimed": True}},
-        ).status_code == 200
+        assert (
+            client.post(
+                f"/agent/v2/commands/{refs['command_id']}/ack",
+                json={"host_id": host_id, "result": {"lease_claimed": True}},
+            ).status_code
+            == 200
+        )
         auth = _auth(job_id, host_id, refs)
         assert client.post("/agent/v2/leases/claim", json=auth).status_code == 200
-        assert client.post(
-            "/agent/v2/attempts/status",
-            json={**auth, "status": "running"},
-        ).status_code == 200
+        assert (
+            client.post(
+                "/agent/v2/attempts/status",
+                json={**auth, "status": "running"},
+            ).status_code
+            == 200
+        )
 
         def enqueue(conn):
             return enqueue_current_attempt_command(
@@ -498,9 +537,7 @@ class TestLegacyPatchFence:
         assert r.status_code == 409
         assert r.json()["error"]["code"] == "fencing_violation"
         with _pool.connection() as conn:
-            row = conn.execute(
-                "SELECT status FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone()
+            row = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
         assert (row[0] if not isinstance(row, dict) else row["status"]) == "assigned"
 
     def test_authority_host_patch_allowed(self, fleet):
@@ -523,7 +560,8 @@ class TestLegacyPatchFence:
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, refs = _place_one(fleet, marker)
         r = client.patch(
-            f"/instance/{job_id}", json={"status": "starting"},
+            f"/instance/{job_id}",
+            json={"status": "starting"},
             headers=_worker_headers(),
         )
         assert r.status_code == 409

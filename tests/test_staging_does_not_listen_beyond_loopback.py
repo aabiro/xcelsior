@@ -36,9 +36,9 @@ def test_the_bind_address_is_configurable_and_defaults_to_the_production_value()
         "proxies to this socket; narrowing the default silently is a deploy "
         "outage, and widening staging's is the exposure this file exists for."
     )
-    assert 'bind = [f"{_host}:{_port}" for _host in _hosts]' in conf, (
-        "the bind is no longer assembled from the configurable host list"
-    )
+    assert (
+        'bind = [f"{_host}:{_port}" for _host in _hosts]' in conf
+    ), "the bind is no longer assembled from the configurable host list"
 
 
 def test_the_bind_is_an_allowlist_rather_than_a_wildcard_switch():
@@ -70,8 +70,7 @@ def test_the_bind_is_an_allowlist_rather_than_a_wildcard_switch():
     # the config refuses alongside several workers, so this passed or failed
     # depending on what earlier tests had left in the environment.
     previous = {
-        k: os.environ.get(k)
-        for k in ("XCELSIOR_API_BIND", "XCELSIOR_API_PORT", "GUNICORN_WORKERS")
+        k: os.environ.get(k) for k in ("XCELSIOR_API_BIND", "XCELSIOR_API_PORT", "GUNICORN_WORKERS")
     }
     try:
         os.environ["XCELSIOR_API_BIND"] = "127.0.0.1,100.64.0.6"
@@ -97,9 +96,10 @@ def test_the_staging_runner_pins_loopback():
         "scripts/run_staging_compose.sh no longer pins XCELSIOR_API_BIND; a "
         "staging stack would bind every interface again"
     )
-    assert pinned.group(1) in ("127.0.0.1", "localhost"), (
-        f"the staging runner binds {pinned.group(1)!r} rather than loopback"
-    )
+    assert pinned.group(1) in (
+        "127.0.0.1",
+        "localhost",
+    ), f"the staging runner binds {pinned.group(1)!r} rather than loopback"
 
 
 def test_compose_passes_the_bind_through_to_the_api_service():
@@ -141,9 +141,15 @@ def test_staging_keeps_agent_ingress_denied():
 
     overlay = yaml.safe_load((ROOT / "docker-compose.staging.yml").read_text(encoding="utf-8"))
     for service in ("api", "api-blue"):
-        value = str((overlay["services"][service].get("environment") or {}).get(
-            "XCELSIOR_AGENT_PUBLIC_INGRESS", ""
-        )).strip().lower()
+        value = (
+            str(
+                (overlay["services"][service].get("environment") or {}).get(
+                    "XCELSIOR_AGENT_PUBLIC_INGRESS", ""
+                )
+            )
+            .strip()
+            .lower()
+        )
         assert value == "deny", (
             f"staging's {service} sets agent ingress to {value!r} (empty means the "
             "api.py default of `allow`). With a bind allowlist that includes a "

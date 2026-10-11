@@ -23,9 +23,7 @@ def user_ctx():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Notif Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     notif_id = NotificationStore.create(
         email,

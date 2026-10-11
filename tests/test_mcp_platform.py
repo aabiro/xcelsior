@@ -67,8 +67,9 @@ def test_instance_telemetry_unassigned():
         "name": "test",
         "owner": owner,
     }
-    with patch("scheduler.get_job", return_value=job), patch(
-        "routes.instances.get_job", return_value=job
+    with (
+        patch("scheduler.get_job", return_value=job),
+        patch("routes.instances.get_job", return_value=job),
     ):
         r = client.get("/api/instances/j1/telemetry", headers=headers)
     assert r.status_code == 200

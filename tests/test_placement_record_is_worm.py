@@ -49,7 +49,7 @@ from control_plane.scheduler.preference import (  # noqa: E402
 )
 
 DAY = 86400.0
-FLOOR = 40 * DAY   # comfortably over MIN_OBSERVATION_SECONDS
+FLOOR = 40 * DAY  # comfortably over MIN_OBSERVATION_SECONDS
 
 
 @pytest.fixture
@@ -86,8 +86,12 @@ def test_a_placement_records_what_was_true_at_the_time(tenant):
 
     with pg_transaction() as conn:
         decision_id = record_placement(
-            conn, tenant_id=tenant, decision=decision, candidates=candidates,
-            preference=PlacementPreference(min_uptime_pct=99.5), job_id="job-1",
+            conn,
+            tenant_id=tenant,
+            decision=decision,
+            candidates=candidates,
+            preference=PlacementPreference(min_uptime_pct=99.5),
+            job_id="job-1",
         )
         stored = read_placement(conn, decision_id, tenant_id=tenant)
 
@@ -113,8 +117,11 @@ def test_a_refusal_is_recorded_with_the_number_that_failed(tenant):
 
     with pg_transaction() as conn:
         decision_id = record_placement(
-            conn, tenant_id=tenant, decision=decision,
-            candidates=candidates, preference=preference,
+            conn,
+            tenant_id=tenant,
+            decision=decision,
+            candidates=candidates,
+            preference=preference,
         )
         stored = read_placement(conn, decision_id, tenant_id=tenant)
 
@@ -123,9 +130,9 @@ def test_a_refusal_is_recorded_with_the_number_that_failed(tenant):
     assert stored["refusal_code"] == "verification_unsatisfiable"
     assert "no candidate host is verified" in stored["refusal_detail"]
     assert stored["asked"]["require_verified"] is True
-    assert stored["candidate_count"] == 2, (
-        "a refusal is only interpretable against the field it refused over"
-    )
+    assert (
+        stored["candidate_count"] == 2
+    ), "a refusal is only interpretable against the field it refused over"
     assert stored["candidates"][0]["verification_status"] == "unverified"
     assert stored["premium_pct"] is None
 
@@ -138,7 +145,9 @@ def test_the_record_cannot_be_updated(tenant):
     candidates = [_host("only", 20)]
     with pg_transaction() as conn:
         decision_id = record_placement(
-            conn, tenant_id=tenant, decision=choose_host(candidates),
+            conn,
+            tenant_id=tenant,
+            decision=choose_host(candidates),
             candidates=candidates,
         )
 
@@ -158,15 +167,15 @@ def test_the_record_cannot_be_deleted(tenant):
     candidates = [_host("only", 20)]
     with pg_transaction() as conn:
         decision_id = record_placement(
-            conn, tenant_id=tenant, decision=choose_host(candidates),
+            conn,
+            tenant_id=tenant,
+            decision=choose_host(candidates),
             candidates=candidates,
         )
 
     with pytest.raises(Exception, match="append-only"):
         with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM placement_decisions WHERE decision_id = %s", (decision_id,)
-            )
+            conn.execute("DELETE FROM placement_decisions WHERE decision_id = %s", (decision_id,))
 
     with pg_transaction() as conn:
         assert read_placement(conn, decision_id, tenant_id=tenant) is not None
@@ -187,11 +196,9 @@ def test_the_table_is_partitioned_by_month():
         kind = conn.execute(
             "SELECT relkind FROM pg_class WHERE relname = 'placement_decisions'"
         ).fetchone()[0]
-        children = conn.execute(
-            """SELECT count(*) FROM pg_inherits i
+        children = conn.execute("""SELECT count(*) FROM pg_inherits i
                  JOIN pg_class p ON p.oid = i.inhparent
-                WHERE p.relname = 'placement_decisions'"""
-        ).fetchone()[0]
+                WHERE p.relname = 'placement_decisions'""").fetchone()[0]
 
     assert kind == "p", "placement_decisions is a plain table; it cannot be pruned"
     assert children >= 2, "no monthly partitions and no default partition"
@@ -206,34 +213,31 @@ def test_a_partition_can_be_dropped_even_though_a_row_cannot_be_deleted(tenant):
     """
     old = "2019-03-01"
     with pg_transaction() as conn:
-        conn.execute(
-            f"""CREATE TABLE IF NOT EXISTS placement_decisions_201903
+        conn.execute(f"""CREATE TABLE IF NOT EXISTS placement_decisions_201903
                 PARTITION OF placement_decisions
-                FOR VALUES FROM ('{old}') TO ('2019-04-01')"""
-        )
+                FOR VALUES FROM ('{old}') TO ('2019-04-01')""")
         conn.execute(
             """INSERT INTO placement_decisions
                  (tenant_id, outcome, host_id, decided_at)
                VALUES (%s, 'placed', 'ancient', %s::timestamptz)""",
             (tenant, f"{old} 12:00:00+00"),
         )
-        assert conn.execute(
-            "SELECT count(*) FROM placement_decisions_201903"
-        ).fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM placement_decisions_201903").fetchone()[0] == 1
 
     # The row itself is immutable.
     with pytest.raises(Exception, match="append-only"):
         with pg_transaction() as conn:
-            conn.execute(
-                "DELETE FROM placement_decisions WHERE tenant_id = %s", (tenant,)
-            )
+            conn.execute("DELETE FROM placement_decisions WHERE tenant_id = %s", (tenant,))
 
     # The partition holding it is not.
     with pg_transaction() as conn:
         conn.execute("DROP TABLE placement_decisions_201903")
-        assert conn.execute(
-            "SELECT count(*) FROM placement_decisions WHERE tenant_id = %s", (tenant,)
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM placement_decisions WHERE tenant_id = %s", (tenant,)
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_partition_maintenance_keeps_the_window_full():
@@ -255,15 +259,11 @@ def test_partition_maintenance_keeps_the_window_full():
 
     far = dt.date(2030, 5, 1)
     with pg_transaction() as conn:
-        ensured = ensure_monthly_partitions(
-            conn, "placement_decisions", months_ahead=1, today=far
-        )
+        ensured = ensure_monthly_partitions(conn, "placement_decisions", months_ahead=1, today=far)
         assert ensured == ["203005", "203006"]
-        present = conn.execute(
-            """SELECT count(*) FROM pg_class
+        present = conn.execute("""SELECT count(*) FROM pg_class
                 WHERE relname IN ('placement_decisions_203005',
-                                  'placement_decisions_203006')"""
-        ).fetchone()[0]
+                                  'placement_decisions_203006')""").fetchone()[0]
         conn.execute("DROP TABLE IF EXISTS placement_decisions_203005")
         conn.execute("DROP TABLE IF EXISTS placement_decisions_203006")
     assert present == 2
@@ -319,7 +319,9 @@ def test_another_tenants_decision_is_not_readable(tenant):
     candidates = [_host("only", 20)]
     with pg_transaction() as conn:
         decision_id = record_placement(
-            conn, tenant_id=tenant, decision=choose_host(candidates),
+            conn,
+            tenant_id=tenant,
+            decision=choose_host(candidates),
             candidates=candidates,
         )
         assert read_placement(conn, decision_id, tenant_id="someone-else") is None
@@ -337,12 +339,16 @@ def test_the_listing_is_scoped_and_newest_first(tenant):
         for price in (20, 21, 22):
             candidates = [_host("only", price)]
             record_placement(
-                conn, tenant_id=tenant, decision=choose_host(candidates),
+                conn,
+                tenant_id=tenant,
+                decision=choose_host(candidates),
                 candidates=candidates,
             )
         other = [_host("only", 20)]
         record_placement(
-            conn, tenant_id=f"{tenant}-other", decision=choose_host(other),
+            conn,
+            tenant_id=f"{tenant}-other",
+            decision=choose_host(other),
             candidates=other,
         )
         listed = list_placements(conn, tenant_id=tenant)
@@ -358,7 +364,9 @@ def test_an_unattributed_decision_is_refused(tenant):
     with pg_transaction() as conn:
         with pytest.raises(ValueError, match="attributed to a tenant"):
             record_placement(
-                conn, tenant_id="  ", decision=choose_host(candidates),
+                conn,
+                tenant_id="  ",
+                decision=choose_host(candidates),
                 candidates=candidates,
             )
 
@@ -394,9 +402,7 @@ def test_polling_the_same_preference_writes_one_row(tenant):
 
     with pg_transaction() as conn:
         ids = {
-            record_placement(
-                conn, tenant_id=tenant, decision=decision, candidates=candidates
-            )
+            record_placement(conn, tenant_id=tenant, decision=decision, candidates=candidates)
             for _ in range(5)
         }
         rows = conn.execute(
@@ -444,12 +450,18 @@ def test_the_same_decision_over_a_changed_fleet_is_a_new_decision(tenant):
 
     with pg_transaction() as conn:
         first = record_placement(
-            conn, tenant_id=tenant, decision=choose_host(small, preference),
-            candidates=small, preference=preference,
+            conn,
+            tenant_id=tenant,
+            decision=choose_host(small, preference),
+            candidates=small,
+            preference=preference,
         )
         second = record_placement(
-            conn, tenant_id=tenant, decision=choose_host(larger, preference),
-            candidates=larger, preference=preference,
+            conn,
+            tenant_id=tenant,
+            decision=choose_host(larger, preference),
+            candidates=larger,
+            preference=preference,
         )
     assert first != second, "a refusal over a changed fleet deduped into the earlier one"
 
@@ -459,8 +471,14 @@ def test_candidate_order_is_not_a_new_decision(tenant):
     from control_plane.scheduler.placement_record import decision_fingerprint
 
     a, b = _host("a", 20), _host("b", 30)
-    base = {"tenant_id": tenant, "job_id": None, "asked": {}, "outcome": "placed",
-            "refusal_code": None, "host_id": "a"}
+    base = {
+        "tenant_id": tenant,
+        "job_id": None,
+        "asked": {},
+        "outcome": "placed",
+        "refusal_code": None,
+        "host_id": "a",
+    }
     from control_plane.scheduler.placement_record import candidate_summary
 
     forward = dict(base, candidates=[candidate_summary(a), candidate_summary(b)])

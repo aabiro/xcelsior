@@ -66,9 +66,9 @@ def test_a_host_without_headscale_is_named_as_a_config_error(tmp_path: Path) -> 
 
     # And it must stop before trying to read a database that isn't there —
     # that attempt is what produced the misleading alert.
-    assert not any("backup" in " ".join(argv) for argv in calls), (
-        "replication tried to read the database on a host that has no Headscale"
-    )
+    assert not any(
+        "backup" in " ".join(argv) for argv in calls
+    ), "replication tried to read the database on a host that has no Headscale"
 
 
 def test_a_host_with_headscale_proceeds_to_the_backup(tmp_path: Path) -> None:
@@ -78,9 +78,9 @@ def test_a_host_with_headscale_proceeds_to_the_backup(tmp_path: Path) -> None:
     with pytest.raises(Exception):  # noqa: B017 - scp of a nonexistent file
         hf.replicate(settings, runner=_runner("present\n", calls=calls))
 
-    assert any("backup" in " ".join(argv) for argv in calls), (
-        "a real Headscale host was never asked for a snapshot"
-    )
+    assert any(
+        "backup" in " ".join(argv) for argv in calls
+    ), "a real Headscale host was never asked for a snapshot"
 
 
 def _failing_tick(tmp_path: Path, sent: list[str], state: hf.FailoverState):
@@ -161,17 +161,19 @@ def test_a_cleared_condition_does_not_suppress_its_own_recurrence(tmp_path: Path
     hf.telegram_send = fake_send  # type: ignore[assignment]
     try:
         state = hf.FailoverState()
-        state = hf.maybe_alert(settings, state, alerting)   # pages
-        state = hf.maybe_alert(settings, state, alerting)   # same episode, quiet
-        state = hf.maybe_alert(settings, state, quiet)      # condition clears
-        state = hf.maybe_alert(settings, state, alerting)   # NEW episode, must page
+        state = hf.maybe_alert(settings, state, alerting)  # pages
+        state = hf.maybe_alert(settings, state, alerting)  # same episode, quiet
+        state = hf.maybe_alert(settings, state, quiet)  # condition clears
+        state = hf.maybe_alert(settings, state, alerting)  # NEW episode, must page
     finally:
         hf.telegram_send = original  # type: ignore[assignment]
 
     assert len(sent) == 2, f"expected page, quiet, page — got {len(sent)}: {sent}"
 
 
-def test_failback_records_the_address_dns_actually_held(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+def test_failback_records_the_address_dns_actually_held(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
     """`original_a_record` is the address failback restores. Capture it, don't assume it.
 
     It used to be set to `settings.primary_host`, which was correct only while
@@ -192,7 +194,9 @@ def test_failback_records_the_address_dns_actually_held(tmp_path: Path, monkeypa
     state = hf.FailoverState(consecutive_failures=99)
     _, state = hf.watchdog_tick(
         settings,
-        health=hf.Health(dns_ok=False, primary_ip_ok=False, dns_error="down", primary_ip_error="down"),
+        health=hf.Health(
+            dns_ok=False, primary_ip_ok=False, dns_error="down", primary_ip_error="down"
+        ),
         replica=hf.ReplicaStatus(
             sqlite_path=replica / "db.sqlite",
             noise_key_path=replica / "noise_private.key",
@@ -208,9 +212,9 @@ def test_failback_records_the_address_dns_actually_held(tmp_path: Path, monkeypa
     )
 
     assert calls == ["promoted"], "the promote path did not run"
-    assert state.original_a_record == "45.76.3.128", (
-        f"filed {state.original_a_record!r} as the address to restore; DNS held 45.76.3.128"
-    )
+    assert (
+        state.original_a_record == "45.76.3.128"
+    ), f"filed {state.original_a_record!r} as the address to restore; DNS held 45.76.3.128"
 
 
 def test_promotion_refuses_when_the_standby_cannot_serve_the_name(
@@ -258,9 +262,9 @@ def test_promotion_refuses_when_the_standby_cannot_serve_the_name(
 
     assert "does not serve it" in str(excinfo.value)
     assert not moved, f"DNS was moved to a host that cannot serve the name: {moved}"
-    assert any("ABORTED" in m for m in sent), (
-        f"the operator was not told the promotion failed; messages: {sent}"
-    )
+    assert any(
+        "ABORTED" in m for m in sent
+    ), f"the operator was not told the promotion failed; messages: {sent}"
 
 
 def test_promotion_proceeds_when_the_standby_does_serve_the_name(
@@ -333,7 +337,9 @@ def _failback_fixture(tmp_path: Path):
     return settings, status, health
 
 
-def test_failback_restores_the_address_dns_actually_held(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+def test_failback_restores_the_address_dns_actually_held(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
     """`original_a_record`, not `primary_host` — they are not the same machine.
 
     `promote()` records what Cloudflare actually held. `failback()` ignored it
@@ -360,9 +366,9 @@ def test_failback_restores_the_address_dns_actually_held(tmp_path: Path, monkeyp
         health=health,
         runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
     )
-    assert moved == ["45.76.3.128"], (
-        f"failback pointed {settings.dns_name} at {moved}; DNS held 45.76.3.128"
-    )
+    assert moved == [
+        "45.76.3.128"
+    ], f"failback pointed {settings.dns_name} at {moved}; DNS held 45.76.3.128"
 
 
 def test_failback_holds_dns_when_the_target_cannot_serve_the_name(
@@ -420,9 +426,9 @@ def test_failback_refuses_to_push_a_database_that_lost_registrations(tmp_path: P
         state=hf.FailoverState(role="promoted"),
         live_nodes=2,
     )
-    assert decision.action == "refuse_failback", (
-        f"failback would proceed with 2 live nodes against a 6-node replica: {decision}"
-    )
+    assert (
+        decision.action == "refuse_failback"
+    ), f"failback would proceed with 2 live nodes against a 6-node replica: {decision}"
     assert "destroying the only copy" in decision.reason
     assert decision.alert is True, "an operator is not told the recovery was refused"
 
@@ -467,7 +473,9 @@ def test_force_is_required_to_accept_the_loss(tmp_path: Path) -> None:
     assert hf.failback_ready(**kwargs, force=True).action == "failback"
 
 
-def test_failback_never_writes_over_the_replica(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+def test_failback_never_writes_over_the_replica(
+    tmp_path: Path, monkeypatch
+) -> None:  # noqa: ANN001
     """The backup must survive the push, so a failed push can be retried."""
     replica_dir = tmp_path / "headscale"
     replica_dir.mkdir()
@@ -514,13 +522,13 @@ def test_failback_never_writes_over_the_replica(tmp_path: Path, monkeypatch) -> 
         state=hf.FailoverState(role="promoted", original_a_record="45.76.3.128"),
         health=hf.Health(dns_ok=False, primary_ip_ok=True, dns_error="", primary_ip_error=""),
         runner=fake_run,
-        force=True,   # the point here is the file handling, not the gate
+        force=True,  # the point here is the file handling, not the gate
     )
 
     assert (replica_dir / "db.sqlite").read_bytes() == b"REPLICA-6-NODES", (
         "failback overwrote the replica; a failed push would leave no backup and "
         "the registrations only the replica held are gone"
     )
-    assert pushed and "headscale-failback-" in pushed[0], (
-        f"failback pushed {pushed} rather than a timestamped snapshot"
-    )
+    assert (
+        pushed and "headscale-failback-" in pushed[0]
+    ), f"failback pushed {pushed} rather than a timestamped snapshot"

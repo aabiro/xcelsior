@@ -122,7 +122,13 @@ def _worker_row(worker_id: str) -> dict | None:
 def test_scale_up_binds_worker_to_exactly_one_fenced_attempt(scratch):
     repo = ServerlessRepo()
     ep = repo.create_endpoint(
-        EndpointCreate(owner_id=f"own-{uuid.uuid4().hex[:8]}", name="b31", mode="preset", model_ref="m", min_workers=0)
+        EndpointCreate(
+            owner_id=f"own-{uuid.uuid4().hex[:8]}",
+            name="b31",
+            mode="preset",
+            model_ref="m",
+            min_workers=0,
+        )
     )
     scratch["endpoints"].append(ep["endpoint_id"])
 
@@ -196,8 +202,12 @@ def test_non_serverless_job_leaves_workers_untouched(scratch):
         conn.commit()
     reservation = run_transaction(
         lambda conn: reserve_and_bind(
-            conn, job_id=plain, claim_token=claimed.claim_token,
-            replica_id="b31-test", host_id=host_id, num_gpus=1,
+            conn,
+            job_id=plain,
+            claim_token=claimed.claim_token,
+            replica_id="b31-test",
+            host_id=host_id,
+            num_gpus=1,
         )
     )
     with _pool.connection() as conn:
@@ -215,7 +225,13 @@ def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
 
     repo = ServerlessRepo()
     ep = repo.create_endpoint(
-        EndpointCreate(owner_id=f"own-{uuid.uuid4().hex[:8]}", name="b31m", mode="preset", model_ref="m", min_workers=0)
+        EndpointCreate(
+            owner_id=f"own-{uuid.uuid4().hex[:8]}",
+            name="b31m",
+            mode="preset",
+            model_ref="m",
+            min_workers=0,
+        )
     )
     scratch["endpoints"].append(ep["endpoint_id"])
     worker = repo.create_worker(ep["endpoint_id"], gpu_count=1)
@@ -228,8 +244,12 @@ def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
         conn.commit()
     reservation = run_transaction(
         lambda conn: reserve_and_bind(
-            conn, job_id=job_id, claim_token=claimed.claim_token,
-            replica_id="b31m", host_id=host_id, num_gpus=1,
+            conn,
+            job_id=job_id,
+            claim_token=claimed.claim_token,
+            replica_id="b31m",
+            host_id=host_id,
+            num_gpus=1,
         )
     )
     attempt_id = str(reservation.attempt_id)
@@ -251,10 +271,18 @@ def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
         conn.commit()
 
     with _pool.connection() as conn:
-        n_attempts = conn.execute("SELECT count(*) FROM job_attempts WHERE job_id=%s", (job_id,)).fetchone()[0]
-        n_allocs = conn.execute("SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s", (attempt_id,)).fetchone()[0]
-        n_meters = conn.execute("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", (attempt_id,)).fetchone()[0]
-        bound = conn.execute("SELECT attempt_id FROM serverless_workers WHERE worker_id=%s", (worker["worker_id"],)).fetchone()[0]
+        n_attempts = conn.execute(
+            "SELECT count(*) FROM job_attempts WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+        n_allocs = conn.execute(
+            "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s", (attempt_id,)
+        ).fetchone()[0]
+        n_meters = conn.execute(
+            "SELECT count(*) FROM usage_meters WHERE attempt_id=%s", (attempt_id,)
+        ).fetchone()[0]
+        bound = conn.execute(
+            "SELECT attempt_id FROM serverless_workers WHERE worker_id=%s", (worker["worker_id"],)
+        ).fetchone()[0]
     assert n_attempts == 1
     assert n_allocs == 1
     assert n_meters == 1  # metered exactly once on the fenced stop
@@ -264,4 +292,9 @@ def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
         reconcile_billing_meters(conn)
         conn.commit()
     with _pool.connection() as conn:
-        assert conn.execute("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", (attempt_id,)).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM usage_meters WHERE attempt_id=%s", (attempt_id,)
+            ).fetchone()[0]
+            == 1
+        )

@@ -141,9 +141,9 @@ def test_a_host_with_no_uptime_history_does_not_satisfy_a_reliability_constraint
     result = choose_host(newcomer, PlacementPreference(min_uptime_pct=99.0))
     d = result.as_dict()
     assert d["refused"] is True, "a host with no SLA history satisfied an uptime constraint"
-    assert d["best_available"] is None, (
-        "the refusal reported a best-available figure for hosts that have none"
-    )
+    assert (
+        d["best_available"] is None
+    ), "the refusal reported a best-available figure for hosts that have none"
     # No history and *too little* history are the same refusal — both mean
     # "there is not enough evidence to judge this", and both are answered by
     # waiting rather than by relaxing the number.
@@ -154,9 +154,7 @@ def test_the_premium_is_measured_against_the_cheapest_eligible_host():
     """`mid-good` is 10% dearer than `cheap-flaky`, so a 15% allowance admits it."""
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    result = choose_host(
-        FLEET, PlacementPreference(min_uptime_pct=99.5, max_premium_pct=15)
-    )
+    result = choose_host(FLEET, PlacementPreference(min_uptime_pct=99.5, max_premium_pct=15))
     d = result.as_dict()
     assert d["refused"] is False
     assert d["host_id"] == "mid-good"
@@ -164,18 +162,16 @@ def test_the_premium_is_measured_against_the_cheapest_eligible_host():
 
 
 def test_a_preference_costing_more_than_allowed_refuses():
-    """"Even at 15% more" is a bound, and a bound that is not enforced is a hint."""
+    """ "Even at 15% more" is a bound, and a bound that is not enforced is a hint."""
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    result = choose_host(
-        FLEET, PlacementPreference(min_uptime_pct=99.9, max_premium_pct=15)
-    )
+    result = choose_host(FLEET, PlacementPreference(min_uptime_pct=99.9, max_premium_pct=15))
     d = result.as_dict()
     assert d["refused"] is True
     assert d["code"] == "premium_exceeded"
-    assert d["best_available"] == pytest.approx(100.0, abs=0.1), (
-        "dear-great is 100% dearer than the baseline; the refusal should say so"
-    )
+    assert d["best_available"] == pytest.approx(
+        100.0, abs=0.1
+    ), "dear-great is 100% dearer than the baseline; the refusal should say so"
 
 
 def test_the_premium_baseline_is_not_the_chosen_host():
@@ -186,9 +182,7 @@ def test_the_premium_baseline_is_not_the_chosen_host():
     """
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
-    result = choose_host(
-        FLEET, PlacementPreference(min_uptime_pct=99.9, max_premium_pct=15)
-    )
+    result = choose_host(FLEET, PlacementPreference(min_uptime_pct=99.9, max_premium_pct=15))
     assert result.as_dict()["refused"] is True, (
         "the premium was measured against the chosen host, so the bound can "
         "never be exceeded and never refuses"
@@ -279,7 +273,7 @@ def test_a_short_observation_window_does_not_beat_a_year_of_evidence():
 
 
 def test_insufficient_history_is_its_own_refusal():
-    """"Wait for history" and "relax the number" are different next steps.
+    """ "Wait for history" and "relax the number" are different next steps.
 
     Collapsing them into `uptime_unsatisfiable` would tell a user to lower a
     constraint that no amount of lowering can satisfy.
@@ -323,9 +317,9 @@ def test_a_host_with_no_usable_price_cannot_become_the_premium_baseline():
         "their cap held while paying 3x"
     )
     assert with_free["code"] == "premium_exceeded"
-    assert with_free["best_available"] == without_free["best_available"], (
-        "an unpriced third-party host changed the premium this tenant was quoted"
-    )
+    assert (
+        with_free["best_available"] == without_free["best_available"]
+    ), "an unpriced third-party host changed the premium this tenant was quoted"
 
 
 def test_hosts_without_any_usable_price_are_refused_rather_than_placed():
@@ -406,9 +400,9 @@ def test_require_verified_reads_the_verification_state_machine():
         _verified("dearer-verified", 120, "verified", up=99.9, total=YEAR),
     ]
     chosen = choose_host(fleet, PlacementPreference(require_verified=True))
-    assert chosen.as_dict()["host_id"] == "dearer-verified", (
-        "an unverified host won a preference that asked for verification"
-    )
+    assert (
+        chosen.as_dict()["host_id"] == "dearer-verified"
+    ), "an unverified host won a preference that asked for verification"
 
 
 def test_a_deverified_host_is_not_verified():
@@ -444,7 +438,7 @@ def test_verification_refusal_names_the_states_present():
 
 
 def test_the_gates_own_example_is_expressible():
-    """"Prefer verified hosts above 99.5% uptime even at 15% more."
+    """ "Prefer verified hosts above 99.5% uptime even at 15% more."
 
     All three constraints at once, which is the sentence P5 is written around.
     Until `require_verified` existed this could not be said at all.
@@ -456,9 +450,7 @@ def test_the_gates_own_example_is_expressible():
         _verified("verified-ok", 110, "verified", up=99.6, total=YEAR),
         _verified("verified-dear", 300, "verified", up=99.99, total=YEAR),
     ]
-    pref = PlacementPreference(
-        require_verified=True, min_uptime_pct=99.5, max_premium_pct=15
-    )
+    pref = PlacementPreference(require_verified=True, min_uptime_pct=99.5, max_premium_pct=15)
     d = choose_host(fleet, pref).as_dict()
     assert d["refused"] is False
     assert d["host_id"] == "verified-ok"
@@ -481,9 +473,9 @@ def test_evidence_copies_the_verification_state_because_it_is_revocable():
     host["verification_state"] = "deverified"
     host["deverified_at"] = "2026-08-10T00:00:00Z"
 
-    assert evidence["verification_state"] == "verified", (
-        "the record followed the host's later revocation"
-    )
+    assert (
+        evidence["verification_state"] == "verified"
+    ), "the record followed the host's later revocation"
     assert evidence["verified_at"] == "2026-07-01T00:00:00Z"
 
 
@@ -504,8 +496,13 @@ def test_a_schema_defaulted_tier_does_not_satisfy_a_tier_constraint():
     from control_plane.scheduler.preference import PlacementPreference, choose_host, host_tier
 
     defaulted = _host(
-        "defaulted", 10, up=99.9, total=YEAR, tier="bronze", score=0.0,
-        allow_impossible=True,   # the schema default *is* the subject
+        "defaulted",
+        10,
+        up=99.9,
+        total=YEAR,
+        tier="bronze",
+        score=0.0,
+        allow_impossible=True,  # the schema default *is* the subject
     )
 
     assert host_tier(defaulted) == "new_user", "the stored tier outranked the score"
@@ -564,8 +561,12 @@ def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
     old = _verified(
-        "long-ago", 10, "verified",
-        checked_secs_ago=int(120 * 86400), up=99.9, total=YEAR,
+        "long-ago",
+        10,
+        "verified",
+        checked_secs_ago=int(120 * 86400),
+        up=99.9,
+        total=YEAR,
     )
     result = choose_host([old], PlacementPreference(require_verified=True)).as_dict()
     assert result["refused"] is True, "a four-month-old stamp counted as verification"
@@ -578,7 +579,7 @@ def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
 
 
 def test_stale_and_unverified_are_different_refusals():
-    """"No verified hosts exist" is answered by verifying one; "the checker is
+    """ "No verified hosts exist" is answered by verifying one; "the checker is
     not running" is answered by starting the sweep. One code cannot say both."""
     from control_plane.scheduler.preference import PlacementPreference, choose_host
 
@@ -602,9 +603,7 @@ def test_evidence_records_whether_anyone_was_still_looking():
 
     host = _verified("v", 10, "verified", up=99.9, total=YEAR)
     host["next_check_at"] = host["last_check_at"] + 86400
-    evidence = choose_host(
-        [host], PlacementPreference(require_verified=True)
-    ).as_dict()["evidence"]
+    evidence = choose_host([host], PlacementPreference(require_verified=True)).as_dict()["evidence"]
 
     assert evidence["last_check_at"] is not None
     assert evidence["next_check_at"] is not None
@@ -670,9 +669,9 @@ def test_the_staleness_tolerance_is_derived_from_the_interval_policy():
     )
 
     interval = float(VERIFICATION_THRESHOLDS["reverify_interval_sec"])
-    assert verification_max_age_seconds() == interval * VERIFICATION_STALE_AFTER_INTERVALS, (
-        "the tolerance has drifted from the interval it is defined against"
-    )
+    assert (
+        verification_max_age_seconds() == interval * VERIFICATION_STALE_AFTER_INTERVALS
+    ), "the tolerance has drifted from the interval it is defined against"
 
 
 def test_the_sweep_and_the_gate_agree_about_a_missing_schedule():
@@ -694,6 +693,4 @@ def test_the_sweep_and_the_gate_agree_about_a_missing_schedule():
         "the due query still exempts hosts with no schedule, so a host the gate "
         "refuses can never be re-verified"
     )
-    assert "'verifying'" in source, (
-        "a verification that died mid-flight is never retried"
-    )
+    assert "'verifying'" in source, "a verification that died mid-flight is never retried"

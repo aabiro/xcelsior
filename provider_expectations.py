@@ -155,10 +155,7 @@ def key_penalties() -> list[dict]:
         (PenaltyType.JOB_FAILURE_HOST, "A job fails because of your machine"),
         (PenaltyType.SECURITY_INCIDENT, "A security incident on your host"),
     ]
-    return [
-        {"type": pt.value, "points": PENALTY_POINTS[pt], "plain": plain}
-        for pt, plain in order
-    ]
+    return [{"type": pt.value, "points": PENALTY_POINTS[pt], "plain": plain} for pt, plain in order]
 
 
 def provider_expectations_summary() -> dict:

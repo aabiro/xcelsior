@@ -11,9 +11,7 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _migrated = (
-            _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
-        )
+        _migrated = _c.execute("SELECT to_regclass('outbox_events')").fetchone()[0] is not None
 except Exception as _e:  # pragma: no cover - skip path
     pytestmark = pytest.mark.skip(f"no pg pool available: {_e}")
     _pool = None
@@ -36,7 +34,6 @@ from control_plane.outbox import (
     mark_failed,
     mark_published,
 )
-
 
 # ── Command protocol ─────────────────────────────────────────────────
 
@@ -63,8 +60,14 @@ def _enqueue(host_id, *, command="start_attempt", max_attempts=3, not_before=Non
                             ELSE clock_timestamp() + make_interval(secs => %s) END,
                        %s, EXTRACT(EPOCH FROM NOW()) + 86400)
                RETURNING command_id""",
-            (host_id, command, max_attempts, not_before, not_before or 0.0,
-             f"{command}:{uuid.uuid4().hex[:8]}"),
+            (
+                host_id,
+                command,
+                max_attempts,
+                not_before,
+                not_before or 0.0,
+                f"{command}:{uuid.uuid4().hex[:8]}",
+            ),
         ).fetchone()
         conn.commit()
     return str(row[0])
@@ -73,8 +76,11 @@ def _enqueue(host_id, *, command="start_attempt", max_attempts=3, not_before=Non
 def _claim(host_id, session="wkr-1", ttl=60, limit=10):
     return run_transaction(
         lambda conn: claim_commands(
-            conn, host_id=host_id, worker_session_id=session,
-            claim_ttl_sec=ttl, limit=limit,
+            conn,
+            host_id=host_id,
+            worker_session_id=session,
+            claim_ttl_sec=ttl,
+            limit=limit,
         )
     )
 
@@ -104,14 +110,18 @@ class TestAckNack:
         cmd = _claim(host_id)[0]
         first = run_transaction(
             lambda conn: ack_command(
-                conn, command_id=cmd.command_id, host_id=host_id,
+                conn,
+                command_id=cmd.command_id,
+                host_id=host_id,
                 result={"container_id": "abc123"},
             )
         )
         assert first.duplicate is False
         dup = run_transaction(
             lambda conn: ack_command(
-                conn, command_id=cmd.command_id, host_id=host_id,
+                conn,
+                command_id=cmd.command_id,
+                host_id=host_id,
                 result={"container_id": "SHOULD-BE-IGNORED"},
             )
         )
@@ -124,7 +134,9 @@ class TestAckNack:
         with pytest.raises(CommandProtocolError):
             run_transaction(
                 lambda conn: ack_command(
-                    conn, command_id=cmd.command_id, host_id="host-imposter",
+                    conn,
+                    command_id=cmd.command_id,
+                    host_id="host-imposter",
                 )
             )
 
@@ -133,7 +145,9 @@ class TestAckNack:
         cmd = _claim(host_id)[0]
         status = run_transaction(
             lambda conn: nack_command(
-                conn, command_id=cmd.command_id, host_id=host_id,
+                conn,
+                command_id=cmd.command_id,
+                host_id=host_id,
                 error_code="image_pull_backoff",
             )
         )
@@ -153,7 +167,9 @@ class TestAckNack:
         cmd = _claim(host_id)[0]
         status = run_transaction(
             lambda conn: nack_command(
-                conn, command_id=cmd.command_id, host_id=host_id,
+                conn,
+                command_id=cmd.command_id,
+                host_id=host_id,
                 error_code="runtime_unavailable",
             )
         )
@@ -164,8 +180,11 @@ class TestAckNack:
         cmd = _claim(host_id)[0]
         status = run_transaction(
             lambda conn: nack_command(
-                conn, command_id=cmd.command_id, host_id=host_id,
-                error_code="spec_hash_mismatch", retryable=False,
+                conn,
+                command_id=cmd.command_id,
+                host_id=host_id,
+                error_code="spec_hash_mismatch",
+                retryable=False,
             )
         )
         assert status == "dead_letter"
@@ -229,13 +248,17 @@ class TestOutboxAppend:
 
     def test_atomic_with_surrounding_transaction(self, aggregate_id):
         with pytest.raises(RuntimeError):
+
             def fn(conn):
                 append_event(
-                    conn, aggregate_type="job", aggregate_id=aggregate_id,
+                    conn,
+                    aggregate_type="job",
+                    aggregate_id=aggregate_id,
                     event_type="job.v1.rolled_back",
                     destination_class="isolated-outbox",
                 )
                 raise RuntimeError("state mutation failed")
+
             run_transaction(fn)
         with _pool.connection() as conn:
             n = conn.execute(
@@ -249,31 +272,37 @@ class TestOutboxDispatch:
     def test_claim_publish_lifecycle(self, aggregate_id):
         eid = _append(aggregate_id)
         events = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
+            lambda conn: claim_batch(
+                conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100
+            )
         )
         mine = [e for e in events if e.event_id == eid]
         assert len(mine) == 1
         # A rival dispatcher gets nothing for the claimed event.
         rival = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d2", destination_class="isolated-outbox", limit=100)
+            lambda conn: claim_batch(
+                conn, dispatcher_id="d2", destination_class="isolated-outbox", limit=100
+            )
         )
         assert eid not in [e.event_id for e in rival]
         run_transaction(lambda conn: mark_published(conn, [eid]))
         again = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d2", destination_class="isolated-outbox", limit=100)
+            lambda conn: claim_batch(
+                conn, dispatcher_id="d2", destination_class="isolated-outbox", limit=100
+            )
         )
         assert eid not in [e.event_id for e in again]
 
     def test_failure_backoff_then_dead_letter(self, aggregate_id):
         eid = _append(aggregate_id)
         with _pool.connection() as conn:
-            conn.execute(
-                "UPDATE outbox_events SET max_attempts=2 WHERE event_id=%s", (eid,)
-            )
+            conn.execute("UPDATE outbox_events SET max_attempts=2 WHERE event_id=%s", (eid,))
             conn.commit()
         for expected in ("retry_scheduled", "dead_letter"):
             events = run_transaction(
-                lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
+                lambda conn: claim_batch(
+                    conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100
+                )
             )
             if expected == "retry_scheduled":
                 assert eid in [e.event_id for e in events]
@@ -287,23 +316,24 @@ class TestOutboxDispatch:
                     )
                     conn.commit()
                 events = run_transaction(
-                    lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
+                    lambda conn: claim_batch(
+                        conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100
+                    )
                 )
                 assert eid in [e.event_id for e in events]
-            outcome = run_transaction(
-                lambda conn: mark_failed(conn, eid, "sink unavailable")
-            )
+            outcome = run_transaction(lambda conn: mark_failed(conn, eid, "sink unavailable"))
             assert outcome == expected
         # Dead-lettered events are never claimed again.
         with _pool.connection() as conn:
             conn.execute(
-                "UPDATE outbox_events SET available_at=clock_timestamp() "
-                "WHERE event_id=%s",
+                "UPDATE outbox_events SET available_at=clock_timestamp() " "WHERE event_id=%s",
                 (eid,),
             )
             conn.commit()
         events = run_transaction(
-            lambda conn: claim_batch(conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100)
+            lambda conn: claim_batch(
+                conn, dispatcher_id="d1", destination_class="isolated-outbox", limit=100
+            )
         )
         assert eid not in [e.event_id for e in events]
 
@@ -344,13 +374,11 @@ class TestOutboxDispatch:
         )
         with _pool.connection() as conn:
             ok_row = conn.execute(
-                "SELECT published_at IS NOT NULL FROM outbox_events "
-                "WHERE event_id=%s",
+                "SELECT published_at IS NOT NULL FROM outbox_events " "WHERE event_id=%s",
                 (eid_ok,),
             ).fetchone()
             bad_row = conn.execute(
-                "SELECT published_at, last_error FROM outbox_events "
-                "WHERE event_id=%s",
+                "SELECT published_at, last_error FROM outbox_events " "WHERE event_id=%s",
                 (eid_bad,),
             ).fetchone()
         assert ok_row[0] is True

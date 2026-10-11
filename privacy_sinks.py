@@ -904,10 +904,7 @@ def delete_posthog_subject(request: Mapping[str, Any], sink: Mapping[str, Any]) 
     project_id = os.environ.get("XCELSIOR_POSTHOG_PROJECT_ID", "").strip()
     # Private person/deletion endpoints live on the PostHog app host, not the
     # public *.i.posthog.com ingestion host used by browser and MCP capture.
-    base_url = (
-        os.environ.get("XCELSIOR_POSTHOG_API_HOST", "").strip()
-        or "https://us.posthog.com"
-    )
+    base_url = os.environ.get("XCELSIOR_POSTHOG_API_HOST", "").strip() or "https://us.posthog.com"
     if not api_key or not project_id:
         return SinkOutcome(
             "failed",

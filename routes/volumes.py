@@ -285,7 +285,9 @@ def api_volume_retry_provision(volume_id: str, request: Request):
     except ValueError as e:
         msg = str(e)
         if "decrypt" in msg.lower() or "encryption key" in msg.lower():
-            raise HTTPException(409, "Volume encryption key is invalid — delete and recreate the volume.") from e
+            raise HTTPException(
+                409, "Volume encryption key is invalid — delete and recreate the volume."
+            ) from e
         raise HTTPException(400, msg)
     except RuntimeError as e:
         if "encryption" in str(e).lower() or "secrets_key" in str(e).lower():
@@ -616,8 +618,14 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
                ON CONFLICT (tenant_id, job_id, idempotency_key) DO NOTHING""",
             (
-                promotion_id, tenant_id, user.get("user_id"), body.job_id, volume_id,
-                idem, manifest["manifest_sha256"], manifest["file_count"],
+                promotion_id,
+                tenant_id,
+                user.get("user_id"),
+                body.job_id,
+                volume_id,
+                idem,
+                manifest["manifest_sha256"],
+                manifest["file_count"],
                 manifest["total_bytes"],
             ),
         )
@@ -631,7 +639,9 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
             held = take_promotion_hold(conn, body.job_id, tenant_id)
             log.info(
                 "promotion %s: held %d artifact(s) for job %s",
-                promotion_id, held, body.job_id,
+                promotion_id,
+                held,
+                body.job_id,
             )
         row = conn.execute(
             "SELECT promotion_id, state, file_count, total_bytes, volume_id "
@@ -654,8 +664,12 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
     existing_id = str(row[0])
     if not created:
         return {
-            "ok": True, "replayed": True, "promotion_id": existing_id,
-            "state": row[1], "file_count": row[2], "total_bytes": row[3],
+            "ok": True,
+            "replayed": True,
+            "promotion_id": existing_id,
+            "state": row[1],
+            "file_count": row[2],
+            "total_bytes": row[3],
             "volume_id": row[4],
         }
 
@@ -676,21 +690,33 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
         from routes.agent import enqueue_agent_command
 
         enqueued = enqueue_agent_command(
-            host_id, "promote_artifacts", {"promotion_id": existing_id},
-            created_by=str(user.get("user_id") or ""), ttl_sec=3600,
+            host_id,
+            "promote_artifacts",
+            {"promotion_id": existing_id},
+            created_by=str(user.get("user_id") or ""),
+            ttl_sec=3600,
         )
 
     append_user_audit_event(
-        "user.volume.promotion_started", "volume", volume_id, user,
+        "user.volume.promotion_started",
+        "volume",
+        volume_id,
+        user,
         data={
-            "promotion_id": existing_id, "job_id": body.job_id,
-            "file_count": manifest["file_count"], "total_bytes": manifest["total_bytes"],
+            "promotion_id": existing_id,
+            "job_id": body.job_id,
+            "file_count": manifest["file_count"],
+            "total_bytes": manifest["total_bytes"],
         },
     )
     return {
-        "ok": True, "replayed": False, "promotion_id": existing_id,
-        "state": "pending", "file_count": manifest["file_count"],
-        "total_bytes": manifest["total_bytes"], "volume_id": volume_id,
+        "ok": True,
+        "replayed": False,
+        "promotion_id": existing_id,
+        "state": "pending",
+        "file_count": manifest["file_count"],
+        "total_bytes": manifest["total_bytes"],
+        "volume_id": volume_id,
         "command_id": enqueued,
         "started_at_utc": _time.time(),
     }
@@ -720,8 +746,12 @@ def api_volume_promotion_get(volume_id: str, promotion_id: str, request: Request
         raise HTTPException(404, "Promotion not found")
     return {
         "ok": True,
-        "promotion_id": str(row[0]), "job_id": row[1], "volume_id": row[2],
-        "state": row[3], "file_count": row[4], "total_bytes": row[5],
+        "promotion_id": str(row[0]),
+        "job_id": row[1],
+        "volume_id": row[2],
+        "state": row[3],
+        "file_count": row[4],
+        "total_bytes": row[5],
         "failure_code": row[6],
         "created_at": row[7].isoformat() if row[7] else None,
         "completed_at": row[8].isoformat() if row[8] else None,
@@ -774,8 +804,7 @@ def api_promotion_manifest_for_agent(promotion_id: str, request: Request):
         # volume reported as complete.
         raise HTTPException(
             409,
-            "The artifact set changed since this promotion was created; "
-            "start a new promotion",
+            "The artifact set changed since this promotion was created; " "start a new promotion",
         )
 
     # §3.5: a resumed promotion skips what is already verified. Read here rather
@@ -793,27 +822,31 @@ def api_promotion_manifest_for_agent(promotion_id: str, request: Request):
         if f["artifact_id"] in already_done:
             # No presigned URL for a file that will not be fetched. A read grant
             # nobody uses is still a read grant that was issued and logged.
-            files.append({
-                "artifact_id": f["artifact_id"],
-                "logical_name": f["logical_name"],
-                "size_bytes": f["size_bytes"],
-                "sha256": f["sha256"],
-                "url": "",
-                "already_done": True,
-            })
+            files.append(
+                {
+                    "artifact_id": f["artifact_id"],
+                    "logical_name": f["logical_name"],
+                    "size_bytes": f["size_bytes"],
+                    "sha256": f["sha256"],
+                    "url": "",
+                    "already_done": True,
+                }
+            )
             continue
         try:
             grant = am.primary.generate_download_url(f["object_key"])
         except Exception:
             raise HTTPException(503, "Storage backend unavailable")
-        files.append({
-            "artifact_id": f["artifact_id"],
-            "logical_name": f["logical_name"],
-            "size_bytes": f["size_bytes"],
-            "sha256": f["sha256"],
-            "url": grant.get("url") if isinstance(grant, dict) else grant,
-            "already_done": f["artifact_id"] in already_done,
-        })
+        files.append(
+            {
+                "artifact_id": f["artifact_id"],
+                "logical_name": f["logical_name"],
+                "size_bytes": f["size_bytes"],
+                "sha256": f["sha256"],
+                "url": grant.get("url") if isinstance(grant, dict) else grant,
+                "already_done": f["artifact_id"] in already_done,
+            }
+        )
     return {
         "ok": True,
         "promotion_id": promotion_id,
@@ -933,9 +966,14 @@ def api_promotion_file_result(promotion_id: str, body: PromotionFileResult, requ
                      failure_code = EXCLUDED.failure_code,
                      updated_at = clock_timestamp()""",
             (
-                promotion_id, body.artifact_id, body.logical_name, body.size_bytes,
+                promotion_id,
+                body.artifact_id,
+                body.logical_name,
+                body.size_bytes,
                 body.size_bytes if body.state == "done" else 0,
-                body.sha256_verified, body.state, body.failure_code,
+                body.sha256_verified,
+                body.state,
+                body.failure_code,
                 promotion_id,
             ),
         )

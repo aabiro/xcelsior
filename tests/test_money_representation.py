@@ -49,9 +49,7 @@ PROJECTED_FLOAT_COLUMNS = {
     "wallet_holds": ("amount_cad",),
     "usage_meters": ("total_cost_cad",),
 }
-FLOAT_MONEY_COLUMNS = tuple(
-    sorted({c for cols in PROJECTED_FLOAT_COLUMNS.values() for c in cols})
-)
+FLOAT_MONEY_COLUMNS = tuple(sorted({c for cols in PROJECTED_FLOAT_COLUMNS.values() for c in cols}))
 
 SKIP_DIRS = {".venv", "venv", "node_modules", ".next", "migrations", "tests", "__pycache__"}
 
@@ -85,13 +83,10 @@ def test_no_application_code_writes_a_float_money_column():
             for column in sorted(columns):
                 if re.search(rf"(?:SET\s+|,\s*){re.escape(column)}\s*=(?!=)", sql):
                     line = text[: block.start()].count("\n") + 1
-                    offenders.append(
-                        f"{path.relative_to(REPO)}:~{line} writes {column} in SQL"
-                    )
+                    offenders.append(f"{path.relative_to(REPO)}:~{line} writes {column} in SQL")
     assert not offenders, (
         "Money must be written as integer micros; the _cad columns are "
-        "projections maintained by wallets_project_money. Offenders:\n  "
-        + "\n  ".join(offenders)
+        "projections maintained by wallets_project_money. Offenders:\n  " + "\n  ".join(offenders)
     )
 
 

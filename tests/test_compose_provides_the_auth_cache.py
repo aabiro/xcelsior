@@ -38,7 +38,9 @@ def _raw() -> str:
 
 def test_the_auth_cache_backend_still_defaults_to_redis() -> None:
     """If this default changes, the rest of this file is asserting the wrong thing."""
-    assert re.search(r"XCELSIOR_AUTH_CACHE_BACKEND:\s*\$\{XCELSIOR_AUTH_CACHE_BACKEND:-redis\}", _raw()), (
+    assert re.search(
+        r"XCELSIOR_AUTH_CACHE_BACKEND:\s*\$\{XCELSIOR_AUTH_CACHE_BACKEND:-redis\}", _raw()
+    ), (
         "the auth cache backend no longer defaults to redis — re-check whether a "
         "redis service is still the right requirement before deleting this file"
     )
@@ -73,9 +75,9 @@ def test_redis_is_not_in_an_opt_in_profile() -> None:
 def test_redis_does_not_bind_every_interface_by_default() -> None:
     """With host networking, 0.0.0.0 publishes the auth cache to the LAN and tailnet."""
     cmd = " ".join(_services().get("redis", {}).get("command", "").split())
-    assert "--bind ${XCELSIOR_REDIS_BIND:-127.0.0.1}" in cmd, (
-        f"redis bind is not loopback-by-default: {cmd!r}"
-    )
+    assert (
+        "--bind ${XCELSIOR_REDIS_BIND:-127.0.0.1}" in cmd
+    ), f"redis bind is not loopback-by-default: {cmd!r}"
 
 
 def test_the_api_waits_for_the_cache() -> None:

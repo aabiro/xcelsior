@@ -148,15 +148,23 @@ def test_the_kept_copy_is_private_while_it_exists(opt: Path) -> None:
 
 def test_a_missing_env_stops_the_deploy_where_it_is_found() -> None:
     body = _function("sync_code_push_env_host")
-    skip = re.search(r'if \[\[ -n "\$\{SKIP_PROD_ENV_PUSH:-\}" \]\]; then\n(.*?)\n    fi\n', body, re.S).group(1)
+    skip = re.search(
+        r'if \[\[ -n "\$\{SKIP_PROD_ENV_PUSH:-\}" \]\]; then\n(.*?)\n    fi\n', body, re.S
+    ).group(1)
     assert "test -f /opt/xcelsior/.env" in skip and "|| error" in skip
 
 
 # ── No env file ships from a developer machine ────────────────────────────
 
 ENV_FILES = [
-    ".env", ".env.bak.secrets-20260803-182458", ".env.staging.secrets", ".env.worker",
-    ".env.test", ".env.audit", ".env.example", ".env.paypal-live.example",
+    ".env",
+    ".env.bak.secrets-20260803-182458",
+    ".env.staging.secrets",
+    ".env.worker",
+    ".env.test",
+    ".env.audit",
+    ".env.example",
+    ".env.paypal-live.example",
 ]
 
 
@@ -200,7 +208,9 @@ def test_the_templates_still_do() -> None:
 
 
 @pytest.mark.parametrize("transport", ["rsync", "tar"])
-def test_worker_signing_private_key_stays_on_the_signing_machine(tmp_path: Path, transport: str) -> None:
+def test_worker_signing_private_key_stays_on_the_signing_machine(
+    tmp_path: Path, transport: str
+) -> None:
     src, dst = tmp_path / "src", tmp_path / "dst"
     (src / "scripts").mkdir(parents=True)
     dst.mkdir()

@@ -91,6 +91,6 @@ def test_c7_allowlist_matches_api_side():
     import worker_agent  # noqa
     from routes import agent as agent_route
 
-    assert worker_agent._AGENT_COMMAND_ALLOWED == agent_route._AGENT_COMMAND_ALLOWED, (
-        "worker and API allowlists diverged"
-    )
+    assert (
+        worker_agent._AGENT_COMMAND_ALLOWED == agent_route._AGENT_COMMAND_ALLOWED
+    ), "worker and API allowlists diverged"

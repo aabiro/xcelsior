@@ -60,9 +60,9 @@ def _is_deriving_call(node: ast.AST) -> bool:
         if isinstance(child, ast.Call):
             func = child.func
             name = (
-                func.id if isinstance(func, ast.Name)
-                else func.attr if isinstance(func, ast.Attribute)
-                else ""
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute) else ""
             )
             if name in _DERIVING_CALLS:
                 return True
@@ -149,6 +149,4 @@ def test_the_known_ratchets_are_all_literals():
         if name.startswith(_RATCHET_PREFIXES)
     }
     missing = sorted(expected - seen)
-    assert not missing, (
-        f"ratchet constants that vanished — was a guard deleted? {missing}"
-    )
+    assert not missing, f"ratchet constants that vanished — was a guard deleted? {missing}"

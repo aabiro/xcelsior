@@ -2316,6 +2316,7 @@ class TestAIRouteAuth:
     def test_rate_limit_recovers_after_window(self, monkeypatch):
         """The local fallback should evict expired timestamps."""
         from ai_assistant import check_ai_rate_limit, _ai_rate_buckets
+
         monkeypatch.setattr("routes._deps._shared_state_update", lambda *a, **k: (False, None))
 
         test_user = "rate-recovery-test"
@@ -2741,7 +2742,10 @@ class TestRateLimitRefund:
         def fake_db():
             yield mock_conn
 
-        with patch("ai_assistant._ai_db", fake_db), patch("routes._deps._shared_state_update", return_value=(False, None)):
+        with (
+            patch("ai_assistant._ai_db", fake_db),
+            patch("routes._deps._shared_state_update", return_value=(False, None)),
+        ):
             result = resolve_confirmation(signed, user_id, approved=True)
 
         assert result is None  # Expired → returns None
@@ -2779,7 +2783,10 @@ class TestRateLimitRefund:
         def fake_db():
             yield mock_conn
 
-        with patch("ai_assistant._ai_db", fake_db), patch("routes._deps._shared_state_update", return_value=(False, None)):
+        with (
+            patch("ai_assistant._ai_db", fake_db),
+            patch("routes._deps._shared_state_update", return_value=(False, None)),
+        ):
             result = resolve_confirmation(signed, user_id, approved=True)
 
         assert result is not None  # Valid → returns row
@@ -2876,7 +2883,12 @@ class TestPublicDocsCorpus:
         """Catches an internal doc copied *into* an allowlisted directory."""
         from ai_assistant import collect_public_docs
 
-        markers = ("GCP_BUSINESS_PROPOSAL", "BUSINESS_STRATEGY", "Track B", "control-plane blueprint")
+        markers = (
+            "GCP_BUSINESS_PROPOSAL",
+            "BUSINESS_STRATEGY",
+            "Track B",
+            "control-plane blueprint",
+        )
         for source, text in collect_public_docs():
             for marker in markers:
                 assert marker not in text, f"{source} contains internal marker {marker!r}"

@@ -22,9 +22,7 @@ def user_headers():
         "/api/auth/register",
         json={"email": email, "password": "StrongPass123!", "name": "Privacy Cov"},
     )
-    login = client.post(
-        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
-    )
+    login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     assert login.status_code == 200
     return email, {"Authorization": f"Bearer {login.json()['access_token']}"}
 
@@ -127,9 +125,7 @@ def test_privacy_v2_erase(user_headers, monkeypatch):
             already_existed=False,
         )
 
-    monkeypatch.setattr(
-        "privacy_deletion.create_deletion_request", _mock_request
-    )
+    monkeypatch.setattr("privacy_deletion.create_deletion_request", _mock_request)
     r = client.post("/api/v2/privacy/erase", headers=headers)
     assert r.status_code == 202
     assert r.json().get("ok") is True

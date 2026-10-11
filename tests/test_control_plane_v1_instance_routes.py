@@ -119,16 +119,14 @@ def test_instance_detail_redacts_every_credential_field(job_with_secrets) -> Non
         instance = r.json()["instance"]
         leaked = [f for f in present if f in instance]
         assert not leaked, f"the response still carries {leaked}"
-        assert SECRET not in r.text, (
-            f"a redacted value survived somewhere in the body: {r.text[:400]}"
-        )
+        assert (
+            SECRET not in r.text
+        ), f"a redacted value survived somewhere in the body: {r.text[:400]}"
 
 
 def test_an_unknown_instance_is_not_found() -> None:
     r = client.get(f"/api/v1/instances/job-{uuid.uuid4().hex}", headers=_admin_headers())
     assert r.status_code == 404, r.text[:200]
-
-
 
 
 # ── Lease and events ──────────────────────────────────────────────────────
@@ -192,8 +190,6 @@ def test_a_malformed_command_id_is_rejected_by_the_type() -> None:
         "/api/v1/control-plane/commands/not-a-uuid/retry", json={}, headers=_admin_headers()
     )
     assert r.status_code == 422, r.text[:300]
-
-
 
 
 # ── Undrain ───────────────────────────────────────────────────────────────

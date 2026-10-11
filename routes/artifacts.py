@@ -219,6 +219,7 @@ def api_list_all_artifacts(request: Request):
                     objects.extend(mgr.primary.list_objects(f"{atype.value}/"))
             else:
                 from scheduler import list_jobs
+
                 jobs = _filter_jobs_for_user(list_jobs(), user)
                 slots = {j.get("job_id", "") for j in jobs}
                 slots.discard("")
@@ -248,33 +249,39 @@ def api_list_all_artifacts(request: Request):
 
         artifacts = []
         for r in rows:
-            artifacts.append({
-                "artifact_id": str(r[0]),
-                "key": r[1],
-                "filename": r[2],
-                "job_id": r[3] or "",
-                "tenant_id": r[4],
-                "artifact_type": r[5],
-                "size_bytes": r[6],
-                "created_at": r[7].timestamp() if r[7] else time.time(),
-            })
+            artifacts.append(
+                {
+                    "artifact_id": str(r[0]),
+                    "key": r[1],
+                    "filename": r[2],
+                    "job_id": r[3] or "",
+                    "tenant_id": r[4],
+                    "artifact_type": r[5],
+                    "size_bytes": r[6],
+                    "created_at": r[7].timestamp() if r[7] else time.time(),
+                }
+            )
 
         return {"ok": True, "artifacts": artifacts}
 
     except StorageUnavailable as e:
-        log.error("artifacts.list_all storage unavailable user=%s: %s",
-                  user.get("user_id"), e)
+        log.error("artifacts.list_all storage unavailable user=%s: %s", user.get("user_id"), e)
         raise HTTPException(
             status_code=503,
-            detail={"error": {"code": "storage_unavailable",
-                              "message": "Artifact storage is unavailable"}},
+            detail={
+                "error": {
+                    "code": "storage_unavailable",
+                    "message": "Artifact storage is unavailable",
+                }
+            },
         )
     except Exception as e:
         log.error("artifacts.list_all failed user=%s: %s", user.get("user_id"), e)
         raise HTTPException(
             status_code=500,
-            detail={"error": {"code": "artifact_list_failed",
-                              "message": "Failed to list artifacts"}},
+            detail={
+                "error": {"code": "artifact_list_failed", "message": "Failed to list artifacts"}
+            },
         )
 
 

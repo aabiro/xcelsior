@@ -118,7 +118,10 @@ def test_the_guard_admits_a_dashboard_session():
 @pytest.mark.parametrize(
     "principal,label",
     [
-        ({"auth_type": "client_credentials", "grant_type": "client_credentials"}, "an OAuth client"),
+        (
+            {"auth_type": "client_credentials", "grant_type": "client_credentials"},
+            "an OAuth client",
+        ),
         ({"auth_type": "agent_api_key"}, "an agent key"),
         (
             {

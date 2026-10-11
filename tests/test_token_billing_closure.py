@@ -222,7 +222,9 @@ class TestTokenBillingClosure:
         assert u["last_24h"]["tokens_per_sec"] > 0
         assert u["last_24h"]["jobs_completed"] >= 1
         assert sample["usage_run1"] == sample["usage_run2"]
-        assert len([r for r in ledger_rows if "usage-proxy" in str(r.get("idempotency_key", ""))]) == 5
+        assert (
+            len([r for r in ledger_rows if "usage-proxy" in str(r.get("idempotency_key", ""))]) == 5
+        )
         assert u["last_24h"]["total_input_tokens"] >= prof["prompt_tokens"] * 5
         assert float(u["total_cost_cad"]) > 0
         assert float(u.get("recorded_token_cost_cad") or 0) > 0
@@ -274,9 +276,7 @@ class TestTokenBillingClosure:
         write_json_artifact("usage-sample.json", sample)
         client.delete(f"/api/v2/serverless/endpoints/{ep_id}", headers=headers)
 
-    def test_proxy_stream_embed_worker_blended_charge(
-        self, fake_vllm_port, blended_billing_env
-    ):
+    def test_proxy_stream_embed_worker_blended_charge(self, fake_vllm_port, blended_billing_env):
         headers, cust = register_funded_headers(client, "e2e")
         repo = ServerlessRepo()
         billing = get_billing_engine()
@@ -286,13 +286,21 @@ class TestTokenBillingClosure:
         chat_ep = client.post(
             "/api/v2/serverless/endpoints",
             headers=headers,
-            json={"name": f"e2e-{uuid.uuid4().hex[:4]}", "mode": "preset", "model_name": "Qwen/Qwen3-8B"},
+            json={
+                "name": f"e2e-{uuid.uuid4().hex[:4]}",
+                "mode": "preset",
+                "model_name": "Qwen/Qwen3-8B",
+            },
         ).json()["endpoint"]
         chat_id = chat_ep["endpoint_id"]
         embed_ep = client.post(
             "/api/v2/serverless/endpoints",
             headers=headers,
-            json={"name": f"emb-{uuid.uuid4().hex[:4]}", "mode": "preset", "model_name": "BAAI/bge-m3"},
+            json={
+                "name": f"emb-{uuid.uuid4().hex[:4]}",
+                "mode": "preset",
+                "model_name": "BAAI/bge-m3",
+            },
         ).json()["endpoint"]
         embed_id = embed_ep["endpoint_id"]
 
@@ -317,7 +325,9 @@ class TestTokenBillingClosure:
             None,
         )
         assert stream_row is not None
-        transcript["cases"].append({"case": "stream", "sse_excerpt": stream_text[:300], "ledger": stream_row})
+        transcript["cases"].append(
+            {"case": "stream", "sse_excerpt": stream_text[:300], "ledger": stream_row}
+        )
 
         r_emb = client.post(
             f"/v1/serverless/{embed_id}/openai/v1/embeddings",
@@ -389,9 +399,7 @@ class TestTokenBillingClosure:
         assert "eagle3" in cmd
 
         prof = _VLLMHandler.usage_profiles["chat"]
-        acceptance = prof["accepted_tokens"] / (
-            prof["accepted_tokens"] + prof["rejected_tokens"]
-        )
+        acceptance = prof["accepted_tokens"] / (prof["accepted_tokens"] + prof["rejected_tokens"])
         spec_evidence = {
             "harness": "upstream_simulator(vLLM-shaped usage) → OpenAI proxy → record_speculative_from_usage → gate",
             "path": "HTTP chat/completions → extract_usage_from_response → accrue_proxy_token_usage",
@@ -413,6 +421,7 @@ class TestTokenBillingClosure:
             write_json_artifact("live-speculative-proxy-evidence.json", spec_evidence)
 
         client.delete(f"/api/v2/serverless/endpoints/{ep_id}", headers=headers)
+
 
 class TestNullableCounterAccrual:
     """`NULL + x` is NULL, and Postgres will not warn you about it.

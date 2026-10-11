@@ -52,10 +52,14 @@ def artifact():
                                      + make_interval(days => %s::int)
                            END)""",
                 (
-                    artifact_id, f"tenant-{uuid.uuid4().hex[:8]}",
-                    f"obj-{artifact_id}", state,
-                    f"output/{artifact_id}.bin", legal_hold,
-                    retain_days, retain_days,
+                    artifact_id,
+                    f"tenant-{uuid.uuid4().hex[:8]}",
+                    f"obj-{artifact_id}",
+                    state,
+                    f"output/{artifact_id}.bin",
+                    legal_hold,
+                    retain_days,
+                    retain_days,
                 ),
             )
         created.append(artifact_id)
@@ -66,8 +70,8 @@ def artifact():
     if created:
         with pg_transaction() as conn:
             conn.execute(
-                "DELETE FROM storage.artifact_deletion_jobs "
-                "WHERE artifact_id = ANY(%s::uuid[])", (created,)
+                "DELETE FROM storage.artifact_deletion_jobs " "WHERE artifact_id = ANY(%s::uuid[])",
+                (created,),
             )
             conn.execute(
                 "DELETE FROM storage.artifacts WHERE artifact_id = ANY(%s::uuid[])",
@@ -120,9 +124,7 @@ def test_legal_hold_blocks_deletion(artifact):
     )
     state, error = _deletion_job(deletion_id)
     assert state == "delete_failed"
-    assert error and "legal hold" in error.lower(), (
-        f"the refusal must say why, got {error!r}"
-    )
+    assert error and "legal hold" in error.lower(), f"the refusal must say why, got {error!r}"
 
 
 def test_retention_window_defers_deletion(artifact):
@@ -170,11 +172,13 @@ def test_catalog_active_suppresses_the_object_age_sweep(artifact, monkeypatch):
     listed: list[str] = []
     deleted: list[str] = []
     monkeypatch.setattr(
-        manager.primary, "list_objects",
+        manager.primary,
+        "list_objects",
         lambda prefix="", max_keys=1000: listed.append(prefix) or [],
     )
     monkeypatch.setattr(
-        manager.primary, "delete_object",
+        manager.primary,
+        "delete_object",
         lambda key: deleted.append(key) or True,
     )
 

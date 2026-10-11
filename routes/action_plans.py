@@ -192,9 +192,7 @@ def api_evaluate_placement(body: PlacementEvaluationIn, request: Request):
     # snapshot's would tie up two pool slots per request for as long as the
     # decision takes — a pool-exhaustion shape under load. The read is already
     # finished; nothing is gained by holding it.
-    decision_id = record_decision(
-        decision, candidates, preference, tenant_id=principal.tenant_id
-    )
+    decision_id = record_decision(decision, candidates, preference, tenant_id=principal.tenant_id)
 
     return {
         "ok": True,
@@ -374,7 +372,9 @@ def api_create_pipeline(body: PipelineIn, request: Request):
         assert_graph_is_runnable(stages)
     except PipelineError as exc:
         return problem_response(
-            status=422, code=exc.code, detail=str(exc),
+            status=422,
+            code=exc.code,
+            detail=str(exc),
         )
 
     required = required_scopes_for_graph(stages)
@@ -414,9 +414,14 @@ def api_create_pipeline(body: PipelineIn, request: Request):
         "plan_id": plan_id,
         "approval_state": plan["status"],
         "stages": [
-            {"index": i, "name": s["name"], "action_type": s["action_type"],
-             "on_failure": s["on_failure"], "max_attempts": s["max_attempts"],
-             "estimate_micros": s["estimate_micros"]}
+            {
+                "index": i,
+                "name": s["name"],
+                "action_type": s["action_type"],
+                "on_failure": s["on_failure"],
+                "max_attempts": s["max_attempts"],
+                "estimate_micros": s["estimate_micros"],
+            }
             for i, s in enumerate(stages)
         ],
         # The ceiling, stated before approval rather than after — a total the
@@ -445,9 +450,7 @@ def api_get_pipeline(plan_id: str, request: Request):
             (plan_id,),
         ).fetchone()
         if not owner or str(owner[0]) != principal.tenant_id:
-            return problem_response(
-                status=404, code="not_found", detail="no such pipeline"
-            )
+            return problem_response(status=404, code="not_found", detail="no such pipeline")
         rows = conn.execute(
             """SELECT stage_index, name, action_type, state, on_failure,
                       attempt_count, max_attempts, failure_code, result_ref,
@@ -478,9 +481,16 @@ def api_get_pipeline(plan_id: str, request: Request):
         "currency": owner[3] or "CAD",
         "stages": [
             {
-                "index": r[0], "name": r[1], "action_type": r[2], "state": r[3],
-                "on_failure": r[4], "attempt_count": r[5], "max_attempts": r[6],
-                "failure_code": r[7], "result_ref": r[8], "spent_micros": r[9],
+                "index": r[0],
+                "name": r[1],
+                "action_type": r[2],
+                "state": r[3],
+                "on_failure": r[4],
+                "attempt_count": r[5],
+                "max_attempts": r[6],
+                "failure_code": r[7],
+                "result_ref": r[8],
+                "spent_micros": r[9],
             }
             for r in rows
         ],
@@ -522,7 +532,8 @@ def api_execute_pipeline(plan_id: str, request: Request):
             return {**dict(plan["idempotent_response"] or {}), "idempotent": True}
         if plan["status"] != "approved":
             return problem_response(
-                status=409, code="approval_required",
+                status=409,
+                code="approval_required",
                 detail=f"the pipeline is {plan['status']}; approve it before running",
             )
 
@@ -534,7 +545,8 @@ def api_execute_pipeline(plan_id: str, request: Request):
             # The clause, enforced. Someone changed the graph after it was
             # approved; the approval covered something else.
             return problem_response(
-                status=409, code="argument_hash_mismatch",
+                status=409,
+                code="argument_hash_mismatch",
                 detail="the approved pipeline was altered; approve the new graph",
             )
         approved_micros = int(plan["estimate_micros"] or 0)
@@ -554,12 +566,17 @@ def api_execute_pipeline(plan_id: str, request: Request):
         return {"ok": False, "failure_code": "stage_executor_not_wired"}
 
     summary = run_pipeline(
-        plan_id, principal.tenant_id, stages, _handler,
+        plan_id,
+        principal.tenant_id,
+        stages,
+        _handler,
         approved_micros=approved_micros,
     )
     response = {
-        "ok": True, "plan_id": plan_id,
-        "finished": summary["finished"], "failed": summary["failed"],
+        "ok": True,
+        "plan_id": plan_id,
+        "finished": summary["finished"],
+        "failed": summary["failed"],
         "counts": summary["counts"],
     }
     with control_plane_transaction() as conn:
@@ -568,7 +585,11 @@ def api_execute_pipeline(plan_id: str, request: Request):
             return {**dict(locked["idempotent_response"] or {}), "idempotent": True}
         if summary["finished"] and not summary["failed"]:
             plans_repo.mark_consumed(
-                conn, plan_id, job_id=f"pipeline:{plan_id}", wallet_hold_id=None,
-                idempotent_response=response, idempotency_key=f"pipeline:{plan_id}",
+                conn,
+                plan_id,
+                job_id=f"pipeline:{plan_id}",
+                wallet_hold_id=None,
+                idempotent_response=response,
+                idempotency_key=f"pipeline:{plan_id}",
             )
     return response
