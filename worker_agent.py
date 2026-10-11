@@ -2814,7 +2814,27 @@ def _v2_stop_container(
 # SQLite. §10.2 allows SQLite here; it does not require it, and a
 # single-writer snapshot rewritten via os.replace() has the durability
 # this needs without adding a database to the agent bundle.
-_V2_JOURNAL_PATH = os.environ.get("XCELSIOR_V2_JOURNAL_PATH", "/var/lib/xcelsior/v2_attempts.json")
+def _worker_state_dir() -> str:
+    """Directory for durable worker state (the attempt journal, staged host tools).
+
+    Under systemd this is StateDirectory=xcelsior, passed as $STATE_DIRECTORY and
+    created with the right owner for whichever User= the unit runs as. Outside
+    systemd, /var/lib/xcelsior when this process can write there; otherwise
+    ~/.xcelsior/state, so an unprivileged run can still save its journal.
+    """
+    from_systemd = os.environ.get("STATE_DIRECTORY", "").split(":")[0]
+    if from_systemd:
+        return from_systemd
+    default = "/var/lib/xcelsior"
+    if os.access(default if os.path.isdir(default) else os.path.dirname(default), os.W_OK):
+        return default
+    return os.path.join(os.path.expanduser("~"), ".xcelsior", "state")
+
+
+_WORKER_STATE_DIR = _worker_state_dir()
+_V2_JOURNAL_PATH = os.environ.get(
+    "XCELSIOR_V2_JOURNAL_PATH", os.path.join(_WORKER_STATE_DIR, "v2_attempts.json")
+)
 _V2_COMPLETED_COMMANDS_KEY = "__completed_commands__"
 _V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
 _v2_completed_commands: dict[str, dict] = {}
@@ -4662,7 +4682,7 @@ def run_job(job):
             # so interactive instances have these on $PATH without paying an
             # apt-install tax at boot. We skip the mount when the dir doesn't
             # exist on the host so unprovisioned dev machines still work.
-            host_tools_dir = os.environ.get("XCELSIOR_TOOLS_DIR", "/var/lib/xcelsior/tools")
+            host_tools_dir = os.environ.get("XCELSIOR_TOOLS_DIR", os.path.join(_WORKER_STATE_DIR, "tools"))
             try:
                 if os.path.isdir(host_tools_dir):
                     extra_docker_args.extend(["-v", f"{host_tools_dir}:/opt/xcelsior/bin:ro"])
