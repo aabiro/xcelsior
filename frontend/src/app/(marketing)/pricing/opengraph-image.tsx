@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
+// Node runtime (the default): a static image needs nothing from Edge, which
+// Next.js has deprecated and which kept this route from being prerendered.
 export const alt = "Xcelsior Pricing, Save up to 60% on GPU Compute";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -79,7 +80,7 @@ export default function PricingOG() {
             marginBottom: 40,
           }}
         >
-          Up to 60% less than hyperscalers • Pay in CAD
+          Up to 60% less than hyperscalers
         </p>
 
         {/* GPU price cards */}
