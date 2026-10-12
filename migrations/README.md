@@ -90,7 +90,12 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `120_drop_plaintext_root_passwords.py`.**
+**Repository head: `121_agent_key_ciphertext.py`.**
+
+(`121` adds a nullable `agent_api_keys.key_ciphertext`: the dashboard's Quick
+Connect MCP and CLI keys are kept encrypted with `XCELSIOR_SECRETS_KEY` so they
+can be shown again. Additive; other agent keys stay show-once. It is the schema
+floor in `control_plane/schema_compat.py`, because minting writes the column.)
 
 (`120` deletes `ssh_status.root_password` from instances that are finished or
 stopped. Those passwords were stored in plaintext before the API began

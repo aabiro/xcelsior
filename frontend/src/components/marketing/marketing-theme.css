@@ -2369,6 +2369,37 @@
   padding: 8px;
 }
 
+/* Device sign-in: the code the person compares against their terminal. */
+.site-auth-device-code {
+  padding: 18px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+  text-align: center;
+}
+
+.site-auth-device-code-value {
+  display: block;
+  color: var(--text);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  /* Never wraps: the code is compared character by character, and on a phone
+     it broke after the dash. Measured to fit inside the panel from 320px up. */
+  font-size: clamp(16px, 5.2vw, 34px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  /* letter-spacing trails the last glyph; pull it back so the code centres. */
+  margin-right: -0.16em;
+}
+
+.site-auth-device-code-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .site-auth-code-inline {
   display: inline-block;
   margin-top: 8px;

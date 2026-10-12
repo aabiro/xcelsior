@@ -21,7 +21,7 @@ export function CostUsagePanel({ endpoint, metrics }: CostUsagePanelProps) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label={t("dash.serverless.total_cost")}
-          value={`$${(metrics?.total_cost_cad ?? endpoint.total_cost_cad ?? 0).toFixed(2)} CAD`}
+          value={`$${(metrics?.total_cost_cad ?? endpoint.total_cost_cad ?? 0).toFixed(2)}`}
           icon={DollarSign}
           glow="gold"
         />

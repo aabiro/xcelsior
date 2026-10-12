@@ -53,7 +53,7 @@ export function StatusGate({ phase, report, statusUrl, onProceed, onRecheck, onC
     if (phase === "checking") {
         return (
             <Box width={70} flexDirection="column">
-                <BrandSpinner label="Checking Xcelsior service health…" />
+                <BrandSpinner label="Checking that Xcelsior is up…" />
             </Box>
         );
     }
@@ -62,7 +62,7 @@ export function StatusGate({ phase, report, statusUrl, onProceed, onRecheck, onC
     const verdictColor = VERDICT_COLORS[verdict] ?? COLORS.error;
     const headline = verdict === "blocked"
         ? "Some required services are unavailable"
-        : "Heads up — running in degraded mode";
+        : "Heads up — some Xcelsior services are having problems";
 
     return (
         <Box width={70} flexDirection="column" borderStyle="round" borderColor={verdictColor} paddingX={2} paddingY={1}>

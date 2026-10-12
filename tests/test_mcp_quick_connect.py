@@ -97,12 +97,38 @@ def test_quick_connect_is_idempotent():
     token = _register_and_get_token("qc-idem@xcelsior.ca")
     first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
     second = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
-    # Reloads must preserve even a copied-but-not-yet-used credential.
+    # Reloads must preserve even a copied-but-not-yet-used credential, and
+    # show it again in full rather than masked (which pushed people to
+    # regenerate, revoking the key their agent was using).
     assert first["client_id"] == second["client_id"]
-    assert first["access_token"] and second["access_token"] is None
+    assert first["access_token"] and second["access_token"] == first["access_token"]
     assert first["key_id"] == second["key_id"]
     assert second["in_use"] is False
     assert _authenticates(first["access_token"])
+
+
+def test_a_key_minted_before_keys_were_kept_encrypted_stays_masked():
+    from db import auth_connection
+
+    token = _register_and_get_token("qc-legacy@xcelsior.ca")
+    first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+    with auth_connection() as conn:
+        conn.execute(
+            "UPDATE agent_api_keys SET key_ciphertext = NULL WHERE key_id = %s",
+            (first["key_id"],),
+        )
+    again = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+    assert again["access_token"] is None
+    assert again["key_prefix"] == first["key_prefix"]
+
+
+def test_the_stored_copy_never_leaves_through_the_key_list():
+    token = _register_and_get_token("qc-list@xcelsior.ca")
+    client.get("/api/mcp/quick-connect", headers=_auth(token))
+    listed = client.get("/api/agent-keys", headers=_auth(token))
+    assert listed.status_code == 200
+    assert "key_ciphertext" not in listed.text
+    assert "xcel_ai_" not in listed.text.replace("xcel_ai_…", "")
 
 
 def test_concurrent_first_load_only_mints_one_key():
@@ -120,9 +146,9 @@ def test_concurrent_first_load_only_mints_one_key():
         results = list(pool.map(lambda _: load(), range(2)))
     assert results[0]["client_id"] == results[1]["client_id"]
     assert results[0]["key_id"] == results[1]["key_id"]
-    revealed = [result["access_token"] for result in results if result["access_token"]]
-    assert len(revealed) == 1
-    assert _authenticates(revealed[0])
+    # One key minted, and both loads show that same key.
+    assert results[0]["access_token"] == results[1]["access_token"]
+    assert _authenticates(results[0]["access_token"])
 
 
 def test_failed_rotation_preserves_previous_credential(monkeypatch):

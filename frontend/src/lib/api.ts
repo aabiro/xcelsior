@@ -4090,6 +4090,16 @@ export async function fetchBurstStatus() {
   );
 }
 
+// ── Device sign-in (RFC 8628) ─────────────────────────────────────────
+
+/** Approve a terminal's device code for the signed-in account. */
+export async function approveDeviceCode(userCode: string) {
+  return apiFetch<{ ok: boolean; user_code: string; message?: string }>("/api/auth/verify", {
+    method: "POST",
+    body: JSON.stringify({ user_code: userCode }),
+  });
+}
+
 // ── Email Verification ────────────────────────────────────────────────
 
 export async function verifyEmail(token: string) {

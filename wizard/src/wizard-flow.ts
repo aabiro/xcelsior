@@ -40,6 +40,12 @@ export interface WizardStep {
     checkRequired?: boolean;
 }
 
+/**
+ * How long the sign-in screen shows the code before opening the browser.
+ * It was 15s, which read as the wizard having stalled; Enter still opens it now.
+ */
+export const DEVICE_BROWSER_DELAY_MS = 3_000;
+
 // ── Docker image templates ───────────────────────────────────────────
 // Mapped by workload type for auto-selection, with full list for overrides.
 
@@ -60,16 +66,16 @@ export const IMAGE_TEMPLATES: ImageTemplate[] = [
 
 /** Static per-step help when AI is unavailable (A6). */
 export const STATIC_STEP_HELP: Record<string, string[]> = {
-    "api-check": ["Check XCELSIOR_API_URL is reachable.", "Try: curl -fsSL $XCELSIOR_API_URL/health"],
-    versions: ["Upgrade NVIDIA driver, Container Toolkit, Docker, and runc to minimum versions."],
-    benchmark: ["Ensure GPU is idle and cool; re-run benchmark after driver install."],
-    verify: ["Fix any failed verification checks before registering the host."],
-    "host-register": ["Confirm credentials and that the host IP is reachable from the control plane."],
-    "worker-install": ["Use install.sh --agent-only for headless worker setup."],
-    "sdk-detect": ["Run from your app root (where package.json lives).", "Python projects can use the REST API with xoa_ tokens."],
-    "sdk-install": ["npm install @xcelsior-gpu/sdk", "Re-run this step after installing."],
-    "sdk-credentials": ["xoa_ tokens are session tokens; oauth_ IDs are for server-to-server.", "Check Dashboard → Settings → API for your OAuth client."],
-    "sdk-verify": ["Ensure XCELSIOR_API_URL points at your control plane.", "Complete device sign-in if the xoa_ token is missing."],
+    "api-check": ["Check your internet connection, then try again.", "On a work network? Make sure xcelsior.ca isn't blocked."],
+    versions: ["Update your NVIDIA driver, NVIDIA Container Toolkit and Docker to at least the versions shown above."],
+    benchmark: ["Close anything else using the GPU, let it cool down, then try again."],
+    verify: ["Fix the items marked ✗ above, then try again."],
+    "host-register": ["Check you're signed in and that this machine is online, then try again."],
+    "worker-install": ["To install only the agent, run the installer with --agent-only."],
+    "sdk-detect": ["Run the wizard from your app's main folder (the one with package.json).", "Python app? Use the REST API instead, or press b to choose a different path."],
+    "sdk-install": ["Install it yourself with: npm install @xcelsior-gpu/sdk", "Then press Enter to check again."],
+    "sdk-credentials": ["The wizard creates an app key for your project.", "You can also find it in Dashboard → Settings → API."],
+    "sdk-verify": ["Make sure you finished signing in.", "If you set XCELSIOR_API_URL yourself, check it's correct."],
 };
 
 export const WORKLOAD_IMAGE_MAP: Record<string, string> = {
@@ -100,7 +106,7 @@ export const WIZARD_STEPS: WizardStep[] = [
             { label: "🖥️  Rent GPUs — launch jobs on the marketplace", value: "rent" },
             { label: "🔌 Provide GPUs — earn by sharing your hardware", value: "provide" },
             { label: "🔄 Both — rent and provide", value: "both" },
-            { label: "📦 Integrate SDK — connect your app to the Xcelsior API", value: "sdk" },
+            { label: "📦 Build with the SDK — use Xcelsior from your own app", value: "sdk" },
         ],
     },
 
@@ -108,7 +114,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "sdk-detect",
         type: "auto-check",
-        prompt: "Detecting your project framework...",
+        prompt: "Looking at your project...",
         checkId: "sdk-detect",
         checkRequired: true,
         condition: (a) => a.mode === "sdk",
@@ -118,7 +124,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "docker-check",
         type: "auto-check",
-        prompt: "Checking Docker environment...",
+        prompt: "Checking that Docker is installed and running...",
         checkId: "docker",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
@@ -127,14 +133,14 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "device-auth",
         type: "device-auth",
-        prompt: "Let's get you authenticated. Opening your browser...",
+        prompt: "Let's get you signed in...",
     },
 
     // ── Step 4: Validate connection ────────────────────────────────────
     {
         id: "api-check",
         type: "auto-check",
-        prompt: "Verifying your connection...",
+        prompt: "Checking your connection to Xcelsior...",
         checkId: "api",
         checkRequired: true,
     },
@@ -143,7 +149,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "sdk-install",
         type: "auto-check",
-        prompt: "Installing and verifying @xcelsior-gpu/sdk...",
+        prompt: "Installing the Xcelsior SDK in your project...",
         checkId: "sdk-install",
         checkRequired: true,
         condition: (a) => a.mode === "sdk",
@@ -153,7 +159,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "sdk-credentials",
         type: "auto-check",
-        prompt: "Creating application credentials and server-side SDK configuration...",
+        prompt: "Creating an app key and adding it to your project's settings...",
         checkId: "sdk-credentials",
         condition: (a) => a.mode === "sdk",
         checkRequired: true,
@@ -163,7 +169,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "sdk-verify",
         type: "auto-check",
-        prompt: "Verifying SDK connection to the control plane...",
+        prompt: "Making a test call with the SDK...",
         checkId: "sdk-verify",
         condition: (a) => a.mode === "sdk",
         checkRequired: true,
@@ -182,7 +188,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "gpu-detect",
         type: "auto-check",
-        prompt: "Detecting GPUs...",
+        prompt: "Finding your GPUs...",
         checkId: "gpu",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
@@ -191,7 +197,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "version-check",
         type: "auto-check",
-        prompt: "Checking component versions (runc, Docker, NVIDIA driver, toolkit)...",
+        prompt: "Checking your NVIDIA driver and Docker versions...",
         checkId: "versions",
         condition: (a) => a.mode === "provide" || a.mode === "both",
         checkRequired: true,
@@ -201,7 +207,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "network-setup",
         type: "auto-check",
-        prompt: "Setting up secure mesh networking...",
+        prompt: "Connecting this machine to Xcelsior's private network...",
         checkId: "network-setup",
         checkRequired: true,
         condition: (a) => a.mode === "provide" || a.mode === "both",
@@ -211,7 +217,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "benchmark",
         type: "auto-check",
-        prompt: "Running GPU benchmarks — FP16 matmul, PCIe bandwidth, thermal soak (≈60s)...",
+        prompt: "Testing your GPU's speed and temperature (about a minute)...",
         checkId: "benchmark",
         condition: (a) => a.mode === "provide" || a.mode === "both",
         checkRequired: true,
@@ -221,7 +227,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "network-bench",
         type: "auto-check",
-        prompt: "Testing network quality to the scheduler...",
+        prompt: "Testing your internet connection to Xcelsior...",
         checkId: "network",
         checkRequired: true,
         condition: (a) => a.mode === "provide" || a.mode === "both",
@@ -231,7 +237,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "verification",
         type: "auto-check",
-        prompt: "Running 7-point hardware verification...",
+        prompt: "Checking your hardware is ready to rent out...",
         checkId: "verify",
         condition: (a) => a.mode === "provide" || a.mode === "both",
         checkRequired: true,
@@ -254,7 +260,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "custom-rate",
         type: "text",
-        prompt: "Enter your hourly rate in CAD (e.g. 2.50):",
+        prompt: "Enter your hourly rate (e.g. 2.50 for $2.50/hr):",
         placeholder: "2.50",
         condition: (a) =>
             (a.mode === "provide" || a.mode === "both") && a.pricing === "custom",
@@ -270,7 +276,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "spot-enabled",
         type: "select",
-        prompt: "Enable interruptible spot instances on this host?",
+        prompt: "Also accept spot jobs? They pay less and can stop early, but keep your GPU busy.",
         options: [
             { label: "✓ Yes — accept spot workloads (recommended)", value: "yes" },
             { label: "✗ No — on-demand only", value: "no" },
@@ -280,7 +286,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "spot-min-cents",
         type: "text",
-        prompt: "Minimum spot floor in ¢/hr CAD (provider minimum for interruptible work):",
+        prompt: "Lowest price you'll take for a spot job, in cents per hour:",
         placeholder: "10",
         condition: (a) =>
             (a.mode === "provide" || a.mode === "both") && a["spot-enabled"] === "yes",
@@ -296,7 +302,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "host-register",
         type: "auto-check",
-        prompt: "Registering your host as pending verification...",
+        prompt: "Adding your machine to the marketplace (hidden until it's verified)...",
         checkId: "host-register",
         condition: (a) => a.mode === "provide" || a.mode === "both",
         checkRequired: true,
@@ -306,7 +312,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "admission-gate",
         type: "auto-check",
-        prompt: "Checking compatibility and pending admission status...",
+        prompt: "Checking whether your machine has been approved...",
         checkId: "admission",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
@@ -315,8 +321,8 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "provider-summary",
         type: "confirm",
-        prompt: "Compatibility checks are complete; worker verification is still pending.",
-        confirmLabel: "Continue to save configuration",
+        prompt: "Your machine passed our checks. It goes live once verification finishes.",
+        confirmLabel: "Continue",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
@@ -324,7 +330,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "worker-install",
         type: "auto-check",
-        prompt: "Installing the worker agent as a background service...",
+        prompt: "Installing the Xcelsior agent so jobs can run on this machine...",
         checkId: "worker-install",
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
@@ -356,7 +362,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "ssh-key-setup",
         type: "auto-check",
-        prompt: "Setting up SSH keys for instance access...",
+        prompt: "Setting up a key so you can log in to your instance...",
         checkId: "ssh-key-setup",
         condition: shouldLaunchInstance,
     },
@@ -365,7 +371,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "gpu-preference",
         type: "select",
-        prompt: "GPU preference?",
+        prompt: "Which GPU should we look for?",
         options: [
             { label: "🏎️  Best available — highest performance", value: "best" },
             { label: "💵 Cheapest — minimize cost", value: "cheapest" },
@@ -395,7 +401,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "image-pick",
         type: "select",
-        prompt: "Choose your environment:",
+        prompt: "Choose your software setup:",
         options: [], // dynamically populated with pre-selected default
         condition: shouldLaunchInstance,
     },
@@ -413,7 +419,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "wallet-check",
         type: "auto-check",
-        prompt: "Checking your wallet...",
+        prompt: "Checking your balance...",
         checkId: "wallet",
         condition: shouldLaunchInstance,
     },
@@ -443,8 +449,8 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "confirm-setup",
         type: "confirm",
-        prompt: "Ready to save your configuration?",
-        confirmLabel: "Save config to ~/.xcelsior/config.toml",
+        prompt: "Save these settings on this computer?",
+        confirmLabel: "Save settings",
         condition: (a) => a.mode === "both",
     },
 

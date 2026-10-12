@@ -104,7 +104,7 @@ function serializeAnalytics(
 
     sections.push(`\n=== CORE KPIs ===`);
     sections.push(`Total Jobs: ${totalJobs}${prevJobs ? ` (prev: ${prevJobs}, change: ${pctChange(totalJobs, prevJobs)})` : ""}`);
-    sections.push(`Total Spend: $${totalSpend.toFixed(2)} CAD${prevSpend ? ` (prev: $${prevSpend.toFixed(2)}, change: ${pctChange(totalSpend, prevSpend)})` : ""}`);
+    sections.push(`Total Spend: $${totalSpend.toFixed(2)}${prevSpend ? ` (prev: $${prevSpend.toFixed(2)}, change: ${pctChange(totalSpend, prevSpend)})` : ""}`);
     sections.push(`Total GPU Hours: ${totalHours.toFixed(2)}h${prevHours ? ` (prev: ${prevHours.toFixed(2)}h, change: ${pctChange(totalHours, prevHours)})` : ""}`);
     sections.push(`Avg GPU Utilisation: ${avgUtil.toFixed(1)}%${prevUtil ? ` (prev: ${prevUtil.toFixed(1)}%, change: ${pctChange(avgUtil, prevUtil)})` : ""}`);
     sections.push(`\n=== DERIVED METRICS ===`);

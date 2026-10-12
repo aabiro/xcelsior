@@ -552,21 +552,33 @@ function DepositForm({ customerId, onClose, onSuccess, toolbar }: DepositFormPro
 
 export function DepositModal(props: DepositModalProps) {
   const { user } = useAuth();
-  const [mode, setMode] = useState<"pay" | "admin">("pay");
-  const stripe = getStripePromise();
+  const isAdmin = Boolean(user?.is_admin);
   // Platform admins can also credit without paying — in test and production —
-  // so a paid flow can be exercised end to end without a card.
-  const toolbar = user?.is_admin ? (
-    <PillToggle
-      value={mode}
-      onChange={(id) => setMode(id as "pay" | "admin")}
-      options={[
-        { id: "pay", label: "Pay" },
-        { id: "admin", label: "Admin credit" },
-      ]}
-    />
+  // so a paid flow can be exercised end to end without a card. Admins start on
+  // the credit: defaulting to Pay sent an admin topping up their own wallet
+  // straight into a live card charge. Null until a side is picked, so the
+  // default follows `user` if it resolves after the modal mounts.
+  const [picked, setMode] = useState<"pay" | "admin" | null>(null);
+  const mode = picked ?? (isAdmin ? "admin" : "pay");
+  const stripe = getStripePromise();
+  const toolbar = isAdmin ? (
+    <div className="flex flex-col items-center gap-2">
+      <PillToggle
+        value={mode}
+        onChange={(id) => setMode(id as "pay" | "admin")}
+        options={[
+          { id: "admin", label: "Admin credit" },
+          { id: "pay", label: "Real payment" },
+        ]}
+      />
+      {mode === "pay" && (
+        <p className="text-center text-[11px] leading-relaxed text-accent-gold">
+          This charges a real card. Switch to Admin credit to add credits without paying.
+        </p>
+      )}
+    </div>
   ) : undefined;
-  if (toolbar && mode === "admin") {
+  if (isAdmin && mode === "admin") {
     return (
       <ModalShell onClose={props.onClose} subtitle="Credit without payment" toolbar={toolbar}>
         <AdminCreditForm

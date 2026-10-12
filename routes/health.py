@@ -919,6 +919,50 @@ def service_status(request: Request):
 _ARTIFACT_PROBE_TIMEOUT_SEC = 5.0
 
 
+#: Both blue-green MCP replicas. deploy.sh promotes `mcp` (8770) and `mcp-blue`
+#: (8771) in turn and stops the one it replaced, so a probe of one fixed port
+#: read "down" after every other deploy while the live replica served
+#: mcp.xcelsior.ca normally (found 2026-10-12: live=blue, :8770 refused).
+_MCP_HEALTH_URLS_DEFAULT = "http://127.0.0.1:8770/readyz,http://127.0.0.1:8771/readyz"
+
+
+def _probe_mcp_connector() -> tuple[str, str, str, bool]:
+    """(name, state, detail, required) for the MCP connector.
+
+    ``XCELSIOR_MCP_HEALTH_URL`` is a comma-separated list of readiness URLs;
+    the connector is operational when any of them answers ready.
+    """
+    import httpx as _httpx
+
+    name = "MCP connector"
+    raw = os.environ.get("XCELSIOR_MCP_HEALTH_URL") or _MCP_HEALTH_URLS_DEFAULT
+    urls = [u.strip() for u in raw.split(",") if u.strip()]
+    not_ready: list[str] = []
+    unreachable: list[str] = []
+    with _httpx.Client(timeout=3.0) as _http:
+        for url in urls:
+            try:
+                probe = _http.get(url)
+            except Exception as exc:
+                unreachable.append(f"{url}: {exc}")
+                continue
+            if probe.status_code == 200:
+                return (name, "operational", "ready", False)
+            checks = {}
+            try:
+                checks = probe.json().get("checks", {})
+            except Exception:
+                pass
+            not_ready.append(
+                ", ".join(check for check, ok in checks.items() if not ok) or "not ready"
+            )
+    # A replica that answered names what is wrong with it; a stopped standby
+    # only says it is stopped, so report the answering one first.
+    if not_ready:
+        return (name, "down", "; ".join(not_ready), False)
+    return (name, "down", "unreachable: " + "; ".join(unreachable), False)
+
+
 def _probe_artifact_storage() -> tuple[str, str, str, bool]:
     """(name, state, detail, required) for the artifact bucket."""
     from concurrent.futures import ThreadPoolExecutor
@@ -1074,24 +1118,7 @@ def _compute_service_status() -> dict:
     # through its own readiness endpoint rather than assumed healthy because the
     # API is: it is a separate process behind a separate hostname, and it can be
     # down while everything else is fine (adoption plan X6.27).
-    try:
-        import httpx as _httpx
-
-        mcp_health_url = os.environ.get("XCELSIOR_MCP_HEALTH_URL", "http://127.0.0.1:8770/readyz")
-        with _httpx.Client(timeout=3.0) as _http:
-            probe = _http.get(mcp_health_url)
-        if probe.status_code == 200:
-            add("MCP connector", "operational", "ready", False)
-        else:
-            checks = {}
-            try:
-                checks = probe.json().get("checks", {})
-            except Exception:
-                pass
-            failing = ", ".join(name for name, ok in checks.items() if not ok) or "not ready"
-            add("MCP connector", "down", failing, False)
-    except Exception as exc:
-        add("MCP connector", "down", f"unreachable: {exc}", False)
+    add(*_probe_mcp_connector())
 
     required_down = any(s["required"] and s["state"] == "down" for s in services)
     has_problem = any(s["state"] in ("down", "degraded") for s in services)

@@ -252,7 +252,7 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
                 <p className="rounded-lg border border-border/60 bg-surface-hover/60 px-3 py-2 text-xs text-text-muted">
                   {t("dash.serverless.est_cost")}{" "}
                   <span className="font-mono text-text-primary">
-                    ${selectedGpu.price_per_hour_cad.toFixed(2)} CAD/hr
+                    ${selectedGpu.price_per_hour_cad.toFixed(2)}/hr
                   </span>
                   {t("dash.serverless.per_worker")}
                 </p>

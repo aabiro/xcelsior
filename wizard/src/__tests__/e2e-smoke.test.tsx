@@ -121,7 +121,7 @@ describe("e2e — mode selection (rent / provide / both)", () => {
 
     it("selecting SDK transitions with SDK-specific copy", async () => {
         const { lastFrame, stdin } = await startAtModeSelect();
-        expect(lastFrame()).toContain("Integrate SDK");
+        expect(lastFrame()).toContain("Build with the SDK");
         stdin.write(DOWN);
         await delay(150);
         stdin.write(DOWN);
