@@ -758,9 +758,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     )
 
     @staticmethod
-    def _may_carry_host_token(path: str) -> bool:
+    def _may_carry_host_token(path: str, method: str | None = None) -> bool:
         """Whether a host-token-shaped bearer may be passed to the route here."""
         if path == "/host" or path.startswith(TokenAuthMiddleware.HOST_TOKEN_PREFIXES):
+            return True
+        # The same URL serves a customer GET and a worker PATCH. Only PATCH
+        # delegates host-token validation to the route. A missing method is
+        # used by the route inventory to ask whether any method is supported.
+        if method in (None, "PATCH") and re.fullmatch(r"/instance/[^/]+", path):
             return True
         return any(matcher.match(path) for matcher in TokenAuthMiddleware._template_matchers())
 
@@ -848,7 +853,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         # wholesale: a blanket exemption would make this middleware's safety
         # depend on every route under that prefix remembering to call its own
         # auth, which is the failure mode one layer down.
-        if token and self._may_carry_host_token(request.url.path):
+        if token and self._may_carry_host_token(request.url.path, request.method):
             try:
                 from control_plane.agent_tokens import looks_like_host_token
 
