@@ -1,6 +1,7 @@
 """Clean-host install integration test (X2) — verifies B1 venv + requirements."""
 
 import json
+import base64
 import os
 import subprocess
 import tempfile
@@ -28,7 +29,11 @@ def test_worker_requirements_install_in_fresh_venv():
         )
         py = venv / "bin" / "python3"
         subprocess.run(
-            [str(py), "-c", "import requests, dotenv, prometheus_client, cryptography, psutil"],
+            [
+                str(py),
+                "-c",
+                "import requests, dotenv, prometheus_client, cryptography, psutil, pynvml",
+            ],
             check=True,
             env={**os.environ, "PYTHONPATH": str(ROOT)},
         )
@@ -44,6 +49,41 @@ def test_install_sh_has_platform_guard_and_npx_fallback():
     assert "falling back to direct agent install" in text
     assert "worker-requirements.txt" in text
     assert "verify_agent_signature" in text
+
+
+@pytest.mark.parametrize("tamper", [False, True])
+def test_installer_verifies_ed25519_bytes(tmp_path, tamper):
+    """Exercise the actual OpenSSL verifier, including rejection of tampering."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    public = tmp_path / "public.pem"
+    public.write_bytes(
+        key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+    )
+    data = b"signed worker release\n"
+    payload = tmp_path / "worker.py"
+    payload.write_bytes(data + (b"modified\n" if tamper else b""))
+    signature = base64.b64encode(key.sign(data)).decode()
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; AGENT_SIGNING_PUB_EMBEDDED="$(cat "$2")"; '
+            'verify_agent_signature "$3" "$4"',
+            "verify",
+            str(INSTALL_SH),
+            str(public),
+            str(payload),
+            signature,
+        ],
+        text=True,
+        capture_output=True,
+    )
+    assert (result.returncode == 0) is not tamper, result.stdout + result.stderr
 
 
 def _run_installer_function(
