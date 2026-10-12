@@ -21,6 +21,7 @@ SIGNABLE = (
     "env_config.py",
     "criu_hosts.py",
     "egress_isolation.py",
+    "worker_privileged.py",
 )
 
 
