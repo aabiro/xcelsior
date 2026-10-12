@@ -991,6 +991,10 @@
     "class": "gap",
     "notes": "Provider axis. Nothing enumerates the caller's own hosts."
   },
+  "GET /install.sh": {
+    "class": "internal",
+    "notes": "Bootstrap file a new host downloads before it has any credential (the documented one-line install); not an API capability."
+  },
   "GET /instance/{job_id}": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -1355,7 +1359,15 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "POST /api/admin/users/{email}/suspend": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
   "POST /api/admin/users/{email}/toggle-admin": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
+  "POST /api/admin/users/{email}/unsuspend": {
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
@@ -1606,6 +1618,10 @@
   "POST /api/hosts/{host_id}/compatibility-sessions": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/hosts/{host_id}/enrollment": {
+    "class": "gap",
+    "notes": "Provider axis, like PUT /host: connects an owner's registered host to the agent gateway (single-use SPIRE join token and mesh key). The installer and wizard call it; the provider class has no tools yet."
   },
   "POST /api/hosts/{host_id}/provider-evidence": {
     "class": "internal",
