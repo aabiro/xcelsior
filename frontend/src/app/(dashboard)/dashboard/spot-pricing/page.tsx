@@ -134,7 +134,7 @@ export default function SpotPricingPage() {
               Fixed spot rates
             </div>
             <p className="text-xs text-text-secondary leading-relaxed">
-              Published CAD/hr prices, no bidding wars. Your rate is locked at launch and billed from wallet credits like on-demand.
+              Published hourly prices, no bidding wars. Your rate is locked at launch and billed from wallet credits like on-demand.
             </p>
           </CardContent>
         </Card>
@@ -219,7 +219,7 @@ export default function SpotPricingPage() {
                       <span className="text-2xl font-bold font-mono text-emerald tabular-nums">
                         ${spotCad.toFixed(2)}
                       </span>
-                      <span className="text-sm text-text-muted">/hr CAD</span>
+                      <span className="text-sm text-text-muted">/hr</span>
                       <SpotSavingsPill pct={p.savings_pct ?? 0} />
                     </div>
                     {onDemand != null && onDemand > spotCad && (
@@ -303,7 +303,7 @@ export default function SpotPricingPage() {
                     labelStyle={{ color: "#94a3b8" }}
                     formatter={((value: any, _name: any, item: any) => {
                       const cad = item?.payload?.priceCad ?? Number(value) / 100;
-                      return [`$${cad.toFixed(2)} CAD/hr`, "Spot Price"];
+                      return [`$${cad.toFixed(2)}/hr`, "Spot Price"];
                     }) as any}
                   />
                   <Area

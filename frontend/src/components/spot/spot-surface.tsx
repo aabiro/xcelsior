@@ -94,7 +94,7 @@ export function SpotRateDisplay({
     <div className="flex flex-wrap items-baseline gap-2">
       <span className={cn("font-bold font-mono text-emerald tabular-nums", sizeClass)}>
         ${rateCad.toFixed(2)}
-        <span className="text-sm font-normal text-text-muted">/hr CAD</span>
+        <span className="text-sm font-normal text-text-muted">/hr</span>
       </span>
       {savingsPct != null && savingsPct > 0 && <SpotSavingsPill pct={savingsPct} />}
       {onDemandCad != null && onDemandCad > rateCad && (

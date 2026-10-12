@@ -70,7 +70,7 @@ describe("analytics spot rates", () => {
       />,
     );
     expect(screen.getByText("Highest rates right now")).toBeInTheDocument();
-    expect(screen.getByText("Top 2 GPUs, CAD per GPU-hour")).toBeInTheDocument();
+    expect(screen.getByText("Top 2 GPUs, price per GPU-hour")).toBeInTheDocument();
     expect(screen.getByText("RTX 4090")).toBeInTheDocument();
     expect(screen.getByText(/\$0\.62\/hr/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/NaN/);

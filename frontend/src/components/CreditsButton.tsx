@@ -116,7 +116,6 @@ export function CreditsButton() {
               )}
               <p className="text-lg font-bold text-emerald mt-0.5">
                 {loading ? "..." : formatted}
-                <span className="text-xs font-normal text-text-muted ml-1">CAD</span>
               </p>
             </div>
 

@@ -535,7 +535,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     <div className="text-sm">
                       <span className="text-text-muted">{t("dash.serverless.est_cost")}</span>{" "}
                       <span className="font-semibold font-mono">
-                        ${(costPerHour * form.gpuCount).toFixed(2)} CAD/hr
+                        ${(costPerHour * form.gpuCount).toFixed(2)}/hr
                       </span>
                       <span className="text-text-muted"> {t("dash.serverless.per_worker")}</span>
                     </div>
@@ -712,7 +712,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                   <p className="text-xs text-text-muted mt-1">{t("dash.serverless.cold_start_desc")}</p>
                   {form.gpuTier && (
                     <p className="text-sm mt-2 font-mono">
-                      ~${(costPerHour * form.gpuCount).toFixed(2)} CAD/hr {t("dash.serverless.per_worker")}
+                      ~${(costPerHour * form.gpuCount).toFixed(2)}/hr {t("dash.serverless.per_worker")}
                       {form.method === "preset" && formatTokenRateFromPricing(form.modelRef, tokenQuotes[form.modelRef]) && (
                         <span className="text-text-muted">
                           {" "}· {formatTokenRateFromPricing(form.modelRef, tokenQuotes[form.modelRef])}

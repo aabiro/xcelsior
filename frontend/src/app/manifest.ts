@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Xcelsior, Agent-Native GPU Compute Marketplace",
     short_name: "Xcelsior",
     description:
-      "Rent verified GPUs by the hour from $0.30 CAD/hr, with dynamic spot pricing up to 70% off and serverless inference billed per token. Drive it all from any MCP agent, or from Xcel AI in the dashboard.",
+      "Rent verified GPUs by the hour from $0.30/hr, with dynamic spot pricing up to 70% off and serverless inference billed per token. Drive it all from any MCP agent, or from Xcel AI in the dashboard.",
     id: "/",
     start_url: "/",
     scope: "/",

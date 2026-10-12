@@ -124,7 +124,7 @@ export default function HomePage() {
                   <div className="site-telemetry-price-copy">
                     <div className="site-telemetry-price-kicker">Spot · RTX 4090</div>
                     <div className="site-telemetry-price-value">
-                      $0.30<span className="site-telemetry-price-unit"> CAD/hr</span>
+                      $0.30<span className="site-telemetry-price-unit">/hr</span>
                     </div>
                   </div>
                   <AuthAwareLink intent="launch" className="site-telemetry-action">
