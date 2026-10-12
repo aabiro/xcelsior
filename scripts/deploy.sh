@@ -1396,14 +1396,18 @@ detect_deploy_inputs() {
     fetch_remote_deploy_hashes >"$hash_dir/remote" & local pid_remote=$!
 
     # Hash local inputs in parallel (CPU-bound).
-    api_build_hash >"$hash_dir/api" &
-    frontend_build_hash >"$hash_dir/frontend" &
-    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" &
+    api_build_hash >"$hash_dir/api" & local pid_api=$!
+    frontend_build_hash >"$hash_dir/frontend" & local pid_frontend=$!
+    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" & local pid_nginx=$!
     runtime_build_hash >"$hash_dir/runtime" & local pid_runtime=$!
-    wait
 
+    # Wait on each pid. A bare `wait` reaps them first, and the following
+    # `wait "$pid"` then fails with "not a child of this shell".
+    wait "$pid_api" || error "Cannot fingerprint the API build inputs"
+    wait "$pid_frontend" || error "Cannot fingerprint the frontend build inputs"
+    wait "$pid_nginx" || error "Cannot fingerprint the nginx inputs"
     wait "$pid_runtime" || error "Cannot fingerprint the effective runtime configuration"
-    wait "$pid_remote" 2>/dev/null || true
+    wait "$pid_remote" || error "Cannot read the deployed configuration fingerprints"
     parse_remote_deploy_hashes <"$hash_dir/remote"
 
     DEPLOY_API_HASH=$(cat "$hash_dir/api")
@@ -1493,6 +1497,96 @@ wait_for_api_readiness() {
         if ((attempt < attempts)); then sleep 2; fi
     done
     return 1
+}
+
+# Compose does not inject .env into a container. Enrollment settings reach
+# the API only when the preserved production override names them and mounts
+# the SPIRE socket and CLI. Secrets stay in /etc/xcelsior/spire and .env.
+ensure_prod_spire_enrollment() {
+    [[ "${TARGET_ENV:-}" == "prod" ]] || return 0
+    log "Ensuring the API can reach the SPIRE server..."
+    ssh_cmd "bash -s" <<'EOF'
+set -euo pipefail
+enrollment=/etc/xcelsior/spire/api-enrollment.env
+override=/opt/xcelsior/docker-compose.override.yml
+envfile=/opt/xcelsior/.env
+if [[ ! -f "$enrollment" || ! -f "$override" || ! -f "$envfile" ]]; then
+  echo "SPIRE enrollment files are not on this host; leaving compose unchanged"
+  exit 0
+fi
+python3 - "$enrollment" "$override" "$envfile" <<'PY'
+import sys
+from pathlib import Path
+
+enrollment, override_path, env_path = map(Path, sys.argv[1:])
+wanted = []
+for line in enrollment.read_text().splitlines():
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    wanted.append(line)
+env_text = env_path.read_text()
+have = set()
+for line in env_text.splitlines():
+    if line and not line.startswith("#") and "=" in line:
+        have.add(line.split("=", 1)[0])
+extra = []
+added = []
+for line in wanted:
+    key = line.split("=", 1)[0]
+    if key not in have:
+        extra.append(line)
+        added.append(key)
+if extra:
+    if not env_text.endswith("\n"):
+        env_text += "\n"
+    env_text += "\n# Host enrollment (issue #67)\n" + "\n".join(extra) + "\n"
+    env_path.write_text(env_text)
+    env_path.chmod(0o600)
+
+text = override_path.read_text()
+changed = False
+env_lines = [
+    "XCELSIOR_SPIRE_SERVER_CMD: ${XCELSIOR_SPIRE_SERVER_CMD:-}",
+    "XCELSIOR_SPIRE_SERVER_SOCKET: ${XCELSIOR_SPIRE_SERVER_SOCKET:-}",
+    "XCELSIOR_SPIRE_SERVER_ADDRESS: ${XCELSIOR_SPIRE_SERVER_ADDRESS:-}",
+    "XCELSIOR_SPIRE_SERVER_PORT: ${XCELSIOR_SPIRE_SERVER_PORT:-8095}",
+    "XCELSIOR_HEADSCALE_URL: ${XCELSIOR_HEADSCALE_URL:-}",
+    "XCELSIOR_HEADSCALE_API_KEY: ${XCELSIOR_HEADSCALE_API_KEY:-}",
+    "XCELSIOR_HEADSCALE_USER_ID: ${XCELSIOR_HEADSCALE_USER_ID:-}",
+]
+vol_lines = [
+    "/var/lib/xcelsior-spire/sock:/run/xcelsior-spire",
+    "/usr/local/lib/xcelsior/spire-server:/usr/local/bin/spire-server:ro",
+]
+if "XCELSIOR_SPIRE_SERVER_ADDRESS:" not in text:
+    needle = "      XCELSIOR_POSTGRES_DSN:"
+    if needle not in text:
+        sys.exit("override has no API postgres DSN line to anchor enrollment env")
+    block = "\n".join("      " + line for line in env_lines)
+    text = text.replace(needle, needle + "\n" + block, 1)
+    changed = True
+missing_vols = [item for item in vol_lines if item not in text]
+if missing_vols:
+    lines = text.splitlines(keepends=True)
+    out = []
+    inserted = False
+    for line in lines:
+        out.append(line)
+        if not inserted and line.strip() == "volumes:":
+            out.extend(f"      - {item}\n" for item in missing_vols)
+            inserted = True
+    if not inserted:
+        out.append("    volumes:\n")
+        out.extend(f"      - {item}\n" for item in missing_vols)
+    text = "".join(out)
+    changed = True
+if changed:
+    override_path.write_text(text)
+print("spire_env_keys_added", ",".join(added) if added else "none")
+print("spire_override", "updated" if changed else "already_present")
+PY
+EOF
+    success "API SPIRE enrollment wiring is present"
 }
 
 deploy_docker() {
@@ -2259,6 +2353,7 @@ main() {
 
             backup_current
             sync_code
+            ensure_prod_spire_enrollment
 
             if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
                 install_nginx_configs
