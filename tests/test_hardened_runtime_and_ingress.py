@@ -109,10 +109,15 @@ def test_compose_grants_tmpfs_where_the_process_must_write():
 def test_scheduler_known_hosts_moved_out_of_root_home():
     """Non-root cannot read /root — SSH host verification would break."""
     svc = _compose()["services"]["scheduler-worker"]
-    known_hosts = [v for v in svc["volumes"] if "known_hosts" in v]
+
+    # Short ("src:dst:ro") and long ({type: bind, source, target}) syntax.
+    def mount(v):
+        return v if isinstance(v, str) else f"{v.get('source', '')}:{v.get('target', '')}"
+
+    known_hosts = [mount(v) for v in svc["volumes"] if "known_hosts" in mount(v)]
     assert known_hosts, "scheduler must still pin known_hosts"
     assert all("/root/" not in v for v in known_hosts), known_hosts
-    assert any("/home/xcelsior/.ssh/known_hosts" in v for v in known_hosts)
+    assert any(v.endswith(":/home/xcelsior/.ssh/known_hosts") for v in known_hosts)
     assert svc.get("cap_drop") == ["ALL"]
 
 
