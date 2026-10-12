@@ -58,7 +58,9 @@ _ROW = re.compile(r"^\|\s*(GET|POST|PUT|PATCH|DELETE|HEAD)\s*\|")
 
 def _rows() -> list[list[str]]:
     return [
-        [cell.strip() for cell in line.split("|")]
+        # Split on unescaped pipes only: a description may quote a shell pipe,
+        # which the generator escapes as `\|` (e.g. the install.sh one-liner).
+        [cell.strip() for cell in re.split(r"(?<!\\)\|", line)]
         for line in INVENTORY.read_text(encoding="utf-8").splitlines()
         if _ROW.match(line)
     ]
