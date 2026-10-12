@@ -138,6 +138,10 @@ VALID_ACCOUNT_ROLES = {"submitter", "provider"}
 
 PUBLIC_PATHS = {
     "/",
+    # `curl -fsSL https://xcelsior.ca/install.sh | bash` runs before the host has
+    # any credential; everything it downloads is under /static/ (public too) and
+    # is checked against signed hashes by the installer itself.
+    "/install.sh",
     "/docs",
     "/redoc",
     "/openapi.json",
