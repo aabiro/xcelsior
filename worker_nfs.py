@@ -2,155 +2,102 @@
 # running containers.
 #
 # Extracted from worker_agent.py (NFS support section). Fully self-contained:
-# only touches subprocess/os/shlex and the shared "xcelsior-worker" logger, no
-# coupling to worker_agent's mutable agent-wide state.
+# only touches subprocess/os, the root helper client (worker_privileged) and the
+# shared "xcelsior-worker" logger, no coupling to worker_agent's mutable state.
 
 import logging
 import os
-import shlex
 import subprocess
+
+import worker_privileged
 
 log = logging.getLogger("xcelsior-worker")
 
-MANAGED_VOLUME_HOST_DIR = "/mnt/xcelsior-volumes"
-
-
-def _nfs_mount_fstype() -> str:
-    """Return ``mount -t`` type for configured NFS mount options."""
-    opts = os.environ.get(
-        "XCELSIOR_NFS_MOUNT_OPTS",
-        "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp",
-    )
-    return "nfs4" if "nfsvers=4" in opts else "nfs"
+# Mounting, unmounting and entering a job's mount namespace need root; the worker
+# asks the root helper (worker_privileged, xcelsior-privd.socket) to do them.
+MANAGED_VOLUME_HOST_DIR = worker_privileged.NFS_VOLUME_ROOT
 
 
 def _mount_nfs(server, path, mount_point):
     """Mount an NFS share for shared model/data storage.
 
     Args:
-        server: NFS server hostname or IP
+        server: NFS server hostname or IP (must be on the mesh or in NFS_SERVERS)
         path: NFS export path (e.g., /exports/models)
-        mount_point: Local mount point (e.g., /mnt/xcelsior-nfs)
+        mount_point: /mnt/xcelsior-nfs, or /mnt/xcelsior-volumes/<volume id>
 
     Returns:
         True if mounted successfully, False otherwise.
     """
-    try:
-        os.makedirs(mount_point, exist_ok=True)
-
-        # Check if already mounted
-        r = subprocess.run(
-            ["mountpoint", "-q", mount_point],
-            capture_output=True,
-            timeout=5,
-        )
-        if r.returncode == 0:
-            return True  # Already mounted
-
-        # Mount NFS
-        # Use `hard` mount + long timeo/retrans so I/O blocks-and-retries on
-        # NFS server reboot instead of silently returning errors (which would
-        # cause data corruption on write-back caches). Do not change to `soft`
-        # without an explicit durability review.
-        mount_cmd = [
-            "mount",
-            "-t",
-            _nfs_mount_fstype(),
-            "-o",
-            os.environ.get(
-                "XCELSIOR_NFS_MOUNT_OPTS",
-                "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp",
-            ),
-            f"{server}:{path}",
+    # Mount options (`hard`, long timeo/retrans: I/O blocks and retries through an
+    # NFS server reboot instead of returning errors) live in privileged.conf.
+    if mount_point.startswith(MANAGED_VOLUME_HOST_DIR + "/"):
+        volume_id = mount_point[len(MANAGED_VOLUME_HOST_DIR) + 1 :]
+    elif os.path.normpath(mount_point) == worker_privileged.NFS_SHARED_MOUNT:
+        volume_id = None
+    else:
+        log.warning(
+            "NFS mount refused: %s is neither %s nor under %s",
             mount_point,
-        ]
-        r = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=10)
-        if r.returncode != 0:
-            log.warning("NFS mount failed: %s", r.stderr.strip())
-            return False
-
-        return True
+            worker_privileged.NFS_SHARED_MOUNT,
+            MANAGED_VOLUME_HOST_DIR,
+        )
+        return False
+    try:
+        reply = worker_privileged.call("nfs_mount", server=server, export=path, volume_id=volume_id)
     except Exception as e:
         log.warning("NFS mount error: %s", e)
         return False
+    if not reply.get("ok"):
+        log.warning("NFS mount failed: %s", reply.get("error"))
+        return False
+    return True
 
 
 def _unmount_nfs(mount_point):
     """Unmount an NFS share (best-effort, lazy unmount)."""
     try:
-        subprocess.run(
-            ["umount", "-l", mount_point],
-            capture_output=True,
-            timeout=10,
-        )
-        log.info("NFS unmounted: %s", mount_point)
+        reply = worker_privileged.call("umount", path=mount_point, lazy=True)
+        if reply.get("ok"):
+            log.info("NFS unmounted: %s", mount_point)
+        else:
+            log.debug("NFS unmount failed (non-fatal): %s", reply.get("error"))
     except Exception as e:
         log.debug("NFS unmount failed (non-fatal): %s", e)
 
 
-def _container_pid(container_name: str) -> int | None:
-    """Return the host PID of a running container, or None."""
+def _container_bind(
+    container_name: str, host_src: str, container_dst: str, mode: str = "rw"
+) -> bool:
+    """Mount host_src at container_dst inside a running job container."""
     try:
-        r = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Pid}}", container_name],
-            capture_output=True,
-            text=True,
-            timeout=5,
+        reply = worker_privileged.call(
+            "container_attach",
+            container=container_name,
+            source=host_src,
+            dst=container_dst,
+            mode=mode,
         )
-        if r.returncode != 0:
-            return None
-        pid = int((r.stdout or "0").strip() or 0)
-        return pid if pid > 0 else None
-    except (subprocess.TimeoutExpired, ValueError):
-        return None
-
-
-def _nsenter_bind_mount(pid: int, host_src: str, container_dst: str, mode: str = "rw") -> bool:
-    """Bind-mount host_src into a running container's mount namespace."""
-    safe_src = shlex.quote(host_src)
-    safe_dst = shlex.quote(container_dst)
-    if mode == "ro":
-        mount_script = (
-            f"mkdir -p {safe_dst} && "
-            f"mount --bind {safe_src} {safe_dst} && "
-            f"mount -o remount,bind,ro {safe_dst}"
+    except Exception as e:
+        reply = {"ok": False, "error": str(e)}
+    if not reply.get("ok"):
+        log.warning(
+            "bind mount into %s failed %s→%s: %s",
+            container_name,
+            host_src,
+            container_dst,
+            str(reply.get("error"))[:200],
         )
-    else:
-        mount_script = f"mkdir -p {safe_dst} && mount --bind {safe_src} {safe_dst}"
-    try:
-        r = subprocess.run(
-            ["nsenter", "-t", str(pid), "-m", "--", "sh", "-c", mount_script],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if r.returncode != 0:
-            log.warning(
-                "nsenter bind mount failed pid=%s %s→%s: %s",
-                pid,
-                host_src,
-                container_dst,
-                (r.stderr or "")[:200],
-            )
-            return False
-        return True
-    except subprocess.TimeoutExpired:
-        log.warning("nsenter bind mount timed out pid=%s dst=%s", pid, container_dst)
         return False
+    return True
 
 
-def _nsenter_lazy_umount(pid: int, container_dst: str) -> None:
-    """Lazy-unmount a path inside a container's mount namespace (best-effort)."""
-    safe_dst = shlex.quote(container_dst)
+def _container_unbind(container_name: str, container_dst: str) -> None:
+    """Lazy-unmount a path inside a running job container (best-effort)."""
     try:
-        subprocess.run(
-            ["nsenter", "-t", str(pid), "-m", "--", "umount", "-l", safe_dst],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except subprocess.TimeoutExpired:
-        pass
+        worker_privileged.call("container_detach", container=container_name, dst=container_dst)
+    except Exception as e:
+        log.debug("unbind %s:%s failed (non-fatal): %s", container_name, container_dst, e)
 
 
 def _hot_mount_volume(args: dict) -> bool:
@@ -189,13 +136,7 @@ def _hot_mount_volume(args: dict) -> bool:
         log.warning("mount_volume: NFS mount failed for %s", volume_id)
         return False
 
-    pid = _container_pid(container_name)
-    if not pid:
-        log.warning("mount_volume: no PID for %s", container_name)
-        _unmount_nfs(host_mount)
-        return False
-
-    if not _nsenter_bind_mount(pid, host_mount, container_path, mode=mode):
+    if not _container_bind(container_name, host_mount, container_path, mode=mode):
         _unmount_nfs(host_mount)
         return False
 
@@ -221,10 +162,7 @@ def _hot_unmount_volume(args: dict) -> bool:
     container_name = str(args.get("container_name") or f"xcl-{job_id}")
     host_mount = f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
 
-    pid = _container_pid(container_name)
-    if pid:
-        _nsenter_lazy_umount(pid, container_path)
-
+    _container_unbind(container_name, container_path)
     _unmount_nfs(host_mount)
     log.info("Hot-unmounted volume %s from %s at %s", volume_id, container_name, container_path)
     return True

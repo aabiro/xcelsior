@@ -12,11 +12,22 @@
 set -euo pipefail
 
 XCELSIOR_API="${XCELSIOR_API_URL:-https://xcelsior.ca}"
+# Your settings stay in your home directory; systemd reads worker.env as root
+# before the service starts, so the worker never needs access to your home.
 CONFIG_DIR="${XCELSIOR_CONFIG_DIR:-$HOME/.xcelsior}"
-AGENT_PATH="$CONFIG_DIR/worker_agent.py"
 ENV_FILE="$CONFIG_DIR/worker.env"
-VENV_DIR="$CONFIG_DIR/venv"
+# The worker runs as a dedicated system user, from code that user owns (so the
+# agent can self-update). Root-only steps (mounts, encrypted volumes) go through
+# xcelsior-privd, a root helper that validates every request (issue #65).
+SERVICE_USER="xcelsior"
+INSTALL_DIR="${XCELSIOR_INSTALL_DIR:-/opt/xcelsior}"
+LIB_DIR="$INSTALL_DIR/lib"
+AGENT_PATH="$INSTALL_DIR/worker_agent.py"
+VENV_DIR="$INSTALL_DIR/venv"
 VENV_PYTHON="$VENV_DIR/bin/python3"
+PRIVD_DIR="/usr/local/libexec/xcelsior"
+PRIVD_CONF="/etc/xcelsior/privileged.conf"
+AGENT_TLS_DIR="/etc/xcelsior/agent-tls"
 readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.2"
 AGENT_SIGNING_PUB_EMBEDDED='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
@@ -144,7 +155,9 @@ verify_agent_signature() {
     printf '%s\n' "$AGENT_SIGNING_PUB_EMBEDDED" > "$pub"
     echo "$sig_b64" | tr -d '[:space:]' | base64 -d > "$tmp_sig" 2>/dev/null \
         || fail "Invalid agent signature encoding"
-    if ! openssl pkeyutl -verify -pubin -inkey "$pub" -sigfile "$tmp_sig" -in "$file" >/dev/null 2>&1; then
+    # Ed25519 requires raw input. OpenSSL before 3.5 does not infer this from
+    # the key type (including Ubuntu 24.04's OpenSSL 3.0).
+    if ! openssl pkeyutl -verify -rawin -pubin -inkey "$pub" -sigfile "$tmp_sig" -in "$file" >/dev/null 2>&1; then
         rm -f "$pub" "$tmp_sig" "$tmp_pub"
         fail "Agent signature verification failed — refusing install (supply-chain protection)"
     fi
@@ -156,7 +169,7 @@ verify_agent_signature() {
 # scripts/sign-static-agent.py::SIGNABLE and routes/static.py::_SIGNABLE).
 # These are imported/executed with full worker-agent privileges, so every
 # one of them — not just worker_agent.py itself — must be signature-checked.
-SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py egress_isolation.py"
+SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py egress_isolation.py worker_privileged.py"
 
 _is_signable() {
     local name="$1" f
@@ -197,30 +210,143 @@ download_static_file() {
 
 setup_agent_venv() {
     info "Creating Python venv at $VENV_DIR..."
-    python3 -m venv "$VENV_DIR"
-    "$VENV_PYTHON" -m pip install --upgrade pip wheel >/dev/null
-    download_static_file "worker-requirements.txt" "$CONFIG_DIR/worker-requirements.txt"
-    "$VENV_PYTHON" -m pip install -r "$CONFIG_DIR/worker-requirements.txt"
+    (cd / && sudo -H -u "$SERVICE_USER" python3 -m venv "$VENV_DIR")
+    (cd / && sudo -H -u "$SERVICE_USER" "$VENV_PYTHON" -m pip install --upgrade pip wheel >/dev/null)
+    (cd / && sudo -H -u "$SERVICE_USER" "$VENV_PYTHON" -m pip install -r "$INSTALL_DIR/worker-requirements.txt")
     ok "Worker dependencies installed in venv"
+}
+
+ensure_service_user() {
+    if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+        info "Creating system user '$SERVICE_USER' (the worker runs as it, not as root or as you)..."
+        sudo useradd --system --user-group --home-dir /var/lib/xcelsior --no-create-home \
+            --shell /usr/sbin/nologin "$SERVICE_USER"
+    fi
+    if getent group docker >/dev/null 2>&1; then
+        sudo usermod -aG docker "$SERVICE_USER"
+    fi
+    sudo install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "$INSTALL_DIR" "$LIB_DIR"
+    sudo install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 /var/lib/xcelsior
+    # tailscale up/status without root (only when tailscale is installed)
+    if command -v tailscale >/dev/null 2>&1; then
+        local ts_socket
+        ts_socket="$(sed -n 's/^XCELSIOR_TAILSCALE_SOCKET=//p' "$ENV_FILE" 2>/dev/null | tail -n1)"
+        sudo tailscale ${ts_socket:+--socket="$ts_socket"} set --operator="$SERVICE_USER" >/dev/null 2>&1 || true
+    fi
+}
+
+_env_value() {
+    sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | tail -n1
+}
+
+install_privd() {
+    local helper="$1" roots extra
+    info "Installing xcelsior-privd (root helper for mounts and encrypted volumes)..."
+    sudo install -d -m 0755 "$PRIVD_DIR" /etc/xcelsior
+    # Root runs this copy, never the worker-owned one in $LIB_DIR.
+    sudo install -o root -g root -m 0644 "$helper" "$PRIVD_DIR/worker_privileged.py"
+    if ! sudo test -f "$PRIVD_CONF"; then
+        roots="/exports"
+        for extra in "$(_env_value XCELSIOR_NFS_PATH)" "$(_env_value XCELSIOR_NFS_EXPORT_BASE)"; do
+            case "$extra" in ""|/exports|/exports/*) ;; *) roots="$roots,$extra" ;; esac
+        done
+        sudo tee "$PRIVD_CONF" >/dev/null <<EOF
+# Root-owned settings for xcelsior-privd ($PRIVD_DIR/worker_privileged.py).
+# The worker cannot change these. Edit, then nothing to restart: each request reads them.
+# NFS servers allowed besides mesh addresses (100.64.0.0/10), comma-separated.
+NFS_SERVERS=$(_env_value XCELSIOR_NFS_SERVER)
+NFS_EXPORT_ROOTS=$roots
+NFS_MOUNT_OPTS=$(_env_value XCELSIOR_NFS_MOUNT_OPTS)
+VOLUME_DIR=${XCELSIOR_VOLUME_DIR:-$(_env_value XCELSIOR_VOLUME_DIR)}
+VOLUME_KEY_DIR=${XCELSIOR_VOLUME_KEY_DIR:-$(_env_value XCELSIOR_VOLUME_KEY_DIR)}
+EOF
+        # Empty values fall back to the helper's defaults.
+        sudo sed -i -E '/^(NFS_MOUNT_OPTS|VOLUME_DIR|VOLUME_KEY_DIR)=$/d' "$PRIVD_CONF"
+    fi
+
+    local unit_tmp
+    unit_tmp="$(mktemp)"
+    cat > "$unit_tmp" <<EOF
+[Unit]
+Description=Xcelsior worker privileged helper socket
+
+[Socket]
+ListenStream=/run/xcelsior-privd.sock
+SocketUser=root
+SocketGroup=$SERVICE_USER
+SocketMode=0660
+Accept=yes
+MaxConnections=16
+
+[Install]
+WantedBy=sockets.target
+EOF
+    sudo install -m 0644 "$unit_tmp" /etc/systemd/system/xcelsior-privd.socket
+    cat > "$unit_tmp" <<EOF
+[Unit]
+Description=Xcelsior worker privileged helper (one request)
+
+[Service]
+Type=simple
+# No mount sandboxing on purpose: mounts must land in the host namespace, where
+# docker sees them. Every request is validated by the helper itself.
+ExecStart=/usr/bin/python3 $PRIVD_DIR/worker_privileged.py
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+TimeoutSec=600
+EOF
+    sudo install -m 0644 "$unit_tmp" /etc/systemd/system/xcelsior-privd@.service
+    rm -f "$unit_tmp"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now xcelsior-privd.socket >/dev/null
+    ok "xcelsior-privd listening on /run/xcelsior-privd.sock (settings: $PRIVD_CONF)"
+}
+
+migrate_agent_tls() {
+    # The worker can no longer read your home directory: move mTLS client files
+    # it was pointed at into /etc/xcelsior/agent-tls (readable by root and the service group).
+    local var path dest
+    for var in XCELSIOR_AGENT_CLIENT_CERT XCELSIOR_AGENT_CLIENT_KEY; do
+        path="$(_env_value "$var")"
+        case "$path" in ""|"$AGENT_TLS_DIR"/*) continue ;; esac
+        if [ ! -f "$path" ]; then
+            warn "$var points at $path, which does not exist"
+            continue
+        fi
+        dest="$AGENT_TLS_DIR/$(basename "$path")"
+        sudo install -d -o root -g "$SERVICE_USER" -m 0750 "$AGENT_TLS_DIR"
+        sudo install -o root -g "$SERVICE_USER" -m 0640 "$path" "$dest"
+        sed -i "s#^$var=.*#$var=$dest#" "$ENV_FILE"
+        ok "$var: copied to $dest"
+    done
 }
 
 # ── Agent install (B1) ───────────────────────────────────────────────
 
 install_agent() {
-    mkdir -p "$CONFIG_DIR" "$CONFIG_DIR/lib"
+    mkdir -p "$CONFIG_DIR"
+    ensure_service_user
 
+    local stage
+    stage="$(mktemp -d)"
+    mkdir -p "$stage/lib"
     info "Downloading worker agent and dependencies..."
-    download_static_file "worker_agent.py" "$AGENT_PATH"
-    download_static_file "security.py" "$CONFIG_DIR/lib/security.py"
-    download_static_file "nvml_telemetry.py" "$CONFIG_DIR/lib/nvml_telemetry.py"
-    download_static_file "worker_image_cache.py" "$CONFIG_DIR/lib/worker_image_cache.py"
-    download_static_file "worker_nfs.py" "$CONFIG_DIR/lib/worker_nfs.py"
-    download_static_file "worker_nvme_cache.py" "$CONFIG_DIR/lib/worker_nvme_cache.py"
-    download_static_file "worker_luks_volumes.py" "$CONFIG_DIR/lib/worker_luks_volumes.py"
-    download_static_file "env_config.py" "$CONFIG_DIR/lib/env_config.py"
-    download_static_file "criu_hosts.py" "$CONFIG_DIR/lib/criu_hosts.py"
-    download_static_file "egress_isolation.py" "$CONFIG_DIR/lib/egress_isolation.py"
-    chmod +x "$AGENT_PATH"
+    download_static_file "worker_agent.py" "$stage/worker_agent.py"
+    download_static_file "security.py" "$stage/lib/security.py"
+    download_static_file "nvml_telemetry.py" "$stage/lib/nvml_telemetry.py"
+    download_static_file "worker_image_cache.py" "$stage/lib/worker_image_cache.py"
+    download_static_file "worker_nfs.py" "$stage/lib/worker_nfs.py"
+    download_static_file "worker_nvme_cache.py" "$stage/lib/worker_nvme_cache.py"
+    download_static_file "worker_luks_volumes.py" "$stage/lib/worker_luks_volumes.py"
+    download_static_file "env_config.py" "$stage/lib/env_config.py"
+    download_static_file "criu_hosts.py" "$stage/lib/criu_hosts.py"
+    download_static_file "egress_isolation.py" "$stage/lib/egress_isolation.py"
+    download_static_file "worker_privileged.py" "$stage/lib/worker_privileged.py"
+    download_static_file "worker-requirements.txt" "$stage/worker-requirements.txt"
+    sudo install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "$stage/worker_agent.py" "$AGENT_PATH"
+    sudo install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0644 "$stage"/lib/*.py "$LIB_DIR/"
+    sudo install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0644 "$stage/worker-requirements.txt" "$INSTALL_DIR/"
 
     setup_agent_venv
 
@@ -295,6 +421,13 @@ EOF
         # shellcheck disable=SC1090
         source "$ENV_FILE"
     fi
+
+    migrate_agent_tls
+    install_privd "$stage/lib/worker_privileged.py"
+    rm -rf "$stage"
+    if [ -f "$CONFIG_DIR/worker_agent.py" ]; then
+        info "The agent now runs from $INSTALL_DIR; the old copy in $CONFIG_DIR (worker_agent.py, lib/, venv/) is unused and can be deleted."
+    fi
 }
 
 # ── Network protection for rented containers ─────────────────────────
@@ -302,6 +435,37 @@ EOF
 # this machine (egress_isolation.py). Root runs the provisioner from a
 # root-owned copy; the worker only reads the status file it writes, and gets
 # no rentals while that status is missing or stale.
+
+prepare_egress_proxy_access() {
+    # Existing hosts may keep credentials under a private /etc/xcelsior.
+    # Give only the proxy user traversal, without making that directory public.
+    sudo mkdir -p /etc/xcelsior
+    if ! sudo -u proxy test -x /etc/xcelsior; then
+        if ! command -v setfacl >/dev/null 2>&1; then
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null \
+                || fail "Could not install acl for the proxy's config access"
+        fi
+        sudo setfacl -m u:proxy:--x /etc/xcelsior
+    fi
+    # Ubuntu's Squid AppArmor profile permits only the packaged config/runtime
+    # paths. Keep confinement enabled and grant these three exact files.
+    if [ -f /etc/apparmor.d/usr.sbin.squid ]; then
+        local local_profile=/etc/apparmor.d/local/usr.sbin.squid
+        sudo install -d -m 0755 /etc/apparmor.d/local
+        if ! sudo grep -qF '# Xcelsior tenant proxy' "$local_profile" 2>/dev/null; then
+            sudo tee -a "$local_profile" >/dev/null <<'EOF'
+
+# Xcelsior tenant proxy
+/etc/xcelsior/egress/squid.conf r,
+/etc/xcelsior/egress/domains.txt r,
+/run/xcelsior-egress-proxy/squid.pid rwk,
+EOF
+        fi
+        if command -v aa-status >/dev/null 2>&1 && sudo aa-status --enabled; then
+            sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.squid
+        fi
+    fi
+}
 
 install_egress_isolation() {
     info "Setting up network protection for rented containers..."
@@ -315,9 +479,10 @@ install_egress_isolation() {
     # rented containers' gateway.
     sudo systemctl disable --now squid.service >/dev/null 2>&1 || true
     sudo systemctl mask squid.service >/dev/null 2>&1 || true
+    prepare_egress_proxy_access
 
     sudo install -d -m 0755 -o root -g root /usr/local/lib/xcelsior
-    sudo install -m 0644 -o root -g root "$CONFIG_DIR/lib/egress_isolation.py" \
+    sudo install -m 0644 -o root -g root "$LIB_DIR/egress_isolation.py" \
         /usr/local/lib/xcelsior/egress_isolation.py
 
     local unit_tmp
@@ -406,19 +571,27 @@ install_systemd() {
 
     info "Installing systemd service..."
 
-    local unit_tmp
+    local unit_tmp groups=""
     unit_tmp="$(mktemp)"
+    if getent group docker >/dev/null 2>&1; then
+        groups="SupplementaryGroups=docker"
+    fi
     cat > "$unit_tmp" <<EOF
 [Unit]
 Description=Xcelsior Worker Agent
-After=network-online.target docker.service
-Wants=network-online.target
+After=network-online.target docker.service xcelsior-privd.socket
+Wants=network-online.target xcelsior-privd.socket
 Requires=docker.service
 
 [Service]
 Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+$groups
+# Read by systemd itself (as root) before the sandbox below applies.
 EnvironmentFile=$ENV_FILE
-Environment=PYTHONPATH=$CONFIG_DIR/lib
+Environment=PYTHONPATH=$LIB_DIR
+WorkingDirectory=$INSTALL_DIR
 ExecStart=$VENV_PYTHON $AGENT_PATH
 Restart=always
 RestartSec=10
@@ -426,14 +599,18 @@ StandardOutput=journal
 StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=true
 PrivateTmp=true
 # systemd creates /var/lib/xcelsior (owned by the service user) and passes it to the
 # worker as \$STATE_DIRECTORY. Listing a missing path in ReadWritePaths instead made
 # the first start fail with 226/NAMESPACE on a fresh host.
 StateDirectory=xcelsior
 StateDirectoryMode=0750
-ReadWritePaths=$CONFIG_DIR
+# /run/xcelsior/gpu.lock serialises exclusive-GPU jobs across restarts.
+RuntimeDirectory=xcelsior
+RuntimeDirectoryPreserve=yes
+# Self-update replaces the agent in place.
+ReadWritePaths=$INSTALL_DIR
 MemoryMax=4G
 OOMScoreAdjust=500
 LimitNOFILE=65536
@@ -561,7 +738,7 @@ Usage:
   bash install.sh [--wizard | -w]     Interactive onboarding wizard (default)
   bash install.sh [--agent-only | -a] Install worker agent only
   bash install.sh [--update | -u]     Re-download agent + restart service
-  bash install.sh [--uninstall]       Remove systemd units (keeps ~/.xcelsior)
+  bash install.sh [--uninstall]       Remove systemd units (keeps ~/.xcelsior, /opt/xcelsior)
   bash install.sh [--help | -h]       Show this help
 
 Environment:
@@ -572,13 +749,16 @@ EOF
 
 do_uninstall() {
     info "Stopping and removing Xcelsior systemd units..."
-    sudo systemctl stop xcelsior-worker xcelsior-registry-login 2>/dev/null || true
-    sudo systemctl disable xcelsior-worker xcelsior-registry-login 2>/dev/null || true
+    sudo systemctl stop xcelsior-worker xcelsior-registry-login xcelsior-privd.socket 2>/dev/null || true
+    sudo systemctl disable xcelsior-worker xcelsior-registry-login xcelsior-privd.socket 2>/dev/null || true
     sudo rm -f /etc/systemd/system/xcelsior-worker.service \
         /etc/systemd/system/xcelsior-registry-login.service \
+        /etc/systemd/system/xcelsior-privd.socket \
+        /etc/systemd/system/xcelsior-privd@.service \
         /usr/local/bin/xcelsior-registry-login.sh
+    sudo rm -rf "$PRIVD_DIR"
     sudo systemctl daemon-reload
-    ok "Systemd units removed (config kept at $CONFIG_DIR)"
+    ok "Systemd units removed (config kept at $CONFIG_DIR, agent at $INSTALL_DIR, user '$SERVICE_USER' kept)"
 }
 
 do_update() {
