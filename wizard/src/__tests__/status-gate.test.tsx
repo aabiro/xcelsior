@@ -42,7 +42,7 @@ describe("StatusGate", () => {
         );
         const out = lastFrame() ?? "";
         expect(out).toContain("AI (Hexara)");
-        expect(out).toContain("degraded");
+        expect(out).toContain("having problems");
         expect(out).toContain("Enter");
     });
 
