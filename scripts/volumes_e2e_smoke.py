@@ -183,7 +183,7 @@ def _worker_mount_smoke(worker_host: str | None = None) -> bool:
         target = f"{ssh_user}@{worker_host}"
         label = f"worker-host {worker_host}"
     else:
-        target = os.environ.get("XCELSIOR_DEPLOY_USER", "linuxuser") + "@" + os.environ.get(
+        target = os.environ.get("XCELSIOR_DEPLOY_USER", "root") + "@" + os.environ.get(
             "XCELSIOR_DEPLOY_HOST", "100.64.0.1"
         )
         label = "VPS"

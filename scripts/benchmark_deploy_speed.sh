@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
-REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
+REMOTE_USER="${XCELSIOR_DEPLOY_USER:-root}"
 REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
 REMOTE="${REMOTE_USER}@${REMOTE_HOST}"
 SSH_OPTS=(-i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o Compression=no)
