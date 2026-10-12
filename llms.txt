@@ -18,8 +18,8 @@ artifact storage, and trust/reputation scoring.
 **Stack**: Python 3.12, FastAPI, PostgreSQL 16 (primary), SQLite (auxiliary),
 Headscale (mesh networking), Docker + gVisor (container isolation).
 
-**Pricing**: Quoted and settled in CAD. Spot capacity is materially cheaper than
-on-demand for checkpointable workloads. Serverless inference is billed per
+**Pricing**: Spot capacity is materially cheaper than on-demand for
+checkpointable workloads. Serverless inference is billed per
 million tokens with no idle cost.
 
 **Regions**: Xcelsior is a global marketplace. Capacity comes from independent
@@ -42,16 +42,27 @@ install.
 
 ## Xcelsior MCP (AI Agents)
 
-Hosted Model Context Protocol server for Cursor, Claude, and other agents:
+Hosted Model Context Protocol server for Claude, ChatGPT, Cursor, VS Code, and
+other agents. It is always running: there is nothing to install or start, and
+it is unrelated to the GPU onboarding wizard. You connect an assistant to it.
 
-- Endpoint: `https://xcelsior.ca/mcp` (Streamable HTTP)
+- Connector URL: `https://mcp.xcelsior.ca/mcp` (Streamable HTTP). Use exactly
+  this URL: access tokens are bound to it, and a token for any other resource
+  is refused.
+- People (OAuth): add the URL as a custom connector, sign in to Xcelsior, and
+  approve. No token, secret, or config file.
+  - Claude (web, desktop): Settings → Connectors → Add custom connector → paste the URL
+  - Claude Code: `claude mcp add --transport http xcelsior https://mcp.xcelsior.ca/mcp`
+- Automation (CI, scripts, headless agents): create a machine client in
+  Dashboard → Settings → Connect AI Agents, then `POST https://xcelsior.ca/oauth/token`
+  with `grant_type=client_credentials`, `resource=https://mcp.xcelsior.ca/mcp`,
+  and the client ID and secret; send `Authorization: Bearer <access_token>`.
+- Local stdio, for a process that already holds a token: `XCELSIOR_ACCESS_TOKEN=... npx @xcelsior-gpu/mcp`
 - Health: `GET https://xcelsior.ca/mcp/health`
-- Auth: `Authorization: Bearer <oauth_access_token>` (create client at `/api/oauth/clients`)
 - Scopes: `instances:read`, `instances:write`, `billing:read`, `gpu:read`, `marketplace:read`, or `api`
 - Tools: discovery, compute (`create_instance`, `watch_instance`), billing, guardrails (`should_i_run_this`), serverless, workflows
 - Resources: `xcelsior://docs/llms`, `xcelsior://pricing/reference`
-- Stdio: `npx @xcelsior-gpu/mcp` with `XCELSIOR_ACCESS_TOKEN`
-- Setup: https://xcelsior.ca/mcp
+- Setup guides for every client: https://xcelsior.ca/mcp
 
 ## Xcel AI (In-App Assistant)
 

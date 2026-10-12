@@ -37,7 +37,7 @@ SVID_DIR="/run/xcelsior-svid"
 SPIRE_SOCKET="/run/spire/agent/public/api.sock"
 # Our own tailscaled instance: never touches a provider's personal Tailscale.
 MESH_SOCKET="/var/run/tailscale-xcelsior.sock"
-readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.3"
+readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@0.1.7"
 AGENT_SIGNING_PUB_EMBEDDED='-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
 -----END PUBLIC KEY-----'
