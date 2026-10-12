@@ -159,7 +159,18 @@ def _source_files() -> list[pathlib.Path]:
 #: directly or asks the resolver. Tracking only raw `XCELSIOR_ENV` mentions
 #: would drop a file from the inventory the moment it was fixed — the
 #: classification would vanish exactly when the decision became correct.
-_DECISION_MARKERS = ("XCELSIOR_ENV", "env_config.")
+def _line_is_env_decision(line: str) -> bool:
+    """True when the line decides on the environment, not when it names the module file.
+
+    `env_config.py` contains the marker `env_config.` as a filename. The
+    installer allow-list in `routes/static.py` names that file so a worker
+    can import it. That is not an environment decision, and classifying the
+    filename would hide a later real one in the same file.
+    """
+    if "XCELSIOR_ENV" in line:
+        return True
+    without_filename = line.replace("env_config.py", "")
+    return "env_config." in without_filename
 
 
 def env_sites() -> list[tuple[str, int, str]]:
@@ -171,7 +182,7 @@ def env_sites() -> list[tuple[str, int, str]]:
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith('"""'):
                 continue
-            if any(m in line for m in _DECISION_MARKERS):
+            if _line_is_env_decision(line):
                 sites.append((rel, n, stripped))
     return sites
 
