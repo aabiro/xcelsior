@@ -1504,88 +1504,12 @@ wait_for_api_readiness() {
 # the SPIRE socket and CLI. Secrets stay in /etc/xcelsior/spire and .env.
 ensure_prod_spire_enrollment() {
     [[ "${TARGET_ENV:-}" == "prod" ]] || return 0
-    log "Ensuring the API can reach the SPIRE server..."
-    ssh_cmd "bash -s" <<'EOF'
-set -euo pipefail
-enrollment=/etc/xcelsior/spire/api-enrollment.env
-override=/opt/xcelsior/docker-compose.override.yml
-envfile=/opt/xcelsior/.env
-if [[ ! -f "$enrollment" || ! -f "$override" || ! -f "$envfile" ]]; then
-  echo "SPIRE enrollment files are not on this host; leaving compose unchanged"
-  exit 0
-fi
-python3 - "$enrollment" "$override" "$envfile" <<'PY'
-import sys
-from pathlib import Path
-
-enrollment, override_path, env_path = map(Path, sys.argv[1:])
-wanted = []
-for line in enrollment.read_text().splitlines():
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    wanted.append(line)
-env_text = env_path.read_text()
-have = set()
-for line in env_text.splitlines():
-    if line and not line.startswith("#") and "=" in line:
-        have.add(line.split("=", 1)[0])
-extra = []
-added = []
-for line in wanted:
-    key = line.split("=", 1)[0]
-    if key not in have:
-        extra.append(line)
-        added.append(key)
-if extra:
-    if not env_text.endswith("\n"):
-        env_text += "\n"
-    env_text += "\n# Host enrollment (issue #67)\n" + "\n".join(extra) + "\n"
-    env_path.write_text(env_text)
-    env_path.chmod(0o600)
-
-text = override_path.read_text()
-changed = False
-env_lines = [
-    "XCELSIOR_SPIRE_SERVER_CMD: ${XCELSIOR_SPIRE_SERVER_CMD:-}",
-    "XCELSIOR_SPIRE_SERVER_SOCKET: ${XCELSIOR_SPIRE_SERVER_SOCKET:-}",
-    "XCELSIOR_SPIRE_SERVER_ADDRESS: ${XCELSIOR_SPIRE_SERVER_ADDRESS:-}",
-    "XCELSIOR_SPIRE_SERVER_PORT: ${XCELSIOR_SPIRE_SERVER_PORT:-8095}",
-    "XCELSIOR_HEADSCALE_URL: ${XCELSIOR_HEADSCALE_URL:-}",
-    "XCELSIOR_HEADSCALE_API_KEY: ${XCELSIOR_HEADSCALE_API_KEY:-}",
-    "XCELSIOR_HEADSCALE_USER_ID: ${XCELSIOR_HEADSCALE_USER_ID:-}",
-]
-vol_lines = [
-    "/var/lib/xcelsior-spire/sock:/run/xcelsior-spire",
-    "/usr/local/lib/xcelsior/spire-server:/usr/local/bin/spire-server:ro",
-]
-if "XCELSIOR_SPIRE_SERVER_ADDRESS:" not in text:
-    needle = "      XCELSIOR_POSTGRES_DSN:"
-    if needle not in text:
-        sys.exit("override has no API postgres DSN line to anchor enrollment env")
-    block = "\n".join("      " + line for line in env_lines)
-    text = text.replace(needle, needle + "\n" + block, 1)
-    changed = True
-missing_vols = [item for item in vol_lines if item not in text]
-if missing_vols:
-    lines = text.splitlines(keepends=True)
-    out = []
-    inserted = False
-    for line in lines:
-        out.append(line)
-        if not inserted and line.strip() == "volumes:":
-            out.extend(f"      - {item}\n" for item in missing_vols)
-            inserted = True
-    if not inserted:
-        out.append("    volumes:\n")
-        out.extend(f"      - {item}\n" for item in missing_vols)
-    text = "".join(out)
-    changed = True
-if changed:
-    override_path.write_text(text)
-print("spire_env_keys_added", ",".join(added) if added else "none")
-print("spire_override", "updated" if changed else "already_present")
-PY
-EOF
+    # api and api-blue are different services. The live slot is whichever one
+    # nginx is routing to, so both blocks need the socket and the CLI.
+    log "Ensuring both API slots can reach the SPIRE server..."
+    ssh_cmd "python3 - /etc/xcelsior/spire/api-enrollment.env /opt/xcelsior/docker-compose.override.yml /opt/xcelsior/.env" \
+        < "$SCRIPT_DIR/spire_enrollment_override.py" \
+        || error "Could not wire SPIRE enrollment into the API compose override"
     success "API SPIRE enrollment wiring is present"
 }
 
