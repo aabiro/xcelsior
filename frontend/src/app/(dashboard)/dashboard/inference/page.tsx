@@ -163,7 +163,7 @@ export default function InferencePage() {
           {Object.keys(tokenQuotes).length > 0 && (
             <FadeIn>
               <div className="space-y-2">
-                <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (CAD / 1M)</p>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Preset LLM token rates (per 1M tokens)</p>
                 <TokenPricingTable quotes={tokenQuotes} />
               </div>
             </FadeIn>

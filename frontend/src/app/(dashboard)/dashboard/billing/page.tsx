@@ -620,7 +620,7 @@ export default function BillingPage() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">{t("dash.billing.title")}</h1>
             <p className="text-sm text-text-secondary mt-1 max-w-2xl">
-              Prepaid CAD credits for GPU compute, serverless inference, and volume storage.
+              Prepaid credits for GPU compute, serverless inference, and volume storage.
               Top up via Stripe, Bitcoin, or Lightning, manage cards and invoices in one place.
             </p>
           </div>
@@ -680,7 +680,7 @@ export default function BillingPage() {
             <p className="text-sm font-semibold text-gold">Low balance warning</p>
             <p className="mt-0.5 text-xs text-text-secondary">
               Available credits are at or below $
-              {Number(wallet.low_balance_threshold_cad ?? 5).toFixed(2)} CAD. Top up before a hard stop at $0.
+              {Number(wallet.low_balance_threshold_cad ?? 5).toFixed(2)}. Top up before a hard stop at $0.
             </p>
           </div>
           {canManageBilling && (
@@ -949,7 +949,7 @@ export default function BillingPage() {
                   <div>
                     <p className="font-medium">{t("dash.billing.wallet_credits")}</p>
                     <p className="text-2xl font-bold font-mono text-emerald">
-                      {formatCad(currentWalletBalance)} <span className="text-sm font-normal text-text-muted">CAD</span>
+                      {formatCad(currentWalletBalance)}
                     </p>
                   </div>
                   {canManageBilling ? (
@@ -1020,7 +1020,7 @@ export default function BillingPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Crypto Deposits</CardTitle>
-                <CardDescription>Fund your wallet with Bitcoin on-chain or Lightning Network. Zero processing fees, settled in CAD.</CardDescription>
+                <CardDescription>Fund your wallet with Bitcoin on-chain or Lightning Network. Zero processing fees.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 lg:grid-cols-2">
                 {paymentRailsLoading && (
@@ -1057,7 +1057,7 @@ export default function BillingPage() {
                     </div>
                     <p className="text-xs text-text-secondary">
                       {btcStatus.available
-                        ? "Pay with BTC - zero processing fees, settled in CAD"
+                        ? "Pay with BTC - zero processing fees"
                         : btcStatus.enabled
                           ? "Bitcoin deposits are temporarily unavailable."
                           : "Bitcoin on-chain deposits are coming soon. Stay tuned!"}

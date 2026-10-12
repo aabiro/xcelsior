@@ -27,8 +27,7 @@ export default function WelcomeEmail({
           <span style={baseStyles.gold}>✓</span> Data under Canadian law only
         </Text>
         <Text style={{ ...baseStyles.text, margin: 0 }}>
-          <span style={baseStyles.gold}>✓</span> Native CAD pricing, no
-          conversion fees
+          <span style={baseStyles.gold}>✓</span> Drive it from any AI agent, or just ask Xcel
         </Text>
       </Section>
 

@@ -822,7 +822,7 @@ export default function InstanceDetailPage() {
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-medium font-mono">
-              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "-"}
+              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)}` : "-"}
             </p>
           </div>
         </Card>
@@ -858,9 +858,9 @@ export default function InstanceDetailPage() {
             <p className="text-xs text-text-muted">{t("dash.instances.pricing_rate")}</p>
             <p className="font-mono font-medium mt-0.5">
               {pricingMode === "spot" && instance.spot_rate_cad != null
-                ? `$${instance.spot_rate_cad.toFixed(2)}/hr CAD`
+                ? `$${instance.spot_rate_cad.toFixed(2)}/hr`
                 : instance.rate_per_hour_cad != null
-                  ? `$${instance.rate_per_hour_cad.toFixed(2)}/hr CAD${instance.rate_is_estimate ? " (est.)" : ""}`
+                  ? `$${instance.rate_per_hour_cad.toFixed(2)}/hr${instance.rate_is_estimate ? " (est.)" : ""}`
                   : instance.cost_cad != null && instance.elapsed_sec
                     ? `~$${((instance.cost_cad / (instance.elapsed_sec / 3600)) || 0).toFixed(2)}/hr`
                     : "-"}
@@ -869,7 +869,7 @@ export default function InstanceDetailPage() {
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-mono font-medium mt-0.5">
-              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "-"}
+              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)}` : "-"}
             </p>
           </div>
           <div>
@@ -891,7 +891,7 @@ export default function InstanceDetailPage() {
             <span className="ml-auto text-xs text-text-muted font-mono">
               {instance.attached_volumes.length} volume{instance.attached_volumes.length > 1 ? "s" : ""}
               {instance.storage_cost_cad != null && instance.storage_cost_cad > 0 && (
-                <> · ${instance.storage_cost_cad.toFixed(2)} CAD</>
+                <> · ${instance.storage_cost_cad.toFixed(2)}</>
               )}
             </span>
           </div>

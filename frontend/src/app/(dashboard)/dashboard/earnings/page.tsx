@@ -335,13 +335,13 @@ export default function EarningsPage() {
                   <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4">
                     <p className="text-xs text-text-muted">Spot earnings</p>
                     <p className="text-xl font-bold font-mono text-emerald mt-1">
-                      ${(earnings?.spot_earned_cad ?? 0).toFixed(2)} CAD
+                      ${(earnings?.spot_earned_cad ?? 0).toFixed(2)}
                     </p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-surface/50 p-4">
                     <p className="text-xs text-text-muted">On-demand earnings</p>
                     <p className="text-xl font-bold font-mono mt-1">
-                      ${(earnings?.on_demand_earned_cad ?? 0).toFixed(2)} CAD
+                      ${(earnings?.on_demand_earned_cad ?? 0).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -591,7 +591,7 @@ export default function EarningsPage() {
                       />
                       <Tooltip
                         contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#e2e8f0" }}
-                        formatter={(value) => [`$${Number(value).toFixed(2)} CAD`, "Earned"]}
+                        formatter={(value) => [`$${Number(value).toFixed(2)}`, "Earned"]}
                       />
                       <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />
                     </BarChart>
