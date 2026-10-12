@@ -979,14 +979,16 @@ systemctl is-active --quiet xcelsior-worker
         });
         // A service start is not evidence that the worker reached the scheduler.
         // Look for a heartbeat newer than this installation before success.
+        // The public /host/<id> surface is retired (410 agent_ingress_retired); the
+        // owner-scoped product list is what reports a host's heartbeat now.
         let lastState = "No heartbeat received";
-        for (let attempt = 0; attempt < 12; attempt += 1) {
-            const response = await fetch(new URL(`/host/${encodeURIComponent(hostId)}`, apiUrl), {
+        for (let attempt = 0; attempt < 18; attempt += 1) {
+            const response = await fetch(new URL("/hosts?active_only=false", apiUrl), {
                 headers: { Authorization: `Bearer ${apiToken}` }, signal: AbortSignal.timeout(5_000),
             });
             if (!response.ok) throw new Error(`Host status check returned HTTP ${response.status}`);
-            const body = await response.json() as { host?: WorkerHeartbeat };
-            const host = body.host;
+            const body = await response.json() as { hosts?: Array<WorkerHeartbeat & { host_id?: string }> };
+            const host = body.hosts?.find((h) => h.host_id === hostId);
             lastState = `Host status: ${host?.status || "unknown"}`;
             if (hasFreshWorkerHeartbeat(host, startedAt)) {
                 return { installed: true, detail: host?.admitted

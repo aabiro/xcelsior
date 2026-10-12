@@ -96,6 +96,13 @@ _BILLING_PAYMENT_RATE_STATE_NAMESPACE = os.environ.get(
     "runtime.billing_payment_rate_limit",
 )
 
+#: Each enrollment mints a SPIRE join token and a mesh key; a retry needs one or two.
+_HOST_ENROLL_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_HOST_ENROLL_RATE_LIMIT", "6"))
+_HOST_ENROLL_RATE_LIMIT_WINDOW_SEC = 3600
+_HOST_ENROLL_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+_HOST_ENROLL_RATE_LOCK = _threading.Lock()
+_HOST_ENROLL_RATE_STATE_NAMESPACE = "runtime.host_enroll_rate_limit"
+
 _WS_CONNECT_RATE_LIMIT_REQUESTS = int(
     os.environ.get("XCELSIOR_WS_CONNECT_RATE_LIMIT_REQUESTS", "60")
 )
@@ -495,6 +502,33 @@ def _check_auth_rate_limit(request: Request) -> None:
         )
     if not allowed:
         raise HTTPException(429, "Too many attempts. Please try again later.")
+
+
+def _check_host_enroll_rate_limit(host_id: str) -> None:
+    """Throttle enrollment per host, in shared state like the other enforcement limiters."""
+    now = time.time()
+    shared_ok, allowed = _shared_state_update(
+        _HOST_ENROLL_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state,
+            host_id,
+            now,
+            limit=_HOST_ENROLL_RATE_LIMIT_REQUESTS,
+            window_sec=_HOST_ENROLL_RATE_LIMIT_WINDOW_SEC,
+        ),
+    )
+    if not shared_ok:
+        allowed = _take_local_rate_slot(
+            _HOST_ENROLL_RATE_BUCKETS,
+            _HOST_ENROLL_RATE_LOCK,
+            host_id,
+            now,
+            limit=_HOST_ENROLL_RATE_LIMIT_REQUESTS,
+            window_sec=_HOST_ENROLL_RATE_LIMIT_WINDOW_SEC,
+        )
+    if not allowed:
+        raise HTTPException(429, "Too many enrollments for this host. Try again in an hour.")
 
 
 def _check_billing_payment_rate_limit(customer_id: str, action: str) -> None:

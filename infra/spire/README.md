@@ -113,8 +113,8 @@ machines by definition.
 
 It now binds `100.64.0.1` (override with `SPIRE_BIND_ADDRESS`), and agents point
 at `SPIRE_SERVER_ADDRESS=100.64.0.1` — a **bare address**, because `agent.conf`
-carries `server_port = "8081"` separately and a host:port value there produces
-`100.64.0.1:8081:8081`.
+carries `server_port = "8095"` separately and a host:port value there produces
+`100.64.0.1:8095:8095`.
 
 Publishing it with its own public TLS certificate was the alternative and it is
 the wrong shape: a second trust boundary wrapped around the service whose entire
@@ -175,9 +175,51 @@ Against the real binaries, locally, with no production access:
 Held by `tests/test_tls_ingress_router_is_coherent.py` and
 `tests/test_agent_gateway_points_at_a_live_backend.py`.
 
+### Note 5 — new hosts enroll themselves (issue #67)
+
+`POST /api/hosts/{host_id}/enrollment` (owner only) mints a single-use join token
+aliased to `spiffe://xcelsior.ca/node/host/<host_id>`, creates the worker entry
+exactly as `register-host.sh` does (`-dns <host_id>`, `unix:user:xcelsior`, 1h), and
+mints a single-use Headscale pre-auth key. `install.sh` (and so the wizard) joins
+the mesh through its own `tailscaled-xcelsior` instance, installs a pinned
+`spire-agent`, and keeps the worker's SVID in `/run/xcelsior-svid` via
+`xcelsior-svid.timer`. The worker's `CN=<host_id>` is what the nginx gateway maps,
+so onboarding needs no Envoy cutover: add the upstream root to
+`/etc/nginx/certs/agent-client-ca.pem` next to the existing agent CA.
+
+* Production runs only the server: `docker-compose.spire-server.yml`, prepared and
+  started by `rollout-enrollment.sh` (datastore, long-lived root, nginx trust,
+  Headscale key, API settings). It uses the host network, binds the mesh address
+  on port **8095** (`*:8081` and `*:8091` are held by other services on
+  prod-hetzner) and reaches Postgres on 127.0.0.1. The server starts with
+  `-expandEnv`; without it `${SPIRE_DATASTORE_DSN}` reaches the SQL plugin as a
+  literal string.
+* The server runs as uid 10002 in the API container's group (10001), so the API
+  mints join tokens through the admin socket (`/var/lib/xcelsior-spire/sock`,
+  mode 0750) with a `spire-server` CLI copied from the same pinned image. The API
+  is never given Docker access.
+* `ca_ttl = 1440h`, `agent_ttl = 720h`: an agent SVID cannot outlive the CA, and
+  the join token is spent after the first attestation, so a 24h CA stranded any
+  host switched off for a day. Hosts may now be off for 30 days; `install.sh
+  --update` re-enrolls after that.
+* `register-host.sh` used `-dnsName`, which SPIRE 1.11's CLI rejects; it is `-dns`.
+
+API settings (written by `rollout-enrollment.sh` to `/etc/xcelsior/spire/api-enrollment.env`):
+`XCELSIOR_SPIRE_SERVER_CMD=/usr/local/bin/spire-server`,
+`XCELSIOR_SPIRE_SERVER_SOCKET=/run/xcelsior-spire/api.sock`,
+`XCELSIOR_SPIRE_SERVER_ADDRESS=100.64.0.1`, `XCELSIOR_SPIRE_SERVER_PORT=8095`,
+`XCELSIOR_HEADSCALE_URL`, `XCELSIOR_HEADSCALE_API_KEY`, `XCELSIOR_HEADSCALE_USER_ID`.
+
+Verified on a rig running this compose file and server.conf: Postgres datastore
+through `-expandEnv`; only the bind address listens; uid 10001 mints a token
+through the socket while another uid gets `permission denied`;
+`control_plane.host_enrollment` enrolls a host; the host's agent attests with the
+join token and its SVID chains to the long-lived root alone.
+
 ### Still open
 
-* The datastore: run `scripts/provision_spire_datastore.sh`. Dedicated role and
+* The datastore: `rollout-enrollment.sh` creates it (the same as
+  `scripts/provision_spire_datastore.sh`). Dedicated role and
   dedicated database on the shared instance, deliberately outside
   `control_plane/db_roles.py` — SPIRE is not a domain of the app's data, it
   manages its own schema, and it must keep working while the app is broken.

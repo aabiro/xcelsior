@@ -3689,7 +3689,7 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     # is handled separately from this provider-admission slice.
     context = re.sub(
         r"npx @xcelsior-gpu/wizard@[^\s`]+",
-        "npx @xcelsior-gpu/wizard@0.1.2",
+        "npx @xcelsior-gpu/wizard@0.1.3",
         _load_llms_txt(),
     )
 
@@ -3746,7 +3746,7 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npx @xcelsior-gpu/wizard@0.1.2
+   npx @xcelsior-gpu/wizard@0.1.3
    ```
    (Use `npx`, not `npm install -g` — a global install writes to a root-owned
    directory like /usr/lib/node_modules and fails with EACCES on most Linux setups.)
@@ -3760,7 +3760,7 @@ WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
 **Option A: AI Onboarding Wizard (Recommended)**
 ```bash
-npx @xcelsior-gpu/wizard@0.1.2
+npx @xcelsior-gpu/wizard@0.1.3
 ```
 (Use `npx`, not `npm install -g` — global installs fail with EACCES against
 root-owned /usr/lib/node_modules on most Linux setups. To use the SDK in your
@@ -3790,16 +3790,13 @@ NVIDIA Container Toolkit/runtime, Ubuntu 22.04+ or WSL2.
 1. Register the host (Dashboard → Hosts → Register Host) and note the Host ID;
    create an API key or OAuth client under Settings → API & SSH.
 2. On the GPU host: `curl -fsSL https://{_BASE_DOMAIN}/install.sh | bash -s -- --agent-only`
-   It checks the NVIDIA driver and Docker runtime, asks for the Host ID and key,
-   verifies every agent module's signature, writes `~/.xcelsior/worker.env`
-   (mode 600), installs and starts the `xcelsior-worker` systemd service (it runs as
-   a dedicated `xcelsior` user; root-only steps go through the `xcelsior-privd`
-   helper), and waits for the first heartbeat. Do not hand-write worker.env or the
-   unit file.
+   It checks the GPU driver and Docker, asks for the Host ID and API key, installs
+   the worker as a background service and connects the machine securely. Nothing
+   else needs setting up by hand; the host then shows as pending until Xcelsior
+   reviews it.
 3. Verify: `systemctl status xcelsior-worker` and `journalctl -u xcelsior-worker -f`.
-   To change settings: edit `~/.xcelsior/worker.env`, then
-   `sudo systemctl restart xcelsior-worker`. `systemctl cat xcelsior-worker` shows
-   the exact service the installer wrote.
+   To change settings (e.g. a new API key): edit `~/.xcelsior/worker.env`, then
+   `sudo systemctl restart xcelsior-worker`.
 
 Register host first at: Dashboard → Hosts → Register Host. Registration remains
 pending and unlisted until authoritative worker verification admits the host.
