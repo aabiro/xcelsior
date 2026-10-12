@@ -719,7 +719,10 @@ install_egress_isolation() {
     cat > "$unit_tmp/xcelsior-egress.service" <<'EOF'
 [Unit]
 Description=Xcelsior network protection for rented containers
-After=docker.service
+# The proxy starts first so the check finds it listening (the check still
+# waits briefly for it); on a first install it binds once this creates the network.
+After=docker.service xcelsior-egress-proxy.service
+Wants=xcelsior-egress-proxy.service
 Requires=docker.service
 PartOf=docker.service
 
@@ -745,14 +748,13 @@ EOF
     cat > "$unit_tmp/xcelsior-egress-proxy.service" <<'EOF'
 [Unit]
 Description=Xcelsior proxy for rented containers (allowlisted downloads only)
-After=docker.service xcelsior-egress.service
-Wants=xcelsior-egress.service
+After=docker.service
 
 [Service]
 User=proxy
 Group=proxy
 RuntimeDirectory=xcelsior-egress-proxy
-ExecStart=/usr/sbin/squid -N -f /etc/xcelsior/egress/squid.conf
+ExecStart=/usr/sbin/squid -N -d 1 -f /etc/xcelsior/egress/squid.conf
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5

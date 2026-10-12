@@ -114,7 +114,9 @@ http_port {GATEWAY}:{PROXY_PORT}
 pid_filename /run/xcelsior-egress-proxy/squid.pid
 cache deny all
 cache_mem 8 MB
-cache_log stdio:/dev/stderr
+# Under systemd stderr is a socket squid cannot reopen; `squid -d 1` sends the
+# same messages to the journal instead.
+cache_log /dev/null
 access_log none
 cache_store_log none
 logfile_rotate 0
@@ -303,19 +305,30 @@ def _config_problems() -> list[str]:
     return problems
 
 
+# How long verify waits for squid to start listening (boot, first install).
+PROXY_WAIT_S = 16.0
+
+
 def _proxy_problems() -> list[str]:
     # Squid answers 403 for a name outside the allowlist without resolving it,
     # so this proves the proxy is up and enforcing even with no internet.
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({"http": f"http://{GATEWAY}:{PROXY_PORT}"})
     )
-    try:
-        opener.open("http://egress-check.invalid/", timeout=5)
-    except urllib.error.HTTPError as exc:
-        return [] if exc.code == 403 else [f"proxy answered {exc.code} for a blocked name"]
-    except OSError as exc:
-        return [f"proxy unreachable: {exc}"]
-    return ["proxy let a blocked name through"]
+    deadline = time.monotonic() + PROXY_WAIT_S
+    while True:
+        try:
+            opener.open("http://egress-check.invalid/", timeout=5)
+        except urllib.error.HTTPError as exc:
+            return [] if exc.code == 403 else [f"proxy answered {exc.code} for a blocked name"]
+        except OSError as exc:
+            # At boot the proxy unit may still be starting; only a proxy that
+            # stays unreachable is a problem.
+            if time.monotonic() >= deadline:
+                return [f"proxy unreachable: {exc}"]
+            time.sleep(1)
+            continue
+        return ["proxy let a blocked name through"]
 
 
 def _v6_problems() -> list[str]:
