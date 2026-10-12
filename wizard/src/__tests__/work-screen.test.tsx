@@ -25,7 +25,7 @@ describe("TaskListPane", () => {
         const { lastFrame } = render(<TaskListPane tasks={sampleTasks} />);
         const out = lastFrame() ?? "";
         expect(out).toContain("Tasks");
-        expect(out).toContain("Benchmark GPU compute");
+        expect(out).toContain("Test GPU speed");
         expect(out).toContain("Progress:");
         expect(out).toContain("■"); // a done glyph
         expect(out).toContain("▶"); // active glyph
