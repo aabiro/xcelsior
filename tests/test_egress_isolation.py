@@ -242,6 +242,69 @@ def test_proxy_allows_only_web_ports_to_approved_names():
     )
 
 
+def _blocked_name_proxy(delay_s: float):
+    """A listener that answers like squid for a blocked name, after delay_s."""
+    import http.server
+    import socket
+    import threading
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    class Squid(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(403)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    servers = []
+
+    def serve():
+        time.sleep(delay_s)
+        server = http.server.HTTPServer(("127.0.0.1", port), Squid)
+        servers.append(server)
+        server.serve_forever()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return port, servers
+
+
+def test_verify_waits_for_a_proxy_that_is_still_starting(monkeypatch):
+    # At boot the proxy unit may start a moment after the check; that is not
+    # a failed isolation.
+    port, servers = _blocked_name_proxy(delay_s=1.5)
+    monkeypatch.setattr(egress, "GATEWAY", "127.0.0.1")
+    monkeypatch.setattr(egress, "PROXY_PORT", port)
+    monkeypatch.setattr(egress, "PROXY_WAIT_S", 10.0)
+    started = time.monotonic()
+    try:
+        assert egress._proxy_problems() == []
+        assert time.monotonic() - started >= 1.0
+    finally:
+        for server in servers:
+            server.shutdown()
+
+
+def test_a_proxy_that_never_listens_is_reported(monkeypatch):
+    port, _ = _blocked_name_proxy(delay_s=3600)
+    monkeypatch.setattr(egress, "GATEWAY", "127.0.0.1")
+    monkeypatch.setattr(egress, "PROXY_PORT", port)
+    monkeypatch.setattr(egress, "PROXY_WAIT_S", 1.5)
+    started = time.monotonic()
+    problems = egress._proxy_problems()
+    assert problems and problems[0].startswith("proxy unreachable")
+    assert time.monotonic() - started >= 1.5
+
+
+def test_squid_logs_to_the_journal_not_a_reopened_stderr():
+    # Under systemd stderr is a socket; squid cannot open /dev/stderr there.
+    assert "cache_log /dev/null" in egress.SQUID_CONF
+    assert "/dev/stderr" not in egress.SQUID_CONF
+
+
 def test_allowlist_has_no_overlaps_squid_would_reject():
     names = egress.ALLOWED_DOMAINS
     assert len(set(names)) == len(names)
