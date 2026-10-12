@@ -333,6 +333,12 @@ def test_rented_container_protection_is_installed_with_the_worker(tmp_path):
     assert "OnUnitInactiveSec=2min" in (units / "xcelsior-egress.timer").read_text()
     proxy = (units / "xcelsior-egress-proxy.service").read_text()
     assert "User=proxy" in proxy and "/etc/xcelsior/egress/squid.conf" in proxy
+    # Squid's messages reach the journal through -d 1 (cache_log is /dev/null).
+    assert "squid -N -d 1 -f" in proxy
+    # Boot order: the proxy first, then the check, and no cycle between them.
+    assert "After=docker.service xcelsior-egress-proxy.service" in provision
+    assert "Wants=xcelsior-egress-proxy.service" in provision
+    assert "xcelsior-egress.service" not in proxy
     assert "Network protection for rented containers is active" in result.stdout
     # The worker unit is still installed after it.
     assert (units / "xcelsior-worker.service").exists()
