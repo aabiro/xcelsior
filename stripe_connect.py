@@ -1533,6 +1533,18 @@ class StripeConnectManager:
             si_id,
             source,
         )
+        from abuse_policy import set_card_paid
+        from db import get_engine
+
+        with get_engine().transaction() as (conn, backend):
+            set_card_paid(
+                conn,
+                user_id=str(customer_id),
+                active=True,
+                actor="billing",
+                reason=f"settled card deposit {si_id}",
+                backend=backend,
+            )
 
         # If wallet was suspended and balance is now positive, reactivate
         wallet = engine.get_wallet(customer_id)

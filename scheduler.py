@@ -495,9 +495,11 @@ def host_isolates_egress(host: dict | None) -> bool:
 
 
 def host_can_run_egress(host: dict | None, job: dict) -> bool:
-    from egress_isolation import RESTRICTED, job_egress
+    from egress_isolation import OPEN, job_egress
 
-    return job_egress(job) != RESTRICTED or host_isolates_egress(host)
+    # Funded rentals still need the isolated bridge. Only an administrator
+    # "open" decision runs without it.
+    return job_egress(job) == OPEN or host_isolates_egress(host)
 
 
 def host_accepts_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
@@ -1881,8 +1883,9 @@ def submit_job(
         "job_id": str(job_id).strip() if job_id else str(uuid.uuid4())[:8],
         "name": name,
         "owner": owner,
-        # Decided here from the account, never from the request: the worker
-        # starts every container restricted unless this says "open".
+        # Decided here from the account, never from the request. A spend limit
+        # is not an input. Funded means a settled payment: direct internet on
+        # the isolated bridge. Unfunded stays on the proxy.
         "egress": egress_for_owner({"owner": owner}),
         "vram_needed_gb": vram_needed_gb,
         "priority": priority,
