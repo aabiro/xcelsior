@@ -72,6 +72,33 @@ export function stripSecretsFromAnswers(
     return out;
 }
 
+/** Answers that hold the sign-in or a server-side credential, not a path choice. */
+const IDENTITY_ANSWER_KEYS = new Set([
+    ...SECRET_ANSWER_KEYS,
+    "device-auth",
+    "oauth-client-id",
+]);
+
+/**
+ * The answers to carry back to the path choice when the user presses "b" on a
+ * failed check or the sign-in screen. A resumed run used to have no way out of
+ * a check the chosen path cannot pass (the SDK path in a Python repo): Enter
+ * retried, and running the wizard again resumed the same step.
+ *
+ * Drops every path choice so its questions are asked again. Keeps the sign-in
+ * and every internal `_` observation: `_host_id` and `_launch_*` are what stop
+ * a later attempt registering a second host or launching a second instance.
+ */
+export function answersForNewPath(
+    answers: Record<string, string | string[]>,
+): Record<string, string | string[]> {
+    const out: Record<string, string | string[]> = {};
+    for (const [key, value] of Object.entries(answers)) {
+        if (key.startsWith("_") || IDENTITY_ANSWER_KEYS.has(key)) out[key] = value;
+    }
+    return out;
+}
+
 export function mergeTokenIntoAnswers(
     answers: Record<string, string | string[]>,
     token: string | null,

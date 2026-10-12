@@ -68,9 +68,9 @@ export const LEARN_SLIDES: LearnSlide[] = [
         mode: "learn",
         heading: "XCU — one score for compute",
         lines: [
-            "Every GPU is benchmarked (FP16 matmul,",
-            "PCIe, thermals) into an XCU score so you",
-            "compare apples to apples, not model names.",
+            "Every GPU is tested for speed, data",
+            "transfer and heat, then scored (XCU), so",
+            "you compare real performance, not names.",
         ],
         chartCaption: "XCU score by GPU",
         chart: XCU_BARS,
@@ -94,7 +94,7 @@ export const LEARN_SLIDES: LearnSlide[] = [
             "Reputation tiers unlock higher rates and",
             "priority placement over time.",
         ],
-        chartCaption: "Provider earnings (CAD/wk)",
+        chartCaption: "Provider earnings ($/wk)",
         chart: EARNINGS_LINE,
     },
     {
@@ -258,7 +258,7 @@ export const SDK_LEARN_SLIDES: LearnSlide[] = [
         heading: "Here's the flow",
         lines: [
             "Your app calls the Xcelsior SDK with",
-            "your xoa_ token. The SDK talks to",
+            "your key. The SDK talks to",
             "our API — you query GPUs, launch jobs,",
             "and manage billing from code.",
         ],
@@ -267,22 +267,22 @@ export const SDK_LEARN_SLIDES: LearnSlide[] = [
     },
     {
         mode: "learn",
-        heading: "Session tokens (xoa_)",
+        heading: "Signing in vs. app keys",
         lines: [
-            "Device sign-in gives you an xoa_",
-            "access token for your user session.",
-            "OAuth client IDs (oauth_…) are for",
-            "server-to-server — not the same thing.",
+            "Signing in here gives you a key tied",
+            "to your account, for this session.",
+            "Servers and CI need an app key that",
+            "works without anyone signing in.",
         ],
     },
     {
         mode: "tips",
-        heading: "OAuth for automation",
+        heading: "App keys for servers and CI",
         lines: [
-            "The wizard creates a confidential",
-            "OAuth client in Settings → API.",
-            "Use client_credentials for CI and",
-            "long-running workers — no browser.",
+            "The wizard creates one for you; it's",
+            "also under Settings → API. Use it in",
+            "CI and long-running jobs, where no one",
+            "is around to sign in.",
         ],
     },
     {

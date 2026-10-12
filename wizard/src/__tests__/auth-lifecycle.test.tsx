@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({
     requestDeviceCode: vi.fn(), pollDeviceToken: vi.fn(), getMe: vi.fn(),
     searchMarketplace: vi.fn(), getWallet: vi.fn(), claimFreeCredits: vi.fn(), launchInstance: vi.fn(),
 }));
-const sdk = vi.hoisted(() => ({ checkSdkPackage: vi.fn() }));
+const sdk = vi.hoisted(() => ({ checkSdkPackage: vi.fn(), checkSdkProject: vi.fn() }));
 vi.mock("../sdk-checks.js", async (original) => ({
     ...await original<typeof import("../sdk-checks.js")>(), ...sdk,
 }));
@@ -73,6 +73,7 @@ beforeEach(() => {
     api.claimFreeCredits.mockReset().mockResolvedValue({ already_claimed: true, amount: 0 });
     api.launchInstance.mockReset();
     sdk.checkSdkPackage.mockReset().mockResolvedValue([{ name: "SDK", ok: true, detail: "ready" }]);
+    sdk.checkSdkProject.mockReset().mockReturnValue([{ name: "Project", ok: true, detail: "ready" }]);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -272,16 +273,32 @@ describe("completion and cancellation", () => {
     });
 
     it("does not start delayed step initialization after exit", async () => {
+        // A check still pauses before it starts; sign-in no longer does.
+        const app = render(<Probe />);
+        await settle();
+        flow.submitAnswer("sdk");
+        await vi.advanceTimersByTimeAsync(2_000);
+        await settle();
+        expect(flow.step.id).toBe("sdk-detect");
+        app.unmount();
+        await settle();
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(sdk.checkSdkProject).not.toHaveBeenCalled();
+    });
+
+    it("stops a pending sign-in when the wizard exits", async () => {
         const app = render(<Probe />);
         await settle();
         flow.submitAnswer("rent");
         await vi.advanceTimersByTimeAsync(2_000);
         await settle();
         expect(flow.step.id).toBe("device-auth");
+        expect(api.requestDeviceCode).toHaveBeenCalledTimes(1);
+        const polls = api.pollDeviceToken.mock.calls.length;
         app.unmount();
         await settle();
-        await vi.advanceTimersByTimeAsync(5_000);
-        expect(api.requestDeviceCode).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(api.pollDeviceToken.mock.calls.length).toBe(polls);
     });
 
     it("starts fresh instead of restoring an expired checkpoint", async () => {

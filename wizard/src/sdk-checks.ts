@@ -24,18 +24,29 @@ export function findProjectRoot(start: string): string {
     return start;
 }
 
-export function checkSdkProject(): { name: string; ok: boolean; detail: string; remediation?: string }[] {
+export function checkSdkProject(): CheckResult[] {
     const env = detectEnvironment();
     const root = findProjectRoot(process.cwd());
     const hasPkg = existsSync(join(root, "package.json"));
     const hasPy = existsSync(join(root, "pyproject.toml"));
 
+    if (!hasPkg && hasPy) {
+        // Telling a Python project to find its package.json sent people looking
+        // for a file their app does not have.
+        return [{
+            name: "Project",
+            ok: false,
+            detail: "This is a Python project; this path installs the TypeScript SDK",
+            remediation: "Call the REST API from Python with your xoa_ token, or press b to choose a different path",
+            url: "https://docs.xcelsior.ca/api-overview",
+        }];
+    }
     if (!hasPkg) {
         return [{
             name: "Project",
             ok: false,
-            detail: hasPy ? "This track installs the TypeScript SDK; Python projects should use the REST API" : "No package.json found in this directory tree",
-            remediation: "cd into your app root (where package.json lives) and re-run the wizard",
+            detail: "No package.json found in this directory tree",
+            remediation: "cd into your app root (where package.json lives) and run the wizard again, or press b to choose a different path",
         }];
     }
 

@@ -19,8 +19,8 @@ export function StartupCard({ env }: StartupCardProps) {
         <Box width={70} flexDirection="column" borderStyle="round" borderColor={COLORS.accent} paddingX={2} paddingY={1}>
             <Text bold color={COLORS.brand}>Welcome to Xcelsior</Text>
             <Box marginTop={1} flexDirection="column">
-                <Text>Rent GPUs, share yours, or integrate the SDK — Hexara guides every track.</Text>
-                <Text color={COLORS.muted}>Auth, benchmarks, verification, launch, and API setup from here.</Text>
+                <Text>Rent GPUs, share yours, or build with the SDK — Hexara guides you through each.</Text>
+                <Text color={COLORS.muted}>Sign in, test your hardware, launch GPUs and set up your app, all from here.</Text>
             </Box>
             <Box marginTop={1}>
                 <Text color={COLORS.success}>{GLYPHS.ok} </Text>
@@ -29,7 +29,7 @@ export function StartupCard({ env }: StartupCardProps) {
                 <Text color={COLORS.muted}> and tokens never leave this machine.</Text>
             </Box>
             <Box marginTop={1}>
-                <BrandSpinner label="Detecting your environment & checking services…" />
+                <BrandSpinner label="Getting things ready…" />
             </Box>
             <Box marginTop={1}>
                 <Text color={COLORS.muted}>{GLYPHS.bullet} Detected: </Text>

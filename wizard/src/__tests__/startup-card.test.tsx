@@ -41,7 +41,7 @@ describe("StartupCard", () => {
         const out = lastFrame() ?? "";
         expect(out).toContain("Welcome to Xcelsior");
         expect(out).toContain("never leave this machine");
-        expect(out).toContain("Detecting your environment");
+        expect(out).toContain("Getting things ready");
         expect(out).toContain("Next.js");
     });
 });
