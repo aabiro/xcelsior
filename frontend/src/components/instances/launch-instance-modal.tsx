@@ -1041,7 +1041,7 @@ export function LaunchInstanceModal({
                     {effectiveRate != null ? (
                       <span className="text-lg font-bold font-mono">
                         {isEstimatedRate && "~"}${effectiveRate.toFixed(2)}
-                        <span className="text-xs text-text-muted ml-1">CAD/hr{isEstimatedRate && " est."}</span>
+                        <span className="text-xs text-text-muted ml-1">/hr{isEstimatedRate && " est."}</span>
                       </span>
                     ) : (
                       <span className="text-sm text-text-muted italic">No pricing data</span>
@@ -1123,24 +1123,24 @@ export function LaunchInstanceModal({
                     )}
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                       <span>Rate</span>
-                      <span>{effectiveRate != null ? `${isEstimatedRate ? "~" : ""}$${effectiveRate.toFixed(2)}/hr CAD${isEstimatedRate ? " est." : ""}` : "-"}</span>
+                      <span>{effectiveRate != null ? `${isEstimatedRate ? "~" : ""}$${effectiveRate.toFixed(2)}/hr${isEstimatedRate ? " est." : ""}` : "-"}</span>
                     </div>
                     {totalPerHour != null && (
                       <>
                         <div className="flex justify-between text-sm">
                           <span>Per hour ({Number(numGpus) > 1 ? `${numGpus} GPUs` : "1 GPU"})</span>
-                          <span>{isEstimatedRate && "~"}${totalPerHour.toFixed(2)} CAD/hr</span>
+                          <span>{isEstimatedRate && "~"}${totalPerHour.toFixed(2)}/hr</span>
                         </div>
                         {taxRate > 0 && (
                           <div className="flex justify-between text-sm">
                             <span>Tax ({(taxRate * 100).toFixed(1)}%)</span>
-                            <span>+${(totalPerHour * taxRate).toFixed(2)} CAD/hr</span>
+                            <span>+${(totalPerHour * taxRate).toFixed(2)}/hr</span>
                           </div>
                         )}
                         {taxRate > 0 && totalWithTax != null && (
                           <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                             <span>Total</span>
-                            <span>{isEstimatedRate && "~"}${totalWithTax.toFixed(2)} CAD/hr</span>
+                            <span>{isEstimatedRate && "~"}${totalWithTax.toFixed(2)}/hr</span>
                           </div>
                         )}
                       </>
@@ -1152,7 +1152,7 @@ export function LaunchInstanceModal({
                 </p>
                 {effectivePricingMode === "spot" && effectiveRate != null && (
                   <p className="text-xs text-amber-200/90 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-                    Spot rate of ${effectiveRate.toFixed(2)}/hr CAD is locked at launch for billing.
+                    Spot rate of ${effectiveRate.toFixed(2)}/hr is locked at launch for billing.
                     Future launches may reflect updated spot prices.
                   </p>
                 )}

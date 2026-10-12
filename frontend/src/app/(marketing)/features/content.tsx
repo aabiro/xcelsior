@@ -25,8 +25,6 @@ const foundations = [
   { icon: "badge", title: "features.trust_title", desc: "features.trust_desc", cat: "features.cat_trust" },
   { icon: "shield-check", title: "features.sla_title", desc: "features.sla_desc", cat: "features.cat_trust" },
   { icon: "check-circle", title: "features.compliance_title", desc: "features.compliance_desc", cat: "features.cat_trust" },
-  { icon: "dollar", title: "features.billing_title", desc: "features.billing_desc", cat: "features.cat_billing" },
-  { icon: "users", title: "features.payouts_title", desc: "features.payouts_desc", cat: "features.cat_billing" },
   { icon: "sparkle", title: "features.ai_title", desc: "features.ai_desc", cat: "features.cat_agents" },
 ] as const;
 
