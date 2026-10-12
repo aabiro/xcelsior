@@ -63,6 +63,10 @@ def test_open_is_only_what_the_server_wrote():
     assert egress.job_egress({"egress": " Open "}) == egress.OPEN
 
 
+def test_funded_is_explicit():
+    assert egress.job_egress({"egress": " Funded "}) == egress.FUNDED
+
+
 # ── What the worker passes to docker run ─────────────────────────────
 
 
@@ -97,6 +101,31 @@ def test_restricted_job_refused_when_isolation_is_not_verified(status_file, stat
     with pytest.raises(egress.EgressUnavailable):
         egress.launch_args({"egress": "restricted"}, {})
     assert egress.isolation_ready() is False
+
+
+def test_funded_job_gets_direct_internet_and_no_proxy(status_file):
+    status_file(ok=True)
+    args, env = egress.launch_args(
+        {"egress": "funded"},
+        {"HF_TOKEN": "kept", "https_proxy": "http://renter-choice:8080"},
+    )
+    assert args == [
+        "--network",
+        egress.FUNDED_NETWORK,
+        "--dns",
+        egress.PUBLIC_DNS[0],
+        "--dns",
+        egress.PUBLIC_DNS[1],
+    ]
+    assert "http_proxy" not in env
+    assert "https_proxy" not in env
+    assert env["HF_TOKEN"] == "kept"
+
+
+def test_funded_job_refused_when_isolation_is_not_verified(status_file):
+    status_file(ok=False, problems=["funded bridge missing"])
+    with pytest.raises(egress.EgressUnavailable):
+        egress.launch_args({"egress": "funded"}, {})
 
 
 def test_missing_status_means_not_ready(tmp_path, monkeypatch):
@@ -162,9 +191,36 @@ def test_host_is_reachable_only_on_the_proxy_port():
     assert rules[-1] == ["-j", "DROP"]
 
 
-def test_every_hook_is_scoped_to_the_tenant_bridge():
-    for _cmd, _chain, rule in egress.HOOKS:
-        assert rule[:2] == ["-i", egress.BRIDGE]
+def test_funded_internet_reaches_public_addresses_only():
+    rules = egress.chain_rules()[egress.FUNDED_OUT_CHAIN]
+    assert rules[0] == ["-m", "conntrack", "--ctdir", "REPLY", "-j", "RETURN"]
+    assert rules[-1] == ["-j", "ACCEPT"]
+    dropped = {rule[1] for rule in rules if rule[:1] == ["-d"] and rule[-2:] == ["-j", "DROP"]}
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"):
+        assert cidr in dropped
+    assert all("--dport" not in rule for rule in rules)
+
+
+def test_funded_bridge_cannot_reach_host_services():
+    rules = egress.chain_rules()[egress.FUNDED_IN_CHAIN]
+    assert rules == [
+        ["-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
+        ["-j", "DROP"],
+    ]
+
+
+def test_hooks_dispatch_only_our_bridges():
+    rules = egress.chain_rules()
+    assert egress.HOOKS[0][2] == ["-j", egress.DISPATCH_FWD]
+    assert egress.HOOKS[1][2] == ["-j", egress.DISPATCH_IN]
+    assert rules[egress.DISPATCH_FWD] == [
+        ["-i", egress.BRIDGE, "-j", egress.OUT_CHAIN],
+        ["-i", egress.FUNDED_BRIDGE, "-j", egress.FUNDED_OUT_CHAIN],
+    ]
+    assert rules[egress.DISPATCH_IN] == [
+        ["-i", egress.BRIDGE, "-j", egress.IN_CHAIN],
+        ["-i", egress.FUNDED_BRIDGE, "-j", egress.FUNDED_IN_CHAIN],
+    ]
 
 
 def test_proxy_allows_only_web_ports_to_approved_names():
@@ -236,6 +292,8 @@ def test_scheduler_sends_restricted_work_only_to_isolated_hosts():
     )
     assert not scheduler.host_can_run_egress(_host(capabilities=None), {})
     assert scheduler.host_can_run_egress(plain, {"egress": "open"})
+    assert scheduler.host_can_run_egress(isolated, {"egress": "funded"})
+    assert not scheduler.host_can_run_egress(plain, {"egress": "funded"})
 
 
 def test_control_plane_filter_explains_the_rejection():
@@ -283,6 +341,35 @@ def test_accounts_are_restricted_until_an_administrator_opens_them(account):
             actor="admin-test",
             reason="revoked",
             backend=backend,
+        )
+    assert abuse_policy.egress_for_owner({"owner": account}) == egress.RESTRICTED
+
+
+def test_a_settled_card_deposit_opens_public_internet(account):
+    with get_engine().transaction() as (conn, backend):
+        abuse_policy.set_card_paid(
+            conn,
+            user_id=account,
+            active=True,
+            actor="billing",
+            reason="settled card deposit",
+            backend=backend,
+        )
+    assert abuse_policy.egress_for_owner({"owner": account}) == egress.FUNDED
+
+
+def test_mining_revocation_closes_internet_even_after_payment(account):
+    with get_engine().transaction() as (conn, backend):
+        abuse_policy.set_card_paid(
+            conn,
+            user_id=account,
+            active=True,
+            actor="billing",
+            reason="settled card deposit",
+            backend=backend,
+        )
+        abuse_policy.record_mining_violation(
+            conn, {"job_id": "mine-1", "owner": account}, backend=backend
         )
     assert abuse_policy.egress_for_owner({"owner": account}) == egress.RESTRICTED
 

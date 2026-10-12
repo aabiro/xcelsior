@@ -1,8 +1,11 @@
-"""Tenant containers reach the internet only through an allowlisting proxy.
+"""Tenant containers never reach the host, the LAN, or each other.
 
-Every marketplace container joins a dedicated Docker bridge unless the control
-plane marked its job ``egress: "open"``, which is an administrator decision per
-account (``abuse_policy.egress_for_owner``). On that bridge the host:
+Accounts that have not paid a settled card deposit reach the internet only
+through an allowlisting proxy. A settled card deposit marks the job
+``egress: "funded"``: direct public internet, still on its own bridge, with
+private ranges and host services dropped. ``egress: "open"`` remains an
+administrator decision and is the only mode that leaves the isolated bridges
+(``abuse_policy.egress_for_owner``). On the restricted bridge the host:
 
 * drops every connection a container starts towards another machine (FORWARD,
   via DOCKER-USER) but passes replies to connections made *to* it, so renter
@@ -37,6 +40,7 @@ import urllib.request
 from pathlib import Path
 
 RESTRICTED = "restricted"
+FUNDED = "funded"
 OPEN = "open"
 
 NETWORK = "xcelsior-tenant"
@@ -46,6 +50,33 @@ GATEWAY = "172.30.242.1"
 PROXY_PORT = 3128
 OUT_CHAIN = "XCL-TENANT-OUT"
 IN_CHAIN = "XCL-TENANT-IN"
+
+# Paying rentals. Same isolation idea, but outbound public addresses are
+# allowed. The proxy is not on this bridge.
+FUNDED_NETWORK = "xcelsior-funded"
+FUNDED_BRIDGE = "xcl-funded0"
+FUNDED_SUBNET = "172.30.243.0/24"
+FUNDED_GATEWAY = "172.30.243.1"
+FUNDED_OUT_CHAIN = "XCL-FUNDED-OUT"
+FUNDED_IN_CHAIN = "XCL-FUNDED-IN"
+# One first rule per host chain. It jumps into the bridge chains above.
+DISPATCH_FWD = "XCL-EGRESS-FWD"
+DISPATCH_IN = "XCL-EGRESS-IN"
+DISPATCH_V6 = "XCL-EGRESS-V6"
+# Public resolvers. The bridge gateway is not a DNS server for this mode,
+# so a container cannot use the host resolver as a tunnel.
+PUBLIC_DNS = ("1.1.1.1", "8.8.8.8")
+PRIVATE_DESTS = (
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "224.0.0.0/4",
+    "240.0.0.0/4",
+)
 
 PROXY_UNIT = "xcelsior-egress-proxy.service"
 CONFIG_DIR = Path(os.environ.get("XCELSIOR_EGRESS_CONFIG_DIR", "/etc/xcelsior/egress"))
@@ -114,8 +145,23 @@ class EgressUnavailable(RuntimeError):
 
 
 def job_egress(job: dict | None) -> str:
-    """Only an explicit, server-set ``open`` escapes the restricted network."""
-    return OPEN if str((job or {}).get("egress") or "").strip().lower() == OPEN else RESTRICTED
+    """``open`` and ``funded`` are explicit. Everything else is restricted."""
+    value = str((job or {}).get("egress") or "").strip().lower()
+    if value == OPEN:
+        return OPEN
+    if value == FUNDED:
+        return FUNDED
+    return RESTRICTED
+
+
+def _funded_out_rules() -> list[list[str]]:
+    rules = [
+        ["-m", "conntrack", "--ctdir", "REPLY", "-j", "RETURN"],
+    ]
+    for cidr in PRIVATE_DESTS:
+        rules.append(["-d", cidr, "-j", "DROP"])
+    rules.append(["-j", "ACCEPT"])
+    return rules
 
 
 def chain_rules() -> dict[str, list[list[str]]]:
@@ -130,11 +176,32 @@ def chain_rules() -> dict[str, list[list[str]]]:
             ["-d", GATEWAY, "-p", "tcp", "--dport", str(PROXY_PORT), "-j", "ACCEPT"],
             ["-j", "DROP"],
         ],
+        FUNDED_OUT_CHAIN: _funded_out_rules(),
+        FUNDED_IN_CHAIN: [
+            ["-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
+            ["-j", "DROP"],
+        ],
+        DISPATCH_FWD: [
+            ["-i", BRIDGE, "-j", OUT_CHAIN],
+            ["-i", FUNDED_BRIDGE, "-j", FUNDED_OUT_CHAIN],
+        ],
+        DISPATCH_IN: [
+            ["-i", BRIDGE, "-j", IN_CHAIN],
+            ["-i", FUNDED_BRIDGE, "-j", FUNDED_IN_CHAIN],
+        ],
     }
 
 
 # (command, chain, rule): each must be the first rule of its chain.
 HOOKS = (
+    (IPT, "DOCKER-USER", ["-j", DISPATCH_FWD]),
+    (IPT, "INPUT", ["-j", DISPATCH_IN]),
+    (IP6T, "FORWARD", ["-j", DISPATCH_V6]),
+    (IP6T, "INPUT", ["-j", DISPATCH_V6]),
+)
+# Replaced by the dispatcher. Left in place they would still be first on a
+# host provisioned before funded egress existed.
+STALE_HOOKS = (
     (IPT, "DOCKER-USER", ["-i", BRIDGE, "-j", OUT_CHAIN]),
     (IPT, "INPUT", ["-i", BRIDGE, "-j", IN_CHAIN]),
     (IP6T, "FORWARD", ["-i", BRIDGE, "-j", "DROP"]),
@@ -148,16 +215,23 @@ def _run(args, *, check=True, input_text=None):
     )
 
 
-def _network() -> dict | None:
-    r = _run(["docker", "network", "inspect", NETWORK], check=False)
+def _network(name: str = NETWORK) -> dict | None:
+    r = _run(["docker", "network", "inspect", name], check=False)
     if r.returncode:
         return None
     return json.loads(r.stdout)[0]
 
 
-def network_problems(net: dict | None) -> list[str]:
+def network_problems(
+    net: dict | None,
+    *,
+    name: str = NETWORK,
+    bridge: str = BRIDGE,
+    subnet: str = SUBNET,
+    gateway: str = GATEWAY,
+) -> list[str]:
     if net is None:
-        return [f"docker network {NETWORK} is missing"]
+        return [f"docker network {name} is missing"]
     problems = []
     options = net.get("Options") or {}
     if net.get("Driver") != "bridge":
@@ -166,15 +240,15 @@ def network_problems(net: dict | None) -> list[str]:
         problems.append("network is internal, so published SSH ports would not work")
     if net.get("EnableIPv6"):
         problems.append("IPv6 is enabled")
-    if options.get("com.docker.network.bridge.name") != BRIDGE:
-        problems.append(f"bridge is not named {BRIDGE}")
+    if options.get("com.docker.network.bridge.name") != bridge:
+        problems.append(f"bridge is not named {bridge}")
     if options.get("com.docker.network.bridge.enable_icc") != "false":
         problems.append("containers can reach each other (ICC is on)")
     ipam = [
         (c.get("Subnet"), c.get("Gateway")) for c in (net.get("IPAM") or {}).get("Config") or []
     ]
-    if ipam != [(SUBNET, GATEWAY)]:
-        problems.append(f"addressing is {ipam}, expected {[(SUBNET, GATEWAY)]}")
+    if ipam != [(subnet, gateway)]:
+        problems.append(f"addressing is {ipam}, expected {[(subnet, gateway)]}")
     return problems
 
 
@@ -244,14 +318,38 @@ def _proxy_problems() -> list[str]:
     return ["proxy let a blocked name through"]
 
 
+def _v6_problems() -> list[str]:
+    listed = [
+        ln
+        for ln in _run([*IP6T, "-S", DISPATCH_V6], check=False).stdout.splitlines()
+        if ln.startswith("-A ")
+    ]
+    expected = [
+        f"-A {DISPATCH_V6} -i {BRIDGE} -j DROP",
+        f"-A {DISPATCH_V6} -i {FUNDED_BRIDGE} -j DROP",
+    ]
+    if listed != expected:
+        return [f"{DISPATCH_V6} is not dropping IPv6 from both tenant bridges"]
+    return []
+
+
 def verify() -> dict:
     net = None
     try:
         net = _network()
+        funded = _network(FUNDED_NETWORK)
         problems = (
             network_problems(net)
+            + network_problems(
+                funded,
+                name=FUNDED_NETWORK,
+                bridge=FUNDED_BRIDGE,
+                subnet=FUNDED_SUBNET,
+                gateway=FUNDED_GATEWAY,
+            )
             + _chain_problems()
             + _hook_problems()
+            + _v6_problems()
             + _config_problems()
             + _proxy_problems()
         )
@@ -303,33 +401,37 @@ def provision() -> dict:
         except OSError:
             pass  # no systemd: whoever runs the proxy reloads it
 
-    net = _network()
-    if net is None:
-        _run(
-            [
-                "docker",
-                "network",
-                "create",
-                "--driver",
-                "bridge",
-                "--subnet",
-                SUBNET,
-                "--gateway",
-                GATEWAY,
-                "-o",
-                f"com.docker.network.bridge.name={BRIDGE}",
-                "-o",
-                "com.docker.network.bridge.enable_icc=false",
-                "--label",
-                "ca.xcelsior.role=tenant-egress",
-                NETWORK,
-            ]
-        )
-    elif network_problems(net):
-        # Never rebuild a network that may hold tenant containers.
-        status = verify()
-        write_status(status)
-        return status
+    for name, subnet, gateway, bridge in (
+        (NETWORK, SUBNET, GATEWAY, BRIDGE),
+        (FUNDED_NETWORK, FUNDED_SUBNET, FUNDED_GATEWAY, FUNDED_BRIDGE),
+    ):
+        net = _network(name)
+        if net is None:
+            _run(
+                [
+                    "docker",
+                    "network",
+                    "create",
+                    "--driver",
+                    "bridge",
+                    "--subnet",
+                    subnet,
+                    "--gateway",
+                    gateway,
+                    "-o",
+                    f"com.docker.network.bridge.name={bridge}",
+                    "-o",
+                    "com.docker.network.bridge.enable_icc=false",
+                    "--label",
+                    "ca.xcelsior.role=tenant-egress",
+                    name,
+                ]
+            )
+        elif network_problems(net, name=name, bridge=bridge, subnet=subnet, gateway=gateway):
+            # Never rebuild a network that may hold tenant containers.
+            status = verify()
+            write_status(status)
+            return status
 
     # Both chains are replaced in one iptables-restore transaction, so there is
     # no moment where a chain exists but is empty. --noflush leaves every other
@@ -338,6 +440,15 @@ def provision() -> dict:
     for chain, rules in chain_rules().items():
         lines += [" ".join(["-A", chain, *(_quote(a) for a in rule)]) for rule in rules]
     _run(["iptables-restore", "-w", "5", "--noflush"], input_text="\n".join(lines + ["COMMIT", ""]))
+    v6 = [
+        "*filter",
+        f":{DISPATCH_V6} - [0:0]",
+        f"-A {DISPATCH_V6} -i {BRIDGE} -j DROP",
+        f"-A {DISPATCH_V6} -i {FUNDED_BRIDGE} -j DROP",
+        "COMMIT",
+        "",
+    ]
+    _run(["ip6tables-restore", "-w", "5", "--noflush"], input_text="\n".join(v6))
 
     for cmd, chain, rule in HOOKS:
         if _first_rule(cmd, chain) == rule:
@@ -347,6 +458,10 @@ def provision() -> dict:
         stale = [
             n for n, listed in enumerate(_rules(cmd, chain), start=1) if listed == rule and n > 1
         ]
+        for number in reversed(stale):
+            _run([*cmd, "-D", chain, str(number)])
+    for cmd, chain, rule in STALE_HOOKS:
+        stale = [n for n, listed in enumerate(_rules(cmd, chain), start=1) if listed == rule]
         for number in reversed(stale):
             _run([*cmd, "-D", chain, str(number)])
 
@@ -381,11 +496,17 @@ def isolation_ready() -> bool:
 def launch_args(job: dict, environment: dict | None) -> tuple[list[str], dict]:
     """``docker run`` arguments and environment for this job's egress policy."""
     env = dict(environment or {})
-    if job_egress(job) == OPEN:
+    mode = job_egress(job)
+    if mode == OPEN:
         return [], env
     status = read_status()
     if not status["ok"]:
         raise EgressUnavailable("; ".join(status.get("problems") or ["isolation check failed"]))
+    if mode == FUNDED:
+        # Direct public DNS. Do not set the allowlisting proxy.
+        for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+            env.pop(key, None)
+        return ["--network", FUNDED_NETWORK, "--dns", PUBLIC_DNS[0], "--dns", PUBLIC_DNS[1]], env
     proxy = f"http://{GATEWAY}:{PROXY_PORT}"
     for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
         env[key] = proxy
