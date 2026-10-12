@@ -10,45 +10,32 @@ The worker agent runs on each GPU host machine. It handles host registration, ve
 
 ## Installation
 
-Register the host in the dashboard (**Hosts → Register Host**) and create an API key or OAuth client under **Settings → API & SSH**. Then, on the GPU host:
+Register your machine in the dashboard (**Hosts → Register Host**) and create an API key under **Settings → API & SSH**. Then run this on the GPU machine:
 
 ```bash
-# Guided setup (Node.js 18+): hardware checks, registration, pricing, service install
 curl -fsSL https://xcelsior.ca/install.sh | bash
-
-# Without Node.js: installs the worker service directly
-curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --agent-only
 ```
 
-The installer checks the NVIDIA driver and Docker's NVIDIA runtime, asks for the Host ID and credentials, verifies the ed25519 signature of every agent module it downloads, and installs the `xcelsior-worker` systemd service. It finishes by waiting for the first heartbeat and reporting the admission state.
+No Node.js on the machine? Use `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --agent-only` instead; it skips the guided setup.
 
-The worker runs as a dedicated `xcelsior` system user, not as root or as you. The few steps that need root (mounting volumes, encrypted volumes) go through `xcelsior-privd`, a root helper that only performs a fixed set of validated operations.
+The installer checks your GPU driver and Docker, asks for your Host ID and API key, installs the Xcelsior worker as a background service, and connects your machine to Xcelsior securely. There is nothing else to configure. When it finishes, your host shows as **pending** while we review it.
 
-| Path | Contents |
-|------|----------|
-| `~/.xcelsior/worker.env` | Host ID, scheduler URL, credentials (mode 600; yours to edit) |
-| `/opt/xcelsior/` | Signed agent modules and their Python venv, owned by `xcelsior` |
-| `/etc/systemd/system/xcelsior-worker.service` | The service; `systemctl cat xcelsior-worker` shows it |
-| `/var/lib/xcelsior/` | Worker state (attempt journal), created by systemd |
-| `/etc/xcelsior/privileged.conf` | Root-owned limits for `xcelsior-privd` (allowed NFS servers and exports) |
+The worker runs as its own restricted user, never as root or as you.
 
-To update the agent: `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --update`.
+To update later, or to reconnect a machine that has been off for more than a month, run `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --update`.
 
 ## Configuration
 
-`~/.xcelsior/worker.env` holds the settings. Edit it, then run `sudo systemctl restart xcelsior-worker`:
+The installer saves your settings in `~/.xcelsior/worker.env`. You normally never need to touch it. If you change your API key, edit that file and run `sudo systemctl restart xcelsior-worker`:
 
 ```bash
 XCELSIOR_HOST_ID=my-gpu-01
-XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
 # Option A: API key
 XCELSIOR_API_TOKEN=your-api-key
 # Option B: OAuth machine client
 XCELSIOR_OAUTH_CLIENT_ID=your-client-id
 XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
 ```
-
-If both auth methods are present, the worker prefers OAuth client credentials.
 
 ## Checking the Agent
 
