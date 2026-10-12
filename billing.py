@@ -3073,6 +3073,60 @@ class BillingEngine:
             )
         return out
 
+    def welcome_bonus_eligible(self, customer_id: str) -> bool:
+        """Require a saved card and a settled, unrefunded $5 CAD card top-up.
+
+        Wallet balances and total_deposited include historical promotions and
+        manual deposits. Only our registered Stripe intents, checked against
+        Stripe's current charge state, are proof of payment. Errors propagate
+        so callers cannot turn a Stripe outage into free compute.
+        """
+        from stripe_connect import STRIPE_ENABLED, stripe as stripe_mod
+
+        if not STRIPE_ENABLED or not stripe_mod:
+            return False
+        wallet = self.get_wallet(customer_id)
+        stripe_customer_id = wallet.get("stripe_customer_id") or ""
+        if not stripe_customer_id or not self.list_payment_methods(customer_id):
+            return False
+        with self._conn() as conn:
+            intents = conn.execute(
+                """SELECT stripe_intent_id FROM payment_intents
+                   WHERE customer_id = %s AND status = 'succeeded'
+                     AND currency = 'cad' AND amount_cents >= 500
+                     AND stripe_intent_id IS NOT NULL AND stripe_intent_id <> ''
+                   ORDER BY created_at DESC""",
+                (customer_id,),
+            ).fetchall()
+        for row in intents:
+            intent = stripe_mod.PaymentIntent.retrieve(
+                row["stripe_intent_id"], expand=["latest_charge"]
+            )
+            # StripeObject supports subscripting, not dict.get in our SDK.
+            if (
+                intent["customer"] != stripe_customer_id
+                or intent["status"] != "succeeded"
+                or intent["currency"] != "cad"
+                or intent["amount_received"] < 500
+            ):
+                continue
+            charge = intent["latest_charge"]
+            if (
+                charge
+                and not isinstance(charge, str)
+                and charge["customer"] == stripe_customer_id
+                and charge["payment_intent"] == row["stripe_intent_id"]
+                and charge["currency"] == "cad"
+                and charge["paid"]
+                and charge["captured"]
+                and charge["amount_captured"] >= 500
+                and charge["amount_refunded"] == 0
+                and not charge["disputed"]
+                and charge["payment_method_details"]["type"] == "card"
+            ):
+                return True
+        return False
+
     def resolve_payment_method(
         self,
         customer_id: str,

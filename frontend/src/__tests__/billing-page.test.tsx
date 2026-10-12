@@ -171,8 +171,8 @@ describe("BillingPage free credits flow", () => {
     });
     apiMocks.claimFreeCredits.mockResolvedValue({
       ok: true,
-      amount_cad: 10,
-      balance_cad: 15,
+      amount_cad: 5,
+      balance_cad: 10,
       already_claimed: false,
     });
   });
@@ -194,7 +194,7 @@ describe("BillingPage free credits flow", () => {
 
     await screen.findByText("dash.billing.credits_transferring_title");
     await waitFor(() => {
-      expect(screen.getAllByText("$15.00").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("$10.00").length).toBeGreaterThan(0);
     });
 
     await act(async () => {
@@ -210,6 +210,17 @@ describe("BillingPage free credits flow", () => {
     await waitFor(() => {
       expect(screen.queryByText("dash.billing.free_credits_title")).not.toBeInTheDocument();
     });
+  });
+
+  it("explains the card payment requirement when a bonus claim is refused", async () => {
+    const message = "Save a card and complete a card top-up of at least $5 CAD before claiming your $5 welcome bonus.";
+    apiMocks.claimFreeCredits.mockRejectedValueOnce(new Error(message));
+    render(<BillingPage />);
+    await screen.findByText("dash.billing.free_credits_title");
+    fireEvent.click(screen.getByRole("button", { name: /dash\.billing\.claim_credits/i }));
+    await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith(message));
+    expect(toastMocks.success).not.toHaveBeenCalled();
+    expect(screen.getByText("dash.billing.free_credits_title")).toBeInTheDocument();
   });
 
   it("renders wallet transactions in the shape the API actually sends", async () => {
