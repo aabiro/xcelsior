@@ -37,6 +37,8 @@ _ALLOWED: dict[str, Path] = {
     "criu_hosts.py": _REPO_ROOT / "criu_hosts.py",
     # Network protection for rented containers; root runs a copy of it.
     "egress_isolation.py": _REPO_ROOT / "egress_isolation.py",
+    # Root helper (client for the worker; also installed root-owned as xcelsior-privd).
+    "worker_privileged.py": _REPO_ROOT / "worker_privileged.py",
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
@@ -52,6 +54,7 @@ _SIGNABLE = frozenset(
         "env_config.py",
         "criu_hosts.py",
         "egress_isolation.py",
+        "worker_privileged.py",
     }
 )
 

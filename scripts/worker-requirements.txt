@@ -4,3 +4,4 @@ python-dotenv>=1.0.0,<2
 prometheus-client>=0.20.0,<1
 cryptography>=42.0.0,<44
 psutil>=5.9.0,<7
+nvidia-ml-py~=13.590.48

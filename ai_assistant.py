@@ -3792,8 +3792,10 @@ NVIDIA Container Toolkit/runtime, Ubuntu 22.04+ or WSL2.
 2. On the GPU host: `curl -fsSL https://{_BASE_DOMAIN}/install.sh | bash -s -- --agent-only`
    It checks the NVIDIA driver and Docker runtime, asks for the Host ID and key,
    verifies every agent module's signature, writes `~/.xcelsior/worker.env`
-   (mode 600), installs and starts the `xcelsior-worker` systemd service, and waits
-   for the first heartbeat. Do not hand-write worker.env or the unit file.
+   (mode 600), installs and starts the `xcelsior-worker` systemd service (it runs as
+   a dedicated `xcelsior` user; root-only steps go through the `xcelsior-privd`
+   helper), and waits for the first heartbeat. Do not hand-write worker.env or the
+   unit file.
 3. Verify: `systemctl status xcelsior-worker` and `journalctl -u xcelsior-worker -f`.
    To change settings: edit `~/.xcelsior/worker.env`, then
    `sudo systemctl restart xcelsior-worker`. `systemctl cat xcelsior-worker` shows
