@@ -3011,14 +3011,15 @@ class AgentKeyStore:
         key_hash: str,
         scopes: str,
         audience: str,
+        key_ciphertext: str | None = None,
     ) -> None:
         with auth_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO agent_api_keys
                     (key_id, user_id, tenant_id, client_id, name, key_prefix,
-                     key_hash, scopes, audience)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     key_hash, scopes, audience, key_ciphertext)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     key_id,
@@ -3030,6 +3031,7 @@ class AgentKeyStore:
                     key_hash,
                     scopes,
                     audience,
+                    key_ciphertext,
                 ),
             )
 
