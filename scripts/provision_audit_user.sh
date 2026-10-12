@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
+REMOTE_USER="${XCELSIOR_DEPLOY_USER:-root}"
 REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 REMOTE_DIR="/opt/xcelsior"
