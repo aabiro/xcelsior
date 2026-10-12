@@ -32,7 +32,7 @@ import type { Wallet, WalletTransaction, Invoice, ReservedCommitment, SavedPayme
 import { toast } from "sonner";
 import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
 
-const FREE_CREDIT_AMOUNT = 10;
+const FREE_CREDIT_AMOUNT = 5;
 const FREE_CREDIT_TRANSFER_DURATION_S = 2.2;
 const FREE_CREDIT_TRANSFER_DURATION_MS = FREE_CREDIT_TRANSFER_DURATION_S * 1000;
 const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
@@ -475,8 +475,8 @@ export default function BillingPage() {
         ));
         toast.success(t("dash.billing.credits_claimed_toast"));
       }
-    } catch {
-      toast.error("Failed to claim free credits");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to claim free credits");
     } finally {
       setClaimingCredits(false);
     }
@@ -749,7 +749,7 @@ export default function BillingPage() {
             />
           </div>
 
-          {/* Welcome $10 Free Credits Banner */}
+          {/* Welcome $5 Bonus Banner */}
           <AnimatePresence>
             {freeCreditsAvailable && canManageBilling && (
               <motion.div

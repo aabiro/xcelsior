@@ -24,7 +24,7 @@ How credits enter customer wallets and how provider payouts leave the platform.
 | Crypto | `POST /api/billing/crypto/deposit` | On-chain confirmation | per deposit_id |
 | Lightning | `POST /api/billing/lightning/deposit` | Invoice paid | per deposit_id |
 | Direct API | `POST /api/billing/wallet/{id}/deposit` | **Blocked in prod** (403) | — |
-| Promo | `POST /api/billing/wallet/{id}/free-credits` | One-time per account | `free-credits-{customer_id}` |
+| Promo | `POST /api/billing/free-credits/{customer_id}` | One-time $5 CAD bonus after saving a card and a successful, unrefunded $5 CAD card top-up; recorded as promotional credit | `free-credits-{customer_id}` |
 
 **Important:** PayPal on the Billing page only **tops up the customer wallet**. It does not route money to GPU providers. Jobs always charge wallet balance regardless of how credits were added.
 
