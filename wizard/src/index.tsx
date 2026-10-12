@@ -6,7 +6,6 @@
 // Press "?" at any step to ask Hexara for help inline.
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { pathToFileURL } from "node:url";
 import { render, measureElement, Box, Text, useApp, useInput, type DOMElement } from "ink";
 import { HexaraStage, STAGE_ROWS, roamFor } from "./HexaraStage.js";
 import { computeWizardBranch, computeWizardMood } from "./hexara-choreography.js";
@@ -23,6 +22,7 @@ import { timeHintForStep, buildMarketplaceSlides, LEARN_SLIDES, sdkLearnSlides }
 import { TitleBar, KeybindFooter } from "./chrome.js";
 import { StartupCard } from "./StartupCard.js";
 import { detectEnvironment } from "./environment.js";
+import { isEntryModule } from "./entry-module.js";
 import {
   ProgressBar,
   SelectStep,
@@ -96,6 +96,7 @@ export function App() {
     switchToManualAuth,
     retryDeviceAuth,
     openBrowserNow,
+    browserOpened,
     submitManualToken,
     gpuListings,
     gpuOptions,
@@ -111,6 +112,7 @@ export function App() {
     checkAwaitContinue,
     retryCheck,
     skipCheck,
+    changePath,
     continueFromCheck,
     continueFromAuth,
     tokenSaveError,
@@ -464,6 +466,7 @@ export function App() {
               awaitContinue={checkAwaitContinue}
               required={step.checkRequired}
               staticHelp={staticHelp}
+              staticHelpTitle={answers["api-key"] ? undefined : "Hexara can help once you're signed in. Until then, here's how to fix it:"}
               successTitle={{
                 docker: "Docker environment ready!",
                 api: "Connection verified!",
@@ -483,6 +486,7 @@ export function App() {
               }[step.checkId ?? ""] ?? "All checks passed!"}
               onRetry={retryCheck}
               onSkip={skipCheck}
+              onChangePath={changePath}
               onContinue={continueFromCheck}
             />
           )}
@@ -522,6 +526,8 @@ export function App() {
               errorMessage={deviceAuth.errorMessage ?? undefined}
               onContinue={continueFromAuth}
               onOpenBrowser={openBrowserNow}
+              onBack={changePath}
+              browserOpened={browserOpened}
               envPath={deviceAuthEnvPath}
               tokenSaveError={tokenSaveError}
               oauthClientId={answers["oauth-client-id"] as string | undefined}
@@ -615,16 +621,6 @@ export function App() {
 }
 
 // Bootstrap only when run as the CLI entry — not when imported by tests.
-function isEntryModule(): boolean {
-  try {
-    const entry = process.argv[1];
-    if (!entry) return false;
-    return import.meta.url === pathToFileURL(entry).href;
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryModule()) {
+if (isEntryModule(import.meta.url)) {
   render(<App />);
 }

@@ -131,14 +131,16 @@ export function footerHints(ctx: FooterContext): Hint[] {
             hints.push({ key: "y", label: "confirm" }, { key: "n", label: "cancel" });
             break;
         case "device-auth":
-            hints.push({ key: "enter", label: "continue" }, { key: "m", label: "manual paste" });
+            hints.push({ key: "enter", label: "continue" }, { key: "m", label: "manual paste" }, { key: "b", label: "back" });
             break;
         case "auto-check":
         case "auto-fetch":
         case "payment-gate":
             if (ctx.isWorkStep) hints.push({ key: "Tab/←→", label: "switch tab" });
-            if (ctx.canRetry) hints.push({ key: "enter", label: "retry" }, { key: "s", label: "skip" });
-            else if (ctx.awaitContinue) hints.push({ key: "enter", label: "continue" });
+            if (ctx.canRetry) {
+                hints.push({ key: "enter", label: "retry" }, { key: "s", label: "skip" });
+                if (ctx.stepType === "auto-check") hints.push({ key: "b", label: "back" });
+            } else if (ctx.awaitContinue) hints.push({ key: "enter", label: "continue" });
             break;
         default:
             break;

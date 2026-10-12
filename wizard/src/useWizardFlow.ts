@@ -8,7 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { openUrl as openBrowser } from "./open-url.js";
 import { configDirectory, updateEnvFile, writePrivateFile } from "./config-files.js";
-import { WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
+import { WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP, DEVICE_BROWSER_DELAY_MS } from "./wizard-flow.js";
 import {
     streamChat, confirmAction, type ApiClientConfig,
     requestDeviceCode, pollDeviceToken,
@@ -35,7 +35,8 @@ import {
     tokenFilePath,
     type WizardCheckpoint,
 } from "./wizard-state.js";
-import { sanitizeContextValue, validateApiBaseUrl, validateApiToken } from "./wizard-guards.js";
+import { answersForNewPath, sanitizeContextValue, validateApiBaseUrl, validateApiToken } from "./wizard-guards.js";
+import { displayCheckName } from "./check-labels.js";
 import { fetchServiceStatus, aiHealthyFromReport, type StatusReport } from "./preflight.js";
 import { labelForStep } from "./task-model.js";
 import { summarizeFailure } from "./messaging.js";
@@ -102,6 +103,8 @@ export interface UseWizardFlowReturn {
     retryDeviceAuth: () => void;
     /** Open browser now — skip the 15s countdown */
     openBrowserNow: () => void;
+    /** Whether the sign-in link opened a browser: null until tried */
+    browserOpened: boolean | null;
     /** Manual token submission */
     submitManualToken: (token: string) => void;
     /** GPU marketplace listings for gpu-pick step */
@@ -132,6 +135,8 @@ export interface UseWizardFlowReturn {
     retryCheck: () => void;
     /** Skip failed auto-check */
     skipCheck: () => void;
+    /** Leave a failed auto-check or a pending sign-in and choose a different path (keeps the sign-in) */
+    changePath: () => void;
     /** Continue after auto-check passed */
     continueFromCheck: () => void;
     /** Continue after device-auth authorized (Enter) */
@@ -494,6 +499,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
     });
     const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const browserTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** Where the browser goes: the code-filled link when the server sends one. */
+    const browserUriRef = useRef<string | null>(null);
     const authGenRef = useRef(0);
     const manualAuthInFlightRef = useRef(false);
 
@@ -534,6 +541,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
     // Device auth — detected .env path for display
     const [deviceAuthEnvPath, setDeviceAuthEnvPath] = useState<string | null>(null);
+    // Over SSH or on a headless GPU box nothing opens; the screen used to say
+    // "opened" regardless, leaving people waiting on a browser that never came.
+    const [browserOpened, setBrowserOpened] = useState<boolean | null>(null);
     // Token save error — null means saved OK
     const [tokenSaveError, setTokenSaveError] = useState<string | null>(null);
 
@@ -627,7 +637,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         if (listing) {
             launchSummary.push(`GPU: ${listing.gpu_model} · ${listing.vram_gb} GB`);
             launchSummary.push(`Host: ${listing.owner}`);
-            launchSummary.push(`Rate: $${listing.price_per_hour.toFixed(2)}/hr CAD`);
+            launchSummary.push(`Rate: $${listing.price_per_hour.toFixed(2)}/hr`);
         }
         if (image) {
             const tpl = IMAGE_TEMPLATES.find((t) => t.value === image);
@@ -659,7 +669,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         } else {
             setGatePhase("ready");
             setWizardState("waiting");
-            setWizardMessage("Some services are degraded — press Enter to continue anyway");
+            setWizardMessage("Some Xcelsior services are having problems — press Enter to continue anyway");
         }
     }, []);
 
@@ -742,18 +752,17 @@ export function useWizardFlow(): UseWizardFlowReturn {
         setTokenSaveError(null);
         setDeviceAuthEnvPath(null);
         setWizardState("excited");
-        setWizardMessage(`Credential saved to ${tokenFilePath()} — press Enter to continue`);
+        setWizardMessage("You're signed in — press Enter to continue");
     }, []);
 
-    /** Open browser immediately — cancels the 15s countdown timer */
+    /** Open browser immediately — cancels the countdown timer */
     const openBrowserNow = useCallback(() => {
         if (browserTimeoutRef.current) {
             clearTimeout(browserTimeoutRef.current);
             browserTimeoutRef.current = null;
         }
-        if (deviceAuth.verificationUri) {
-            openBrowser(deviceAuth.verificationUri);
-        }
+        const target = browserUriRef.current ?? deviceAuth.verificationUri;
+        if (target) void openBrowser(target).then(setBrowserOpened);
     }, [deviceAuth.verificationUri]);
 
     const ensureWorkerOAuthClient = useCallback(async (
@@ -828,10 +837,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 verificationUri: result.verification_uri, token: null, email: null, errorMessage: null,
             });
             setWizardState("waiting");
-            setWizardMessage("Enter the code shown below in your browser...");
+            setWizardMessage("Approve the code shown below in your browser...");
+            const browserUri = result.verification_uri_complete || result.verification_uri;
+            browserUriRef.current = browserUri;
+            setBrowserOpened(null);
             browserTimeoutRef.current = setTimeout(() => {
-                if (isCurrent()) openBrowser(result.verification_uri);
-            }, 15_000);
+                if (isCurrent()) void openBrowser(browserUri).then((ok) => { if (isCurrent()) setBrowserOpened(ok); });
+            }, DEVICE_BROWSER_DELAY_MS);
 
             let devicePollInFlight = false;
             const pollStartTime = Date.now();
@@ -1071,8 +1083,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }
 
             const detail = creditResult.already_claimed
-                ? `$${balance.toFixed(2)} CAD`
-                : `$${balance.toFixed(2)} CAD (includes $${creditResult.amount.toFixed(2)} welcome credit)`;
+                ? `$${balance.toFixed(2)}`
+                : `$${balance.toFixed(2)} (includes $${creditResult.amount.toFixed(2)} welcome credit)`;
 
             return [{ name: "Wallet Balance", ok: balance >= required, detail }];
         } catch (err) {
@@ -1183,7 +1195,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         assertCurrent();
         setCheckProgress([]);
         const streamItem = (name: string, ok: boolean, detail: string) =>
-            isCurrent() && setCheckProgress((prev) => [...prev, `${ok ? "✓" : "✗"} ${name}: ${detail}`].slice(-30));
+            isCurrent() && setCheckProgress((prev) => [...prev, `${ok ? "✓" : "✗"} ${displayCheckName(name)}: ${detail}`].slice(-30));
         // Phase markers for long single-process checks (benchmark/network).
         const streamPhase = (msg: string) =>
             isCurrent() && setCheckProgress((prev) => [...prev, `⟳ ${msg}`].slice(-30));
@@ -1534,6 +1546,19 @@ export function useWizardFlow(): UseWizardFlowReturn {
         }
     }, [checkWallet, ensureWorkerOAuthClient, launchGpuInstance]);
 
+    // A saved token can expire between runs, and a resumed run reused it
+    // unchecked: Hexara's first call came back 401 and the raw error was shown.
+    // The call that learns the token is dead drops it, so Hexara stops offering
+    // help it cannot give. The sign-in step always runs and saves a fresh one.
+    const forgetExpiredSignIn = useCallback(() => {
+        const kept: Record<string, string | string[]> = {};
+        for (const [key, value] of Object.entries(answersRef.current)) {
+            if (key !== "api-key" && key !== "_session-token" && key !== "device-auth") kept[key] = value;
+        }
+        answersRef.current = kept;
+        setAnswers(kept);
+    }, []);
+
     // ── Step advancement ─────────────────────────────────────────────
 
     const advanceToNext = useCallback(
@@ -1603,7 +1628,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 || nextStep.type === "auto-check"
                 || nextStep.type === "auto-fetch"
                 || nextStep.type === "payment-gate";
-            if (needsInit && resumeAt === undefined) {
+            // Sign-in skips the pause: its prompt stays up while the code is
+            // fetched, and choosing a path already paused once. Both pauses
+            // plus the old 15s countdown made the browser take ~19s to open.
+            if (needsInit && resumeAt === undefined && nextStep.type !== "device-auth") {
                 setWizardMessage(nextStep.prompt);
                 await new Promise((r) => setTimeout(r, CHOREOGRAPHY_DELAY_MS));
             } else {
@@ -1687,7 +1715,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             walletPollRef.current = null;
                             setWizardState("error");
                             setPaymentGate((prev) => ({ ...prev, polling: false }));
-                            setWizardMessage("Wallet polling failed repeatedly — press s to skip");
+                            setWizardMessage("Couldn't check your balance — press s to skip");
                         }
                     } finally {
                         walletPollInFlight = false;
@@ -1720,9 +1748,9 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
                 // Special messages for long-running provider checks
                 if (nextStep.checkId === "benchmark") {
-                    setWizardMessage("Running GPU benchmarks — this takes about 60 seconds...");
+                    setWizardMessage("Testing your GPU — this takes about a minute...");
                 } else if (nextStep.checkId === "verify") {
-                    setWizardMessage("Running 7-point hardware verification...");
+                    setWizardMessage("Checking your hardware...");
                 }
 
                 activeCheckRef.current = { checkId: nextStep.checkId, stepId: nextStep.id };
@@ -1811,6 +1839,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                             setWizardMessage(`Using ${event.name}...`);
                                         } else if (event.type === "tool_result") {
                                             setWizardMessage(`Hexara is analyzing ${failCount} issue(s)...`);
+                                        } else if (event.type === "error" && event.code === "auth_required") {
+                                            // Fall back to the static help instead of an error panel.
+                                            forgetExpiredSignIn();
+                                            setWizardState("error");
+                                            setWizardMessage(`${failCount} check(s) failed`);
+                                            return;
                                         }
                                     }
                                     if (!isEntryCurrent()) return;
@@ -1858,7 +1892,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             // Default — set appropriate state
             setWizardState("idle");
         },
-        [startDeviceAuth, stopDevicePoll, browseGpus, runCheck, gpuListings, paymentGate.billingUrl, scheduleCheckpoint, isFlowStale, shouldRunAutoAnalysis],
+        [startDeviceAuth, stopDevicePoll, browseGpus, runCheck, gpuListings, paymentGate.billingUrl, scheduleCheckpoint, isFlowStale, shouldRunAutoAnalysis, forgetExpiredSignIn],
     );
 
     // ── Submit answer ────────────────────────────────────────────────
@@ -1981,6 +2015,24 @@ export function useWizardFlow(): UseWizardFlowReturn {
         if (!activeCheckRef.current || checkRunningRef.current || completedRef.current) return;
         // Reuse the same entry path and lifecycle guards as the first attempt.
         void advanceToNext(answersRef.current, stepIndexRef.current);
+    }, [advanceToNext]);
+
+    const changePath = useCallback(() => {
+        if (completedRef.current) return;
+        const onFailedCheck = activeCheckRef.current !== null && !checkRunningRef.current;
+        // Leaving sign-in goes through advanceToNext, which stops the device
+        // poll and the browser timer and discards any late approval.
+        const onSignIn = WIZARD_STEPS[stepIndexRef.current]?.type === "device-auth";
+        if (!onFailedCheck && !onSignIn) return;
+        const kept = answersForNewPath(answersRef.current);
+        answersRef.current = kept;
+        setAnswers(kept);
+        completedStepIdsRef.current = [];
+        setCheckResults({});
+        setResumeInfo((prev) => ({ ...prev, resumed: false }));
+        // Step 0 is the path choice; the checkpoint written on entry replaces
+        // the one that kept resuming into the failed step.
+        void advanceToNext(kept, 0);
     }, [advanceToNext]);
 
     const skipCheck = useCallback(() => {
@@ -2111,6 +2163,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             break;
 
                         case "error":
+                            if (event.code === "auth_required") {
+                                forgetExpiredSignIn();
+                                content = "Your sign-in has expired, so I can't answer yet. Sign in again and ask me then.";
+                                break;
+                            }
                             content += content ? `\n\nError: ${event.message}` : `Error: ${event.message}`;
                             break;
 
@@ -2144,7 +2201,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setAiStreaming(false);
             }
         },
-        [apiToken, step, checkResults, providerSummary, gpuListings, browseError],
+        [apiToken, step, checkResults, providerSummary, gpuListings, browseError, forgetExpiredSignIn],
     );
 
     const confirmAi = useCallback(async (approved: boolean) => {
@@ -2266,10 +2323,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
         checkAwaitContinue,
         retryCheck,
         skipCheck,
+        changePath,
         continueFromCheck,
         continueFromAuth,
         tokenSaveError,
         deviceAuthEnvPath,
+        browserOpened,
         hasAiDetails: lastAiContentRef.current !== null && aiResponse === null,
         revealAi: useCallback(() => {
             if (lastAiContentRef.current) {

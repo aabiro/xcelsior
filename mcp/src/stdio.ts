@@ -19,6 +19,13 @@ import { instrumentMcpAnalytics, shutdownMcpAnalytics } from "./analytics.js";
 // the API's own typed 401 with an actionable "refresh your token" message. The
 // bearer is still enforced end-to-end by the API on every call.
 async function main(): Promise<void> {
+  // The published package runs on the user's machine, where the hosted
+  // server's loopback default (127.0.0.1:8000) is nothing: following the README
+  // (`XCELSIOR_ACCESS_TOKEN=… npx @xcelsior-gpu/mcp`) every tool call failed to
+  // connect. Default to production; either variable still points elsewhere.
+  if (!process.env.XCELSIOR_MCP_API_URL && !process.env.XCELSIOR_API_URL) {
+    process.env.XCELSIOR_API_URL = "https://xcelsior.ca";
+  }
   const config = loadConfig();
   const token = (process.env.XCELSIOR_ACCESS_TOKEN || process.env.XCELSIOR_OAUTH_TOKEN || "").trim();
   const quickConnect = `${config.apiUrl.replace(/\/$/, "")}/dashboard/mcp`;

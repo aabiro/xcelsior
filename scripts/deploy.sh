@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DEPLOY_DIR="/opt/xcelsior"
-REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
+REMOTE_USER="${XCELSIOR_DEPLOY_USER:-root}"
 REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
 DOMAIN="xcelsior.ca"
 BACKUP_DIR="/opt/xcelsior-backups"
@@ -257,8 +257,13 @@ _deploy_mark() {
     _DEPLOY_STEP_TS=$now
 }
 
+# RequestTTY=no: steps that feed a script on stdin (`ssh_cmd << EOF`, no
+# command) made ssh ask for a terminal and print "Pseudo-terminal will not be
+# allocated because stdin is not a terminal" for each one. Nothing here is
+# interactive, so never ask.
 SSH_BASE_OPTS=(
     -i "$SSH_KEY"
+    -o RequestTTY=no
     -o StrictHostKeyChecking=accept-new
     -o ControlMaster=auto
     -o ControlPersist=15m
@@ -1828,7 +1833,7 @@ docker compose build $build_args frontend
         warn "PayPal not enabled — check PAYPAL_CLIENT_ID/SECRET in .env"
     fi
 
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue ps"
+    # The container table is printed once, by the health checks that follow.
 
     # Prune dangling images; preserve BuildKit layer cache when enabled.
     if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
@@ -2066,7 +2071,7 @@ ${CYAN}Environment files:${NC}
   .env.test             Test config → used locally for testing
 
 ${CYAN}Environment variables:${NC}
-  XCELSIOR_DEPLOY_USER  SSH user (default: linuxuser)
+  XCELSIOR_DEPLOY_USER  SSH user (default: root; linuxuser was the Vultr box)
   XCELSIOR_DEPLOY_HOST  VPS IP (default: 46.225.20.97)
   XCELSIOR_SSH_KEY      SSH key path (default: ~/.ssh/xcelsior)
   XCELSIOR_DEPLOY_SYNC  rsync (default, fast delta) or tarball (legacy)

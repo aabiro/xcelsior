@@ -18,7 +18,12 @@ describe("SDK integration configuration", () => {
         const root = configDirectory();
         writeFileSync(join(root, "pyproject.toml"), "[project]\nname='example'\n");
         vi.spyOn(process, "cwd").mockReturnValue(root);
-        expect(checkSdkProject()[0]).toMatchObject({ ok: false, detail: expect.stringContaining("Python") });
+        const [result] = checkSdkProject();
+        expect(result).toMatchObject({ ok: false, detail: expect.stringContaining("Python") });
+        // Not "find your package.json": a Python app has none to find.
+        expect(result.remediation).not.toContain("package.json");
+        expect(result.remediation).toContain("press b");
+        expect(result.url).toBe("https://docs.xcelsior.ca/api-overview");
     });
 
     it.each([["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["bun.lock", "bun"]])("detects %s", (lockfile, expected) => {

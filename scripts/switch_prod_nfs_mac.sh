@@ -6,7 +6,7 @@
 #   bash scripts/switch_prod_nfs_mac.sh --dry-run
 set -euo pipefail
 
-REMOTE_USER="${XCELSIOR_DEPLOY_USER:-linuxuser}"
+REMOTE_USER="${XCELSIOR_DEPLOY_USER:-root}"
 REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 REMOTE_ENV="/opt/xcelsior/.env"

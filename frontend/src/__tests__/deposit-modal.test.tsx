@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const confirmPayment = vi.hoisted(() => vi.fn());
+const authState = vi.hoisted(() => ({ user: null as { is_admin?: boolean } | null }));
 
 const apiMocks = vi.hoisted(() => ({
   createPaymentIntent: vi.fn(),
@@ -11,9 +12,14 @@ const apiMocks = vi.hoisted(() => ({
   checkPayPalEnabled: vi.fn(),
   createPayPalOrder: vi.fn(),
   capturePayPalOrder: vi.fn(),
+  adminCreditWallet: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => apiMocks);
+
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => authState,
+}));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -59,6 +65,7 @@ import { DepositModal } from "@/components/billing/deposit-modal";
 describe("DepositModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user = null;
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_123");
     vi.stubEnv("NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY", "");
     vi.stubEnv("NEXT_PUBLIC_STRIPE_SANDBOX_PUBLISHABLE_KEY", "");
@@ -156,5 +163,45 @@ describe("DepositModal", () => {
       expect(screen.getByText(/contact support/i)).toBeInTheDocument();
     });
     expect(apiMocks.depositWallet).not.toHaveBeenCalled();
+  });
+
+  it("starts a platform admin on the admin credit, not a card payment", async () => {
+    authState.user = { is_admin: true };
+    apiMocks.adminCreditWallet.mockResolvedValue({ ok: true, tx_id: "tx-1", balance_cad: 50, amount_cad: 50 });
+    const onSuccess = vi.fn();
+
+    render(<DepositModal customerId="cust-1" onClose={() => {}} onSuccess={onSuccess} />);
+
+    expect(screen.getByRole("tab", { name: "Admin credit" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Credit without payment")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: "launch test" } });
+    fireEvent.click(screen.getByRole("button", { name: /credit \$50\.00/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.adminCreditWallet).toHaveBeenCalledWith("cust-1", 50, "launch test", expect.any(String));
+      expect(onSuccess).toHaveBeenCalledWith(50);
+    });
+    expect(apiMocks.createPaymentIntent).not.toHaveBeenCalled();
+    expect(confirmPayment).not.toHaveBeenCalled();
+  });
+
+  it("warns a platform admin that Real payment charges a card", () => {
+    authState.user = { is_admin: true };
+
+    render(<DepositModal customerId="cust-1" onClose={() => {}} onSuccess={() => {}} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Real payment" }));
+
+    expect(screen.getByText(/this charges a real card/i)).toBeInTheDocument();
+    expect(screen.getByText("Choose deposit amount")).toBeInTheDocument();
+  });
+
+  it("gives a regular user the card payment with no admin switch", () => {
+    authState.user = { is_admin: false };
+
+    render(<DepositModal customerId="cust-1" onClose={() => {}} onSuccess={() => {}} />);
+
+    expect(screen.queryByRole("tab", { name: "Admin credit" })).not.toBeInTheDocument();
+    expect(screen.getByText("Choose deposit amount")).toBeInTheDocument();
   });
 });

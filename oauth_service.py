@@ -824,12 +824,16 @@ def issue_agent_api_key(
     audience: str | None = None,
     name: str = "Agent key",
     replace_existing: bool = False,
+    retrievable: bool = False,
 ) -> dict[str, Any]:
     """Mint a durable agent key. The plaintext is returned exactly once.
 
     When ``replace_existing`` is set, every live key this user holds for the
     same client is revoked first — rotation has to invalidate what it
     replaces, or it just accumulates working credentials.
+
+    ``retrievable`` also stores the key encrypted (``security.encrypt_secret``)
+    so it can be shown again; only the dashboard's Quick Connect keys use it.
     """
     from db import AgentKeyStore
 
@@ -860,6 +864,7 @@ def issue_agent_api_key(
         key_hash=_hash_agent_key(secret),
         scopes=" ".join(scopes),
         audience=audience or OAUTH_AUDIENCE,
+        key_ciphertext=_encrypt_agent_key(secret) if retrievable else None,
     )
     return {
         "access_token": secret,
@@ -872,6 +877,32 @@ def issue_agent_api_key(
         # clients schedule a refresh that has nothing to refresh.
         "expires_in": None,
     }
+
+
+def _encrypt_agent_key(secret: str) -> str:
+    from security import encrypt_secret
+
+    return encrypt_secret(secret)
+
+
+def reveal_agent_api_key(key: dict[str, Any]) -> str | None:
+    """The plaintext of a retrievable key, or None when it cannot be shown.
+
+    None for keys minted show-once (no ciphertext) and when decryption fails,
+    e.g. after ``XCELSIOR_SECRETS_KEY`` rotation; the dashboard then shows the
+    masked prefix rather than an error.
+    """
+    ciphertext = key.get("key_ciphertext")
+    if not ciphertext:
+        return None
+    try:
+        from security import decrypt_secret
+
+        plaintext = decrypt_secret(ciphertext)
+    except Exception:
+        return None
+    # Never hand back something other than the key the hash authenticates.
+    return plaintext if _hash_agent_key(plaintext) == key.get("key_hash") else None
 
 
 def validate_agent_api_key(token: str) -> dict[str, Any] | None:
@@ -2094,6 +2125,27 @@ def _lookup_user(user_code: str) -> dict[str, Any] | None:
     return _cache_get_json("device_code", str(device_ref.get("device_code", "")))
 
 
+def device_verification_url(base_url: str = "", user_code: str | None = None) -> str:
+    """The website page where a person approves a device code.
+
+    It was `{api}/api/auth/verify`, a placeholder telling people to POST the
+    code themselves, so nobody could finish a CLI sign-in from a browser. The
+    page lives on the website, which in development is not the API's origin:
+    the public site URL wins, and the request's base URL is the fallback.
+    """
+    site = (
+        os.environ.get("XCELSIOR_PUBLIC_URL")
+        or os.environ.get("XCELSIOR_BASE_URL")
+        or base_url
+        or "https://xcelsior.ca"
+    ).rstrip("/")
+    if user_code:
+        from urllib.parse import urlencode
+
+        return f"{site}/device?{urlencode({'user_code': user_code})}"
+    return f"{site}/device"
+
+
 def issue_device_authorization(
     *,
     client: dict,
@@ -2129,8 +2181,8 @@ def issue_device_authorization(
     return {
         "device_code": device_code,
         "user_code": user_code,
-        "verification_uri": f"{base_url.rstrip('/')}/api/auth/verify",
-        "verification_uri_complete": f"{base_url.rstrip('/')}/api/auth/verify?user_code={user_code}",
+        "verification_uri": device_verification_url(base_url),
+        "verification_uri_complete": device_verification_url(base_url, user_code),
         "expires_in": DEVICE_CODE_TTL_SEC,
         "interval": DEVICE_CODE_INTERVAL_SEC,
     }

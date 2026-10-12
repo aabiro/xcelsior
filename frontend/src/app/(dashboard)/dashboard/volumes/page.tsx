@@ -514,7 +514,7 @@ export default function VolumesPage() {
           <div className="rounded-lg border border-border/60 bg-surface-hover/40 p-3 space-y-1">
             <div className="flex items-center justify-between text-sm">
               <span className="text-text-muted">${PRICE_PER_GB}/GB/month &middot; {newSize} GB</span>
-              <span className="font-semibold text-accent-violet">${estimatedCost} CAD/mo</span>
+              <span className="font-semibold text-accent-violet">${estimatedCost}/mo</span>
             </div>
             <p className="text-xs text-text-muted">
               {team.isTeamMember

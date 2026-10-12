@@ -17,6 +17,8 @@ export interface SSEEvent {
     tool_name?: string;
     tool_args?: Record<string, unknown>;
     message?: string;
+    /** WizardError code for an HTTP failure, e.g. "auth_required" on a 401 */
+    code?: string;
 }
 
 export interface ApiClientConfig {
@@ -55,11 +57,34 @@ function retryDelay(attempt: number, retryAfterSec?: number): number {
     return Math.floor(Math.random() * cap);
 }
 
-function mapHttpError(status: number, detail: string, baseUrl: string): WizardError {
+/**
+ * The human part of an error body. The API answers `{"ok":false,"error":
+ * {"code":…,"message":…}}`, and the raw JSON was shown to people verbatim.
+ */
+export function readableDetail(body: string): string {
+    try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        const error = parsed.error;
+        if (error && typeof error === "object" && typeof (error as Record<string, unknown>).message === "string") {
+            return (error as Record<string, string>).message;
+        }
+        for (const key of ["detail", "message", "error"] as const) {
+            if (typeof parsed[key] === "string") return parsed[key] as string;
+        }
+    } catch {
+        // Not JSON: the body is already text.
+    }
+    return body;
+}
+
+function mapHttpError(status: number, body: string, baseUrl: string): WizardError {
+    const detail = readableDetail(body);
     if (status === 401) {
-        return new WizardError(detail || "Unauthorized", {
+        // Not "press Enter / m": those keys only mean sign-in on the sign-in
+        // screen, and this error reaches every screen that calls the API.
+        return new WizardError("Your sign-in has expired or is no longer valid", {
             code: "auth_required",
-            remediation: "Re-authenticate with device flow (Enter) or paste a fresh OAuth token (m).",
+            remediation: "Sign in again to continue.",
         });
     }
     if (status === 402) {
@@ -257,7 +282,11 @@ export async function* streamChat(
         for await (const chunk of response) chunks.push(chunk as Buffer);
         const text = Buffer.concat(chunks).toString();
         const mapped = mapHttpError(response.statusCode ?? 500, text || "AI request failed", config.baseUrl);
-        yield { type: "error", message: mapped.remediation ? `${mapped.message} — ${mapped.remediation}` : mapped.message };
+        yield {
+            type: "error",
+            code: mapped.code,
+            message: mapped.remediation ? `${mapped.message} — ${mapped.remediation}` : mapped.message,
+        };
         return;
     }
 
@@ -300,7 +329,11 @@ export async function* confirmAction(
         for await (const chunk of response) chunks.push(chunk as Buffer);
         const text = Buffer.concat(chunks).toString();
         const mapped = mapHttpError(response.statusCode ?? 500, text || "Confirmation failed", config.baseUrl);
-        yield { type: "error", message: mapped.remediation ? `${mapped.message} — ${mapped.remediation}` : mapped.message };
+        yield {
+            type: "error",
+            code: mapped.code,
+            message: mapped.remediation ? `${mapped.message} — ${mapped.remediation}` : mapped.message,
+        };
         return;
     }
 
@@ -316,6 +349,8 @@ export interface DeviceCodeResult {
     device_code: string;
     user_code: string;
     verification_uri: string;
+    /** verification_uri with the code filled in (RFC 8628 §3.3.1) */
+    verification_uri_complete?: string;
     expires_in: number;
     interval: number;
 }
