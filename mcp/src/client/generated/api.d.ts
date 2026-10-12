@@ -2995,6 +2995,8 @@ export interface components {
             } | null;
             /** Resumable */
             resumable?: boolean | null;
+            /** Policy Reason */
+            policy_reason?: "mining_detected" | null;
         };
         /** SubmitEvidenceRequest */
         SubmitEvidenceRequest: {

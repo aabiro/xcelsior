@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-10-10 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-10-12 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**0 of 532 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
+**0 of 531 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -52,7 +52,9 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/admin/unit-economics` — `api_admin_unit_economics`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/users` — `api_admin_users`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/role` — `api_admin_set_user_role`  ✓ test_admin_endpoints_coverage.py
+- [x] `POST /api/admin/users/{email}/suspend` — `api_admin_suspend_user`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/toggle-admin` — `api_admin_toggle_admin`  ✓ test_admin_endpoints_coverage.py
+- [x] `POST /api/admin/users/{email}/unsuspend` — `api_admin_unsuspend_user`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/verification-queue` — `api_admin_verification_queue`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/web-push/test-notification` — `api_admin_web_push_test_notification`
 
@@ -321,6 +323,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 ### `routes/hosts.py` (0 untested)
 - [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /api/hosts/{host_id}/enrollment` — `api_enroll_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /api/hosts/{host_id}/spot-preview` — `api_host_spot_preview`  ✓ test_hosts_endpoints_coverage.py
 - [x] `PATCH /api/hosts/{host_id}/spot-settings` — `api_update_host_spot_settings`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /compute-score/{host_id}` — `api_get_compute_score`
@@ -483,8 +486,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ### `routes/serverless.py` (0 untested)
 - [x] `POST /api/v1/serverless/endpoint-plans` — `api_v1_serverless_endpoint_plan`
 - [x] `POST /api/v1/serverless/endpoint-plans/{plan_id}/execute` — `api_v1_execute_serverless_endpoint_plan`
-- [x] `GET /api/v2/inference/endpoints` — `api_inference_compat_endpoint_health`  ✓ test_untested_endpoints_coverage.py
-- [x] `POST /api/v2/inference/endpoints` — `api_inference_compat_endpoint_usage`  ✓ test_untested_endpoints_coverage.py
+- [x] `GET /api/v2/inference/endpoints` — `api_inference_compat_get_endpoint`  ✓ test_untested_endpoints_coverage.py
+- [x] `POST /api/v2/inference/endpoints` — `api_inference_compat_delete_endpoint`  ✓ test_untested_endpoints_coverage.py
+- [x] `GET /api/v2/inference/endpoints/{endpoint_id}` — `api_inference_compat_endpoint_health`
+- [x] `DELETE /api/v2/inference/endpoints/{endpoint_id}` — `api_inference_compat_endpoint_usage`
 - [x] `GET /api/v2/serverless/batches/{batch_id}` — `api_serverless_get_batch`  ✓ test_untested_endpoints_coverage.py
 - [x] `GET /api/v2/serverless/enabled` — `api_serverless_enabled`
 - [x] `POST /api/v2/serverless/endpoints` — `api_serverless_create_endpoint`
@@ -502,36 +507,30 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/keys` — `api_serverless_list_keys`
 - [x] `DELETE /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}` — `api_serverless_revoke_key`
 - [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/metrics` — `api_serverless_endpoint_metrics`
-- [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/test/openai/v1/chat/completions` — `api_serverless_test_openai_chat`
 - [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/test/run` — `api_serverless_test_run`
 - [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/test/runsync` — `api_serverless_test_runsync`
 - [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/usage` — `api_serverless_endpoint_usage`
 - [x] `POST /api/v2/serverless/endpoints/{endpoint_id}/warm` — `api_serverless_warm_endpoint`
 - [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers` — `api_serverless_list_workers`
-- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs` — `api_serverless_worker_logs`
-- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/logs/stream` — `api_serverless_worker_logs_stream`
-- [x] `GET /api/v2/serverless/endpoints/{endpoint_id}/workers/{worker_id}/telemetry` — `api_serverless_worker_telemetry`
 - [x] `POST /api/v2/serverless/github/resolve` — `api_serverless_github_resolve`  ✓ test_untested_endpoints_coverage.py
 - [x] `GET /api/v2/serverless/preset-token-pricing` — `api_preset_token_pricing`  ✓ test_untested_endpoints_coverage.py
-- [x] `POST /api/v2/serverless/workers/{worker_id}/exited` — `api_serverless_worker_job_event`
-- [x] `POST /api/v2/serverless/workers/{worker_id}/heartbeat` — `api_serverless_worker_complete_job`
-- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/claim` — `api_inference_compat_list_endpoints`
-- [x] `GET /api/v2/serverless/workers/{worker_id}/jobs/{job_id}` — `api_inference_compat_create_endpoint`
-- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/complete` — `api_inference_compat_get_endpoint`
-- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/events` — `api_inference_compat_delete_endpoint`
-- [x] `POST /api/v2/serverless/workers/{worker_id}/ready` — `api_serverless_worker_get_job`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/exited` — `api_serverless_worker_get_job`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/heartbeat` — `api_serverless_worker_claim_job`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/claim` — `api_serverless_worker_complete_job`
+- [x] `GET /api/v2/serverless/workers/{worker_id}/jobs/{job_id}` — `api_serverless_worker_job_event`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/complete` — `api_inference_compat_list_endpoints`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/jobs/{job_id}/events` — `api_inference_compat_create_endpoint`
+- [x] `POST /api/v2/serverless/workers/{worker_id}/ready` — `api_serverless_worker_exited`
 - [x] `POST /v1/serverless/{endpoint_id}/cancel/{job_id}` — `_stream`  ✓ test_chat_endpoints_coverage.py
 - [x] `POST /v1/serverless/{endpoint_id}/openai/v1/chat/completions` — `api_serverless_openai_models`
-- [x] `POST /v1/serverless/{endpoint_id}/openai/v1/embeddings` — `api_serverless_worker_ready`
-- [x] `GET /v1/serverless/{endpoint_id}/openai/v1/models` — `api_serverless_worker_exited`
+- [x] `POST /v1/serverless/{endpoint_id}/openai/v1/embeddings` — `_require_worker_callback`
+- [x] `GET /v1/serverless/{endpoint_id}/openai/v1/models` — `api_serverless_worker_ready`
 - [x] `POST /v1/serverless/{endpoint_id}/run` — `api_serverless_run`
 - [x] `POST /v1/serverless/{endpoint_id}/runsync` — `api_serverless_job_status`
 - [x] `GET /v1/serverless/{endpoint_id}/status/{job_id}` — `_on_disconnect`
 - [x] `GET /v1/serverless/{endpoint_id}/stream/{job_id}` — `api_serverless_cancel_job`
 - [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/cancel/{job_id}` — `api_serverless_openai_embeddings`
-- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/chat/completions` — `_require_worker_callback`
-- [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/embeddings` — `api_serverless_worker_heartbeat`
-- [x] `GET /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/models` — `api_serverless_worker_claim_job`
+- [x] `GET /v1/serverless/{endpoint_id}/{endpoint_slug}/openai/v1/models` — `api_serverless_worker_heartbeat`
 - [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/run` — `api_serverless_runsync`
 - [x] `POST /v1/serverless/{endpoint_id}/{endpoint_slug}/runsync` — `api_serverless_job_stream`
 - [x] `GET /v1/serverless/{endpoint_id}/{endpoint_slug}/status/{job_id}` — `_gen`  ✓ test_billing_endpoints_coverage.py

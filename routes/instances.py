@@ -1453,7 +1453,23 @@ def _fence_attempt_owned_patch(
 @router.patch("/instance/{job_id}", tags=["Instances"])
 def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     """Update a job's status."""
-    _require_worker_status_update(request)
+    from control_plane.agent_tokens import looks_like_host_token
+
+    bearer = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    host_token = looks_like_host_token(bearer)
+    if host_token:
+        from routes.agent import _require_agent_auth
+
+        if not update.host_id:
+            raise HTTPException(400, "Host token status reports require host_id")
+        _require_agent_auth(request, host_id=update.host_id)
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(404, f"Instance {job_id} not found")
+        if job.get("host_id") != update.host_id:
+            raise HTTPException(403, "Host cannot report status for another host's job")
+    else:
+        _require_worker_status_update(request)
     _fence_attempt_owned_patch(
         job_id,
         update.host_id,
@@ -1472,6 +1488,10 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 log.warning("Worker preempt billing close failed for %s: %s", job_id, exc)
 
         status_kwargs: dict = {}
+        if host_token:
+            # Recheck the assignment under the scheduler's row lock: a legacy
+            # job may move between the route's read and this status mutation.
+            status_kwargs["_authority_host_id"] = update.host_id
         if update.policy_reason:
             if update.status != "terminated" or not update.host_id:
                 raise HTTPException(400, "Policy termination requires a host and terminated status")

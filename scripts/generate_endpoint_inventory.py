@@ -86,6 +86,9 @@ _AUTH_CALLS = (
     "_check_terminal_access",
     "_get_current_user",
     "validate_key",
+    # Refuses a suspended account with 403 after the session is resolved.
+    # Without it, every route that merges the full user reads as unguarded.
+    "_merge_auth_user",
 )
 
 
@@ -310,9 +313,7 @@ def render(rows: list[dict[str, str]]) -> str:
         by_module.setdefault(row["module"], []).append(row)
 
     classification = load_classification()
-    classified = sum(
-        1 for row in rows if f"{row['method']} {row['path']}" in classification
-    )
+    classified = sum(1 for row in rows if f"{row['method']} {row['path']}" in classification)
 
     out: list[str] = [
         "# Endpoint inventory (generated)",

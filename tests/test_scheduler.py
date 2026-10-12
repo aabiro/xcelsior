@@ -340,6 +340,27 @@ class TestProcessQueue:
 
 
 class TestJobStatus:
+    @pytest.mark.parametrize("status", ["completed", "failed", "terminated"])
+    def test_host_report_rechecks_a_legacy_jobs_current_assignment(self, status):
+        job = scheduler.submit_job("host-status-race", 8)
+        job_id = job["job_id"]
+        scheduler.update_job_status(job_id, "assigned", host_id="new-host")
+
+        # The route authenticated the old host before the job moved. The
+        # mutation must reject that stale authority even without an attempt.
+        with pytest.raises(RuntimeError, match="host authority changed"):
+            scheduler.update_job_status(
+                job_id, status, host_id="old-host", _authority_host_id="old-host"
+            )
+        unchanged = scheduler.get_job(job_id)
+        assert unchanged["status"] == "assigned"
+        assert unchanged["host_id"] == "new-host"
+
+        scheduler.update_job_status(
+            job_id, status, host_id="new-host", _authority_host_id="new-host"
+        )
+        assert scheduler.get_job(job_id)["status"] == status
+
     def test_update_status(self):
         job = scheduler.submit_job("test", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")

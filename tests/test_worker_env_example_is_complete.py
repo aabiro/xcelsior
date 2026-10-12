@@ -19,6 +19,7 @@ walks actual attribute calls and subscripts.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,10 @@ NOT_WORKER_CONFIG = frozenset(
         # does not load the developer's own `.env`. An operator setting it on a
         # rented machine would switch off the worker's env loading entirely.
         "XCELSIOR_SKIP_DOTENV",
+        # systemd sets this from StateDirectory= on the unit. An operator
+        # does not put it in the worker env file; documenting it would invite
+        # a value that fights the unit.
+        "STATE_DIRECTORY",
     }
 )
 
@@ -156,14 +161,19 @@ def test_example_documents_every_variable_the_agent_reads():
     )
 
 
-def test_example_declares_nothing_the_agent_does_not_read():
+def test_example_declares_nothing_the_worker_or_installer_does_not_read():
     """The other direction: a stale entry is a documented lie."""
     required = _required_names()
     documented = _names_declared_in(EXAMPLE)
+    # Some options move into root-owned helper configuration at installation
+    # rather than being read by the unprivileged agent. Derive those consumers
+    # from the installer so their documented interface is not deleted as stale.
+    installer = (REPO / "scripts" / "install.sh").read_text(encoding="utf-8")
+    installer_reads = set(re.findall(r"_env_value\s+(XCELSIOR_[A-Z0-9_]+)", installer))
 
-    extra = sorted(documented - required)
+    extra = sorted(documented - required - installer_reads)
     assert not extra, (
-        f"`.env.worker.example` documents variables `worker_agent.py` never "
+        f"`.env.worker.example` documents variables the worker and installer never "
         f"reads: {extra}. Setting one has no effect, which is worse than it "
         "being absent — the operator believes they configured something."
     )

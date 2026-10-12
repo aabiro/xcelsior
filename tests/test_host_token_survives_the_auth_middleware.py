@@ -332,3 +332,58 @@ def test_a_valid_token_for_one_host_is_refused_on_another(client, registered_hos
         f"(got {other.status_code}: {other.text[:200]}). Passing the middleware "
         "must not confer authority over another host."
     )
+
+
+def test_host_status_report_authenticates_and_binds_the_job(
+    client, registered_host_token, monkeypatch
+):
+    """A real issued host token must reach and pass both auth layers."""
+    import routes.instances as instances
+    import routes.agent as agent
+
+    host_a, host_b, secret = registered_host_token
+    monkeypatch.setattr(
+        agent,
+        "list_hosts",
+        lambda **kwargs: [{"host_id": h, "admitted": True} for h in (host_a, host_b)],
+    )
+    monkeypatch.setenv("XCELSIOR_ENV", "production")
+    monkeypatch.setenv("XCELSIOR_ALLOW_UNAUTH_AGENT", "0")
+    monkeypatch.setenv("XCELSIOR_AGENT_HOST_TOKENS", "require")
+    monkeypatch.setattr(instances, "get_job", lambda job_id: {"host_id": host_a})
+    monkeypatch.setattr(instances, "_fence_attempt_owned_patch", lambda *args: None)
+    writes = []
+    monkeypatch.setattr(
+        instances, "update_job_status", lambda *args, **kwargs: writes.append((args, kwargs))
+    )
+    headers = {"Authorization": f"Bearer {secret}"}
+    payload = {"status": "terminated", "host_id": host_a, "policy_reason": "mining_detected"}
+    own = client.patch("/instance/test-policy-job", headers=headers, json=payload)
+    assert own.status_code == 200, own.text
+    assert len(writes) == 1
+    assert writes[0][1]["policy_reason"] == "mining_detected"
+    assert writes[0][1]["_authority_host_id"] == host_a
+
+    wrong_identity = client.patch(
+        "/instance/test-policy-job", headers=headers, json={**payload, "host_id": host_b}
+    )
+    assert wrong_identity.status_code == 403
+    monkeypatch.setattr(instances, "get_job", lambda job_id: {"host_id": host_b})
+    wrong_job = client.patch("/instance/test-policy-job", headers=headers, json=payload)
+    assert wrong_job.status_code == 403
+    assert len(writes) == 1
+
+    for path in ("/instance/test-policy-job", "/instances", "/instance/test-policy-job/extra"):
+        assert _is_middleware_rejection(client.get(path, headers=headers)), path
+
+
+def test_unknown_host_token_cannot_report_status(client, monkeypatch):
+    monkeypatch.setenv("XCELSIOR_ENV", "production")
+    monkeypatch.setenv("XCELSIOR_ALLOW_UNAUTH_AGENT", "0")
+    response = client.patch(
+        "/instance/test-policy-job",
+        headers={"Authorization": f"Bearer {HOST_TOKEN}"},
+        json={"status": "terminated", "host_id": "h-unknown", "policy_reason": "mining_detected"},
+    )
+    assert response.status_code in (401, 403)
+    assert not _is_middleware_rejection(response)
