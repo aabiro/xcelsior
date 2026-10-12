@@ -2424,7 +2424,7 @@
           "Instances"
         ],
         "summary": "Submit Instance",
-        "description": "Submit a job to the queue or directly assign to a host.\n\nIf host_id is provided (marketplace launch), the job is assigned directly\nto that host and container start is attempted immediately — unless the\ntransactional scheduler owns the job (canary/active partition), in which\ncase the pin is recorded and placement/start stay with the claim→reserve\npath. Otherwise the job is queued and process_queue runs to find a host.",
+        "description": "Submit a job to the queue or directly assign to a host.\n\nIf host_id is provided (marketplace launch), the job is assigned directly\nto that host for its worker to start (SSH only without an agent). When the\ntransactional scheduler owns the job (canary/active partition),\ncase the pin is recorded and placement/start stay with the claim→reserve\npath. Otherwise the job is queued and process_queue runs to find a host.",
         "operationId": "api_submit_instance_instance_post",
         "requestBody": {
           "content": {

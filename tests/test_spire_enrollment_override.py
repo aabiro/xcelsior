@@ -203,8 +203,7 @@ def test_main_skips_a_host_that_has_not_enrolled(tmp_path: Path, capsys):
 def test_main_writes_the_live_slot_and_leaves_existing_env_values(tmp_path: Path, capsys):
     enrollment = tmp_path / "api-enrollment.env"
     enrollment.write_text(
-        "XCELSIOR_SPIRE_SERVER_ADDRESS=100.64.0.1\n"
-        "XCELSIOR_HEADSCALE_API_KEY=from-enrollment\n"
+        "XCELSIOR_SPIRE_SERVER_ADDRESS=100.64.0.1\n" "XCELSIOR_HEADSCALE_API_KEY=from-enrollment\n"
     )
     override = tmp_path / "docker-compose.override.yml"
     override.write_text(API_ONLY)

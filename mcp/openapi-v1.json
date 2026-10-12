@@ -6329,6 +6329,18 @@
               }
             ],
             "title": "Resumable"
+          },
+          "policy_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "mining_detected"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Reason"
           }
         },
         "type": "object",
