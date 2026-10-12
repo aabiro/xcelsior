@@ -2102,6 +2102,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         # assigned→running would otherwise be force-failed (regresses the old
         # reaper SQL ``WHERE status = expected`` under row lock).
         locked_col_status = None
+        authority_host_id = None
         if _active_backend() == "postgres":
             authority = conn.execute(
                 """SELECT j.active_attempt_id, j.host_id, a.fencing_token, j.status
@@ -2153,6 +2154,11 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
             j["status"] = locked_col_status
         old_status = j.get("status")
         old_host_id = j.get("host_id")
+        assigned_host = authority_host_id if _active_backend() == "postgres" else old_host_id
+        if validated_host_id is not None and str(validated_host_id) != str(assigned_host or ""):
+            raise RuntimeError(
+                f"job {job_id} host authority changed; raw lifecycle mutation is fenced out"
+            )
 
         from abuse_policy import MINING_REASON, job_blocked, record_mining_violation
 

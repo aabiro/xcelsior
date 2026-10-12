@@ -196,7 +196,13 @@ def test_funded_internet_reaches_public_addresses_only():
     assert rules[0] == ["-m", "conntrack", "--ctdir", "REPLY", "-j", "RETURN"]
     assert rules[-1] == ["-j", "ACCEPT"]
     dropped = {rule[1] for rule in rules if rule[:1] == ["-d"] and rule[-2:] == ["-j", "DROP"]}
-    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"):
+    for cidr in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "100.64.0.0/10",
+    ):
         assert cidr in dropped
     assert all("--dport" not in rule for rule in rules)
 
