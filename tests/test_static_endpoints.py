@@ -213,3 +213,31 @@ def test_agent_load_time_imports_are_all_shipped():
                 dep in shipped
             ), f"{module}.py imports {dep} at load time, but install.sh does not ship it"
             todo.append(dep)
+
+
+@pytest.fixture
+def anonymous_client(monkeypatch):
+    """The real app with authentication enforced, as in production.
+
+    The module-level `client` above runs with auth off, which is how
+    /install.sh shipped behind a 401: `curl ... | bash` sends no credential.
+    """
+    import api
+
+    monkeypatch.setattr(api, "AUTH_REQUIRED", True)
+    monkeypatch.setenv("XCELSIOR_API_TOKEN", "test-shared-bearer-0000000000000000")
+    with TestClient(api.app, raise_server_exceptions=False) as test_client:
+        yield test_client
+
+
+def test_a_new_host_downloads_the_installer_without_credentials(anonymous_client):
+    # The middleware is live: an ordinary route still refuses an anonymous call.
+    assert anonymous_client.get("/instances").status_code == 401
+    resp = anonymous_client.get("/install.sh")
+    assert resp.status_code == 200, resp.text
+    assert resp.content == INSTALL_SH.read_bytes()
+    for name in sorted(_installer_downloads()):
+        resp = anonymous_client.get(f"/static/{name}")
+        assert (
+            resp.status_code == 200
+        ), f"install.sh downloads {name}, anonymous call got {resp.status_code}"
