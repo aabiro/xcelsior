@@ -2,13 +2,18 @@
 
 Uses the existing transactional state store. Suspensions are administrator
 decisions; a worker detection records a review flag, never an account ban.
+A mining detection also revokes funded internet until an administrator clears
+it. Payment never opens the host network: it only selects the funded bridge.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 
 from db import DatabaseOps, get_engine
+
+log = logging.getLogger(__name__)
 
 MINING_REASON = "mining_detected"
 
@@ -65,6 +70,15 @@ def record_mining_violation(conn, job: dict, *, backend: str | None = None) -> N
             dict(record, account_id=owner, status="needs_review"),
             backend=backend,
         )
+        # Card-funded mining loses direct internet. The account is not banned.
+        set_egress_revoked(
+            conn,
+            user_id=str(owner),
+            active=True,
+            actor="mining-detector",
+            reason=MINING_REASON,
+            backend=backend,
+        )
 
 
 _IDENTIFIER_KEYS = (
@@ -108,26 +122,85 @@ def account_suspended(principal: dict | str | None) -> bool:
 
 
 def egress_for_owner(principal: dict | str | None) -> str:
-    """Rented containers get restricted egress unless an administrator opened it.
+    """Pick the network for this account.
 
-    Restricted means the isolated bridge plus the allowlisting proxy
-    (``egress_isolation``). The job tier is not a trust signal: anyone can
-    pick it, and signup credit funds it.
+    A mining revocation wins. An administrator ``open`` decision is the only
+    way off the isolated bridges. A settled card deposit selects the funded
+    bridge: public internet, host and LAN still closed. Promotional credit
+    does not. Anything else, including a lookup failure, stays on the proxy.
     """
-    from egress_isolation import OPEN, RESTRICTED
+    from egress_isolation import FUNDED, OPEN, RESTRICTED
 
-    return OPEN if _any_active("security.egress_open", _identifiers(principal)) else RESTRICTED
+    identifiers = _identifiers(principal)
+    if _any_active("security.egress_revoked", identifiers):
+        return RESTRICTED
+    if _any_active("security.egress_open", identifiers):
+        return OPEN
+    if _card_paid(identifiers):
+        return FUNDED
+    return RESTRICTED
+
+
+def _card_paid(identifiers: list[str]) -> bool:
+    if _any_active("security.card_paid", identifiers):
+        return True
+    for user_id in identifiers:
+        if _backfill_card_paid(user_id):
+            return True
+    return False
+
+
+def _backfill_card_paid(user_id: str) -> bool:
+    """A deposit recorded before this flag existed still counts as payment."""
+    try:
+        with get_engine().transaction() as (conn, backend):
+            row = conn.execute(
+                """SELECT 1 AS ok FROM payment_intents
+                   WHERE customer_id = %s AND status = 'succeeded' AND amount_cents > 0
+                   LIMIT 1""",
+                (user_id,),
+            ).fetchone()
+            if not row:
+                return False
+            set_card_paid(
+                conn,
+                user_id=user_id,
+                active=True,
+                actor="billing",
+                reason="settled card deposit",
+                backend=backend,
+            )
+            return True
+    except Exception:
+        log.warning("card payment lookup failed for egress; leaving internet closed", exc_info=True)
+        return False
+
+
+def set_card_paid(
+    conn, *, user_id: str, active: bool, actor: str, reason: str, backend: str | None = None
+) -> None:
+    _write_decision(conn, "security.card_paid", user_id, active, actor, reason, backend)
+
+
+def set_egress_revoked(
+    conn, *, user_id: str, active: bool, actor: str, reason: str, backend: str | None = None
+) -> None:
+    _write_decision(conn, "security.egress_revoked", user_id, active, actor, reason, backend)
+
+
+def _write_decision(conn, prefix, user_id, active, actor, reason, backend) -> None:
+    user_id, actor, reason = (str(v or "").strip() for v in (user_id, actor, reason))
+    if not user_id or not actor or not reason:
+        raise ValueError("A security decision requires a user, actor and reason")
+    backend = _resolve_backend(conn, backend)
+    decision = {"active": active, "actor": actor, "reason": reason[:500], "updated_at": time.time()}
+    DatabaseOps.upsert_state(conn, f"{prefix}.{user_id}", decision, backend=backend)
 
 
 def set_egress_open(
     conn, *, user_id: str, active: bool, actor: str, reason: str, backend: str | None = None
 ) -> None:
-    user_id, actor, reason = (str(v or "").strip() for v in (user_id, actor, reason))
-    if not user_id or not actor or not reason:
-        raise ValueError("Opening egress requires a user, actor and reason")
-    backend = _resolve_backend(conn, backend)
-    decision = {"active": active, "actor": actor, "reason": reason[:500], "updated_at": time.time()}
-    DatabaseOps.upsert_state(conn, f"security.egress_open.{user_id}", decision, backend=backend)
+    _write_decision(conn, "security.egress_open", user_id, active, actor, reason, backend)
 
 
 def set_account_suspension(
