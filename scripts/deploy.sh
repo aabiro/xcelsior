@@ -1396,14 +1396,18 @@ detect_deploy_inputs() {
     fetch_remote_deploy_hashes >"$hash_dir/remote" & local pid_remote=$!
 
     # Hash local inputs in parallel (CPU-bound).
-    api_build_hash >"$hash_dir/api" &
-    frontend_build_hash >"$hash_dir/frontend" &
-    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" &
+    api_build_hash >"$hash_dir/api" & local pid_api=$!
+    frontend_build_hash >"$hash_dir/frontend" & local pid_frontend=$!
+    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" & local pid_nginx=$!
     runtime_build_hash >"$hash_dir/runtime" & local pid_runtime=$!
-    wait
 
+    # Wait on each pid. A bare `wait` reaps them first, and the following
+    # `wait "$pid"` then fails with "not a child of this shell".
+    wait "$pid_api" || error "Cannot fingerprint the API build inputs"
+    wait "$pid_frontend" || error "Cannot fingerprint the frontend build inputs"
+    wait "$pid_nginx" || error "Cannot fingerprint the nginx inputs"
     wait "$pid_runtime" || error "Cannot fingerprint the effective runtime configuration"
-    wait "$pid_remote" 2>/dev/null || true
+    wait "$pid_remote" || error "Cannot read the deployed configuration fingerprints"
     parse_remote_deploy_hashes <"$hash_dir/remote"
 
     DEPLOY_API_HASH=$(cat "$hash_dir/api")
@@ -1493,6 +1497,20 @@ wait_for_api_readiness() {
         if ((attempt < attempts)); then sleep 2; fi
     done
     return 1
+}
+
+# Compose does not inject .env into a container. Enrollment settings reach
+# the API only when the preserved production override names them and mounts
+# the SPIRE socket and CLI. Secrets stay in /etc/xcelsior/spire and .env.
+ensure_prod_spire_enrollment() {
+    [[ "${TARGET_ENV:-}" == "prod" ]] || return 0
+    # api and api-blue are different services. The live slot is whichever one
+    # nginx is routing to, so both blocks need the socket and the CLI.
+    log "Ensuring both API slots can reach the SPIRE server..."
+    ssh_cmd "python3 - /etc/xcelsior/spire/api-enrollment.env /opt/xcelsior/docker-compose.override.yml /opt/xcelsior/.env" \
+        < "$SCRIPT_DIR/spire_enrollment_override.py" \
+        || error "Could not wire SPIRE enrollment into the API compose override"
+    success "API SPIRE enrollment wiring is present"
 }
 
 deploy_docker() {
@@ -2259,6 +2277,7 @@ main() {
 
             backup_current
             sync_code
+            ensure_prod_spire_enrollment
 
             if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
                 install_nginx_configs
