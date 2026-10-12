@@ -76,6 +76,7 @@ from oauth_service import (
     REFRESH_TOKEN_TTL_SEC,
     OAuthGrantError,
     approve_device_code,
+    device_verification_url,
     authenticate_client,
     build_deprecation_headers,
     canonical_mcp_resource,
@@ -1172,18 +1173,23 @@ async def oauth_token_compat(request: Request):
     return await _oauth_token_grant_response(request, body, deprecated_surface="/api/auth/token")
 
 
-@router.get("/api/auth/verify", tags=["Auth"], deprecated=True)
-def oauth_verify_page():
-    from fastapi.responses import HTMLResponse
+#: The shape issue_device_authorization gives user codes: XXXX-XXXX, hex.
+_DEVICE_USER_CODE = re.compile(r"[0-9A-F]{4}-[0-9A-F]{4}")
 
-    html = """<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Xcelsior Device Authorization</title></head>
-<body><main style="max-width:480px;margin:3rem auto;font-family:system-ui,sans-serif">
-<h1>Authorize Device</h1>
-<p>Sign in, then submit your device code with <code>POST /api/auth/verify</code>.</p>
-</main></body></html>"""
-    return HTMLResponse(content=html)
+
+@router.get("/api/auth/verify", tags=["Auth"], deprecated=True)
+def oauth_verify_page(request: Request, user_code: str = ""):
+    """Send browsers to the website's device sign-in page.
+
+    This was the page itself: one line telling people to submit the code with
+    `POST /api/auth/verify`. Wizards up to 0.1.5 still open this URL, so it
+    redirects, carrying the code along when it looks like one.
+    """
+    code = user_code.strip().upper()
+    target = device_verification_url(
+        str(request.base_url), code if _DEVICE_USER_CODE.fullmatch(code) else None
+    )
+    return RedirectResponse(target, status_code=302)
 
 
 @router.post("/api/auth/verify", tags=["Auth"], deprecated=True)
@@ -1334,10 +1340,13 @@ def api_list_oauth_clients(request: Request):
 def api_mcp_quick_connect(
     request: Request, regenerate: bool = False, surface: Literal["mcp", "cli"] = "mcp"
 ):
-    """Return a dedicated MCP or CLI API key, revealed only on minting.
+    """Return a dedicated MCP or CLI API key, in full on every visit.
 
     Each surface has its own client, audience and independently revocable key.
-    Previously issued keys are masked until explicitly regenerated, even before first use.
+    These keys are kept encrypted so the page can show them again: showing a
+    masked prefix after the first visit pushed people to regenerate, which
+    revokes the key their agent is already using. Keys minted before that
+    (no ciphertext) stay masked until regenerated once.
     """
     user = _require_user_grant(request)
     from oauth_service import (
@@ -1361,7 +1370,12 @@ def api_mcp_quick_connect(
             surface=surface,
         )
         from db import AgentKeyStore
-        from oauth_service import MCP_RESOURCE_AUDIENCE, OAUTH_AUDIENCE, issue_agent_api_key
+        from oauth_service import (
+            MCP_RESOURCE_AUDIENCE,
+            OAUTH_AUDIENCE,
+            issue_agent_api_key,
+            reveal_agent_api_key,
+        )
 
         scopes = list(client.get("scopes") or MCP_QUICK_CONNECT_SCOPES)
         user_id = str(user.get("user_id") or user.get("email") or "")
@@ -1386,6 +1400,7 @@ def api_mcp_quick_connect(
                 audience=MCP_RESOURCE_AUDIENCE if surface == "mcp" else OAUTH_AUDIENCE,
                 name="MCP Quick Connect" if surface == "mcp" else "CLI Skill",
                 replace_existing=True,
+                retrievable=True,
             )
 
     # `XCELSIOR_BASE_URL` is the plumbed name for this. `XCELSIOR_PUBLIC_URL`
@@ -1411,10 +1426,13 @@ def api_mcp_quick_connect(
         # The canonical connector URL, not `${api}/mcp`: an agent key is bound
         # to the MCP resource, so a config pointing anywhere else authenticates
         # against a resource the token was never issued for.
-        # Present only when freshly minted. Absent means "already issued" —
-        # the UI shows the masked prefix instead of a token it cannot
-        # legitimately produce.
-        "access_token": bundle["access_token"] if bundle else None,
+        # Absent only for a key minted before keys were kept encrypted: the
+        # UI then shows the masked prefix instead of a token it cannot produce.
+        "access_token": (
+            bundle["access_token"]
+            if bundle
+            else (reveal_agent_api_key(existing) if existing else None)
+        ),
         "key_id": bundle["key_id"] if bundle else (existing["key_id"] if existing else None),
         "key_prefix": (
             bundle["key_prefix"] if bundle else (existing["key_prefix"] if existing else None)
