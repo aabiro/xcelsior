@@ -144,7 +144,9 @@ verify_agent_signature() {
     printf '%s\n' "$AGENT_SIGNING_PUB_EMBEDDED" > "$pub"
     echo "$sig_b64" | tr -d '[:space:]' | base64 -d > "$tmp_sig" 2>/dev/null \
         || fail "Invalid agent signature encoding"
-    if ! openssl pkeyutl -verify -pubin -inkey "$pub" -sigfile "$tmp_sig" -in "$file" >/dev/null 2>&1; then
+    # Ed25519 requires raw input. OpenSSL before 3.5 does not infer this from
+    # the key type (including Ubuntu 24.04's OpenSSL 3.0).
+    if ! openssl pkeyutl -verify -rawin -pubin -inkey "$pub" -sigfile "$tmp_sig" -in "$file" >/dev/null 2>&1; then
         rm -f "$pub" "$tmp_sig" "$tmp_pub"
         fail "Agent signature verification failed — refusing install (supply-chain protection)"
     fi
@@ -303,6 +305,37 @@ EOF
 # root-owned copy; the worker only reads the status file it writes, and gets
 # no rentals while that status is missing or stale.
 
+prepare_egress_proxy_access() {
+    # Existing hosts may keep credentials under a private /etc/xcelsior.
+    # Give only the proxy user traversal, without making that directory public.
+    sudo mkdir -p /etc/xcelsior
+    if ! sudo -u proxy test -x /etc/xcelsior; then
+        if ! command -v setfacl >/dev/null 2>&1; then
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null \
+                || fail "Could not install acl for the proxy's config access"
+        fi
+        sudo setfacl -m u:proxy:--x /etc/xcelsior
+    fi
+    # Ubuntu's Squid AppArmor profile permits only the packaged config/runtime
+    # paths. Keep confinement enabled and grant these three exact files.
+    if [ -f /etc/apparmor.d/usr.sbin.squid ]; then
+        local local_profile=/etc/apparmor.d/local/usr.sbin.squid
+        sudo install -d -m 0755 /etc/apparmor.d/local
+        if ! sudo grep -qF '# Xcelsior tenant proxy' "$local_profile" 2>/dev/null; then
+            sudo tee -a "$local_profile" >/dev/null <<'EOF'
+
+# Xcelsior tenant proxy
+/etc/xcelsior/egress/squid.conf r,
+/etc/xcelsior/egress/domains.txt r,
+/run/xcelsior-egress-proxy/squid.pid rwk,
+EOF
+        fi
+        if command -v aa-status >/dev/null 2>&1 && sudo aa-status --enabled; then
+            sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.squid
+        fi
+    fi
+}
+
 install_egress_isolation() {
     info "Setting up network protection for rented containers..."
     if ! command -v squid >/dev/null 2>&1; then
@@ -315,6 +348,7 @@ install_egress_isolation() {
     # rented containers' gateway.
     sudo systemctl disable --now squid.service >/dev/null 2>&1 || true
     sudo systemctl mask squid.service >/dev/null 2>&1 || true
+    prepare_egress_proxy_access
 
     sudo install -d -m 0755 -o root -g root /usr/local/lib/xcelsior
     sudo install -m 0644 -o root -g root "$CONFIG_DIR/lib/egress_isolation.py" \
