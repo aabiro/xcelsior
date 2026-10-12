@@ -48,12 +48,20 @@ export function StripeConnectEmbedded({
     try {
       const instance = loadConnectAndInitialize({
         publishableKey: pk,
+        // connect-js calls this outside mount's try/catch, so surface the
+        // failure in the inline error box before rethrowing.
         fetchClientSecret: async () => {
-          const res = await createProviderAccountSession(providerId);
-          if (!res?.client_secret) {
-            throw new Error("Account session missing client_secret");
+          try {
+            const res = await createProviderAccountSession(providerId);
+            if (!res?.client_secret) {
+              throw new Error("Account session missing client_secret");
+            }
+            return res.client_secret;
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to start Stripe session");
+            setReady(false);
+            throw err;
           }
-          return res.client_secret;
         },
         // Shared brand palette so the payouts portal matches the rest of the
         // app's embedded Stripe surfaces (see lib/stripe-appearance.ts).
