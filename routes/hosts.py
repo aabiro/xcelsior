@@ -1084,6 +1084,61 @@ def api_host_maintenance(host_id: str, request: Request):
     }
 
 
+@router.post("/api/hosts/{host_id}/enrollment", tags=["Hosts"])
+def api_enroll_host(host_id: str, request: Request):
+    """One-time credentials that connect a registered host to the agent gateway.
+
+    Returns a single-use SPIRE join token and a single-use mesh pre-auth key
+    (control_plane/host_enrollment.py). The installer and the wizard call this
+    right after registration; the provider does nothing by hand. Only the host's
+    owner (or a platform admin) may enroll it, and identity is not admission:
+    the host stays pending until an operator admits it.
+    """
+    from control_plane import host_enrollment
+    from routes._deps import _check_host_enroll_rate_limit, _get_current_user, _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    _require_scope(user, "hosts:write")
+    entry = next((h for h in list_hosts(active_only=False) if h.get("host_id") == host_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+    if not _is_platform_admin(user):
+        # Strictly the owner: unlike _require_host_operator, an unowned row is
+        # not claimable here, because this hands out a credential for it.
+        caller_ids = _caller_owner_ids(user)
+        creator = _oauth_client_creator(user)
+        if creator:
+            caller_ids |= _caller_owner_ids(creator)
+            creator_user_id = str(creator.get("user_id") or creator.get("sub") or "").strip()
+            if creator_user_id:
+                caller_ids.add(creator_user_id)
+        if not caller_ids & _host_owner_ids(entry):
+            raise HTTPException(status_code=404, detail="Host not found")
+    _check_host_enroll_rate_limit(host_id)
+    try:
+        enrollment = host_enrollment.enroll_host(host_id)
+    except host_enrollment.EnrollmentUnavailable as exc:
+        log.error("host enrollment unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Host enrollment is not available yet. Contact support to connect this host.",
+        ) from exc
+    except host_enrollment.EnrollmentFailed as exc:
+        log.error("host enrollment failed for %s: %s", host_id, exc)
+        raise HTTPException(
+            status_code=502, detail="Host enrollment failed; retry shortly."
+        ) from exc
+    log.info(
+        "HOST ENROLLED host_id=%s by=%s spiffe_id=%s",
+        host_id,
+        user.get("user_id") or user.get("email") or user.get("client_id") or "?",
+        enrollment["spire"]["spiffe_id"],
+    )
+    return {"ok": True, **enrollment}
+
+
 @router.post("/host/{host_id}/drain", tags=["Hosts"])
 def api_drain_host(host_id: str, request: Request):
     """Stop new placements on a host without evicting active instances."""

@@ -161,40 +161,41 @@ exit 1
     assert "NVIDIA Container Toolkit/runtime detected" in result.stdout
 
 
-def test_install_status_check_reports_pending_without_claiming_admission():
+def _verify_online(hosts_json: str) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory() as tmp:
         env_file = Path(tmp) / "worker.env"
-        env_file.write_text(
-            "XCELSIOR_API=https://example.invalid\n" "XCELSIOR_HOST_ID=pending-host\n"
-        )
-        result = _run_installer_function(
-            f"ENV_FILE={env_file}; verify_host_online",
-            {
-                "curl": ("printf '%s\\n' " '\'{"host":{"status":"pending","admitted":false}}\''),
-            },
+        env_file.write_text("XCELSIOR_HOST_ID=h1\nXCELSIOR_API_TOKEN=xcel_ai_key\n")
+        return _run_installer_function(
+            f"ENV_FILE={env_file}; sleep() {{ :; }}; verify_host_online",
+            {"curl": f"printf '%s\\n' '{hosts_json}'"},
         )
 
-    assert result.returncode != 0
-    assert "pending authoritative verification" in result.stdout
-    assert "not listed or eligible for work" in result.stdout
-    assert "authoritatively admitted and active" not in result.stdout
+
+def test_install_status_check_reports_pending_without_claiming_admission():
+    # Connected (fresh heartbeat) but not admitted: the provider is done; admission is ours.
+    result = _verify_online(
+        '{"hosts":[{"host_id":"h1","last_seen":9999999999,"status":"pending","admitted":false}]}'
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "connected (heartbeat received)" in result.stdout
+    assert "pending admission review" in result.stdout
+    assert "admitted and" not in result.stdout
 
 
 def test_install_status_check_requires_admitted_flag_for_active_success():
-    with tempfile.TemporaryDirectory() as tmp:
-        env_file = Path(tmp) / "worker.env"
-        env_file.write_text(
-            "XCELSIOR_API=https://example.invalid\n" "XCELSIOR_HOST_ID=verified-host\n"
-        )
-        result = _run_installer_function(
-            f"ENV_FILE={env_file}; verify_host_online",
-            {
-                "curl": ("printf '%s\\n' " '\'{"host":{"status":"active","admitted":true}}\''),
-            },
-        )
-
+    result = _verify_online(
+        '{"hosts":[{"host_id":"h1","last_seen":9999999999,"status":"active","admitted":true}]}'
+    )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "authoritatively admitted and active" in result.stdout
+    assert "connected, admitted and active" in result.stdout
+
+
+def test_install_status_check_fails_without_a_fresh_heartbeat():
+    result = _verify_online(
+        '{"hosts":[{"host_id":"h1","last_seen":1,"status":"active","admitted":true}]}'
+    )
+    assert result.returncode != 0
+    assert "No heartbeat from h1" in result.stdout
 
 
 def test_installer_runs_main_when_piped():
@@ -248,7 +249,7 @@ def test_systemd_unit_uses_state_directory(tmp_path):
         "ProtectHome=true",
         "RuntimeDirectory=xcelsior",
         "ExecStart=/opt/xcelsior/venv/bin/python3 /opt/xcelsior/worker_agent.py",
-        "Wants=network-online.target xcelsior-privd.socket",
+        "Wants=network-online.target xcelsior-privd.socket xcelsior-svid.timer",
     ):
         assert line + "\n" in text, line
 

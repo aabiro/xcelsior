@@ -30,13 +30,19 @@ name: xcelsior-spire
 services:
   spire-server:
     image: ghcr.io/spiffe/spire-server:1.11.2
-    command: ["-config", "/opt/spire/conf/server/server.conf"]
+    command: ["-config", "/opt/spire/conf/server/server.conf", "-expandEnv"]
     environment:
       SPIRE_DATASTORE_DSN: ${SPIRE_DATASTORE_DSN:?SPIRE_DATASTORE_DSN is required}
+      # Inside the container; the published port below picks the host address.
+      SPIRE_BIND_ADDRESS: "0.0.0.0"
     volumes:
       - ./server.conf:/opt/spire/conf/server/server.conf:ro
+      # Long-lived root that signs SPIRE's rotating CA (UpstreamAuthority "disk");
+      # the agent gateway trusts this one certificate. Keep the key off git.
+      - /etc/xcelsior/spire/upstream-root.crt:/opt/spire/conf/server/upstream-root.crt:ro
+      - /etc/xcelsior/spire/upstream-root.key:/opt/spire/conf/server/upstream-root.key:ro
       - spire-server-data:/opt/spire/data/server
-      - spire-server-socket:/tmp/spire-server/private
+      - spire-server-socket:/run/xcelsior-spire
     ports:
       # The tailnet address, not loopback.
       #
@@ -51,11 +57,12 @@ services:
       # if the tailnet interface is down. That is the correct failure: a SPIRE
       # server reachable from nowhere serves no one, and failing loudly at start
       # beats agents timing out later.
-      - "${SPIRE_BIND_ADDRESS:-100.64.0.1}:8081:8081"
+      # 8095: *:8081 and *:8091 are taken on prod-hetzner (issue #67).
+      - "${SPIRE_BIND_ADDRESS:-100.64.0.1}:8095:8095"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/opt/spire/bin/spire-server", "healthcheck",
-             "-socketPath", "/tmp/spire-server/private/api.sock"]
+             "-socketPath", "/run/xcelsior-spire/api.sock"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -65,8 +72,8 @@ services:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     command: ["-config", "/opt/spire/conf/agent/agent.conf"]
     environment:
-      # Bare address — agent.conf carries `server_port = "8081"` separately,
-      # so a host:port value here becomes 100.64.0.1:8081:8081 and fails.
+      # Bare address — agent.conf carries `server_port = "8095"` separately,
+      # so a host:port value here becomes 100.64.0.1:8095:8095 and fails.
       SPIRE_SERVER_ADDRESS: ${SPIRE_SERVER_ADDRESS:-100.64.0.1}
     depends_on:
       spire-server:

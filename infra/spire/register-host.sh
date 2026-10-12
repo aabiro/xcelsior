@@ -17,14 +17,14 @@
 # Environment:
 #   XCELSIOR_SPIFFE_TRUST_DOMAIN  trust domain (default xcelsior.ca)
 #   SPIRE_SERVER_BIN              spire-server binary (default: spire-server)
-#   SPIRE_SERVER_SOCKET           admin socket (default /tmp/spire-server/private/api.sock)
+#   SPIRE_SERVER_SOCKET           admin socket (default /run/xcelsior-spire/api.sock)
 #   XCELSIOR_POSTGRES_DSN         required for --all
 
 set -euo pipefail
 
 TRUST_DOMAIN="${XCELSIOR_SPIFFE_TRUST_DOMAIN:-xcelsior.ca}"
 SPIRE_SERVER_BIN="${SPIRE_SERVER_BIN:-spire-server}"
-SPIRE_SERVER_SOCKET="${SPIRE_SERVER_SOCKET:-/tmp/spire-server/private/api.sock}"
+SPIRE_SERVER_SOCKET="${SPIRE_SERVER_SOCKET:-/run/xcelsior-spire/api.sock}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -65,7 +65,7 @@ register_one() {
         -spiffeID "$spiffe_id"
         -parentID "$parent_id"
         -x509SVIDTTL 3600
-        -dnsName "$host_id"
+        -dns "$host_id"
     )
     for sel in "${selectors[@]}"; do
         args+=(-selector "$sel")
