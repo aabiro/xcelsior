@@ -4,6 +4,7 @@ const SESSION_ON_MOUNT = [
   /^\/login$/,
   /^\/register$/,
   /^\/accept-invite$/,
+  /^\/device$/,
   /^\/setup-2fa$/,
 ] as const;
 

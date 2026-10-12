@@ -68,7 +68,7 @@ export function ServerlessOverview({ endpoint, metrics }: ServerlessOverviewProp
 
       <Section title="Cost">
         <Row label="Price" value={formatWorkerSecondPrice(endpoint.pricing)} />
-        <Row label="Total cost" value={`$${(metrics?.total_cost_cad ?? endpoint.total_cost_cad ?? 0).toFixed(2)} CAD`} />
+        <Row label="Total cost" value={`$${(metrics?.total_cost_cad ?? endpoint.total_cost_cad ?? 0).toFixed(2)}`} />
         <Row label="Worker seconds" value={metric(metrics?.total_gpu_seconds ?? endpoint.total_gpu_seconds)} />
         <Row label="Billing" value={endpoint.min_workers === 0 ? "No idle worker charge when scaled down" : "Minimum workers stay billable while running"} />
       </Section>

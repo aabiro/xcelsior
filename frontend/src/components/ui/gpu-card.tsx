@@ -45,7 +45,7 @@ export function GpuCard({ model, vram, price, status, className, children }: Gpu
       </div>
       {price != null && (
         <p className="text-lg font-bold font-mono mb-1">
-          ${price.toFixed(2)} <span className="text-xs text-text-muted font-normal">CAD/hr</span>
+          ${price.toFixed(2)} <span className="text-xs text-text-muted font-normal">/hr</span>
         </p>
       )}
       {children}

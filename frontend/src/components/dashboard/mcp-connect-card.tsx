@@ -38,13 +38,15 @@ function WorkspaceConnectCard() {
     };
   }, []);
 
-  const load = useCallback(
+  // Starts the request and changes state only once it settles, so the
+  // first-load effect below sets no state synchronously (which re-rendered the
+  // card a second time before the request was even sent). The first load needs
+  // no "pending" flag: `loading` already holds while there is no key yet.
+  const request = useCallback(
     (surface: Tab, regenerate = false) => {
       const running = inFlight.current[surface];
       if (running) return running;
-      setPending((s) => ({ ...s, [surface]: true }));
-      setFailed((s) => ({ ...s, [surface]: false }));
-      const request = api
+      const pendingRequest = api
         .getMcpQuickConnect(regenerate, surface)
         .then((result) => {
           if (!mounted.current) return;
@@ -60,16 +62,26 @@ function WorkspaceConnectCard() {
           delete inFlight.current[surface];
           if (mounted.current) setPending((s) => ({ ...s, [surface]: false }));
         });
-      inFlight.current[surface] = request;
-      return request;
+      inFlight.current[surface] = pendingRequest;
+      return pendingRequest;
     },
     [t],
   );
 
+  /** Retry and Regenerate: show the spinner at once, then request. */
+  const load = useCallback(
+    (surface: Tab, regenerate = false) => {
+      setPending((s) => ({ ...s, [surface]: true }));
+      setFailed((s) => ({ ...s, [surface]: false }));
+      return request(surface, regenerate);
+    },
+    [request],
+  );
+
   // Lazy per tab: opening the CLI tab is what mints the CLI key.
   useEffect(() => {
-    if (!connections[tab] && !failed[tab]) void load(tab);
-  }, [tab, connections, failed, load]);
+    if (!connections[tab] && !failed[tab]) void request(tab);
+  }, [tab, connections, failed, request]);
 
   useEffect(() => {
     if (!copied) return;
@@ -79,9 +91,9 @@ function WorkspaceConnectCard() {
 
   const conn = connections[tab];
   const loading = !!pending[tab] || (!conn && !failed[tab]);
-  // Keys are stored as a hash, so an existing key can never be shown again.
-  // access_token is present only on a fresh mint; otherwise the masked prefix
-  // identifies the key without being something an agent could use.
+  // The server keeps these keys encrypted and returns them in full on every
+  // visit. access_token is absent only for a key minted before that; the
+  // masked prefix then identifies it without being something an agent could use.
   const token = conn?.access_token ?? "";
   const masked = !token && !!conn;
   const displayKey = token || conn?.key_prefix || "";
@@ -185,7 +197,7 @@ function WorkspaceConnectCard() {
 
       {/* Prompt surface — more opaque than the glass card behind it, so it reads
           as the focal element rather than blending into the panel. */}
-      <div className="mcp-connect-prompt overflow-hidden rounded-2xl border border-border text-left">
+      <div className="mcp-connect-prompt overflow-hidden rounded-2xl border border-border text-center">
         <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-2.5 sm:px-5">
           <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
             <Terminal className="h-3.5 w-3.5" />
@@ -224,11 +236,11 @@ function WorkspaceConnectCard() {
               </button>
             </div>
           ) : (
-            <p className="text-[15px] font-medium leading-[1.9] text-text-primary">{renderPrompt()}</p>
+            <p className="text-center text-[15px] font-medium leading-[1.9] text-text-primary">{renderPrompt()}</p>
           )}
         </div>
         {!loading && !failed[tab] && (
-          <div className="border-t border-border/60 px-4 py-3 text-xs leading-relaxed text-text-muted sm:px-5">
+          <div className="border-t border-border/60 px-4 py-3 text-center text-xs leading-relaxed text-text-muted sm:px-5">
             {masked
               ? t("dash.mcp.key_in_use_note", { key: keyLabel })
               : tab === "cli"

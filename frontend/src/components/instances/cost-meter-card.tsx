@@ -32,7 +32,7 @@ export function CostMeterCard({ instance }: CostMeterCardProps) {
             </p>
             <div className="flex items-center text-lg">
               <span>{formatCad(instance.rate_per_hour_cad)}</span>
-              <span className="text-sm text-text-muted ml-1">CAD / hr</span>
+              <span className="text-sm text-text-muted ml-1">/ hr</span>
             </div>
           </div>
           <div className="space-y-1">
@@ -40,7 +40,6 @@ export function CostMeterCard({ instance }: CostMeterCardProps) {
             <div className="flex items-center text-lg">
               <TrendingUp className="w-4 h-4 text-text-muted mr-1" />
               <span>{formatCad(instance.cost_cad)}</span>
-              <span className="text-sm text-text-muted ml-1">CAD</span>
             </div>
           </div>
         </div>

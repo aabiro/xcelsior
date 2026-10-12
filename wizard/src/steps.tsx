@@ -6,10 +6,11 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { Text, Box, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
-import type { SelectOption } from "./wizard-flow.js";
+import { DEVICE_BROWSER_DELAY_MS, type SelectOption } from "./wizard-flow.js";
 import type { AutoCheckResults, ProviderSummaryData } from "./useWizardFlow.js";
 import { openUrl } from "./open-url.js";
 import { tokenFilePath } from "./wizard-state.js";
+import { displayCheckName } from "./check-labels.js";
 import { detectAgents, describeAgents, writeXcelsiorContext } from "./agent-context.js";
 
 // ── Brand spinner ────────────────────────────────────────────────────
@@ -145,16 +146,21 @@ interface AutoCheckStepProps {
   successTitle?: string;
   /** Static per-step help shown on failure when AI is unavailable (Part A). */
   staticHelp?: string[];
+  /** Line introducing the static help; defaults to the offline wording. */
+  staticHelpTitle?: string;
   onRetry?: () => void;
   onSkip?: () => void;
+  /** Leave the failed check and choose a different path */
+  onChangePath?: () => void;
   onContinue?: () => void;
 }
 
-export function AutoCheckStep({ results, canRetry, awaitContinue, required, successTitle, staticHelp, onRetry, onSkip, onContinue }: AutoCheckStepProps) {
+export function AutoCheckStep({ results, canRetry, awaitContinue, required, successTitle, staticHelp, staticHelpTitle, onRetry, onSkip, onChangePath, onContinue }: AutoCheckStepProps) {
   useInput((input) => {
     if (canRetry) {
       if (input === "\r" || input === "r" || input === "R") onRetry?.();
       if (!required && (input === "s" || input === "S")) onSkip?.();
+      if (onChangePath && (input === "b" || input === "B")) onChangePath();
     }
     if (awaitContinue && input === "\r") onContinue?.();
   });
@@ -187,7 +193,7 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
             <Text color={r.ok ? "#22c55e" : "#ef4444"}>
               {r.ok ? "✓" : "✗"}
             </Text>
-            <Text> {r.name}: {r.detail}</Text>
+            <Text> {displayCheckName(r.name)}: {r.detail}</Text>
           </Text>
           {!r.ok && r.remediation && (
             <Text color="#fbbf24">    ↳ {r.remediation}</Text>
@@ -199,7 +205,7 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
       ))}
       {canRetry && staticHelp && staticHelp.length > 0 && (
         <Box marginTop={1} flexDirection="column">
-          <Text color="#fbbf24">Hexara is offline — here's how to fix it:</Text>
+          <Text color="#fbbf24">{staticHelpTitle ?? "Hexara is offline — here's how to fix it:"}</Text>
           {staticHelp.map((line, i) => (
             <Text key={i} color="#94a3b8">  • {line}</Text>
           ))}
@@ -210,6 +216,7 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
           <Text dimColor>
             Press <Text bold>Enter</Text> to retry
             {!required && <Text>, <Text bold>s</Text> to skip</Text>}
+            {onChangePath && <Text>, <Text bold>b</Text> to go back and choose a different path</Text>}
             , <Text bold>q</Text> to quit
           </Text>
         </Box>
@@ -304,6 +311,10 @@ interface DeviceAuthStepProps {
   onContinue?: () => void;
   /** Open browser immediately (skip countdown) */
   onOpenBrowser?: () => void;
+  /** Leave sign-in and choose a different path */
+  onBack?: () => void;
+  /** Whether the link opened a browser: null until tried */
+  browserOpened?: boolean | null;
   /** Detected project .env path (written successfully), or null */
   envPath?: string | null;
   /** If token save failed, this is the error message */
@@ -314,10 +325,13 @@ interface DeviceAuthStepProps {
 }
 
 export function DeviceAuthStep({
-  userCode, verificationUri, status, token, email, errorMessage, onContinue, onOpenBrowser, envPath, tokenSaveError,
+  userCode, verificationUri, status, token, email, errorMessage, onContinue, onOpenBrowser, onBack, browserOpened, envPath, tokenSaveError,
   oauthClientId, oauthClientSecret,
 }: DeviceAuthStepProps) {
-  const [countdown, setCountdown] = useState<number | null>(null);
+  // Seeded on first render: starting at null drew "Opened in your browser"
+  // for a frame before the countdown began.
+  const [countdown, setCountdown] = useState<number | null>(() =>
+    status === "waiting" && verificationUri ? Math.round(DEVICE_BROWSER_DELAY_MS / 1000) : null);
   const [tokenRevealed, setTokenRevealed] = useState(false);
 
   useInput((input) => {
@@ -327,12 +341,13 @@ export function DeviceAuthStep({
       setCountdown(0);
       onOpenBrowser?.();
     }
+    if (onBack && (status === "waiting" || status === "error") && (input === "b" || input === "B")) onBack();
   });
 
-  // Start 15s countdown when we get the verification URI and are waiting
+  // Count down to the browser opening once the verification URI arrives
   useEffect(() => {
     if (status === "waiting" && verificationUri && countdown === null) {
-      setCountdown(15);
+      setCountdown(Math.round(DEVICE_BROWSER_DELAY_MS / 1000));
     }
   }, [status, verificationUri]);
 
@@ -355,7 +370,10 @@ export function DeviceAuthStep({
     return (
       <Box flexDirection="column">
         <Text color="#ef4444">✗ {errorMessage ?? "Authentication failed"}</Text>
-        <Text dimColor>Press <Text bold>Enter</Text> to retry, <Text bold>m</Text> for manual token paste</Text>
+        <Text dimColor>
+          Press <Text bold>Enter</Text> to retry, <Text bold>m</Text> for manual token paste
+          {onBack && <Text>, <Text bold>b</Text> to go back</Text>}
+        </Text>
       </Box>
     );
   }
@@ -389,7 +407,7 @@ export function DeviceAuthStep({
         )}
         {oauthClientId && oauthClientSecret && (
           <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="#fbbf24" paddingX={1}>
-            <Text bold color="#fbbf24">Worker OAuth credentials (copy now — not shown again)</Text>
+            <Text bold color="#fbbf24">Agent credentials (copy now — not shown again)</Text>
             <Text>  Client ID: <Text bold color="#ffcc00" wrap="wrap">{oauthClientId}</Text></Text>
             <Text>  Client secret: <Text bold color="#ffcc00" wrap="wrap">{oauthClientSecret}</Text></Text>
             <Text dimColor>  Also written to <Text bold>~/.xcelsior/.env</Text> for the worker agent</Text>
@@ -411,31 +429,46 @@ export function DeviceAuthStep({
   }
 
   // status === "waiting"
+  // The code was bold-on-inverse yellow, which some terminal themes render as
+  // pale text on pale yellow. Default foreground in a box reads in every theme,
+  // and spacing the characters keeps 0/O and 8/B apart.
   return (
     <Box flexDirection="column">
       {userCode && (
-        <Box marginBottom={1}>
-          <Text>Enter this code: </Text>
-          <Text bold color="#ffcc00" inverse>{` ${userCode} `}</Text>
+        <Box flexDirection="column" marginBottom={1}>
+          <Text>Check that your browser shows this code, then approve it:</Text>
+          <Box borderStyle="round" borderColor="#00d4ff" paddingX={3} alignSelf="flex-start">
+            <Text bold>{userCode.split("").join(" ")}</Text>
+          </Box>
         </Box>
       )}
       {verificationUri && countdown !== null && countdown > 0 && (
-        <Box flexDirection="column">
-          <Text>Opening browser in <Text bold color="#ffcc00">{countdown}s</Text> — press <Text bold>Enter</Text> to open now</Text>
-          <Text color="#00d4ff" underline>{verificationUri}</Text>
-        </Box>
+        <Text>Opening your browser in <Text bold>{countdown}s</Text> — press <Text bold>Enter</Text> to open it now</Text>
       )}
-      {verificationUri && (countdown === null || countdown <= 0) && (
-        <Box flexDirection="column">
-          <Text color="#22c55e">Browser opened →</Text>
-          <Text color="#00d4ff" underline>{verificationUri}</Text>
-        </Box>
+      {/* Only once the launcher reports success: the countdown reaches zero
+          before it answers, which flashed "opened" on machines with no browser. */}
+      {verificationUri && countdown !== null && countdown <= 0 && browserOpened === true && (
+        <Text color="#22c55e">✓ Opened in your browser</Text>
       )}
+      {verificationUri && countdown !== null && countdown <= 0 && browserOpened == null && (
+        <Text>Opening your browser…</Text>
+      )}
+      {verificationUri && browserOpened === false ? (
+        <Text>
+          <Text color="#fbbf24">{"Couldn't open a browser here."}</Text> On any device, go to{" "}
+          <Text color="#00d4ff" underline>{verificationUri}</Text> and enter the code.
+        </Text>
+      ) : verificationUri ? (
+        <Text dimColor>No browser? Go to <Text color="#00d4ff" underline>{verificationUri}</Text> and enter the code.</Text>
+      ) : null}
       <Box marginTop={1}>
-        <BrandSpinner label="Waiting for authorization..." />
+        <BrandSpinner label="Waiting for you to approve..." />
       </Box>
       <Box marginTop={0}>
-        <Text dimColor>(press <Text bold>m</Text> for manual paste)</Text>
+        <Text dimColor>
+          Press <Text bold>m</Text> to paste a token instead
+          {onBack && <Text>, <Text bold>b</Text> to go back</Text>}
+        </Text>
       </Box>
     </Box>
   );
@@ -462,7 +495,7 @@ export function ManualTokenStep({ onSubmit }: ManualTokenStepProps) {
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>Paste your xcel_ai_ API key or xoa_ sign-in token:</Text>
+      <Text dimColor>Paste your API key or sign-in token:</Text>
       <Box>
         <Text color="#00d4ff">{"› "}</Text>
         <TextInput
@@ -524,7 +557,7 @@ export function PaymentGateStep({ balance, required, polling, billingUrl, onSkip
 
   return (
     <Box flexDirection="column">
-      <Text>Balance: <Text bold color="#ffcc00">${balance.toFixed(2)} CAD</Text> — need at least <Text bold>${required.toFixed(2)}/hr</Text></Text>
+      <Text>Balance: <Text bold color="#ffcc00">${balance.toFixed(2)}</Text> — need at least <Text bold>${required.toFixed(2)}/hr</Text></Text>
       <Box marginTop={1}>
         <Text>Add funds → <Text bold color="#00d4ff">{billingUrl}</Text></Text>
       </Box>

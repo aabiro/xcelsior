@@ -308,13 +308,23 @@ class TestSystemPrompt:
     def test_provider_wizard_instructions(self):
         prompt = build_ai_system_prompt(_user("provider"))
         assert "PROVIDER ONBOARDING WIZARD" in prompt
-        assert "npx @xcelsior-gpu/wizard@0.1.3" in prompt
+        assert "npx @xcelsior-gpu/wizard@0.1.7" in prompt
         assert "@latest" not in prompt
         assert "authoritative worker verification" in prompt
 
     def test_renter_wizard_instructions(self):
         prompt = build_ai_system_prompt(_user("user"))
         assert "RENTER ONBOARDING WIZARD" in prompt
+
+    def test_mcp_connector_instructions(self):
+        # Asked how to start the MCP, Xcel answered with the worker onboarding
+        # wizard: the prompt never said what the MCP is or how to connect to it.
+        for role in ("user", "provider"):
+            prompt = build_ai_system_prompt(_user(role))
+            assert "XCELSIOR MCP CONNECTOR" in prompt
+            assert "claude mcp add --transport http xcelsior https://mcp.xcelsior.ca/mcp" in prompt
+            assert "NOT the onboarding wizard" in prompt
+            assert "Endpoint: `https://xcelsior.ca/mcp`" not in prompt
 
     def test_onboarding_detection_has_hosts_jobs_fields(self):
         prompt = build_ai_system_prompt(_user())

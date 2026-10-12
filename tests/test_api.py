@@ -1689,6 +1689,10 @@ class TestOAuthDeviceFlow:
         assert "user_code" in data
         assert "verification_uri" in data
         assert r.headers.get("Deprecation") == "true"
+        # The browser goes to the website's approval page, with the code filled
+        # in — not the API placeholder that said to POST the code by hand.
+        assert data["verification_uri"].endswith("/device")
+        assert data["verification_uri_complete"].endswith(f"/device?user_code={data['user_code']}")
 
     def test_token_poll_pending(self):
         """POST /api/auth/token before verification → pending/precondition."""
@@ -1711,11 +1715,30 @@ class TestOAuthDeviceFlow:
         assert err["error"] == "authorization_pending"
         assert r.headers.get("Deprecation") == "true"
 
-    def test_verify_page(self):
-        """GET /api/auth/verify returns HTML verification page."""
-        r = client.get("/api/auth/verify")
-        assert r.status_code == 200
-        assert "html" in r.headers.get("content-type", "").lower()
+    def test_verify_page_redirects_to_the_website(self):
+        """GET /api/auth/verify sends wizards up to 0.1.5 to the real page."""
+        r = client.get(
+            "/api/auth/verify", params={"user_code": "ab12-cd34"}, follow_redirects=False
+        )
+        assert r.status_code == 302
+        assert r.headers["location"].endswith("/device?user_code=AB12-CD34")
+
+    def test_verify_page_drops_anything_that_is_not_a_code(self):
+        r = client.get("/api/auth/verify", params={"user_code": "<script>"}, follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"].endswith("/device")
+
+    def test_device_page_is_on_the_public_site(self, monkeypatch):
+        from oauth_service import device_verification_url
+
+        monkeypatch.delenv("XCELSIOR_PUBLIC_URL", raising=False)
+        monkeypatch.setenv("XCELSIOR_BASE_URL", "https://staging.example.test/")
+        assert (
+            device_verification_url("http://127.0.0.1:9500/", "AB12-CD34")
+            == "https://staging.example.test/device?user_code=AB12-CD34"
+        )
+        monkeypatch.delenv("XCELSIOR_BASE_URL")
+        assert device_verification_url("http://127.0.0.1:9500/") == "http://127.0.0.1:9500/device"
 
     def test_discovery_document_exists(self):
         r = client.get("/.well-known/oauth-authorization-server")

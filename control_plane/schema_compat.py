@@ -34,6 +34,7 @@ from psycopg import Connection
 #
 #   095  wallets/payout_ledger/sla_monthly/reservations `_micros` columns
 #   116  wallets.low_balance_warned_at, written by `_warn_low_balance`
+#   121  agent_api_keys.key_ciphertext, written when a Quick Connect key is minted
 #
 # A database at, say, 079 passed this check, the service started, and then every
 # query naming a `_micros` column raised `UndefinedColumn` inside an
@@ -42,11 +43,11 @@ from psycopg import Connection
 # credits never issued. That is the exact class `/readyz` is supposed to refuse
 # to serve, reported instead as healthy.
 #
-# 116 rather than head: `117` only drops redundant indexes, which nothing reads.
-# The floor is what the code *needs*, not where the chain happens to end, and
+# 121 is also head; 117–120 needed nothing the code reads. The floor is what
+# the code *needs*, not where the chain happens to end, and
 # `test_schema_floor_covers_what_the_code_uses` derives it so it cannot drift
 # silently again.
-REQUIRED_MIN_REVISION = "116"
+REQUIRED_MIN_REVISION = "121"
 REQUIRED_MAX_REVISION: str | None = None
 
 

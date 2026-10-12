@@ -9,16 +9,16 @@ const PricingContent = dynamic(
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "GPU compute pricing in Canadian dollars. From $0.30 CAD/hr, with dynamic spot pricing up to 70% off and reserved plans up to 45% off.",
+  description: "GPU compute pricing. From $0.30/hr, with dynamic spot pricing up to 70% off and reserved plans up to 45% off.",
   alternates: { canonical: "https://xcelsior.ca/pricing" },
   openGraph: {
     title: "Pricing | Xcelsior",
-    description: "GPU compute from $0.30 CAD/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
+    description: "GPU compute from $0.30/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
     url: "https://xcelsior.ca/pricing",
   },
   twitter: {
     title: "Pricing | Xcelsior",
-    description: "GPU compute from $0.30 CAD/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
+    description: "GPU compute from $0.30/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
   },
 };
 
@@ -101,7 +101,7 @@ export default async function PricingPage() {
     "@context": "https://schema.org",
     "@type": "Product",
     name: "Xcelsior GPU Compute",
-    description: "GPU compute marketplace. On-demand, spot, and reserved pricing in CAD.",
+    description: "GPU compute marketplace. On-demand, spot, and reserved pricing.",
     brand: { "@type": "Brand", name: "Xcelsior" },
     offers: gpus.map((g) => ({
       "@type": "Offer",
