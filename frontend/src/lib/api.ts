@@ -2614,6 +2614,7 @@ export async function fetchAdminUsers() {
     }[];
   }>("/api/admin/users");
 }
+      is_suspended?: boolean;
 
 export async function fetchAdminOverview(days = 30) {
   return apiFetch<{
@@ -2792,6 +2793,29 @@ export interface AdminTeam {
   team_id: string;
   name: string;
   owner_email: string;
+/** Ban: blocks sign-in and spending and revokes sessions. Nothing is deleted. */
+export async function adminSuspendUser(email: string, reason = "administrative_suspension") {
+  return apiFetch<{ ok: boolean; email: string; is_suspended: boolean }>(
+    `/api/admin/users/${encodeURIComponent(email)}/suspend`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+export async function adminUnsuspendUser(email: string) {
+  return apiFetch<{ ok: boolean; email: string; is_suspended: boolean }>(
+    `/api/admin/users/${encodeURIComponent(email)}/unsuspend`,
+    { method: "POST" },
+  );
+}
+
+/** Suspends the account, then starts the durable deletion workflow for it. */
+export async function adminDeleteUser(email: string) {
+  return apiFetch<{ ok: boolean; email: string; request_id: string; state: string; already_existed: boolean }>(
+    `/api/admin/users/${encodeURIComponent(email)}/delete`,
+    { method: "POST" },
+  );
+}
+
   plan: string;
   max_members: number;
   created_at: number;

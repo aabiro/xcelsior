@@ -686,6 +686,71 @@ async def api_admin_unsuspend_user(email: str, request: Request):
     }
 
 
+@router.post("/api/admin/users/{email}/delete", tags=["Admin"])
+async def api_admin_delete_user(email: str, request: Request):
+    """Admin removes an account through the durable deletion workflow.
+
+    The same workflow as self-service deletion (``privacy_deletion``), not a
+    second path: every data store records an outcome before it completes. The
+    account is suspended first, so it cannot sign in or spend while that runs.
+    A platform admin cannot be removed this way; revoke admin first.
+    """
+    from abuse_policy import suspend_account
+    from privacy_deletion import PrivacyDeletionError, create_deletion_request
+
+    admin = _require_admin(request)
+    actor = admin.get("email") or admin.get("user_id") or "admin"
+    email = str(email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "User email required")
+    if email == str(admin.get("email") or "").strip().lower():
+        raise HTTPException(400, "Cannot delete your own admin account")
+
+    user = UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if _is_platform_admin(user):
+        raise HTTPException(409, "Revoke admin access before deleting this account")
+    user_id = str(user.get("user_id") or "")
+    if not user_id:
+        raise HTTPException(409, "Account has no user id; cannot start deletion")
+
+    suspend_account(identifier=email, actor=actor, reason="admin_account_deletion")
+    try:
+        if _USE_PERSISTENT_AUTH:
+            UserStore.delete_user_sessions(email)
+    except Exception as e:
+        log.warning("Failed to delete sessions for %s before deletion: %s", email, e)
+
+    try:
+        receipt = create_deletion_request(
+            user_id=user_id,
+            email=email,
+            customer_ids=[str(user.get("customer_id") or "")],
+            # One request per account: a double click or retry starts one deletion.
+            idempotency_key=f"admin-delete-{user_id}"[:128],
+            requested_by=str(actor),
+            request_source="admin_console",
+            legal_basis="terms_enforcement",
+        )
+    except PrivacyDeletionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    emit_event(
+        "user_deletion_requested",
+        {"email": email, "actor": actor, "request_id": receipt.request_id},
+    )
+    return {
+        "ok": True,
+        "email": email,
+        "is_suspended": True,
+        "request_id": receipt.request_id,
+        "state": receipt.state,
+        "deadline_at": receipt.deadline_at.isoformat(),
+        "already_existed": receipt.already_existed,
+    }
+
+
 @router.get("/api/admin/teams", tags=["Admin"])
 def api_admin_teams(request: Request):
     """List all teams with their members. Platform admin only."""
