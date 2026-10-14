@@ -10,7 +10,7 @@ import { FadeIn, ScrollReveal, StaggerList, StaggerItem, CountUp, HoverCard } fr
 import {
   Users, RefreshCw, Search, ChevronUp, ChevronDown,
   ArrowUpDown, Download, UserX, Wallet, BarChart3, UserCheck,
-  MoreHorizontal, ShieldCheck, ShieldOff, ChevronRight, UserMinus, CirclePlus,
+  MoreHorizontal, ShieldCheck, ShieldOff, ChevronRight, UserMinus, CirclePlus, Ban, Trash2,
 } from "lucide-react";
 import { AdminCreditDialog } from "@/components/billing/admin-credit";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -120,6 +120,7 @@ export default function AdminUsersPage() {
   };
 
   const [creditTarget, setCreditTarget] = useState<User | null>(null);
+  const [accountAction, setAccountAction] = useState<{ user: User; kind: "suspend" | "unsuspend" | "delete" } | null>(null);
 
   const handleToggleAdmin = async (email: string) => {
     try {
@@ -128,6 +129,27 @@ export default function AdminUsersPage() {
       load();
     } catch { toast.error("Failed to toggle admin"); }
     setActionMenu(null);
+  };
+
+  const handleAccountAction = async () => {
+    if (!accountAction) return;
+    const { user, kind } = accountAction;
+    setAccountAction(null);
+    try {
+      if (kind === "suspend") {
+        await api.adminSuspendUser(user.email);
+        toast.success(`${user.email} suspended and signed out`);
+      } else if (kind === "unsuspend") {
+        await api.adminUnsuspendUser(user.email);
+        toast.success(`${user.email} restored`);
+      } else {
+        await api.adminDeleteUser(user.email);
+        toast.success(`Deleting ${user.email}`, { description: "Suspended now; their data is removed from every store." });
+      }
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Action failed");
+    }
   };
 
   const handleSetRole = async (email: string, role: string) => {
@@ -275,7 +297,14 @@ export default function AdminUsersPage() {
                             <td className="py-3 px-4">
                               <ChevronRight className={`h-3.5 w-3.5 text-text-muted transition-transform ${expandedUser === u.email ? "rotate-90" : ""}`} />
                             </td>
-                            <td className="py-3 px-4 font-medium">{u.email}</td>
+                            <td className="py-3 px-4 font-medium">
+                              {u.email}
+                              {u.is_suspended && (
+                                <span className="ml-2 rounded-full bg-accent-red/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-red">
+                                  Suspended
+                                </span>
+                              )}
+                            </td>
                             <td className="py-3 px-4">
                               <Badge variant="default">{u.role || "submitter"}</Badge>
                             </td>
@@ -316,6 +345,22 @@ export default function AdminUsersPage() {
                                   >
                                     <CirclePlus className="h-3.5 w-3.5 text-accent-gold" />
                                     Add credits
+                                  </button>
+                                  <button
+                                    onClick={() => { setAccountAction({ user: u, kind: u.is_suspended ? "unsuspend" : "suspend" }); setActionMenu(null); }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 hover:bg-surface-hover transition-colors"
+                                  >
+                                    {u.is_suspended ? <UserCheck className="h-3.5 w-3.5 text-emerald" /> : <Ban className="h-3.5 w-3.5 text-accent-red" />}
+                                    {u.is_suspended ? "Restore account" : "Suspend account"}
+                                  </button>
+                                  <button
+                                    onClick={() => { setAccountAction({ user: u, kind: "delete" }); setActionMenu(null); }}
+                                    disabled={!!u.is_admin}
+                                    title={u.is_admin ? "Revoke admin first" : undefined}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-accent-red hover:bg-surface-hover transition-colors disabled:opacity-50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete account
                                   </button>
                                   <div className="border-t border-border my-1" />
                                   <p className="px-3 py-1 text-[10px] text-text-muted uppercase tracking-wide">Set Role</p>
@@ -417,6 +462,22 @@ export default function AdminUsersPage() {
         onCredited={() => load()}
       />
 
+      <ConfirmDialog
+        open={accountAction !== null}
+        title={accountAction?.kind === "delete" ? "Delete account" : accountAction?.kind === "unsuspend" ? "Restore account" : "Suspend account"}
+        description={
+          accountAction?.kind === "delete"
+            ? `Permanently delete ${accountAction.user.email}? The account is suspended right away, then its data is deleted from every store. This can't be undone.`
+            : accountAction?.kind === "unsuspend"
+              ? `Restore ${accountAction.user.email}? They can sign in and use their account again.`
+              : `Suspend ${accountAction?.user.email ?? ""}? They're signed out everywhere and can't sign in, launch or spend until restored. Nothing is deleted.`
+        }
+        confirmLabel={accountAction?.kind === "delete" ? "Delete account" : accountAction?.kind === "unsuspend" ? "Restore" : "Suspend"}
+        cancelLabel="Cancel"
+        variant={accountAction?.kind === "unsuspend" ? "default" : "danger"}
+        onConfirm={() => void handleAccountAction()}
+        onCancel={() => setAccountAction(null)}
+      />
       <ConfirmDialog
         open={removeFromTeam !== null}
         title="Remove Team Member"
