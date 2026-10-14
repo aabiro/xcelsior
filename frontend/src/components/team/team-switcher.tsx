@@ -113,13 +113,15 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex items-center gap-2 rounded-xl border border-border/60 px-2.5 py-1.5 text-sm transition-colors hover:bg-surface-hover",
-          compact && "max-w-[11rem]",
+          // Fixed, not max: the trigger resized with the team name and shifted
+          // everything beside it in the app bar whenever the workspace changed.
+          compact && "w-[11rem]",
         )}
         aria-expanded={open}
         aria-haspopup="listbox"
       >
         <Users className="h-3.5 w-3.5 shrink-0 text-accent-cyan" />
-        <span className="truncate text-text-secondary">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-left text-text-secondary">{label}</span>
         {switching ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" />
         ) : (

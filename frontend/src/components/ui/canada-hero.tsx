@@ -48,23 +48,23 @@ export function CanadaMapHero({
         </div>
         <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
           <span className="text-accent-cyan">{hostCount}</span>{" "}
-          <span className="text-text-primary">Canadian Host{hostCount === 1 ? "" : "s"}</span>
+          <span className="text-text-primary">Global Host{hostCount === 1 ? "" : "s"}</span>
         </h2>
         <p className="mt-2 text-sm text-text-secondary max-w-md">
-          GPU compute nodes distributed across Canada&apos;s provinces, connected, compliant, and ready&nbsp;for&nbsp;AI&nbsp;workloads
+          GPU compute nodes from independent hosts worldwide, verified, monitored, and ready&nbsp;for&nbsp;AI&nbsp;workloads
         </p>
         <div className="mt-4 flex flex-wrap gap-3 text-[11px] text-text-muted">
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent-cyan" />
-            Primary Hub
+            Verified hardware
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent-violet" />
-            West Coast
+            Live telemetry
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald" />
-            Atlantic
+            Ready to launch
           </span>
         </div>
       </div>

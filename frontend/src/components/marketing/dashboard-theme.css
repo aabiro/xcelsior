@@ -400,7 +400,10 @@
 .dashboard-site-sidebar-brand-wordmark {
   height: 22px;
   width: auto;
-  flex-shrink: 0;
+  /* May shrink: the row was 4px too narrow for wordmark + Beta pill, and the
+     pill's right end was clipped by the container. object-fit keeps it crisp. */
+  flex-shrink: 1;
+  min-width: 0;
   object-fit: contain;
   object-position: left center;
 }
