@@ -217,6 +217,12 @@ def main():
 
     register_task("billing_meter_reconcile", _billing_meter_reconcile, 300)
 
+    # Bounded anti-entropy scan: recover requests missed before trigger cutover
+    # or lost to operator cleanup; active jobs then retain periodic requests.
+    from control_plane.reconcile_requests import recover_job_requests_task
+
+    register_task("job_reconciliation_recovery", recover_job_requests_task, 60)
+
     # 1a-iii. Audit partition maintenance (§13.6/§4.5, Track B B4.1): keep the
     # monthly partition window full so a write never creates a partition inline
     # in a request handler, **and drop partitions past the retention period**.

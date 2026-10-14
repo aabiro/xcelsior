@@ -83,6 +83,7 @@ docs/*
 # silently is not in the repository is worth less than no write-up, because it
 # reads as done.
 !docs/review/
+!docs/reconciliation.md
 # Cited by shipped source, so they cannot stay local-only. `docs/*` above had
 # swallowed all three: `scheduler.py`, `control_plane/scheduler/preference.py`,
 # `control_plane/scheduler/migration_gate.py` and **migration 105** all point a

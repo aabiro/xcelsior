@@ -62,6 +62,12 @@ def test_a_correct_configuration_produces_no_findings(clean_env):
     assert sv.collect_findings() == []
 
 
+@pytest.mark.parametrize("mode", ["report_only", "enforce", "typo"])
+def test_job_stop_repair_policy_is_validated(clean_env, mode):
+    clean_env.setenv("XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING", mode)
+    assert ("job_stop_repair_policy" in _codes(sv.collect_findings())) is (mode == "typo")
+
+
 # ── §30 rejection list, one at a time ─────────────────────────────────
 
 

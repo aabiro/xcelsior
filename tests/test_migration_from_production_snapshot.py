@@ -457,6 +457,38 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
         )
 
 
+def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snapshot_db):
+    """122 up/down/up over representative jobs and money-bearing rows."""
+    dsn, seeded = seeded_snapshot_db
+    _alembic(dsn, "upgrade", "121")
+    _alembic(dsn, "upgrade", "122")
+    with _connect(dsn) as conn:
+        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = 'job-running'")
+        assert conn.execute(
+            "SELECT reason FROM reconciliation_queue WHERE resource_type = 'job' "
+            "AND resource_id = 'job-running'"
+        ).fetchone() == ("job_changed",)
+        before = conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone()
+    _alembic(dsn, "downgrade", "121")
+    with _connect(dsn) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM pg_trigger WHERE tgname = 'jobs_request_reconciliation'"
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT reason FROM reconciliation_queue WHERE resource_id = 'job-running'"
+        ).fetchone() == ("job_changed",)
+    _alembic(dsn, "upgrade", "122")
+    with _connect(dsn) as conn:
+        conn.execute("UPDATE jobs SET status = 'stopped' WHERE job_id = 'job-running'")
+        assert conn.execute(
+            "SELECT count(*) FROM reconciliation_queue WHERE resource_type = 'job' "
+            "AND resource_id = 'job-running'"
+        ).fetchone() == (1,)
+        assert conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone() == before
+        for table, count in seeded.items():
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (count,)
+
+
 def test_unknown_legacy_status_aborts_the_migration(snapshot_db):
     """054's hard verification must actually fire (blueprint §13.1).
 

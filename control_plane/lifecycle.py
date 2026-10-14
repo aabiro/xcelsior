@@ -21,6 +21,7 @@ from typing import Any, Literal
 from control_plane.commands import (
     CommandProtocolError,
     EnqueuedAttemptCommand,
+    _get,
     enqueue_current_attempt_command,
 )
 from control_plane.db import run_transaction
@@ -266,6 +267,85 @@ def _request_fenced_stop_attempt(
             preserve,
         )
     return result
+
+
+def desired_stop_intent(status: str, recorded: str | None) -> str:
+    """Interpret older stopped projections without discarding explicit intent."""
+    return recorded or {"cancelled": "cancel", "terminated": "terminate"}.get(status, "stop")
+
+
+def reconcile_fenced_stop(conn: Any, *, job_id: str, created_by: str) -> FencedLifecycleResult:
+    """Repair missing stop delivery inside the caller's reconciliation transaction.
+
+    Preserve the durable intent and current status, including a terminal
+    projection whose execution authority has not yet settled. Never reset an
+    expired/dead-letter command's retry budget or invent a new idempotency key.
+    """
+    row = conn.execute(
+        """
+        SELECT status, desired_state, active_attempt_id, host_id,
+               payload->>'lifecycle_intent' AS lifecycle_intent,
+               payload->>'container_name' AS container_name
+          FROM jobs WHERE job_id = %s FOR UPDATE
+        """,
+        (job_id,),
+    ).fetchone()
+    status = str(_get(row, "status", 0)) if row else ""
+    intent = str(_get(row, "lifecycle_intent", 4) or "") if row else ""
+
+    def refused(reason: str) -> FencedLifecycleResult:
+        return FencedLifecycleResult(False, job_id, intent, status, reason=reason)
+
+    if row is None or _get(row, "desired_state", 1) != "stopped":
+        return refused("not_desired_stopped")
+    aid = _get(row, "active_attempt_id", 2)
+    if not aid:
+        return refused("not_attempt_owned")
+    intent = desired_stop_intent(status, intent)
+    if intent not in {"stop", "cancel", "terminate", "restart"}:
+        return refused("invalid_intent")
+    key = f"{intent}:{aid}"
+    prior = conn.execute(
+        """
+        SELECT command_id FROM agent_commands
+         WHERE host_id = %s AND idempotency_key = %s FOR UPDATE
+        """,
+        (_get(row, "host_id", 3), key),
+    ).fetchone()
+    # This entry point repairs *missing* delivery. A pre-existing command
+    # needs delivery/ACK inspection or explicit operator retry, not a new key.
+    if prior is not None:
+        return refused("command_requires_operator_retry")
+    try:
+        command = enqueue_current_attempt_command(
+            conn,
+            job_id=job_id,
+            command="stop_attempt",
+            args={
+                "container_name": _get(row, "container_name", 5) or f"xcl-{job_id}",
+                "preserve": intent == "stop",
+                "intent": intent,
+            },
+            created_by=created_by,
+            idempotency_key=key,
+        )
+    except CommandProtocolError:
+        return refused("no_active_fenced_authority")
+    conn.execute(
+        """
+        UPDATE jobs SET payload = jsonb_set(
+                   COALESCE(payload, '{}'::jsonb), '{lifecycle_intent}', %s::jsonb, true),
+               version = version + 1, updated_at = clock_timestamp()
+         WHERE job_id = %s AND payload->>'lifecycle_intent' IS DISTINCT FROM %s
+        """,
+        (json.dumps(intent), job_id, intent),
+    )
+    return FencedLifecycleResult(
+        True, job_id, intent, status,
+        attempt_id=command.attempt_id, command_id=command.command_id,
+        fencing_token=command.fencing_token, host_id=command.host_id,
+        command_created=True,
+    )
 
 
 def request_fenced_stop(

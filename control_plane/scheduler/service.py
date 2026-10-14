@@ -88,8 +88,8 @@ class SchedulerService:
         commands = run_transaction(
             lambda c: redeliver_expired_claims(c), what="sched_command_sweep"
         )
-        # Phase 6: desired-vs-observed reconciliation (report-only) —
-        # processes hosts enqueued by observation ingest.
+        # Phase 6: desired-vs-observed reconciliation (report-only by default),
+        # for job mutations, worker observations, and periodic recovery.
         try:
             from control_plane.reconcile import process_due
 
