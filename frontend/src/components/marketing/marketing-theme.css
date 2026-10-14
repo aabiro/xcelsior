@@ -2908,11 +2908,15 @@
   justify-content: center;
 }
 
-.site-mobile-art-box {
-  width: 68px;
-  height: 68px;
-  margin-bottom: 0;
-  border-radius: 18px;
+/* The panel held a 20px phone icon in a 68px tile, lost in the empty media
+   half of the split. A full phone mockup fills it instead. */
+.site-mobile-art-phone {
+  display: block;
+  width: auto;
+  height: clamp(300px, 32vw, 400px);
+  max-width: 100%;
+  padding: 24px 0;
+  box-sizing: content-box;
 }
 
 .site-inline-points {

@@ -12,7 +12,6 @@ import {
   Monitor,
   RefreshCw,
   Shield,
-  Smartphone,
   Terminal,
 } from "lucide-react";
 import { m } from "@/components/marketing/motion";
@@ -218,9 +217,8 @@ export function DownloadContent() {
           <SectionMarker code="03" label={t("download.mobile_title")} />
           <div className="site-split-panel">
             <div className="site-split-panel-media site-mobile-art-wrap">
-              <div className="site-icon-box site-mobile-art-box">
-                <Smartphone className="site-svg-icon" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/download/mobile-pwa.svg" alt="" aria-hidden className="site-mobile-art-phone" />
             </div>
             <div className="site-split-panel-body">
               <h2 className="site-callout-title">{t("download.mobile_title")}</h2>
