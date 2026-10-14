@@ -161,6 +161,10 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
     conf = re.sub(r"/etc/letsencrypt/live/[^;]*/(fullchain|chain)\.pem", str(cert), conf)
     conf = re.sub(r"/etc/letsencrypt/live/[^;]*/privkey\.pem", str(key), conf)
     conf = conf.replace("/var/log/nginx/", f"{tmp_path}/logs/")
+    conf = conf.replace(
+        "/etc/nginx/snippets/xcelsior-abuse-deny*.conf", f"{tmp_path}/abuse-deny*.conf"
+    )
+    (tmp_path / "abuse-deny.conf").write_text("if ($xcelsior_abuse_ip) { return 403; }\n")
     conf = re.sub(r"listen \[::\]:\d+\b[^;]*;", "", conf)
     conf = re.sub(r"listen 80\b[^;]*;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf)
     conf = re.sub(r"listen 443\b", f"listen 127.0.0.1:{tls}", conf)
@@ -170,7 +174,10 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
     (tmp_path / "site.conf").write_text(conf)
     (tmp_path / "nginx.conf").write_text(
         f"pid {tmp_path}/nginx.pid;\nerror_log {tmp_path}/logs/error.log;\nevents {{}}\n"
-        f"http {{\n  access_log {tmp_path}/logs/access.log;\n  include {tmp_path}/site.conf;\n}}\n"
+        f"http {{\n  access_log {tmp_path}/logs/access.log;\n"
+        "  set_real_ip_from 127.0.0.1; real_ip_header X-Test-IP;\n"
+        "  geo $xcelsior_abuse_ip { default 0; 198.51.100.10 1; }\n"
+        f"  include {tmp_path}/site.conf;\n}}\n"
     )
     started = subprocess.run(
         [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")],
@@ -198,6 +205,18 @@ def test_a_direct_rendering_routes_to_the_live_colour_in_real_nginx(tmp_path):
                 data += chunk
         status = int(data.split(b"\r\n", 1)[0].split()[1])
         assert status == 200 and b"\r\nlive\r\n" in data, data[:300]
+        for client_ip, expected in [("198.51.100.10", 403), ("198.51.100.11", 200)]:
+            with ctx.wrap_socket(
+                socket.create_connection(("127.0.0.1", tls), timeout=5),
+                server_hostname="xcelsior.ca",
+            ) as s:
+                s.sendall(
+                    f"GET /healthz HTTP/1.1\r\nHost: xcelsior.ca\r\nX-Test-IP: {client_ip}\r\nConnection: close\r\n\r\n".encode()
+                )
+                data = b""
+                while chunk := s.recv(65536):
+                    data += chunk
+            assert int(data.split(b"\r\n", 1)[0].split()[1]) == expected, data[:300]
     finally:
         subprocess.run(
             [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"],
@@ -280,4 +299,46 @@ def test_a_site_that_stops_answering_is_rolled_back(host):
     r = _install({**env, "HEALTH_CODE": "400"})
     assert r.returncode != 0
     assert "answered 400" in r.stderr
+    assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
+
+
+def test_existing_abuse_policy_cannot_be_silently_disconnected(host):
+    etc, _, env = host
+    (etc / "conf.d").mkdir()
+    (etc / "snippets").mkdir()
+    policy = etc / "conf.d/xcelsior-abuse-ips.conf"
+    policy.write_text("geo $xcelsior_abuse_ip { default 0; 198.51.100.10 1; }\n")
+    (etc / "snippets/xcelsior-abuse-deny.conf").write_text(
+        "if ($xcelsior_abuse_ip) { return 403; }\n"
+    )
+    r = _install(env)
+    assert r.returncode != 0 and "abuse" in r.stderr.lower()
+    assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
+
+
+def test_installer_preserves_operator_deny_entries(host):
+    etc, src, env = host
+    (etc / "conf.d").mkdir()
+    (etc / "snippets").mkdir()
+    policy = etc / "conf.d/xcelsior-abuse-ips.conf"
+    original = "geo $xcelsior_abuse_ip { default 0; 198.51.100.10 1; }\n"
+    policy.write_text(original)
+    (etc / "snippets/xcelsior-abuse-deny.conf").write_text(
+        "if ($xcelsior_abuse_ip) { return 403; }\n"
+    )
+    with (src / "xcelsior.conf").open("a") as f:
+        f.write("include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;\n")
+    r = _install(env)
+    assert r.returncode == 0, r.stderr
+    assert policy.read_text() == original
+
+
+def test_existing_abuse_map_requires_its_deny_snippet(host):
+    etc, src, env = host
+    (etc / "conf.d").mkdir()
+    (etc / "conf.d/xcelsior-abuse-ips.conf").write_text("geo $xcelsior_abuse_ip { default 0; }\n")
+    with (src / "xcelsior.conf").open("a") as f:
+        f.write("include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;\n")
+    r = _install(env)
+    assert r.returncode != 0 and "abuse" in r.stderr.lower()
     assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
