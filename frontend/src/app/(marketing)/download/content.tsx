@@ -218,7 +218,7 @@ export function DownloadContent() {
           <div className="site-split-panel">
             <div className="site-split-panel-media site-mobile-art-wrap">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/download/mobile-pwa.svg" alt="" aria-hidden className="site-mobile-art-phone" />
+              <img src="/download/mobile-pwa-v2.svg" alt="" aria-hidden className="site-mobile-art-phone" />
             </div>
             <div className="site-split-panel-body">
               <h2 className="site-callout-title">{t("download.mobile_title")}</h2>
