@@ -84,6 +84,10 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
+    // Meta Business domain verification for xcelsior.ca. Public by design (it
+    // ships in every page's <head>); hardcoded rather than a NEXT_PUBLIC_ var,
+    // which the prod deploy refuses to ship when local and prod disagree.
+    other: { "facebook-domain-verification": "6d7qdjiv4oifhbk7dyazjt5230uft5" },
   },
   icons: {
     icon: [
