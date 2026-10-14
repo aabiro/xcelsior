@@ -1,4 +1,9 @@
-"""GPTCache-style semantic cache in front of the OpenAI proxy (U2.2 threshold 0.92)."""
+"""Legacy prompt cache helpers retained for historical reads and migration.
+
+Runtime inference never consults these rows: prompt-only identity cannot prove
+the complete context required by DA§7.6. Approximate string reuse is retired.
+Cache v2 must bind model/tenant/policy revisions and pass its own rollout gates.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,6 @@ import json
 import logging
 import os
 import re
-from difflib import SequenceMatcher
 from typing import Any
 
 log = logging.getLogger("xcelsior.serverless.semantic_cache")
@@ -46,9 +50,8 @@ def extract_prompt_text(body: dict[str, Any]) -> str:
 
 
 def similarity(a: str, b: str) -> float:
-    if not a or not b:
-        return 0.0
-    return SequenceMatcher(None, a, b).ratio()
+    """Exact equality for historical diagnostics; never semantic similarity."""
+    return 1.0 if a and a == b else 0.0
 
 
 def prompt_fingerprint(text: str) -> str:
