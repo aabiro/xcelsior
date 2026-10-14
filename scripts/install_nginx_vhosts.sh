@@ -25,6 +25,20 @@ BACKUP_ROOT="${BACKUP_ROOT:-/var/backups}"
 HEALTH_HOST="${HEALTH_HOST:-xcelsior.ca}"
 VHOSTS="xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior"
 
+# Incident containment is host-owned state: never replace its IP list with a
+# repository default, and never install a vhost that disconnects an existing
+# list. Wildcard includes allow a new host with no operator deny policy yet.
+if [ -f "$NGINX_DIR/conf.d/xcelsior-abuse-ips.conf" ]; then
+  if [ ! -s "$NGINX_DIR/snippets/xcelsior-abuse-deny.conf" ]; then
+    echo "Existing abuse IP map has no deny snippet; refusing nginx install." >&2
+    exit 1
+  fi
+  if ! grep -Eq '^[[:space:]]*include /etc/nginx/snippets/xcelsior-abuse-deny\*\.conf;' "$SRC_DIR/xcelsior.conf"; then
+    echo "Rendered xcelsior vhost omits the existing abuse policy; refusing nginx install." >&2
+    exit 1
+  fi
+fi
+
 backup="$BACKUP_ROOT/nginx-deploy-$(date -u +%Y%m%dT%H%M%S)"
 sudo mkdir -p "$backup"
 for f in $VHOSTS; do
