@@ -186,6 +186,31 @@ describe("DepositModal", () => {
     expect(confirmPayment).not.toHaveBeenCalled();
   });
 
+  it("lets a platform admin credit with the reason left blank", async () => {
+    // The reason was required with no sign that it was, so the Credit button
+    // stayed disabled and admins were locked out of topping up.
+    authState.user = { is_admin: true };
+    apiMocks.adminCreditWallet.mockResolvedValue({ ok: true, tx_id: "tx-2", balance_cad: 25, amount_cad: 25 });
+    render(<DepositModal customerId="cust-1" onClose={() => {}} onSuccess={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "$25" }));
+    const credit = screen.getByRole("button", { name: /credit \$25\.00/i });
+    expect(credit).toBeEnabled();
+    fireEvent.click(credit);
+
+    await waitFor(() => {
+      expect(apiMocks.adminCreditWallet).toHaveBeenCalledWith("cust-1", 25, "Platform admin top-up", expect.any(String));
+    });
+  });
+
+  it("explains a reason that is too short instead of silently disabling", () => {
+    authState.user = { is_admin: true };
+    render(<DepositModal customerId="cust-1" onClose={() => {}} onSuccess={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: "ok" } });
+    expect(screen.getByText(/at least 3 characters, or leave it blank/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /credit \$50\.00/i })).toBeDisabled();
+  });
+
   it("warns a platform admin that Real payment charges a card", () => {
     authState.user = { is_admin: true };
 
