@@ -36,6 +36,7 @@ from typing import Any, cast
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
+from control_plane.db import try_advisory_xact_lock
 from control_plane.observations import latest_observation
 
 log = logging.getLogger("xcelsior.control_plane.reconcile")
@@ -100,6 +101,7 @@ _ENFORCEABLE: frozenset[str] = frozenset(
         "orphaned_allocation",
         "billing_missing_meter",
         "billing_orphaned_meter",
+        "job_stop_command_missing",
     }
 )
 
@@ -145,6 +147,7 @@ def _open_finding(
     summary: str,
     desired: dict[str, Any] | None,
     observed: dict[str, Any] | None,
+    tenant_id: str | None = None,
 ) -> str | None:
     """Record a finding unless an identical one is already open.
 
@@ -167,13 +170,13 @@ def _open_finding(
     row = conn.execute(
         """
         INSERT INTO reconciliation_findings
-            (resource_type, resource_id, finding_type, severity, summary,
+            (resource_type, resource_id, tenant_id, finding_type, severity, summary,
              desired, observed, action_taken)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'report_only')
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'report_only')
         RETURNING finding_id
         """,
         (
-            resource_type, resource_id, finding_type, severity, summary,
+            resource_type, resource_id, tenant_id, finding_type, severity, summary,
             Jsonb(desired) if desired else None,
             Jsonb(observed) if observed else None,
         ),
@@ -557,9 +560,14 @@ def process_due(
 ) -> dict[str, int]:
     """Claim and reconcile due queue entries (§12.3), settling each.
 
-    Success deletes the entry (the queue is PK-coalesced — a new
-    observation re-enqueues); failure records the error and backs off.
+    Hosts settle on success and observation ingest re-enqueues them. Active
+    jobs retain a periodic check. Each controller runs in a savepoint under a
+    resource advisory lock: partial work rolls back before a failure is recorded.
+    Unsupported resources retain their request and back off instead of claiming
+    success without a controller.
     """
+    from control_plane.job_reconcile import reconcile_job
+
     rows = conn.execute(
         """
         WITH due AS (
@@ -568,7 +576,7 @@ def process_due(
              WHERE due_at <= clock_timestamp()
                AND (claim_expires_at IS NULL
                     OR claim_expires_at < clock_timestamp())
-             ORDER BY priority DESC, due_at
+             ORDER BY priority DESC, due_at, resource_type, resource_id
              LIMIT %(limit)s
                FOR UPDATE SKIP LOCKED
         )
@@ -592,20 +600,40 @@ def process_due(
         rtype = str(_get(row, "resource_type", 0))
         rid = str(_get(row, "resource_id", 1))
         try:
-            if rtype == "host":
-                report = reconcile_host(
-                    conn, rid, missing_grace_sec=missing_grace_sec
-                )
-                stats["findings_opened"] += len(report.findings_opened)
-                stats["findings_resolved"] += report.findings_resolved
-                stats["actions_taken"] += len(report.actions_taken)
-            else:
-                log.info("reconcile: no controller for %s/%s yet", rtype, rid)
-            conn.execute(
-                "DELETE FROM reconciliation_queue "
-                "WHERE resource_type = %s AND resource_id = %s",
-                (rtype, rid),
-            )
+            # A PostgreSQL error aborts the current transaction until rollback.
+            # Use a savepoint so both SQL failures and Python exceptions discard
+            # partial repairs without poisoning this batch or losing its claim.
+            with conn.transaction():
+                if not try_advisory_xact_lock(conn, "reconcile", f"{rtype}:{rid}"):
+                    raise RuntimeError("resource_locked: another reconciler owns the resource")
+                if rtype == "host":
+                    report = reconcile_host(conn, rid, missing_grace_sec=missing_grace_sec)
+                elif rtype == "job":
+                    report = reconcile_job(conn, rid, missing_grace_sec=missing_grace_sec)
+                else:
+                    raise ValueError(f"unsupported_resource_type: no controller for {rtype}")
+                recheck = getattr(report, "recheck_after_sec", None)
+                if recheck is None:
+                    conn.execute(
+                        "DELETE FROM reconciliation_queue "
+                        "WHERE resource_type = %s AND resource_id = %s",
+                        (rtype, rid),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE reconciliation_queue
+                           SET claim_owner = NULL, claim_expires_at = NULL,
+                               last_error = NULL, reason = 'periodic_reconcile',
+                               due_at = clock_timestamp() + make_interval(secs => %s),
+                               updated_at = clock_timestamp()
+                         WHERE resource_type = %s AND resource_id = %s
+                        """,
+                        (recheck, rtype, rid),
+                    )
+            stats["findings_opened"] += len(report.findings_opened)
+            stats["findings_resolved"] += report.findings_resolved
+            stats["actions_taken"] += len(report.actions_taken)
             stats["reconciled"] += 1
         except Exception as exc:  # contain per-entry: bounded backoff
             stats["failed"] += 1

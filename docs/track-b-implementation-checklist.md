@@ -159,7 +159,10 @@ since spent on other content. `DA§14` and `DA§22.10` both instruct the
 implementer to inspect the real head and renumber; this section is that
 renumbering, recorded once so no future item guesses.
 
-**Repository head as of 2026-07-22: `069_action_plans_mcp_policy_audit.py`.**
+**Repository head verified 2026-10-14: `122`.** The ledger below records
+the original 2026-07-22 renumbering baseline (`069`); later landed migrations
+are recorded in their phase entries and `migrations/README.md`. Do not use
+the historical baseline to assign a new revision.
 
 | Document says | Document intended | Repository actually has | Track B resolution |
 |---|---|---|---|
@@ -244,11 +247,12 @@ renumbering, recorded once so no future item guesses.
 Blueprint §14, §18, §15.4, Phase 2. **This is the single largest
 uncovered blueprint area and the hard prerequisite for B5 (MCP v2).**
 
-**Current state (verified 2026-07-21):** no `control_plane/launch/`, no
-`action_plans` table, no `/api/v1/*` route prefix anywhere in `routes/` or
-`api.py`, no launch-plan endpoints. `/instance` remains the only launch
-path. Wallet holds (§15.1) and idempotency keys (`api_idempotency_keys`,
-migration 056) exist from Track A and are the substrate this builds on.
+**Current state (reconciled 2026-10-14):** the launch service, action plans,
+versioned endpoints, wallet holds and idempotency substrate exist. B2.7
+still records submission paths that have not delegated their full lifecycle
+to that service. Job reconciliation performs checks with opt-in fenced stop
+repair, durable mutation/observation requests, and bounded recovery (B2.9).
+The remaining lifecycle and active-meter remedies and live acceptance stay open.
 
 - [x] **B2.1 Migration — action plans, MCP policy, MCP audit** (2026-07-23,
   §13.5 at the live head) — migration `069_action_plans_mcp_policy_audit`
@@ -505,6 +509,40 @@ migration 056) exist from Track A and are the substrate this builds on.
   v1 drain+evict). The v1 `/evictions` uses the existing preempt/requeue path;
   strengthening it to a fully fence-token-invalidating primitive is tracked with
   Track A's fenced lifecycle.
+
+- [~] **B2.9 Job reconciliation controller** (2026-10-14, §12.3–§12.4).
+  `control_plane/job_reconcile.py` evaluates current job/attempt/host/fence,
+  lease validity, API-receipt observation freshness, immutable spec identity,
+  stop-command delivery and active-meter presence. Findings are durable,
+  tenant-attributed, deduplicated and resolved only by their owning controller.
+  A fresh matching running observation projects `observed_generation`;
+  exited containers never invent terminal success or release authority.
+  New findings default to **report-only**. Pending jobs are already the durable
+  scheduler queue; terminal jobs are never resurrected because their legacy
+  `desired_state` projects to `running`.
+  `process_due` now dispatches job requests, retains periodic checks for active
+  jobs, takes transaction-scoped resource locks, and isolates each entry with
+  a savepoint. Unknown controllers and failed entries retain their request with
+  error/backoff; partial work rolls back and does not poison the next entry.
+  Migration `122` atomically requests reconciliation on job changes; observations
+  enqueue server-owned affected jobs, including missing workloads. The bounded
+  `job_reconciliation_recovery` task fills missing active-job entries without
+  postponing existing work. Locked jobs back off instead of inverting the
+  writer's job/queue lock order. The opt-in `job_stop_command_missing` action
+  calls the fenced lifecycle authority in the same transaction as finding
+  evidence. It preserves intent, refuses exhausted commands, and works after
+  switching an existing finding from report-only to enforce. Lease expiry now
+  preserves stop/terminal state and consumes restart intent instead of blindly
+  requeueing or leaving contradictory payload state (eight regressions proven red).
+  Gates: `tests/test_job_reconcile_queue.py`,
+  `tests/test_job_reconcile_observations.py`, `tests/test_job_reconcile_requests.py`;
+  lease/resume regressions and migration up/down/up over populated fixtures.
+  See `docs/review/2026-10-14-control-plane-execution.md` for executed counts.
+  Four queue regressions were demonstrated red against the prior code.
+  **Residual:** remaining lifecycle remediation through the scheduling/attempt/
+  lease/billing authorities with per-type staged enforcement; immediate
+  command-failure and lease-only mutation request coverage; production
+  false-positive measurement before enabling any new remediation.
 
 **Drift found and closed in the same pass (2026-07-23, B0.1 rule 6):**
 
@@ -828,11 +866,15 @@ and no `Last-Event-ID` cursor on SSE.
   the gap, once, in order** (never what it already saw, nothing once caught up);
   the total order is stable across equal timestamps via the UUID tiebreak.
   Pyright clean; health/SSE suites (36) green.
-  **Residual:** tagging **live-tailed** events with their outbox cursor too (so
-  the live→reconnect boundary is exactly-once rather than at-least-once — today
-  the reconnect replay is exactly-once from the last *replayed* cursor, and a
-  client that reconnects re-reads any events it only saw on the live tail). This
-  needs `broadcast_sse` to carry the cursor, a small follow-on.
+  **Reconciled 2026-10-14:** live outbox notifications already include their
+  durable cursor (`outbox_runtime.handle_default`), and `broadcast_sse` carries
+  it to the stream's `id:` header. The former missing-live-cursor residual is
+  closed; do not rebuild it. Gates: `tests/test_event_stream_resume.py` (3)
+  and `tests/test_sse_generator_replays_and_keeps_alive.py` (10), rerun green.
+  **Residual:** full persistent-stream acceptance across replica restarts and
+  draining (B8), and remaining non-durable lifecycle emitters (B4.7). The
+  existing live-only degradation when replay storage fails must also be
+  reconciled with the governing durability contract.
 - [~] **B4.7 Emitter inventory + classification** (2026-07-24). The structural
   gate is in place: `tests/test_emitter_inventory.py` AST-discovers **every**
   non-test `broadcast_sse` / `emit_event` call site (by file) and asserts each is
@@ -1175,12 +1217,19 @@ domain-state half of §25.1 exists.
   burn-rate windows, alert-rules coverage, metrics-catalog coverage) +
   `tests/test_observability_stack.py` updated with 4 new required alert
   names. Total: 85 tests passed. ✔
-- [ ] **B7.6 Resolve `telemetry_snapshots`** (`DA§9.4`). Pick one and
+- [~] **B7.6 Resolve `telemetry_snapshots`** (`DA§9.4`). Pick one and
   execute it: bounded downsampled business/SLA history (one- or
   five-minute summaries, partitioned, limited retention), or deprecation
   after B7.1 and B11 land. Do not leave it as an unbounded raw table in the
   authority cluster. Gate: whichever path is chosen is enforced by a
   retention task and a size alert.
+  **Landed, verified 2026-10-14:** `control_plane/telemetry_retention.py`
+  prunes old rows in batches; `bg_worker` registers the durable retention task;
+  `XcelsiorTelemetrySnapshotsSizeHigh` supplies the size alert. Gate:
+  `tests/test_telemetry_snapshots_retention.py` (5 passed, including pruning
+  against the real PostgreSQL column type).
+  **Residual:** execute the companion's downsampled/partitioned history or
+  deprecation decision; verify task execution and alert delivery in production.
 
 ---
 
@@ -1198,7 +1247,7 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   rolling restart of every replica class creates no duplicate allocation,
   no unmetered execution, and no MCP launch outage — run as a repeated
   chaos job, not once.
-- [ ] **B8.2 Health semantics completion** (§21.3). Track A landed
+- [~] **B8.2 Health semantics completion** (§21.3). Track A landed
   `/livez`, `/readyz`, and `/startupz` for the API. Extend to every
   service: scheduler readiness proves it can claim a synthetic
   non-mutating probe or verify DB primitives plus heartbeat; reconciler
@@ -1208,6 +1257,13 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   runtime, inventory, and mandatory capability probes. **PID-string health
   checks are removed.** Gate: a test per service that readiness goes false
   when its named dependency is broken and true when repaired.
+  **Landed, verified 2026-10-14:** `control_plane/readiness.py` includes
+  scheduler, reconciler, MCP, worker and maintenance dependency checks; compose
+  no longer uses PID-string health checks. Gate:
+  `tests/test_service_readiness_semantics.py` (12 passed). These tests include
+  simulated dependency break/repair and configuration checks, not a live
+  service-failure drill. **Residual:** prove dependency failure/recovery against
+  the deployed services and the intended replica topology.
 - [ ] **B8.3 Deployment sequence and rollback** (§21.4, §21.5). Encode the
   thirteen-step sequence in `scripts/deploy.sh`. Rollback: binaries only
   within the declared schema compatibility window (Track A's
@@ -1757,10 +1813,9 @@ warehouse reconciles against a source that cannot be exactly summed.
 
 ## B10 — Semantic retrieval and semantic cache v2
 
-`DA§7`, companion Phase 4. **Nothing in this section is built.**
-`serverless/semantic_cache.py` still serves `difflib.SequenceMatcher`
-similarity over the latest 32 prompts — the exact unsafe behaviour
-`DA§2.5` documents.
+`DA§7`, companion Phase 4. **Retrieval and cache v2 remain unbuilt.**
+The unsafe legacy response-reuse path was retired on 2026-10-14 (B10.6);
+the catalog remains readable for migration, and inference runs normally.
 
 - [ ] **B10.1 Model capability probe first — no schema before evidence**
   (`DA§7.2`, `DA§22.11-12`). The declared inventory is
@@ -1828,7 +1883,7 @@ similarity over the latest 32 prompts — the exact unsafe behaviour
   response schema, safety/policy revision, sampling parameters and seed,
   maximum output settings, retrieval corpus versions, and the cache schema
   version. Sensitive prompt material never appears in a Redis key name.
-- [ ] **B10.6 Cache correctness before savings** (`DA§7.6`). Stop serving
+- [~] **B10.6 Cache correctness before savings** (`DA§7.6`). Stop serving
   `SequenceMatcher` hits. The first lookup is always the exact key.
   Semantic reuse happens only after an exact miss and only where endpoint
   policy permits, with **default deny** for tool calls or side-effecting
@@ -1842,6 +1897,24 @@ similarity over the latest 32 prompts — the exact unsafe behaviour
   compare correctness and saved cost, then enable per endpoint behind
   explicit policy. `serverless_semantic_cache` stays readable during
   transition; exact-safe entries may migrate, the rest expire.
+  **Landed, verified 2026-10-14:** the OpenAI chat route no longer reads or
+  writes prompt-only cache rows or records inferred cache savings. Neither an
+  exact legacy prompt match nor the old enablement flag can authorize response
+  reuse, because the catalog cannot reconstruct full execution context.
+  Historical repository reads are exact only; `SequenceMatcher` is removed.
+  Gates: `test_legacy_prompt_cache_never_serves_inference` in
+  `tests/test_serverless_openai_compat.py` (four cases: identical prompt,
+  different role, different case, different temperature), and
+  `test_legacy_cache_read_never_approximates_similar_prompts` in
+  `tests/test_serverless_extended_features.py`. All five failed before the fix.
+  The HTTP cases exercise real auth, PostgreSQL, metering and a local model
+  upstream fixture; they prove fresh upstream inference and no synthetic cache
+  savings, not live model quality. Cache/proxy/billing/idempotency regression
+  suites: **64 passed**.
+  **Residual:** full-context v2 schema and exact lookup, verified embedding
+  capability, calibrated policy-gated semantic reuse, expiry/invalidation and
+  shadow quality/cost evaluation. Serving v1 cache responses remains disabled
+  until those requirements are met.
 - Gate (`DA§16.5`): no cross-tenant candidate is returnable even under ANN
   and filter edge cases; a model path, revision, or dimension mismatch
   blocks readiness; results carry valid source/version anchors; a source
@@ -1951,7 +2024,7 @@ per-sink delivery) is green** — the outbox is the only ingestion source.
   revalidation**. Security and pricing decisions use an authoritative read
   or a signed, versioned policy snapshot with strict expiry. Correctness
   never depends on an invalidation arriving exactly once.
-- [ ] **B12.2 Migration — deletion and export state** (`DA§12.7` at the live
+- [~] **B12.2 Migration — deletion and export state** (`DA§12.7` at the live
   head). The workflow `requested → validated → authority_deleted/
   anonymized → redis_invalidated → artifacts_deleted or held →
   retrieval_deleted → analytics_deleted/anonymized → posthog_deleted →
@@ -1963,6 +2036,16 @@ per-sink delivery) is green** — the outbox is the only ingestion source.
   incident on a missed deadline. Gate: a deletion request with an
   artifact under legal hold reports `legal_hold` for that sink and
   `completed` for the others, and never silently succeeds.
+  **Landed, verified 2026-10-14:** migration `081` and `privacy_deletion.py`
+  provide durable requests, sink statuses, claims, retries, deadlines and
+  evidence; `privacy_sinks.py` supplies the sink handlers. Gates:
+  `tests/test_privacy_deletion_workflow.py` (7 passed) and
+  `tests/test_privacy_sinks.py` (2 passed). The workflow gate exercises a
+  visible legal hold, failed-sink retries, competing worker claims and missed
+  deadlines against real PostgreSQL, using controlled sink handlers.
+  **Residual:** export workflow parity, complete deletion coverage as retrieval/
+  analytics stores expand, and external-sink end-to-end evidence; WORM audit
+  retention remains an explicit exception in `docs/audit-retention.md`.
 
 ---
 

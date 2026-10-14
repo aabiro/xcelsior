@@ -10,9 +10,9 @@ Rules enforced (§8.3):
 - renewal cannot change host, lower the fence, or resurrect a
   non-active lease;
 - released/expired/fenced leases never return to active;
-- expiry sweeps close the attempt, release its allocations exactly once,
-  and requeue the job for a fresh attempt with a *higher* fence — the old
-  attempt is never rewound.
+- expiry sweeps close the attempt and release its allocations exactly once;
+  only work still desired running (or explicitly restarting) is requeued
+  with a *higher* fence. Stop and terminal intent survive authority loss.
 
 All functions run inside the caller's transaction
 (``control_plane.db.run_transaction``).
@@ -286,7 +286,7 @@ def expire_stale_leases(
     grace_sec: float = DEFAULT_EXPIRY_GRACE_SEC,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Lease-controller sweep (§12.4): fence out dead claims and requeue.
+    """Lease-controller sweep (§12.4): fence dead claims, preserve job intent.
 
     Two cases, processed with row locks and SKIP LOCKED:
 
@@ -298,22 +298,25 @@ def expire_stale_leases(
       the reconciler's concern, here we only revoke authority).
 
     In both cases, atomically: lease → expired, attempt → terminal,
-    allocations → released (exactly once), job → pending with a durable
-    reason and cleared active attempt, outbox event appended. A retry
+    allocations → released (exactly once), job authority cleared and desired
+    stop/terminal state preserved, outbox event appended. Work still desired
+    running is requeued with a durable reason. A retry
     then mints a *new* attempt with a higher fence via the normal
     scheduler path.
     """
     stale = conn.execute(
         """
-        SELECT lease_id, job_id, attempt_id, host_id, fencing_token, status
-          FROM placement_leases
-         WHERE (status = 'offered' AND claim_deadline < clock_timestamp())
-            OR (status = 'active'
-                AND expires_at + make_interval(secs => %(grace)s)
+        SELECT l.lease_id, l.job_id, l.attempt_id, l.host_id, l.fencing_token, l.status,
+               j.status AS job_status, j.desired_state,
+               j.payload->>'lifecycle_intent' AS lifecycle_intent
+          FROM placement_leases l JOIN jobs j ON j.job_id = l.job_id
+         WHERE (l.status = 'offered' AND l.claim_deadline < clock_timestamp())
+            OR (l.status = 'active'
+                AND l.expires_at + make_interval(secs => %(grace)s)
                     < clock_timestamp())
-         ORDER BY lease_id
+         ORDER BY l.lease_id
          LIMIT %(limit)s
-           FOR UPDATE SKIP LOCKED
+           FOR UPDATE OF j, l SKIP LOCKED
         """,
         {"grace": grace_sec, "limit": limit},
     ).fetchall()
@@ -327,6 +330,15 @@ def expire_stale_leases(
         failure_code = (
             "lease_claim_timeout" if was == "offered" else "lease_renewal_timeout"
         )
+        job_status = str(_get(row, "job_status", 6))
+        desired = str(_get(row, "desired_state", 7))
+        intent = _get(row, "lifecycle_intent", 8)
+        if job_status not in {"completed", "failed", "terminated", "cancelled", "stopped", "paused"}:
+            if desired == "stopped":
+                job_status = {"terminate": "terminated", "cancel": "cancelled",
+                              "restart": "queued"}.get(intent, "stopped")
+            else:
+                job_status = "queued"
 
         conn.execute(
             "UPDATE placement_leases SET status = 'expired' WHERE lease_id = %s",
@@ -367,18 +379,28 @@ def expire_stale_leases(
         conn.execute(
             """
             UPDATE jobs
-               SET phase = 'pending',
-                   status = 'queued',
+               SET status = %(status)s,
                    host_id = NULL,
                    active_attempt_id = NULL,
-                   reason_code = %s,
-                   next_schedule_at = clock_timestamp(),
+                   reason_code = %(reason)s,
+                   next_schedule_at = CASE WHEN %(status)s = 'queued'
+                       THEN clock_timestamp() ELSE NULL END,
+                   schedule_claim_owner = NULL,
+                   schedule_claim_token = NULL,
+                   schedule_claim_expires_at = NULL,
+                   generation = generation + CASE WHEN %(status)s = 'queued' THEN 1 ELSE 0 END,
+                   payload = (CASE WHEN %(status)s = 'queued'
+                       THEN COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent'
+                            - 'stopped_at' - 'stop_reason' - 'stopping_at'
+                       ELSE COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent' END)
+                       || jsonb_build_object('status', %(status)s::text,
+                           'lease_expired_at', EXTRACT(EPOCH FROM clock_timestamp())),
                    version = version + 1,
                    updated_at = clock_timestamp()
-             WHERE job_id = %s
-               AND active_attempt_id = %s
+             WHERE job_id = %(job)s
+               AND active_attempt_id = %(attempt)s
             """,
-            (failure_code, job_id, attempt_id),
+            {"reason": failure_code, "job": job_id, "attempt": attempt_id, "status": job_status},
         )
         conn.execute(
             """

@@ -43,11 +43,12 @@ from psycopg import Connection
 # credits never issued. That is the exact class `/readyz` is supposed to refuse
 # to serve, reported instead as healthy.
 #
-# 121 is also head; 117–120 needed nothing the code reads. The floor is what
+# 122 durably enqueues job mutations; without its trigger the controller can
+# miss terminal stop intent between recovery scans. The floor is what
 # the code *needs*, not where the chain happens to end, and
 # `test_schema_floor_covers_what_the_code_uses` derives it so it cannot drift
 # silently again.
-REQUIRED_MIN_REVISION = "121"
+REQUIRED_MIN_REVISION = "122"
 REQUIRED_MAX_REVISION: str | None = None
 
 

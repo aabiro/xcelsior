@@ -1,16 +1,15 @@
-# Gate truth table — P0 through P5
+# Gate truth table — P0 through P7
 
 *Built 2026-08-08, against `4321d69`.*
 
-The directive that asked for this said implementation had started moving faster
-than the gates meant to prove it safe. This is the reckoning: every gate clause
-in `docs/mcp-agent-native-implementation-plan.md` for P0–P3, judged one clause at
-a time against evidence I looked at, not against a green suite.
+This table records individually scoped acceptance clauses in
+`docs/mcp-agent-native-implementation-plan.md`. A passing clause does not
+establish full feature implementation or production rollout. The clause rows
+retain their recorded evidence; live journeys and fleet prerequisites have
+not been refreshed by the repository reconciliation on 2026-10-14.
 
-**"The suite passes" is not evidence for any row below.** The suite passes right
-now with 5029 tests and it does not, on its own, establish a single one of these
-clauses — several clauses require a live server the suite never contacts, and one
-clause is contradicted by a test that passes.
+The targeted suites prove their named behavior. Full-suite totals, a mock,
+or a successful refusal cannot establish a live execution journey.
 
 ## Statuses
 
@@ -45,13 +44,10 @@ slipped.
 | 4 | A refusal test — what the phase makes impossible | **PASS** | Dense across the corpus. `test_serverless_refuses_narrowed_credentials`, `test_platform_ssh_key_is_admin_only`, `test_terminal_ticket_needs_connect_scope`, `test_stripe_webhook_refuses_unverified`. |
 | 5 | An eval delta per phase — re-run at the new tool count | **PASS** *(P2's clause SUPERSEDED)* | The loop runs without GitHub Actions (`scripts/run_mcp_eval_locally.sh`), and the clause has now been honoured **end to end for one phase**: P4 captured *before* it added a tool (48 tools, 0.9444) and *after* (50 tools, 0.9444) — two more tools, no accuracy lost. The promotion tools got theirs the same way (46 → 48, 0.9111 → **0.9444**). **PASS**, with one clause-scoped **ACCEPTED-UNFIXABLE** — the row is PASS because the clause was met end to end for P4 and P5; the P2 sub-clause is unobtainable rather than superseded, since what is gone is the *measurement's subject*, not the surface the clause described. P2's SSH tools shipped without a delta and **cannot get one**: the intermediate surface they were measured against no longer exists, so there is nothing left to re-run the eval over, and reconstructing a number from old commits would not be the measurement this clause asks for. Recorded as superseded rather than left open — an open row implies work someone could do, and this is not work, it is a measurement whose subject is gone. **P5's delta is taken**: `evaluate_placement_preference` took the surface to 51 and the headline holds at **0.9444**, identical to the 50-tool baseline of 2026-08-09. Abstention 18/18, unsafe-write 0.0. **The headline is not the whole reading.** Unstable cases went **3 → 4**: `always_failed` emptied and `flaky` grew from two entries to four. `approval-serverless` moved from reliably red to intermittent — a diagnosis regression, not a fix, and the way a known failure quietly stops being tracked as one. `indirect-would-it-fit` is **newly unstable**, appearing in neither list at 50 tools; that is the tool competing with `simulate_instance_placement` for a case it used to win outright, which is exactly the interference an earlier note in this table wrongly claimed had not occurred. Accuracy is unchanged only because the new instability averaged back to 85/90. **A first capture aborted mid-run on an exhausted key and wrote nothing** — the runner refuses to score an unreachable API as a wrong answer, because that records a fabricated regression. Two phases running have now honoured this clause end to end (P4, P5). |
 
-§1.3 and §1.5 were the two structural failures on this page and are now the two
-structural *partials*: both have a runner that works and neither is honoured per
-phase. Everything else is a clause-by-clause matter; these two were a habit that
-lapsed, and the habit is only half repaired — P1, P2 and P3 still have no live
-assertion, and P2's tools shipped without an eval delta that cannot now be
-taken. The promotion tools *did* get theirs (46 → 48, 0.9111 → 0.9444), which
-is the first time the clause has been honoured rather than skipped.
+The current clause rows record live assertions for P0–P5 and a measured eval
+delta for the phases named in §1.5. Those historical results do not establish
+current tool-surface performance or the complete live journeys below. The
+missing historical P2 eval delta remains an accepted evidence limitation.
 
 ---
 
@@ -319,129 +315,40 @@ assertion about a bug.
 | P7 | — | — | 1 | — |
 | **Total** | **27** | **—** | **5** | **1** |
 
-Twenty-seven of thirty-three clauses are fully met, nothing is BLOCKED, **no clause is
-PARTIAL any more**, and **Gates P0, P1 and P4 are wholly met**.
+Twenty-seven of thirty-three clauses are fully met by their recorded evidence;
+five clauses fail and one historical evidence gap is ACCEPTED-UNFIXABLE.
+The tally is derived from clause rows by `tests/test_gate_truth_table_tally.py`.
 
-The denominator moved from 29 to 33 because **P6 and P7 were never on this
-page**. They were in the plan the whole time; the table covered P0–P5 and said
-so, which is not the same as anyone noticing that two phases had no row. An
-absent phase reads as a met one — the same failure mode as a clause counted in
-no column — so they are here now, with four clauses between them and the
-verdicts the evidence supports. Three of the four are FAIL, and adding them
-made the headline worse, which is the point: a tally that only ever improves is
-not measuring anything.
-
-PARTIAL reaching zero is worth a sentence, because it is the verdict this page
-was built to resist inflating. Every clause that carried it did so for the same
-reason — the behaviour worked and the clause's *own* evidentiary standard was
-unmet — and each was closed by meeting that standard rather than by softening
-it. P1's last two were the hardest and the most instructive: running them
-against a live server in test mode showed that clause 1 was not merely
-unasserted but **impossible**, because `list_payment_methods` raised on any
-customer who actually had a saved card. A mock had been standing in for a code
-path that could not run.
-
-What remains is five FAIL clauses and one ACCEPTED-UNFIXABLE. The six split by
-what is actually in the way, in the vocabulary this page now uses throughout:
+The following blockers describe the recorded journey failures. They are
+historical observations, not a current infrastructure diagnosis: host count,
+NFS reachability and webhook delivery require fresh checks before rollout.
 
 | blocker | clauses |
 |---|---|
-| **hardware** | P5.1 (one host exists; a migration needs two), P3.3 (the NFS export is unreachable from staging), P7.1 (a sweep needs somewhere to spread to) |
-| **cutover** | P2.1 and P6.1 (both need webhook delivery into staging before money can move) |
+| **hardware** | P5.1 (the recorded run lacked two hosts), P3.3 (the recorded staging NFS export was unreachable), P7.1 (the recorded sweep lacked a second host) |
+| **cutover** | P2.1 and P6.1 (the recorded journeys lacked webhook delivery into staging) |
 | **code** | — |
 
-P6.3 was in that **code** row and is now PASS — the property turned out to be
-true already, and what was missing was the assertion. **The code row is now
-empty.** P7.1 was the last clause in it and moved to *hardware* on 2026-08-14,
-when the sweep-creation route landed and left piece 5 — a perturbed member in a
-real sweep — as the only thing outstanding. That is not a milestone worth
-celebrating so much as a change in who is blocked: every remaining FAIL now
-waits on hardware or a cutover, and none of them waits on me.
+The empty code row applies only to these narrow gate clauses. It does not
+mean the programme has no implementation work. Repository reconciliation
+on 2026-10-14 confirms these separate feature residuals:
 
-**Nothing remains that needs nothing from anyone else.** This paragraph used to
-name the sweep half of P7.1 and said "nothing launches N nodes from one image";
-every claim it made is now false, including that `user_images` has no digest
-column — migration 112 added one. All five pieces the sweep needed are built:
-the digest pin (112), the record the N members belong to (113), the fingerprint
-and its boundary (114), a caller for the collector, and the creation route. What
-is left of P7.1 is a **perturbed member in a real sweep**, which needs a second
-host, so the clause has moved to the *hardware* row above.
+| Feature | Implementation remaining |
+|---|---|
+| P4 pipeline execution | `routes/action_plans.py` returns `stage_executor_not_wired`; graph/approval/budget gates do not prove actual stage execution. |
+| P5 checkpoint migration | A production caller, durable outcome/history storage, timeline UI and a two-host resume proof remain open in `docs/placement-preference-plan.md`. |
+| Track B | Launch consolidation, automatic job repair, billing exposure, durable emitters, artifact consistency, retrieval, analytics, IaC and operational acceptance remain open in `docs/track-b-implementation-checklist.md`. |
 
-Worth being blunt about how long that paragraph was wrong: it survived the four
-commits that falsified it, because it sits below the tally and the tally is the
-part that is derived. `tests/test_the_truth_table_cites_things_that_exist.py`
-now checks the citations and the blocker table, and it went red on first run
-against Gate P5 clause 2 — a **PASS** whose two named test files had been
-renamed by `dba3141` and never repointed. It does not check prose, and prose is
-where this rotted; a reader is still the only thing standing between this page
-and a confident sentence about work that is done.
+The report-only job controller and queue failure isolation implemented on
+2026-10-14 are covered by `tests/test_job_reconcile_queue.py` and
+`tests/test_job_reconcile_observations.py`. They do not close lifecycle
+remediation or the broader Track B phase.
 
-One is ACCEPTED-UNFIXABLE, and it has its own
-column on purpose: §1.2's historical half is not work anyone can do, so counting
-it as outstanding overstates the backlog — and folding it into PASS would
-overstate what is proven. The tally is derived from the clause rows, so a
-verdict that quietly counted as PASS would move the headline number with no
-clause changing, which is the exact drift this tally already had once.
-
-The total moved by one this session and the arithmetic is worth stating, because
-it did not move the way it looks. §1.3 went PARTIAL → PASS, which is +1. But the
-**Total** row was already overstating by one before that — it read 21 PASS when
-the clause rows held 20 — so the count that was right is the one that did not
-change. `tests/test_gate_truth_table_tally.py` derives the whole table from the
-clause rows now; the row a human maintains is the row that drifts. P5 moved two clauses earlier — not by writing
-the module, which already refused correctly, but by giving it a caller.
-
-§1.3 moved last, and moved for a different reason than the others: nothing was
-built for it. The clause had been PARTIAL because three phases had no live
-assertion; writing them was straightforward, and *running* them is what took
-the work. Two of the assertions turned out to name routes that do not exist —
-they had been reporting refusals from 404s. A clause can be listed as PARTIAL
-for the wrong reason: it was not short of assertions, it was short of
-assertions that could fail.
-
-The count grew because P4 and P5 added clauses of their own — this table now
-covers P0–P5 rather than P0–P3. Worth saying plainly: Gate P4 passing all four does
-**not** mean pipelines work. Its clauses are about what an approval covers,
-invalidates and bounds, and the stage executor beneath them is unwired by
-design. A gate can be honestly met by a feature that is honestly incomplete,
-and pretending otherwise is how a table like this stops being worth reading.
-
-It was eight when this table was first written. P1 clause 6 moved FAIL → PASS
-when the ruling was implemented; P0 clause 4 moved BLOCKED → PASS when the
-Anthropic key was funded and the eval recaptured; §1.5 moved FAIL → PARTIAL
-because the loop runs again, though the two phases that already shipped without
-a delta cannot get one retroactively.
-
-P3 clause 1 moved FAIL → PASS when promotion was built and its idempotency
-proven the way the promotion plan's §4 specifies.
-
-**Two failures remain, and they are the same shape**: Gate P2 clause 1 (the
-access journey) and Gate P3 clause 3 (the promotion round-trip). Neither is
-blocked on missing code any more — the tools exist — and as of today neither is
-blocked on a *server* either, since `scripts/run_live_gates.sh` stands one up.
-What they still need is a scripted journey that drives the whole sequence, and
-for P2 the host-key fingerprint that would let an agent complete the connect
-step without accepting an unverified host key.
-
-A gate that cannot be run has not been passed — but these two are now a
-morning's work rather than an environment project, which is a different kind of
-open.
-
-## What this table does not cover
-
-- **P4–P7 are not assessed.** The directive asked for P0–P3.
-- **I did not re-run the full suite to build this.** These verdicts come from
-  reading code and tests, running the four targeted files named above, and one
-  live probe against production for the certificate question. Where I say a test
-  exists, I looked at it; where I say a behaviour holds, I read the code that
-  implements it.
-- **§1.2 is unverifiable in retrospect.** Whether every historical regression test
-  was shown to fail first cannot be reconstructed from the repository. I marked it
-  PARTIAL on the strength of current practice only.
-- **No claim here rests on production behaviour**, except the single ticket-consumption
-  read, because P1/P2/P3 have no live path — which is itself §1.3's verdict.
-
----
+`tests/test_the_truth_table_cites_things_that_exist.py` checks citations and
+blocker coverage. Neither that test nor a passing clause establishes current
+production configuration. The next live validation must run the complete
+access, promotion, migration, provider payout and sweep journeys and retain
+fresh evidence for each.
 
 ## Ruling — Gate P1 clause 6 (the consent contradiction)
 

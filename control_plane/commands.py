@@ -96,6 +96,9 @@ def enqueue_current_attempt_command(
           JOIN job_attempts a ON a.attempt_id = j.active_attempt_id
           JOIN placement_leases l ON l.attempt_id = a.attempt_id
          WHERE j.job_id = %s
+           AND a.job_id = j.job_id AND a.host_id = j.host_id
+           AND l.job_id = j.job_id AND l.host_id = a.host_id
+           AND l.fencing_token = a.fencing_token
            AND a.status IN ('lease_claimed', 'starting', 'running')
            AND l.status = 'active'
            AND l.expires_at > clock_timestamp()
