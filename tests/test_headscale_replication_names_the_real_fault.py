@@ -538,6 +538,7 @@ def _make_headscale_db(path: Path, users: int, nodes: int) -> None:
     import sqlite3
 
     con = sqlite3.connect(path)
+    con.execute("PRAGMA journal_mode=WAL")  # Headscale's database is in WAL mode
     con.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
     con.execute("CREATE TABLE nodes (id INTEGER PRIMARY KEY)")
     con.executemany("INSERT INTO users DEFAULT VALUES", [()] * users)
@@ -603,7 +604,7 @@ def test_a_good_refresh_replaces_the_replica_and_leaves_no_partials(tmp_path: Pa
 
     assert (status.user_count, status.node_count) == (1, 7)
     assert (settings.replica_dir / "noise_private.key").read_bytes() == b"key material"
-    assert not list(settings.replica_dir.glob(".*.part"))
+    assert not list(settings.replica_dir.glob(".*.part*"))
 
 
 def test_an_empty_snapshot_does_not_overwrite_the_good_replica(tmp_path: Path) -> None:
@@ -616,6 +617,6 @@ def test_an_empty_snapshot_does_not_overwrite_the_good_replica(tmp_path: Path) -
         hf.replicate(settings, runner=_copying_runner(calls, users=0, nodes=0))
 
     assert hf.sqlite_counts(settings.replica_dir / "db.sqlite") == (1, 7)
-    assert not list(settings.replica_dir.glob(".*.part"))
+    assert not list(settings.replica_dir.glob(".*.part*"))
     # The server-side snapshot is cleaned up on failure too.
     assert any(a[-1].startswith("rm -f /tmp/headscale-replica-") for a in calls)
