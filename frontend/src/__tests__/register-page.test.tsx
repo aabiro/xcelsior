@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const apiMocks = vi.hoisted(() => ({
+  fetchOAuthProviders: vi.fn(() => Promise.resolve({ ok: true, providers: ["github", "google", "huggingface", "facebook"] })),
   register: vi.fn(),
   oauthInitiate: vi.fn(),
   resendVerification: vi.fn(),

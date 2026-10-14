@@ -1873,6 +1873,20 @@ class SocialOAuthInitBody(BaseModel):
     redirect: str = "/dashboard"
 
 
+@router.get("/api/auth/oauth/providers", tags=["Auth"])
+def oauth_providers():
+    """Sign-in providers configured here, in display order.
+
+    The login and register pages showed every provider they knew of, so the
+    Facebook button (no app configured) answered every click with "OAuth
+    provider facebook is not configured". They now show only these.
+    """
+    return {
+        "ok": True,
+        "providers": [name for name, cfg in _OAUTH_PROVIDERS.items() if cfg["client_id"]],
+    }
+
+
 @router.post("/api/auth/oauth/{provider}", tags=["Auth"])
 def api_auth_oauth_initiate(provider: str, body: SocialOAuthInitBody | None = None):
     """Initiate OAuth flow — returns the provider's authorization URL.

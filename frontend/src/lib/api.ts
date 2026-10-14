@@ -515,6 +515,11 @@ export async function register(email: string, password: string, name?: string) {
   });
 }
 
+/** Sign-in providers configured on the server (the rest are hidden). */
+export async function fetchOAuthProviders() {
+  return apiFetch<{ ok: boolean; providers: string[] }>("/api/auth/oauth/providers");
+}
+
 export async function oauthInitiate(provider: string, redirectPath?: string) {
   return apiFetch<{ ok: boolean; auth_url: string }>(`/api/auth/oauth/${provider}`, {
     method: "POST",
@@ -2609,12 +2614,12 @@ export async function fetchAdminUsers() {
     ok: boolean;
     users: {
       email: string; customer_id: string; role: string; is_admin?: boolean; is_active: boolean;
+      is_suspended?: boolean;
       created_at: string; wallet_balance_cad: number; total_jobs: number;
       province: string; country: string; team_id?: string | null;
     }[];
   }>("/api/admin/users");
 }
-      is_suspended?: boolean;
 
 export async function fetchAdminOverview(days = 30) {
   return apiFetch<{
@@ -2788,11 +2793,6 @@ export async function adminToggleAdmin(email: string) {
   );
 }
 
-// ── Admin: Teams ─────────────────────────────────────────────────────
-export interface AdminTeam {
-  team_id: string;
-  name: string;
-  owner_email: string;
 /** Ban: blocks sign-in and spending and revokes sessions. Nothing is deleted. */
 export async function adminSuspendUser(email: string, reason = "administrative_suspension") {
   return apiFetch<{ ok: boolean; email: string; is_suspended: boolean }>(
@@ -2816,6 +2816,11 @@ export async function adminDeleteUser(email: string) {
   );
 }
 
+// ── Admin: Teams ─────────────────────────────────────────────────────
+export interface AdminTeam {
+  team_id: string;
+  name: string;
+  owner_email: string;
   plan: string;
   max_members: number;
   created_at: number;
