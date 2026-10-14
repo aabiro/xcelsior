@@ -10,6 +10,7 @@ import { ProviderLogo } from "@/components/ui/provider-logo";
 import { normalizeAuthRedirectPath, oauthInitiate, register as apiRegister, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
+import { useOAuthProviders } from "@/lib/use-oauth-providers";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -18,9 +19,9 @@ import {
 } from "@/lib/password-validation";
 import posthog from "posthog-js";
 
-const OAUTH_PROVIDERS = ["github", "google", "huggingface", "facebook"] as const;
 
 function RegisterPageContent() {
+  const oauthProviders = useOAuthProviders();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading, login } = useAuth();
@@ -162,7 +163,7 @@ function RegisterPageContent() {
       <SiteAuthHeader title={t("auth.register_title")} subtitle={t("auth.register_subtitle")} />
       <div className="site-auth-section">
         <div className="site-auth-provider-list">
-          {OAUTH_PROVIDERS.map((provider) => {
+          {oauthProviders.map((provider) => {
             const labels = {
               github: t("auth.github"),
               google: t("auth.google"),
