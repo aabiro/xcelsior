@@ -452,6 +452,8 @@ const en_dashboard: Record<string, string> = {
   "dash.mcp.key_status_issued": "issued",
   "dash.mcp.key_masked_hint": "This key was created before keys could be shown again, so only its last characters are available.",
   "dash.mcp.key_in_use_note": "Your {key} was created before keys could be shown again. Keep using your saved copy, or create a new key to see it here in full from now on. Creating a new key revokes the old one.",
+  "dash.mcp.masked_cta_title": "Create a new key to see it here",
+  "dash.mcp.masked_cta_body": "Your {key} was created before keys could be shown again, so it can't be displayed or copied. A new key appears here in full, ready to copy, from now on. Your current key stops working when you create it.",
   "dash.mcp.separate_keys": "MCP and CLI each get their own API key, so regenerating one never breaks the other.",
   "dash.mcp.copy_command": "Copy install command",
   "dash.mcp.command_copied": "Install command copied",

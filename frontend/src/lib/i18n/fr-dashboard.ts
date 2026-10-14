@@ -983,6 +983,8 @@ const fr_dashboard: Record<string, string> = {
   "dash.mcp.key_status_issued": "émise",
   "dash.mcp.key_masked_hint": "Cette clé a été créée avant que les clés puissent être réaffichées : seuls ses derniers caractères sont disponibles.",
   "dash.mcp.key_in_use_note": "Votre {key} a été créée avant que les clés puissent être réaffichées. Continuez d’utiliser votre copie enregistrée, ou créez une nouvelle clé pour la voir ici en entier à l’avenir. La création d’une nouvelle clé révoque l’ancienne.",
+  "dash.mcp.masked_cta_title": "Créez une nouvelle clé pour l’afficher ici",
+  "dash.mcp.masked_cta_body": "Votre {key} a été créée avant que les clés puissent être réaffichées : elle ne peut être ni affichée ni copiée. Une nouvelle clé s’affiche ici en entier, prête à copier, à partir de maintenant. Votre clé actuelle cesse de fonctionner dès sa création.",
   "dash.mcp.separate_keys": "MCP et CLI ont chacun leur propre clé API : en régénérer une ne casse jamais l'autre.",
   "dash.mcp.copy_command": "Copier la commande d'installation",
   "dash.mcp.command_copied": "Commande d'installation copiée",

@@ -235,42 +235,48 @@ function WorkspaceConnectCard() {
                 {t("dash.mcp.retry")}
               </button>
             </div>
+          ) : masked ? (
+            // An old key can't be shown or copied, so a prompt built around it
+            // was a dead end: say what to do instead of showing it.
+            <div className="flex flex-col items-center gap-2 py-1 text-center">
+              <p className="text-[15px] font-semibold text-text-primary">{t("dash.mcp.masked_cta_title")}</p>
+              <p className="max-w-md text-sm leading-relaxed text-text-secondary">
+                {t("dash.mcp.masked_cta_body", { key: keyLabel })}
+              </p>
+            </div>
           ) : (
             <p className="text-center text-[15px] font-medium leading-[1.9] text-text-primary">{renderPrompt()}</p>
           )}
         </div>
-        {!loading && !failed[tab] && (
+        {!loading && !failed[tab] && !masked && (
           <div className="border-t border-border/60 px-4 py-3 text-center text-xs leading-relaxed text-text-muted sm:px-5">
-            {masked
-              ? t("dash.mcp.key_in_use_note", { key: keyLabel })
-              : tab === "cli"
-                ? t("dash.mcp.cli_env_hint")
-                : t("dash.mcp.separate_keys")}
+            {tab === "cli" ? t("dash.mcp.cli_env_hint") : t("dash.mcp.separate_keys")}
           </div>
         )}
       </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        {!masked && (
         <button
           type="button"
           onClick={() => void copy(promptText, t("dash.mcp.copied"), true)}
-          // A masked key would hand the agent a credential that cannot work,
-          // so copying is closed until a fresh key is created.
-          disabled={loading || masked || !!failed[tab]}
+          disabled={loading || !!failed[tab]}
           className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-accent-cyan to-accent-violet px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] active:scale-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
         >
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           {t("dash.mcp.copy_prompt")}
         </button>
+        )}
         <button
           type="button"
           onClick={() => void load(tab, true)}
           disabled={loading}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-xs font-medium transition-colors disabled:opacity-50",
+            "inline-flex items-center gap-1.5 rounded-full transition-colors disabled:opacity-50",
+            // The only action an old key leaves, so it takes the primary style.
             masked
-              ? "border-accent-cyan/40 text-accent-cyan hover:bg-accent-cyan/10"
-              : "border-border/60 text-text-muted hover:text-text-primary",
+              ? "bg-gradient-to-r from-accent-cyan to-accent-violet px-6 py-2.5 text-sm font-semibold text-white shadow-sm"
+              : "border border-border/60 px-4 py-2.5 text-xs font-medium text-text-muted hover:text-text-primary",
           )}
         >
           {pending[tab] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
