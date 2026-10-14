@@ -62,11 +62,6 @@ from serverless.repo import (
 )
 from serverless.batch_api import create_batch, enqueue_batch_requests, get_batch
 from serverless.metering import pricing_for_endpoint, token_pricing_quote
-from serverless.semantic_cache import (
-    accrue_cache_hit_usage,
-    store_cache_entry,
-    try_cache_hit,
-)
 from serverless.service import ServerlessService, WalletPreflightError, get_serverless_service
 from serverless.slo import enrich_usage_with_slo
 from serverless.streams import (
@@ -1611,19 +1606,9 @@ async def api_serverless_openai_chat(
 
     payload = body.model_dump()
     idem = (request.headers.get("idempotency-key") or "").strip() or None
-    cache_hit = try_cache_hit(_repo(), endpoint_id, payload) if not body.stream else None
-    if cache_hit:
-        accrue_cache_hit_usage(
-            _repo(),
-            ep,
-            cache_hit.get("usage") or {},
-            idempotency_key=idem,
-            saved_cost_cad=float(cache_hit.get("saved_cost_cad") or 0.01),
-            similarity=float(cache_hit.get("similarity") or 1.0),
-        )
-        resp = dict(cache_hit.get("response") or {})
-        resp["x_semantic_cache_hit"] = True
-        return resp
+    # DA§7.6: legacy prompt-only rows cannot establish full execution context,
+    # even for an exact prompt match. Infer and meter normally until cache v2
+    # provides tenant/policy/model revisions, expiry and an approved reuse policy.
 
     with otel_span("serverless.openai.chat", {"endpoint_id": endpoint_id, "model": body.model}):
         try:
@@ -1693,7 +1678,6 @@ async def api_serverless_openai_chat(
                 ttft_ms=latency_ms,
                 latency_ms=latency_ms,
             )
-            store_cache_entry(_repo(), endpoint_id, payload, result, usage)
             return result
         except OpenAIProxyError as e:
             raise HTTPException(

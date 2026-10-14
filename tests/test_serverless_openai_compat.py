@@ -124,6 +124,59 @@ class TestOpenAIProxyHelpers:
 
 
 class TestOpenAIChatRoute:
+    @pytest.mark.parametrize("request_body", [
+        {"messages": [{"role": "user", "content": "hi"}]},
+        {"messages": [{"role": "system", "content": "hi"}]},
+        {"messages": [{"role": "user", "content": "HI"}]},
+        {"messages": [{"role": "user", "content": "hi"}], "temperature": 0.8},
+    ])
+    def test_legacy_prompt_cache_never_serves_inference(
+        self, user_headers, fake_vllm_port, monkeypatch, request_body
+    ):
+        """Legacy rows lack complete context, even for an identical prompt.
+
+        Real auth, PostgreSQL, proxy HTTP and metering; only the model upstream
+        is the local fixture. A warm-worker response must win over a seeded
+        cache response regardless of the old cache-enablement flag.
+        """
+        from serverless.semantic_cache import extract_prompt_text
+        from tests.fixtures.fake_vllm_upstream import _VLLMHandler
+
+        monkeypatch.setenv("XCELSIOR_SEMANTIC_CACHE_ENABLED", "1")
+        created = client.post(
+            "/api/v2/serverless/endpoints", headers=user_headers,
+            json={"name": f"cache-safety-{uuid.uuid4().hex[:8]}", "mode": "preset",
+                  "model_name": "Qwen/Qwen3-8B", "min_workers": 0, "max_workers": 1},
+        )
+        assert created.status_code == 200, created.text[:300]
+        endpoint_id = created.json()["endpoint"]["endpoint_id"]
+        repo = ServerlessRepo()
+        try:
+            repo.semantic_cache_store(
+                endpoint_id,
+                extract_prompt_text({"messages": [{"role": "user", "content": "hi"}]}),
+                response={"choices": [{"message": {"content": "unsafe legacy response"}}]},
+                usage={"input_tokens": 10, "output_tokens": 5},
+            )
+            requests_before = len(_VLLMHandler.requests_log)
+            response = client.post(
+                f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",
+                headers=user_headers, json={"model": "Qwen/Qwen3-8B", **request_body},
+            )
+            assert response.status_code == 200, response.text[:300]
+            assert response.json()["choices"][0]["message"]["content"] == "Fleet ready."
+            assert "x_semantic_cache_hit" not in response.json()
+            assert len(_VLLMHandler.requests_log) == requests_before + 1
+            with repo._conn() as conn:
+                assert conn.execute(
+                    "SELECT count(*) AS n FROM serverless_cache_savings "
+                    "WHERE endpoint_id = %s", (endpoint_id,),
+                ).fetchone()["n"] == 0
+        finally:
+            with repo._conn() as conn:
+                conn.execute("DELETE FROM serverless_semantic_cache WHERE endpoint_id = %s", (endpoint_id,))
+            client.delete(f"/api/v2/serverless/endpoints/{endpoint_id}", headers=user_headers)
+
     def test_chat_completions_success(self, user_headers, fake_vllm_port):
         created = client.post(
             "/api/v2/serverless/endpoints",

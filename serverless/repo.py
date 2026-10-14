@@ -1268,7 +1268,13 @@ class ServerlessRepo:
         threshold: float = 0.92,
         limit: int = 32,
     ) -> dict | None:
-        from serverless.semantic_cache import prompt_fingerprint, similarity
+        """Read an exact historical cache row for migration/inspection only.
+
+        Prompt identity is insufficient for inference reuse (DA§7.6). Legacy
+        threshold/limit arguments remain compatible with migration callers but
+        cannot enable approximate reads. Runtime proxy paths do not use this.
+        """
+        from serverless.semantic_cache import prompt_fingerprint
 
         fp = prompt_fingerprint(prompt_norm)
         with self._conn() as conn:
@@ -1288,29 +1294,7 @@ class ServerlessRepo:
                     "usage": row["usage_json"],
                     "similarity": 1.0,
                 }
-            rows = conn.execute(
-                """
-                SELECT cache_id, response_json, usage_json, prompt_norm
-                  FROM serverless_semantic_cache
-                 WHERE endpoint_id = %s
-                 ORDER BY created_at DESC
-                 LIMIT %s
-                """,
-                (endpoint_id, max(1, limit)),
-            ).fetchall()
-        best: dict | None = None
-        best_sim = 0.0
-        for r in rows:
-            sim = similarity(prompt_norm, str(r["prompt_norm"] or ""))
-            if sim >= threshold and sim > best_sim:
-                best_sim = sim
-                best = {
-                    "cache_id": r["cache_id"],
-                    "response": r["response_json"],
-                    "usage": r["usage_json"],
-                    "similarity": sim,
-                }
-        return best
+        return None
 
     def semantic_cache_store(
         self,

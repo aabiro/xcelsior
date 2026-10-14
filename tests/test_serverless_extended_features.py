@@ -74,10 +74,26 @@ class TestTokenGaAndSlo:
 
 
 class TestSemanticCache:
-    def test_similarity_threshold(self):
+    def test_legacy_cache_read_never_approximates_similar_prompts(self, repo, preset_ep):
+        endpoint_id = preset_ep["endpoint_id"]
+        prompt = "analyze trade signal"
+        try:
+            repo.semantic_cache_store(
+                endpoint_id, prompt,
+                response={"choices": [{"message": {"content": "legacy"}}]}, usage={},
+            )
+            # Exact historical reads remain available for migration.
+            assert repo.semantic_cache_lookup(endpoint_id, prompt) is not None
+            assert repo.semantic_cache_lookup(endpoint_id, "analyze trade signals", threshold=0) is None
+        finally:
+            with repo._conn() as conn:
+                conn.execute("DELETE FROM serverless_semantic_cache WHERE endpoint_id = %s", (endpoint_id,))
+
+    def test_legacy_prompt_comparison_requires_exact_equality(self):
         a = extract_prompt_text({"messages": [{"role": "user", "content": "analyze trade signal"}]})
         b = extract_prompt_text({"messages": [{"role": "user", "content": "analyze trade signal"}]})
         assert similarity(a, b) == 1.0
+        assert similarity(a, a + "s") == 0.0
 
     def test_cache_store_and_hit(self, repo: ServerlessRepo, preset_ep: dict):
         ep_id = preset_ep["endpoint_id"]
