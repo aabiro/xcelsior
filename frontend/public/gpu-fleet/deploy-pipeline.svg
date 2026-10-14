@@ -62,15 +62,32 @@
     <rect x="-26" y="-17" width="52" height="34" rx="6" fill="url(#core)" opacity="0.75" stroke="#7cf2ff" stroke-opacity="0.4"/>
     <rect x="-26" y="12" width="52" height="5" rx="2" fill="url(#gold)" opacity="0.85"/>
   </g>
-  <!-- node 2: provision -->
-  <g transform="translate(320,100)" filter="url(#glow)">
-    <circle r="54" fill="#0c1526" stroke="url(#brand)" stroke-width="2"/>
+  <!-- node 2: provision: an instance placed onto a verified host -->
+  <g transform="translate(320,100)">
+    <circle r="54" fill="#0c1526" stroke="url(#brand)" stroke-width="2" filter="url(#glow)"/>
     <circle r="54" fill="url(#glass)"/>
-    <g stroke="url(#brand)" stroke-width="3" fill="none" stroke-linecap="round">
-      <circle r="18"/>
-      <path d="M0,-30 V-22 M0,30 V22 M-30,0 H-22 M30,0 H22 M-21,-21 l5,5 M21,21 l-5,-5 M21,-21 l-5,5 M-21,21 l5,-5"/>
+    <!-- host: three rack units -->
+    <g stroke="#7cf2ff" stroke-opacity="0.35">
+      <rect x="-27" y="-14" width="54" height="12" rx="3" fill="url(#pcb)"/>
+      <rect x="-27" y="2" width="54" height="12" rx="3" fill="url(#pcb)"/>
+      <rect x="-27" y="18" width="54" height="12" rx="3" fill="url(#pcb)"/>
     </g>
-    <path d="M-6,-9 L8,-1 L-6,7 Z" fill="#eafcff"/>
+    <path d="M-21,-8 H-8 M-21,8 H-8 M-21,24 H-8" stroke="#7cf2ff" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"/>
+    <g filter="url(#glow)">
+      <circle cx="19" cy="-8" r="2.6" fill="#22e0ff"/>
+      <circle cx="19" cy="8" r="2.6" fill="#a78bfa"/>
+      <circle cx="19" cy="24" r="2.6" fill="#34d399"/>
+    </g>
+    <g fill="#ffffff" opacity="0.22">
+      <circle cx="11" cy="-8" r="2"/><circle cx="11" cy="8" r="2"/><circle cx="11" cy="24" r="2"/>
+    </g>
+    <!-- the instance, dropping into the top unit -->
+    <g>
+      <animateTransform attributeName="transform" type="translate" values="0 -4; 0 0; 0 -4" dur="2.4s" repeatCount="indefinite"/>
+      <rect x="-13" y="-40" width="26" height="15" rx="4" fill="url(#brand)" filter="url(#glow)"/>
+      <rect x="-13" y="-40" width="26" height="15" rx="4" fill="url(#glass)"/>
+      <path d="M-5,-21 L0,-17 L5,-21" stroke="#eafcff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
   </g>
   <!-- node 3: live pulse -->
   <g transform="translate(544,100)">
