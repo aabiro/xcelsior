@@ -86,6 +86,10 @@ x-api-environment: &api-env
   GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
   HUGGINGFACE_CLIENT_ID: ${HUGGINGFACE_CLIENT_ID:-}
   HUGGINGFACE_CLIENT_SECRET: ${HUGGINGFACE_CLIENT_SECRET:-}
+  # Facebook sign-in: unset until the Facebook app exists; the login page hides
+  # providers without a client id (GET /api/auth/oauth/providers).
+  FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-}
+  FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-}
   # Stripe Connect
   XCELSIOR_STRIPE_MODE: ${XCELSIOR_STRIPE_MODE:-sandbox}
   XCELSIOR_STRIPE_SECRET_KEY: ${XCELSIOR_STRIPE_SECRET_KEY:-}
