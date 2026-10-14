@@ -721,11 +721,23 @@ def _check_secret_manager_discipline() -> Finding | None:
     return None
 
 
+def _check_job_stop_repair_policy() -> Finding | None:
+    name = "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING"
+    if os.environ.get("XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING", "report_only").strip().lower() in ("report_only", "enforce"):
+        return None
+    return Finding(
+        code="job_stop_repair_policy", severity="error",
+        message=f"{name} must be report_only or enforce",
+        remediation="Use report_only until job reconciliation findings have been reviewed.",
+    )
+
+
 #: Ordered so the most fundamental misconfiguration is reported first.
 CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_database_backend,
     _check_database_tls,
     _check_runtime_ddl,
+    _check_job_stop_repair_policy,
     _check_oauth_signing,
     _check_auth_cache,
     _check_artifact_backend,

@@ -128,6 +128,23 @@ def ingest_observation(
         """,
         (host_id, f"agent:{session_id}"),
     )
+    # Use server-owned placement identity, never workload-supplied job IDs.
+    # An empty snapshot still wakes jobs whose containers have disappeared.
+    conn.execute(
+        """
+        INSERT INTO reconciliation_queue
+            (resource_type, resource_id, reason, requested_by)
+        SELECT 'job', j.job_id, 'observation_received', %s
+          FROM jobs j
+          JOIN job_attempts a ON a.attempt_id = j.active_attempt_id
+         WHERE a.host_id = %s
+         ORDER BY j.job_id
+        ON CONFLICT (resource_type, resource_id) DO UPDATE
+           SET due_at = LEAST(reconciliation_queue.due_at, clock_timestamp()),
+               reason = EXCLUDED.reason, updated_at = clock_timestamp()
+        """,
+        (f"agent:{session_id}", host_id),
+    )
     return IngestResult(
         observation_id=observation_id, duplicate=False, workloads=len(workloads)
     )
@@ -158,10 +175,13 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
             "fencing_token": _get(w, "fencing_token", 2),
             "container_name": _get(w, "container_name", 3),
             "state": str(_get(w, "state", 4)),
+            "spec_hash": _get(w, "spec_hash", 5),
+            "details": _get(w, "details", 6),
         }
         for w in conn.execute(
             """
-            SELECT job_id, attempt_id, fencing_token, container_name, state
+            SELECT job_id, attempt_id, fencing_token, container_name, state,
+                   spec_hash, details
               FROM observed_workloads
              WHERE observation_id = %s
             """,
