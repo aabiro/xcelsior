@@ -707,6 +707,7 @@ def replicate(
     # Download into run-private files and swap them in only once the snapshot
     # has been checked, so a bad pull never overwrites the good replica.
     fetched: dict[Path, Path] = {}
+    created: list[Path] = []
     try:
         run_cmd(ssh + [remote_backup], timeout=90, runner=runner)
         sources = (
@@ -719,6 +720,7 @@ def replicate(
         for remote_path, local_name, required in sources:
             dest = settings.replica_dir / local_name
             part = settings.replica_dir / f".{local_name}.{token}.part"
+            created.append(part)
             try:
                 run_cmd(scp_base + [f"{remote}:{remote_path}", str(part)], timeout=90, runner=runner)
             except FailoverError:
@@ -736,6 +738,11 @@ def replicate(
             os.replace(part, dest)
         fetched.clear()
     finally:
+        # Headscale's database is in WAL mode, so checking a snapshot leaves
+        # -wal/-shm beside it; they do not travel with os.replace.
+        for part in created:
+            for leftover in (Path(f"{part}-wal"), Path(f"{part}-shm")):
+                leftover.unlink(missing_ok=True)
         for part in fetched.values():
             part.unlink(missing_ok=True)
         run_cmd(ssh + [f"rm -f {remote_snapshot}"], timeout=30, runner=runner, check=False)
