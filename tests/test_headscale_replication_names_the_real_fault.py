@@ -532,3 +532,90 @@ def test_failback_never_writes_over_the_replica(
     assert (
         pushed and "headscale-failback-" in pushed[0]
     ), f"failback pushed {pushed} rather than a timestamped snapshot"
+
+
+def _make_headscale_db(path: Path, users: int, nodes: int) -> None:
+    import sqlite3
+
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+    con.execute("CREATE TABLE nodes (id INTEGER PRIMARY KEY)")
+    con.executemany("INSERT INTO users DEFAULT VALUES", [()] * users)
+    con.executemany("INSERT INTO nodes DEFAULT VALUES", [()] * nodes)
+    con.commit()
+    con.close()
+
+
+def _copying_runner(calls: list[list[str]], *, users: int = 1, nodes: int = 7):
+    """A fake SSH/scp that 'downloads' a Headscale snapshot and keys."""
+
+    def run(argv, **kwargs):  # noqa: ANN001, ANN003
+        calls.append(argv)
+        joined = " ".join(argv)
+        if "db.sqlite && echo present" in joined:
+            return subprocess.CompletedProcess(argv, 0, "present\n", "")
+        if argv[0] == "scp":
+            source, dest = argv[-2], Path(argv[-1])
+            if source.endswith(".sqlite"):
+                _make_headscale_db(dest, users, nodes)
+            else:
+                dest.write_bytes(b"key material")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    return run
+
+
+def _snapshot_paths(calls: list[list[str]]) -> tuple[str, str, str]:
+    """(snapshot written by the backup, snapshot copied by scp, snapshot removed)."""
+    import re
+
+    backup = next(" ".join(a) for a in calls if "backup" in " ".join(a))
+    written = re.search(r"/tmp/headscale-replica-[0-9a-f]+\.sqlite", backup).group(0)
+    copied = next(a[-2].split(":", 1)[1] for a in calls if a[0] == "scp" and a[-2].endswith(".sqlite"))
+    removed = next(a[-1].split()[-1] for a in calls if a[-1].startswith("rm -f /tmp/headscale-replica"))
+    return written, copied, removed
+
+
+def test_overlapping_refreshes_never_share_a_snapshot(tmp_path: Path) -> None:
+    """The watchdog and the timer both refresh; one must not delete the other's file.
+
+    With one fixed /tmp/headscale-replica.sqlite, the run that finished first
+    removed the snapshot the other was about to copy (2026-10-14 07:12).
+    """
+    settings = _settings(tmp_path, "46.225.20.97")
+    first: list[list[str]] = []
+    second: list[list[str]] = []
+    hf.replicate(settings, runner=_copying_runner(first))
+    hf.replicate(settings, runner=_copying_runner(second))
+
+    a = _snapshot_paths(first)
+    b = _snapshot_paths(second)
+    # Each run copies and removes exactly the snapshot it wrote...
+    assert a[0] == a[1] == a[2]
+    assert b[0] == b[1] == b[2]
+    # ...and the two runs never use the same name.
+    assert a[0] != b[0]
+
+
+def test_a_good_refresh_replaces_the_replica_and_leaves_no_partials(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, "46.225.20.97")
+    status = hf.replicate(settings, runner=_copying_runner([], users=1, nodes=7))
+
+    assert (status.user_count, status.node_count) == (1, 7)
+    assert (settings.replica_dir / "noise_private.key").read_bytes() == b"key material"
+    assert not list(settings.replica_dir.glob(".*.part"))
+
+
+def test_an_empty_snapshot_does_not_overwrite_the_good_replica(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, "46.225.20.97")
+    settings.replica_dir.mkdir(parents=True)
+    _make_headscale_db(settings.replica_dir / "db.sqlite", users=1, nodes=7)
+
+    calls: list[list[str]] = []
+    with pytest.raises(hf.FailoverError, match="empty"):
+        hf.replicate(settings, runner=_copying_runner(calls, users=0, nodes=0))
+
+    assert hf.sqlite_counts(settings.replica_dir / "db.sqlite") == (1, 7)
+    assert not list(settings.replica_dir.glob(".*.part"))
+    # The server-side snapshot is cleaned up on failure too.
+    assert any(a[-1].startswith("rm -f /tmp/headscale-replica-") for a in calls)

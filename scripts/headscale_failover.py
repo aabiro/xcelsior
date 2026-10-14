@@ -24,6 +24,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -677,14 +678,21 @@ def replicate(
     # *database* rather than a missing *tool*, which is what sent this chasing
     # permissions and paths on a healthy server. `python3` is present on every
     # host in this fleet and `Connection.backup()` has the same guarantee.
+    #
+    # Every run gets its own snapshot name. The watchdog (every 2 min) and the
+    # replicate timer (every 15 min) both call this; with one shared
+    # /tmp/headscale-replica.sqlite, the run that finished first deleted the
+    # file the other was about to copy, and paged "No such file or directory"
+    # (2026-10-14 07:12, healed by the next tick).
+    token = uuid.uuid4().hex
+    remote_snapshot = f"/tmp/headscale-replica-{token}.sqlite"
     remote_backup = (
         "python3 -c "
         "'import sqlite3,sys; "
         'src=sqlite3.connect("file:/var/lib/headscale/db.sqlite?mode=ro",uri=True,timeout=5); '
-        'dst=sqlite3.connect("/tmp/headscale-replica.sqlite"); '
+        f'dst=sqlite3.connect("{remote_snapshot}"); '
         "src.backup(dst); dst.close(); src.close()'"
     )
-    run_cmd(ssh + [remote_backup], timeout=90, runner=runner)
     scp_base = [
         "scp",
         "-i",
@@ -696,32 +704,42 @@ def replicate(
         "-o",
         "StrictHostKeyChecking=accept-new",
     ]
-    dest_sqlite = settings.replica_dir / "db.sqlite"
-    run_cmd(
-        scp_base + [f"{remote}:/tmp/headscale-replica.sqlite", str(dest_sqlite)],
-        timeout=90,
-        runner=runner,
-    )
-    for remote_path, local_name, required in (
-        ("/var/lib/headscale/noise_private.key", "noise_private.key", True),
-        ("/var/lib/headscale/derp_server_private.key", "derp_server_private.key", False),
-        ("/etc/headscale/config.yaml", "config.yaml", False),
-        ("/etc/headscale/acl.json", "acl.json", False),
-    ):
-        dest = settings.replica_dir / local_name
-        try:
-            run_cmd(scp_base + [f"{remote}:{remote_path}", str(dest)], timeout=60, runner=runner)
-        except FailoverError:
-            if required:
-                raise
-    users, nodes = sqlite_counts(dest_sqlite)
-    if users == 0 or nodes == 0:
-        raise FailoverError(
-            f"replicated sqlite is empty (users={users}, nodes={nodes}); "
-            "refusing to keep it as a failover replica"
+    # Download into run-private files and swap them in only once the snapshot
+    # has been checked, so a bad pull never overwrites the good replica.
+    fetched: dict[Path, Path] = {}
+    try:
+        run_cmd(ssh + [remote_backup], timeout=90, runner=runner)
+        sources = (
+            (remote_snapshot, "db.sqlite", True),
+            ("/var/lib/headscale/noise_private.key", "noise_private.key", True),
+            ("/var/lib/headscale/derp_server_private.key", "derp_server_private.key", False),
+            ("/etc/headscale/config.yaml", "config.yaml", False),
+            ("/etc/headscale/acl.json", "acl.json", False),
         )
+        for remote_path, local_name, required in sources:
+            dest = settings.replica_dir / local_name
+            part = settings.replica_dir / f".{local_name}.{token}.part"
+            try:
+                run_cmd(scp_base + [f"{remote}:{remote_path}", str(part)], timeout=90, runner=runner)
+            except FailoverError:
+                if required:
+                    raise
+                continue
+            fetched[dest] = part
+        users, nodes = sqlite_counts(fetched[settings.replica_dir / "db.sqlite"])
+        if users == 0 or nodes == 0:
+            raise FailoverError(
+                f"replicated sqlite is empty (users={users}, nodes={nodes}); "
+                "refusing to keep it as a failover replica"
+            )
+        for dest, part in fetched.items():
+            os.replace(part, dest)
+        fetched.clear()
+    finally:
+        for part in fetched.values():
+            part.unlink(missing_ok=True)
+        run_cmd(ssh + [f"rm -f {remote_snapshot}"], timeout=30, runner=runner, check=False)
     write_replica_meta(settings.replica_dir, users, nodes, source=settings.primary_host)
-    run_cmd(ssh + ["rm -f /tmp/headscale-replica.sqlite"], timeout=30, runner=runner, check=False)
     return inspect_replica(settings.replica_dir)
 
 
