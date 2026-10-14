@@ -9,6 +9,8 @@ import { adminCreditWallet } from "@/lib/api";
 import { toast } from "sonner";
 
 const PRESETS = [25, 50, 100, 500];
+/** Sent when the reason is left blank; the server requires one (min 3 chars). */
+const DEFAULT_REASON = "Platform admin top-up";
 const MAX_CAD = 10000;
 
 function newIdempotencyKey(): string {
@@ -42,13 +44,18 @@ export function AdminCreditForm({
 
   const numeric = Number(amount);
   const amountValid = /^\d+(?:\.\d{1,2})?$/.test(amount) && Number.isFinite(numeric) && numeric > 0 && numeric <= MAX_CAD;
-  const reasonValid = reason.trim().length >= 3;
+  // Optional: a blank reason sends DEFAULT_REASON. It was required with no sign
+  // that it was, so the Credit button sat disabled and admins were locked out.
+  // Only a 1-2 character reason is rejected (the server's minimum is 3).
+  const trimmedReason = reason.trim();
+  const reasonValid = trimmedReason.length === 0 || trimmedReason.length >= 3;
+  const effectiveReason = trimmedReason || DEFAULT_REASON;
 
   const submit = async () => {
     if (!amountValid || !reasonValid || submitting) return;
     setSubmitting(true);
     try {
-      const res = await adminCreditWallet(customerId, numeric, reason.trim(), idempotencyKey);
+      const res = await adminCreditWallet(customerId, numeric, effectiveReason, idempotencyKey);
       toast.success(`$${res.amount_cad.toFixed(2)} CAD credited`, {
         description: recipient ? `Granted to ${recipient}. No payment was taken.` : "No payment was taken.",
       });
@@ -110,19 +117,22 @@ export function AdminCreditForm({
 
       <div>
         <Label htmlFor="admin-credit-reason" className="mb-1.5 block text-xs text-text-secondary">
-          Reason <span className="text-text-muted">(shown in the customer&apos;s history)</span>
+          Reason <span className="text-text-muted">(optional, shown in the customer&apos;s history)</span>
         </Label>
         <Input
           id="admin-credit-reason"
           value={reason}
           maxLength={200}
-          placeholder="e.g. End-to-end launch test, goodwill for outage"
+          placeholder={DEFAULT_REASON}
           disabled={submitting}
           onChange={(e) => { setReason(e.target.value); setIdempotencyKey(newIdempotencyKey()); }}
           onKeyDown={(e) => {
             if (e.key === "Enter") void submit();
           }}
         />
+        {!reasonValid && (
+          <p className="mt-1 text-xs text-accent-red">Use at least 3 characters, or leave it blank.</p>
+        )}
       </div>
 
       <div className="flex gap-3 pt-1">
