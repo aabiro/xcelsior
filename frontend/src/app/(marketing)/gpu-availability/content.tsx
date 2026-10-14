@@ -661,7 +661,9 @@ export function GPUAvailabilityContent() {
               <h2 className="site-callout-title">{t("gpus.velocity_title")}</h2>
               <p className="site-callout-copy">{t("gpus.velocity_desc")}</p>
               <div className="site-callout-visual">
-                <Image src="/gpu-fleet/deploy-pipeline.svg" alt="" fill className="site-callout-visual-image" />
+                {/* public/ is served `immutable` for a year through Cloudflare: changed
+                    art needs a new file name, or visitors keep the cached old one. */}
+                <Image src="/gpu-fleet/deploy-pipeline-v2.svg" alt="" fill className="site-callout-visual-image" />
               </div>
             </div>
             <div className="site-timeline">
