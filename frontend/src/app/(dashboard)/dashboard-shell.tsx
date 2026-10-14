@@ -124,27 +124,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const [redirectingToLogin, setRedirectingToLogin] = useState(false);
+  // Both are derived rather than set from effects (react-hooks/set-state-in-effect):
+  // with no user the shell is either still checking auth or redirecting to login.
+  const isGateLoading = !user;
   // Gate the full-screen spinner behind a short delay so a fast auth check
   // (the common case) never flashes it — only genuinely slow loads show it.
-  const [showLoadingGate, setShowLoadingGate] = useState(false);
-  const isGateLoading = (authLoading && !user) || redirectingToLogin || !user;
+  const [gateDelayElapsed, setGateDelayElapsed] = useState(false);
+  const showLoadingGate = isGateLoading && gateDelayElapsed;
   useEffect(() => {
-    if (!isGateLoading) {
-      setShowLoadingGate(false);
-      return;
-    }
-    const timer = setTimeout(() => setShowLoadingGate(true), 200);
+    if (!isGateLoading || gateDelayElapsed) return;
+    const timer = setTimeout(() => setGateDelayElapsed(true), 200);
     return () => clearTimeout(timer);
-  }, [isGateLoading]);
+  }, [isGateLoading, gateDelayElapsed]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (authLoading || user) {
-      setRedirectingToLogin(false);
-      return;
-    }
-    setRedirectingToLogin(true);
+    if (authLoading || user) return;
     router.replace(`/login?redirect=${encodeURIComponent(pathname ?? "/dashboard")}`);
   }, [authLoading, user, pathname, router]);
 
@@ -252,7 +247,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             />
             <div
               className={cn(
-                "flex min-w-0 items-center gap-2.5 overflow-hidden transition-all duration-200 ease-out",
+                "flex min-w-0 items-center gap-2 overflow-hidden transition-all duration-200 ease-out",
                 collapsed && !mobile
                   ? "max-w-0 opacity-0"
                   : "max-w-[180px] opacity-100"
