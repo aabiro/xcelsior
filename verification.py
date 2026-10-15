@@ -29,6 +29,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Optional
 
+from host_metadata import normalize_gpu_model
+
 log = logging.getLogger("xcelsior")
 
 
@@ -114,8 +116,14 @@ def check_gpu_identity(report: dict) -> VerificationResult:
     claimed_vram = float(report.get("claimed_vram_gb", 0))
     actual_vram = float(report.get("total_vram_gb", 0))
 
+    # The agent claims its canonicalized NVML name ("RTX 3060") while the benchmark
+    # reports the raw CUDA device name ("NVIDIA GeForce RTX 3060"), so compare the
+    # canonical forms. A different card still canonicalizes to a different model.
     model_match = (
-        (claimed_model.lower().replace(" ", "") == actual_model.lower().replace(" ", ""))
+        (
+            normalize_gpu_model(claimed_model).lower().replace(" ", "")
+            == normalize_gpu_model(actual_model).lower().replace(" ", "")
+        )
         if claimed_model and actual_model
         else False
     )
