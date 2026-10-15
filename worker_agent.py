@@ -711,20 +711,31 @@ try:
     report["elapsed_s"] = round(elapsed, 3)
     report["iters"] = iters
 
-    # ── PCIe Bandwidth (Host→Device→Host round-trip) ──
+    # ── PCIe Bandwidth (Host→Device→Host) ──
+    # Pinned host memory, a device buffer allocated before timing, one warm-up,
+    # then the median of five copies each way. A single cold copy from pageable
+    # memory also timed the device allocation and the driver's staging copy, so
+    # an RTX 3060 on PCIe 4.0 x16 read about 5 GB/s.
     try:
         size_mb = 256
-        data_h = torch.randn(size_mb * 1024 * 256, dtype=torch.float32)  # 256 MB
+        data_h = torch.empty(size_mb * 1024 * 1024, dtype=torch.uint8).pin_memory()
+        data_d = torch.empty(size_mb * 1024 * 1024, dtype=torch.uint8, device=device)
+        data_d.copy_(data_h)
+        data_h.copy_(data_d)
         torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        data_d = data_h.to(device)
-        torch.cuda.synchronize()
-        t1 = time.perf_counter()
-        _ = data_d.to("cpu")
-        torch.cuda.synchronize()
-        t2 = time.perf_counter()
-        h2d_gbps = round(size_mb / 1024 / (t1 - t0), 2)
-        d2h_gbps = round(size_mb / 1024 / (t2 - t1), 2)
+        h2d, d2h = [], []
+        for _ in range(5):
+            t0 = time.perf_counter()
+            data_d.copy_(data_h, non_blocking=True)
+            torch.cuda.synchronize()
+            t1 = time.perf_counter()
+            data_h.copy_(data_d, non_blocking=True)
+            torch.cuda.synchronize()
+            t2 = time.perf_counter()
+            h2d.append(size_mb / 1024 / (t1 - t0))
+            d2h.append(size_mb / 1024 / (t2 - t1))
+        h2d_gbps = round(sorted(h2d)[2], 2)
+        d2h_gbps = round(sorted(d2h)[2], 2)
         report["pcie_bandwidth_gbps"] = round((h2d_gbps + d2h_gbps) / 2, 2)
         report["pcie_h2d_gbps"] = h2d_gbps
         report["pcie_d2h_gbps"] = d2h_gbps
@@ -895,24 +906,37 @@ def run_network_benchmark(scheduler_url: str | None = None):
     # /metrics is too small to measure throughput, and an HTTP error page
     # must never count as a successful measurement. Use the worker surface
     # so per-host credentials remain valid after fleet-token retirement.
+    #
+    # Four parallel pulls (the endpoint allows four per minute per host), timed
+    # from each response's first byte. Two sequential single-stream pulls timed
+    # from the request mostly measured TLS setup and TCP slow start: on a 110 ms
+    # link a host with 115 Mbps of real bandwidth read as 35 Mbps.
     try:
+        from concurrent.futures import ThreadPoolExecutor
         from urllib.parse import quote
 
-        total_bytes = 0
-        started = time.perf_counter()
-        for _ in range(2):
-            resp = _api_request(
-                "get",
-                f"{target.rstrip('/')}/agent/network-download/{quote(str(HOST_ID), safe='')}",
-                timeout=20,
-                headers={**_api_headers(), "Accept-Encoding": "identity"},
-            )
+        url = f"{target.rstrip('/')}/agent/network-download/{quote(str(HOST_ID), safe='')}"
+        headers = {**_api_headers(), "Accept-Encoding": "identity"}
+
+        def _pull():
+            resp = _api_request("get", url, timeout=30, headers=headers, stream=True)
             resp.raise_for_status()
-            if len(resp.content) != 8 * 1024 * 1024:
+            first_byte = None
+            size = 0
+            for chunk in resp.iter_content(chunk_size=256 * 1024):
+                if first_byte is None:
+                    first_byte = time.perf_counter()
+                size += len(chunk)
+            finished = time.perf_counter()
+            if first_byte is None or size != 8 * 1024 * 1024:
                 raise ValueError("Incomplete network diagnostic payload")
-            total_bytes += len(resp.content)
-        total_time = time.perf_counter() - started
+            return first_byte, finished, size
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            pulls = list(pool.map(lambda _: _pull(), range(4)))
+        total_time = max(p[1] for p in pulls) - min(p[0] for p in pulls)
         if total_time > 0:
+            total_bytes = sum(p[2] for p in pulls)
             report["throughput_mbps"] = round(total_bytes * 8 / total_time / 1_000_000, 2)
     except Exception as e:
         log.debug("HTTP throughput test failed: %s", e)
