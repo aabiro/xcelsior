@@ -1,6 +1,7 @@
 """Startup failures observed in production, with machine/network IO isolated."""
 
 from unittest.mock import Mock
+import itertools
 import subprocess
 
 import pytest
@@ -87,18 +88,25 @@ def test_network_measurement_requires_real_payload_and_ping_evidence(monkeypatch
     monkeypatch.setattr(worker.subprocess, "run", ping)
     monkeypatch.setattr(worker, "HOST_ID", "test-host")
     monkeypatch.setattr(worker, "_api_headers", lambda: {"Authorization": "Bearer xat_test"})
-    monkeypatch.setattr(worker.time, "perf_counter", Mock(side_effect=[10.0, 10.5]))
+    # Four parallel pulls each read the clock twice (first byte, finished); a
+    # thread-safe counter makes the span 10.0 → 10.7 whatever the interleaving.
+    ticks = itertools.count()
+    monkeypatch.setattr(worker.time, "perf_counter", lambda: 10.0 + next(ticks) / 10)
     response = requests.Response()
     response.status_code = 403 if failure == "http" else 200
     response._content = b"x" * (128 if failure == "short" else 8 * 1024 * 1024)
+    response._content_consumed = True  # iter_content serves the preloaded body
     get = Mock(return_value=response)
     if failure == "second_download":
-        get.side_effect = [response, requests.Timeout("timed out")]
+        get.side_effect = [response, response, response, requests.Timeout("timed out")]
     monkeypatch.setattr(worker.requests, "get", get)
 
     report = worker.run_network_benchmark("https://api.example.test/")
 
-    assert report["throughput_mbps"] == (268.44 if failure in (None, "no_ping") else 0)
+    # 4 x 8 MiB over 0.7 s, timed from first byte.
+    assert report["throughput_mbps"] == (383.48 if failure in (None, "no_ping") else 0)
+    if failure in (None, "no_ping"):
+        assert get.call_count == 4
     assert report["packet_loss_pct"] == (100 if failure == "no_ping" else 0)
     for call in get.call_args_list:
         assert call.args[0] == "https://api.example.test/agent/network-download/test-host"
