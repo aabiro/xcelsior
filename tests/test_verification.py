@@ -64,6 +64,24 @@ class TestGPUIdentity:
         r = check_gpu_identity(report)
         assert r.passed is False
 
+    def test_canonical_claim_matches_raw_cuda_name(self):
+        # What a real RTX 3060 host reports: the agent's canonical NVML name as the
+        # claim, and the benchmark's raw torch device name as the actual model.
+        report = _good_report()
+        report["claimed_gpu_model"] = "RTX 3060"
+        report["gpu_model"] = "NVIDIA GeForce RTX 3060"
+        report["claimed_vram_gb"] = 12.0
+        report["total_vram_gb"] = 11.6
+        r = check_gpu_identity(report)
+        assert r.passed is True
+
+    def test_canonical_claim_still_rejects_a_different_card(self):
+        report = _good_report()
+        report["claimed_gpu_model"] = "RTX 4090"
+        report["gpu_model"] = "NVIDIA GeForce RTX 3060"
+        r = check_gpu_identity(report)
+        assert r.passed is False
+
     def test_vram_below_95pct_fails(self):
         report = _good_report()
         report["total_vram_gb"] = 20  # 83% of 24
