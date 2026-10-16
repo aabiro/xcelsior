@@ -1271,6 +1271,34 @@ def _normalize_scopes(
     return requested
 
 
+#: Third-party MCP connector clients: self-identified ones (RFC 7591
+#: registration, a client ID metadata document) and the seeded shared
+#: `xcelsior-connector`. None was provisioned by the user who signs in.
+CONNECTOR_REGISTRATION_SOURCES = frozenset({"dcr", "cimd", "connector"})
+
+
+def is_connector_client(client: dict) -> bool:
+    return str(client.get("registration_source") or "") in CONNECTOR_REGISTRATION_SOURCES
+
+
+def client_scope_ceiling(client: dict) -> list[str]:
+    """The most a client may be granted at authorize time.
+
+    For a provisioned client that is its registered scope list. A connector's
+    registered list is only the default for a request that names no scope:
+    VS Code and other MCP clients register without a `scope` and then ask for
+    what discovery advertised, and the user consents to that on the authorize
+    page. So they may ask for anything up to the connector ceiling, which still
+    excludes operator scopes and `billing:write`.
+    """
+    registered = list(client.get("scopes") or [])
+    if not is_connector_client(client):
+        return registered
+    from oauth_registration import CONNECTOR_ALLOWED_SCOPES
+
+    return sorted(set(registered) | set(CONNECTOR_ALLOWED_SCOPES))
+
+
 def ensure_default_oauth_clients() -> None:
     global _defaults_ready
     if _defaults_ready:
@@ -2039,7 +2067,12 @@ def issue_user_tokens(
     if not client:
         raise OAuthGrantError("invalid_client", "Unknown OAuth client", status_code=401)
     allowed_scopes = list(client.get("scopes") or ["profile", "email", "offline_access"])
-    scopes = _normalize_scopes(scopes, allowed_scopes)
+    if scopes:
+        # Explicit scopes come from a consented authorize request, which may
+        # reach past a self-registered client's registered default.
+        scopes = _normalize_scopes(scopes, client_scope_ceiling(client) or allowed_scopes)
+    else:
+        scopes = list(allowed_scopes)
     refresh_token, session, refresh_record = _create_refresh_token_record(
         user=user,
         request=request,
