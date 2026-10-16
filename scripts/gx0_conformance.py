@@ -15,7 +15,7 @@ cannot run is never green.
 
     python3 scripts/gx0_conformance.py \\
         --base https://mcp.xcelsior.ca/mcp \\
-        --email reviewer@example.test --password ...
+        --email reviewer@example.test  # prompts for password without echoing it
 
 Exit status is 0 only when nothing FAILED. BLOCKED checks do not fail the run
 but are reported, counted, and must be resolved before the gate closes.
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import getpass
 import hashlib
 import json
 import os
@@ -50,9 +51,12 @@ BLOCKED = "BLOCKED(env)"
 
 
 _SECRET_FIELD = re.compile(
-    r'("(?:access_token|refresh_token|session_token|id_token|device_code|client_secret)"\s*:\s*")[^"]*'
+    r'("(?:access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|device[_-]?code|client[_-]?secret)"\s*:\s*")[^"]*',
+    re.IGNORECASE,
 )
-_SECRET_PARAM = re.compile(r"([?&](?:code|access_token|refresh_token)=)[^&\s\"]+")
+_SECRET_PARAM = re.compile(
+    r"([?&](?:code|access[_-]?token|refresh[_-]?token)=)[^&#\s\"]+", re.IGNORECASE
+)
 _BEARER_VALUE = re.compile(r"\b(xoa_|xrt_|xc_)[A-Za-z0-9_-]{8,}")
 
 
@@ -184,7 +188,9 @@ def check_challenge(results: Results, http: httpx.Client, mcp_url: str) -> str |
         return None
     header = response.headers.get("www-authenticate", "")
     if not results.check(
-        bool(header), "401 carries WWW-Authenticate", "header absent — connectors cannot discover OAuth"
+        bool(header),
+        "401 carries WWW-Authenticate",
+        "" if header else "header absent — connectors cannot discover OAuth",
     ):
         return None
     params = parse_challenge(header)
@@ -202,13 +208,14 @@ def check_challenge(results: Results, http: httpx.Client, mcp_url: str) -> str |
         content=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
     )
     invalid_params = parse_challenge(invalid.headers.get("www-authenticate", ""))
-    results.check(
-        invalid.status_code in (401, 429) and (
-            invalid.status_code == 429 or invalid_params.get("error") == "invalid_token"
-        ),
-        "invalid token is challenged with error=invalid_token",
-        f"status {invalid.status_code}, challenge {invalid.headers.get('www-authenticate', '')!r}",
-    )
+    if invalid.status_code == 429:
+        results.blocked("invalid token is challenged with error=invalid_token", "MCP endpoint returned HTTP 429")
+    else:
+        results.check(
+            invalid.status_code == 401 and invalid_params.get("error") == "invalid_token",
+            "invalid token is challenged with error=invalid_token",
+            f"status {invalid.status_code}, challenge {invalid.headers.get('www-authenticate', '')!r}",
+        )
     return metadata_url or None
 
 
@@ -287,11 +294,17 @@ def check_dcr(
         endpoint,
         json={"client_name": "gx0-hostile", "redirect_uris": ["https://gx0-evil.example/steal"]},
     )
-    results.check(
-        hostile.status_code >= 400,
-        "DCR rejects an off-allowlist redirect host",
-        f"got {hostile.status_code}: {hostile.text[:200]}",
-    )
+    if _record_dcr_rejection(
+        results, hostile, "DCR rejects an off-allowlist redirect host", "invalid_redirect_uri"
+    ):
+        results.blocked(
+            "a DCR client cannot obtain operator scopes",
+            "skipped because DCR is rate-limited",
+        )
+        results.blocked(
+            "DCR registers a well-formed connector", "skipped because DCR is rate-limited"
+        )
+        return None
     operator = http.post(
         endpoint,
         json={
@@ -300,11 +313,13 @@ def check_dcr(
             "scope": "instances:read hosts:evict",
         },
     )
-    results.check(
-        operator.status_code >= 400,
-        "a DCR client cannot obtain operator scopes",
-        f"got {operator.status_code}: {operator.text[:200]}",
-    )
+    if _record_dcr_rejection(
+        results, operator, "a DCR client cannot obtain operator scopes", "invalid_scope"
+    ):
+        results.blocked(
+            "DCR registers a well-formed connector", "skipped because DCR is rate-limited"
+        )
+        return None
     good = http.post(
         endpoint,
         json={
@@ -314,8 +329,16 @@ def check_dcr(
             "token_endpoint_auth_method": "none",
         },
     )
+    if good.status_code == 429:
+        results.blocked(
+            "DCR registers a well-formed connector",
+            _dcr_rate_limit_detail(good),
+        )
+        return None
     if not results.check(
-        good.status_code in (200, 201), "DCR registers a well-formed connector", f"{good.status_code}: {good.text[:300]}"
+        good.status_code in (200, 201),
+        "DCR registers a well-formed connector",
+        f"expected HTTP 200 or 201; got HTTP {good.status_code}",
     ):
         return None
     registered = good.json()
@@ -325,6 +348,33 @@ def check_dcr(
         json.dumps(registered.get("resource")),
     )
     return registered
+
+
+def _dcr_rate_limit_detail(response: httpx.Response) -> str:
+    retry_after = response.headers.get("retry-after", "")
+    suffix = f" Retry-After: {retry_after} seconds." if retry_after.isdigit() else ""
+    return "DCR returned HTTP 429; this check could not run." + suffix
+
+
+def _record_dcr_rejection(
+    results: Results, response: httpx.Response, name: str, expected_error: str
+) -> bool:
+    """Require the expected policy rejection; a throttle is an unrun gate."""
+    if response.status_code == 429:
+        results.blocked(name, _dcr_rate_limit_detail(response))
+        return True
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    actual_error = payload.get("error") if isinstance(payload, dict) else None
+    results.check(
+        response.status_code in (400, 403) and actual_error == expected_error,
+        name,
+        f"expected HTTP 400/403 with error={expected_error}; got HTTP {response.status_code}"
+        + (f" with error={actual_error}" if actual_error else " without an OAuth error code"),
+    )
+    return False
 
 
 def check_cimd_rejection(results: Results, http: httpx.Client, metadata: dict[str, Any]) -> None:
@@ -346,18 +396,51 @@ def check_cimd_rejection(results: Results, http: httpx.Client, metadata: dict[st
         headers={"accept": "text/html"},
         follow_redirects=False,
     )
+    if response.status_code == 429:
+        results.blocked(
+            "an unresolvable metadata-document client id is rejected",
+            "authorization endpoint returned HTTP 429",
+        )
+        return
     results.check(
-        response.status_code >= 400,
+        response.status_code == 400,
         "an unresolvable metadata-document client id is rejected",
-        f"got {response.status_code}",
+        f"expected HTTP 400; got HTTP {response.status_code}",
     )
 
 
-def sign_in(http: httpx.Client, issuer: str, email: str, password: str) -> bool:
+def sign_in(http: httpx.Client, issuer: str, email: str, password: str) -> tuple[str, str]:
     response = http.post(
         f"{issuer.rstrip('/')}/api/auth/login", json={"email": email, "password": password}
     )
-    return response.status_code == 200
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if response.status_code == 200:
+        if isinstance(payload, dict) and payload.get("mfa_required"):
+            return (
+                "blocked",
+                "reviewer account requires MFA; this script cannot complete interactive MFA",
+            )
+        return "pass", ""
+    if response.status_code == 429:
+        retry_after = response.headers.get("retry-after", "")
+        detail = "reviewer login is rate-limited"
+        if retry_after.isdigit():
+            detail += f"; retry after {retry_after} seconds"
+        return "blocked", detail
+    error = payload.get("error") if isinstance(payload, dict) else None
+    error_code = error.get("code") if isinstance(error, dict) else None
+    if error_code == "oauth_only":
+        return "blocked", "reviewer account is OAuth-only; use a password-enabled reviewer account"
+    if error_code == "email_not_verified":
+        return "blocked", "reviewer account email is not verified"
+    if response.status_code == 401:
+        return "fail", "reviewer email or password was rejected"
+    return "fail", f"reviewer login returned HTTP {response.status_code}" + (
+        f" ({error_code})" if error_code else ""
+    )
 
 
 def check_full_authorization(
@@ -543,10 +626,16 @@ def check_resource_substitution(
         headers={"accept": "text/html"},
         follow_redirects=False,
     )
+    if response.status_code == 429:
+        results.blocked(
+            "resource substitution is rejected at authorize",
+            "authorization endpoint returned HTTP 429",
+        )
+        return
     results.check(
-        response.status_code >= 400,
+        response.status_code == 400,
         "resource substitution is rejected at authorize",
-        f"got {response.status_code}",
+        f"expected HTTP 400; got HTTP {response.status_code}",
     )
 
 
@@ -559,11 +648,6 @@ def main() -> int:
     parser.add_argument("--issuer", default="", help="authorization server origin (default: from metadata)")
     parser.add_argument(
         "--email", default=os.environ.get("GX0_EMAIL", ""), help="reviewer account (or GX0_EMAIL)"
-    )
-    parser.add_argument(
-        "--password",
-        default=os.environ.get("GX0_PASSWORD", ""),
-        help="prefer GX0_PASSWORD, which stays out of shell history",
     )
     parser.add_argument("--client-id", default="xcelsior-connector")
     parser.add_argument("--timeout", type=float, default=20.0)
@@ -593,18 +677,26 @@ def main() -> int:
         check_cimd_rejection(results, http, as_metadata)
         registered = check_dcr(results, http, as_metadata, resource)
 
-        if not (args.email and args.password):
+        password = os.environ.get("GX0_PASSWORD", "")
+        if args.email and not password and sys.stdin.isatty():
+            password = getpass.getpass("Reviewer password (hidden): ")
+
+        if not (args.email and password):
             results.blocked(
                 "authorization_code + PKCE round trip",
-                "no --email/--password supplied; the consent leg needs a signed-in session",
+                "provide --email and enter a password interactively, or set GX0_EMAIL/GX0_PASSWORD",
             )
             results.blocked("loopback callback on two random ports", "same reason")
             results.blocked("refresh_token grant", "same reason")
             results.blocked("authenticated tools/list", "same reason")
             return _summarise(results)
 
-        if not sign_in(http, issuer, args.email, args.password):
-            results.fail("reviewer sign-in", "credentials rejected by /api/auth/login")
+        login_status, login_detail = sign_in(http, issuer, args.email, password)
+        if login_status == "blocked":
+            results.blocked("reviewer sign-in", login_detail)
+            return _summarise(results)
+        if login_status == "fail":
+            results.fail("reviewer sign-in", login_detail)
             return _summarise(results)
         results.ok("reviewer sign-in")
 
