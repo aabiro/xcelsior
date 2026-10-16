@@ -88,7 +88,14 @@ export function scopesForProfile(profile: ToolProfile, options: ProfileOptions =
     for (const scope of TOOL_CONTRACTS[name].requiredScopes) {
       // `api` is the blanket automation scope, not something a connector should
       // request during consent.
-      if (scope !== "api") scopes.add(scope);
+      if (scope === "api") continue;
+      // A customer-profile tool reaches an operator scope only as one
+      // alternative of an anyOf (`get_mcp_action_status` also accepts
+      // `instances:read`). `requiredScopes` flattens that, which advertised
+      // `hosts:read` to every connector: a scope no connector can be granted,
+      // and the one that failed the GX0 "no operator scopes" check.
+      if (profile !== "operator" && OPERATOR_SCOPE_PREFIXES.some((prefix) => scope.startsWith(prefix))) continue;
+      scopes.add(scope);
     }
   }
   return [...scopes].sort();
