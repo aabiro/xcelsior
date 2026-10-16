@@ -73,6 +73,14 @@ describe("trust-surface profiles", () => {
     expect(scopesForProfile("operator")).toContain("hosts:evict");
   });
 
+  it("never advertises a host or control-plane scope in the customer profile", () => {
+    // `get_mcp_action_status` lists `hosts:read` as one alternative; that must
+    // not reach the public metadata, which every connector's consent reads.
+    const leaked = scopesForProfile("customer").filter((s) => s.startsWith("hosts:") || s.startsWith("control_plane:"));
+    expect(leaked).toEqual([]);
+    expect(scopesForProfile("operator")).toContain("hosts:read");
+  });
+
   it("refuses to expose a tool with no contract", () => {
     expect(toolIsVisible("not_a_real_tool", "operator", OPERATOR_SCOPES)).toBe(false);
   });
