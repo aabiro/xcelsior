@@ -534,6 +534,17 @@ def oauth_authorization_server_metadata(request: Request):
             "events:read",
             "inference:read",
             "inference:write",
+            # What the MCP tools need beyond the above (the quick-connect token
+            # set). Clients that pick scopes from this list rather than from
+            # the resource metadata otherwise sign in without SSH, volume and
+            # terminal access and every one of those tools refuses them.
+            "instances:connect",
+            "ssh:write",
+            "volumes:read",
+            "volumes:write",
+            "artifacts:read",
+            "providers:read",
+            "reputation:read",
         ],
         "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
@@ -861,10 +872,21 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
     if pinned and not resource:
         resource = pinned
 
+    from oauth_service import client_scope_ceiling, is_connector_client
+
     allowed_scopes = list(client.get("scopes") or [])
+    ceiling = client_scope_ceiling(client)
     requested = str(params.get("scope", "")).strip().split()
     if requested:
-        invalid = [scope for scope in requested if allowed_scopes and scope not in allowed_scopes]
+        invalid = [scope for scope in requested if ceiling and scope not in ceiling]
+        if invalid and is_connector_client(client):
+            # RFC 6749 §3.3 lets the server grant less than was asked; the
+            # token response's `scope` says what was granted. A connector asks
+            # for what discovery advertised (VS Code requests the
+            # whole `scopes_supported`), and failing the sign-in over a scope it
+            # can never hold left it with no way to connect at all.
+            requested = [scope for scope in requested if scope not in invalid]
+            invalid = []
         if invalid:
             raise _AuthorizeRejection(
                 _oauth_browser_error(
@@ -875,7 +897,7 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
                     + ", ".join(sorted(set(invalid))),
                 )
             )
-        scopes = requested
+        scopes = requested or allowed_scopes
     else:
         scopes = allowed_scopes
     return user, client, sorted(set(scopes)), resource or ""

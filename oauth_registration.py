@@ -67,6 +67,19 @@ CONNECTOR_ALLOWED_SCOPES: tuple[str, ...] = (
     "inference:write",
     "events:read",
     "mcp_actions:approve",
+    # The rest of what an MCP token carries (`MCP_QUICK_CONNECT_SCOPES`, where
+    # each widening is argued). These arrived with P2/P3/P6 after this list was
+    # written and were added to the quick-connect token but not here, so a
+    # self-registered connector could never hold the scopes its own tools
+    # require: SSH keys, volumes, artifacts, terminal access, provider reads.
+    # `tests/test_connector_scope_ceiling.py` keeps the two lists together.
+    "instances:connect",
+    "ssh:write",
+    "volumes:read",
+    "volumes:write",
+    "artifacts:read",
+    "providers:read",
+    "reputation:read",
 )
 
 #: What a client that asks for nothing in particular gets. Read-biased on
