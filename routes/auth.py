@@ -765,23 +765,6 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
     user needs to see, so GET and POST share one validation path — two copies of
     this would be two places for the redirect or resource rules to drift.
     """
-    user = _get_current_user(request)
-    if not user:
-        wants_html = "text/html" in request.headers.get("accept", "").lower()
-        if wants_html or not request.headers.get("authorization"):
-            redirect_target = _urllib_parse.quote(
-                str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
-            )
-            raise _AuthorizeRejection(
-                RedirectResponse(f"/login?redirect={redirect_target}", status_code=302)
-            )
-        raise HTTPException(401, "Not authenticated")
-    auth_type = str(user.get("auth_type", ""))
-    if auth_type == "client_credentials":
-        raise HTTPException(403, "Interactive user authentication required")
-    if auth_type == "api_key":
-        raise HTTPException(403, "Interactive session authentication required")
-
     response_type = str(params.get("response_type", "")).strip()
     client_id = str(params.get("client_id", "")).strip()
     redirect_uri = str(params.get("redirect_uri", "")).strip()
@@ -900,6 +883,26 @@ def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[s
         scopes = requested or allowed_scopes
     else:
         scopes = allowed_scopes
+    # Signed-in last: a request for an unknown client, a bad redirect or a
+    # foreign resource is refused before anyone is sent through login for it
+    # (GX0 "an unresolvable metadata-document client id is rejected").
+    user = _get_current_user(request)
+    if not user:
+        wants_html = "text/html" in request.headers.get("accept", "").lower()
+        if wants_html or not request.headers.get("authorization"):
+            redirect_target = _urllib_parse.quote(
+                str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
+            )
+            raise _AuthorizeRejection(
+                RedirectResponse(f"/login?redirect={redirect_target}", status_code=302)
+            )
+        raise HTTPException(401, "Not authenticated")
+    auth_type = str(user.get("auth_type", ""))
+    if auth_type == "client_credentials":
+        raise HTTPException(403, "Interactive user authentication required")
+    if auth_type == "api_key":
+        raise HTTPException(403, "Interactive session authentication required")
+
     return user, client, sorted(set(scopes)), resource or ""
 
 
