@@ -27,6 +27,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import re
 import secrets
 import socket
@@ -48,11 +49,28 @@ FAIL = "FAIL"
 BLOCKED = "BLOCKED(env)"
 
 
+_SECRET_FIELD = re.compile(
+    r'("(?:access_token|refresh_token|session_token|id_token|device_code|client_secret)"\s*:\s*")[^"]*'
+)
+_SECRET_PARAM = re.compile(r"([?&](?:code|access_token|refresh_token)=)[^&\s\"]+")
+_BEARER_VALUE = re.compile(r"\b(xoa_|xrt_|xc_)[A-Za-z0-9_-]{8,}")
+
+
+def redact(text: str) -> str:
+    """Hide token and code values. The run's output is meant to be pasted into
+    a ticket or a chat; a refresh token in it is a working 30-day credential
+    for the reviewer account."""
+    text = _SECRET_FIELD.sub(r"\1<redacted>", text)
+    text = _SECRET_PARAM.sub(r"\1<redacted>", text)
+    return _BEARER_VALUE.sub(r"\1<redacted>", text)
+
+
 @dataclass
 class Results:
     rows: list[tuple[str, str, str]] = field(default_factory=list)
 
     def record(self, status: str, name: str, detail: str = "") -> None:
+        detail = redact(detail)
         self.rows.append((status, name, detail))
         marker = {PASS: "  ok  ", FAIL: " FAIL ", BLOCKED: "BLOCKED"}[status]
         print(f"[{marker}] {name}" + (f"\n          {detail}" if detail else ""))
@@ -97,25 +115,42 @@ def parse_challenge(header: str) -> dict[str, str]:
 # ── Individual checks ─────────────────────────────────────────────────────
 
 
+#: Xcelsior's own servers (prod, Headscale, the edge proxy). A run from one of
+#: them proves nothing about a provider's egress. Add more, such as the office
+#: connection, with GX0_INTERNAL_IPS="1.2.3.4 5.6.7.8".
+KNOWN_INTERNAL_IPS = {"46.225.20.97", "149.28.121.61", "45.76.3.128"}
+
+
+def egress_ip(timeout: float = 10.0) -> str:
+    """The public address this run reaches the internet from."""
+    try:
+        trace = httpx.get("https://1.1.1.1/cdn-cgi/trace", timeout=timeout).text
+    except httpx.HTTPError:
+        return ""
+    match = re.search(r"^ip=(\S+)$", trace, re.MULTILINE)
+    return match.group(1) if match else ""
+
+
 def check_external_vantage(results: Results, host: str) -> None:
     """The run must not originate from inside our own network.
 
     A gate that silently ran from a machine on the tailnet would prove nothing
-    about a provider's egress, so this is reported rather than assumed.
+    about a provider's egress, so this is reported rather than assumed. It reads
+    the public egress address: the hostname's own address is 127.0.1.1 on every
+    Debian or Ubuntu machine, which blocked the check wherever it ran.
     """
-    try:
-        local = socket.gethostbyname(socket.gethostname())
-    except OSError:
-        local = ""
-    private = local.startswith(("10.", "192.168.", "127.", "100.64."))
-    if private:
+    internal = KNOWN_INTERNAL_IPS | set(os.environ.get("GX0_INTERNAL_IPS", "").split())
+    ip = egress_ip()
+    if not ip:
+        results.blocked("external vantage point", "could not determine the public egress IP")
+    elif ip in internal:
         results.blocked(
             "external vantage point",
-            f"resolved local address {local} looks internal; GX0 requires a non-Xcelsior "
-            f"egress IP. Run this from a scheduled GitHub Actions job or a Cloud Run job.",
+            f"egress {ip} is an Xcelsior address; run from a network Xcelsior does not own "
+            "(a phone hotspot, Cloud Shell, a CI runner).",
         )
     else:
-        results.ok("external vantage point", f"local address {local or 'unknown'}")
+        results.ok("external vantage point", f"egress {ip}")
 
 
 def check_tls(results: Results, host: str, port: int = 443) -> None:
@@ -522,8 +557,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default="https://mcp.xcelsior.ca/mcp", help="canonical connector URL")
     parser.add_argument("--issuer", default="", help="authorization server origin (default: from metadata)")
-    parser.add_argument("--email", default="", help="reviewer account for the consent leg")
-    parser.add_argument("--password", default="")
+    parser.add_argument(
+        "--email", default=os.environ.get("GX0_EMAIL", ""), help="reviewer account (or GX0_EMAIL)"
+    )
+    parser.add_argument(
+        "--password",
+        default=os.environ.get("GX0_PASSWORD", ""),
+        help="prefer GX0_PASSWORD, which stays out of shell history",
+    )
     parser.add_argument("--client-id", default="xcelsior-connector")
     parser.add_argument("--timeout", type=float, default=20.0)
     args = parser.parse_args()
