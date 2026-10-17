@@ -1,4 +1,4 @@
-"""SSH relays end when their route disappears or the inventory cannot be read."""
+"""SSH relays end when their route disappears. An inventory blip keeps them."""
 
 import asyncio
 
@@ -49,11 +49,12 @@ async def test_lost_route_aborts_open_relays_without_draining():
 
 
 @pytest.mark.asyncio
-async def test_inventory_outage_closes_established_relays(monkeypatch):
+async def test_inventory_outage_keeps_established_relays(monkeypatch):
     gateway = SSHGateway()
     writer = _Writer()
+    server = _Server()
     gateway.listeners[12001] = ListenerState(
-        route=_route(12001), server=_Server(), active_connections=1, writers=[writer]
+        route=_route(12001), server=server, active_connections=1, writers=[writer]
     )
 
     async def unavailable():
@@ -62,8 +63,9 @@ async def test_inventory_outage_closes_established_relays(monkeypatch):
     monkeypatch.setattr(ssh_gateway, "query_running_instances", unavailable)
     await gateway.sync_routes()
 
-    assert gateway.listeners == {}
-    assert writer.aborted
+    assert 12001 in gateway.listeners
+    assert writer.aborted is False
+    assert server.closed is False
 
 
 def test_route_query_excludes_suspended_accounts():

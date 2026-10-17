@@ -127,15 +127,28 @@ def build_plan(
         raise OverPrivilegedRole("unclassified database tables: " + ", ".join(sorted(unclaimed)))
     plan: list[tuple[str, tuple]] = []
 
-    # PUBLIC grants otherwise defeat every per-role REVOKE below. These
-    # schemas are Xcelsior-owned; unknown tables above stop convergence.
+    # PUBLIC is inherited by every login in this database. Other applications
+    # share the server, so revoke PUBLIC only on relations this user owns.
+    # Do not revoke CREATE on the shared public schema.
     schemas = ["public"] + ([STORAGE_SCHEMA] if storage_tables else [])
-    for schema in schemas:
-        plan.extend((stmt, ()) for stmt in (
-            f'REVOKE CREATE ON SCHEMA {_quote(schema)} FROM PUBLIC',
-            f'REVOKE ALL ON ALL TABLES IN SCHEMA {_quote(schema)} FROM PUBLIC',
-            f'REVOKE ALL ON ALL SEQUENCES IN SCHEMA {_quote(schema)} FROM PUBLIC',
-        ))
+    current_user = conn.execute("SELECT current_user").fetchone()[0]
+    owned = conn.execute(
+        """
+        SELECT n.nspname, c.relname, c.relkind
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = ANY(%s)
+           AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+           AND pg_get_userbyid(c.relowner) = current_user
+        """,
+        (schemas,),
+    ).fetchall()
+    for schema, name, kind in owned:
+        qualified_name = f"{_quote(schema)}.{_quote(name)}"
+        if kind == "S":
+            plan.append((f"REVOKE ALL ON SEQUENCE {qualified_name} FROM PUBLIC", ()))
+        else:
+            plan.append((f"REVOKE ALL ON TABLE {qualified_name} FROM PUBLIC", ()))
 
     for key, role in SERVICE_ROLES.items():
         attrs = _role_attributes(conn, role.name)
@@ -180,11 +193,9 @@ def build_plan(
                 plan.append((f'ALTER ROLE "{role.name}" SET {setting} = {int(value)}', ()))
     # Future objects receive no blanket domain grants. Re-run convergence
     # after every migration/partition creation, once ownership is classified.
-    owners = {row[0] for row in conn.execute(
-        "SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c "
-        "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','storage')"
-    ).fetchall()}
-    owners.add(SERVICE_ROLES["migrator"].name)
+    # Default privileges follow the provisioning user and the migrator only.
+    # Changing another application's default privileges is not this plan.
+    owners = {current_user, SERVICE_ROLES["migrator"].name}
     for owner in sorted(owners):
         for schema in [None, *schemas]:
             for kind in ("TABLES", "SEQUENCES"):

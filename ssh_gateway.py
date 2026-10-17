@@ -471,12 +471,11 @@ class SSHGateway:
             routes = await query_running_instances()
             self._last_db_query_ok_at = time.time()
         except Exception as e:
-            # A database outage must not leave an already-open relay running
-            # against an inventory that can no longer be checked. The next
-            # successful sync reopens listeners for jobs that are still allowed.
-            log.error("Failed to query instances; closing relays: %s", e)
-            for port in list(self.listeners):
-                await self.close_listener(port, drain=False)
+            # Keep the last successful inventory. Closing every relay because
+            # one query failed turns a database blip into a fleet-wide SSH
+            # outage. A later successful sync still drops a job that stopped
+            # or an account that was suspended.
+            log.error("Failed to query instances; keeping existing relays: %s", e)
             return
 
         desired_ports = {}

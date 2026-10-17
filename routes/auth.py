@@ -68,6 +68,7 @@ import urllib.parse as _urllib_parse
 from routes.teams import _send_team_email
 from oauth_service import (
     revoke_access_token,
+    revoke_client_credentials_jwt,
     ACCESS_TOKEN_TTL_SEC,
     DEVICE_CODE_INTERVAL_SEC,
     MCP_RESOURCE_AUDIENCE,
@@ -1112,6 +1113,23 @@ async def oauth_authorize_decision(request: Request):
         scopes=scopes,
         resource=resource,
     )
+
+
+@router.post("/oauth/revoke", tags=["Auth"], include_in_schema=False)
+async def oauth_revoke(request: Request):
+    """RFC 7009. Revokes one presented token and always answers success.
+
+    A client-credentials JWT is recorded by its `jti` until its own expiry.
+    An opaque access token is removed from the auth cache. Callers who do not
+    hold the token cannot revoke it here.
+    """
+    body = await _parse_request_body(request)
+    token = str((body or {}).get("token") or "").strip()
+    if token.count(".") == 2:
+        revoke_client_credentials_jwt(token)
+    elif token:
+        revoke_access_token(token)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/oauth/token", tags=["Auth"])

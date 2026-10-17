@@ -1211,6 +1211,16 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
 
     if str(client.get("status", "active")) == "disabled" or account_suspended(client):
         return None
+    jti = str(payload.get("jti") or "")
+    try:
+        if jti and OAuthStore.client_credential_revoked(jti):
+            return None
+    except Exception:
+        # The client row was readable. A revocation-table miss or a lookup
+        # error must not reject every unrevoked machine token.
+        logging.getLogger("oauth").warning(
+            "client credential revocation lookup failed", exc_info=True
+        )
 
     expected_secret_fingerprint = hashlib.sha256(
         f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
@@ -2307,6 +2317,23 @@ def exchange_device_code(
         session_type="device",
         audience=audience,
     )
+
+
+def revoke_client_credentials_jwt(token: str) -> bool:
+    """Revoke one machine JWT by its `jti`. Other tokens for the client stay valid."""
+    principal = validate_client_credentials_jwt(token)
+    if not principal or not principal.get("jti"):
+        return False
+    try:
+        payload = json.loads(_base64url_decode(token.split(".", 2)[1]))
+    except Exception:
+        return False
+    OAuthStore.revoke_client_credential(
+        str(principal["jti"]),
+        str(principal.get("client_id") or ""),
+        float(payload.get("exp") or 0),
+    )
+    return True
 
 
 def revoke_access_token(token: str) -> None:

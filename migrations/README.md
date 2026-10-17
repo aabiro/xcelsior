@@ -90,7 +90,10 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `124_ssh_account_suspensions.py`.**
+**Repository head: `125_oauth_revoked_jtis.py`.**
+
+(`125` stores one revoked client-credentials JWT id until that token's own
+expiry. Downgrade drops the table.)
 
 (`124` publishes suspended account identifiers to the SSH gateway through a
 view. The gateway role does not receive the state table. Downgrade drops the

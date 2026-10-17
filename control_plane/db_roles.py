@@ -63,6 +63,8 @@ IDENTITY_TABLES = frozenset(
         "agent_api_keys",
         "oauth_clients",
         "oauth_refresh_tokens",
+        # One revoked client-credentials JWT, kept until its own expiry.
+        "oauth_revoked_jtis",
         # A user's standing approval of a third-party connector (091). Identity
         # domain: it is read on the authorization path and is the record the
         # user revokes, not control-plane state.

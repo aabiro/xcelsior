@@ -68,6 +68,37 @@ def test_mcp_token_is_rs256_audience_bound_and_revocable(monkeypatch):
     assert oauth_service.validate_client_credentials_jwt(bundle["access_token"]) is None
 
 
+def test_one_machine_token_revokes_without_disabling_the_client(monkeypatch):
+    monkeypatch.setenv("XCELSIOR_ENV", "production")
+    monkeypatch.setenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", _rsa_key_config())
+    client = {
+        "client_id": "mcp-client-test",
+        "client_secret_salt": "salt",
+        "status": "active",
+        "workspace_customer_id": "tenant-test",
+    }
+    revoked: set[str] = set()
+    monkeypatch.setattr(oauth_service.OAuthStore, "get_client", lambda _: client)
+    monkeypatch.setattr(oauth_service.OAuthStore, "update_last_used", lambda _: None)
+    monkeypatch.setattr(
+        oauth_service.OAuthStore,
+        "client_credential_revoked",
+        staticmethod(lambda jti: jti in revoked),
+    )
+    monkeypatch.setattr(
+        oauth_service.OAuthStore,
+        "revoke_client_credential",
+        staticmethod(lambda jti, client_id, expires_at: revoked.add(jti)),
+    )
+
+    first = oauth_service.issue_client_credentials_jwt(client, ["instances:read"])
+    second = oauth_service.issue_client_credentials_jwt(client, ["instances:read"])
+    assert oauth_service.revoke_client_credentials_jwt(first["access_token"]) is True
+    assert oauth_service.validate_client_credentials_jwt(first["access_token"]) is None
+    assert oauth_service.validate_client_credentials_jwt(second["access_token"]) is not None
+    assert client["status"] == "active"
+
+
 def test_production_refuses_symmetric_machine_token(monkeypatch):
     monkeypatch.setenv("XCELSIOR_ENV", "production")
     monkeypatch.delenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", raising=False)

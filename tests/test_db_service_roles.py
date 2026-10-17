@@ -203,6 +203,11 @@ def test_login_provisioning_accepts_quoted_password_without_sql_injection(provis
     with psycopg.connect(dsn) as conn:
         plan = build_plan(conn, login_services={"readonly"}, passwords={"readonly": "probe'; ALTER ROLE xcelsior_readonly SUPERUSER; --"})
         assert all("probe'" not in statement for statement, _ in plan)
+        assert not any(
+            "ON ALL TABLES IN SCHEMA" in statement and "FROM PUBLIC" in statement
+            for statement, _ in plan
+        )
+        assert not any(statement.startswith("REVOKE CREATE ON SCHEMA") for statement, _ in plan)
         apply_plan(conn, plan)
         assert conn.execute("SELECT rolcanlogin, rolsuper FROM pg_roles WHERE rolname='xcelsior_readonly'").fetchone() == (True, False)
         conn.rollback()
