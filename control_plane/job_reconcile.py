@@ -182,6 +182,39 @@ def reconcile_job(
             ).fetchone()
             if lease is None:
                 finding("job_lease_authority_missing", "active attempt has no valid matching lease")
+                if action_policy_for("job_lease_authority_missing") == ActionPolicy.ENFORCE:
+                    from control_plane.leases import expire_stale_leases
+
+                    settled = expire_stale_leases(
+                        conn, current_job_id=job_id, limit=1, lock_nowait=True
+                    )
+                    evidence = conn.execute(
+                        "SELECT finding_id FROM reconciliation_findings WHERE resource_type='job' "
+                        "AND resource_id=%s AND finding_type='job_lease_authority_missing' "
+                        "AND resolved_at IS NULL", (job_id,),
+                    ).fetchone()
+                    if evidence is not None:
+                        _record_action(
+                            conn, str(_get(evidence, "finding_id", 0)),
+                            "expire_current_lease" if settled else "lease_expiry_refused",
+                            {"settled": settled, "reason": None if settled else "no_expired_matching_authority"},
+                        )
+                    if settled:
+                        # Settlement clears current authority. Re-read before
+                        # resolving findings; never evaluate the stale snapshot
+                        # below or infer that the physical container has stopped.
+                        after = reconcile_job(
+                            conn, job_id, missing_grace_sec=missing_grace_sec,
+                            observation_max_age_sec=observation_max_age_sec,
+                        )
+                        return JobReconcileReport(
+                            job_id=job_id,
+                            findings_opened=opened + after.findings_opened,
+                            findings_resolved=after.findings_resolved,
+                            actions_taken=["expire_current_lease"] + after.actions_taken,
+                            observation_id=after.observation_id,
+                            recheck_after_sec=after.recheck_after_sec,
+                        )
 
             if current["desired_state"] == "stopped":
                 from control_plane.lifecycle import desired_stop_intent

@@ -509,7 +509,7 @@ The remaining lifecycle and active-meter remedies and live acceptance stay open.
   strengthening it to a fully fence-token-invalidating primitive is tracked with
   Track A's fenced lifecycle.
 
-- [~] **B2.9 Job reconciliation controller** (updated 2026-10-16, §12.3–§12.4).
+- [~] **B2.9 Job reconciliation controller** (updated 2026-10-17, §12.3–§12.4).
   `control_plane/job_reconcile.py` evaluates current job/attempt/host/fence,
   lease validity, API-receipt observation freshness, immutable spec identity,
   stop-command delivery and active-meter presence. Findings are durable,
@@ -552,6 +552,15 @@ The remaining lifecycle and active-meter remedies and live acceptance stay open.
   Thirteen runtime-event/lock regressions were confirmed failing before the fix.
   Executed counts and rollout limits:
   `docs/review/2026-10-16-control-plane-runtime-events.md`.
+  The opt-in `job_lease_authority_missing` remedy now delegates to the lease
+  controller for only the current job/attempt/host/fence, preserving expiry
+  grace and stop/cancel/restart intent. Missing/released/mismatched authority
+  is refused. Settlement and finding evidence commit together; contended
+  runtime locks fail fast into the queue retry. A re-read resolves findings
+  without evaluating the old authority snapshot. Gate:
+  `tests/test_job_reconcile_lease_repair.py` (six regressions proved red before
+  implementation), including rollback, repeated calls and cross-job isolation.
+  The remedy remains report-only by default; no live rollout is claimed.
   **Residual:** remaining lifecycle remediation through the scheduling/attempt/
   lease/billing authorities with per-type staged enforcement; production
   false-positive measurement and recovery/failure drills before enabling any

@@ -32,6 +32,9 @@ def clean_env(monkeypatch):
     monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
     monkeypatch.setenv("XCELSIOR_POSTGRES_DSN", "postgresql://u:p@127.0.0.1:5432/xcelsior")
     monkeypatch.setenv("XCELSIOR_OAUTH_JWT_SECRET", "not-empty")
+    # conftest enables Stripe with a synthetic API key. A healthy baseline
+    # also needs a synthetic webhook secret, independent of local dotenv.
+    monkeypatch.setenv("XCELSIOR_STRIPE_WEBHOOK_SECRET", "whsec_startup_test_only")
     monkeypatch.setenv(
         "XCELSIOR_PRIVACY_REFERENCE_SECRET",
         "test-privacy-reference-secret-with-high-entropy",
@@ -63,9 +66,10 @@ def test_a_correct_configuration_produces_no_findings(clean_env):
 
 
 @pytest.mark.parametrize("mode", ["report_only", "enforce", "typo"])
-def test_job_stop_repair_policy_is_validated(clean_env, mode):
-    clean_env.setenv("XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING", mode)
-    assert ("job_stop_repair_policy" in _codes(sv.collect_findings())) is (mode == "typo")
+@pytest.mark.parametrize("suffix,code", [("STOP_COMMAND_MISSING", "job_stop_repair_policy"), ("LEASE_AUTHORITY_MISSING", "job_lease_repair_policy")])
+def test_job_repair_policy_is_validated(clean_env, mode, suffix, code):
+    clean_env.setenv(f"XCELSIOR_RECONCILE_ACTION_JOB_{suffix}", mode)
+    assert (code in _codes(sv.collect_findings())) is (mode == "typo")
 
 
 # ── §30 rejection list, one at a time ─────────────────────────────────
