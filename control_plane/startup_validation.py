@@ -743,6 +743,18 @@ def _check_job_lease_repair_policy() -> Finding | None:
     )
 
 
+def _check_billing_meter_repair_policy() -> Finding | None:
+    for suffix in ("ACTIVE_METER_MISSING", "MISSING_METER", "ORPHANED_METER"):
+        name = f"XCELSIOR_RECONCILE_ACTION_BILLING_{suffix}"
+        if os.environ.get(name, "report_only").strip().lower() not in ("report_only", "enforce"):
+            return Finding(
+                code="billing_meter_repair_policy", severity="error",
+                message=f"{name} must be report_only or enforce",
+                remediation="Use report_only until billing reconciliation findings have been reviewed.",
+            )
+    return None
+
+
 #: Ordered so the most fundamental misconfiguration is reported first.
 CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_database_backend,
@@ -750,6 +762,7 @@ CHECKS: tuple[Callable[[], "Finding | None"], ...] = (
     _check_runtime_ddl,
     _check_job_stop_repair_policy,
     _check_job_lease_repair_policy,
+    _check_billing_meter_repair_policy,
     _check_oauth_signing,
     _check_auth_cache,
     _check_artifact_backend,

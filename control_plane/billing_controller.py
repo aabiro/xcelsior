@@ -1,15 +1,19 @@
 """Billing controller (§12.4, Track B B3.3) — meter-invariant reconciler.
 
-Once an attempt has run, two invariants must hold or money is wrong:
+Running attempts need an active meter; terminal attempts need settled usage.
+The opt-in ``billing_active_meter_missing`` repair requires current fenced
+running authority and a fresh observation. All three actions default to reporting.
+
+Once an attempt has run, two terminal invariants must hold or money is wrong:
 
   * **exactly one usage_meter per attempt that ran** — a missing meter is a
     billing *leak* (the customer used a GPU that was never charged);
   * **no usage_meter left open** (``completed_at IS NULL``) after its attempt
     reached a terminal state — an orphaned meter that will never settle.
 
-This controller surfaces both as findings in the shared
+This controller surfaces violations as findings in the shared
 ``reconciliation_findings`` table. Per B0.3 rule 17 it is **report-only by
-default**. Both finding types have defined, safe remediations:
+default**. The terminal finding types have defined remediations:
   - ``billing_missing_meter`` (``billing.meter_job`` — idempotent per attempt),
     opted in with ``XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER=enforce``.
   - ``billing_orphaned_meter`` (safely closes orphaned meters using attempt
@@ -32,6 +36,7 @@ from psycopg.types.json import Jsonb
 log = logging.getLogger("xcelsior")
 
 RESOURCE_TYPE = "attempt"
+FINDING_ACTIVE_METER = "billing_active_meter_missing"
 FINDING_MISSING_METER = "billing_missing_meter"
 FINDING_ORPHANED_METER = "billing_orphaned_meter"
 
@@ -94,8 +99,13 @@ def _open_finding(
         VALUES (%s, %s, %s, %s, %s, %s, %s, 'report_only')
         """,
         (
-            RESOURCE_TYPE, resource_id, tenant_id, finding_type, severity,
-            summary, Jsonb(observed) if observed else None,
+            RESOURCE_TYPE,
+            resource_id,
+            tenant_id,
+            finding_type,
+            severity,
+            summary,
+            Jsonb(observed) if observed else None,
         ),
     )
     return True
@@ -126,25 +136,23 @@ def _ensure_attempt_metered(conn: Connection, attempt_id: str) -> str | None:
     job_id, host_id, started, ended, payload = row
     payload = payload if isinstance(payload, dict) else {}
     job = {
+        **payload,
         "job_id": str(job_id),
         "attempt_id": attempt_id,
         "owner": payload.get("owner") or "",
         "host_id": host_id,
         "started_at": float(started or 0),
         "completed_at": float(ended or 0),
-        "vram_needed_gb": payload.get("vram_needed_gb", 0),
-        "pricing_mode": payload.get("pricing_mode", "on_demand"),
-        "gpu_model": payload.get("gpu_model"),
     }
     host: dict[str, Any] = {"host_id": host_id or ""}
     if host_id:
         hrow = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if hrow and isinstance(hrow[0], dict):
-            host = {"host_id": host_id, **hrow[0]}
+            host = {**hrow[0], "host_id": host_id}
 
     from billing import get_billing_engine
 
-    meter = get_billing_engine().meter_job(job, host)
+    meter = get_billing_engine().meter_job(job, host, conn=conn)
     return getattr(meter, "meter_id", None)
 
 
@@ -155,83 +163,96 @@ def _close_orphaned_meter(conn: Connection, attempt_id: str, meter_id: str) -> s
     duration and total cost in micro-CAD. Idempotent: once completed_at is set,
     subsequent sweeps or concurrent calls are no-ops.
     """
-    row = conn.execute(
-        """
-        SELECT m.meter_id,
-               m.started_at,
-               m.base_rate_per_hour,
-               m.tier_multiplier,
-               m.spot_discount,
-               EXTRACT(EPOCH FROM a.started_at)::float8 AS att_started,
-               EXTRACT(EPOCH FROM a.ended_at)::float8 AS att_ended,
-               EXTRACT(EPOCH FROM clock_timestamp())::float8 AS now_epoch
-          FROM usage_meters m
-          JOIN job_attempts a ON a.attempt_id::text = m.attempt_id
-         WHERE m.meter_id = %s
-           AND m.completed_at IS NULL
-         LIMIT 1
-        """,
-        (meter_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    mid, m_started, base_rate, mult, spot_disc, att_started, att_ended, now_epoch = row
-    started = float(m_started if m_started is not None and m_started > 0 else (att_started or now_epoch))
-    completed = float(att_ended if att_ended is not None and att_ended > 0 else now_epoch)
-    if completed < started:
-        completed = started
-    duration = completed - started
-    duration_sec = round(duration, 2)
-    gpu_seconds = round(duration, 2)
+    from billing import settle_attempt_meter
 
-    base_rate = float(base_rate or 0.0)
-    mult = float(mult or 1.0)
-    spot_disc = float(spot_disc or 0.0)
-    if base_rate == 0.0:
-        jrow = conn.execute(
-            """
-            SELECT j.payload, h.payload
-              FROM job_attempts a
-              JOIN jobs j ON j.job_id = a.job_id
-              LEFT JOIN hosts h ON h.host_id = a.host_id
-             WHERE a.attempt_id = %s
-            """,
-            (attempt_id,),
-        ).fetchone()
-        if jrow:
-            j_payload, h_payload = jrow
-            j_dict = j_payload if isinstance(j_payload, dict) else {}
-            h_dict = h_payload if isinstance(h_payload, dict) else {}
-            from billing import resolve_compute_rate_cad
+    meter = settle_attempt_meter(conn, attempt_id, meter_id)
+    return meter.meter_id if meter else None
 
-            base_rate, _ = resolve_compute_rate_cad(j_dict, h_dict)
 
-    from money import cad_to_micros
+def _reconcile_active_meters(conn: Connection, result: BillingReconcileResult, limit: int) -> None:
+    from psycopg.errors import LockNotAvailable
+    from control_plane.active_meter import open_active_meter
 
-    duration_hr = duration / 3600.0
-    cost_cad = round(duration_hr * base_rate * mult * (1.0 - spot_disc), 4)
-    total_cost_micros = cad_to_micros(cost_cad)
+    candidates = conn.execute(
+        """SELECT a.attempt_id::text, a.job_id, j.tenant_id FROM job_attempts a
+             JOIN jobs j ON j.active_attempt_id=a.attempt_id AND j.job_id=a.job_id
+            WHERE a.status='running'
+              AND NOT EXISTS (SELECT 1 FROM usage_meters m WHERE m.attempt_id=a.attempt_id::text
+                              AND (m.completed_at IS NULL OR m.completed_at=0))
+            ORDER BY a.started_at NULLS LAST, a.attempt_id LIMIT %s""",
+        (limit,),
+    ).fetchall()
+    for aid, job_id, tenant_id in candidates:
+        # Serialize finding creation across billing sweeps without waiting on
+        # another replica. The attempt's locks separately fence lifecycle races.
+        if not conn.execute(
+            "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 719))", (aid,)
+        ).fetchone()[0]:
+            continue
+        if conn.execute(
+            "SELECT 1 FROM usage_meters WHERE attempt_id=%s "
+            "AND (completed_at IS NULL OR completed_at=0)",
+            (aid,),
+        ).fetchone():
+            continue
+        result.scanned += 1
+        if _open_finding(
+            conn,
+            resource_id=aid,
+            finding_type=FINDING_ACTIVE_METER,
+            severity="warning",
+            summary=f"running attempt {aid} has no active meter",
+            tenant_id=tenant_id,
+            observed={"job_id": job_id},
+        ):
+            result.findings_opened.append(aid)
+        if not _enforce(FINDING_ACTIVE_METER):
+            continue
+        try:
+            with conn.transaction():
+                evidence = open_active_meter(conn, aid)
+        except LockNotAvailable:
+            evidence = {"reason": "authority_locked"}
+        mid = evidence.get("meter_id")
+        conn.execute(
+            """UPDATE reconciliation_findings SET action_taken=%s, action_result=%s,
+                      resolved_at=CASE WHEN %s THEN clock_timestamp() ELSE NULL END
+                 WHERE resource_type='attempt' AND resource_id=%s
+                   AND finding_type=%s AND resolved_at IS NULL""",
+            (
+                "open_active_meter" if mid else "active_meter_refused",
+                Jsonb(evidence),
+                bool(mid),
+                aid,
+                FINDING_ACTIVE_METER,
+            ),
+        )
+        if mid:
+            result.meters_created.append(mid)
 
-    res = conn.execute(
-        """
-        UPDATE usage_meters
-           SET completed_at = %s,
-               duration_sec = %s,
-               gpu_seconds = %s,
-               total_cost_micros = %s
-         WHERE meter_id = %s
-           AND completed_at IS NULL
-        """,
-        (completed, duration_sec, gpu_seconds, total_cost_micros, meter_id),
+
+def _record_meter_action(conn, attempt_id: str, finding_type: str, meter_id: str | None) -> None:
+    conn.execute(
+        """UPDATE reconciliation_findings SET action_taken=%s, action_result=%s,
+                  resolved_at=CASE WHEN %s THEN clock_timestamp() ELSE NULL END
+             WHERE resource_type='attempt' AND resource_id=%s AND finding_type=%s
+               AND resolved_at IS NULL""",
+        (
+            "enforce" if meter_id else "meter_repair_refused",
+            Jsonb(
+                {"meter_id": meter_id, "reason": None if meter_id else "terminal_evidence_invalid"}
+            ),
+            bool(meter_id),
+            attempt_id,
+            finding_type,
+        ),
     )
-    if res.rowcount > 0:
-        return str(meter_id)
-    return None
 
 
 def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingReconcileResult:
     """One sweep of the meter invariants. Report-only unless a type is enforced."""
     result = BillingReconcileResult()
+    _reconcile_active_meters(conn, result, limit)
 
     # ── Invariant 1: every attempt that ran carries exactly one meter ──
     missing = conn.execute(
@@ -252,32 +273,20 @@ def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingRe
     for attempt_id, job_id in missing:
         result.scanned += 1
         aid = str(attempt_id)
+        if _open_finding(
+            conn,
+            resource_id=aid,
+            finding_type=FINDING_MISSING_METER,
+            severity="error",
+            summary=f"attempt {aid} (job {job_id}) ran to terminal but has no usage meter",
+            observed={"job_id": str(job_id)},
+        ):
+            result.findings_opened.append(aid)
         if enforce_missing:
             meter_id = _ensure_attempt_metered(conn, aid)
             if meter_id:
                 result.meters_created.append(str(meter_id))
-                conn.execute(
-                    """
-                    UPDATE reconciliation_findings
-                       SET resolved_at = clock_timestamp(),
-                           action_taken = 'enforce'
-                     WHERE resource_type = %s
-                       AND resource_id = %s
-                       AND finding_type = %s
-                       AND resolved_at IS NULL
-                    """,
-                    (RESOURCE_TYPE, aid, FINDING_MISSING_METER),
-                )
-        else:
-            if _open_finding(
-                conn,
-                resource_id=aid,
-                finding_type=FINDING_MISSING_METER,
-                severity="error",
-                summary=f"attempt {aid} (job {job_id}) ran to terminal but has no usage meter",
-                observed={"job_id": str(job_id)},
-            ):
-                result.findings_opened.append(aid)
+            _record_meter_action(conn, aid, FINDING_MISSING_METER, meter_id)
 
     # ── Invariant 2: no meter left open after its attempt is terminal ──
     orphaned = conn.execute(
@@ -285,7 +294,7 @@ def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingRe
         SELECT m.attempt_id, m.meter_id
           FROM usage_meters m
           JOIN job_attempts a ON a.attempt_id::text = m.attempt_id
-         WHERE m.completed_at IS NULL
+         WHERE (m.completed_at IS NULL OR m.completed_at=0)
            AND a.status = ANY(%s)
          LIMIT %s
         """,
@@ -296,32 +305,33 @@ def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingRe
         result.scanned += 1
         aid = str(attempt_id)
         mid = str(meter_id)
+        if _open_finding(
+            conn,
+            resource_id=aid,
+            finding_type=FINDING_ORPHANED_METER,
+            severity="warning",
+            summary=f"usage meter {mid} is open after attempt {aid} became terminal",
+            observed={"meter_id": mid},
+        ):
+            result.findings_opened.append(aid)
         if enforce_orphaned:
             closed_id = _close_orphaned_meter(conn, aid, mid)
             if closed_id:
                 result.meters_closed.append(str(closed_id))
-                conn.execute(
-                    """
-                    UPDATE reconciliation_findings
-                       SET resolved_at = clock_timestamp(),
-                           action_taken = 'enforce'
-                     WHERE resource_type = %s
-                       AND resource_id = %s
-                       AND finding_type = %s
-                       AND resolved_at IS NULL
-                    """,
-                    (RESOURCE_TYPE, aid, FINDING_ORPHANED_METER),
-                )
-        else:
-            if _open_finding(
-                conn,
-                resource_id=aid,
-                finding_type=FINDING_ORPHANED_METER,
-                severity="warning",
-                summary=f"usage meter {mid} for attempt {aid} is open after the attempt is terminal",
-                observed={"meter_id": mid},
-            ):
-                result.findings_opened.append(aid)
+            _record_meter_action(conn, aid, FINDING_ORPHANED_METER, closed_id)
+
+    # A normal completion writer may have restored the invariant between sweeps.
+    # Never resolve a completed-meter conflict on an attempt that is still running.
+    conn.execute(
+        """UPDATE reconciliation_findings f SET resolved_at=clock_timestamp()
+            WHERE f.resource_type='attempt' AND f.finding_type=%s AND f.resolved_at IS NULL
+              AND EXISTS (SELECT 1 FROM job_attempts a WHERE a.attempt_id::text=f.resource_id
+                          AND (a.status=ANY(%s) OR EXISTS (
+                              SELECT 1 FROM usage_meters m WHERE m.attempt_id=a.attempt_id::text
+                              AND m.job_id=a.job_id AND m.host_id=a.host_id
+                              AND (m.completed_at IS NULL OR m.completed_at=0))))""",
+        (FINDING_ACTIVE_METER, list(_TERMINAL)),
+    )
 
     return result
 

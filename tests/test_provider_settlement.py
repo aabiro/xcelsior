@@ -17,6 +17,7 @@ import paypal_connect
 import stripe_connect
 from provider_settlement import (
     SettlementConflict,
+    SettlementNotEligible,
     SettlementNotFound,
     claim_settlements,
     get_settlement,
@@ -199,6 +200,18 @@ def test_prepare_derives_money_owner_currency_and_tax_from_postgres(
     assert row["provider_share_micros"] + row["platform_share_micros"] == row["total_micros"]
     assert row["tax_rate_bps"] == 1300
     assert row["settlement_key"] == f"provider-job:{authority['job_id']}"
+
+
+@pytest.mark.parametrize("completion", [None, 0])
+def test_provider_settlement_refuses_open_usage_even_with_matching_charge(settlement_authority, completion):
+    a = settlement_authority
+    with _pool().connection() as conn:
+        conn.row_factory = dict_row
+        conn.execute("UPDATE usage_meters SET completed_at=%s WHERE meter_id=%s",
+                     (completion, a["meter_id"]))
+        with pytest.raises(SettlementNotEligible, match="All attempt usage must be terminal"):
+            prepare_settlement(conn, job_id=a["job_id"], provider_id=a["provider_id"], rail="stripe")
+        assert conn.execute("SELECT count(*) AS n FROM payout_splits WHERE job_id=%s", (a["job_id"],)).fetchone()["n"] == 0
 
 
 def test_customer_and_provider_authorization_are_checked_in_authority_query(

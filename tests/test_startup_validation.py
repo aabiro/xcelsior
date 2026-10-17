@@ -72,6 +72,13 @@ def test_job_repair_policy_is_validated(clean_env, mode, suffix, code):
     assert (code in _codes(sv.collect_findings())) is (mode == "typo")
 
 
+@pytest.mark.parametrize("mode", ["report_only", "enforce", "typo"])
+@pytest.mark.parametrize("suffix", ["ACTIVE_METER_MISSING", "MISSING_METER", "ORPHANED_METER"])
+def test_billing_meter_repair_policy_is_validated(clean_env, mode, suffix):
+    clean_env.setenv(f"XCELSIOR_RECONCILE_ACTION_BILLING_{suffix}", mode)
+    assert ("billing_meter_repair_policy" in _codes(sv.collect_findings())) is (mode == "typo")
+
+
 # ── §30 rejection list, one at a time ─────────────────────────────────
 
 

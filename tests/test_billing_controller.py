@@ -221,10 +221,10 @@ def test_enforce_auto_closes_orphaned_open_meter(scratch, monkeypatch):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO usage_meters
-                   (meter_id, job_id, attempt_id, owner, started_at, completed_at,
+                   (meter_id, job_id, host_id, attempt_id, owner, started_at, completed_at,
                     pricing_mode, base_rate_per_hour, tier_multiplier, spot_discount)
-               VALUES (%s, %s, %s, 'cust-bc', %s, NULL, 'on_demand', 1.5, 1.0, 0.0)""",
-            (meter_id, job, attempt, now - 1800),
+               VALUES (%s, %s, %s, %s, 'cust-bc', %s, NULL, 'on_demand', 1.5, 1.0, 0.0)""",
+            (meter_id, job, host, attempt, now - 1800),
         )
         conn.commit()
 

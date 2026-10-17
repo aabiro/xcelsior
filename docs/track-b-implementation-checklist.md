@@ -252,7 +252,8 @@ versioned endpoints, wallet holds and idempotency substrate exist. B2.7
 still records submission paths that have not delegated their full lifecycle
 to that service. Job reconciliation performs checks with opt-in fenced stop
 repair, durable mutation/observation requests, and bounded recovery (B2.9).
-The remaining lifecycle and active-meter remedies and live acceptance stay open.
+Stop, expired-lease and active-meter remedies now have opt-in implementations.
+Remaining lifecycle remediation and live acceptance stay open.
 
 - [x] **B2.1 Migration — action plans, MCP policy, MCP audit** (2026-07-23,
   §13.5 at the live head) — migration `069_action_plans_mcp_policy_audit`
@@ -561,6 +562,14 @@ The remaining lifecycle and active-meter remedies and live acceptance stay open.
   `tests/test_job_reconcile_lease_repair.py` (six regressions proved red before
   implementation), including rollback, repeated calls and cross-job isolation.
   The remedy remains report-only by default; no live rollout is claimed.
+  Active-meter repair now delegates to the billing maintenance authority
+  (`billing_active_meter_missing`, default report-only), requiring current
+  running authority, a valid lease, a fresh exact observation, owner and explicit
+  price. It creates zero-cost open usage and records action evidence atomically;
+  normal completion/orphan repair settles that same row at its captured rate.
+  No scheduler/reconciler meter-write grants were added. Gate:
+  `tests/test_active_meter_repair.py`; operational settings and rollout limits:
+  `docs/reconciliation.md`, evidence: `docs/review/2026-10-17-active-meter-repair.md`.
   **Residual:** remaining lifecycle remediation through the scheduling/attempt/
   lease/billing authorities with per-type staged enforcement; production
   false-positive measurement and recovery/failure drills before enabling any
@@ -652,7 +661,7 @@ Track A.
   (`mcp_client_policies` hourly/daily spend, which already exist) onto the
   serverless invocation path — the endpoint cap lands here; the per-client cap is
   enforced for MCP tool calls under B5.9's distributed spend counters.
-- [x] **B3.3 Billing controller** (2026-07-23, updated 2026-09-24, §12.4). `control_plane/
+- [x] **B3.3 Billing controller** (2026-07-23, updated 2026-10-17, §12.4). `control_plane/
   billing_controller.py` — a reconciler that reads the ledger and **surfaces**
   the meter invariants rather than concealing them: (1) an attempt that ran to a
   billable terminal state with **no** `usage_meter` (a billing leak), and (2) a
@@ -675,6 +684,14 @@ Track A.
   `usage_meters.attempt_id` is `text` vs `job_attempts.attempt_id` `uuid` (JOIN
   cast), `jobs.owner` lives in the payload, `severity ∈ info|warning|error|
   critical`. Pyright clean; reconciler/billing suites green + bg_worker green. ✔
+  **2026-10-17 extension:** active missing-meter detection and opt-in repair now
+  require server-owned running/lease/observation authority. Open meters remain
+  zero-cost and excluded from invoices/provider settlement. Shared terminal
+  settlement uses the captured rate and terminal attempt timestamp; missing
+  evidence is refused instead of inventing a price/end time. Missing-terminal
+  repair and its evidence now share one transaction and retain locked spot/GPU
+  fields. Seven new regressions were first confirmed failing; executed proof and
+  remaining live rollout gates: `docs/review/2026-10-17-active-meter-repair.md`.
 - [~] **B3.4 Price-change reapproval — server enforcement done** (2026-07-23,
   §15.4). The tolerance bound recorded on the plan (B2.1) is enforced at execute
   (B2.5): a re-quote beyond tolerance returns `quote_changed` with a fresh

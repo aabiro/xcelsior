@@ -14,7 +14,7 @@ import time
 
 from money import cad_to_micros, micros_to_cad, cad_to_minor, minor_to_cad
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from enum import Enum
@@ -317,6 +317,74 @@ def _usage_meter_from_row(row: Any) -> UsageMeter:
     )
 
 
+def settle_attempt_meter(conn, attempt_id: str, meter_id: str) -> UsageMeter | None:
+    """Close an open meter from terminal attempt evidence, in the caller's txn.
+
+    Never substitute wall-clock time or today's price for missing evidence.
+    The captured start/rate (including an explicit zero rate) are immutable.
+    Row locking serializes completion deliveries and controller repairs.
+    """
+    from psycopg.rows import dict_row
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(
+            """SELECT m.*, a.job_id AS attempt_job_id, a.host_id AS attempt_host_id,
+                      a.status AS attempt_status,
+                      EXTRACT(EPOCH FROM a.ended_at)::float8 AS attempt_ended,
+                      EXTRACT(EPOCH FROM clock_timestamp())::float8 AS checked_at
+                 FROM usage_meters m
+                 JOIN job_attempts a ON a.attempt_id::text = m.attempt_id
+                WHERE m.meter_id = %s AND m.attempt_id = %s
+                  FOR UPDATE OF m""",
+            (meter_id, attempt_id),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["job_id"] != row["attempt_job_id"] or row["host_id"] != row["attempt_host_id"]:
+            return None
+        if row["completed_at"] is not None and row["completed_at"] > 0:
+            return _usage_meter_from_row(row)
+        if row["attempt_status"] not in (
+            "succeeded",
+            "failed",
+            "cancelled",
+            "preempted",
+            "lost",
+            "fenced",
+        ):
+            return None
+        values = [
+            row[k]
+            for k in (
+                "started_at",
+                "attempt_ended",
+                "base_rate_per_hour",
+                "tier_multiplier",
+                "spot_discount",
+            )
+        ]
+        if any(v is None or not math.isfinite(float(v)) for v in values):
+            return None
+        started, ended, rate, multiplier, discount = map(float, values)
+        if (
+            started <= 0
+            or not started <= ended <= row["checked_at"]
+            or rate < 0
+            or multiplier < 0
+            or not 0 <= discount <= 1
+        ):
+            return None
+        duration = ended - started
+        cost = round(duration / 3600 * rate * multiplier * (1 - discount), 4)
+        updated = cur.execute(
+            """UPDATE usage_meters SET completed_at=%s, duration_sec=%s,
+                      gpu_seconds=%s, total_cost_micros=%s
+                 WHERE meter_id=%s RETURNING *""",
+            (ended, round(duration, 2), round(duration, 2), cad_to_micros(cost), meter_id),
+        ).fetchone()
+        return _usage_meter_from_row(updated)
+
+
 # ── Invoice ──────────────────────────────────────────────────────────
 
 
@@ -453,8 +521,11 @@ class BillingEngine:
         host: dict,
         host_location: Optional[dict] = None,
         trust_tier: str = "community",
+        *,
+        conn=None,
+        active: bool = False,
     ) -> UsageMeter:
-        """Create a metering record for a completed job.
+        """Create or settle the one metering record owned by this attempt.
 
         This is the source of truth for billing. Every completed job
         gets a usage meter that records exactly what resources were
@@ -462,10 +533,29 @@ class BillingEngine:
 
         Attempt-owned work stamps ``attempt_id`` and is idempotent under
         re-call for the same attempt (partial unique on attempt_id).
-        Pure-legacy jobs meter by job/meter_id as before.
+        Pure-legacy jobs meter by job/meter_id as before. Active repair callers
+        must supply their authority-checked transaction, explicit attempt/start,
+        owner and rate. Open meters have NULL completion and zero cost; closing
+        them uses terminal database evidence and the captured rate. A supplied
+        connection is never committed or rolled back here.
         """
+        if active:
+            if conn is None or not job.get("attempt_id") or not str(job.get("owner") or "").strip():
+                raise ValueError("active metering requires transaction, attempt and owner")
+            mode = resolve_job_pricing_mode(job)
+            rate_source = job.get("spot_rate_cad") if mode == "spot" else host.get("cost_per_hour")
+            if (
+                rate_source is None
+                or not math.isfinite(float(rate_source))
+                or float(rate_source) < 0
+            ):
+                raise ValueError("active metering requires an explicit finite nonnegative rate")
+            if mode == "spot" and (not isinstance(job.get("num_gpus"), int) or job["num_gpus"] < 1):
+                raise ValueError("active spot metering requires an explicit positive GPU count")
         started = float(job.get("started_at", 0))
-        completed = float(job.get("completed_at", 0))
+        if active and (not math.isfinite(started) or started <= 0):
+            raise ValueError("active metering requires an authoritative start")
+        completed = 0.0 if active else float(job.get("completed_at", 0))
         duration = completed - started if completed > started else 0
 
         # Host location is recorded on the invoice line. It never affects placement.
@@ -511,27 +601,18 @@ class BillingEngine:
             total_cost_cad=cost,
         )
 
-        # Persist — attempt-owned closes collapse on attempt_id uniqueness.
-        with self._conn() as conn:
-            if attempt_id:
-                existing = conn.execute(
-                    "SELECT * FROM usage_meters WHERE attempt_id = %s LIMIT 1",
-                    (attempt_id,),
-                ).fetchone()
-                if existing is not None:
-                    prior = _usage_meter_from_row(existing)
-                    log.info(
-                        "METERED job=%s attempt=%s idempotent_replay meter=%s cost=$%.4f",
-                        prior.job_id,
-                        attempt_id[:8],
-                        prior.meter_id,
-                        prior.total_cost_cad,
-                    )
-                    return prior
+        # One INSERT authority for legacy, terminal and active usage. ON
+        # CONFLICT waits for a competing insert without aborting the caller's
+        # transaction or discarding unrelated work/evidence.
+        with nullcontext(conn) if conn is not None else self._conn() as meter_conn:
+            from psycopg.rows import dict_row
 
-            try:
-                conn.execute(
-                    """INSERT INTO usage_meters
+            with meter_conn.cursor(row_factory=dict_row) as cur:
+                conflict = (
+                    "(attempt_id) WHERE attempt_id IS NOT NULL" if attempt_id else "(meter_id)"
+                )
+                inserted = cur.execute(
+                    f"""INSERT INTO usage_meters
                        (meter_id, job_id, host_id, owner, started_at, completed_at,
                         duration_sec, gpu_seconds, gpu_model, vram_gb,
                         gpu_utilization_pct, xcu_score, country, province,
@@ -540,27 +621,14 @@ class BillingEngine:
                         total_cost_micros, created_at, attempt_id)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                %s, %s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (meter_id) DO UPDATE SET
-                         job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id,
-                         owner = EXCLUDED.owner,
-                         started_at = EXCLUDED.started_at,
-                         completed_at = EXCLUDED.completed_at,
-                         duration_sec = EXCLUDED.duration_sec,
-                         gpu_seconds = EXCLUDED.gpu_seconds,
-                         -- 087 dropped total_cost_cad and the trigger that
-                         -- projected it; total_cost_micros is the only
-                         -- stored representation.
-                         total_cost_micros = EXCLUDED.total_cost_micros,
-                         pricing_mode = EXCLUDED.pricing_mode,
-                         attempt_id = COALESCE(usage_meters.attempt_id, EXCLUDED.attempt_id),
-                         created_at = EXCLUDED.created_at""",
+                       ON CONFLICT {conflict} DO NOTHING RETURNING *""",
                     (
                         meter.meter_id,
                         meter.job_id,
                         meter.host_id,
                         meter.owner,
                         meter.started_at,
-                        meter.completed_at,
+                        None if active else meter.completed_at,
                         meter.duration_sec,
                         meter.gpu_seconds,
                         meter.gpu_model,
@@ -578,27 +646,25 @@ class BillingEngine:
                         time.time(),
                         attempt_id,
                     ),
-                )
-            except Exception as exc:
-                # Race: two concurrent closes for the same attempt — unique
-                # index wins; return the durable row already written.
-                sqlstate = getattr(exc, "sqlstate", None)
-                if attempt_id and sqlstate == "23505":
-                    conn.rollback()
-                    existing = conn.execute(
-                        "SELECT * FROM usage_meters WHERE attempt_id = %s LIMIT 1",
-                        (attempt_id,),
+                ).fetchone()
+                if inserted is None:
+                    existing = cur.execute(
+                        (
+                            "SELECT * FROM usage_meters WHERE attempt_id=%s FOR UPDATE"
+                            if attempt_id
+                            else "SELECT * FROM usage_meters WHERE meter_id=%s FOR UPDATE"
+                        ),
+                        (attempt_id or meter.meter_id,),
                     ).fetchone()
-                    if existing is not None:
-                        prior = _usage_meter_from_row(existing)
-                        log.info(
-                            "METERED job=%s attempt=%s race_idempotent meter=%s",
-                            prior.job_id,
-                            attempt_id[:8],
-                            prior.meter_id,
-                        )
-                        return prior
-                raise
+                    prior = _usage_meter_from_row(existing)
+                    if prior.job_id != meter.job_id or prior.host_id != meter.host_id:
+                        raise ValueError("meter ownership does not match attempt caller")
+                    if not active and prior.completed_at <= 0 and attempt_id:
+                        settled = settle_attempt_meter(meter_conn, attempt_id, prior.meter_id)
+                        if settled is None:
+                            raise ValueError("open meter requires valid terminal attempt evidence")
+                        return settled
+                    return prior
 
         log.info(
             "METERED job=%s attempt=%s cost=$%.4f CAD mode=%s tier=%s",
