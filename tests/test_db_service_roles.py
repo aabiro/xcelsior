@@ -672,3 +672,15 @@ async def test_ssh_gateway_uses_real_restricted_login(provisioned_roles, monkeyp
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute("ALTER ROLE xcelsior_ssh_gateway NOLOGIN")
+
+
+def test_restricted_api_can_observe_another_roles_connection_identity(provisioned_roles):
+    from control_plane import security_metrics
+
+    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
+    with psycopg.connect(dsn, application_name="xcelsior-billing") as other:
+        with psycopg.connect(dsn) as observer:
+            observer.execute("SET ROLE xcelsior_api")
+            snapshot = security_metrics.collect(observer)
+            assert snapshot["database_identity_mismatches"] >= 1
+            observer.rollback()

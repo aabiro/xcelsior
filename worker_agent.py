@@ -38,7 +38,7 @@ import sys
 import threading
 import time
 import uuid
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -7914,6 +7914,113 @@ def _promotion_dest_dir(volume_id: str) -> str:
     return os.path.join(MANAGED_VOLUME_HOST_DIR, str(volume_id), "promoted")
 
 
+class _PromotionCopyError(ValueError):
+    """A stable failure code; never includes a signed download URL."""
+
+
+def _copy_promoted_artifact(volume_id: str, name: str, item: dict) -> tuple[bool, int]:
+    """Copy through pinned directory descriptors and an exclusive private staging file.
+
+    The configured mount root is operator-owned. Every tenant-controlled path
+    component is opened without following symlinks. A tenant can change its
+    published data afterward; a previous successful copy is never proof that
+    the current bytes are still intact.
+    """
+    import stat
+
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", volume_id):
+        raise _PromotionCopyError("bad_volume_id")
+    if not name or name in (".", "..") or "/" in name or "\x00" in name:
+        raise _PromotionCopyError("bad_logical_name")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    with ExitStack() as stack:
+        root = os.open(MANAGED_VOLUME_HOST_DIR, flags)
+        stack.callback(os.close, root)
+        parent = root
+        for component in (volume_id, "promoted"):
+            with suppress(FileExistsError):
+                os.mkdir(component, 0o755, dir_fd=parent)
+            parent = os.open(component, flags, dir_fd=parent)
+            stack.callback(os.close, parent)
+        dest = parent
+        expected = str(item.get("sha256") or "")
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
+            raise _PromotionCopyError("unverifiable_artifact")
+        expected = expected.lower()
+        limit = item.get("size_bytes")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise _PromotionCopyError("invalid_artifact_size")
+
+        if item.get("already_done"):
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dest)
+                with os.fdopen(fd, "rb") as existing:
+                    before = os.fstat(existing.fileno())
+                    if stat.S_ISREG(before.st_mode) and before.st_size == limit:
+                        digest, count = hashlib.sha256(), 0
+                        while chunk := existing.read(min(1024 * 1024, limit - count + 1)):
+                            count += len(chunk)
+                            if count > limit:
+                                break
+                            digest.update(chunk)
+                        after = os.fstat(existing.fileno())
+                        if (
+                            count == limit
+                            and digest.hexdigest() == expected
+                            and before.st_mtime_ns == after.st_mtime_ns
+                            and before.st_ctime_ns == after.st_ctime_ns
+                        ):
+                            return False, 0
+            except OSError:
+                pass  # missing, symlink, or changed data must be copied again
+
+        stage_name = ".xcelsior-promotion-" + secrets.token_hex(16)
+        os.mkdir(stage_name, 0o700, dir_fd=dest)
+
+        def remove_stage():
+            with suppress(OSError):
+                os.rmdir(stage_name, dir_fd=dest)
+
+        stack.callback(remove_stage)
+        stage = os.open(stage_name, flags, dir_fd=dest)
+        stack.callback(os.close, stage)
+
+        def remove_part():
+            with suppress(OSError):
+                os.unlink("data.part", dir_fd=stage)
+
+        stack.callback(remove_part)
+        fd = os.open(
+            "data.part", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=stage
+        )
+        digest, size = hashlib.sha256(), 0
+        with os.fdopen(fd, "wb") as out:
+            # Presigned object-store destinations can deliberately be private.
+            # Their origin comes from the authenticated manifest; redirects
+            # must not change that origin. Public callback policy is separate.
+            with requests.get(
+                str(item.get("url") or ""), stream=True, timeout=(15, 30), allow_redirects=False
+            ) as src:
+                if src.status_code != 200:
+                    raise _PromotionCopyError(f"fetch_{src.status_code}")
+                for chunk in src.iter_content(chunk_size=64 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise _PromotionCopyError("size_mismatch")
+                    out.write(chunk)
+                    digest.update(chunk)
+            if size != limit:
+                raise _PromotionCopyError("size_mismatch")
+            if digest.hexdigest() != expected:
+                raise _PromotionCopyError("digest_mismatch")
+            out.flush()
+            os.fsync(out.fileno())
+            os.fchmod(out.fileno(), 0o644)
+        os.replace("data.part", name, src_dir_fd=stage, dst_dir_fd=dest)
+        os.fsync(dest)
+        return True, size
+
+
 def _promote_artifacts(args: dict) -> bool:
     """Copy one promotion's files onto its volume, verifying each digest.
 
@@ -7922,7 +8029,7 @@ def _promote_artifacts(args: dict) -> bool:
     channel, so no credential is ever written to a queued command row.
 
     **Every file is verified before it is visible.** Each object streams to a
-    `.part` file, its sha256 is checked against the manifest, and only then is
+    exclusive staging file, its size and sha256 are checked against the manifest, and only then is
     it renamed into place. A rename within one filesystem is atomic, so a
     process killed mid-copy leaves a `.part` and never a truncated file that
     looks like a complete checkpoint — which is the failure this whole design
@@ -7978,14 +8085,6 @@ def _promote_artifacts(args: dict) -> bool:
         _report("failed", "empty_manifest")
         return False
 
-    dest_dir = _promotion_dest_dir(volume_id)
-    try:
-        os.makedirs(dest_dir, exist_ok=True)
-    except OSError as exc:
-        log.error("promote_artifacts: cannot create %s: %s", dest_dir, exc)
-        _report("failed", "dest_unwritable")
-        return False
-
     def _report_file(artifact_id, name, size, verified, state, failure_code=""):
         """Record one file's outcome so a retry can skip it (§3.5)."""
         try:
@@ -8016,67 +8115,18 @@ def _promote_artifacts(args: dict) -> bool:
         if not name or name in (".", ".."):
             _report("failed", "bad_logical_name")
             return False
-        final_path = os.path.join(dest_dir, name)
-        part_path = final_path + ".part"
-        expected = str(f.get("sha256") or "")
-
-        # §3.5 resume. The API decides what is already verified — the agent is
-        # the party that crashed, so its own view of "done" is the untrustworthy
-        # one. The file must still be *there*: a volume detached and reattached
-        # between attempts can lose it, and skipping on the row alone would
-        # report a complete promotion with a missing file.
-        if f.get("already_done") and os.path.exists(final_path):
+        try:
+            copied, size = _copy_promoted_artifact(volume_id, name, f)
+        except (_PromotionCopyError, requests.RequestException, OSError, ValueError) as exc:
+            code = str(exc) if isinstance(exc, _PromotionCopyError) else "copy_error"
+            log.warning("promote_artifacts: copy refused (%s)", code)
+            _report_file(f.get("artifact_id"), name, 0, False, "failed", code)
+            _report("failed", code)
+            return False
+        if not copied:
             skipped += 1
-            log.info("promote_artifacts: %s already verified, skipping", name)
             continue
-        if not expected:
-            # A0's manifest flags these; refusing here is the same rule applied
-            # where it costs something — an unverifiable copy that looks
-            # complete is the outcome worth avoiding.
-            _report("failed", "unverifiable_artifact")
-            return False
 
-        digest = hashlib.sha256()
-        size = 0
-        try:
-            with requests.get(str(f.get("url") or ""), stream=True, timeout=300) as src:
-                if src.status_code != 200:
-                    _report("failed", f"fetch_{src.status_code}")
-                    return False
-                with open(part_path, "wb") as out:
-                    for chunk in src.iter_content(chunk_size=8 * 1024 * 1024):
-                        if not chunk:
-                            continue
-                        out.write(chunk)
-                        digest.update(chunk)
-                        size += len(chunk)
-                    out.flush()
-                    os.fsync(out.fileno())
-        except (requests.RequestException, OSError) as exc:
-            log.warning("promote_artifacts: %s failed mid-copy: %s", name, exc)
-            _cleanup_part(part_path)
-            _report("failed", "copy_error")
-            return False
-
-        if digest.hexdigest() != expected:
-            log.error(
-                "promote_artifacts: digest mismatch for %s (got %s, expected %s)",
-                name,
-                digest.hexdigest()[:16],
-                expected[:16],
-            )
-            _cleanup_part(part_path)
-            _report_file(f.get("artifact_id"), name, 0, False, "failed", "digest_mismatch")
-            _report("failed", "digest_mismatch")
-            return False
-
-        try:
-            os.replace(part_path, final_path)
-        except OSError as exc:
-            log.error("promote_artifacts: could not place %s: %s", final_path, exc)
-            _cleanup_part(part_path)
-            _report("failed", "rename_failed")
-            return False
         written_total += size
         _report_file(f.get("artifact_id"), name, size, True, "done")
         log.info("promote_artifacts: %s verified and placed (%d bytes)", name, size)

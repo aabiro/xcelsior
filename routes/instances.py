@@ -72,6 +72,7 @@ from scheduler import (
     update_job_status,
 )
 from db import UserStore
+from routes.stream_auth import bind_stream_principal, watch_job_authorization
 from collections import defaultdict
 
 # Maximum concurrent active (queued/assigned/starting/running) instances per user
@@ -412,6 +413,7 @@ class JobIn(BaseModel):
     placement_preference: PlacementPreferenceBody | None = None
     volume_ids: list[str] | None = Field(default=None, max_length=16)
     encrypted_workspace: bool = False
+    exclusive_gpu: bool = False
     # P2.1 — optional provisioning hooks, all run inside the container with a
     # hard 15 s cap so interactive boot never blocks on them.
     init_script: str | None = Field(default=None, max_length=4096)
@@ -1025,6 +1027,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 owner=customer_id,
                 volume_ids=validated_volume_ids,
                 encrypted_workspace=j.encrypted_workspace,
+                exclusive_gpu=j.exclusive_gpu,
                 init_script=j.init_script,
                 git_repo=j.git_repo,
                 auto_launch=j.auto_launch,
@@ -2446,6 +2449,16 @@ async def _job_log_generator(request: Request, job_id: str):
         _sse_subscribers.append(queue)
 
     try:
+
+        async def authorize():
+            def check():
+                current = _require_auth(request)
+                _require_scope(current, "instances:read")
+                _check_job_access(current, job_id)
+
+            await asyncio.to_thread(check)
+
+        await authorize()
         # SSE retry hint for automatic browser reconnection
         yield "retry: 3000\n\n"
 
@@ -2458,6 +2471,7 @@ async def _job_log_generator(request: Request, job_id: str):
         replay = pg_rows if len(pg_rows) >= len(in_mem) else in_mem
         last_ts = 0.0
         for entry in replay:
+            await authorize()
             data = json.dumps({"job_id": job_id, **entry})
             yield f"event: job_log\ndata: {data}\n\n"
             try:
@@ -2465,6 +2479,7 @@ async def _job_log_generator(request: Request, job_id: str):
             except (TypeError, ValueError):
                 pass
 
+        await authorize()
         yield f"event: connected\ndata: {json.dumps({'job_id': job_id, 'status': 'streaming'})}\n\n"
 
         # Back off PG polling once a job is terminal and we've observed a few
@@ -2478,6 +2493,7 @@ async def _job_log_generator(request: Request, job_id: str):
         while True:
             if await request.is_disconnected():
                 break
+            await authorize()
 
             # Poll PG for new log rows since last_ts. This is the ONLY path by
             # which logs written from other processes (scheduler-worker,
@@ -2504,6 +2520,7 @@ async def _job_log_generator(request: Request, job_id: str):
                             ).fetchone()
                             cur_status = (status_row or {}).get("status", "") if status_row else ""
                     for row in new_rows:
+                        await authorize()
                         yield f"event: job_log\ndata: {json.dumps({'job_id': job_id, **row})}\n\n"
                         try:
                             last_ts = max(last_ts, float(row.get("timestamp") or 0))
@@ -2520,12 +2537,16 @@ async def _job_log_generator(request: Request, job_id: str):
                                 skip_pg_poll = True
                         else:
                             empty_polls_after_terminal = 0
+                except HTTPException:
+                    raise
                 except Exception:
                     # PG hiccup — keep the stream alive; will retry on next tick.
+                    # Authorization failures are not availability degradation.
                     pass
 
             try:
                 msg = await asyncio.wait_for(queue.get(), timeout=2)
+                await authorize()
                 event_type = msg.get("event", "message")
                 event_data = msg.get("data", {})
                 # Filter: only pass through events for this job
@@ -2737,6 +2758,12 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
+    user = bind_stream_principal(user, websocket)
+    try:
+        _require_scope(user, "instances:read")
+    except HTTPException:
+        await websocket.close(code=4003, reason="Insufficient stream scope")
+        return
 
     await websocket.accept()
 
@@ -2916,6 +2943,7 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
                 asyncio.ensure_future(_send_loop()),
                 asyncio.ensure_future(_recv_loop()),
                 asyncio.ensure_future(_pg_poll_loop()),
+                asyncio.ensure_future(watch_job_authorization(websocket, user, job_id)),
             ],
             return_when=asyncio.FIRST_COMPLETED,
         )

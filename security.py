@@ -635,6 +635,16 @@ def build_secure_docker_args(
     args.extend(["--restart", "on-failure:3"])
 
     # Environment variables
+    if gpu and runtime == "runsc":
+        # NGC images advertise video, which nvproxy disallows by default.
+        # Default to compute: utility also injects nvidia-persistenced's host
+        # socket, which currently prevents gVisor's gofer from starting.
+        # Explicit requests outside nvproxy's boundary fail before Docker runs.
+        environment = dict(environment or {})
+        requested = environment.get("NVIDIA_DRIVER_CAPABILITIES", "compute")
+        if not set(str(requested).split(",")) <= {"compute", "utility"}:
+            raise ValueError("gVisor GPU jobs support compute and utility driver capabilities only")
+        environment["NVIDIA_DRIVER_CAPABILITIES"] = requested
     _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
     if environment:
         for key, val in environment.items():

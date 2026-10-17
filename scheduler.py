@@ -1800,6 +1800,7 @@ def submit_job(
     placement_preference=None,
     job_id=None,
     trace_id=None,
+    exclusive_gpu=False,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1908,6 +1909,7 @@ def submit_job(
         "ssh_port": int(ssh_port or 22),
         "volume_ids": volume_ids or [],
         "encrypted_workspace": bool(encrypted_workspace),
+        "exclusive_gpu": bool(exclusive_gpu),
         # P2.1 — optional provisioning hooks (all bounded by the agent to 15 s).
         "init_script": init_script or "",
         "git_repo": git_repo or "",

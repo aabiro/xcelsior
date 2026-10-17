@@ -258,6 +258,17 @@ class TestHostRegistry:
 
 
 class TestJobQueue:
+    def test_exclusive_gpu_request_survives_persistence_and_dispatch(self):
+        job = scheduler.submit_job("exclusive-smoke", 1, exclusive_gpu=True)
+        assert job["exclusive_gpu"] is True
+        stored = scheduler.get_job(job["job_id"])
+        assert stored["exclusive_gpu"] is True
+        assert scheduler.get_next_job()["exclusive_gpu"] is True
+
+    def test_shared_gpu_is_default(self):
+        job = scheduler.submit_job("shared-smoke", 1)
+        assert scheduler.get_job(job["job_id"])["exclusive_gpu"] is False
+
     def test_submit_and_list(self):
         job = scheduler.submit_job("llama3", 16, priority=1)
         assert job["name"] == "llama3"
