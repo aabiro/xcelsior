@@ -172,3 +172,40 @@ still needs the remaining lifecycle/billing remedies and deployed
 recovery/failure drills. General
 job submission consolidation and retirement of legacy writers remain separate
 programme gates.
+
+## Isolated worker-to-invoice acceptance
+
+Run the explicit hardware gate on a workstation with local Docker, the NVIDIA
+container runtime, a GPU with at least 1 GiB free, and a cached PyTorch CUDA image:
+
+```sh
+python scripts/run_security_gates.py --worker-billing-acceptance \
+  --gpu-device 0 \
+  --cuda-image pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime \
+  --output /tmp/xcelsior-worker-billing-acceptance
+```
+
+This creates a disposable local PostgreSQL cluster and a loopback HTTP API,
+with synthetic jobs and a newly issued host token. It refuses remote/existing
+database targets and Docker contexts. The cached image is resolved to its exact
+image ID and runs with no network, host mounts or privileges, bounded memory/CPU,
+and a 90-second internal deadline. Only the gate's named containers are removed.
+Worker tokens/journals live inside the temporary state directory, including when
+the same runner executes regular worker tests.
+
+The gate places two attempts through the real scheduler and exercises worker
+command claim/ACK, lease claim, CUDA computation, running observation, active
+meter repair, exit monitoring, fenced terminal reporting and invoice generation.
+Exit 0 must become `succeeded`; exit 7 must become `failed`. Both must release
+allocations/leases, settle their original meter exactly once, reject stale
+running reports, and match invoice line micro-CAD. Display totals are checked
+separately using the currency rounding rule. A queued job, an observation without
+matching authority, a zero-cost terminal meter or an incomplete cleanup fails.
+Logs, source hashes and `worker_billing.json` remain in the output directory.
+
+This proves the worker protocol/observation/exit path against real CUDA and
+PostgreSQL. The harness launches the container after lease claim; public launch,
+`run_job` provisioning, deployed service identities, private ingress, wallet debit,
+provider payment and lost-terminal-report recovery remain separate gates. It does
+not enable production reconciliation policies. See
+`docs/review/2026-10-17-worker-billing-acceptance.md` for executed evidence.
