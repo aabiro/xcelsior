@@ -31,6 +31,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import socket
 import ssl
 import sys
@@ -48,6 +49,8 @@ except ImportError:  # pragma: no cover - operator-facing script
 PASS = "PASS"
 FAIL = "FAIL"
 BLOCKED = "BLOCKED(env)"
+DEFAULT_CIMD_CLIENT_ID = "https://downloads.xcelsior.ca/gx0/client-v1.json"
+READ_SCOPES = "instances:read billing:read offline_access"
 
 
 _SECRET_FIELD = re.compile(
@@ -99,6 +102,131 @@ class Results:
     @property
     def blocks(self) -> int:
         return sum(1 for status, _, _ in self.rows if status == BLOCKED)
+
+
+@dataclass(repr=False)
+class IssuedSession:
+    label: str
+    client_id: str
+    access_token: str
+    refresh_token: str
+    browser: bool = False
+
+
+@dataclass(repr=False)
+class SessionCleanup:
+    """Keep every grant, including pre-rotation tokens, until verified logout.
+
+    Xcelsior's logout accepts the refresh cookie naming the session to revoke.
+    Retain the web login until last to authenticate logout even for an expired
+    connector access token. Requests are built without the consent cookie jar,
+    so a stale cookie cannot select the wrong session or mask a rejected bearer.
+    """
+
+    results: Results
+    http: httpx.Client
+    issuer: str
+    token_endpoint: str
+    mcp_url: str
+    sessions: list[IssuedSession] = field(default_factory=list)
+
+    def track(
+        self, bundle: dict[str, Any], client_id: str, label: str, *, browser: bool = False
+    ) -> None:
+        access = bundle.get("access_token", "")
+        refresh = bundle.get("refresh_token") or bundle.get("session_token", "")
+        if access or refresh:
+            self.sessions.append(IssuedSession(label, client_id, access, refresh, browser))
+        self.results.check(bool(access and refresh), f"{label}: access and refresh tokens issued")
+
+    def cleanup(self) -> None:
+        if not self.sessions:
+            return
+        # The login is tracked first; reverse order revokes rotated grants first
+        # and the web login last. Also revoke the old token's cached access.
+        sessions = list(reversed(self.sessions))
+        login = next((s.access_token for s in self.sessions if s.browser), "")
+        for session in sessions:
+            try:
+                response = self.http.send(
+                    httpx.Request(
+                        "POST",
+                        f"{self.issuer.rstrip('/')}/api/auth/logout",
+                        headers={"authorization": f"Bearer {login or session.access_token}"},
+                        cookies={"xcelsior_refresh": session.refresh_token},
+                    )
+                )
+                self.results.check(
+                    response.status_code == 200,
+                    f"cleanup {session.label}: logout accepted",
+                    f"HTTP {response.status_code}",
+                )
+            except httpx.HTTPError as exc:
+                self.results.fail(f"cleanup {session.label}: logout", type(exc).__name__)
+        # Logout's 200 is not evidence of revocation: it can be a no-op.
+        # Check every bearer and every refresh credential independently.
+        for session in sessions:
+            try:
+                headers = {
+                    "authorization": f"Bearer {session.access_token}",
+                    "accept": "application/json, text/event-stream",
+                }
+                if session.browser:
+                    request = httpx.Request(
+                        "GET", f"{self.issuer.rstrip('/')}/api/auth/me", headers=headers
+                    )
+                else:
+                    request = httpx.Request(
+                        "POST",
+                        self.mcp_url,
+                        headers=headers,
+                        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+                    )
+                response = self.http.send(request)
+                self.results.check(
+                    response.status_code == 401,
+                    f"cleanup {session.label}: access token rejected",
+                    f"HTTP {response.status_code}",
+                )
+            except httpx.HTTPError as exc:
+                self.results.fail(f"cleanup {session.label}: access revocation", type(exc).__name__)
+            try:
+                response = self.http.send(
+                    httpx.Request(
+                        "POST",
+                        self.token_endpoint,
+                        data={
+                            "grant_type": "refresh_token",
+                            "client_id": session.client_id,
+                            "refresh_token": session.refresh_token,
+                        },
+                    )
+                )
+                payload = response.json()
+                rejected = (
+                    response.status_code in (400, 401) and payload.get("error") == "invalid_grant"
+                )
+                self.results.check(
+                    rejected,
+                    f"cleanup {session.label}: refresh token rejected",
+                    f"HTTP {response.status_code}",
+                )
+                if response.status_code == 200:
+                    # A failed logout must not leave the verification's newly
+                    # rotated session behind. Revoke it with its own bearer.
+                    self.http.send(
+                        httpx.Request(
+                            "POST",
+                            f"{self.issuer.rstrip('/')}/api/auth/logout",
+                            headers={"authorization": f"Bearer {payload.get('access_token', '')}"},
+                            cookies={"xcelsior_refresh": payload.get("refresh_token", "")},
+                        )
+                    )
+            except (httpx.HTTPError, ValueError) as exc:
+                self.results.fail(
+                    f"cleanup {session.label}: refresh revocation", type(exc).__name__
+                )
+        self.http.cookies.clear()
 
 
 def pkce() -> tuple[str, str]:
@@ -170,14 +298,19 @@ def check_tls(results: Results, host: str, port: int = 443) -> None:
     results.check(
         version in {"TLSv1.2", "TLSv1.3"}, "TLS version is 1.2 or 1.3", f"negotiated {version}"
     )
-    results.check(bool(peer.get("subject")), "TLS certificate chain validates", str(peer.get("issuer")))
+    results.check(
+        bool(peer.get("subject")), "TLS certificate chain validates", str(peer.get("issuer"))
+    )
 
 
 def check_challenge(results: Results, http: httpx.Client, mcp_url: str) -> str | None:
     """BLOCKER 1: the 401 must name where to authenticate."""
     response = http.post(
         mcp_url,
-        headers={"content-type": "application/json", "accept": "application/json, text/event-stream"},
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json, text/event-stream",
+        },
         content=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
     )
     if not results.check(
@@ -209,7 +342,9 @@ def check_challenge(results: Results, http: httpx.Client, mcp_url: str) -> str |
     )
     invalid_params = parse_challenge(invalid.headers.get("www-authenticate", ""))
     if invalid.status_code == 429:
-        results.blocked("invalid token is challenged with error=invalid_token", "MCP endpoint returned HTTP 429")
+        results.blocked(
+            "invalid token is challenged with error=invalid_token", "MCP endpoint returned HTTP 429"
+        )
     else:
         results.check(
             invalid.status_code == 401 and invalid_params.get("error") == "invalid_token",
@@ -255,7 +390,9 @@ def check_authorization_server(
     url = f"{issuer.rstrip('/')}/.well-known/oauth-authorization-server"
     response = http.get(url, headers={"accept": "application/json"})
     if not results.check(
-        response.status_code == 200, "authorization-server metadata is reachable", f"{url} → {response.status_code}"
+        response.status_code == 200,
+        "authorization-server metadata is reachable",
+        f"{url} → {response.status_code}",
     ):
         return None
     metadata = response.json()
@@ -409,7 +546,9 @@ def check_cimd_rejection(results: Results, http: httpx.Client, metadata: dict[st
     )
 
 
-def sign_in(http: httpx.Client, issuer: str, email: str, password: str) -> tuple[str, str]:
+def sign_in(
+    http: httpx.Client, issuer: str, email: str, password: str, cleanup: SessionCleanup
+) -> tuple[str, str]:
     response = http.post(
         f"{issuer.rstrip('/')}/api/auth/login", json={"email": email, "password": password}
     )
@@ -423,6 +562,12 @@ def sign_in(http: httpx.Client, issuer: str, email: str, password: str) -> tuple
                 "blocked",
                 "reviewer account requires MFA; this script cannot complete interactive MFA",
             )
+        payload["refresh_token"] = payload.get("refresh_token") or response.cookies.get(
+            "xcelsior_refresh", ""
+        )
+        cleanup.track(payload, "xcelsior-web", "reviewer login", browser=True)
+        if not (payload.get("access_token") and payload.get("refresh_token")):
+            return "fail", "login did not issue both access token and refresh cookie"
         return "pass", ""
     if response.status_code == 429:
         retry_after = response.headers.get("retry-after", "")
@@ -451,6 +596,7 @@ def check_full_authorization(
     redirect_uri: str,
     resource: str,
     label: str,
+    cleanup: SessionCleanup,
 ) -> dict[str, Any] | None:
     verifier, challenge = pkce()
     state = secrets.token_urlsafe(12)
@@ -463,7 +609,7 @@ def check_full_authorization(
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
-            "scope": "instances:read billing:read offline_access",
+            "scope": READ_SCOPES,
             "resource": resource,
         },
         headers={"accept": "text/html"},
@@ -486,8 +632,17 @@ def check_full_authorization(
     ):
         return None
     location = authorize.headers.get("location", "")
+    callback = urllib.parse.urlsplit(location)
+    expected = urllib.parse.urlsplit(redirect_uri)
+    if not results.check(
+        (callback.scheme, callback.netloc, callback.path)
+        == (expected.scheme, expected.netloc, expected.path),
+        f"{label}: redirect matches the registered callback",
+    ):
+        return None
     query = urllib.parse.parse_qs(urllib.parse.urlsplit(location).query)
-    results.check(query.get("state", [""])[0] == state, f"{label}: state is echoed back")
+    if not results.check(query.get("state", [""])[0] == state, f"{label}: state is echoed back"):
+        return None
     code = query.get("code", [""])[0]
     if not results.check(bool(code), f"{label}: an authorization code is issued", location):
         return None
@@ -507,10 +662,11 @@ def check_full_authorization(
     if not results.check(
         token.status_code == 200,
         f"{label}: token endpoint accepts form encoding",
-        f"{token.status_code}: {token.text[:300]}",
+        f"HTTP {token.status_code}",
     ):
         return None
     bundle = token.json()
+    cleanup.track(bundle, client_id, label)
     results.check(
         bundle.get("resource", "").rstrip("/") == resource.rstrip("/"),
         f"{label}: the token is bound to the MCP resource",
@@ -525,8 +681,13 @@ def check_full_authorization(
 
 
 def check_refresh(
-    results: Results, http: httpx.Client, metadata: dict[str, Any], client_id: str, bundle: dict[str, Any]
-) -> None:
+    results: Results,
+    http: httpx.Client,
+    metadata: dict[str, Any],
+    client_id: str,
+    bundle: dict[str, Any],
+    cleanup: SessionCleanup,
+) -> dict[str, Any] | None:
     refresh_token = bundle.get("refresh_token")
     if not refresh_token:
         results.fail("refresh_token grant", "no refresh_token was issued")
@@ -542,75 +703,231 @@ def check_refresh(
     )
     if not results.check(
         response.status_code == 200,
-        "refresh_token grant returns a working access token",
-        f"{response.status_code}: {response.text[:300]}",
+        "refresh_token grant succeeds",
+        f"HTTP {response.status_code}",
     ):
         return
+    refreshed = response.json()
+    cleanup.track(refreshed, client_id, "refreshed token")
     results.check(
-        response.json().get("access_token") != bundle.get("access_token"),
+        bool(refreshed.get("access_token"))
+        and refreshed["access_token"] != bundle.get("access_token"),
         "refresh rotates the access token",
     )
+    results.check(
+        bool(refreshed.get("refresh_token")) and refreshed["refresh_token"] != refresh_token,
+        "refresh rotates the refresh token",
+    )
+    return refreshed
+
+
+def rpc_result(response: httpx.Response, request_id: int) -> dict[str, Any] | None:
+    """Accept JSON or SSE, but never mistake HTTP 200 + RPC error for success."""
+    if response.status_code != 200:
+        return None
+    messages: list[Any] = []
+    try:
+        messages.append(response.json())
+    except ValueError:
+        for event in re.split(r"\r?\n\r?\n", response.text):
+            data = "\n".join(
+                line[5:].lstrip() for line in event.splitlines() if line.startswith("data:")
+            )
+            if data:
+                try:
+                    messages.append(json.loads(data))
+                except ValueError:
+                    continue
+    for message in messages:
+        if (
+            isinstance(message, dict)
+            and message.get("jsonrpc") == "2.0"
+            and message.get("id") == request_id
+        ):
+            result = message.get("result")
+            return result if isinstance(result, dict) and "error" not in message else None
+    return None
 
 
 def check_authenticated_tools_list(
-    results: Results, http: httpx.Client, mcp_url: str, access_token: str
+    results: Results, http: httpx.Client, mcp_url: str, access_token: str, label: str
 ) -> None:
     headers = {
         "authorization": f"Bearer {access_token}",
         "content-type": "application/json",
         "accept": "application/json, text/event-stream",
     }
-    init = http.post(
-        mcp_url,
-        headers=headers,
-        content=json.dumps({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "gx0-conformance", "version": "1.0.0"},
-            },
-        }),
-    )
-    if not results.check(
-        init.status_code == 200, "authenticated initialize succeeds", f"{init.status_code}: {init.text[:300]}"
-    ):
-        return
-    listed = http.post(
-        mcp_url,
-        headers=headers,
-        content=json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
-    )
-    if not results.check(
-        listed.status_code == 200, "authenticated tools/list succeeds", f"{listed.status_code}"
-    ):
-        return
-    body = listed.text
-    payload = body
-    if body.lstrip().startswith("event:"):  # SSE framing
-        payload = "".join(
-            line[5:].strip() for line in body.splitlines() if line.startswith("data:")
+    init = http.send(
+        httpx.Request(
+            "POST",
+            mcp_url,
+            headers=headers,
+            content=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "gx0-conformance", "version": "2.0.0"},
+                    },
+                }
+            ),
         )
-    try:
-        tools = json.loads(payload)["result"]["tools"]
-    except Exception as exc:
-        results.fail("tools/list returns a tool array", f"{exc}: {body[:300]}")
+    )
+    initialized = rpc_result(init, 1)
+    if not results.check(
+        initialized is not None and bool(initialized.get("protocolVersion")),
+        f"{label}: authenticated initialize succeeds",
+        f"HTTP {init.status_code}",
+    ):
         return
+    headers["mcp-protocol-version"] = initialized["protocolVersion"]
+    if init.headers.get("mcp-session-id"):
+        headers["mcp-session-id"] = init.headers["mcp-session-id"]
+    notified = http.send(
+        httpx.Request(
+            "POST",
+            mcp_url,
+            headers=headers,
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+        )
+    )
+    results.check(
+        notified.status_code == 202,
+        f"{label}: initialized notification accepted",
+        f"HTTP {notified.status_code}",
+    )
+    listed = http.send(
+        httpx.Request(
+            "POST",
+            mcp_url,
+            headers=headers,
+            content=json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+        )
+    )
+    payload = rpc_result(listed, 2)
+    tool_list = payload.get("tools") if payload is not None else None
+    if not results.check(
+        isinstance(tool_list, list)
+        and bool(tool_list)
+        and all(isinstance(t, dict) and isinstance(t.get("name"), str) for t in tool_list),
+        f"{label}: authenticated tools/list succeeds",
+        f"HTTP {listed.status_code}",
+    ):
+        return
+    tools = tool_list
     names = {tool["name"] for tool in tools}
-    results.ok("tools/list returns the public customer profile", f"{len(names)} tools")
+    results.ok(f"{label}: tools/list returns the public customer profile", f"{len(names)} tools")
     leaked = names & {
-        "drain_host", "undrain_host", "evict_host_workloads", "retry_agent_command",
-        "get_scheduler_health", "get_host_capacity", "list_reconciliation_findings",
+        "drain_host",
+        "undrain_host",
+        "evict_host_workloads",
+        "retry_agent_command",
+        "get_scheduler_health",
+        "get_host_capacity",
+        "list_reconciliation_findings",
     }
-    results.check(not leaked, "no operator tools in the public profile", ", ".join(sorted(leaked)))
+    results.check(
+        not leaked, f"{label}: no operator tools in the public profile", ", ".join(sorted(leaked))
+    )
     missing_annotations = [t["name"] for t in tools if not t.get("annotations")]
-    results.check(not missing_annotations, "every tool carries annotations", ", ".join(missing_annotations))
+    results.check(
+        not missing_annotations,
+        f"{label}: every tool carries annotations",
+        ", ".join(missing_annotations),
+    )
     missing_output = [t["name"] for t in tools if not t.get("outputSchema")]
-    results.check(not missing_output, "every tool carries an output schema", ", ".join(missing_output))
+    results.check(
+        not missing_output,
+        f"{label}: every tool carries an output schema",
+        ", ".join(missing_output),
+    )
+    if not results.check("list_instances" in names, f"{label}: read-only probe tool is advertised"):
+        return
+    called = http.send(
+        httpx.Request(
+            "POST",
+            mcp_url,
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "list_instances", "arguments": {"limit": 1}},
+            },
+        )
+    )
+    result = rpc_result(called, 3)
+    data = result.get("structuredContent") if result else None
+    if result and not isinstance(data, dict):
+        for content in result.get("content", []):
+            if content.get("type") == "text":
+                try:
+                    data = json.loads(content["text"])
+                except (KeyError, ValueError):
+                    continue
+                break
+    success = (
+        bool(result)
+        and not result.get("isError")
+        and isinstance(data, dict)
+        and not data.get("error")
+        and data.get("ok") is not False
+        and isinstance(data.get("instances"), list)
+    )
+    results.check(
+        success,
+        f"{label}: tools/call list_instances succeeds",
+        f"HTTP {called.status_code}; instance data omitted",
+    )
+
+
+def check_cimd_connection(
+    results: Results,
+    http: httpx.Client,
+    metadata: dict[str, Any],
+    client_id: str,
+    resource: str,
+    cleanup: SessionCleanup,
+) -> None:
+    response = http.get(client_id, headers={"accept": "application/json"})
+    if not results.check(
+        response.status_code == 200,
+        "CIMD: public client document is reachable",
+        f"HTTP {response.status_code}",
+    ):
+        return
+    document = response.json()
+    if not results.check(
+        urllib.parse.urlsplit(client_id).scheme == "https"
+        and document.get("client_id") == client_id
+        and response.headers.get("content-type", "").split(";")[0]
+        in {"application/json", "application/ld+json"},
+        "CIMD: HTTPS JSON document names its exact client ID",
+    ):
+        return
+    redirect_uri = "http://127.0.0.1:8765/cb"
+    if not results.check(
+        redirect_uri in document.get("redirect_uris", []), "CIMD: probe callback is registered"
+    ):
+        return
+    bundle = check_full_authorization(
+        results, http, metadata, client_id, redirect_uri, resource, "CIMD client", cleanup
+    )
+    if bundle:
+        check_authenticated_tools_list(
+            results, http, resource, bundle.get("access_token", ""), "CIMD client"
+        )
 
 
 def check_resource_substitution(
-    results: Results, http: httpx.Client, metadata: dict[str, Any], client_id: str, redirect_uri: str
+    results: Results,
+    http: httpx.Client,
+    metadata: dict[str, Any],
+    client_id: str,
+    redirect_uri: str,
 ) -> None:
     _, challenge = pkce()
     response = http.get(
@@ -643,13 +960,24 @@ def check_resource_substitution(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--base", default="https://mcp.xcelsior.ca/mcp", help="canonical connector URL")
-    parser.add_argument("--issuer", default="", help="authorization server origin (default: from metadata)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--base", default="https://mcp.xcelsior.ca/mcp", help="canonical connector URL"
+    )
+    parser.add_argument(
+        "--issuer", default="", help="authorization server origin (default: from metadata)"
+    )
     parser.add_argument(
         "--email", default=os.environ.get("GX0_EMAIL", ""), help="reviewer account (or GX0_EMAIL)"
     )
     parser.add_argument("--client-id", default="xcelsior-connector")
+    parser.add_argument(
+        "--cimd-client-id",
+        default=os.environ.get("GX0_CIMD_CLIENT_ID", DEFAULT_CIMD_CLIENT_ID),
+        help="public HTTPS client metadata document",
+    )
     parser.add_argument("--timeout", type=float, default=20.0)
     args = parser.parse_args()
 
@@ -661,7 +989,11 @@ def main() -> int:
     check_external_vantage(results, host)
     check_tls(results, host)
 
-    with httpx.Client(timeout=args.timeout, follow_redirects=False) as http:
+    with httpx.Client(
+        timeout=args.timeout,
+        follow_redirects=False,
+        headers={"user-agent": f"gx0-conformance/2 run/{secrets.token_hex(8)}"},
+    ) as http:
         metadata_url = check_challenge(results, http, mcp_url)
         if not metadata_url:
             return _summarise(results)
@@ -689,49 +1021,124 @@ def main() -> int:
             results.blocked("loopback callback on two random ports", "same reason")
             results.blocked("refresh_token grant", "same reason")
             results.blocked("authenticated tools/list", "same reason")
+            results.blocked("CIMD connection and tool execution", "same reason")
+            results.blocked("DCR client tool execution", "same reason")
             return _summarise(results)
 
-        login_status, login_detail = sign_in(http, issuer, args.email, password)
-        if login_status == "blocked":
-            results.blocked("reviewer sign-in", login_detail)
-            return _summarise(results)
-        if login_status == "fail":
-            results.fail("reviewer sign-in", login_detail)
-            return _summarise(results)
-        results.ok("reviewer sign-in")
+        cleanup = SessionCleanup(results, http, issuer, as_metadata["token_endpoint"], mcp_url)
+        previous_termination_handler = signal.getsignal(signal.SIGTERM)
 
-        check_resource_substitution(
-            results, http, as_metadata, args.client_id, "http://127.0.0.1:8765/cb"
-        )
+        def terminate(_signum: int, _frame: Any) -> None:
+            raise KeyboardInterrupt
 
-        bundle = check_full_authorization(
-            results, http, as_metadata, args.client_id,
-            "https://claude.ai/api/mcp/auth_callback", resource, "provider callback",
-        )
-        # Two different random ports in the same run: RFC 8252 §7.3, and the
-        # single most common reason a native client fails on its second attempt.
-        for port in (secrets.randbelow(10000) + 40000, secrets.randbelow(10000) + 50000):
-            check_full_authorization(
-                results, http, as_metadata, args.client_id,
-                f"http://127.0.0.1:{port}/callback", resource, f"loopback :{port}",
+        signal.signal(signal.SIGTERM, terminate)
+        try:
+            run_authenticated_checks(
+                results,
+                http,
+                issuer,
+                args.email.strip(),
+                password,
+                as_metadata,
+                resource,
+                args.client_id,
+                args.cimd_client_id,
+                registered,
+                cleanup,
             )
-        if registered:
-            check_full_authorization(
-                results, http, as_metadata, registered["client_id"],
-                "http://127.0.0.1:8765/cb", resource, "DCR client",
-            )
-        if bundle:
-            check_refresh(results, http, as_metadata, args.client_id, bundle)
-            check_authenticated_tools_list(results, http, mcp_url, bundle["access_token"])
+        except KeyboardInterrupt:
+            results.fail("run interrupted", "revoking this run's sessions before exit")
+        except Exception as exc:
+            # Exception text can contain an authorization URL or a token body.
+            results.fail("authenticated checks aborted", type(exc).__name__)
+        finally:
+            try:
+                cleanup.cleanup()
+            finally:
+                signal.signal(signal.SIGTERM, previous_termination_handler)
 
     return _summarise(results)
 
 
+def run_authenticated_checks(
+    results: Results,
+    http: httpx.Client,
+    issuer: str,
+    email: str,
+    password: str,
+    as_metadata: dict[str, Any],
+    resource: str,
+    client_id: str,
+    cimd_client_id: str,
+    registered: dict[str, Any] | None,
+    cleanup: SessionCleanup,
+) -> None:
+    login_status, login_detail = sign_in(http, issuer, email, password, cleanup)
+    if login_status == "blocked":
+        results.blocked("reviewer sign-in", login_detail)
+        return
+    if login_status == "fail":
+        results.fail("reviewer sign-in", login_detail)
+        return
+    results.ok("reviewer sign-in")
+
+    check_resource_substitution(results, http, as_metadata, client_id, "http://127.0.0.1:8765/cb")
+
+    bundle = check_full_authorization(
+        results,
+        http,
+        as_metadata,
+        client_id,
+        "https://claude.ai/api/mcp/auth_callback",
+        resource,
+        "provider callback",
+        cleanup,
+    )
+    # Two different random ports in the same run: RFC 8252 §7.3, and the
+    # single most common reason a native client fails on its second attempt.
+    for port in (secrets.randbelow(10000) + 40000, secrets.randbelow(10000) + 50000):
+        check_full_authorization(
+            results,
+            http,
+            as_metadata,
+            client_id,
+            f"http://127.0.0.1:{port}/callback",
+            resource,
+            f"loopback :{port}",
+            cleanup,
+        )
+    if registered:
+        dcr_bundle = check_full_authorization(
+            results,
+            http,
+            as_metadata,
+            registered["client_id"],
+            "http://127.0.0.1:8765/cb",
+            resource,
+            "DCR client",
+            cleanup,
+        )
+        if dcr_bundle:
+            check_authenticated_tools_list(
+                results, http, resource, dcr_bundle.get("access_token", ""), "DCR client"
+            )
+    else:
+        results.blocked("DCR client tool execution", "no newly registered client")
+    check_cimd_connection(results, http, as_metadata, cimd_client_id, resource, cleanup)
+    if bundle:
+        check_authenticated_tools_list(
+            results, http, resource, bundle.get("access_token", ""), "provider callback"
+        )
+        refreshed = check_refresh(results, http, as_metadata, client_id, bundle, cleanup)
+        if refreshed:
+            check_authenticated_tools_list(
+                results, http, resource, refreshed.get("access_token", ""), "refreshed token"
+            )
+
+
 def _summarise(results: Results) -> int:
     passed = sum(1 for status, _, _ in results.rows if status == PASS)
-    print(
-        f"\nGX0: {passed} passed, {results.failures} failed, {results.blocks} blocked"
-    )
+    print(f"\nGX0: {passed} passed, {results.failures} failed, {results.blocks} blocked")
     if results.blocks:
         print("A blocked gate is not a passed gate — resolve the environment and re-run.")
     return 1 if results.failures else 0

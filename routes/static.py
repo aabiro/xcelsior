@@ -55,6 +55,7 @@ _SIGNABLE = frozenset(
         "criu_hosts.py",
         "egress_isolation.py",
         "worker_privileged.py",
+        "worker-requirements.txt",
     }
 )
 

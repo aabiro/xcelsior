@@ -1,0 +1,196 @@
+{
+  "date": "2026-10-17",
+  "commit": "582859dfdbf35318c25accad203655cd4c7d2bf6",
+  "tower": "not accessed; read-only restriction unchanged",
+  "production_changes": "none in this continuation",
+  "runs": [
+    {
+      "name": "isolated acceptance",
+      "command": "TMPDIR=/mnt/storage/xcelsior-security-tmp /tmp/xcelsior-security-py312/bin/python scripts/run_security_gates.py --output /mnt/storage/xcelsior-security-tmp/final-acceptance-20261017",
+      "result": "755 passed, 0 failed, 0 skipped, pytest exit 0, runner exit 0",
+      "note": "Includes stream tests except the later revocation-before-connected case. security.py.sig was refreshed after this process captured its source hashes; security.py bytes were already the tested bytes.",
+      "manifest": {
+        "manifest": "/mnt/storage/xcelsior-security-tmp/final-acceptance-20261017/manifest.json",
+        "commit": "582859dfdbf35318c25accad203655cd4c7d2bf6",
+        "phases": {
+          "initdb": {
+            "exit_code": 0,
+            "seconds": 0.69
+          },
+          "start": {
+            "exit_code": 0,
+            "seconds": 0.12
+          },
+          "createdb": {
+            "exit_code": 0,
+            "seconds": 0.06
+          },
+          "migrate": {
+            "exit_code": 0,
+            "seconds": 4.07
+          },
+          "pytest": {
+            "exit_code": 0,
+            "seconds": 72.13
+          },
+          "stop": {
+            "exit_code": 0,
+            "seconds": 0.21
+          }
+        },
+        "tests": [
+          "tests/test_public_http.py",
+          "tests/test_serverless_limits_webhooks.py",
+          "tests/test_security_monitoring.py",
+          "tests/test_bg_worker.py",
+          "tests/test_db_service_roles.py",
+          "tests/test_account_security_hold.py",
+          "tests/test_oauth_operator_scope_refusal.py",
+          "tests/test_mcp_connector_auth.py",
+          "tests/test_nginx_vhosts_install_safely.py",
+          "tests/test_hardened_runtime_and_ingress.py",
+          "tests/test_worker_privileged.py",
+          "tests/test_egress_isolation.py",
+          "tests/test_identity_admission_fails_closed.py",
+          "tests/test_host_agent_tokens.py",
+          "tests/test_job_reconcile_queue.py",
+          "tests/test_control_plane_leases.py",
+          "tests/test_billing_security_sweep.py",
+          "tests/test_serverless_chaos_billing.py",
+          "tests/test_artifact_download_is_owner_scoped.py",
+          "tests/test_artifact_finalize_verification.py",
+          "tests/test_promotion_copies_and_verifies.py",
+          "tests/test_static_endpoints.py",
+          "tests/test_install_clean_host.py",
+          "tests/test_app_security_sweep.py",
+          "tests/test_mfa_flow.py",
+          "tests/test_mfa_removal_needs_a_human.py",
+          "tests/test_mcp_oauth_contract.py",
+          "tests/test_client_ip_cannot_be_spoofed.py",
+          "tests/test_rate_limits_hold_across_workers.py",
+          "tests/test_launch_plan_approval.py",
+          "tests/test_pipeline_approval_covers_its_stages.py",
+          "tests/test_serverless_endpoint_budget.py",
+          "tests/test_wallet_holds.py",
+          "tests/test_paypal_wallet_idempotency.py",
+          "tests/test_artifacts_state_machine.py",
+          "tests/test_artifact_retention_authority.py",
+          "tests/test_cache_key_contract.py",
+          "tests/test_agent_commands_lifecycle.py",
+          "tests/test_billing_math_properties.py",
+          "tests/test_serverless_queue_recovery.py",
+          "tests/test_requirements_export_matches_lock.py",
+          "tests/test_stream_authorization.py",
+          "tests/test_sse_generator_replays_and_keeps_alive.py",
+          "tests/test_terminal_ticket_needs_connect_scope.py"
+        ]
+      }
+    },
+    {
+      "name": "signature and gVisor follow-up",
+      "command": "scripts/run_security_gates.py --output /mnt/storage/xcelsior-security-tmp/signature-followup-20261017 tests/test_static_endpoints.py tests/test_install_clean_host.py tests/test_security.py::TestBuildSecureDockerArgs::test_gvisor_overrides_image_driver_capabilities tests/test_security.py::TestBuildSecureDockerArgs::test_gvisor_rejects_unsupported_explicit_driver_capabilities tests/test_security.py::TestBuildSecureDockerArgs::test_native_runtime_preserves_video_driver_capabilities",
+      "result": "43 passed, 0 failed, 0 skipped, pytest exit 0",
+      "manifest": {
+        "manifest": "/mnt/storage/xcelsior-security-tmp/signature-followup-20261017/manifest.json",
+        "commit": "582859dfdbf35318c25accad203655cd4c7d2bf6",
+        "phases": {
+          "initdb": {
+            "exit_code": 0,
+            "seconds": 0.66
+          },
+          "start": {
+            "exit_code": 0,
+            "seconds": 0.11
+          },
+          "createdb": {
+            "exit_code": 0,
+            "seconds": 0.08
+          },
+          "migrate": {
+            "exit_code": 0,
+            "seconds": 2.99
+          },
+          "pytest": {
+            "exit_code": 0,
+            "seconds": 18.47
+          },
+          "stop": {
+            "exit_code": 0,
+            "seconds": 0.1
+          }
+        },
+        "tests": [
+          "tests/test_static_endpoints.py",
+          "tests/test_install_clean_host.py",
+          "tests/test_security.py::TestBuildSecureDockerArgs::test_gvisor_overrides_image_driver_capabilities",
+          "tests/test_security.py::TestBuildSecureDockerArgs::test_gvisor_rejects_unsupported_explicit_driver_capabilities",
+          "tests/test_security.py::TestBuildSecureDockerArgs::test_native_runtime_preserves_video_driver_capabilities"
+        ]
+      }
+    },
+    {
+      "name": "stream revocation follow-up",
+      "command": "scripts/run_security_gates.py --output /mnt/storage/xcelsior-security-tmp/stream-revocation-20261017 tests/test_stream_authorization.py",
+      "result": "16 passed, 0 failed, 0 skipped, pytest exit 0",
+      "manifest": {
+        "manifest": "/mnt/storage/xcelsior-security-tmp/stream-revocation-20261017/manifest.json",
+        "commit": "582859dfdbf35318c25accad203655cd4c7d2bf6",
+        "phases": {
+          "initdb": {
+            "exit_code": 0,
+            "seconds": 2.54
+          },
+          "start": {
+            "exit_code": 0,
+            "seconds": 0.13
+          },
+          "createdb": {
+            "exit_code": 0,
+            "seconds": 0.11
+          },
+          "migrate": {
+            "exit_code": 0,
+            "seconds": 3.16
+          },
+          "pytest": {
+            "exit_code": 0,
+            "seconds": 10.1
+          },
+          "stop": {
+            "exit_code": 0,
+            "seconds": 0.11
+          }
+        },
+        "tests": [
+          "tests/test_stream_authorization.py"
+        ]
+      }
+    }
+  ],
+  "not_passes": [
+    "final-stream-audit-20261017 pytest exit -9 after SIGKILL; database removed by the runner",
+    "earlier stream-focused run: 1 failed, 28 passed; job-log continuation",
+    "temporary PostgreSQL run that exhausted its filesystem"
+  ],
+  "signature_verify": "scripts/sign-static-agent.py --verify exit 0; 12 files",
+  "pyright": "routes/stream_auth.py routes/instances.py tests/test_stream_authorization.py: 0 errors",
+  "source_sha256": {
+    "routes/stream_auth.py": "c027abb84d32347f62357a8f21589ed41549dc4219e6be2818c0b1c7920fbc6d",
+    "routes/instances.py": "574523cd8790964d6a0f51bc99193c10e397af2abfcbcf27c97f5c918dc3906d",
+    "routes/health.py": "54f1ecdcbbc64279bd72fb06165ad8bf99de74d78ce0263c43de77a7c32ef7d7",
+    "routes/terminal.py": "fd2faa4db3bc7b56841c7b2042edbb0af8538196f958fd12b30971ac89fc8f80",
+    "routes/_deps.py": "8e68d618785b559769831b0f49f82f4de4b063d1ef516cefeea57be0668b9c55",
+    "public_http.py": "fe2519c56126bec153640df3080608881ae8a5133fddb8218bcd3b7c64eff34b",
+    "serverless/webhooks.py": "32d9e41ef1dfda6016747b38c461aceead039ab29b65d01cb2d222461377636f",
+    "worker_agent.py": "1d239c7b98ea93a4e1871e286282cccc295363bc7d883f7e78d2490fdfc27806",
+    "security.py": "d9d1d3f4ff34b0a602f35f1634b198a7e8b8d30926eeb11af1a9697236df9420",
+    "scripts/worker-requirements.txt": "f18d48ccac360a3ce396515937ebae4887c1dc6b0f98c5cf808f3a9b8ca62d84",
+    "scripts/security.py.sig": "a07c4e7093fe8f94e6d349a5abc384641f84494d724327c12091de1dc909bf40",
+    "scripts/worker_agent.py.sig": "2ef687a481e90f9bab644158316bd07b0eec858d4741c33dd4d552aa8861dede",
+    "scripts/worker-requirements.txt.sig": "cd1f776c984bfd7c6e3fcca04a53c6e8d281da2e2bbfb026b72b22dfb8bb9532",
+    "scripts/sign-static-agent.py": "d50fef05d2cbf7cfec67f01c055cc6586b27a764895f4bbe55d497dfcb2c8511",
+    "scripts/run_security_gates.py": "01e387d7000c047ab6c1ec35630bb732e07a66751dd95be79c5c7b2965bbdca0",
+    "tests/test_stream_authorization.py": "6041113e2b3d23a52a3c7a99bc6d93462d284f940e075595c6c1e95e7e8e329e",
+    "docs/review/2026-10-17-security-audit.md": "aecf4251516a63d27af535bcc4006baa34a21c8b42b68525f4f92b87b2b57eb2"
+  }
+}

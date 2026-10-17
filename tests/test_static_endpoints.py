@@ -173,7 +173,7 @@ def test_signable_lists_agree():
         ).group(1)
     )
     assert _installer_signable() == set(static_routes._SIGNABLE) == set(signer)
-    assert {n for n in _installer_downloads() if n.endswith(".py")} == _installer_signable()
+    assert _installer_downloads() == _installer_signable()
 
 
 def test_nginx_forwards_exactly_the_installer_files():
@@ -241,3 +241,51 @@ def test_a_new_host_downloads_the_installer_without_credentials(anonymous_client
         assert (
             resp.status_code == 200
         ), f"install.sh downloads {name}, anonymous call got {resp.status_code}"
+
+
+def test_worker_requirements_signature_covers_exact_bytes():
+    import base64
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+    response = client.get("/static/worker-requirements.txt")
+    assert response.status_code == 200
+    public = load_pem_public_key((REPO_ROOT / "scripts/agent-signing.pub").read_bytes())
+    public.verify(
+        base64.b64decode(response.headers["X-Xcelsior-Agent-Signature"]), response.content
+    )
+
+
+def test_missing_dependency_signature_fails_closed(monkeypatch, tmp_path):
+    monkeypatch.setattr(static_routes, "_SCRIPTS", tmp_path)
+    response = client.get("/static/worker-requirements.txt")
+    assert response.status_code == 503
+
+
+def test_public_key_verifier_detects_tampered_dependency_file(monkeypatch, tmp_path):
+    import importlib.util
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    spec = importlib.util.spec_from_file_location(
+        "signer_test", REPO_ROOT / "scripts/sign-static-agent.py"
+    )
+    signer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(signer)
+    (tmp_path / "scripts").mkdir()
+    key = Ed25519PrivateKey.generate()
+    (tmp_path / "scripts/agent-signing.pub").write_bytes(
+        key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+    )
+    data = b"requests==2.34.2\n"
+    path = tmp_path / "scripts/worker-requirements.txt"
+    path.write_bytes(data)
+    (tmp_path / "scripts/worker-requirements.txt.sig").write_bytes(key.sign(data))
+    monkeypatch.setattr(signer, "ROOT", tmp_path)
+    monkeypatch.setattr(signer, "SIGNABLE", ("worker-requirements.txt",))
+    signer.verify()  # no private key file exists in this fixture
+    path.write_bytes(data + b"malicious-package==1\n")
+    with pytest.raises(InvalidSignature):
+        signer.verify()

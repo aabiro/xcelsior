@@ -44,6 +44,30 @@ DEFAULT_TESTS = [
     "tests/test_serverless_chaos_billing.py",
     "tests/test_artifact_download_is_owner_scoped.py",
     "tests/test_artifact_finalize_verification.py",
+    "tests/test_promotion_copies_and_verifies.py",
+    "tests/test_static_endpoints.py",
+    "tests/test_install_clean_host.py",
+    "tests/test_app_security_sweep.py",
+    "tests/test_mfa_flow.py",
+    "tests/test_mfa_removal_needs_a_human.py",
+    "tests/test_mcp_oauth_contract.py",
+    "tests/test_client_ip_cannot_be_spoofed.py",
+    "tests/test_rate_limits_hold_across_workers.py",
+    "tests/test_launch_plan_approval.py",
+    "tests/test_pipeline_approval_covers_its_stages.py",
+    "tests/test_serverless_endpoint_budget.py",
+    "tests/test_wallet_holds.py",
+    "tests/test_paypal_wallet_idempotency.py",
+    "tests/test_artifacts_state_machine.py",
+    "tests/test_artifact_retention_authority.py",
+    "tests/test_cache_key_contract.py",
+    "tests/test_agent_commands_lifecycle.py",
+    "tests/test_billing_math_properties.py",
+    "tests/test_serverless_queue_recovery.py",
+    "tests/test_requirements_export_matches_lock.py",
+    "tests/test_stream_authorization.py",
+    "tests/test_sse_generator_replays_and_keeps_alive.py",
+    "tests/test_terminal_ticket_needs_connect_scope.py",
 ]
 
 
@@ -111,6 +135,7 @@ def main() -> int:
     ):
         env[f"XCELSIOR_{name}_FILE"] = str(state / f"{name.lower()}.json")
     env["XCELSIOR_LOG_FILE"] = str(state / "xcelsior.log")
+    env["TMPDIR"] = str(scratch)
     env["STATE_DIRECTORY"] = str(state)
     env["XCELSIOR_AGENT_TOKEN_FILE"] = str(state / "agent-token.json")
     env["XCELSIOR_V2_JOURNAL_PATH"] = str(state / "attempts.json")
@@ -146,6 +171,15 @@ def main() -> int:
                 "pyproject.toml",
                 "uv.lock",
                 "requirements.txt",
+                "scripts/run_security_gates.py",
+                "scripts/worker-requirements.txt",
+                "scripts/worker-requirements.txt.sig",
+                "scripts/worker_agent.py.sig",
+                "scripts/agent-signing.pub",
+                "mcp/package.json",
+                "mcp/package-lock.json",
+                "infra/observability/prometheus/alert-rules.yml",
+                ".github/workflows/ci.yml",
             }
         )
     }

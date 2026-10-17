@@ -65,6 +65,8 @@ class _Server:
     def __init__(self, tmp_path):
         self.reported: dict = {}
         self.manifest: dict = {}
+        self.download_paths: list[str] = []
+        self.redirect_object = False
         outer = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -82,7 +84,13 @@ class _Server:
             def do_GET(self):
                 if self.path.endswith("/manifest"):
                     return self._json(outer.manifest)
+                outer.download_paths.append(self.path)
                 if self.path == "/object":
+                    if outer.redirect_object:
+                        self.send_response(302)
+                        self.send_header("Location", "/prohibited-destination")
+                        self.end_headers()
+                        return
                     self.send_response(200)
                     self.send_header("content-length", str(len(PAYLOAD)))
                     self.end_headers()
@@ -163,6 +171,15 @@ def test_success_is_reported_with_the_byte_count(agent):
     wa._promote_artifacts({"promotion_id": "prom-1"})
     assert srv.reported.get("state") == "succeeded"
     assert srv.reported.get("bytes_written") == len(PAYLOAD)
+
+
+def test_object_store_redirect_is_not_followed(agent):
+    wa, srv, mounts = agent
+    srv.redirect_object = True
+    assert not wa._promote_artifacts({"promotion_id": "prom-1"})
+    assert srv.reported["failure_code"] == "fetch_302"
+    assert srv.download_paths == ["/object"]
+    assert list(_dest(mounts).parent.iterdir()) == []
 
 
 def test_no_part_file_survives_a_good_copy(agent):
@@ -305,3 +322,66 @@ def test_a_file_marked_done_but_missing_is_copied_anyway(agent):
     dest = _dest(mounts)
     assert dest.exists(), "a file marked done but absent from the volume was not re-copied"
     assert hashlib.sha256(dest.read_bytes()).hexdigest() == DIGEST
+
+
+def test_predictable_partial_symlink_cannot_overwrite_host_file(agent, tmp_path):
+    wa, srv, mounts = agent
+    victim = tmp_path / "host-secret"
+    victim.write_bytes(b"unchanged")
+    dest = _dest(mounts)
+    dest.parent.mkdir(parents=True)
+    dest.with_name(dest.name + ".part").symlink_to(victim)
+    assert wa._promote_artifacts({"promotion_id": "prom-1"})
+    assert victim.read_bytes() == b"unchanged"
+    assert dest.read_bytes() == PAYLOAD
+
+
+@pytest.mark.parametrize("component", ["volume", "promoted"])
+def test_destination_symlink_is_refused(agent, tmp_path, component):
+    wa, srv, mounts = agent
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if component == "volume":
+        (mounts / "vol-1").symlink_to(outside, target_is_directory=True)
+    else:
+        (mounts / "vol-1").mkdir()
+        (mounts / "vol-1" / "promoted").symlink_to(outside, target_is_directory=True)
+    assert not wa._promote_artifacts({"promotion_id": "prom-1"})
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("volume", ["../escape", "/tmp/escape", "..", "a/b", "bad\x00name"])
+def test_manifest_volume_cannot_escape_mount_root(agent, volume):
+    wa, srv, mounts = agent
+    srv.set_manifest(volume=volume)
+    assert not wa._promote_artifacts({"promotion_id": "prom-1"})
+    assert srv.reported["failure_code"] == "bad_volume_id"
+    assert list(mounts.iterdir()) == []
+
+
+@pytest.mark.parametrize("declared_size", [0, len(PAYLOAD) - 1, len(PAYLOAD) + 1, -1, None, True])
+def test_declared_size_is_enforced_and_failed_copy_is_removed(agent, declared_size):
+    wa, srv, mounts = agent
+    srv.manifest["files"][0]["size_bytes"] = declared_size
+    assert not wa._promote_artifacts({"promotion_id": "prom-1"})
+    assert srv.reported["failure_code"] in ("size_mismatch", "invalid_artifact_size")
+    assert not _dest(mounts).exists()
+    assert list(_dest(mounts).parent.iterdir()) == []
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_resume_rechecks_current_bytes_and_replaces_symlink_safely(agent, tmp_path, symlink):
+    wa, srv, mounts = agent
+    dest = _dest(mounts)
+    dest.parent.mkdir(parents=True)
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"unchanged")
+    if symlink:
+        dest.symlink_to(victim)
+    else:
+        dest.write_bytes(b"changed since prior verification")
+    srv.manifest["files"][0]["already_done"] = True
+    assert wa._promote_artifacts({"promotion_id": "prom-1"})
+    assert not dest.is_symlink()
+    assert dest.read_bytes() == PAYLOAD
+    assert victim.read_bytes() == b"unchanged"

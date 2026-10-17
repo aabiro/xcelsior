@@ -15,7 +15,7 @@ import public_http as ph
 
 
 @contextmanager
-def receiver(monkeypatch, *, status=200, body=b"ok", slow=False, tls=None):
+def receiver(monkeypatch, *, status=200, body=b"ok", slow=False, slow_body=False, tls=None):
     received = []
     stop = threading.Event()
 
@@ -46,6 +46,13 @@ def receiver(monkeypatch, *, status=200, body=b"ok", slow=False, tls=None):
                 if 300 <= status < 400:
                     self.send_header("Location", "/forbidden-redirect")
                 self.end_headers()
+                if slow_body:
+                    for byte in body:
+                        self.wfile.write(bytes([byte]))
+                        self.wfile.flush()
+                        if stop.wait(0.02):
+                            break
+                    return
                 self.wfile.write(body)
             except (OSError, ValueError):
                 pass
@@ -174,6 +181,14 @@ def test_body_limit_is_enforced(monkeypatch):
 
 def test_absolute_deadline_stops_slow_headers(monkeypatch):
     with receiver(monkeypatch, slow=True) as (url, _, _):
+        started = time.monotonic()
+        with pytest.raises(ph.PublicHTTPError):
+            ph.request(url, timeout=0.12)
+        assert time.monotonic() - started < 0.6
+
+
+def test_absolute_deadline_stops_slow_body_after_connection_detaches(monkeypatch):
+    with receiver(monkeypatch, slow_body=True, body=b"x" * 100) as (url, _, _):
         started = time.monotonic()
         with pytest.raises(ph.PublicHTTPError):
             ph.request(url, timeout=0.12)

@@ -622,6 +622,31 @@ def api_generate_dockerfile(
 # ── Helper: _sse_generator ──
 
 
+def _dashboard_event_visible(user: dict, data: dict) -> bool:
+    """Authorize against current objects; never trust owner hints in an event."""
+    from routes._deps import _require_scope, _require_entity_event_access, _check_job_access
+
+    try:
+        if _is_platform_admin(user):
+            _require_scope(user, "events:read")
+            return True
+        job_id = data.get("job_id")
+        host_id = data.get("host_id")
+        if job_id:
+            _require_scope(user, "instances:read")
+            _check_job_access(user, str(job_id))
+            return True
+        if host_id:
+            _require_scope(user, "hosts:read")
+            _require_entity_event_access(user, "host", str(host_id))
+            return True
+        return False  # unclassified fleet/administrative payloads stay private
+    except HTTPException as exc:
+        if exc.status_code in (403, 404):
+            return False
+        raise
+
+
 async def _sse_generator(request: Request, last_event_id: str | None = None):
     """Async generator that yields SSE events until the client disconnects.
 
@@ -635,6 +660,7 @@ async def _sse_generator(request: Request, last_event_id: str | None = None):
     with _sse_lock:
         _sse_subscribers.append(queue)
     try:
+        await asyncio.to_thread(_require_auth, request)
         yield "retry: 3000\n\n"
         yield f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
 
@@ -647,18 +673,27 @@ async def _sse_generator(request: Request, last_event_id: str | None = None):
                 with _get_pg_pool().connection() as conn:
                     replay = resume_after(conn, last_event_id, limit=1000)
                 for ev in replay:
+                    user = await asyncio.to_thread(_require_auth, request)
+                    if not await asyncio.to_thread(_dashboard_event_visible, user, ev.payload):
+                        continue
                     yield (
                         f"id: {ev.cursor}\nevent: {ev.event_type}\n"
                         f"data: {json.dumps(ev.payload)}\n\n"
                     )
+            except HTTPException:
+                raise
             except Exception as exc:  # degrade to live-only if the store is down
                 log.warning("SSE durable replay failed (live-only): %s", exc)
 
         while True:
             if await request.is_disconnected():
                 break
+            await asyncio.to_thread(_require_auth, request)
             try:
-                msg = await asyncio.wait_for(queue.get(), timeout=30)
+                msg = await asyncio.wait_for(queue.get(), timeout=2)
+                user = await asyncio.to_thread(_require_auth, request)
+                if not await asyncio.to_thread(_dashboard_event_visible, user, msg.get("data", {})):
+                    continue
                 event_type = msg.get("event", "message")
                 data = json.dumps(msg.get("data", {}))
                 cursor = msg.get("cursor")
@@ -666,6 +701,9 @@ async def _sse_generator(request: Request, last_event_id: str | None = None):
                 yield f"{id_prefix}event: {event_type}\ndata: {data}\n\n"
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
+    except Exception:
+        log.warning("dashboard.stream.closed: authorization or stream store unavailable")
+        return
     finally:
         with _sse_lock:
             if queue in _sse_subscribers:
@@ -680,6 +718,7 @@ async def sse_stream(request: Request):
     `last_event_id` query param); the generator replays the durable gap before
     tailing live (B4.6, §16.3).
     """
+    await asyncio.to_thread(_require_auth, request)
     last_event_id = request.headers.get("last-event-id") or request.query_params.get(
         "last_event_id"
     )
@@ -1268,7 +1307,10 @@ def metrics_prometheus():
 
     # Separate failure signal: an unavailable security query never reports a
     # reassuring zero for revived abuse jobs or unexpected DB identities.
-    from control_plane.security_metrics import collect as collect_security, render as render_security
+    from control_plane.security_metrics import (
+        collect as collect_security,
+        render as render_security,
+    )
 
     try:
         from db import _get_pg_pool

@@ -232,7 +232,7 @@ The 16 GB DIMM and the dead 4090 should be a **single physical maintenance windo
 **Week 1 validation (tower, 2026-06-16)**
 - ☑ `pixelspark-gpu` healthy on :8000/:8002 (94 models, GHCR image)
 - ☑ `test_age_normalization.py` — 13/13 passed (in container)
-- ☑ `regression_test.py --gpu --update-baseline` — **56/60 passed, 4 failed** (`anime_2x`, `upscale_2x_esrgan`, `upscale_2x_esrgan_plus`, `upscale_2x_lexica` — 3× CUDA OOM while ORT cache build held VRAM; re-run isolated after overnight build); baseline refreshed 2026-06-16
+- ☑ `regression_test.py --gpu --update-baseline` — historical 56/60 pass. **2026-10-17 isolated rerun: all four remaining models passed on CUDA** (`anime_2x` 1360 ms, `upscale_2x_esrgan` 42.9 ms, `upscale_2x_esrgan_plus` 105.8 ms, `upscale_2x_lexica` 105.6 ms). Results and output images: Tower `/srv/models/onnx/production/serverless_bundle/datasets/tower_rerun_20261017/`. Baselines were preserved; the former failures provide no valid quality comparison baseline. This proves CUDA inference, not completion of every TensorRT engine build.
 - ☑ `systemctl status nvidia-mps tower-serverless tier3-watchdog ollama` — all active
 - ☑ `xcm df` — all buckets green; datasets 4.3 GB registered
 
@@ -613,14 +613,14 @@ You're done with bring-up when all of these are true:
 - [ ] From Mac: `ara` interactive session uses tower; `nvidia-smi` on tower shows ollama VRAM — *deferred (app layer)*
 - [x] `systemctl status nvidia-mps tower-serverless tier3-watchdog` → all active
 - [x] `nvidia-smi -q | grep -i 'compute mode'` → `Default`
-- [x] `curl http://tower-server:8001/health` → 200 with `loaded: []`
+- [x] `curl http://tower-server:8001/health` → 200, real upstream health and model inventory (2026-10-17). Replaced the former echo implementation with an actual proxy to :8000; valid native image output verified through both ports.
 - [x] `curl -XPOST http://tower-server:8001/admin/drain` → 200; inference 503; `/admin/resume` → 200 — *verified 2026-04-25: drain returns `{"draining":true}`, inference path `/v1/<model_id>/infer` returns 503 `{"error":"draining"}`, resume returns `{"draining":false}`*
 - [x] `flock /run/xcelsior/gpu.lock echo OK` → prints OK and releases (lock dir provisioned via /etc/tmpfiles.d/xcelsior.conf); concurrent `flock -n` correctly blocks (rc=1) and reacquires after release — *verified 2026-04-25*
 - [x] **Prometheus on VPS** shows tower's 4 exporters (node, gpu, xcm, tower-serverless) + laptop node exporter as UP — 7 targets total, all `up`. Alertmanager + 8 alert rules configured, real notifier (ntfy-relay → https://ntfy.sh/tower-b1gC0ck) live on VPS as dedicated `ntfy-relay` system user. Grafana provisioned at https://grafana.xcelsior.ca
-- [ ] One xcelsior tenant launch with `exclusive_gpu=true` succeeds — *not yet smoke-tested (app layer)*
+- [x] One xcelsior tenant launch with `exclusive_gpu=true` succeeds — **2026-10-17 job `21eb56eb` completed on `tower-rtx3060` under gVisor**, reporting `NVIDIA GeForce RTX 3060, 12288 MiB`. Verified API flag persistence, GPU lock held and router draining while running, then lock release/router resume. Fixed API omission, installed missing privileged helper, and explicitly selected compute capabilities for gVisor. This bounded launch does not certify that every host GPU consumer releases all VRAM.
 - [x] Nightly rsync backup ran once — manually fired 2026-04-25, laptop target populated (`/home/aaryn/storage/backups/tower/srv/{models,datasets}/`); SSH key from tower → laptop installed
 
-**Remaining checklist item is the app-layer smoke test** (xcelsior tenant `exclusive_gpu=true` lease) — to be exercised when the first ara/Xcelsior tenant runs. The infrastructure itself is complete.
+**2026-10-17 app-layer update:** the exclusive tenant launch gate passed. PixelSpark native images passed through :8000 and :8001, and PixelEnhance's JSON/base64 GPU stage contract passed through :8001. The Mac ara session remains unchecked above. A complete PixelEnhance queue/storage/billing journey and the broader phase plans are separate from these smoke checks. See PixelSpark `diagnostics/tower-20261017/README.md` for evidence and the SAM pilot schedule.
 
 ### Hardening done beyond the original §10 list
 - UFW enabled on tower; ports 8001/8002/9090/9100/9400/11434 restricted to `100.64.0.0/10` (tailnet only); SSH stays public

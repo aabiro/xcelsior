@@ -1,0 +1,221 @@
+GX0 connector conformance against https://mcp.xcelsior.ca/mcp
+
+[  ok  ] external vantage point
+          egress 207.219.90.237
+[  ok  ] TLS version is 1.2 or 1.3
+          negotiated TLSv1.3
+[  ok  ] TLS certificate chain validates
+          ((('countryName', 'US'),), (('organizationName', "Let's Encrypt"),), (('commonName', 'YE2'),))
+[  ok  ] unauthenticated initialize returns 401
+          got 401
+[  ok  ] 401 carries WWW-Authenticate
+[  ok  ] challenge names a realm
+          Bearer realm="xcelsior", resource_metadata="https://mcp.xcelsior.ca/.well-known/oauth-protected-resource"
+[  ok  ] challenge names resource_metadata
+          Bearer realm="xcelsior", resource_metadata="https://mcp.xcelsior.ca/.well-known/oauth-protected-resource"
+[  ok  ] invalid token is challenged with error=invalid_token
+          status 401, challenge 'Bearer realm="xcelsior", resource_metadata="https://mcp.xcelsior.ca/.well-known/oauth-protected-resource", error="invalid_token", error_description="Bearer token invalid, expired, or bound to another resource."'
+[  ok  ] following WWW-Authenticate reaches protected-resource metadata
+          https://mcp.xcelsior.ca/.well-known/oauth-protected-resource → 200
+[  ok  ] metadata `resource` is the exact connector URL
+          metadata says 'https://mcp.xcelsior.ca/mcp', connector is 'https://mcp.xcelsior.ca/mcp'
+[  ok  ] metadata names an authorization server
+          ["https://xcelsior.ca"]
+[  ok  ] public metadata advertises no operator scopes
+          ["artifacts:read", "billing:read", "billing:write", "events:read", "gpu:read", "inference:read", "inference:write", "instances:connect", "instances:operate", "instances:read", "instances:write", "marketplace:read", "providers:read", "providers:write", "reputation:read", "reputation:write", "ssh:read", "ssh:write", "volumes:read", "volumes:write"]
+[  ok  ] authorization-server metadata is reachable
+          https://xcelsior.ca/.well-known/oauth-authorization-server → 200
+[  ok  ] authorization server is S256-PKCE only
+          ["S256"]
+[  ok  ] authorization server supports RFC 8707 resource indicators
+[  ok  ] refresh_token grant is advertised
+[  ok  ] CIMD is advertised as the preferred client-identification path
+[  ok  ] RFC 7591 registration endpoint is advertised for compatibility clients
+[  ok  ] an unresolvable metadata-document client id is rejected
+          expected HTTP 400; got HTTP 400
+[  ok  ] DCR rejects an off-allowlist redirect host
+          expected HTTP 400/403 with error=invalid_redirect_uri; got HTTP 400 with error=invalid_redirect_uri
+[  ok  ] a DCR client cannot obtain operator scopes
+          expected HTTP 400/403 with error=invalid_scope; got HTTP 400 with error=invalid_scope
+[  ok  ] DCR registers a well-formed connector
+          expected HTTP 200 or 201; got HTTP 201
+[  ok  ] a DCR client is pinned to the MCP resource
+          "https://mcp.xcelsior.ca/mcp"
+[  ok  ] reviewer login: access and refresh tokens issued
+[  ok  ] reviewer sign-in
+[  ok  ] resource substitution is rejected at authorize
+          expected HTTP 400; got HTTP 400
+[  ok  ] provider callback: authorize redirects to the client callback
+          got 302
+[  ok  ] provider callback: redirect matches the registered callback
+[  ok  ] provider callback: state is echoed back
+[  ok  ] provider callback: an authorization code is issued
+          https://claude.ai/api/mcp/auth_callback?code=<redacted>&state=MjrRLMEXitJDEBGQ
+[  ok  ] provider callback: token endpoint accepts form encoding
+          HTTP 200
+[  ok  ] provider callback: access and refresh tokens issued
+[  ok  ] provider callback: the token is bound to the MCP resource
+          "https://mcp.xcelsior.ca/mcp"
+[  ok  ] provider callback: access token lifetime is ~1h
+          expires_in=3600
+[  ok  ] loopback :47546: authorize redirects to the client callback
+          got 302
+[  ok  ] loopback :47546: redirect matches the registered callback
+[  ok  ] loopback :47546: state is echoed back
+[  ok  ] loopback :47546: an authorization code is issued
+          http://127.0.0.1:47546/callback?code=<redacted>&state=YhJJtIl82kHhDAPR
+[  ok  ] loopback :47546: token endpoint accepts form encoding
+          HTTP 200
+[  ok  ] loopback :47546: access and refresh tokens issued
+[  ok  ] loopback :47546: the token is bound to the MCP resource
+          "https://mcp.xcelsior.ca/mcp"
+[  ok  ] loopback :47546: access token lifetime is ~1h
+          expires_in=3600
+[  ok  ] loopback :54293: authorize redirects to the client callback
+          got 302
+[  ok  ] loopback :54293: redirect matches the registered callback
+[  ok  ] loopback :54293: state is echoed back
+[  ok  ] loopback :54293: an authorization code is issued
+          http://127.0.0.1:54293/callback?code=<redacted>&state=Lc-ESwj8ljKWvbOt
+[  ok  ] loopback :54293: token endpoint accepts form encoding
+          HTTP 200
+[  ok  ] loopback :54293: access and refresh tokens issued
+[  ok  ] loopback :54293: the token is bound to the MCP resource
+          "https://mcp.xcelsior.ca/mcp"
+[  ok  ] loopback :54293: access token lifetime is ~1h
+          expires_in=3600
+[  ok  ] DCR client: authorize redirects to the client callback
+          got 302
+[  ok  ] DCR client: redirect matches the registered callback
+[  ok  ] DCR client: state is echoed back
+[  ok  ] DCR client: an authorization code is issued
+          http://127.0.0.1:8765/cb?code=<redacted>&state=CDrbBpHhqRy9Fgkb
+[  ok  ] DCR client: token endpoint accepts form encoding
+          HTTP 200
+[  ok  ] DCR client: access and refresh tokens issued
+[  ok  ] DCR client: the token is bound to the MCP resource
+          "https://mcp.xcelsior.ca/mcp"
+[  ok  ] DCR client: access token lifetime is ~1h
+          expires_in=3600
+[  ok  ] DCR client: authenticated initialize succeeds
+          HTTP 200
+[  ok  ] DCR client: initialized notification accepted
+          HTTP 202
+[  ok  ] DCR client: authenticated tools/list succeeds
+          HTTP 200
+[  ok  ] DCR client: tools/list returns the public customer profile
+          86 tools
+[  ok  ] DCR client: no operator tools in the public profile
+[  ok  ] DCR client: every tool carries annotations
+[  ok  ] DCR client: every tool carries an output schema
+[  ok  ] DCR client: read-only probe tool is advertised
+[  ok  ] DCR client: tools/call list_instances succeeds
+          HTTP 200; instance data omitted
+[  ok  ] CIMD: public client document is reachable
+          HTTP 200
+[  ok  ] CIMD: HTTPS JSON document names its exact client ID
+[  ok  ] CIMD: probe callback is registered
+[  ok  ] CIMD client: authorize redirects to the client callback
+          got 302
+[  ok  ] CIMD client: redirect matches the registered callback
+[  ok  ] CIMD client: state is echoed back
+[  ok  ] CIMD client: an authorization code is issued
+          http://127.0.0.1:8765/cb?code=<redacted>&state=jIEy7LL_dnIcuVBm
+[  ok  ] CIMD client: token endpoint accepts form encoding
+          HTTP 200
+[  ok  ] CIMD client: access and refresh tokens issued
+[  ok  ] CIMD client: the token is bound to the MCP resource
+          "https://mcp.xcelsior.ca/mcp"
+[  ok  ] CIMD client: access token lifetime is ~1h
+          expires_in=3600
+[  ok  ] CIMD client: authenticated initialize succeeds
+          HTTP 200
+[  ok  ] CIMD client: initialized notification accepted
+          HTTP 202
+[  ok  ] CIMD client: authenticated tools/list succeeds
+          HTTP 200
+[  ok  ] CIMD client: tools/list returns the public customer profile
+          86 tools
+[  ok  ] CIMD client: no operator tools in the public profile
+[  ok  ] CIMD client: every tool carries annotations
+[  ok  ] CIMD client: every tool carries an output schema
+[  ok  ] CIMD client: read-only probe tool is advertised
+[  ok  ] CIMD client: tools/call list_instances succeeds
+          HTTP 200; instance data omitted
+[  ok  ] provider callback: authenticated initialize succeeds
+          HTTP 200
+[  ok  ] provider callback: initialized notification accepted
+          HTTP 202
+[  ok  ] provider callback: authenticated tools/list succeeds
+          HTTP 200
+[  ok  ] provider callback: tools/list returns the public customer profile
+          86 tools
+[  ok  ] provider callback: no operator tools in the public profile
+[  ok  ] provider callback: every tool carries annotations
+[  ok  ] provider callback: every tool carries an output schema
+[  ok  ] provider callback: read-only probe tool is advertised
+[  ok  ] provider callback: tools/call list_instances succeeds
+          HTTP 200; instance data omitted
+[  ok  ] refresh_token grant succeeds
+          HTTP 200
+[  ok  ] refreshed token: access and refresh tokens issued
+[  ok  ] refresh rotates the access token
+[  ok  ] refresh rotates the refresh token
+[  ok  ] refreshed token: authenticated initialize succeeds
+          HTTP 200
+[  ok  ] refreshed token: initialized notification accepted
+          HTTP 202
+[  ok  ] refreshed token: authenticated tools/list succeeds
+          HTTP 200
+[  ok  ] refreshed token: tools/list returns the public customer profile
+          86 tools
+[  ok  ] refreshed token: no operator tools in the public profile
+[  ok  ] refreshed token: every tool carries annotations
+[  ok  ] refreshed token: every tool carries an output schema
+[  ok  ] refreshed token: read-only probe tool is advertised
+[  ok  ] refreshed token: tools/call list_instances succeeds
+          HTTP 200; instance data omitted
+[  ok  ] cleanup refreshed token: logout accepted
+          HTTP 200
+[  ok  ] cleanup CIMD client: logout accepted
+          HTTP 200
+[  ok  ] cleanup DCR client: logout accepted
+          HTTP 200
+[  ok  ] cleanup loopback :54293: logout accepted
+          HTTP 200
+[  ok  ] cleanup loopback :47546: logout accepted
+          HTTP 200
+[  ok  ] cleanup provider callback: logout accepted
+          HTTP 200
+[  ok  ] cleanup reviewer login: logout accepted
+          HTTP 200
+[  ok  ] cleanup refreshed token: access token rejected
+          HTTP 401
+[  ok  ] cleanup refreshed token: refresh token rejected
+          HTTP 401
+[  ok  ] cleanup CIMD client: access token rejected
+          HTTP 401
+[  ok  ] cleanup CIMD client: refresh token rejected
+          HTTP 401
+[  ok  ] cleanup DCR client: access token rejected
+          HTTP 401
+[  ok  ] cleanup DCR client: refresh token rejected
+          HTTP 401
+[  ok  ] cleanup loopback :54293: access token rejected
+          HTTP 401
+[  ok  ] cleanup loopback :54293: refresh token rejected
+          HTTP 401
+[  ok  ] cleanup loopback :47546: access token rejected
+          HTTP 401
+[  ok  ] cleanup loopback :47546: refresh token rejected
+          HTTP 401
+[  ok  ] cleanup provider callback: access token rejected
+          HTTP 401
+[  ok  ] cleanup provider callback: refresh token rejected
+          HTTP 401
+[  ok  ] cleanup reviewer login: access token rejected
+          HTTP 401
+[  ok  ] cleanup reviewer login: refresh token rejected
+          HTTP 401
+
+GX0: 130 passed, 0 failed, 0 blocked

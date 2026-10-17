@@ -160,6 +160,21 @@ class TestBuildSecureDockerArgs:
         assert "xcelsior.job_id=job-1" in args
         assert "xcelsior.managed=true" in args
 
+    def test_gvisor_overrides_image_driver_capabilities(self):
+        args = build_secure_docker_args("nvcr.io/nvidia/pytorch:24.12-py3", "test-job", runtime="runsc")
+        assert "NVIDIA_DRIVER_CAPABILITIES=compute" in args
+        assert "--runtime" in args and "runsc" in args
+
+    def test_gvisor_rejects_unsupported_explicit_driver_capabilities(self):
+        with pytest.raises(ValueError, match="compute and utility"):
+            build_secure_docker_args("python:3.12", "test-job", runtime="runsc",
+                                     environment={"NVIDIA_DRIVER_CAPABILITIES": "all"})
+
+    def test_native_runtime_preserves_video_driver_capabilities(self):
+        env = {"NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video"}
+        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc", environment=env)
+        assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video" in args
+
     def test_rejects_invalid_label_name(self):
         with pytest.raises(ValueError):
             build_secure_docker_args(

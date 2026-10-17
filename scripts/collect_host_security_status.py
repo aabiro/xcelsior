@@ -7,6 +7,7 @@ textfile publication are deployment steps; this command never repairs state.
 
 import argparse
 from pathlib import Path
+import re
 import sys
 import time
 
@@ -18,7 +19,15 @@ def ingress_ready(root: Path) -> bool:
     try:
         snippet = root / "snippets/xcelsior-abuse-deny.conf"
         policy = root / "conf.d/xcelsior-abuse-ips.conf"
-        if not snippet.read_text().strip() or not policy.read_text().strip():
+        active_snippet = "\n".join(
+            line.split("#", 1)[0] for line in snippet.read_text().splitlines()
+        )
+        active_policy = "\n".join(line.split("#", 1)[0] for line in policy.read_text().splitlines())
+        if not re.search(
+            r"if\s*\(\s*\$xcelsior_abuse_ip\s*\)\s*\{\s*return\s+(403|444)\s*;\s*\}", active_snippet
+        ):
+            return False
+        if not re.search(r"(?:geo|map)\s+[^{};]*\$xcelsior_abuse_ip\s*\{", active_policy):
             return False
         # Includes in sites-available alone do not protect a disabled vhost.
         for name in ("xcelsior", "mcp-xcelsior", "agent-xcelsior"):
@@ -43,7 +52,10 @@ def main():
     if args.egress:
         import egress_isolation
 
-        values["egress_fresh"] = int(egress_isolation.isolation_ready())
+        try:
+            values["egress_fresh"] = int(egress_isolation.isolation_ready())
+        except (OSError, ValueError, TypeError, KeyError):
+            values["egress_fresh"] = 0
     values["collection_timestamp_seconds"] = time.time()
     for key, value in values.items():
         print(f"# TYPE xcelsior_host_security_{key} gauge")

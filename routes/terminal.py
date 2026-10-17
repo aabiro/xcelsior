@@ -73,6 +73,11 @@ from scheduler import (
     list_hosts,
     list_jobs,
 )
+from routes.stream_auth import (
+    bind_stream_principal,
+    refresh_stream_principal,
+    watch_job_authorization,
+)
 
 # -- Prometheus metrics --------------------------------------------------------
 
@@ -1099,6 +1104,7 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
 
 
 def _check_terminal_access(user: dict, instance: dict | None, *, instance_id: str) -> None:
+    _require_scope(user, "instances:connect")
     if not instance:
         raise HTTPException(404, "Instance not found")
     if not _user_owns_job(user, instance):
@@ -1226,6 +1232,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
+    user = bind_stream_principal(user, websocket)
 
     session_slot = _acquire_terminal_session_slot(user)
     if not session_slot:
@@ -1310,6 +1317,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 )
                 await asyncio.sleep(status_poll_sec)
                 instance = await _load_instance()
+                try:
+                    current_user = await asyncio.to_thread(refresh_stream_principal, user)
+                    _check_terminal_access(current_user, instance, instance_id=instance_id)
+                except Exception:
+                    await _send_error(websocket, "Terminal authorization ended", 4003)
+                    await websocket.close(code=4003)
+                    return
                 if not instance:
                     await _send_error(websocket, "Instance disappeared", 4004)
                     await websocket.close(code=4004)
@@ -1683,6 +1697,15 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         # Per-session byte tallies (module-level counters are cumulative across
         # all sessions; these feed the structured session_close log so we can
         # correlate duration with traffic volume in a single log line).
+        try:
+            current_user = await asyncio.to_thread(refresh_stream_principal, user)
+            current_instance = await _load_instance()
+            _check_terminal_access(current_user, current_instance, instance_id=instance_id)
+        except Exception:
+            await _send_error(websocket, "Terminal authorization ended", 4003)
+            await websocket.close(code=4003)
+            return
+
         session_bytes = {"rx": 0, "tx": 0}
         last_input_ts = time.monotonic()
         closed = False
@@ -1936,8 +1959,11 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 keepalive_task = asyncio.ensure_future(_session_slot_keepalive())
             stdout_task = asyncio.ensure_future(_stdout_relay())
             stdin_task = asyncio.ensure_future(_stdin_relay())
+            authority_task = asyncio.ensure_future(
+                watch_job_authorization(websocket, user, instance_id, terminal=True)
+            )
             _done, pending = await asyncio.wait(
-                {stdout_task, stdin_task},
+                {stdout_task, stdin_task, authority_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:

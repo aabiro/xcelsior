@@ -64,7 +64,11 @@ async def _take(gen, count: int, timeout: float = 5.0) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def clean_subscribers():
+def clean_subscribers(monkeypatch):
+    # These tests exercise buffering/replay as an authorized operator.
+    monkeypatch.setattr(
+        "routes.health._require_auth", lambda request: {"role": "admin", "is_admin": True}
+    )
     """The fan-out list is module state; a leak here would corrupt other tests."""
     with deps._sse_lock:
         deps._sse_subscribers.clear()

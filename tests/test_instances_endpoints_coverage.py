@@ -59,6 +59,20 @@ def test_image_templates():
     assert len(r.json()["templates"]) >= 1
 
 
+def test_exclusive_gpu_launch_is_preserved_for_worker(instance_ctx):
+    response = client.post(
+        "/instance",
+        json={"name": "exclusive-contract", "vram_needed_gb": 1, "exclusive_gpu": True},
+        headers=instance_ctx["headers"],
+    )
+    assert response.status_code == 200, response.text[:200]
+    job = response.json()["instance"]
+    from scheduler import get_job
+
+    assert job["exclusive_gpu"] is True
+    assert get_job(job["job_id"])["exclusive_gpu"] is True
+
+
 def test_instance_log_stream(instance_ctx, monkeypatch):
     import routes.instances as inst_mod
 
