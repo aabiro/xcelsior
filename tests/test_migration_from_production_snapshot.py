@@ -489,6 +489,60 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (count,)
 
 
+def test_runtime_reconciliation_round_trip_preserves_work_and_money(seeded_snapshot_db):
+    """123 up/down/up over migrated authority, commands and money-bearing rows."""
+    dsn, seeded = seeded_snapshot_db
+    _alembic(dsn, "upgrade", "122")
+    with _connect(dsn) as conn:
+        command_id = conn.execute("""INSERT INTO agent_commands
+                   (host_id, job_id, attempt_id, fencing_token, command, status, args)
+               SELECT host_id, job_id, attempt_id, fencing_token, 'start_attempt', 'pending', '{}'
+                 FROM placement_leases WHERE job_id = 'job-running'
+               RETURNING command_id""").fetchone()[0]
+        before = conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone()
+        conn.execute("DELETE FROM reconciliation_queue WHERE resource_id = 'job-running'")
+    _alembic(dsn, "upgrade", "123")
+    with _connect(dsn) as conn:
+        conn.execute(
+            "UPDATE agent_commands SET status = 'failed' WHERE command_id = %s", (command_id,)
+        )
+        assert conn.execute(
+            "SELECT reason FROM reconciliation_queue WHERE resource_type = 'job' "
+            "AND resource_id = 'job-running'"
+        ).fetchone() == ("command_changed",)
+    _alembic(dsn, "downgrade", "122")
+    with _connect(dsn) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM pg_trigger WHERE tgname IN "
+            "('agent_commands_request_reconciliation', 'placement_leases_request_reconciliation')"
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT reason FROM reconciliation_queue WHERE resource_id = 'job-running'"
+        ).fetchone() == ("command_changed",)
+        conn.execute("DELETE FROM reconciliation_queue WHERE resource_id = 'job-running'")
+        conn.execute(
+            "UPDATE agent_commands SET status = 'dead_letter' WHERE command_id = %s", (command_id,)
+        )
+        assert (
+            conn.execute(
+                "SELECT 1 FROM reconciliation_queue WHERE resource_id = 'job-running'"
+            ).fetchone()
+            is None
+        )
+    _alembic(dsn, "upgrade", "123")
+    with _connect(dsn) as conn:
+        conn.execute("UPDATE placement_leases SET status = 'fenced' WHERE job_id = 'job-running'")
+        assert conn.execute(
+            "SELECT reason FROM reconciliation_queue WHERE resource_id = 'job-running'"
+        ).fetchone() == ("lease_changed",)
+        assert conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone() == before
+        assert conn.execute(
+            "SELECT status FROM agent_commands WHERE command_id = %s", (command_id,)
+        ).fetchone() == ("dead_letter",)
+        for table, count in seeded.items():
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (count,)
+
+
 def test_unknown_legacy_status_aborts_the_migration(snapshot_db):
     """054's hard verification must actually fire (blueprint §13.1).
 

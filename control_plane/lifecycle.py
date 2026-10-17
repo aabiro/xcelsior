@@ -308,7 +308,7 @@ def reconcile_fenced_stop(conn: Any, *, job_id: str, created_by: str) -> FencedL
     prior = conn.execute(
         """
         SELECT command_id FROM agent_commands
-         WHERE host_id = %s AND idempotency_key = %s FOR UPDATE
+         WHERE host_id = %s AND idempotency_key = %s FOR UPDATE NOWAIT
         """,
         (_get(row, "host_id", 3), key),
     ).fetchone()
@@ -328,6 +328,7 @@ def reconcile_fenced_stop(conn: Any, *, job_id: str, created_by: str) -> FencedL
             },
             created_by=created_by,
             idempotency_key=key,
+            lock_nowait=True,
         )
     except CommandProtocolError:
         return refused("no_active_fenced_authority")
@@ -341,9 +342,14 @@ def reconcile_fenced_stop(conn: Any, *, job_id: str, created_by: str) -> FencedL
         (json.dumps(intent), job_id, intent),
     )
     return FencedLifecycleResult(
-        True, job_id, intent, status,
-        attempt_id=command.attempt_id, command_id=command.command_id,
-        fencing_token=command.fencing_token, host_id=command.host_id,
+        True,
+        job_id,
+        intent,
+        status,
+        attempt_id=command.attempt_id,
+        command_id=command.command_id,
+        fencing_token=command.fencing_token,
+        host_id=command.host_id,
         command_created=True,
     )
 

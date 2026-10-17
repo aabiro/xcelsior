@@ -159,7 +159,7 @@ since spent on other content. `DA§14` and `DA§22.10` both instruct the
 implementer to inspect the real head and renumber; this section is that
 renumbering, recorded once so no future item guesses.
 
-**Repository head verified 2026-10-14: `122`.** The ledger below records
+**Repository head verified 2026-10-16: `123`.** The ledger below records
 the original 2026-07-22 renumbering baseline (`069`); later landed migrations
 are recorded in their phase entries and `migrations/README.md`. Do not use
 the historical baseline to assign a new revision.
@@ -490,7 +490,7 @@ The remaining lifecycle and active-meter remedies and live acceptance stay open.
   gate.** `POST /api/v1/instances/{id}/reconcile` inserts a durable, coalesced
   request into `reconciliation_queue` and returns — it performs **no** direct
   repair (§3.3 / B5.7); the reconciler claims it out-of-band (`process_due`
-  already has a safe no-controller-yet branch for the `job` type). The app's
+  dispatches the job controller delivered in B2.9). The app's
   `/openapi.json` is a curated public spec that omitted v1, so a dedicated
   `GET /api/v1/openapi.json` (the live FastAPI schema filtered to `/api/v1/*`)
   is served for the generated MCP/dashboard clients (B5.2 / B6.1). Gate:
@@ -499,18 +499,17 @@ The remaining lifecycle and active-meter remedies and live acceptance stay open.
   leakage), and representative v1 error paths (404/403/422) all emit RFC 9457
   problem+json. **So B2.8 has shipped 15 v1 endpoints + the RFC 9457 framework +
   a served v1 OpenAPI + a contract gate, all gated and pyright-clean.**
-  **Residual (the small tail):** (1) giving the reconciler a **job-type
-  controller** in `process_due` (the endpoint enqueues correctly; the reconciler
-  consuming a `job` reconcile is a Track-A-coupled follow-up); (2) full
+  **Residual (the small tail):** job reconciliation and its remaining remedies
+  are tracked in **B2.9**; the request is no longer silently discarded. Full
   **schemathesis** property-fuzzing (the deterministic contract gate above
-  covers the shape; fuzzing would add a frozen-deps change); (3) reconciling the
+  covers the shape; fuzzing would add a frozen-deps change); reconciling the
   **legacy** `/host/{id}/drain` preempt-on-drain behaviour (a behaviour change
   with drain-test blast radius, to be retired behind a flag once the UI moves to
   v1 drain+evict). The v1 `/evictions` uses the existing preempt/requeue path;
   strengthening it to a fully fence-token-invalidating primitive is tracked with
   Track A's fenced lifecycle.
 
-- [~] **B2.9 Job reconciliation controller** (2026-10-14, §12.3–§12.4).
+- [~] **B2.9 Job reconciliation controller** (updated 2026-10-16, §12.3–§12.4).
   `control_plane/job_reconcile.py` evaluates current job/attempt/host/fence,
   lease validity, API-receipt observation freshness, immutable spec identity,
   stop-command delivery and active-meter presence. Findings are durable,
@@ -539,10 +538,25 @@ The remaining lifecycle and active-meter remedies and live acceptance stay open.
   lease/resume regressions and migration up/down/up over populated fixtures.
   See `docs/review/2026-10-14-control-plane-execution.md` for executed counts.
   Four queue regressions were demonstrated red against the prior code.
+  Migration `123` also enqueues **command outcomes/retry transitions and lease
+  changes** in the writer's transaction, including compatibility writers.
+  Only the job's current attempt/host/fence routes a request; stale or unbound
+  commands cannot wake another job. Healthy renewal extensions do not enqueue,
+  while shortened deadlines, release/fencing and removed authority do. Duplicate
+  ACK/release calls add no work. Existing queue claims survive coalescing and
+  due time never moves later. Reconciler stop/expiry repairs acquire runtime
+  row locks with `NOWAIT`; contention rolls back the per-entry savepoint and
+  retains a retry instead of deadlocking the worker's runtime-row → queue write.
+  Gates: `tests/test_reconcile_runtime_events.py` and the `123` populated
+  up/down/up gate in `tests/test_migration_from_production_snapshot.py`.
+  Thirteen runtime-event/lock regressions were confirmed failing before the fix.
+  Executed counts and rollout limits:
+  `docs/review/2026-10-16-control-plane-runtime-events.md`.
   **Residual:** remaining lifecycle remediation through the scheduling/attempt/
-  lease/billing authorities with per-type staged enforcement; immediate
-  command-failure and lease-only mutation request coverage; production
-  false-positive measurement before enabling any new remediation.
+  lease/billing authorities with per-type staged enforcement; production
+  false-positive measurement and recovery/failure drills before enabling any
+  new remediation. Time passing without a mutation (claim/lease deadlines) is
+  still detected by the existing periodic controllers. No rollout is claimed.
 
 **Drift found and closed in the same pass (2026-07-23, B0.1 rule 6):**
 
