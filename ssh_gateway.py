@@ -103,11 +103,34 @@ class ListenerState:
 # ── Database Layer (direct psycopg — no dependency on app modules) ───────────
 
 
-async def _get_pg_conn():
+async def _get_pg_conn(**kwargs):
     """Create an async psycopg connection."""
     import psycopg
+    from control_plane.db_roles import connection_kwargs, resolve_service_dsn, roles_required
 
-    return await psycopg.AsyncConnection.connect(POSTGRES_DSN, autocommit=True)
+    dsn = resolve_service_dsn("ssh_gateway", fallback=POSTGRES_DSN)
+    options = connection_kwargs("ssh_gateway")
+    if roles_required():
+        from control_plane.db_role_audit import require_runtime_role
+
+        def validate():
+            with psycopg.connect(
+                dsn, connect_timeout=5, options=options["options"],
+                application_name=options["application_name"],
+            ) as probe:
+                require_runtime_role(probe, "ssh_gateway")
+
+        await asyncio.to_thread(validate)
+    conn = await psycopg.AsyncConnection.connect(
+        dsn, autocommit=True, connect_timeout=5, options=options["options"],
+        application_name=options["application_name"], **kwargs
+    )
+    if roles_required():
+        identity = await (await conn.execute("SELECT current_user, session_user")).fetchone()
+        if identity != ("xcelsior_ssh_gateway", "xcelsior_ssh_gateway"):
+            await conn.close()
+            raise RuntimeError("SSH gateway database identity mismatch")
+    return conn
 
 
 async def query_running_instances() -> list[InstanceRoute]:
@@ -462,9 +485,7 @@ class SSHGateway:
                 # blocks forever on a half-dead socket. With keepalive
                 # probes every 60s the kernel kills the socket inside
                 # ~3min and we reconnect via the outer retry loop.
-                conn = await psycopg.AsyncConnection.connect(
-                    POSTGRES_DSN,
-                    autocommit=True,
+                conn = await _get_pg_conn(
                     keepalives=1,
                     keepalives_idle=60,
                     keepalives_interval=30,

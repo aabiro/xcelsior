@@ -1,4 +1,66 @@
 groups:
+  - name: xcelsior.security
+    rules:
+      - alert: XcelsiorSecurityEvidenceUnavailable
+        expr: max(xcelsior_security_available) < 1 or absent(xcelsior_security_available)
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Security state cannot be verified
+          description: Inspect database query failures and collector deployment; unavailable evidence must not be treated as a passing check.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/docs/review/2026-10-17-security-completion.md#monitoring-and-response
+      - alert: XcelsiorAbuseJobRunnable
+        expr: max(xcelsior_security_abuse_jobs_runnable) > 0
+        for: 1m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: A job with a durable abuse block is runnable again
+          description: Preserve the job and reconciliation history, then investigate the writer that bypassed the durable block.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/docs/review/2026-10-17-security-completion.md#monitoring-and-response
+      - alert: XcelsiorDatabaseIdentityMismatch
+        expr: max(xcelsior_security_database_identity_mismatches) > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Runtime database sessions are using a shared or unexpected role
+          description: Compare dedicated DSNs and current session identities with the approved service role contract; do not broaden grants to suppress this alert.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/docs/review/2026-10-17-security-completion.md#monitoring-and-response
+      - alert: XcelsiorPublicDestinationRefusals
+        expr: sum(increase(xcelsior_public_http_refusals_total[10m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Repeated outbound public URL requests are being refused
+          description: Review sanitized webhook and connector failures for repeated destination-policy violations without logging callback credentials.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/docs/review/2026-10-17-security-completion.md#monitoring-and-response
+      - alert: XcelsiorHostSecurityControlFailed
+        expr: xcelsior_host_security_ingress_protected == 0 or xcelsior_host_security_egress_fresh == 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: platform
+        annotations:
+          summary: Ingress containment or worker egress verification is missing
+          description: Read the host collector and existing policy status. Tower remains read-only; do not automatically repair or restart its services.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/docs/review/2026-10-17-security-completion.md#monitoring-and-response
+      - alert: XcelsiorHostSecurityCollectorStale
+        expr: time() - xcelsior_host_security_collection_timestamp_seconds > 300
+        for: 2m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Host security collection has stopped updating
+          description: The last status file is older than five minutes; verify the collector schedule before trusting the last successful value.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/docs/review/2026-10-17-security-completion.md#monitoring-and-response
   - name: xcelsior.availability
     rules:
       - alert: XcelsiorApiUnavailable

@@ -286,7 +286,11 @@ class TestWebhookDelivery:
             assert done is not None
             import serverless.webhooks as wh
 
-            monkeypatch.setattr(wh, "validate_webhook_url", _allow_local)
+            # Test receiver is local; permit only this test's exact address.
+            # The real transport (including pinning and signing) still runs.
+            import public_http
+
+            monkeypatch.setattr(public_http, "_public_address", lambda addr: addr == "127.0.0.1")
             assert deliver_job_webhook(repo, done) is True
             refreshed = repo.get_job(job["job_id"])
             assert refreshed is not None

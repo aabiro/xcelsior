@@ -595,7 +595,7 @@ install_nginx_configs() {
     log "Vhosts rendered for the $topology ingress (API live: $api_live, MCP live: $mcp_live)"
 
     ssh_cmd "rm -rf /tmp/xcelsior-nginx && mkdir -p /tmp/xcelsior-nginx"
-    rsync_to_remote "$rendered/" "/tmp/xcelsior-nginx/" --include='*.conf' --exclude='*'
+    rsync_to_remote "$rendered/" "/tmp/xcelsior-nginx/" --include='*.conf' --include='check_ingress_policy.py' --exclude='*'
     rm -rf "$rendered"
 
     # headscale / headscale-http are installed here too. hs.xcelsior.ca uses a
@@ -1412,7 +1412,7 @@ detect_deploy_inputs() {
     # Hash local inputs in parallel (CPU-bound).
     api_build_hash >"$hash_dir/api" & local pid_api=$!
     frontend_build_hash >"$hash_dir/frontend" & local pid_frontend=$!
-    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" & local pid_nginx=$!
+    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh scripts/check_ingress_policy.py >"$hash_dir/nginx" & local pid_nginx=$!
     runtime_build_hash >"$hash_dir/runtime" & local pid_runtime=$!
 
     # Wait on each pid. A bare `wait` reaps them first, and the following

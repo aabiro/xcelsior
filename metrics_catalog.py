@@ -21,6 +21,11 @@ from __future__ import annotations
 from typing import Iterable
 from prometheus_client import Counter, Gauge, Histogram, REGISTRY
 
+PUBLIC_HTTP_REFUSALS = Counter(
+    "xcelsior_public_http_refusals_total",
+    "Public URL requests refused by the outbound destination policy",
+)
+
 # ── Scheduler Metrics (§25.3, DA§9.1) ───────────────────────────────────
 
 SCHEDULER_QUEUE_DEPTH = Gauge(

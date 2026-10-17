@@ -9,7 +9,9 @@ import uuid
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(__file__))
 
-from control_plane.scheduled_tasks import register_task, claim_and_run_tasks
+from control_plane.scheduled_tasks import register_task as _register_task, claim_and_run_tasks
+from control_plane.db_roles import current_service, roles_required, resolve_service_dsn
+from control_plane.task_identities import TASK_SERVICES, DDL_TASKS
 
 log = logging.getLogger("xcelsior.bg_worker")
 logging.basicConfig(
@@ -27,6 +29,18 @@ except Exception:  # pragma: no cover
 
 _stop = threading.Event()
 WORKER_ID = f"bg-worker-{uuid.uuid4().hex[:8]}"
+
+
+def register_task(task_name, func, default_interval_sec, enabled=True):
+    """Keep the legacy deployment compatible; strict cutover is explicit."""
+    if not roles_required():
+        return _register_task(task_name, func, default_interval_sec, enabled)
+    if task_name in DDL_TASKS:
+        # A separately credentialed one-shot command maintains these rows.
+        return _register_task(task_name, func, default_interval_sec, False, service="reconciler")
+    service = TASK_SERVICES[task_name]  # unknown tasks fail closed at startup
+    resolve_service_dsn(service)  # refuse a partial credential rollout
+    return _register_task(task_name, func, default_interval_sec, enabled, service=service)
 
 
 def is_fenced_history_job(
@@ -165,6 +179,10 @@ def reconcile_paused_stopped_jobs() -> int:
 
 def main():
     log.info("bg-worker starting — loading tasks…")
+    if roles_required() and os.environ.get("XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE") != "1":
+        raise RuntimeError("strict database roles require external partition maintenance")
+    if roles_required() and current_service() != "reconciler":
+        raise RuntimeError("strict maintenance executor requires the reconciler database identity")
 
     # Force bg tasks env so any transitive import of api.py sees it
     os.environ["XCELSIOR_BG_TASKS"] = "true"
