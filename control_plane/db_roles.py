@@ -87,6 +87,9 @@ IDENTITY_TABLES = frozenset(
         "fintrac_reports",
         "verification_history",
         "host_verifications",
+        # Identifier-only projection of security.suspended.* state. The SSH
+        # gateway reads this view and must not receive the state table.
+        "ssh_account_suspensions",
     }
 )
 
@@ -390,7 +393,9 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
     "ssh_gateway": ServiceRole(
         name="xcelsior_ssh_gateway",
         description="SSH route inventory only; no credential, billing, or command access.",
-        read_tables=frozenset({"public.jobs", "public.hosts"}),
+        read_tables=frozenset(
+            {"public.jobs", "public.hosts", "public.ssh_account_suspensions"}
+        ),
     ),
 }
 

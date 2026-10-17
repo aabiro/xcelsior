@@ -663,14 +663,40 @@ async def test_ssh_gateway_uses_real_restricted_login(provisioned_roles, monkeyp
     monkeypatch.setenv("XCELSIOR_POSTGRES_DSN_SSH_GATEWAY", make_conninfo(dsn, user="xcelsior_ssh_gateway"))
     with psycopg.connect(dsn, autocommit=True) as admin:
         admin.execute("ALTER ROLE xcelsior_ssh_gateway LOGIN")
+        admin.execute(
+            """
+            INSERT INTO state (namespace, payload)
+            VALUES ('security.suspended.ssh-test-user', '{"active": true}')
+            ON CONFLICT (namespace) DO UPDATE SET payload = EXCLUDED.payload
+            """
+        )
+        admin.execute(
+            """
+            INSERT INTO state (namespace, payload)
+            VALUES ('security.note.ssh-test-user', '{"active": true, "secret": "hidden"}')
+            ON CONFLICT (namespace) DO UPDATE SET payload = EXCLUDED.payload
+            """
+        )
     try:
         async with await ssh_gateway._get_pg_conn() as conn:
             assert await (await conn.execute("SELECT current_user")).fetchone() == ("xcelsior_ssh_gateway",)
             await conn.execute("SELECT job_id FROM jobs LIMIT 1")
+            visible = await (
+                await conn.execute(
+                    "SELECT identifier FROM ssh_account_suspensions WHERE identifier = 'ssh-test-user'"
+                )
+            ).fetchone()
+            assert visible == ("ssh-test-user",)
+            with pytest.raises(InsufficientPrivilege):
+                await conn.execute("SELECT payload FROM state LIMIT 1")
             with pytest.raises(InsufficientPrivilege):
                 await conn.execute("SELECT * FROM api_keys LIMIT 1")
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(
+                "DELETE FROM state WHERE namespace IN "
+                "('security.suspended.ssh-test-user', 'security.note.ssh-test-user')"
+            )
             admin.execute("ALTER ROLE xcelsior_ssh_gateway NOLOGIN")
 
 

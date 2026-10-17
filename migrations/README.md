@@ -90,7 +90,11 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `123_runtime_reconciliation_requests.py`.**
+**Repository head: `124_ssh_account_suspensions.py`.**
+
+(`124` publishes suspended account identifiers to the SSH gateway through a
+view. The gateway role does not receive the state table. Downgrade drops the
+view and leaves suspension records in place.)
 
 (`123` adds transaction-bound command and lease change requests for the current
 job/attempt/host/fence only. Healthy lease extensions and duplicate ACK/release

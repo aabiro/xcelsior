@@ -98,6 +98,7 @@ class ListenerState:
     active_connections: int = 0
     total_connections: int = 0
     started_at: float = field(default_factory=time.time)
+    writers: list[asyncio.StreamWriter] = field(default_factory=list)
 
 
 # ── Database Layer (direct psycopg — no dependency on app modules) ───────────
@@ -154,6 +155,17 @@ async def query_running_instances() -> list[InstanceRoute]:
               AND COALESCE(j.payload->>'public_ssh_port',
                            j.payload->>'ssh_port') IS NOT NULL
               AND j.payload->>'host_id'  IS NOT NULL
+              AND NOT EXISTS (
+                    SELECT 1 FROM ssh_account_suspensions s
+                     WHERE s.identifier IN (
+                         COALESCE(j.owner_id, ''),
+                         COALESCE(j.payload->>'owner', ''),
+                         COALESCE(j.payload->>'customer_id', ''),
+                         COALESCE(j.payload->>'user_id', ''),
+                         COALESCE(j.payload->>'email', '')
+                     )
+                       AND s.identifier <> ''
+              )
         """
         async with conn.cursor() as cur:
             await cur.execute(query)
@@ -180,6 +192,19 @@ async def query_running_instances() -> list[InstanceRoute]:
             return routes
     finally:
         await conn.close()
+
+
+def _abort_writers(writers: list[asyncio.StreamWriter]) -> None:
+    """Close relay sockets immediately. Authority loss does not wait out a drain."""
+    for writer in list(writers):
+        abort = getattr(writer, "abort", None)
+        try:
+            if abort is not None:
+                abort()
+            else:
+                writer.close()
+        except OSError:
+            pass
 
 
 # ── TCP Relay Core ───────────────────────────────────────────────────────────
@@ -292,6 +317,7 @@ class SSHGateway:
             # keystrokes aren't batched.
             _enable_keepalive(client_writer, f"client {peer_str}")
             _enable_keepalive(backend_writer, f"backend {route.host_ip}:{route.ssh_port}")
+            state.writers.extend((client_writer, backend_writer))
 
             # Bidirectional relay with backpressure
             await asyncio.gather(
@@ -323,6 +349,9 @@ class SSHGateway:
         finally:
             self._stats["total_bytes_relayed"] += relay_stats["bytes"]
             state.active_connections -= 1
+            for writer in (client_writer, backend_writer):
+                if writer is not None and writer in state.writers:
+                    state.writers.remove(writer)
 
             # Clean up both sides
             for w in (client_writer, backend_writer):
@@ -400,6 +429,15 @@ class SSHGateway:
         state.server.close()
         await state.server.wait_closed()
 
+        if not drain:
+            _abort_writers(state.writers)
+            log.info(
+                "Closed listener :%d and aborted relays (instance %s)",
+                port,
+                state.route.job_id[:8],
+            )
+            return
+
         if drain and state.active_connections > 0:
             log.info(
                 "Draining %d active connections on port %d (instance %s)...",
@@ -412,10 +450,11 @@ class SSHGateway:
                 await asyncio.sleep(0.5)
             if state.active_connections > 0:
                 log.warning(
-                    "Drain timeout on port %d — %d connections still active",
+                    "Drain timeout on port %d — aborting %d connections",
                     port,
                     state.active_connections,
                 )
+                _abort_writers(state.writers)
 
         log.info(
             "Closed listener :%d (instance %s, %d total connections served)",
@@ -432,7 +471,12 @@ class SSHGateway:
             routes = await query_running_instances()
             self._last_db_query_ok_at = time.time()
         except Exception as e:
-            log.error("Failed to query instances: %s", e)
+            # A database outage must not leave an already-open relay running
+            # against an inventory that can no longer be checked. The next
+            # successful sync reopens listeners for jobs that are still allowed.
+            log.error("Failed to query instances; closing relays: %s", e)
+            for port in list(self.listeners):
+                await self.close_listener(port, drain=False)
             return
 
         desired_ports = {}
@@ -450,7 +494,7 @@ class SSHGateway:
         # Close stale listeners (instances that stopped/terminated)
         stale = [p for p in self.listeners if p not in desired_ports]
         for port in stale:
-            await self.close_listener(port)
+            await self.close_listener(port, drain=False)
 
         if desired_ports:
             log.debug(

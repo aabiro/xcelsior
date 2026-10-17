@@ -60,7 +60,17 @@ def _fetch_inventory(conn) -> tuple[list[str], list[str]]:
             (STORAGE_SCHEMA,),
         )
         rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT schemaname, viewname
+              FROM pg_views
+             WHERE schemaname = 'public'
+               AND viewname = 'ssh_account_suspensions'
+            """
+        )
+        views = cur.fetchall()
     qualified = [f"{s}.{t}" for s, t in rows]
+    qualified.extend(f"{s}.{t}" for s, t in views)
     storage = [t for s, t in rows if s == STORAGE_SCHEMA]
     return qualified, storage
 
