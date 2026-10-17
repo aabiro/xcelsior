@@ -1093,7 +1093,7 @@ validate_build_env() {
     # Refuse a misspelled remediation mode before uploading or building code.
     # Read dotenv as data; do not source it into this shell.
     local repair_policy_name repair_policy
-    for repair_policy_name in XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING; do
+    for repair_policy_name in XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER; do
         repair_policy=$(sed -n "s/^${repair_policy_name}=//p" "$ENV_FILE" | tail -n 1)
         repair_policy=${repair_policy:-report_only}
         case "$repair_policy" in
