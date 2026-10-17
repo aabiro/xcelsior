@@ -48,7 +48,8 @@ from psycopg import Connection
 # the code *needs*, not where the chain happens to end, and
 # `test_schema_floor_covers_what_the_code_uses` derives it so it cannot drift
 # silently again.
-REQUIRED_MIN_REVISION = "122"
+# 123 also wakes jobs for command outcomes and lease-only authority changes.
+REQUIRED_MIN_REVISION = "123"
 REQUIRED_MAX_REVISION: str | None = None
 
 

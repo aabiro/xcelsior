@@ -225,9 +225,7 @@ def _enqueue_stop_container(
     }
 
 
-def _expedite_lease_expiry(
-    conn: Connection, *, attempt_id: str
-) -> dict[str, Any]:
+def _expedite_lease_expiry(conn: Connection, *, attempt_id: str) -> dict[str, Any]:
     """Stamp this attempt's active lease as already-expired.
 
     The reconcile transaction does not settle the attempt itself — it
@@ -239,6 +237,14 @@ def _expedite_lease_expiry(
     Reusing that path avoids duplicating settlement SQL and keeps a
     single authority for attempt failure (§12 domain controllers).
     """
+    # The host controller can already own queue rows. A lease writer may own
+    # this row while its trigger waits for the job queue; never form a cycle.
+    # process_due's savepoint rolls back and retries a contended repair.
+    conn.execute(
+        "SELECT lease_id FROM placement_leases WHERE attempt_id = %s "
+        "AND status = 'active' FOR UPDATE NOWAIT",
+        (attempt_id,),
+    ).fetchall()
     result = conn.execute(
         """
         UPDATE placement_leases
