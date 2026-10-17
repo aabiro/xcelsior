@@ -336,6 +336,7 @@ def prepare_settlement(
             """
             SELECT COALESCE(SUM(total_cost_micros), 0)::bigint AS metered_micros,
                    COUNT(*)::integer AS meter_count,
+                   COUNT(*) FILTER (WHERE completed_at IS NULL OR completed_at=0)::integer AS open_meter_count,
                    COUNT(DISTINCT host_id)::integer AS host_count,
                    MIN(host_id) AS meter_host_id,
                    COUNT(DISTINCT owner)::integer AS owner_count,
@@ -347,6 +348,10 @@ def prepare_settlement(
         ).fetchone()
     )
     metered_micros = int(meter.get("metered_micros") or 0)
+    if int(meter.get("open_meter_count") or 0):
+        raise SettlementNotEligible(
+            "open_usage_meter", "All attempt usage must be terminal before provider settlement",
+        )
     if metered_micros <= 0:
         raise SettlementNotEligible(
             "no_terminal_meter",

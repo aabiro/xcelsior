@@ -99,6 +99,7 @@ _ENFORCEABLE: frozenset[str] = frozenset(
         "stale_fence_container",
         "attempt_container_missing",
         "orphaned_allocation",
+        "billing_active_meter_missing",
         "billing_missing_meter",
         "billing_orphaned_meter",
         "job_stop_command_missing",

@@ -57,7 +57,7 @@ values, and Compose passes the flag to API, maintenance and scheduler services.
 
 Gates: `tests/test_job_reconcile_lease_repair.py` plus the existing lease,
 queue, lifecycle and runtime-event suites. No production enforcement is enabled
-by this change; active-meter repair remains a separate billing-authority task.
+by this change; active-meter repair uses the separate billing authority below.
 
 ## Stop-command repair
 
@@ -96,11 +96,64 @@ first because the application requires its declared schema floor. Downgrading
 `123` removes only the runtime triggers/functions, retaining requests and the
 job-change trigger from `122`; deploy the preceding application first.
 
-Billing actions remain independently controlled by
-`XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER` and
-`XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER`, also report-only by default.
-No job controller action creates an active meter, assumes an exit code, or
-restarts a job without established execution authority.
+## Active-meter repair and settlement
+
+The `billing_meter_reconcile` maintenance task runs every 300 seconds under its
+existing API database identity. Scheduler/reconciler roles gain no meter-write
+privileges. All billing actions remain independently report-only by default:
+
+| Setting | Opt-in action |
+| --- | --- |
+| `XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING` | Open a missing active attempt meter |
+| `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER` | Reconstruct missing terminal usage |
+| `XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER` | Settle an open meter after terminal authority exists |
+
+Compose passes these settings to API and maintenance; startup/deploy preflight
+rejects values other than `report_only` or `enforce`. The job controller continues
+to report `job_active_meter_missing`; billing owns `billing_active_meter_missing`
+findings and their repair evidence. On its next pass the job controller resolves
+its finding when the active meter exists.
+
+Active repair locks and revalidates current job/attempt/host/fence, running
+intent/status, server-recorded start, and an active unexpired matching lease.
+It requires exactly one matching running workload in the latest observation,
+received within 180 seconds by the API. Locks also serialize host observation
+receipt and price changes. `NOWAIT` contention records `authority_locked` and
+leaves repair for a later sweep. Rebound/stopped attempts, stale or conflicting
+observations, missing owner, and missing/nonfinite/negative prices are refused.
+Spot repair requires the locked rate and an explicit positive GPU count; it
+never fetches a replacement quote. On-demand follows the existing explicit
+host-rate model. This is not historical quote reconstruction.
+
+A repaired meter captures its owner, start, and rate with `completed_at=NULL`
+and zero duration/cost. It causes no wallet debit, invoice line or provider
+payout. One meter per attempt remains enforced by the existing unique index.
+Repair and action evidence commit or roll back together. A pre-existing closed
+meter on a running attempt is reported and never reopened.
+
+`BillingEngine.meter_job` and orphan repair settle the same row from the bound
+terminal attempt's database end time and captured rate, including a zero rate.
+Missing, reversed or future end times and conflicting host/job ownership refuse
+settlement. No current-time or current-price fallback fills missing evidence.
+Concurrent/repeated completion returns the same settled meter. Missing-terminal
+repair now uses the caller's transaction and preserves locked spot pricing
+fields instead of dropping them. Provider settlement refuses any open meter.
+This repair does not debit wallets or prove physical container termination.
+
+Before enabling active repair, review findings and prove the completion or
+orphan-settlement path in the target environment. Orphan enforcement is separate;
+active repair alone cannot settle a terminal event that no completion writer
+processed. To disable a remedy, restore its flag to `report_only` and restart
+API/maintenance. Existing open meters remain obligations and must still settle;
+do not delete them or roll back to an application that treats every existing
+meter as completed. Rollout, false-positive measurement and real worker-to-billing
+acceptance remain outstanding.
+
+Gates: `tests/test_active_meter_repair.py`, `tests/test_billing_controller.py`,
+`tests/test_attempt_scoped_usage_meters.py`, `tests/test_provider_settlement.py`,
+`tests/test_invoice_reads_match_billed_usage.py`, and startup/role gates.
+No job controller action creates a meter, assumes an exit code, or restarts a
+job without established execution authority.
 
 ## Acceptance and remaining work
 
