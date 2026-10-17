@@ -839,7 +839,9 @@ backup_current() {
     ssh_cmd << EOF
 set -e
 if [ -d "$DEPLOY_DIR" ] && [ -f "$DEPLOY_DIR/api.py" ]; then
-    sudo mkdir -p $BACKUP_DIR
+    # Archives include the production .env; restrict existing directories too.
+    sudo install -d -m 700 "$BACKUP_DIR"
+    umask 077
     sudo tar -czf "$BACKUP_DIR/xcelsior_$TIMESTAMP.tar.gz" -C /opt xcelsior
     # Keep only last 5 backups
     ls -t $BACKUP_DIR/xcelsior_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r sudo rm
@@ -1591,12 +1593,11 @@ docker compose build $build_args frontend
         log "Image build inputs unchanged — skipping docker image rebuilds"
     fi
 
-    # A successful build is a fact worth recording before anything that can abort.
-    # `persist_deploy_inputs` used to run only after the whole deploy succeeded, so
-    # a migration failure discarded the hashes and the next attempt rebuilt both
-    # images — reproducing the concurrent build that had just killed the API. Every
-    # retry re-widened the window it was trying to escape.
-    persist_deploy_inputs
+    # These fingerprints mean activated, healthy inputs, not merely built images.
+    # Persisting here lets a failed migration or partial rollout make the next
+    # deploy skip the API/frontend activation it still owes. The callers record
+    # them only after deploy_docker succeeds. Retries reuse Docker's build cache;
+    # the memory-headroom check above still prevents unsafe parallel builds.
 
     # Run Alembic migrations (P3/C8 — fatal; silent-warn hides broken schema).
     # If this fails, aborting is far safer than running new code against an
