@@ -2666,6 +2666,35 @@ class OAuthStore:
             return dict(row) if row else None
 
     @staticmethod
+    def revoke_client_credential(jti: str, client_id: str, expires_at: float) -> None:
+        """Reject this machine token until the expiry it already carries."""
+        if not jti:
+            return
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_revoked_jtis (jti, client_id, expires_at, revoked_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (jti) DO NOTHING
+                """,
+                (jti, client_id or "", float(expires_at or 0), time.time()),
+            )
+
+    @staticmethod
+    def client_credential_revoked(jti: str) -> bool:
+        if not jti:
+            return False
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM oauth_revoked_jtis
+                 WHERE jti = %s AND expires_at > %s
+                """,
+                (jti, time.time()),
+            ).fetchone()
+        return row is not None
+
+    @staticmethod
     def list_clients(
         created_by_email: str | None = None,
         *,
