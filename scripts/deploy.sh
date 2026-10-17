@@ -1092,13 +1092,15 @@ sync_code() {
 validate_build_env() {
     # Refuse a misspelled remediation mode before uploading or building code.
     # Read dotenv as data; do not source it into this shell.
-    local stop_repair_policy
-    stop_repair_policy=$(sed -n 's/^XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING=//p' "$ENV_FILE" | tail -n 1)
-    stop_repair_policy=${stop_repair_policy:-report_only}
-    case "$stop_repair_policy" in
-        report_only|enforce) ;;
-        *) error "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING must be report_only or enforce" ;;
-    esac
+    local repair_policy_name repair_policy
+    for repair_policy_name in XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING; do
+        repair_policy=$(sed -n "s/^${repair_policy_name}=//p" "$ENV_FILE" | tail -n 1)
+        repair_policy=${repair_policy:-report_only}
+        case "$repair_policy" in
+            report_only|enforce) ;;
+            *) error "$repair_policy_name must be report_only or enforce" ;;
+        esac
+    done
     # Frontend build bakes NEXT_PUBLIC_* vars at compile time — if they're
     # blank the build succeeds silently but features (analytics, Google
     # verification, Stripe, WalletConnect) will be missing at runtime.

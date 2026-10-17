@@ -285,6 +285,8 @@ def expire_stale_leases(
     *,
     grace_sec: float = DEFAULT_EXPIRY_GRACE_SEC,
     limit: int = 50,
+    current_job_id: str | None = None,
+    lock_nowait: bool = False,
 ) -> list[dict[str, Any]]:
     """Lease-controller sweep (§12.4): fence dead claims, preserve job intent.
 
@@ -310,21 +312,36 @@ def expire_stale_leases(
                j.status AS job_status, j.desired_state,
                j.payload->>'lifecycle_intent' AS lifecycle_intent
           FROM placement_leases l JOIN jobs j ON j.job_id = l.job_id
-         WHERE (l.status = 'offered' AND l.claim_deadline < clock_timestamp())
+         WHERE ((l.status = 'offered' AND l.claim_deadline < clock_timestamp())
             OR (l.status = 'active'
                 AND l.expires_at + make_interval(secs => %(grace)s)
-                    < clock_timestamp())
+                    < clock_timestamp()))
+           AND (%(job)s::text IS NULL OR (
+               j.job_id = %(job)s AND j.active_attempt_id = l.attempt_id
+               AND j.host_id = l.host_id AND EXISTS (
+                   SELECT 1 FROM job_attempts a WHERE a.attempt_id = l.attempt_id
+                     AND a.job_id = j.job_id AND a.host_id = l.host_id
+                     AND a.fencing_token = l.fencing_token)))
          ORDER BY l.lease_id
          LIMIT %(limit)s
-           FOR UPDATE OF j, l SKIP LOCKED
-        """,
-        {"grace": grace_sec, "limit": limit},
+           FOR UPDATE OF j, l
+        """ + (" NOWAIT" if lock_nowait else " SKIP LOCKED"),
+        {"grace": grace_sec, "limit": limit, "job": current_job_id},
     ).fetchall()
     expired: list[dict[str, Any]] = []
     for row in stale:
         lease_id = str(_get(row, "lease_id", 0))
         job_id = str(_get(row, "job_id", 1))
         attempt_id = str(_get(row, "attempt_id", 2))
+        if lock_nowait:
+            # Reconciliation owns a queue row already. Runtime writers can
+            # hold these rows while waiting for that queue, so fail fast and
+            # let process_due roll back its savepoint instead of deadlocking.
+            for table in ("job_attempts", "gpu_device_allocations", "agent_commands"):
+                conn.execute(
+                    f"SELECT 1 FROM {table} WHERE attempt_id = %s FOR UPDATE NOWAIT",
+                    (attempt_id,),
+                ).fetchall()
         was = str(_get(row, "status", 5))
         terminal = "failed" if was == "offered" else "lost"
         failure_code = (

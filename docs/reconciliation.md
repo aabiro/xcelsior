@@ -36,6 +36,29 @@ retry. After the queue transaction commits, a waiting writer commits its change
 and makes the request immediately due again. No repair bypasses fencing or
 retries an exhausted command automatically.
 
+## Expired-lease repair
+
+`XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING=report_only` is the default.
+After reviewing findings, `enforce` delegates to `expire_stale_leases` for only
+that job's current matching attempt/host/fence. An unclaimed offer must be past
+its deadline; an active lease must be past its expiry plus the existing
+30-second grace. The controller refuses missing, released, rebound or otherwise
+unproven authority. It never manufactures a replacement lease or shortens grace.
+
+Settlement, allocation release, pending-command cancellation, the expiry outbox
+event and finding evidence share one transaction. Runtime locks use `NOWAIT`;
+contention retries through the queue's savepoint. Stop/cancel/terminal intent
+survives, and restart intent is consumed once. The controller then re-reads the
+job before resolving findings. A running attempt becomes `lost`, which does not
+prove that the physical container stopped. Duplicate repairs add no event or
+new attempt. Set the flag back to `report_only` and restart to disable this
+remedy; committed expiry is not undone. Startup/deploy checks reject invalid
+values, and Compose passes the flag to API, maintenance and scheduler services.
+
+Gates: `tests/test_job_reconcile_lease_repair.py` plus the existing lease,
+queue, lifecycle and runtime-event suites. No production enforcement is enabled
+by this change; active-meter repair remains a separate billing-authority task.
+
 ## Stop-command repair
 
 `XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING=report_only` is the default.
