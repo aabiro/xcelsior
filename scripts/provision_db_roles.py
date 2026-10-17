@@ -37,6 +37,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from psycopg import sql  # noqa: E402
+
 from control_plane.db_roles import (  # noqa: E402
     SERVICE_ROLES,
     STORAGE_SCHEMA,
@@ -176,9 +178,21 @@ def build_plan(
     for owner in sorted(owners):
         for schema in [None, *schemas]:
             for kind in ("TABLES", "SEQUENCES"):
-                for grantee in ["PUBLIC", *(_quote(r.name) for r in SERVICE_ROLES.values() if r.runtime)]:
-                    scope = f' IN SCHEMA {_quote(schema)}' if schema else ''
-                    plan.append((f'ALTER DEFAULT PRIVILEGES FOR ROLE {_quote(owner)}{scope} REVOKE ALL ON {kind} FROM {grantee}', ()))
+                for grantee_name in [None, *(r.name for r in SERVICE_ROLES.values() if r.runtime)]:
+                    # TABLES/SEQUENCES and PUBLIC are SQL keywords. Role and
+                    # schema names are identifiers, including names read from
+                    # pg_roles, so they are quoted rather than interpolated.
+                    statement = sql.SQL(
+                        "ALTER DEFAULT PRIVILEGES FOR ROLE {}{} REVOKE ALL ON {} FROM {}"
+                    ).format(
+                        sql.Identifier(owner),
+                        sql.SQL(" IN SCHEMA {}").format(sql.Identifier(schema))
+                        if schema
+                        else sql.SQL(""),
+                        sql.SQL(kind),
+                        sql.SQL("PUBLIC") if grantee_name is None else sql.Identifier(grantee_name),
+                    )
+                    plan.append((statement.as_string(conn), ()))
     return plan
 
 
