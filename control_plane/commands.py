@@ -81,6 +81,7 @@ def enqueue_current_attempt_command(
     created_by: str,
     idempotency_key: str | None = None,
     expires_in_sec: int = 900,
+    lock_nowait: bool = False,
 ) -> EnqueuedAttemptCommand:
     """Enqueue a lifecycle command bound to the job's current authority.
 
@@ -88,6 +89,10 @@ def enqueue_current_attempt_command(
     the tuple in the durable command cannot race a concurrent re-placement.
     Retried API requests collapse on ``idempotency_key``.
     """
+    # A reconciler already owns the queue row. Runtime writers own their
+    # command/lease row before their trigger requests that queue row, so repair
+    # must not wait in the opposite order. Ordinary lifecycle callers retain
+    # their existing blocking locks.
     authority = conn.execute(
         """
         SELECT j.active_attempt_id, a.host_id, a.fencing_token, a.spec_hash,
@@ -105,13 +110,11 @@ def enqueue_current_attempt_command(
          ORDER BY l.claimed_at DESC NULLS LAST
          LIMIT 1
            FOR UPDATE OF j, a, l
-        """,
+        """ + (" NOWAIT" if lock_nowait else ""),
         (job_id,),
     ).fetchone()
     if authority is None:
-        raise CommandProtocolError(
-            f"job {job_id} has no active fenced authority", job_id=job_id
-        )
+        raise CommandProtocolError(f"job {job_id} has no active fenced authority", job_id=job_id)
     attempt_id = str(_get(authority, "active_attempt_id", 0))
     host_id = str(_get(authority, "host_id", 1))
     fencing_token = int(_get(authority, "fencing_token", 2))

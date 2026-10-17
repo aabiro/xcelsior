@@ -20,6 +20,22 @@ row. Failure preserves the request, records its error, and backs off. A finding
 is evidence of a discrepancy; it does not by itself authorize billing or prove
 container termination.
 
+Migration `123` adds requests for changes to current attempt-bound commands and
+leases in the mutation's own transaction. ACK/NACK, retry/dead-letter, release,
+fencing, shortened deadlines and removal of authority wake the owning job.
+The join verifies job, current attempt, host and fence. Historical attempts and
+unbound admin commands do not route requests. Healthy lease extensions and
+duplicate ACK/release calls do not add work. Wall-clock expiry without a write
+remains covered by periodic controllers; this is not a new timer per lease.
+
+Coalescing preserves any existing claim and never postpones a request. Runtime
+writers lock commands/leases before the request trigger touches the queue;
+the reconciler already owns its queue row, so its stop/lease-expiry repairs use
+`NOWAIT` runtime locks. Contention rolls the entry's savepoint back and records a
+retry. After the queue transaction commits, a waiting writer commits its change
+and makes the request immediately due again. No repair bypasses fencing or
+retries an exhausted command automatically.
+
 ## Stop-command repair
 
 `XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING=report_only` is the default.
@@ -53,7 +69,9 @@ To disable repair, restore the setting to `report_only` and restart the
 scheduler. Already committed commands remain delivery obligations. Findings,
 periodic checks and recovery continue. Downgrading `122` removes the trigger
 and function but retains requests and findings; deploy the prior application
-first because the new application requires schema `122`.
+first because the application requires its declared schema floor. Downgrading
+`123` removes only the runtime triggers/functions, retaining requests and the
+job-change trigger from `122`; deploy the preceding application first.
 
 Billing actions remain independently controlled by
 `XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER` and
@@ -66,13 +84,15 @@ restarts a job without established execution authority.
 The PostgreSQL gates are `tests/test_job_reconcile_queue.py`,
 `tests/test_job_reconcile_requests.py`, and
 `tests/test_job_reconcile_observations.py`. Migration gates exercise empty
-bootstrap and `122` up/down/up over representative lifecycle and billing rows.
+bootstrap and `122`/`123` up/down/up over representative lifecycle and billing rows.
+`tests/test_reconcile_runtime_events.py` proves atomic wakeups, rollback,
+coalescing, renewal/replay suppression and concurrent writer/repair contention.
 The populated input is a reproducible production-shaped fixture, not a copy
 of production data.
 
 This increment has not been deployed or enabled on production. Measure the
 finding rate and investigate false positives before enabling a remedy. B2.9
-still needs the remaining lifecycle/billing remedies, immediate command-failure
-and lease-event request coverage, and deployed recovery/failure drills. General
+still needs the remaining lifecycle/billing remedies and deployed
+recovery/failure drills. General
 job submission consolidation and retirement of legacy writers remain separate
 programme gates.
