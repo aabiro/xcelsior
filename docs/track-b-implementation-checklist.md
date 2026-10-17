@@ -561,7 +561,9 @@ Remaining lifecycle remediation and live acceptance stay open.
   without evaluating the old authority snapshot. Gate:
   `tests/test_job_reconcile_lease_repair.py` (six regressions proved red before
   implementation), including rollback, repeated calls and cross-job isolation.
-  The remedy remains report-only by default; no live rollout is claimed.
+  The remedy deployed on 2026-10-17 and remains report-only. Migration 123,
+  service handoffs and effective runtime policy passed verification; see
+  `docs/review/2026-10-17-control-plane-production-rollout.md`.
   Active-meter repair now delegates to the billing maintenance authority
   (`billing_active_meter_missing`, default report-only), requiring current
   running authority, a valid lease, a fresh exact observation, owner and explicit
@@ -581,7 +583,8 @@ Remaining lifecycle remediation and live acceptance stay open.
   lease/billing authorities with per-type staged enforcement; production
   false-positive measurement and recovery/failure drills before enabling any
   new remediation. Time passing without a mutation (claim/lease deadlines) is
-  still detected by the existing periodic controllers. No rollout is claimed.
+  still detected by the existing periodic controllers. The report-only rollout
+  is complete; active-workload measurement and enforcement qualification remain.
 
 **Drift found and closed in the same pass (2026-07-23, B0.1 rule 6):**
 

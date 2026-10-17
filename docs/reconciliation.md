@@ -166,8 +166,12 @@ coalescing, renewal/replay suppression and concurrent writer/repair contention.
 The populated input is a reproducible production-shaped fixture, not a copy
 of production data.
 
-This increment has not been deployed or enabled on production. Measure the
-finding rate and investigate false positives before enabling a remedy. B2.9
+This increment deployed on 2026-10-17 with repair actions kept report-only;
+migration 123 and service handoffs passed. Later verification confirmed the
+same policy under the newer schema-125 release. See the
+[production rollout record](review/2026-10-17-control-plane-production-rollout.md).
+Measure the finding rate under active workloads and investigate false positives
+before enabling a remedy. B2.9
 still needs the remaining lifecycle/billing remedies and deployed
 recovery/failure drills. General
 job submission consolidation and retirement of legacy writers remain separate

@@ -1,0 +1,348 @@
+{
+  "observed_at_utc": "2026-10-17T23:07:33.427311+00:00",
+  "deployment_commit": "1ac59848dc56a578b6db069566b9f449f22bffe7",
+  "colours": {
+    "api": "green",
+    "ssh": "green",
+    "mcp": "green"
+  },
+  "services": {
+    "api": {
+      "image": "sha256:d63172c6edefa949b92d4b930f894ac8950b9316f6df89b07c6506e19e0cc88e",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-10-17T23:06:06.051081762Z",
+      "runtime": {
+        "source_sha256": {
+          "billing.py": "f769aea760e7a9e85eda440ff588a91944699e115874b2158d694fcf9fa7b1d9",
+          "bg_worker.py": "fe31aa4ba4e5d4424f9b7375e1512608f46609a343a1a8dce731e72e6226ab83",
+          "db.py": "9ec506efe41e8c29b82f448245683be61d65652293e68f1a6201bf346b9ada51",
+          "public_http.py": "fe2519c56126bec153640df3080608881ae8a5133fddb8218bcd3b7c64eff34b",
+          "ssh_gateway.py": "8c68e8268d225feef12ad2d228ee1121265ad62613d6f5882d74bd9d44446362",
+          "control_plane/active_meter.py": "152340e4d1b51567b8d7b0cbfc3c3e79a029438fc11d8da876bada8efc746aee",
+          "control_plane/billing_controller.py": "109836b4781a30dec8708f67a6bcbde61414ca87c1d1c86606b198f4e8059095",
+          "control_plane/db_roles.py": "b78ab08a01e3077c89b2c2c198eb01ff22823ba1253b3f487e7a7e314ad3f209",
+          "control_plane/db_role_audit.py": "67c99f0b094e6d8be9dd20cc67e35dd78826faf6081d11b8b6fab11c25879dcd",
+          "control_plane/job_reconcile.py": "202d3cef58aa5e9d87cbd73d37b5a82c5e68feece5574f3b46b6332382eaef19",
+          "control_plane/leases.py": "3a92e000a72689f2ced0c3f553ce9dbd99ee2aec46a4de46bf0ae5c42b653dba",
+          "control_plane/lifecycle.py": "f62ed3925e4cbe73b67b959fe1d542131c4edcffe253e5a11bc51e612db3bec6",
+          "control_plane/reconcile.py": "5973f108f055180f35d81a7aa97c3b0d2c10510afad65928b6702fd1310e0896",
+          "control_plane/schema_compat.py": "fa9261b4c48b2759e35701b8cc0e6562ad72514ca92ec7bf917d7f292d130d50",
+          "control_plane/task_identities.py": "e08c6cbe0d0d29657cae1e5d8ff74a232846f9a842759ffcb67ffdea3d6794a0",
+          "control_plane/scheduled_tasks.py": "6ef4463ec65b6ced567880f150c31c0bb37003e40dfa460effde7e8dc6ba13e8",
+          "control_plane/startup_validation.py": "aa4acecde29af710974d16a47ba5282d5afbee9575e3299fd5222fd889bbc474",
+          "migrations/versions/123_runtime_reconciliation_requests.py": "8a1bf3b4dff2a034d59c37e4807870d0ef5d7480fdc564381722eb23a6a282ab",
+          "uv.lock": "57d8ed7de9dd95dc030527299f7cc85ef7e4765dd4624cba50c6f4723665895e"
+        },
+        "repair_flags": {
+          "XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING": "report_only"
+        },
+        "db_roles_required": "0",
+        "service_identity": "api",
+        "scheduler_mode": "canary",
+        "versions": {
+          "fastapi": "0.135.4",
+          "starlette": "1.8.0",
+          "cryptography": "50.0.2",
+          "paramiko": "5.0.0"
+        }
+      }
+    },
+    "scheduler": {
+      "image": "sha256:3d99708f656373aaecfb939dad2f27c9e29227098ed973c6346686676703f591",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-10-17T23:06:06.151613424Z",
+      "runtime": {
+        "source_sha256": {
+          "billing.py": "f769aea760e7a9e85eda440ff588a91944699e115874b2158d694fcf9fa7b1d9",
+          "bg_worker.py": "fe31aa4ba4e5d4424f9b7375e1512608f46609a343a1a8dce731e72e6226ab83",
+          "db.py": "9ec506efe41e8c29b82f448245683be61d65652293e68f1a6201bf346b9ada51",
+          "public_http.py": "fe2519c56126bec153640df3080608881ae8a5133fddb8218bcd3b7c64eff34b",
+          "ssh_gateway.py": "8c68e8268d225feef12ad2d228ee1121265ad62613d6f5882d74bd9d44446362",
+          "control_plane/active_meter.py": "152340e4d1b51567b8d7b0cbfc3c3e79a029438fc11d8da876bada8efc746aee",
+          "control_plane/billing_controller.py": "109836b4781a30dec8708f67a6bcbde61414ca87c1d1c86606b198f4e8059095",
+          "control_plane/db_roles.py": "b78ab08a01e3077c89b2c2c198eb01ff22823ba1253b3f487e7a7e314ad3f209",
+          "control_plane/db_role_audit.py": "67c99f0b094e6d8be9dd20cc67e35dd78826faf6081d11b8b6fab11c25879dcd",
+          "control_plane/job_reconcile.py": "202d3cef58aa5e9d87cbd73d37b5a82c5e68feece5574f3b46b6332382eaef19",
+          "control_plane/leases.py": "3a92e000a72689f2ced0c3f553ce9dbd99ee2aec46a4de46bf0ae5c42b653dba",
+          "control_plane/lifecycle.py": "f62ed3925e4cbe73b67b959fe1d542131c4edcffe253e5a11bc51e612db3bec6",
+          "control_plane/reconcile.py": "5973f108f055180f35d81a7aa97c3b0d2c10510afad65928b6702fd1310e0896",
+          "control_plane/schema_compat.py": "fa9261b4c48b2759e35701b8cc0e6562ad72514ca92ec7bf917d7f292d130d50",
+          "control_plane/task_identities.py": "e08c6cbe0d0d29657cae1e5d8ff74a232846f9a842759ffcb67ffdea3d6794a0",
+          "control_plane/scheduled_tasks.py": "6ef4463ec65b6ced567880f150c31c0bb37003e40dfa460effde7e8dc6ba13e8",
+          "control_plane/startup_validation.py": "aa4acecde29af710974d16a47ba5282d5afbee9575e3299fd5222fd889bbc474",
+          "migrations/versions/123_runtime_reconciliation_requests.py": "8a1bf3b4dff2a034d59c37e4807870d0ef5d7480fdc564381722eb23a6a282ab",
+          "uv.lock": "57d8ed7de9dd95dc030527299f7cc85ef7e4765dd4624cba50c6f4723665895e"
+        },
+        "repair_flags": {
+          "XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER": "report_only"
+        },
+        "db_roles_required": "0",
+        "service_identity": "scheduler",
+        "scheduler_mode": "canary",
+        "versions": {
+          "fastapi": "0.135.4",
+          "starlette": "1.8.0",
+          "cryptography": "50.0.2",
+          "paramiko": "5.0.0"
+        }
+      }
+    },
+    "maintenance": {
+      "image": "sha256:6163ce912c1fa3f1838858e01309fdcd03b454a7c6062f43722e8d622610bc35",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-10-17T23:06:06.356957626Z",
+      "runtime": {
+        "source_sha256": {
+          "billing.py": "f769aea760e7a9e85eda440ff588a91944699e115874b2158d694fcf9fa7b1d9",
+          "bg_worker.py": "fe31aa4ba4e5d4424f9b7375e1512608f46609a343a1a8dce731e72e6226ab83",
+          "db.py": "9ec506efe41e8c29b82f448245683be61d65652293e68f1a6201bf346b9ada51",
+          "public_http.py": "fe2519c56126bec153640df3080608881ae8a5133fddb8218bcd3b7c64eff34b",
+          "ssh_gateway.py": "8c68e8268d225feef12ad2d228ee1121265ad62613d6f5882d74bd9d44446362",
+          "control_plane/active_meter.py": "152340e4d1b51567b8d7b0cbfc3c3e79a029438fc11d8da876bada8efc746aee",
+          "control_plane/billing_controller.py": "109836b4781a30dec8708f67a6bcbde61414ca87c1d1c86606b198f4e8059095",
+          "control_plane/db_roles.py": "b78ab08a01e3077c89b2c2c198eb01ff22823ba1253b3f487e7a7e314ad3f209",
+          "control_plane/db_role_audit.py": "67c99f0b094e6d8be9dd20cc67e35dd78826faf6081d11b8b6fab11c25879dcd",
+          "control_plane/job_reconcile.py": "202d3cef58aa5e9d87cbd73d37b5a82c5e68feece5574f3b46b6332382eaef19",
+          "control_plane/leases.py": "3a92e000a72689f2ced0c3f553ce9dbd99ee2aec46a4de46bf0ae5c42b653dba",
+          "control_plane/lifecycle.py": "f62ed3925e4cbe73b67b959fe1d542131c4edcffe253e5a11bc51e612db3bec6",
+          "control_plane/reconcile.py": "5973f108f055180f35d81a7aa97c3b0d2c10510afad65928b6702fd1310e0896",
+          "control_plane/schema_compat.py": "fa9261b4c48b2759e35701b8cc0e6562ad72514ca92ec7bf917d7f292d130d50",
+          "control_plane/task_identities.py": "e08c6cbe0d0d29657cae1e5d8ff74a232846f9a842759ffcb67ffdea3d6794a0",
+          "control_plane/scheduled_tasks.py": "6ef4463ec65b6ced567880f150c31c0bb37003e40dfa460effde7e8dc6ba13e8",
+          "control_plane/startup_validation.py": "aa4acecde29af710974d16a47ba5282d5afbee9575e3299fd5222fd889bbc474",
+          "migrations/versions/123_runtime_reconciliation_requests.py": "8a1bf3b4dff2a034d59c37e4807870d0ef5d7480fdc564381722eb23a6a282ab",
+          "uv.lock": "57d8ed7de9dd95dc030527299f7cc85ef7e4765dd4624cba50c6f4723665895e"
+        },
+        "repair_flags": {
+          "XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING": "report_only",
+          "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING": "report_only"
+        },
+        "db_roles_required": "0",
+        "service_identity": "billing",
+        "scheduler_mode": "canary",
+        "versions": {
+          "fastapi": "0.135.4",
+          "starlette": "1.8.0",
+          "cryptography": "50.0.2",
+          "paramiko": "5.0.0"
+        }
+      }
+    },
+    "ssh": {
+      "image": "sha256:5ab67f457370de62f3c748fac294da3f03344c34acdfe4b23c5a80f30941e81b",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-10-17T23:06:06.260343749Z",
+      "runtime": {
+        "source_sha256": {
+          "billing.py": "f769aea760e7a9e85eda440ff588a91944699e115874b2158d694fcf9fa7b1d9",
+          "bg_worker.py": "fe31aa4ba4e5d4424f9b7375e1512608f46609a343a1a8dce731e72e6226ab83",
+          "db.py": "9ec506efe41e8c29b82f448245683be61d65652293e68f1a6201bf346b9ada51",
+          "public_http.py": "fe2519c56126bec153640df3080608881ae8a5133fddb8218bcd3b7c64eff34b",
+          "ssh_gateway.py": "8c68e8268d225feef12ad2d228ee1121265ad62613d6f5882d74bd9d44446362",
+          "control_plane/active_meter.py": "152340e4d1b51567b8d7b0cbfc3c3e79a029438fc11d8da876bada8efc746aee",
+          "control_plane/billing_controller.py": "109836b4781a30dec8708f67a6bcbde61414ca87c1d1c86606b198f4e8059095",
+          "control_plane/db_roles.py": "b78ab08a01e3077c89b2c2c198eb01ff22823ba1253b3f487e7a7e314ad3f209",
+          "control_plane/db_role_audit.py": "67c99f0b094e6d8be9dd20cc67e35dd78826faf6081d11b8b6fab11c25879dcd",
+          "control_plane/job_reconcile.py": "202d3cef58aa5e9d87cbd73d37b5a82c5e68feece5574f3b46b6332382eaef19",
+          "control_plane/leases.py": "3a92e000a72689f2ced0c3f553ce9dbd99ee2aec46a4de46bf0ae5c42b653dba",
+          "control_plane/lifecycle.py": "f62ed3925e4cbe73b67b959fe1d542131c4edcffe253e5a11bc51e612db3bec6",
+          "control_plane/reconcile.py": "5973f108f055180f35d81a7aa97c3b0d2c10510afad65928b6702fd1310e0896",
+          "control_plane/schema_compat.py": "fa9261b4c48b2759e35701b8cc0e6562ad72514ca92ec7bf917d7f292d130d50",
+          "control_plane/task_identities.py": "e08c6cbe0d0d29657cae1e5d8ff74a232846f9a842759ffcb67ffdea3d6794a0",
+          "control_plane/scheduled_tasks.py": "6ef4463ec65b6ced567880f150c31c0bb37003e40dfa460effde7e8dc6ba13e8",
+          "control_plane/startup_validation.py": "aa4acecde29af710974d16a47ba5282d5afbee9575e3299fd5222fd889bbc474",
+          "migrations/versions/123_runtime_reconciliation_requests.py": "8a1bf3b4dff2a034d59c37e4807870d0ef5d7480fdc564381722eb23a6a282ab",
+          "uv.lock": "57d8ed7de9dd95dc030527299f7cc85ef7e4765dd4624cba50c6f4723665895e"
+        },
+        "repair_flags": {},
+        "db_roles_required": "0",
+        "service_identity": "ssh_gateway",
+        "scheduler_mode": null,
+        "versions": {
+          "fastapi": "0.135.4",
+          "starlette": "1.8.0",
+          "cryptography": "50.0.2",
+          "paramiko": "5.0.0"
+        }
+      }
+    },
+    "mcp": {
+      "image": "sha256:eb61ff0e2f8899151cf96f1502a7c6c3b2127f3d223afaa26b6b886efb3df159",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-10-17T22:16:11.849261495Z"
+    },
+    "frontend": {
+      "image": "sha256:05dc4097cbe143b2662f53591ac6f3df0353f870154b2525fa1b52144a17ba37",
+      "status": "running",
+      "health": "healthy",
+      "started_at": "2026-10-17T21:26:07.101159553Z"
+    }
+  },
+  "readiness": {
+    "ok": true,
+    "schema": {
+      "current": "125",
+      "minimum": "123",
+      "maximum": null
+    },
+    "storage_ok": true,
+    "nfs_ok": true,
+    "auth_cache_ok": true
+  },
+  "public_http": {
+    "https://xcelsior.ca/healthz": "200",
+    "https://xcelsior.ca/readyz": "200",
+    "https://xcelsior.ca/": "200",
+    "https://mcp.xcelsior.ca/.well-known/oauth-protected-resource": "200"
+  },
+  "database": {
+    "identity": [
+      [
+        "xcelsior",
+        "xcelsior"
+      ]
+    ],
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "runtime_triggers": [
+      [
+        "agent_commands_request_reconciliation",
+        "O"
+      ],
+      [
+        "placement_leases_request_reconciliation",
+        "O"
+      ]
+    ],
+    "jobs_by_status": [
+      [
+        "cancelled",
+        77
+      ],
+      [
+        "completed",
+        4
+      ],
+      [
+        "failed",
+        249
+      ],
+      [
+        "stopped",
+        12
+      ],
+      [
+        "terminated",
+        22
+      ]
+    ],
+    "findings": [],
+    "queue": [],
+    "meters": [
+      [
+        false,
+        5
+      ]
+    ],
+    "tasks": [
+      [
+        "billing_meter_reconcile",
+        true,
+        "succeeded",
+        "2026-10-17 23:03:04.134005+00",
+        "2026-10-17 23:08:04.134004+00"
+      ],
+      [
+        "job_reconciliation_recovery",
+        true,
+        "succeeded",
+        "2026-10-17 23:07:11.528718+00",
+        "2026-10-17 23:08:11.528717+00"
+      ]
+    ]
+  },
+  "production_env_unchanged": false,
+  "source_verification": {
+    "compared_commit": "1ac59848dc56a578b6db069566b9f449f22bffe7",
+    "matched_fingerprints": 76,
+    "mismatches": []
+  },
+  "approved_release": {
+    "application_commit": "da4442cf084037e3c4eea3091813541f715468d3",
+    "deployed_checkout": "582859df",
+    "script_exit": 0,
+    "completed_at_local": "2026-10-17T08:10:55-04:00",
+    "migration": "122 -> 123"
+  },
+  "later_environment_changes": {
+    "changed_key_names": [
+      "DATABASE_URL",
+      "XCELSIOR_PG_DSN",
+      "XCELSIOR_POSTGRES_DSN",
+      "XCELSIOR_POSTGRES_EXPORTER_URI",
+      "XCELSIOR_POSTGRES_PORT",
+      "XCELSIOR_TEST_POSTGRES_DSN"
+    ],
+    "added_keys": [],
+    "removed_keys": [],
+    "action": "preserved; no credentials captured"
+  },
+  "health_interruption": {
+    "observed_at_utc": "2026-10-17T23:05:50.395213+00:00",
+    "services": [
+      "api",
+      "scheduler-worker",
+      "bg-worker",
+      "ssh-gateway"
+    ],
+    "followup": "Docker events show stop/recreation outside this deployment; same images healthy by 23:06:12Z",
+    "cause": "not established"
+  },
+  "evidence_sha256": {
+    "production-deploy.log": "c9928cc032eaa6207b51526709fcce2995418f7a98ce06c3b3adcee98eb23b61",
+    "production-postdeploy.json": "f7206109e91eaf7735868d0cb0b59e39334272a7392c17492255bb2144d695d1",
+    "production-postdeploy-final.json": "d87182b175352c7b9a29f330321501dad9df56db9edbf69a5c7af61e25fc4c3a",
+    "production-runtime-review.json": "6ade3afbda1e9d940cedbc4aefc5c9ff8aee0ff9060d4f9d5ef960999f44638f",
+    "production-health-transition.json": "149f49bb8a85a9b2a96621013c963c8740ca53c59a765712c83c295a4d576e4f",
+    "postdeploy_probe.py": "7a62b26d3faca4a1fbdbe52baaa7b310072e72ef435f926dcc0c1c891c0ea947",
+    "production-task-final.json": "02f38d96c0a56bc4f4774e4601e75b1c7e819fd1869efa6e98b7ee5f869e2e51"
+  },
+  "post_recreation_tasks": {
+    "observed_at_utc": "2026-10-17T23:08:32.344961+00:00",
+    "tasks": [
+      [
+        "billing_meter_reconcile",
+        true,
+        "succeeded",
+        "2026-10-17 23:08:04.821882+00",
+        "2026-10-17 23:13:04.82188+00"
+      ],
+      [
+        "job_reconciliation_recovery",
+        true,
+        "succeeded",
+        "2026-10-17 23:08:12.88255+00",
+        "2026-10-17 23:09:12.88255+00"
+      ]
+    ]
+  }
+}

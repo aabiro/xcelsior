@@ -1,5 +1,11 @@
 # Control-plane rollout readiness — 2026-10-17
 
+**Update:** The user subsequently explicitly approved the release. Deployment
+completed successfully, including migration 123 and service handoffs, with
+repairs kept report-only. See the [production rollout record](2026-10-17-control-plane-production-rollout.md)
+for execution evidence and the newer production state. The record below
+describes the preparation and approval boundary before execution.
+
 Application candidate: **`da4442cf084037e3c4eea3091813541f715468d3`**.
 The candidate is committed on local `main`; it has not been pushed or deployed.
 CI cockpit and unrelated applications are outside this release.
