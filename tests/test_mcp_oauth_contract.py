@@ -88,7 +88,7 @@ def test_one_machine_token_revokes_without_disabling_the_client(monkeypatch):
     monkeypatch.setattr(
         oauth_service.OAuthStore,
         "revoke_client_credential",
-        staticmethod(lambda jti, client_id, expires_at: revoked.add(jti)),
+        staticmethod(lambda jti, tenant_id, client_id, expires_at: revoked.add(jti)),
     )
 
     first = oauth_service.issue_client_credentials_jwt(client, ["instances:read"])

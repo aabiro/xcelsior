@@ -18,14 +18,15 @@ def upgrade() -> None:
     op.execute("""
         CREATE TABLE IF NOT EXISTS oauth_revoked_jtis (
             jti TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
             client_id TEXT NOT NULL,
-            expires_at DOUBLE PRECISION NOT NULL,
-            revoked_at DOUBLE PRECISION NOT NULL
+            expires_at TIMESTAMPTZ NOT NULL,
+            revoked_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
         )
     """)
     op.execute(
-        "CREATE INDEX IF NOT EXISTS oauth_revoked_jtis_expires_at "
-        "ON oauth_revoked_jtis (expires_at)"
+        "CREATE INDEX IF NOT EXISTS oauth_revoked_jtis_tenant_expires "
+        "ON oauth_revoked_jtis (tenant_id, expires_at)"
     )
 
 
