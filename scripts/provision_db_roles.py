@@ -40,6 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from control_plane.db_roles import (  # noqa: E402
     SERVICE_ROLES,
     STORAGE_SCHEMA,
+    domain_of,
+    sequence_domains,
     grant_statements,
 )
 
@@ -65,15 +67,32 @@ class OverPrivilegedRole(RuntimeError):
     """An existing role already holds attributes a service role must never have."""
 
 
-def _role_attributes(conn, name: str) -> tuple[bool, bool, bool] | None:
-    """(superuser, createdb, createrole) for ``name``, or None if absent."""
+def _role_attributes(conn, name: str) -> tuple[bool, ...] | None:
+    """Escalating role attributes for ``name``, or None if absent."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = %s",
+            "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
+            "FROM pg_roles WHERE rolname = %s",
             (name,),
         )
         row = cur.fetchone()
-    return (bool(row[0]), bool(row[1]), bool(row[2])) if row else None
+    return tuple(bool(value) for value in row) if row else None
+
+
+def _quote(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def sequence_grants(conn, role) -> list[str]:
+    """Sequence access follows its table or explicit standalone authority."""
+    rows = sequence_domains(conn)
+    unknown = [f"{schema}.{seq}" for schema, seq, domain in rows if domain is None]
+    if unknown:
+        raise OverPrivilegedRole("unclassified database sequences: " + ", ".join(unknown))
+    return [
+        f'GRANT USAGE, SELECT ON SEQUENCE {_quote(schema)}.{_quote(seq)} TO {_quote(role.name)}'
+        for schema, seq, domain in rows if domain in role.write
+    ]
 
 
 def build_plan(
@@ -91,7 +110,20 @@ def build_plan(
     attributes do not deliver it.
     """
     qualified, storage_tables = _fetch_inventory(conn)
+    unclaimed = [table for table in qualified if domain_of(table) is None]
+    if unclaimed:
+        raise OverPrivilegedRole("unclassified database tables: " + ", ".join(sorted(unclaimed)))
     plan: list[tuple[str, tuple]] = []
+
+    # PUBLIC grants otherwise defeat every per-role REVOKE below. These
+    # schemas are Xcelsior-owned; unknown tables above stop convergence.
+    schemas = ["public"] + ([STORAGE_SCHEMA] if storage_tables else [])
+    for schema in schemas:
+        plan.extend((stmt, ()) for stmt in (
+            f'REVOKE CREATE ON SCHEMA {_quote(schema)} FROM PUBLIC',
+            f'REVOKE ALL ON ALL TABLES IN SCHEMA {_quote(schema)} FROM PUBLIC',
+            f'REVOKE ALL ON ALL SEQUENCES IN SCHEMA {_quote(schema)} FROM PUBLIC',
+        ))
 
     for key, role in SERVICE_ROLES.items():
         attrs = _role_attributes(conn, role.name)
@@ -101,11 +133,20 @@ def build_plan(
             # some builds, so rely on the defaults and verify afterwards.
             plan.append((f'CREATE ROLE "{role.name}" NOLOGIN', ()))
         elif any(attrs):
-            names = [n for n, on in zip(("SUPERUSER", "CREATEDB", "CREATEROLE"), attrs) if on]
+            names = [n for n, on in zip(("SUPERUSER", "CREATEDB", "CREATEROLE", "REPLICATION", "BYPASSRLS"), attrs) if on]
             raise OverPrivilegedRole(
                 f"role {role.name} already has {', '.join(names)}; "
                 "revoke with a superuser before provisioning"
             )
+        if attrs is not None:
+            from control_plane.db_role_audit import role_violations
+
+            # Explicit grants can be converged. Ownership and memberships
+            # require an operator-reviewed transfer/revocation, not GRANTs.
+            unsafe = [issue for issue in role_violations(conn, key, check_session=False)
+                      if " owns " in issue or " is a member " in issue]
+            if unsafe:
+                raise OverPrivilegedRole("; ".join(unsafe))
         password = passwords.get(key)
         if key in login_services and password:
             plan.append((f'ALTER ROLE "{role.name}" LOGIN PASSWORD %s', (password,)))
@@ -113,6 +154,7 @@ def build_plan(
             role, storage_tables=storage_tables, existing_tables=qualified
         ):
             plan.append((stmt, ()))
+        plan.extend((stmt, ()) for stmt in sequence_grants(conn, role))
 
         # §4.3: pin the session limits on the role itself so they hold even
         # if a service connects without the pool's options string.
@@ -124,7 +166,31 @@ def build_plan(
             # we generated ourselves and that are provably numeric.
             if setting.isidentifier() and value.strip().isdigit():
                 plan.append((f'ALTER ROLE "{role.name}" SET {setting} = {int(value)}', ()))
+    # Future objects receive no blanket domain grants. Re-run convergence
+    # after every migration/partition creation, once ownership is classified.
+    owners = {row[0] for row in conn.execute(
+        "SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c "
+        "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','storage')"
+    ).fetchall()}
+    owners.add(SERVICE_ROLES["migrator"].name)
+    for owner in sorted(owners):
+        for schema in [None, *schemas]:
+            for kind in ("TABLES", "SEQUENCES"):
+                for grantee in ["PUBLIC", *(_quote(r.name) for r in SERVICE_ROLES.values() if r.runtime)]:
+                    scope = f' IN SCHEMA {_quote(schema)}' if schema else ''
+                    plan.append((f'ALTER DEFAULT PRIVILEGES FOR ROLE {_quote(owner)}{scope} REVOKE ALL ON {kind} FROM {grantee}', ()))
     return plan
+
+
+def apply_plan(conn, plan):
+    # PostgreSQL utility commands such as ALTER ROLE ... PASSWORD cannot use
+    # server-side $1 parameters. ClientCursor quotes parameters safely without
+    # putting the credential in the plan's SQL or dry-run output.
+    from psycopg import ClientCursor
+
+    with ClientCursor(conn) as cur:
+        for sql, params in plan:
+            cur.execute(sql, params or None)
 
 
 def main() -> int:
@@ -187,9 +253,7 @@ def main() -> int:
                 print(rendered + ";")
             conn.rollback()
             return 0
-        with conn.cursor() as cur:
-            for sql, params in plan:
-                cur.execute(sql, params or None)
+        apply_plan(conn, plan)
         conn.commit()
 
     print(f"provisioned {len(SERVICE_ROLES)} roles ({len(plan)} statements)")

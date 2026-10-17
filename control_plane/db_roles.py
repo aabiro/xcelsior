@@ -39,6 +39,8 @@ cut over — it only creates roles and grants.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping
 
@@ -293,7 +295,7 @@ def domain_of(table: str) -> str | None:
             return dom
     # Declarative partition children inherit the parent's domain.
     for dom, tables in TABLE_DOMAINS.items():
-        for parent in tables:
+        for parent in tables & {"telemetry_samples", "audit_events_v2", "placement_decisions"}:
             if name.startswith(parent + "_"):
                 return dom
     return None
@@ -318,6 +320,7 @@ class ServiceRole:
     ddl: bool = False
     #: Roles that must never be granted to a long-running runtime service.
     runtime: bool = True
+    read_tables: frozenset[str] = field(default_factory=frozenset)
 
     @property
     def readable(self) -> frozenset[str]:
@@ -345,9 +348,9 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
                 "serverless",
                 "retrieval",
                 "audit",
+                "marketplace",  # provider/pricing/settlement API writers
             }
         ),
-        read=frozenset({"marketplace"}),
     ),
     "scheduler": ServiceRole(
         name="xcelsior_scheduler",
@@ -383,6 +386,11 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
         name="xcelsior_readonly",
         description="Audited operational queries; writes nothing.",
         read=frozenset(ALL_DOMAINS),
+    ),
+    "ssh_gateway": ServiceRole(
+        name="xcelsior_ssh_gateway",
+        description="SSH route inventory only; no credential, billing, or command access.",
+        read_tables=frozenset({"public.jobs", "public.hosts"}),
     ),
 }
 
@@ -420,10 +428,29 @@ def runtime_role_keys() -> tuple[str, ...]:
     return tuple(k for k, r in SERVICE_ROLES.items() if r.runtime)
 
 
+def sequence_domains(conn) -> list[tuple[str, str, str | None]]:
+    """Classify serial/identity sequences and the standalone placement fence."""
+    rows = conn.execute("""
+        SELECT ns.nspname, seq.relname, nt.nspname, tbl.relname
+          FROM pg_class seq JOIN pg_namespace ns ON ns.oid=seq.relnamespace
+          LEFT JOIN pg_depend d ON d.objid=seq.oid AND d.classid='pg_class'::regclass
+            AND d.refclassid='pg_class'::regclass AND d.deptype IN ('a','i')
+          LEFT JOIN pg_class tbl ON tbl.oid=d.refobjid
+          LEFT JOIN pg_namespace nt ON nt.oid=tbl.relnamespace
+         WHERE seq.relkind='S' AND ns.nspname IN ('public','storage')
+    """).fetchall()
+    return [
+        (schema, seq, domain_of(f"{ts}.{table}") if table else
+         {"public.placement_fencing_token_seq": "control"}.get(f"{schema}.{seq}"))
+        for schema, seq, ts, table in rows
+    ]
+
+
 # ── Grant SQL generation ──────────────────────────────────────────────
 
 
 def _qualified(domain: str, table: str) -> str:
+    table = table.replace('"', '""')
     if domain == "storage":
         return f'"{STORAGE_SCHEMA}"."{table}"'
     return f'public."{table}"'
@@ -480,26 +507,36 @@ def grant_statements(
             stmts.append(f'GRANT CREATE ON SCHEMA "{STORAGE_SCHEMA}" TO "{role.name}"')
 
     for domain in sorted(role.write):
-        for table in _domain_tables(domain, storage_tables):
+        tables = set(_domain_tables(domain, storage_tables))
+        if present is not None:
+            tables.update(t.split(".", 1)[1] for t in present if domain_of(t) == domain)
+        for table in sorted(tables):
             if not exists(domain, table):
                 continue
+            # Runtime audit writers must not rewrite the migration stamp.
+            verbs = "SELECT" if table == "alembic_version" and role.runtime else "SELECT, INSERT, UPDATE, DELETE"
             stmts.append(
-                f"GRANT SELECT, INSERT, UPDATE, DELETE ON {_qualified(domain, table)} "
+                f"GRANT {verbs} ON {_qualified(domain, table)} "
                 f'TO "{role.name}"'
             )
     for domain in sorted(role.read - role.write):
-        for table in _domain_tables(domain, storage_tables):
+        tables = set(_domain_tables(domain, storage_tables))
+        if present is not None:
+            tables.update(t.split(".", 1)[1] for t in present if domain_of(t) == domain)
+        for table in sorted(tables):
             if not exists(domain, table):
                 continue
             stmts.append(f'GRANT SELECT ON {_qualified(domain, table)} TO "{role.name}"')
 
-    if role.write:
-        stmts.append(f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role.name}"')
-        if "storage" in role.write and storage_tables:
-            stmts.append(
-                f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "{STORAGE_SCHEMA}" '
-                f'TO "{role.name}"'
-            )
+    # Sequence rights are added by the provisioner from their owning table,
+    # never by granting every writer access to every sequence in a schema.
+    # Every connection checks schema readiness, even roles with no audit domain.
+    if present is None or "public.alembic_version" in present:
+        stmts.append(f'GRANT SELECT ON public.alembic_version TO "{role.name}"')
+    for qualified in sorted(role.read_tables):
+        if present is None or qualified in present:
+            schema, table = qualified.split(".", 1)
+            stmts.append(f'GRANT SELECT ON "{schema}"."{table}" TO "{role.name}"')
     return stmts
 
 
@@ -515,6 +552,7 @@ SERVICE_POOLS = (
     "projector",
     "retrieval",
     "readonly",
+    "ssh_gateway",
     "migrator",
 )
 
@@ -541,9 +579,34 @@ _SERVICE_SESSION_OVERRIDES: Mapping[str, Mapping[str, str]] = {
 }
 
 
+_service_context: ContextVar[str | None] = ContextVar("xcelsior_database_service", default=None)
+
+
+def roles_required() -> bool:
+    return os.environ.get("XCELSIOR_DB_ROLES_REQUIRED", "0").lower() in {"1", "true", "yes"}
+
+
+def scoped_service() -> str | None:
+    return _service_context.get()
+
+
+@contextmanager
+def service_scope(service: str):
+    """Select a separate pool for one task; never SET ROLE on a shared session."""
+    if service not in SERVICE_POOLS or not SERVICE_ROLES[service].runtime:
+        raise ValueError("invalid runtime database service")
+    token = _service_context.set(service)
+    try:
+        yield
+    finally:
+        _service_context.reset(token)
+
+
 def current_service() -> str:
     """The logical service this process is (``XCELSIOR_SERVICE`` or ``api``)."""
-    raw = (os.environ.get("XCELSIOR_SERVICE") or "").strip().lower()
+    raw = scoped_service() or (os.environ.get("XCELSIOR_SERVICE") or "").strip().lower()
+    if roles_required() and raw not in SERVICE_POOLS:
+        raise RuntimeError("XCELSIOR_SERVICE must identify a database service in strict role mode")
     return raw if raw in SERVICE_POOLS else "api"
 
 
@@ -587,9 +650,13 @@ def resolve_service_dsn(service: str | None = None, *, fallback: str | None = No
     breaking change for any deployment.
     """
     svc = (service or current_service()).strip().lower()
+    if svc not in SERVICE_POOLS:
+        raise ValueError("unknown database service")
     specific = (os.environ.get(service_dsn_env_var(svc)) or "").strip()
     if specific:
         return specific
+    if roles_required():
+        raise RuntimeError(f"{service_dsn_env_var(svc)} is required; shared database fallback refused")
     if fallback is not None:
         return fallback
     # The *shared* DSN, never the service-aware one — resolving another

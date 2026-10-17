@@ -1266,6 +1266,20 @@ def metrics_prometheus():
 
         lines.extend(render_operational_metrics_unavailable())
 
+    # Separate failure signal: an unavailable security query never reports a
+    # reassuring zero for revived abuse jobs or unexpected DB identities.
+    from control_plane.security_metrics import collect as collect_security, render as render_security
+
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            conn.execute("SET LOCAL statement_timeout = '5s'")
+            security_snapshot = collect_security(conn)
+        lines.extend(render_security(security_snapshot))
+    except Exception:
+        lines.extend(render_security(None))
+
     volumes = snap.get("volumes", {})
     lines.extend(
         [
