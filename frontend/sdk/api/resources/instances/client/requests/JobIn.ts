@@ -24,6 +24,7 @@ export interface JobIn {
     pricing_mode?: JobIn.PricingMode;
     volume_ids?: string[] | null;
     encrypted_workspace?: boolean;
+    exclusive_gpu?: boolean;
     init_script?: string | null;
     git_repo?: string | null;
     auto_launch?: string[] | null;

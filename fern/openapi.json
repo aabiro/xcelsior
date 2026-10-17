@@ -3731,6 +3731,11 @@
             "title": "Encrypted Workspace",
             "default": false
           },
+          "exclusive_gpu": {
+            "type": "boolean",
+            "title": "Exclusive Gpu",
+            "default": false
+          },
           "init_script": {
             "anyOf": [
               {

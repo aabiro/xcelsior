@@ -1,0 +1,9 @@
+{
+  "client_id": "https://downloads.xcelsior.ca/gx0/client-v1.json",
+  "client_name": "GX0 conformance checker",
+  "redirect_uris": ["http://127.0.0.1:8765/cb"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "scope": "instances:read billing:read offline_access"
+}

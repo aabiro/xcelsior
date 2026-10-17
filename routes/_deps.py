@@ -1817,11 +1817,13 @@ def _issue_ws_ticket(
     """Create a short-lived one-time WebSocket ticket."""
     now = time.time()
     ticket = secrets.token_urlsafe(32)
+    from routes.stream_auth import bind_stream_principal
+
     payload = {
         "ticket": ticket,
         "purpose": purpose,
         "target": target,
-        "user": dict(user),
+        "user": bind_stream_principal(user, request) if request is not None else dict(user),
         "ip_address": client_ip or (_get_real_client_ip(request) if request else "unknown"),
         "expires_at": now + max(1, ttl_sec or _WS_TICKET_TTL_SEC),
     }
@@ -1884,7 +1886,12 @@ def _consume_ws_ticket(
 
     if account_suspended(res_user):
         return None
-    return res_user
+    from routes.stream_auth import refresh_stream_principal
+
+    try:
+        return refresh_stream_principal(res_user)
+    except HTTPException:
+        return None
 
 
 def _mutate_shared_ws_tickets_issue(
@@ -2015,60 +2022,27 @@ def _validate_ws_auth(
     *,
     allow_query_token: bool = True,
 ) -> dict | None:
-    """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware).
-
-    Checks (in order):
-    1. Cookie ``xcelsior_session``
-    2. Query param ``?token=``
-    3. Master API token (constant-time compare)
-    4. Persistent session / API key lookup
-
-    Returns the user dict on success, ``None`` on failure.
-    """
+    """Use the ordinary credential policy for WebSocket admission as well."""
     if not AUTH_REQUIRED:
         return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": True}
-    api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
-    token: str = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
+    token = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
     if not token and allow_query_token:
         token = websocket.query_params.get("token", "")
+    auth = websocket.headers.get("authorization", "")
+    if not token and auth.startswith("Bearer "):
+        token = auth[7:]
     if not token:
         return None
-    if api_token and hmac.compare_digest(token, api_token):
-        return {"email": "api-token", "user_id": "api-token", "role": "admin", "is_admin": True}
-    if _USE_PERSISTENT_AUTH:
-        session = UserStore.get_session(token)
-        if session:
-            full_user = UserStore.get_user(session["email"])
-            try:
-                return _merge_auth_user(dict(session), full_user)
-            except HTTPException:
-                return None
-        api_key = UserStore.get_api_key(token)
-        if api_key:
-            full_user = UserStore.get_user(api_key["email"])
-            u = {
-                "email": api_key["email"],
-                "user_id": api_key["user_id"],
-                "role": api_key.get("role", "submitter"),
-                "is_admin": api_key.get("is_admin", False),
-            }
-            try:
-                return _merge_auth_user(u, full_user)
-            except HTTPException:
-                return None
-    else:
-        with _user_lock:
-            if token in _sessions and _sessions[token]["expires_at"] > time.time():
-                try:
-                    return _merge_auth_user(dict(_sessions[token]))
-                except HTTPException:
-                    return None
-            if token in _api_keys:
-                try:
-                    return _merge_auth_user(dict(_api_keys[token]))
-                except HTTPException:
-                    return None
-    return None
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(headers={"authorization": "Bearer " + token}, cookies={})
+    try:
+        user = _get_current_user(request)
+        if user and user.get("auth_type") == "master_token":
+            user = dict(user, user_id="api-token")  # preserve WebSocket audit identity
+        return user
+    except HTTPException:
+        return None
 
 
 # ── OpenTelemetry Span Helper ─────────────────────────────────────────

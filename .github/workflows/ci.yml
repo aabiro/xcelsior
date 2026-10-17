@@ -325,7 +325,7 @@ jobs:
           test -f scripts/worker_agent.py.sig
           test -f scripts/security.py.sig
           test -f scripts/agent-signing.pub
-          uv run python scripts/sign-static-agent.py
+          uv run python scripts/sign-static-agent.py --verify
           git diff --exit-code scripts/*.sig || (echo "Agent signatures out of date — run scripts/sign-static-agent.py" && exit 1)
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target

@@ -113,3 +113,17 @@ def test_strict_task_cannot_be_registered_without_identity(monkeypatch):
     with pytest.raises(RuntimeError, match="no qualified database identity"):
         scheduled_tasks.register_task("unqualified-test", lambda: None, 10)
     assert "unqualified-test" not in scheduled_tasks._registry
+
+
+def test_comment_only_deny_snippet_is_not_protection(tmp_path):
+    for folder in ("sites-enabled", "snippets", "conf.d"):
+        (tmp_path / folder).mkdir()
+    (tmp_path / "snippets/xcelsior-abuse-deny.conf").write_text(
+        "# if ($xcelsior_abuse_ip) { return 403; }"
+    )
+    (tmp_path / "conf.d/xcelsior-abuse-ips.conf").write_text(
+        "geo $xcelsior_abuse_ip { default 0; }"
+    )
+    for name in ("xcelsior", "mcp-xcelsior", "agent-xcelsior"):
+        (tmp_path / "sites-enabled" / name).write_text(f"server {{listen 443; {INCLUDE}}}")
+    assert not ingress_ready(tmp_path)

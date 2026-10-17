@@ -178,7 +178,7 @@ verify_agent_signature() {
 # scripts/sign-static-agent.py::SIGNABLE and routes/static.py::_SIGNABLE).
 # These are imported/executed with full worker-agent privileges, so every
 # one of them — not just worker_agent.py itself — must be signature-checked.
-SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py egress_isolation.py worker_privileged.py"
+SIGNABLE_FILES="worker_agent.py security.py nvml_telemetry.py worker_image_cache.py worker_nfs.py worker_nvme_cache.py worker_luks_volumes.py env_config.py criu_hosts.py egress_isolation.py worker_privileged.py worker-requirements.txt"
 
 _is_signable() {
     local name="$1" f
