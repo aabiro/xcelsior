@@ -2330,6 +2330,7 @@ def revoke_client_credentials_jwt(token: str) -> bool:
         return False
     OAuthStore.revoke_client_credential(
         str(principal["jti"]),
+        str(principal.get("tenant_id") or principal.get("workspace_customer_id") or ""),
         str(principal.get("client_id") or ""),
         float(payload.get("exp") or 0),
     )
