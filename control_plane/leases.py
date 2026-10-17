@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from psycopg import Connection
+from psycopg import Connection, sql
 
 DEFAULT_EXPIRY_GRACE_SEC = 30.0
 
@@ -339,7 +339,9 @@ def expire_stale_leases(
             # let process_due roll back its savepoint instead of deadlocking.
             for table in ("job_attempts", "gpu_device_allocations", "agent_commands"):
                 conn.execute(
-                    f"SELECT 1 FROM {table} WHERE attempt_id = %s FOR UPDATE NOWAIT",
+                    sql.SQL(
+                        "SELECT 1 FROM {} WHERE attempt_id = %s FOR UPDATE NOWAIT"
+                    ).format(sql.Identifier(table)),
                     (attempt_id,),
                 ).fetchall()
         was = str(_get(row, "status", 5))

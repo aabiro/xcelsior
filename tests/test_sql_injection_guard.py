@@ -111,6 +111,9 @@ def _source_files():
                 "site-packages",
                 "tests",
                 ".hypothesis",
+                # Local checkouts and generated trees are not the shipped source.
+                "artifacts",
+                "worktrees",
             )
         ):
             continue
