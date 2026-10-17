@@ -102,6 +102,7 @@ _ENFORCEABLE: frozenset[str] = frozenset(
         "billing_missing_meter",
         "billing_orphaned_meter",
         "job_stop_command_missing",
+        "job_lease_authority_missing",
     }
 )
 
