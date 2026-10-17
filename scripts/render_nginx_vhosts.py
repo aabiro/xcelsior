@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import re
+import shutil
 import sys
 
 VHOSTS = ("xcelsior", "headscale", "headscale-http", "docs-xcelsior", "downloads-xcelsior")
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mcp-live", choices=("green", "blue"), required=True)
     args = ap.parse_args(argv)
     args.dst.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(pathlib.Path(__file__).with_name("check_ingress_policy.py"), args.dst / "check_ingress_policy.py")
     for name in VHOSTS:
         src = args.src / f"{name}.conf"
         if not src.is_file():

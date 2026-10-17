@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import ipaddress
 import json
 import logging
 import os
-import socket
 import time
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+
+from public_http import PublicHTTPError, request as public_request, resolve_destination
 
 if TYPE_CHECKING:
     from serverless.repo import ServerlessRepo
@@ -30,46 +29,28 @@ TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
 
 
 def _webhook_secret() -> bytes:
-    from scheduler import API_TOKEN
+    raw = os.environ.get("XCELSIOR_SERVERLESS_WEBHOOK_HMAC_SECRET")
+    if not raw:
+        # Preserve existing receiver signatures during the dedicated-key
+        # rollout. An absent production key must never select a known secret.
+        from scheduler import API_TOKEN
 
-    raw = os.environ.get("XCELSIOR_SERVERLESS_WEBHOOK_HMAC_SECRET", API_TOKEN or "")
-    return (raw or "xcelsior-serverless-webhook-dev").encode("utf-8")
-
-
-def _blocked_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    return bool(
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_reserved
-        or addr.is_multicast
-    )
+        raw = API_TOKEN
+    if not raw:
+        if os.environ.get("XCELSIOR_ENV", "production").lower() not in {"test", "dev", "development"}:
+            raise PublicHTTPError("webhook signing secret is not configured")
+        raw = "xcelsior-serverless-webhook-dev"
+    return raw.encode("utf-8")
 
 
 def validate_webhook_url(url: str) -> str | None:
     """Return normalized URL or None if unsafe/invalid."""
-    u = (url or "").strip()
-    if not u or len(u) > WEBHOOK_MAX_URL_LEN:
-        return None
-    parsed = urlparse(u)
-    if parsed.scheme not in ("http", "https"):
-        return None
-    host = (parsed.hostname or "").strip().lower()
-    if not host or host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-        return None
     try:
-        for family, _, _, _, sockaddr in socket.getaddrinfo(host, parsed.port or 443):
-            if family not in (socket.AF_INET, socket.AF_INET6):
-                continue
-            ip_raw = sockaddr[0]
-            if not isinstance(ip_raw, str):
-                continue
-            addr = ipaddress.ip_address(ip_raw.split("%")[0])
-            if _blocked_ip(addr):
-                return None
-    except OSError:
+        return resolve_destination(
+            url or "", deadline=time.monotonic() + WEBHOOK_TIMEOUT_SEC
+        ).url
+    except PublicHTTPError:
         return None
-    return u
 
 
 def build_webhook_payload(job: dict) -> dict[str, Any]:
@@ -134,39 +115,32 @@ def _fit_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _post_webhook(url: str, payload: dict[str, Any]) -> tuple[bool, str]:
-    import urllib.error
-    import urllib.request
-
     safe_payload = _fit_webhook_payload(payload)
     body = _serialize_webhook_payload(safe_payload)
-    ts = int(time.time())
-    sig = sign_payload(body, ts)
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "xcelsior-serverless-webhook/1.0",
-            "X-Xcelsior-Timestamp": str(ts),
-            "X-Xcelsior-Signature": f"sha256={sig}",
-        },
-    )
+    if len(body) > WEBHOOK_MAX_BODY_BYTES:
+        return False, "webhook payload is too large"
     try:
-        with urllib.request.urlopen(req, timeout=WEBHOOK_TIMEOUT_SEC) as resp:
-            if 200 <= int(resp.status) < 300:
-                return True, ""
-            return False, f"HTTP {resp.status}"
-    except urllib.error.HTTPError as e:
-        return False, f"HTTP {e.code}"
-    except Exception as e:
-        return False, str(e)[:500]
+        ts = int(time.time())
+        sig = sign_payload(body, ts)
+        resp = public_request(
+            url, method="POST", body=body,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "xcelsior-serverless-webhook/1.0",
+                "X-Xcelsior-Timestamp": str(ts),
+                "X-Xcelsior-Signature": f"sha256={sig}",
+            },
+            timeout=WEBHOOK_TIMEOUT_SEC, max_response_bytes=0,
+        )
+        return (True, "") if 200 <= resp.status < 300 else (False, f"HTTP {resp.status}")
+    except PublicHTTPError as e:
+        return False, str(e)
 
 
 def deliver_job_webhook(repo: ServerlessRepo, job: dict) -> bool:
     """Attempt delivery; update job webhook_* columns. Returns True if delivered."""
     job_id = str(job.get("job_id") or "")
-    url = validate_webhook_url(str(job.get("webhook_url") or ""))
+    url = str(job.get("webhook_url") or "").strip()
     status = str(job.get("status") or "")
     if not job_id or status not in TERMINAL_STATUSES:
         return False
@@ -180,6 +154,8 @@ def deliver_job_webhook(repo: ServerlessRepo, job: dict) -> bool:
         return False
 
     attempts = int(job.get("webhook_attempts") or 0) + 1
+    if attempts > WEBHOOK_MAX_ATTEMPTS:
+        return False
     ok, err = _post_webhook(url, build_webhook_payload(job))
     if ok:
         repo.update_job_webhook_status(job_id, status="delivered", attempts=attempts)

@@ -253,6 +253,7 @@ def host(tmp_path):
     for name in rnv.VHOSTS:
         (etc / "sites-available" / name).write_text(f"old {name}\n")
         (src / f"{name}.conf").write_text(f"new {name}\n")
+    shutil.copyfile(ROOT / "scripts/check_ingress_policy.py", src / "check_ingress_policy.py")
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -326,11 +327,29 @@ def test_installer_preserves_operator_deny_entries(host):
     (etc / "snippets/xcelsior-abuse-deny.conf").write_text(
         "if ($xcelsior_abuse_ip) { return 403; }\n"
     )
-    with (src / "xcelsior.conf").open("a") as f:
-        f.write("include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;\n")
+    (src / "xcelsior.conf").write_text(
+        rnv.render(_source("xcelsior"), topology="direct", api_live="green", mcp_live="green")
+    )
     r = _install(env)
     assert r.returncode == 0, r.stderr
     assert policy.read_text() == original
+
+
+@pytest.mark.parametrize("missing", [0, 1])
+def test_every_public_server_must_keep_its_abuse_policy(host, missing):
+    etc, src, env = host
+    (etc / "conf.d").mkdir()
+    (etc / "snippets").mkdir()
+    (etc / "conf.d/xcelsior-abuse-ips.conf").write_text("geo $xcelsior_abuse_ip { default 0; }\n")
+    (etc / "snippets/xcelsior-abuse-deny.conf").write_text("if ($xcelsior_abuse_ip) { return 403; }\n")
+    directive = "include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;"
+    parts = _source("xcelsior").split(directive)
+    broken = parts[0] + (directive if missing != 0 else "# " + directive) + parts[1] + (directive if missing != 1 else "# " + directive) + parts[2]
+    (src / "xcelsior.conf").write_text(broken)
+    result = _install(env)
+    assert result.returncode != 0
+    assert "abuse" in result.stderr
+    assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
 
 
 def test_existing_abuse_map_requires_its_deny_snippet(host):

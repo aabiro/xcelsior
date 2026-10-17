@@ -33,8 +33,11 @@ if [ -f "$NGINX_DIR/conf.d/xcelsior-abuse-ips.conf" ]; then
     echo "Existing abuse IP map has no deny snippet; refusing nginx install." >&2
     exit 1
   fi
-  if ! grep -Eq '^[[:space:]]*include /etc/nginx/snippets/xcelsior-abuse-deny\*\.conf;' "$SRC_DIR/xcelsior.conf"; then
-    echo "Rendered xcelsior vhost omits the existing abuse policy; refusing nginx install." >&2
+  # Check each public server at server scope. A grep can be satisfied by an
+  # include in only HTTP, a comment, or a nested location while TLS bypasses it.
+  if ! python3 "$SRC_DIR/check_ingress_policy.py" "$SRC_DIR/xcelsior.conf"
+  then
+    echo "Rendered xcelsior vhost omits a server-level abuse policy; refusing nginx install." >&2
     exit 1
   fi
 fi

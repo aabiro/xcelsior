@@ -73,16 +73,9 @@ def resolve_postgres_dsn() -> str:
     2. the shared application DSN (``XCELSIOR_POSTGRES_DSN`` / legacy
        ``XCELSIOR_PG_DSN`` / ``DATABASE_URL``).
     """
-    shared = resolve_shared_postgres_dsn()
-    try:
-        from control_plane.db_roles import current_service, service_dsn_env_var
+    from control_plane.db_roles import resolve_service_dsn
 
-        specific = (os.environ.get(service_dsn_env_var(current_service())) or "").strip()
-        if specific:
-            return specific
-    except Exception:  # pragma: no cover - never let identity wiring break DB access
-        pass
-    return shared
+    return resolve_service_dsn(fallback=resolve_shared_postgres_dsn())
 
 
 # PostgreSQL connection string (used when backend is "postgres" or "dual")
@@ -165,6 +158,8 @@ def sqlite_transaction():
 
 _pg_pool: Any = None
 _pg_pool_lock = threading.Lock()
+_scoped_pg_pools: dict[tuple[str, str, bool], Any] = {}
+_pg_pool_identity: tuple[str, str, bool] | None = None
 
 
 def _get_pg_pool() -> Any:
@@ -173,12 +168,23 @@ def _get_pg_pool() -> Any:
     Retries with exponential backoff if PG is temporarily unavailable
     (up to 5 attempts: 1s, 2s, 4s, 8s, 16s).
     """
-    global _pg_pool
-    if _pg_pool is not None:
+    global _pg_pool, _pg_pool_identity
+    from control_plane.db_roles import current_service, scoped_service, roles_required
+
+    service = current_service()
+    scoped = scoped_service() is not None
+    pool_key = (service, resolve_postgres_dsn(), roles_required())
+    if not scoped and _pg_pool is not None and pool_key[2] and _pg_pool_identity != pool_key:
+        raise RuntimeError("database identity configuration changed; restart required before pool reuse")
+    if scoped and pool_key in _scoped_pg_pools:
+        return _scoped_pg_pools[pool_key]
+    if not scoped and _pg_pool is not None:
         return _pg_pool
 
     with _pg_pool_lock:
-        if _pg_pool is not None:
+        if scoped and pool_key in _scoped_pg_pools:
+            return _scoped_pg_pools[pool_key]
+        if not scoped and _pg_pool is not None:
             return _pg_pool
 
         try:
@@ -217,33 +223,43 @@ def _get_pg_pool() -> Any:
                 # connect options so they hold for the life of the
                 # session and cannot be forgotten by a call site.
                 conn_kwargs: dict[str, Any] = {"autocommit": False}
-                try:
-                    from control_plane.db_roles import connection_kwargs
+                from control_plane.db_roles import connection_kwargs, roles_required
 
-                    conn_kwargs.update(connection_kwargs())
-                except Exception:  # pragma: no cover - defensive
-                    log.debug("per-service connection identity unavailable", exc_info=True)
+                conn_kwargs.update(connection_kwargs(service))
                 pool = ConnectionPool(
                     dsn,
-                    min_size=2,
-                    max_size=PG_POOL_SIZE,
+                    open=True,
+                    min_size=1 if scoped else 2,
+                    max_size=min(PG_POOL_SIZE, 4) if scoped else PG_POOL_SIZE,
                     max_idle=PG_MAX_OVERFLOW,
                     kwargs=conn_kwargs,
                     reset=_reset_conn,
                 )
                 # Verify the pool can actually connect
                 with pool.connection() as conn:
+                    if roles_required():
+                        from control_plane.db_role_audit import require_runtime_role
+
+                        require_runtime_role(conn, service)
                     _ensure_pg_tables(conn)
                     conn.commit()
 
-                _pg_pool = pool
+                if scoped:
+                    _scoped_pg_pools[pool_key] = pool
+                else:
+                    _pg_pool = pool
+                    _pg_pool_identity = pool_key
                 log.info(
                     "PostgreSQL connection pool initialized (size=%d, max_idle=%d)",
                     PG_POOL_SIZE,
                     PG_MAX_OVERFLOW,
                 )
-                return _pg_pool
+                return pool
             except Exception as e:
+                if "pool" in locals():
+                    pool.close()
+                if isinstance(e, RuntimeError):
+                    raise
                 if attempt == max_attempts:
                     log.error(
                         "Failed to connect to PostgreSQL after %d attempts: %s",
@@ -463,12 +479,22 @@ def _ensure_pg_tables(conn):
     operators must run ``alembic upgrade head`` or
     ``scripts/bootstrap_pg_from_empty.sh``.
     """
+    from control_plane.db_roles import current_service, roles_required, service_dsn_env_var
+
+    dedicated = roles_required() or bool(os.environ.get(service_dsn_env_var(current_service())))
     if not _pg_schema_is_migrated(conn):
+        if dedicated:
+            raise RuntimeError("database schema is not migrated; runtime bootstrap refused")
         log.error(
             "PostgreSQL schema is not Alembic-managed (alembic_version "
             "missing/empty). Runtime CREATE/ALTER is disabled  — "
             "run scripts/bootstrap_pg_from_empty.sh or alembic upgrade head."
         )
+        return
+
+    if dedicated:
+        # Reference-data writes belong to bootstrap/migrations. Even an
+        # idempotent INSERT aborts a read-only service's startup transaction.
         return
 
     cur = conn.cursor()

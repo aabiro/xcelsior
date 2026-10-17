@@ -28,17 +28,17 @@ create clients at is an abuse surface, so:
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 import secrets
-import socket
 import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
+
+from public_http import PublicHTTPError, request as public_request, resolve_destination
 
 from oauth_delegation import SYSTEM_PRINCIPAL
 from oauth_service import (
@@ -278,55 +278,28 @@ def _reject_private_address(host: str) -> None:
     network and use our error messages as an oracle.
     """
     try:
-        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
-    except OSError as exc:
-        raise OAuthGrantError(
-            "invalid_client_metadata", f"Cannot resolve client metadata host: {host}"
-        ) from exc
-    for info in infos:
-        address = info[4][0]
-        try:
-            parsed = ipaddress.ip_address(address)
-        except ValueError:
-            continue
-        if (
-            parsed.is_private
-            or parsed.is_loopback
-            or parsed.is_link_local
-            or parsed.is_reserved
-            or parsed.is_multicast
-            or parsed.is_unspecified
-        ):
-            raise OAuthGrantError(
-                "invalid_client_metadata",
-                "Client metadata documents must be hosted on a public address",
-            )
+        resolve_destination(f"https://{host}/", deadline=time.monotonic() + CIMD_FETCH_TIMEOUT_SEC)
+    except PublicHTTPError as exc:
+        raise OAuthGrantError("invalid_client_metadata", str(exc)) from None
 
 
 def _fetch_cimd_document(client_id: str) -> dict[str, Any]:
-    import httpx
-
-    host = urlsplit(client_id).hostname or ""
-    _reject_private_address(host)
     try:
-        with httpx.Client(
-            timeout=CIMD_FETCH_TIMEOUT_SEC,
-            # A redirect would let a validated host hand the fetch to an
-            # unvalidated one, which is the SSRF check undone.
-            follow_redirects=False,
-        ) as http:
-            response = http.get(client_id, headers={"Accept": "application/json"})
-    except Exception as exc:
+        if urlsplit(client_id).scheme != "https":
+            raise PublicHTTPError("client metadata requires HTTPS")
+        response = public_request(
+            client_id, headers={"Accept": "application/json"},
+            timeout=CIMD_FETCH_TIMEOUT_SEC, max_response_bytes=CIMD_MAX_DOCUMENT_BYTES,
+        )
+    except (PublicHTTPError, ValueError):
         raise OAuthGrantError(
-            "invalid_client_metadata", f"Client metadata document is unreachable: {exc}"
-        ) from exc
-    if response.status_code != 200:
+            "invalid_client_metadata", "Client metadata document is unreachable or unsafe"
+        ) from None
+    if response.status != 200:
         raise OAuthGrantError(
             "invalid_client_metadata",
-            f"Client metadata document returned HTTP {response.status_code}",
+            f"Client metadata document returned HTTP {response.status}",
         )
-    if len(response.content) > CIMD_MAX_DOCUMENT_BYTES:
-        raise OAuthGrantError("invalid_client_metadata", "Client metadata document is too large")
     content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
     if content_type not in {"application/json", "application/ld+json"}:
         raise OAuthGrantError(
@@ -334,7 +307,7 @@ def _fetch_cimd_document(client_id: str) -> dict[str, Any]:
             f"Client metadata document must be JSON, got {content_type or 'nothing'}",
         )
     try:
-        document = json.loads(response.content.decode("utf-8"))
+        document = json.loads(response.body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise OAuthGrantError(
             "invalid_client_metadata", "Client metadata document is not valid JSON"

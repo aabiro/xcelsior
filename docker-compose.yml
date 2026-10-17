@@ -7,6 +7,9 @@ x-api-environment: &api-env
   XCELSIOR_WEBAUTHN_RP_ID: ${XCELSIOR_WEBAUTHN_RP_ID:-xcelsior.ca}
   XCELSIOR_WEBAUTHN_ORIGIN: ${XCELSIOR_WEBAUTHN_ORIGIN:-https://xcelsior.ca}
   XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
+  XCELSIOR_SERVICE: api
+  XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
+  XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
   XCELSIOR_DB_PATH: /data/xcelsior.db
   XCELSIOR_AUTH_DB_PATH: /data/auth.db
   XCELSIOR_BILLING_DB_PATH: /data/xcelsior_billing.db
@@ -485,6 +488,7 @@ services:
       # Companion §4.2/§4.3: own connection identity, and (once an
       # operator sets the DSN) its own least-privilege role.
       XCELSIOR_SERVICE: scheduler
+      XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
       XCELSIOR_AUTOSCALE: ${XCELSIOR_AUTOSCALE:-}
       XCELSIOR_AUTOSCALE_PROVIDER: ${XCELSIOR_AUTOSCALE_PROVIDER:-}
       XCELSIOR_EMAIL_REPLY_TO: ${XCELSIOR_EMAIL_REPLY_TO:-}
@@ -603,8 +607,11 @@ services:
     network_mode: host
     environment:
       <<: *api-env
-      XCELSIOR_SERVICE: billing
+      XCELSIOR_SERVICE: ${XCELSIOR_MAINTENANCE_DB_SERVICE:-billing}
+      XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE: ${XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE:-0}
+      XCELSIOR_POSTGRES_DSN_RECONCILER: ${XCELSIOR_POSTGRES_DSN_RECONCILER:-}
       XCELSIOR_POSTGRES_DSN_BILLING: ${XCELSIOR_POSTGRES_DSN_BILLING:-}
+      XCELSIOR_POSTGRES_DSN_PROJECTOR: ${XCELSIOR_POSTGRES_DSN_PROJECTOR:-}
     volumes: *api-volumes
     restart: unless-stopped
     depends_on:
@@ -714,6 +721,9 @@ services:
     command: python ssh_gateway.py
     network_mode: host
     environment:
+      XCELSIOR_SERVICE: ssh_gateway
+      XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
+      XCELSIOR_POSTGRES_DSN_SSH_GATEWAY: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:-}
       XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       SSH_GW_HEALTH_PORT: "9510"
       SSH_GW_MAX_CONNS: "10"
@@ -740,6 +750,9 @@ services:
     network_mode: host
     profiles: ["blue"]
     environment:
+      XCELSIOR_SERVICE: ssh_gateway
+      XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
+      XCELSIOR_POSTGRES_DSN_SSH_GATEWAY: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:-}
       XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       SSH_GW_HEALTH_PORT: "9511"
       SSH_GW_MAX_CONNS: "10"
