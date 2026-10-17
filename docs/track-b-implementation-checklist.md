@@ -570,6 +570,13 @@ Remaining lifecycle remediation and live acceptance stay open.
   No scheduler/reconciler meter-write grants were added. Gate:
   `tests/test_active_meter_repair.py`; operational settings and rollout limits:
   `docs/reconciliation.md`, evidence: `docs/review/2026-10-17-active-meter-repair.md`.
+  An isolated hardware acceptance now runs real CUDA containers through worker
+  HTTP command/lease/status/observation helpers and the exit monitor, proving
+  success and failure settlement, meter identity, stale-report rejection and
+  exact invoice-line amounts. Runnable gate:
+  `scripts/run_security_gates.py --worker-billing-acceptance`; evidence and limits:
+  `docs/review/2026-10-17-worker-billing-acceptance.md`. The harness owns container
+  launch; this does not close public launch/provisioning or deployed acceptance.
   **Residual:** remaining lifecycle remediation through the scheduling/attempt/
   lease/billing authorities with per-type staged enforcement; production
   false-positive measurement and recovery/failure drills before enabling any

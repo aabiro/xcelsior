@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run security regressions on a fresh local PostgreSQL cluster, never tower.
 
-No Docker, sudo, existing database, .env, or real service credentials are used.
+By default no Docker, sudo, existing database, .env, or real credentials are used.
+The explicit --worker-billing-acceptance mode uses a local cached CUDA image
+and GPU for a bounded, network-disabled container against the disposable DB.
 Logs, JUnit results, and a provenance manifest remain in the output directory;
 the disposable database is stopped and removed even when a gate fails.
 """
@@ -49,8 +51,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--postgres-bin", type=Path)
-    parser.add_argument("tests", nargs="*", default=DEFAULT_TESTS)
+    parser.add_argument("--worker-billing-acceptance", action="store_true")
+    parser.add_argument("--cuda-image", default="pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime")
+    parser.add_argument("--gpu-device", default="0")
+    parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if args.worker_billing_acceptance and args.tests:
+        parser.error("choose worker acceptance or pytest suites, not both")
+    if not args.tests and not args.worker_billing_acceptance:
+        args.tests = DEFAULT_TESTS
     pg_bin = args.postgres_bin
     if pg_bin is None:
         candidates = sorted(
@@ -102,11 +111,15 @@ def main() -> int:
     ):
         env[f"XCELSIOR_{name}_FILE"] = str(state / f"{name.lower()}.json")
     env["XCELSIOR_LOG_FILE"] = str(state / "xcelsior.log")
+    env["STATE_DIRECTORY"] = str(state)
+    env["XCELSIOR_AGENT_TOKEN_FILE"] = str(state / "agent-token.json")
+    env["XCELSIOR_V2_JOURNAL_PATH"] = str(state / "attempts.json")
     manifest = {
         "gate_exit_code": 2,
         "python": sys.version,
         "started_at_unix": time.time(),
         "tests": args.tests,
+        "mode": "worker_billing_acceptance" if args.worker_billing_acceptance else "pytest",
         "commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
@@ -199,6 +212,24 @@ def main() -> int:
             return 2
         if run("migrate", [sys.executable, "-m", "alembic", "upgrade", "head"]):
             return 2
+        if args.worker_billing_acceptance:
+            env["XCELSIOR_ISOLATED_ACCEPTANCE"] = "1"
+            env["XCELSIOR_ACCEPTANCE_STATE"] = str(state)
+            code = run(
+                "worker_billing",
+                [
+                    sys.executable,
+                    "scripts/worker_billing_acceptance.py",
+                    "--output",
+                    str(output / "worker_billing.json"),
+                    "--image",
+                    args.cuda_image,
+                    "--gpu-device",
+                    args.gpu_device,
+                ],
+            )
+            manifest["gate_exit_code"] = code
+            return code
         code = run(
             "pytest",
             [
