@@ -45,7 +45,7 @@ import pathlib
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-STRIPE_CONNECT = ROOT / "stripe_connect.py"
+STRIPE_CONNECT = ROOT / "billing" / "stripe_connect.py"
 
 #: The single function that writes `status='active'` and stamps `onboarded_at`.
 COMPLETION = "complete_onboarding"

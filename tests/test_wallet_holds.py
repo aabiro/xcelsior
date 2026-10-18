@@ -327,7 +327,7 @@ def test_production_submit_key_is_unique_per_attempt():
 
 def test_inventory_wallet_hold_sites():
     root = Path(__file__).resolve().parents[1]
-    billing = (root / "billing.py").read_text()
+    billing = (root / "billing" / "billing.py").read_text()
     assert "def create_wallet_hold" in billing
     assert "def release_wallet_hold" in billing
     assert "def available_balance_cad" in billing
