@@ -673,7 +673,7 @@ export interface NetworkSetupResult {
 }
 
 export async function setupNetworking(): Promise<NetworkSetupResult> {
-    const { execSync } = await import("child_process");
+    const { execSync } = await import("node:child_process");
 
     // Check if Headscale/Tailscale mesh is available
     const meshResult = detectTailscaleMesh(execSync);
