@@ -222,11 +222,12 @@ The 16 GB DIMM and the dead 4090 should be a **single physical maintenance windo
 ## Suggested execution order (4-week cadence)
 
 **Week 1** — *software complete 2026-06-16; physical maintenance pending*
-- ☐ Single maintenance window: install second 16 GB DIMM (A2+B2) + pull dead 4090 — **blocked on you** (tower still reports 15 Gi RAM)
-- ☐ Overnight memtest86 pass — **after RAM install**
+- ☑ Second 16 GB DIMM is in: tower reports **31 Gi** RAM (2026-10-17). Pulling the dead 4090 was not re-checked this pass.
+- ☑ Memtest86 is done. Both sticks passed more than 6 passes, and SAM training already ran on this RAM. No further memtest is required before the next run.
+
 - ☑ `/srv/models`, `/srv/datasets` mounts + rsync priority subset — **6.8 GB on tower** (`megaage`, `COFW`, `cofw_aligned_intake_v1`, `domain_aligned_v5`, `sam_domain_male_aligned` done; `sam_balanced_100k` ~6/29 GB in flight from `100.64.0.6`)
 - ☑ Install Ollama + pull `qwen2.5-coder:14b-q4_K_M` and `deepseek-coder-v2:16b-lite-q4_K_M` — **both pulled**; `32b-instruct-q3_K_S` already present
-- ◐ Rebuild sm86 TRT engines — **ORT TRT EP cache build running** (`build_trt_3060_ort.sh`, 121 ONNXs). Host TensorRT 10 libs copied to `/srv/models/engines/sm86/trt_host_libs/` and mounted at `/host-trt-libs` (full `/usr/lib/...` mount breaks glibc — use copied libs only). `trtexec` batch (`build_trt_3060.sh`) remains 0/121 — wrong generic `--minShapes`; ORT path is canonical.
+- ◐ Rebuild sm86 TRT engines — ORT cache build finished (`/srv/models/engines/sm86/ort_build_20261011.done`, 139 engine files present). `failed_models.txt` still lists 121 `trtexec` failures from the wrong generic `--minShapes` path. ORT remains the canonical runtime. The 2026-10-17 CUDA rerun proved inference, not a finished trtexec rebuild.
 - ☑ Stand up `tower-serverless` FastAPI shim on port 8001 — **active**; drain → 503 → resume verified 2026-06-16
 
 **Week 1 validation (tower, 2026-06-16)**
@@ -237,19 +238,21 @@ The 16 GB DIMM and the dead 4090 should be a **single physical maintenance windo
 - ☑ `xcm df` — all buckets green; datasets 4.3 GB registered
 
 **Week 2**
-- ☐ pxl-engine sm86 CI job + RTX3060_12GB hardware profile in pixelenhance-labs
+- ☐ pxl-engine sm86 CI job on tower
+- ☑ `RTX3060` hardware profile in `pixelenhance-labs/backend/app/core/hardware_profiles.py` (env `rtx3060` or `rtx3060_12gb`, FP16, batch 1, 12 GB). Added 2026-10-17. The dev `.env` still says `GPU_PROFILE=h200`; set `GPU_PROFILE=rtx3060` only on the tower worker.
 - ☐ Switch dev Celery worker to tower
 - ☐ Notarize macOS desktop build (Phase 7)
 
 **Week 3**
-- ☐ Resume SAM training run on tower (3-day GPU lock)
-- ☐ video-time-travel: move MiVOLO + GMFlow preprocessing to tower
-- ☐ ai-data-factory nightly conversion pipeline
+- ☐ Resume SAM training run on tower (3-day GPU lock). Do not start on `best_by_eval.pt`: the 2026-10-17 160-image eval shows the age channel is ignored (every target comes out ~30). Next run needs `l2_lambda_aging=0`, `lpips_lambda_aging=0`, and a higher `aging_lambda`.
+- ☑ video-time-travel runs on tower: `vtt-api` listens on `100.64.0.4:8100`, and a job finished 2026-10-17 12:54. `pipeline.py` already aligns FFHQ faces, builds `create_face_mask`, uses FADING `use_joint_inversion=True`, and reverses backward-flow slices.
+- ☑ ai-data-factory nightly conversion — `adf-nightly-convert.timer` on tower at 05:30 America/Toronto. It converts only new `.onnx` files in the bundle `incoming/` folder, using the ORT builder and the real regression photos. It skips the night if the GPU lock is held, SAM is training, or under 8 GB is free. Empty incoming is a no-op.
 
 **Week 4**
-- ☐ `models.xcelsior.ca` self-hosted demo behind Cloudflare
-- ☐ pixelspark dev backend pointed at tower
-- ☐ Public 20-second video-time-travel demo render
+- ☑ `models.xcelsior.ca` — DNS already pointed at the VPS. HTTPS is live (certificate expires 2027-01-15). The page sends one photo the visitor supplies to tower `:8000` for `denoise` or `upscale_2x`, two requests a minute. It does not generate an image.
+- ☑ pixelspark dev backend pointed at tower — `ENHANCE_RUNTIME=auto` and `ENHANCE_REMOTE_URL=http://100.64.0.4:8000` in `pixelspark/backend/.env`. Native image smoke through :8000 and :8001 passed 2026-10-17.
+- ☑ Local 20-second VTT render (2026-10-17 19:02): Visage on the 3060, female, detected age 54.8 to target 70, 1280×720, 500 frames, 6.2 minutes. Source and aged file are under `video-time-travel/data/demo/`. The GPU was free again afterward.
+- ☐ Public post of that demo. The cut is a CelebV-HQ window already stored in the CDN bucket, so it stays off the marketing site.
 
 ---
 
