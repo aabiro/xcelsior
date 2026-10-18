@@ -66,7 +66,7 @@ class TestNFSMountOpts:
 
     def test_scheduler_imports_constant(self):
         """scheduler.py must import NFS_MOUNT_OPTS from volumes, not define its own."""
-        with open("scheduler.py") as f:
+        with open("workers/scheduler.py") as f:
             source = f.read()
         assert "from volumes import NFS_MOUNT_OPTS" in source
         assert "nfs_mount_fstype" in source
@@ -91,7 +91,7 @@ class TestNFSMountOpts:
 
     def test_no_soft_mounts_in_codebase(self):
         """Zero 'soft' NFS mount references in production code."""
-        for filename in ["volumes.py", "scheduler.py", "worker_agent.py"]:
+        for filename in ["workers/volumes.py", "workers/scheduler.py", "workers/worker_agent.py"]:
             with open(filename) as f:
                 content = f.read()
             lines = content.split("\n")

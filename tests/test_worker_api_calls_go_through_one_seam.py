@@ -43,7 +43,7 @@ import ast
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WORKER = ROOT / "worker_agent.py"
+WORKER = ROOT / "workers" / "worker_agent.py"
 
 #: Direct `requests.*` calls that are correct: none of them target our API.
 #: Keyed by the URL expression as written, so a *new* direct call has to be

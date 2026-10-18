@@ -289,6 +289,6 @@ def test_inventory_start_gate_and_expiry_registration():
     restart_src = restart_src[: restart_src.find("def api_admin_reinject_shell")]
     assert "wallet_has_available_funds" in restart_src
 
-    bg = (root / "bg_worker.py").read_text()
+    bg = (root / "workers" / "bg_worker.py").read_text()
     assert 'register_task("wallet_hold_expiry"' in bg
     assert "expire_stale_wallet_holds" in bg

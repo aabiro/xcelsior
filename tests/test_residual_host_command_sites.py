@@ -522,7 +522,7 @@ def test_host_scoped_admin_rollout_not_job_dual_writer():
     """upgrade_agent / rollback_agent stay host-level (no job_id authority)."""
     root = Path(__file__).resolve().parents[1]
     admin_src = (root / "routes" / "admin.py").read_text()
-    bg_src = (root / "bg_worker.py").read_text()
+    bg_src = (root / "workers" / "bg_worker.py").read_text()
 
     # Admin rollout enqueues upgrade_agent by host_id only.
     assert ' "upgrade_agent"' in admin_src or '"upgrade_agent"' in admin_src
@@ -546,8 +546,8 @@ def test_enqueue_site_inventory_classifies_job_vs_host():
     sources = {
         "ssh": (root / "routes" / "ssh.py").read_text(),
         "instances": (root / "routes" / "instances.py").read_text(),
-        "volumes": (root / "volumes.py").read_text(),
-        "bg_worker": (root / "bg_worker.py").read_text(),
+        "volumes": (root / "workers" / "volumes.py").read_text(),
+        "bg_worker": (root / "workers" / "bg_worker.py").read_text(),
         "admin": (root / "routes" / "admin.py").read_text(),
         "billing": (root / "billing" / "billing.py").read_text(),
         "serverless": (root / "serverless" / "service.py").read_text(),

@@ -241,7 +241,7 @@ def test_allocate_best_host_returns_a_dict_or_none_on_every_path(hosts, vram):
 
 def test_neither_path_carries_its_own_ranker():
     """The drift guard. Two rankers in two files is how placement diverges."""
-    source = Path("scheduler.py").read_text()
+    source = Path("workers/scheduler.py").read_text()
     assert "def score_host" not in source, (
         "allocate_best_host grew a local ranker again; both paths must rank "
         "through control_plane.scheduler.ranking"

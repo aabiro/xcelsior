@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent.parent / "worker_agent.py"
+SRC = Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py"
 
 
 def test_c7_allowlist_constant_exists():

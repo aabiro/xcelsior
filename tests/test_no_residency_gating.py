@@ -70,6 +70,7 @@ EXCLUDED_DIRS = (
     "site-assets",  # vendored third-party marketing bundle
     "coverage",
     ".hypothesis",  # property-test corpus: machine-generated string soup
+    "worktrees",
     # Applied migration history. A migration that removed a column must name it;
     # rewriting one would falsify the record of what the schema used to be.
     "migrations/versions",
@@ -81,9 +82,14 @@ EXCLUDED_FILES = (
     "docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
     "docs/mcp_tools_gemini.md",
     "docs/mcp_tools_grok.md",
+    "api/docs/mcp_tools_chatgpt.md",
+    "api/docs/mcp_tools_gemini.md",
+    "api/docs/mcp_tools_grok.md",
     "stripe_embed.md",  # verbatim Stripe documentation dump
+    "billing/stripe_embed.md",
     # Submitted as written; JSON carries no comment syntax for the marker.
     "docs/compliance/scip_partner_loi.json",
+    "api/docs/compliance/scip_partner_loi.json",
 )
 
 # Binary and lockfile extensions: scanning them yields noise, not signal.
@@ -152,15 +158,15 @@ DOCUMENTS_REMOVAL = "residency-guard: documents-removal"
 def _is_excluded(rel: str) -> bool:
     if set(rel.split("/")) & set(EXCLUDED_DIRS):
         return True
-    if rel.startswith("migrations/versions/"):
+    if rel.startswith(("migrations/versions/", "api/migrations/versions/")):
         return True
     # Generated crawl/link reports: a snapshot of URLs that existed at the time.
-    if rel.startswith("link-checker-results"):
+    if rel.startswith(("link-checker-results", "archive/link-checker-results")):
         return True
     # `.env.bak.<timestamp>` — a local snapshot, not configuration in use.
     if ".bak." in rel or rel.endswith(".bak"):
         return True
-    if rel.startswith("docs/archive/"):
+    if rel.startswith(("docs/archive/", "api/docs/archive/")):
         return True
     return rel in EXCLUDED_FILES
 
@@ -260,7 +266,7 @@ def test_absence_assertions_are_not_counted():
         "README.md",
         "mcp/src/auth/scopes.ts",
         "routes/_deps.py",
-        "scheduler.py",
+        "workers/scheduler.py",
         "billing/billing.py",
     ],
 )
