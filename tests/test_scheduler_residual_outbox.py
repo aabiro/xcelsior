@@ -326,7 +326,7 @@ def test_inventory_residual_emit_sites_classified():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    sched = (root / "scheduler.py").read_text()
+    sched = (root / "workers" / "scheduler.py").read_text()
     runtime = (root / "control_plane" / "outbox_runtime.py").read_text()
 
     assert "job.v1.queue_blocked" in runtime

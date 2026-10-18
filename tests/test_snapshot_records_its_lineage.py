@@ -291,7 +291,7 @@ def test_the_worker_reads_the_digest_at_push_time():
     """
     import pathlib
 
-    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    agent = pathlib.Path("workers/worker_agent.py").read_text(encoding="utf-8")
     assert "def _read_repo_digest(" in agent, "the worker no longer reads a digest"
     assert (
         '"{{index .RepoDigests 0}}"' in agent
@@ -309,7 +309,7 @@ def test_a_digest_that_is_not_one_is_not_recorded():
     """
     import pathlib
 
-    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    agent = pathlib.Path("workers/worker_agent.py").read_text(encoding="utf-8")
     assert (
         'return digest if "@sha256:" in digest else ""' in agent
     ), "the worker no longer checks the digest is shaped like one before reporting it"

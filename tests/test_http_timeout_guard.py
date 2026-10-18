@@ -55,7 +55,7 @@ def test_requests_calls_have_timeout():
                     continue
                 fpath = os.path.join(dirpath, fname)
                 # Only check files in main repo, not venv/ or .tox/
-                if any(skip in fpath for skip in ("/venv/", "/.tox/", "/site-packages/")):
+                if any(skip in fpath for skip in ("/venv/", "/.tox/", "/site-packages/", "/worktrees/")):
                     continue
                 offenders.extend(find_calls_missing_timeout(fpath))
     if offenders:

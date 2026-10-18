@@ -69,8 +69,27 @@ _SET = re.compile(r"^(XCELSIOR_[A-Z0-9_]+)=(.+)$")
 
 def _source_files() -> list[pathlib.Path]:
     out: list[pathlib.Path] = []
-    for pattern in ("*.py", "routes/*.py", "control_plane/*.py", "serverless/*.py"):
-        out += [p for p in REPO.glob(pattern) if not p.name.startswith("._")]
+    for pattern in (
+        "*.py",
+        "billing/*.py",
+        "workers/*.py",
+        "auth/*.py",
+        "hosts/*.py",
+        "privacy/*.py",
+        "api/*.py",
+        "core/*.py",
+        "routes/*.py",
+        "control_plane/*.py",
+        "serverless/*.py",
+        "api/routes/*.py",
+        "api/control_plane/*.py",
+        "api/serverless/*.py",
+    ):
+        out += [
+            p
+            for p in REPO.glob(pattern)
+            if not p.name.startswith("._") and p.name not in ("__init__.py", "reorganize.py")
+        ]
     return out
 
 

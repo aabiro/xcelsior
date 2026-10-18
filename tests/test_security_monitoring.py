@@ -84,7 +84,7 @@ def test_background_task_contract_covers_every_registered_task():
     import ast
     from control_plane.task_identities import TASK_SERVICES, DDL_TASKS
 
-    source = (Path(__file__).resolve().parents[1] / "bg_worker.py").read_text()
+    source = (Path(__file__).resolve().parents[1] / "workers" / "bg_worker.py").read_text()
     registered = {
         node.args[0].value
         for node in ast.walk(ast.parse(source))

@@ -339,7 +339,7 @@ def test_inventory_wallet_hold_sites():
     assert "_wallet_preflight" in instances
     assert "Unable to reserve wallet funds" in instances
 
-    sched = (root / "scheduler.py").read_text()
+    sched = (root / "workers" / "scheduler.py").read_text()
     assert "release_wallet_hold_for_job" in sched
 
     mig = (root / "migrations" / "versions" / "063_wallet_holds.py").read_text()

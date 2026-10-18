@@ -257,10 +257,10 @@ def test_recording_rules_reduce_replica_duplicates_and_expose_freshness():
 
 
 def test_runtime_loops_publish_durable_worker_freshness_signals():
-    scheduler = (ROOT / "scheduler.py").read_text()
+    scheduler = (ROOT / "workers" / "scheduler.py").read_text()
     reconciler = (ROOT / "control_plane" / "scheduler" / "service.py").read_text()
     outbox = (ROOT / "control_plane" / "outbox_runtime.py").read_text()
-    maintenance = (ROOT / "bg_worker.py").read_text()
+    maintenance = (ROOT / "workers" / "bg_worker.py").read_text()
 
     assert 'ServiceHeartbeat("scheduler")' in scheduler
     assert '"reconciler",' in reconciler

@@ -328,7 +328,7 @@ def test_production_meter_insert_inventory():
     assert billing.count("INSERT INTO usage_meters") == 1
 
     # Callers go through meter_job, not raw SQL
-    sched = (root / "scheduler.py").read_text()
+    sched = (root / "workers" / "scheduler.py").read_text()
     assert "meter_job" in sched
     assert "INSERT INTO usage_meters" not in sched
 

@@ -305,7 +305,7 @@ def test_task_entry_point_is_registered_durably():
     import ast
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parent.parent / "bg_worker.py").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parent.parent / "workers" / "bg_worker.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     names = {
         call.args[0].value
