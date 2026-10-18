@@ -106,7 +106,7 @@ def test_the_system_allowlist_grants_no_operator_authority():
 
 # ── Every writer inherits it (the set-equality #16 specifies) ──────────
 
-DB = pathlib.Path(__file__).resolve().parent.parent / "db.py"
+DB = pathlib.Path(__file__).resolve().parent.parent / "core" / "db.py"
 
 #: The `OAuthStore` methods that write `oauth_clients.scopes`. Derived below from
 #: the source rather than trusted, so a fourth writer fails this file.

@@ -84,7 +84,7 @@ def _load_llms_txt() -> str:
     global _llms_txt_cache
     if _llms_txt_cache is not None:
         return _llms_txt_cache
-    llms_path = Path(os.path.dirname(__file__)) / "llms.txt"
+    llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
     if llms_path.exists():
         _llms_txt_cache = llms_path.read_text()
     else:
