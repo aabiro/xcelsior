@@ -1108,6 +1108,20 @@ def api_submit_instance(j: JobIn, request: Request):
             user,
             data={"name": job.get("name"), "customer_id": customer_id},
         )
+        try:
+            if _count_active_instances_for_user(user) <= 1:
+                from meta_capi import track_event
+
+                gpu_model = job.get("gpu_model") or getattr(j, "gpu_model", None)
+                track_event(
+                    "StartTrial",
+                    f"first_gpu_{user.get('user_id') or customer_id}",
+                    user=user,
+                    request=request,
+                    custom_data={"content_ids": [gpu_model] if gpu_model else None, "content_category": "gpu_compute"},
+                )
+        except Exception:
+            log.debug("meta first gpu event skipped", exc_info=True)
         return {"ok": True, "instance": job}
 
 

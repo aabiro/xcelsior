@@ -623,7 +623,14 @@ app.add_middleware(
     allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-FB-FBP",
+        "X-FB-FBC",
+        "X-Event-ID",
+    ],
 )
 
 
@@ -809,6 +816,12 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             request.state.user_id = user.get("user_id", "")
             request.state.customer_id = user.get("customer_id", user.get("user_id", ""))
             request.state.auth_type = user.get("auth_type", "")
+            try:
+                from meta_capi import capture_request_attribution
+
+                capture_request_attribution(user, request)
+            except Exception:
+                pass
             response = await call_next(request)
             if user.get("auth_type") == "api_key":
                 log.info(

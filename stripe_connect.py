@@ -870,6 +870,7 @@ class StripeConnectManager:
         address: dict | None = None,
         ip_address: str = "",
         email: str = "",
+        ads: dict | None = None,
     ) -> dict:
         """Create a payment intent for depositing compute credits.
 
@@ -943,6 +944,10 @@ class StripeConnectManager:
                     "description": pi_description,
                     "statement_descriptor_suffix": "CREDITS",
                 }
+                for ads_key in ("fbp", "fbc", "client_ip"):
+                    ads_value = str((ads or {}).get(ads_key) or "").strip()
+                    if ads_value:
+                        pi_kwargs["metadata"][ads_key] = ads_value[:500]
                 # Simplified Stripe Tax: link calculation so Stripe records tax
                 # transactions automatically on success / refunds.
                 calc_id = tax_info.get("tax_calculation_id") or ""
@@ -1533,6 +1538,24 @@ class StripeConnectManager:
             si_id,
             source,
         )
+        try:
+            from db import UserStore
+            from meta_capi import track_event
+
+            payer = UserStore.get_user_by_customer_id(customer_id)
+            meta = data.get("metadata") or {}
+            track_event(
+                "Purchase",
+                f"purchase_{si_id}",
+                user=payer,
+                custom_data={"value": amount_cad, "currency": "CAD", "content_type": "product"},
+                external_id=customer_id,
+                fbp=meta.get("fbp"),
+                fbc=meta.get("fbc"),
+                client_ip=meta.get("client_ip"),
+            )
+        except Exception:
+            log.debug("meta purchase event skipped", exc_info=True)
         from abuse_policy import set_card_paid
         from db import get_engine
 

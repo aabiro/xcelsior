@@ -160,6 +160,18 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
             "corporation_name": req.corporation_name,
         },
     )
+    try:
+        from meta_capi import track_event
+
+        track_event(
+            "Lead",
+            f"host_lead_{provider_id}",
+            user=user,
+            request=request,
+            custom_data={"content_name": "gpu_host"},
+        )
+    except Exception:
+        log.debug("meta host lead skipped", exc_info=True)
     return {"ok": True, **result}
 
 
