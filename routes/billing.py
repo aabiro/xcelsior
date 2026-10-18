@@ -243,6 +243,9 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     mgr = get_stripe_manager()
     addr = _account_tax_address(user)
     email = str(user.get("email") or "")
+    from meta_capi import ads_metadata, request_context, track_event
+
+    ads = ads_metadata(request)
     result = mgr.create_credit_deposit(
         req.customer_id,
         req.amount_cad,
@@ -250,6 +253,15 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
         address=addr or None,
         ip_address=_client_ip(request),
         email=email,
+        ads=ads,
+    )
+    event_id = request_context(request).get("event_id") or result.get("stripe_intent_id")
+    track_event(
+        "InitiateCheckout",
+        event_id or f"checkout_{req.customer_id}",
+        user=user,
+        request=request,
+        custom_data={"value": req.amount_cad, "currency": "CAD"},
     )
     return {"ok": True, "intent": result}
 
@@ -346,12 +358,27 @@ def _paypal_credit_capture(
         log.info("Skipping wallet credit for marketplace PayPal order %s", order_id)
         return {"balance_cad": 0.0, "skipped": True}
     be = get_billing_engine()
-    return be.deposit(
+    credited = be.deposit(
         customer_id,
         amount_cad,
         f"PayPal deposit ({capture_id})",
         idempotency_key=f"paypal-{order_id}",
     )
+    try:
+        from db import UserStore
+        from meta_capi import track_event
+
+        payer = UserStore.get_user_by_customer_id(customer_id)
+        track_event(
+            "Purchase",
+            f"purchase_{capture_id or order_id}",
+            user=payer,
+            custom_data={"value": amount_cad, "currency": "CAD", "content_type": "product"},
+            external_id=customer_id,
+        )
+    except Exception:
+        log.debug("meta paypal purchase skipped", exc_info=True)
+    return credited
 
 
 def _paypal_capture_order(order_id: str, token: str | None = None) -> dict:
@@ -2718,6 +2745,20 @@ def _apply_auto_topup(
         user,
         data=data,
     )
+    payment_method = str(body.stripe_payment_method_id or "").strip()
+    previous_method = str(previous.get("stripe_payment_method_id") or "").strip()
+    if payment_method and payment_method != previous_method:
+        try:
+            from meta_capi import track_event
+
+            track_event(
+                "AddPaymentInfo",
+                f"pm_{user.get('user_id') or customer_id}_{payment_method}",
+                user=user,
+                custom_data={"currency": "CAD"},
+            )
+        except Exception:
+            log.debug("meta add payment info skipped", exc_info=True)
     result = {"ok": True, "auto_topup": body.model_dump(), "previous": previous}
     if plan_id:
         result["plan_id"] = plan_id

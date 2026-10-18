@@ -1,5 +1,7 @@
 /** API client, all requests use httpOnly cookie auth (credentials: include). */
 
+import { metaRequestHeaders, newMetaEventId, trackBrowserEvent } from "./meta-events";
+
 let _refreshing: Promise<boolean> | null = null;
 const _BROWSER_OAUTH_STATE_KEY = "xcelsior.browser_oauth";
 const _BROWSER_OAUTH_CLIENT_ID = "xcelsior-web";
@@ -52,6 +54,7 @@ export async function apiFetch<T = unknown>(
   const { headers: extraHeaders, ...rest } = opts;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...metaRequestHeaders(),
     ...(extraHeaders as Record<string, string>),
   };
   const res = await fetch(path, { credentials: "include", headers, ...rest });
@@ -867,6 +870,8 @@ export async function createPaymentIntent(
   amountCad: number,
   description?: string,
 ) {
+  const eventId = newMetaEventId();
+  trackBrowserEvent("InitiateCheckout", { value: amountCad, currency: "CAD" }, eventId);
   return apiFetch<{
     ok: boolean;
     intent: {
@@ -888,6 +893,7 @@ export async function createPaymentIntent(
     };
   }>("/api/billing/payment-intent", {
     method: "POST",
+    headers: { "X-Event-ID": eventId },
     body: JSON.stringify({
       customer_id: customerId,
       amount_cad: amountCad,

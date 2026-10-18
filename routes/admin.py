@@ -2156,3 +2156,12 @@ def api_admin_revoke_host_agent_tokens(host_id: str, request: Request):
         what="admin_revoke_host_agent_tokens",
     )
     return {"ok": True, "host_id": host_id, "revoked": revoked}
+
+
+@router.get("/api/admin/meta-capi/quality", tags=["Admin"])
+def api_admin_meta_capi_quality(request: Request):
+    """Live Event Match Quality and dedup coverage from Meta's Dataset Quality API."""
+    _require_admin(request)
+    from meta_capi import dataset_quality
+
+    return dataset_quality()
