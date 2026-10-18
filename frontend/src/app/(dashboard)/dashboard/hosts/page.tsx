@@ -25,6 +25,7 @@ import type { Host } from "@/lib/api";
 import { toast } from "sonner";
 import { useEventStream } from "@/hooks/useEventStream";
 import { cn } from "@/lib/utils";
+import { HostMachineSetupCard } from "@/components/hosts/host-setup-scan";
 
 type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
 type SortDir = "asc" | "desc";
@@ -1025,6 +1026,7 @@ function HostSetupGuideCard({
                 <div className="mt-3">
                   <CodeSnippet label="host-card-wizard" text={WIZARD_CMD} copied={copied} onCopy={handleCopy} />
                 </div>
+                <HostMachineSetupCard />
                 <p className="mt-2 text-xs text-text-muted">
                   or{" "}
                   <button
@@ -1390,6 +1392,7 @@ xcelsior earnings --period 30d`;
           One command for host setup <em>and</em> SDK integration. <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">npx</code> runs the wizard without a global install (no <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">/usr/lib/node_modules</code> permission issues). Requires Node.js &ge; 18.
         </p>
         <CodeSnippet label="wizard-cmd" text={WIZARD_CMD} copied={copied} onCopy={onCopy} />
+        <HostMachineSetupCard />
         <p className="text-[11px] text-text-muted mt-2">
           At the first prompt, pick your path: <span className="font-medium text-text-secondary">Provide GPUs</span> on your GPU machine for host setup. For app integration, see below, wizard or manual <code className="bg-surface-hover px-1 py-0.5 rounded">{SDK_INSTALL_CMD}</code>.
         </p>
@@ -1484,6 +1487,7 @@ sudo systemctl restart xcelsior-worker`;
           shows as pending while we review it.
         </p>
         <CodeSnippet label="install" text={installCmd} copied={copied} onCopy={onCopy} />
+        <HostMachineSetupCard />
       </div>
 
       <div>

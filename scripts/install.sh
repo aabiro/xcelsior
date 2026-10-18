@@ -61,35 +61,36 @@ check_platform() {
     arch="$(uname -m 2>/dev/null || echo unknown)"
     case "$os" in
         Linux) ;;
-        *) fail "Xcelsior worker install requires Linux (detected: $os)" ;;
+        Darwin) fail "This machine is macOS (Darwin), so it cannot host an Xcelsior worker yet. Use a Linux host. WSL2 counts only when systemd is actually running (the systemctl command is available)." ;;
+        *) fail "This machine is ${os}, not Linux, so it cannot host an Xcelsior worker yet. Use a Linux host. WSL2 counts only when systemd is actually running (the systemctl command is available)." ;;
     esac
     case "$arch" in
         x86_64|amd64|aarch64|arm64) ;;
-        *) fail "Unsupported CPU architecture: $arch (need amd64 or arm64)" ;;
+        *) fail "This CPU architecture is ${arch}, which this worker does not support. Use an amd64 (x86_64) or arm64 (aarch64) Linux machine." ;;
     esac
     if ! command -v systemctl >/dev/null 2>&1; then
-        fail "systemd is required but systemctl was not found"
+        fail "systemd is not available on this machine (systemctl was not found), so the worker service cannot be installed. Install systemd, or use a Linux distribution that ships it. On WSL2, set systemd=true in /etc/wsl.conf and restart WSL."
     fi
 }
 
 # ── Pre-flight checks ────────────────────────────────────────────────
 
 check_deps() {
-    for cmd in python3 docker curl; do
-        command -v "$cmd" >/dev/null 2>&1 || fail "$cmd is required but not installed"
-    done
-    command -v openssl >/dev/null 2>&1 || fail "openssl is required for agent signature verification"
+    command -v python3 >/dev/null 2>&1 || fail "python3 is not installed, so the worker cannot run. Install Python 3 from your distribution packages (for example: sudo apt-get install -y python3 python3-venv) and run the installer again."
+    command -v docker >/dev/null 2>&1 || fail "docker is not installed, so rented GPUs cannot start containers. Install Docker Engine, start it, and add your user to the docker group: https://docs.docker.com/engine/install/"
+    command -v curl >/dev/null 2>&1 || fail "curl is not installed, so the installer cannot download the worker. Install curl (for example: sudo apt-get install -y curl) and run the installer again."
+    command -v openssl >/dev/null 2>&1 || fail "openssl is not installed, so the installer cannot verify the worker signature. Install openssl (for example: sudo apt-get install -y openssl) and run the installer again."
     ok "Dependencies: python3, docker, curl, openssl"
 }
 
 check_nvidia() {
     command -v nvidia-smi >/dev/null 2>&1 \
-        || fail "nvidia-smi is required — install a supported NVIDIA driver before running the worker"
+        || fail "nvidia-smi is not installed, so no NVIDIA driver was found. Install a supported NVIDIA driver (550 or newer), then run nvidia-smi once to confirm a GPU is listed: https://www.nvidia.com/Download/index.aspx"
 
     local gpu
     if ! gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null) \
         || [ -z "$gpu" ]; then
-        fail "nvidia-smi could not detect a usable NVIDIA GPU"
+        fail "nvidia-smi is installed but it did not list a usable NVIDIA GPU, so this machine cannot host yet. Seat a supported NVIDIA GPU, confirm the driver loaded (nvidia-smi prints a GPU name), and run the installer again."
     fi
     ok "GPU detected: $(printf '%s\n' "$gpu" | head -1)"
 }
@@ -98,13 +99,13 @@ check_docker() {
     if docker info >/dev/null 2>&1; then
         ok "Docker is running"
     else
-        fail "Docker is not running or current user lacks permissions. Try: sudo usermod -aG docker \$USER"
+        fail 'Docker is installed but it is not running, or this user is not allowed to talk to the Docker daemon. Start Docker, then add your user to the docker group with sudo usermod -aG docker "$USER" and open a new login session.'
     fi
 
     local runtimes
     if ! runtimes=$(docker info --format '{{json .Runtimes}}' 2>/dev/null) \
         || ! printf '%s' "$runtimes" | grep -qi nvidia; then
-        fail "NVIDIA Container Toolkit/runtime is required — install it before running the worker: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+        fail "Docker is running but the NVIDIA container runtime is not installed, so GPU containers cannot start. Install the NVIDIA Container Toolkit and restart Docker: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
     fi
     ok "NVIDIA Container Toolkit/runtime detected"
 }
@@ -149,7 +150,7 @@ detect_network() {
             return
         fi
     done
-    fail "Cannot determine host IP — check network connectivity"
+    fail "No host IP could be detected, so renters would not know where to reach this machine. Check that this host can reach the public internet (curl https://api.ipify.org), or bring up Tailscale and run the installer again. Tailscale is optional; a public IP is enough."
 }
 
 # ── Agent signature verification (B6) ──────────────────────────────────

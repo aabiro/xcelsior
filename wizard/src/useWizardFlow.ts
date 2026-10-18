@@ -19,6 +19,7 @@ import {
 } from "./api-client.js";
 import type { WizardState } from "../sprites/wizard/wizard-sprite.js";
 import { checkDocker, type CheckResult } from "./checks.js";
+import { checkGpuBasic } from "./gpu-detect.js";
 import {
     checkVersions, detectGpuFull, runComputeBenchmark,
     runNetworkBenchmark, buildVerificationReport,
@@ -240,32 +241,6 @@ async function checkApi(baseUrl: string, token: string): Promise<CheckResult[]> 
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Connection failed";
         return [{ name: "API Connection", ok: false, detail: msg }];
-    }
-}
-
-/** Detect GPUs via nvidia-smi (full info for providers) */
-async function checkGpuBasic(): Promise<CheckResult[]> {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const exec = promisify(execFile);
-
-    try {
-        const { stdout } = await exec("nvidia-smi", [
-            "--query-gpu=name,memory.total",
-            "--format=csv,noheader",
-        ], { timeout: 10_000 });
-
-        const gpus = stdout.trim().split("\n").filter(Boolean);
-        if (gpus.length === 0) {
-            return [{ name: "GPU Detection", ok: false, detail: "No GPUs found" }];
-        }
-        return gpus.map((line, i) => ({
-            name: `GPU ${i}`,
-            ok: true,
-            detail: line.trim(),
-        }));
-    } catch {
-        return [{ name: "GPU Detection", ok: false, detail: "nvidia-smi not available" }];
     }
 }
 
@@ -1445,7 +1420,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return launchGpuInstance(currentAnswers);
             case "network-setup": {
                 try {
-                    const { setupNetworking } = await checked(import("./provider-checks.js"));
+                    const { setupNetworking, networkSetupCheck } = await checked(import("./provider-checks.js"));
                     const result = await checked(setupNetworking());
                     const updated = {
                         ...currentAnswers,
@@ -1454,9 +1429,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     };
                     answersRef.current = updated;
                     setAnswers(updated);
-                    return [
-                        { name: "Mesh Network", ok: result.method !== "none", detail: result.detail },
-                    ];
+                    return [networkSetupCheck(result)];
                 } catch (err) {
                     return [{ name: "Mesh Network", ok: false, detail: err instanceof Error ? err.message : "Network setup failed" }];
                 }
@@ -1843,7 +1816,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                             // Fall back to the static help instead of an error panel.
                                             forgetExpiredSignIn();
                                             setWizardState("error");
-                                            setWizardMessage(`${failCount} check(s) failed`);
+                                            setWizardMessage(failSummary);
                                             return;
                                         }
                                     }
@@ -1859,7 +1832,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                     const msg = err instanceof Error ? err.message : "unknown";
                                     setAiResponse(explanation || `Analysis failed: ${msg}`);
                                     setWizardState("error");
-                                    setWizardMessage(`${failCount} check(s) failed`);
+                                    setWizardMessage(failSummary);
                                 } finally {
                                     if (isEntryCurrent()) setAiStreaming(false);
                                 }

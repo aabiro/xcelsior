@@ -2,6 +2,8 @@
 // Shells out to nvidia-smi, ping, and Python (torch) for FP16 matmul benchmarks.
 
 import { execFile } from "node:child_process";
+import { explainInstallFailure, HOST_FAIL_HOST_IP, linuxRequiredMessage } from "./host-requirements.js";
+import type { CheckResult } from "./checks.js";
 import { promisify } from "node:util";
 import { configDirectory, writePrivateFile } from "./config-files.js";
 import { fileURLToPath } from "node:url";
@@ -733,8 +735,16 @@ export async function setupNetworking(): Promise<NetworkSetupResult> {
     return {
         method: "none",
         ip: "",
-        detail: "No network connectivity detected — please check your connection",
+        detail: HOST_FAIL_HOST_IP,
     };
+}
+
+/** The hosts-card row for a finished network probe. No IP is a hard miss, and Tailscale stays optional. */
+export function networkSetupCheck(result: NetworkSetupResult): CheckResult {
+    if (result.method === "none") {
+        return { name: "Mesh Network", ok: false, detail: HOST_FAIL_HOST_IP, remediation: HOST_FAIL_HOST_IP };
+    }
+    return { name: "Mesh Network", ok: true, detail: result.detail };
 }
 
 function detectTailscaleMesh(
@@ -925,7 +935,7 @@ export async function installWorkerAgent(
     const { homedir, userInfo } = await import("node:os");
     const { join } = await import("node:path");
     const startedAt = Date.now();
-    if (process.platform !== "linux") return { installed: false, detail: "Worker installation requires Linux and systemd" };
+    if (process.platform !== "linux") return { installed: false, detail: linuxRequiredMessage(process.platform) };
     if (!hostId || !isIP(hostIp)) return { installed: false, detail: "Register the host and complete network setup before installing its worker" };
     if (!(oauthClientId && oauthClientSecret) && !apiToken.startsWith("xcel_ai_")) {
         return { installed: false, detail: "A durable API key or renewing OAuth client is required for the worker" };
@@ -1000,7 +1010,10 @@ systemctl is-active --quiet xcelsior-worker
         return { installed: false, detail: `Service installed, but no fresh worker heartbeat was confirmed. ${lastState}. Check journalctl -u xcelsior-worker -n 50 and retry.` };
     } catch (err) {
         const { redactSecrets } = await import("./wizard-state.js");
-        return { installed: false, detail: redactSecrets(err instanceof Error ? err.message : "Worker installation failed") };
+        const stdout = err && typeof err === "object" && "stdout" in err ? String((err as { stdout?: string }).stdout ?? "") : "";
+        const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr?: string }).stderr ?? "") : "";
+        const fallback = err instanceof Error ? err.message : "Worker installation failed";
+        return { installed: false, detail: redactSecrets(explainInstallFailure(stdout, stderr, fallback)) };
     }
 }
 

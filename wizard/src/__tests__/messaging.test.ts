@@ -24,16 +24,24 @@ describe("summarizeFailure", () => {
         expect(summarizeFailure([bad("Wallet Balance")]).toLowerCase()).toContain("funds");
     });
 
-    it("appends (+N more) for multiple failures", () => {
-        const msg = summarizeFailure([bad("nvidia_driver"), bad("runc"), bad("docker")]);
-        expect(msg).toContain("(+2 more)");
+    it("names every failed check instead of a leftover count", () => {
+        const msg = summarizeFailure([
+            bad("nvidia_driver"),
+            { name: "runc", ok: false, detail: "old", remediation: "Upgrade runc to ≥1.1.12 via your distro packages or containerd" },
+            bad("docker"),
+        ]);
+        expect(msg).not.toMatch(/\+\d+ more/);
+        expect(msg.toLowerCase()).toContain("driver");
+        expect(msg.toLowerCase()).toContain("runc");
+        expect(msg.toLowerCase()).toContain("docker");
+        expect(msg).toContain("Upgrade runc");
     });
 
-    it("uses the primary (first) failed item", () => {
-        // first failure is runc → message should mention runc, not docker
+    it("uses each failed item, not only the first", () => {
         const msg = summarizeFailure([ok("nvidia_driver"), bad("runc"), bad("docker")]);
         expect(msg.toLowerCase()).toContain("runc");
-        expect(msg).toContain("(+1 more)");
+        expect(msg.toLowerCase()).toContain("docker");
+        expect(msg).not.toMatch(/\+\d+ more/);
     });
 
     it("falls back to the item name for an unknown check", () => {

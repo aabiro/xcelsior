@@ -72,7 +72,7 @@ describe("SDK integration configuration", () => {
 
     it("does not accept an expiring token as permanent application configuration", () => {
         project();
-        expect(() => writeSdkEnvSnippet("https://example.test", "xoa_temporary")).toThrow("OAuth client credentials or a durable API key");
+        expect(() => writeSdkEnvSnippet("https://example.test", "xoa_temporary")).toThrow("before credentials exist");
     });
 
     it("keeps caller-provided URLs literal in generated JavaScript", () => {
