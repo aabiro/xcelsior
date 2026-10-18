@@ -33,14 +33,14 @@ KNOWN_SAFE = {
     # f"ORDER BY {order}" — order is mapped through _SORT_MAP allowlist.
     "billing/marketplace.py",
     # f"... SET {set_clause} ..." — keys come from ALLOWED_FIELDS set.
-    "db.py",
+    "core/db.py",
     # f"... WHERE {where} ..." — where_parts are static literals, values via %s.
-    "events.py",
+    "core/events.py",
     # f"... WHERE {where_clause} ..." / {group_sql} — static parts or _GROUP_SQL map.
     "api/routes/admin.py",
     "api/routes/billing.py",
     # f"... {placeholders}" — %s count for IN clause (no identifiers).
-    "ai_assistant.py",
+    "core/ai_assistant.py",
     # Dev-only migration script — reads table names from a hardcoded TABLES list.
     "api/scripts/migrate_sqlite_to_pg.py",
     # Applied migration — every identifier comes from the immutable WALLET_MONEY tuple.

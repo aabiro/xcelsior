@@ -13,7 +13,7 @@ Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=/opt/xcelsior/.env
 
 # Run health monitor with 30-second check interval
-ExecStart=/opt/xcelsior/venv/bin/python3 cli.py health-start --interval 30
+ExecStart=/opt/xcelsior/venv/bin/python3 core/cli.py health-start --interval 30
 
 # Restart policy
 Restart=always

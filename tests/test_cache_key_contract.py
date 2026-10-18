@@ -301,7 +301,7 @@ def test_rate_limit_store_hashes_its_bucket_key():
 
 
 def test_contract_module_documents_the_format():
-    text = (PROJECT_ROOT / "cache_keys.py").read_text(encoding="utf-8")
+    text = (PROJECT_ROOT / "core" / "cache_keys.py").read_text(encoding="utf-8")
     assert "companion §5.4" in text
     assert cache_keys.NAMESPACE == "xc"
     assert cache_keys.KEY_VERSION == "v1"

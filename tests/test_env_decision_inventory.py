@@ -52,66 +52,66 @@ SKIP_DIRS = {
 #: invalidate an entry, but a *changed* decision does.
 INVENTORY: dict[str, tuple[str, str]] = {
     # ── enforcing: must fail closed, therefore must ask env_config ──
-    "routes/_deps.py::AUTH_REQUIRED": (
+    "api/routes/_deps.py::AUTH_REQUIRED": (
         "enforcing",
         "authentication; unset meant anonymous callers got admin",
     ),
-    "routes/terminal.py::_REQUIRE_PINNED_HOST_KEYS": (
+    "api/routes/terminal.py::_REQUIRE_PINNED_HOST_KEYS": (
         "enforcing",
         "SSH host-key pinning; staging or a typo disabled MITM protection",
     ),
-    "host_admission.py::_compatibility_secret": (
+    "hosts/host_admission.py::_compatibility_secret": (
         "enforcing",
         "compatibility session secret required outside dev",
     ),
-    "privacy_deletion.py::signing secret": (
+    "privacy/privacy_deletion.py::signing secret": (
         "enforcing",
         "deletion-receipt signing secret required outside dev",
     ),
-    "serverless/limits.py::_is_production": ("enforcing", "rate-limit degradation policy"),
-    "routes/auth.py::deauthorize signature": (
+    "api/serverless/limits.py::_is_production": ("enforcing", "rate-limit degradation policy"),
+    "api/routes/auth.py::deauthorize signature": (
         "enforcing",
         "social deauthorize signature failures must be rejected",
     ),
     # ── relaxing: exact match on "test" fails closed by construction ──
-    "routes/_deps.py::master token test path": ("relaxing", "test-suite auth shortcut"),
-    "routes/auth.py::test branch": ("relaxing", "test-suite auth shortcut"),
-    "routes/auth.py::reset_token echo": (
+    "api/routes/_deps.py::master token test path": ("relaxing", "test-suite auth shortcut"),
+    "api/routes/auth.py::test branch": ("relaxing", "test-suite auth shortcut"),
+    "api/routes/auth.py::reset_token echo": (
         "relaxing",
         "password-reset token echoed to the test suite only",
     ),
-    "routes/instances.py::test branch": ("relaxing", "worker status update in tests"),
-    "routes/mfa.py::test branches": ("relaxing", "MFA enrolment shortcut in tests"),
-    "routes/serverless.py::fake port": ("relaxing", "synthetic port in tests"),
-    "serverless/feature.py::test branch": ("relaxing", "feature flag default in tests"),
-    "routes/billing.py::dev branch": ("relaxing", "billing shortcut in dev/test"),
-    "routes/agent.py::env": (
+    "api/routes/instances.py::test branch": ("relaxing", "worker status update in tests"),
+    "api/routes/mfa.py::test branches": ("relaxing", "MFA enrolment shortcut in tests"),
+    "api/routes/serverless.py::fake port": ("relaxing", "synthetic port in tests"),
+    "api/serverless/feature.py::test branch": ("relaxing", "feature flag default in tests"),
+    "api/routes/billing.py::dev branch": ("relaxing", "billing shortcut in dev/test"),
+    "api/routes/agent.py::env": (
         "relaxing",
         "agent unauth bypass; production hard-refuses via env_config",
     ),
     # ── irrelevant: a label, not a decision ──
-    "structured_logging.py::add_standard_metadata": ("irrelevant", "log environment label"),
-    "cache_keys.py::environment": ("irrelevant", "cache namespace segment"),
-    "env_config.py::resolver": ("irrelevant", "the resolver itself"),
-    "api.py::import": ("irrelevant", "re-export"),
-    "routes/health.py::import": ("irrelevant", "re-export"),
-    "routes/billing.py::import": ("irrelevant", "re-export"),
-    "routes/mfa.py::import": ("irrelevant", "re-export"),
-    "routes/auth.py::import": ("irrelevant", "re-export"),
-    "split_api.py::name": ("irrelevant", "string in a codegen list"),
+    "core/structured_logging.py::add_standard_metadata": ("irrelevant", "log environment label"),
+    "core/cache_keys.py::environment": ("irrelevant", "cache namespace segment"),
+    "core/env_config.py::resolver": ("irrelevant", "the resolver itself"),
+    "api/api.py::import": ("irrelevant", "re-export"),
+    "api/routes/health.py::import": ("irrelevant", "re-export"),
+    "api/routes/billing.py::import": ("irrelevant", "re-export"),
+    "api/routes/mfa.py::import": ("irrelevant", "re-export"),
+    "api/routes/auth.py::import": ("irrelevant", "re-export"),
+    "api/split_api.py::name": ("irrelevant", "string in a codegen list"),
     "control_plane/startup_validation.py::gate": (
         "enforcing",
         "the production configuration gate itself",
     ),
-    "oauth_service.py::signing secret": (
+    "auth/oauth_service.py::signing secret": (
         "enforcing",
         "the committed dev JWT secret must not be a fallback",
     ),
-    "oauth_service.py::asymmetric required": (
+    "auth/oauth_service.py::asymmetric required": (
         "enforcing",
         "symmetric HS256 signing is forbidden outside dev",
     ),
-    "security.py::secrets key": (
+    "auth/security.py::secrets key": (
         "enforcing",
         "deterministic dev Fernet key must not be a fallback",
     ),
@@ -201,7 +201,7 @@ def test_no_enforcing_site_still_compares_the_string_directly():
     """
     offenders: dict[str, list[str]] = {}
     for rel, n, line in env_sites():
-        if rel in {"env_config.py"}:
+        if rel in {"env_config.py", "core/env_config.py"}:
             continue
         if any(shape in line for shape in _FAIL_OPEN):
             offenders.setdefault(rel, []).append(f"{n}: {line[:110]}")

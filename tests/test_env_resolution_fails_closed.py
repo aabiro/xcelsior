@@ -186,7 +186,7 @@ def test_no_security_decision_compares_the_environment_string_directly():
     """
     offenders: dict[str, list[str]] = {}
     for path, rel in iter_source_files(exclude_prefixes=("api/migrations/", "api/wizard/")):
-        if rel == "env_config.py":  # the resolver is allowed to read the variable
+        if rel in ("env_config.py", "core/env_config.py"):  # the resolver is allowed to read the variable
             continue
         try:
             tree = ast.parse(read_source(path))
