@@ -7,11 +7,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadConnectAndInitialize } from "@stripe/connect-js/pure";
-import { createProviderAccountSession } from "@/lib/api";
+import posthog from "posthog-js";
+import { ApiError, createProviderAccountSession } from "@/lib/api";
 import { getStripePublishableKey } from "@/lib/stripe-client";
 import { STRIPE_CONNECT_APPEARANCE } from "@/lib/stripe-appearance";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { ExternalLink, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 export type ConnectEmbedMode = "setup" | "manage";
 
@@ -20,6 +21,9 @@ type Props = {
   /** When false, does not auto-mount. */
   active?: boolean;
   mode?: ConnectEmbedMode;
+  /** Starts hosted onboarding again; the server replaces an account Stripe no longer recognizes. */
+  onRestartOnboarding?: () => void;
+  restartingOnboarding?: boolean;
 };
 
 type ConnectInstance = ReturnType<typeof loadConnectAndInitialize>;
@@ -28,12 +32,15 @@ export function StripeConnectEmbedded({
   providerId,
   active = true,
   mode = "setup",
+  onRestartOnboarding,
+  restartingOnboarding = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<ConnectInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
+  const [needsRestart, setNeedsRestart] = useState(false);
 
   const mount = useCallback(async () => {
     if (!providerId || !containerRef.current) return;
@@ -45,20 +52,46 @@ export function StripeConnectEmbedded({
     setLoading(true);
     setError(null);
     setReady(false);
+    setNeedsRestart(false);
+    const fetchSecret = async () => {
+      const res = await createProviderAccountSession(providerId);
+      if (!res?.client_secret) {
+        throw new Error("Account session missing client_secret");
+      }
+      return res.client_secret;
+    };
     try {
+      // Fetch the first secret here, inside the try/catch. A 409 means Stripe
+      // no longer recognizes the account: that is an expected state, so show
+      // the restart action and do not hand connect-js a rejected promise.
+      let firstSecret: string | null;
+      try {
+        firstSecret = await fetchSecret();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          if (containerRef.current) containerRef.current.innerHTML = "";
+          setError(err.message);
+          setNeedsRestart(true);
+          return;
+        }
+        throw err;
+      }
       const instance = loadConnectAndInitialize({
         publishableKey: pk,
-        // connect-js calls this outside mount's try/catch, so surface the
-        // failure in the inline error box before rethrowing.
+        // connect-js calls this again when the session expires, outside
+        // mount's try/catch, so surface the failure in the inline error box
+        // before rethrowing.
         fetchClientSecret: async () => {
+          if (firstSecret) {
+            const secret = firstSecret;
+            firstSecret = null;
+            return secret;
+          }
           try {
-            const res = await createProviderAccountSession(providerId);
-            if (!res?.client_secret) {
-              throw new Error("Account session missing client_secret");
-            }
-            return res.client_secret;
+            return await fetchSecret();
           } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to start Stripe session");
+            setNeedsRestart(err instanceof ApiError && err.status === 409);
             setReady(false);
             throw err;
           }
@@ -135,6 +168,25 @@ export function StripeConnectEmbedded({
         <div className="rounded-lg border border-accent-red/30 bg-accent-red/10 px-3 py-2 text-xs text-accent-red">
           {error}
         </div>
+      )}
+      {needsRestart && onRestartOnboarding && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            posthog.capture("stripe_onboarding_restarted", { source: "payouts_panel", mode });
+            onRestartOnboarding();
+          }}
+          disabled={restartingOnboarding}
+        >
+          {restartingOnboarding ? (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
+          ) : (
+            <><ExternalLink className="h-3.5 w-3.5" /> Restart Stripe onboarding</>
+          )}
+        </Button>
       )}
       {ready && !error && (
         <p className="text-[11px] font-medium text-emerald">Connect components ready</p>
