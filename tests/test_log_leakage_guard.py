@@ -56,9 +56,9 @@ _ALLOWLIST: set[tuple[str, int]] = {
     # not any secret material — STRIPE_SECRET_KEY[:7] == "sk_live" or "sk_test".
     ("billing/stripe_connect.py", 50),
     # security.py warns that the dev key is in use — no value is logged.
-    ("security.py", 41),
+    ("auth/security.py", 41),
     # security.py logs failure to decrypt by *name*, not by value.
-    ("security.py", 1140),
+    ("auth/security.py", 1140),
     # worker_agent.py logs an exception object, not the credential value.
     ("workers/worker_agent.py", 593),
 }
