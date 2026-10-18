@@ -280,7 +280,7 @@ def test_routes_no_longer_hardfail_only_on_controller_missing():
     """Static: terminate/cancel controllers are wired; fail-closed strings gone as sole path."""
     from pathlib import Path
 
-    billing = Path("billing.py").read_text(encoding="utf-8")
+    billing = Path("billing/billing.py").read_text(encoding="utf-8")
     instances = Path("routes/instances.py").read_text(encoding="utf-8")
     assert "request_fenced_stop_remove" in billing
     assert "request_fenced_stop_remove" in instances

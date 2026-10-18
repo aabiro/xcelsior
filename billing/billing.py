@@ -3014,7 +3014,12 @@ class BillingEngine:
         # support phone + address; custom fields surface contact on the header).
         from pathlib import Path
 
-        dash_path = Path(__file__).resolve().parent / "config" / "stripe_dashboard.json"
+        _repo_root = Path(__file__).resolve().parent.parent
+        dash_path = (
+            _repo_root / "api" / "config" / "stripe_dashboard.json"
+            if (_repo_root / "api" / "config" / "stripe_dashboard.json").exists()
+            else _repo_root / "config" / "stripe_dashboard.json"
+        )
         if dash_path.exists():
             try:
                 dash = json.loads(dash_path.read_text())
@@ -3058,7 +3063,12 @@ class BillingEngine:
             "customer": stripe_customer_id,
             "return_url": f"{base_url}/dashboard/billing",
         }
-        dash_path = Path(__file__).resolve().parent / "config" / "stripe_dashboard.json"
+        _repo_root = Path(__file__).resolve().parent.parent
+        dash_path = (
+            _repo_root / "api" / "config" / "stripe_dashboard.json"
+            if (_repo_root / "api" / "config" / "stripe_dashboard.json").exists()
+            else _repo_root / "config" / "stripe_dashboard.json"
+        )
         if dash_path.exists():
             try:
                 portal_cfg = json.loads(dash_path.read_text()).get(

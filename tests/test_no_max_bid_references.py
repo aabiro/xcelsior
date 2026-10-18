@@ -24,8 +24,8 @@ ALLOWED_FRAGMENTS = (
 SCAN_DIRS = (
     "routes",
     "scheduler.py",
-    "marketplace.py",
-    "billing.py",
+    "billing/marketplace.py",
+    "billing/billing.py",
     "db.py",
     "api.py",
     "templates",

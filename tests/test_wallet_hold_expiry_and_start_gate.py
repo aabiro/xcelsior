@@ -271,7 +271,7 @@ def test_after_expiry_start_gate_passes(cleanup, monkeypatch):
 
 def test_inventory_start_gate_and_expiry_registration():
     root = Path(__file__).resolve().parents[1]
-    billing = (root / "billing.py").read_text()
+    billing = (root / "billing" / "billing.py").read_text()
     assert "def expire_stale_wallet_holds" in billing
     assert "def wallet_has_available_funds" in billing
     assert "wallet_has_available_funds" in billing

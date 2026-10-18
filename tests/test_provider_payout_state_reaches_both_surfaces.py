@@ -37,7 +37,7 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-PRODUCER = ROOT / "stripe_connect.py"
+PRODUCER = ROOT / "billing" / "stripe_connect.py"
 TS_TYPES = ROOT / "frontend/src/lib/api.ts"
 EARNINGS_PAGE = ROOT / "frontend/src/app/(dashboard)/dashboard/earnings/page.tsx"
 

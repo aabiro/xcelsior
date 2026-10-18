@@ -81,12 +81,12 @@ class TestEarlyTerminationFee:
         assert "api/v2/marketplace/reservations/{reservation_id}" in text
         assert (
             "early_termination_fee"
-            in (Path(__file__).resolve().parent.parent / "marketplace.py").read_text()
+            in (Path(__file__).resolve().parent.parent / "billing" / "marketplace.py").read_text()
         )
 
     def test_termination_fee_formula(self):
         """Fee = remaining_months * monthly_rate * 0.5."""
-        source = (Path(__file__).resolve().parent.parent / "marketplace.py").read_text()
+        source = (Path(__file__).resolve().parent.parent / "billing" / "marketplace.py").read_text()
         assert "* 0.5" in source
         assert "remaining_months" in source
 
@@ -192,20 +192,20 @@ class TestWebhookIdempotency:
 
     def test_webhook_inbox_insert_returns_200(self):
         """Webhook handler inserts to inbox and returns immediately."""
-        source = Path(__file__).resolve().parent.parent / "stripe_connect.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "stripe_connect.py"
         text = source.read_text()
         assert "stripe_event_inbox" in text
         assert "handle_webhook" in text
 
     def test_process_pending_events_exists(self):
         """Background worker processes pending inbox events."""
-        source = Path(__file__).resolve().parent.parent / "stripe_connect.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "stripe_connect.py"
         text = source.read_text()
         assert "process_pending_events" in text
 
     def test_idempotency_key_pattern(self):
         """Wallet transactions use idempotency keys."""
-        source = Path(__file__).resolve().parent.parent / "stripe_connect.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "stripe_connect.py"
         text = source.read_text()
         # Should reference unique event_id or idempotency
         assert "event_id" in text or "idempotency" in text
@@ -227,7 +227,7 @@ class TestAutoBillingCycle:
 
     def test_pro_rated_charge_calculation(self):
         """Billing uses per-second granularity."""
-        source = Path(__file__).resolve().parent.parent / "billing.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "billing.py"
         text = source.read_text()
         assert "duration_sec" in text or "duration_seconds" in text
         assert "rate_per_hour" in text
@@ -240,7 +240,7 @@ class TestLowBalancePause:
         # The payments hardening (hard-stop floor) removed the free-ride
         # GRACE_PERIOD_SEC: wallets now get a low-balance warning (grace_until
         # doubles as the warn watermark) and a hard stop at insufficient funds.
-        source = Path(__file__).resolve().parent.parent / "billing.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "billing.py"
         text = source.read_text()
         assert "grace_until" in text
         assert "hard_stop" in text
@@ -252,7 +252,7 @@ class TestLowBalancePause:
         assert hasattr(BillingEngine, "stop_jobs_for_suspended_wallets")
 
     def test_suspended_wallet_detection(self):
-        source = Path(__file__).resolve().parent.parent / "billing.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "billing.py"
         text = source.read_text()
         assert "status = 'suspended'" in text
 
@@ -321,7 +321,7 @@ class TestFINTRACThreshold:
     """test_fintrac_threshold — $10K BTC triggers LVCTR report."""
 
     def test_lvctr_threshold_exists(self):
-        source = Path(__file__).resolve().parent.parent / "billing.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "billing.py"
         text = source.read_text()
         assert "LVCTR" in text
         assert "10_000" in text or "10000" in text
@@ -334,7 +334,7 @@ class TestFINTRACThreshold:
 
     def test_24h_aggregation_rule(self):
         """Bitcoin module enforces 24-hour aggregate rule."""
-        source = Path(__file__).resolve().parent.parent / "bitcoin.py"
+        source = Path(__file__).resolve().parent.parent / "billing" / "bitcoin.py"
         text = source.read_text()
         assert "24" in text
         assert "aggregate" in text.lower() or "rolling" in text.lower()

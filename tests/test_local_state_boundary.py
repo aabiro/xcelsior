@@ -31,7 +31,7 @@ SQLITE_ALLOWED = {
     # Reads the SQLite side during the one-time consolidation.
     "scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
     # Test/dev-only path, gated on XCELSIOR_DB_BACKEND != postgres.
-    "bitcoin.py": "dev/test backend branch; production refuses a non-postgres backend",
+    "billing/bitcoin.py": "dev/test backend branch; production refuses a non-postgres backend",
     # Reads **Headscale's own** database, not Xcelsior state. Headscale stores
     # its tailnet — users, nodes, the Noise key — in sqlite by design; this is a
     # third-party product's storage opened `mode=ro` to count users and nodes,
@@ -63,6 +63,7 @@ _SKIP_PARTS = {
     "mcp",
     "desktop",
     "sprites",
+    "artifacts",
     ".git",
     "site-packages",
 }

@@ -31,7 +31,7 @@ KNOWN_SAFE = {
     # allowlist is a tuple of literals two lines from the query.
     "scripts/headscale_failover.py",
     # f"ORDER BY {order}" — order is mapped through _SORT_MAP allowlist.
-    "marketplace.py",
+    "billing/marketplace.py",
     # f"... SET {set_clause} ..." — keys come from ALLOWED_FIELDS set.
     "db.py",
     # f"... WHERE {where} ..." — where_parts are static literals, values via %s.

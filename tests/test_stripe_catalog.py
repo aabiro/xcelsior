@@ -16,7 +16,7 @@ from stripe_catalog import (
 
 @pytest.fixture
 def manifest() -> dict:
-    path = Path(__file__).resolve().parents[1] / "config" / "stripe_catalog.json"
+    path = Path(__file__).resolve().parents[1] / "billing" / "stripe_catalog.json"
     if not path.exists():
         pytest.skip("stripe_catalog.json manifest not present")
     return json.loads(path.read_text())
