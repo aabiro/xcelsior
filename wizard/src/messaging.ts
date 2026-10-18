@@ -40,10 +40,18 @@ export function summarizeFailure(items: CheckResult[]): string {
     const failed = items.filter((i) => !i.ok);
     if (failed.length === 0) return "All checks passed!";
 
-    const primary = failed[0];
-    const known = FAILURE_PHRASES.find((p) => p.match.test(primary.name));
-    const base = known ? known.phrase : `${primary.name} needs attention — guiding you through the fix`;
-
-    const extra = failed.length - 1;
-    return extra > 0 ? `${base} (+${extra} more)` : base;
+    const phrases = failed.map((item) => {
+        // A check that already wrote the problem and the next step must not be
+        // replaced by a canned cause such as "driver is too old".
+        if (item.detail && item.detail.length >= 40) {
+            if (item.remediation && item.remediation !== item.detail && !item.detail.includes(item.remediation)) {
+                return `${item.detail} ${item.remediation}`;
+            }
+            return item.detail;
+        }
+        const known = FAILURE_PHRASES.find((p) => p.match.test(item.name));
+        const phrase = known ? known.phrase : `${item.name} needs attention — guiding you through the fix`;
+        return item.remediation ? `${phrase}. ${item.remediation}` : phrase;
+    });
+    return phrases.join(" ");
 }
