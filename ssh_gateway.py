@@ -31,10 +31,11 @@ log = logging.getLogger("ssh-gateway")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-POSTGRES_DSN = os.environ.get(
-    "XCELSIOR_POSTGRES_DSN",
-    "postgresql://xcelsior:xcelsior@127.0.0.1:5432/xcelsior",
-)
+def _configured_postgres_dsn() -> str:
+    """Shared DSN from the environment. No built-in host, port, or password."""
+    return (os.environ.get("XCELSIOR_POSTGRES_DSN") or "").strip()
+
+
 HEALTH_PORT = int(os.environ.get("SSH_GW_HEALTH_PORT", "9510"))
 MAX_CONNS_PER_INSTANCE = int(os.environ.get("SSH_GW_MAX_CONNS", "10"))
 IDLE_TIMEOUT_SEC = int(os.environ.get("SSH_GW_IDLE_TIMEOUT", "3600"))  # 1 hour
@@ -107,9 +108,16 @@ class ListenerState:
 async def _get_pg_conn(**kwargs):
     """Create an async psycopg connection."""
     import psycopg
-    from control_plane.db_roles import connection_kwargs, resolve_service_dsn, roles_required
+    from control_plane.db_roles import connection_kwargs, roles_required, service_dsn_env_var
 
-    dsn = resolve_service_dsn("ssh_gateway", fallback=POSTGRES_DSN)
+    # Do not use the shared resolver's built-in developer DSN. A missing
+    # production setting must fail here, not connect to port 5432.
+    specific = (os.environ.get(service_dsn_env_var("ssh_gateway")) or "").strip()
+    if roles_required() and not specific:
+        raise RuntimeError("XCELSIOR_POSTGRES_DSN_SSH_GATEWAY is required")
+    dsn = specific or _configured_postgres_dsn()
+    if not dsn:
+        raise RuntimeError("SSH gateway requires XCELSIOR_POSTGRES_DSN")
     options = connection_kwargs("ssh_gateway")
     if roles_required():
         from control_plane.db_role_audit import require_runtime_role

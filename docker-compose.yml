@@ -1028,7 +1028,7 @@ services:
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
     environment:
-      DATA_SOURCE_URI: ${XCELSIOR_POSTGRES_EXPORTER_URI:-host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}?sslmode=disable}
+      DATA_SOURCE_URI: ${XCELSIOR_POSTGRES_EXPORTER_URI:-${XCELSIOR_POSTGRES_HOST:-host.docker.internal}:${XCELSIOR_POSTGRES_PORT:-5432}/${XCELSIOR_POSTGRES_DB:-xcelsior}?sslmode=disable}
       DATA_SOURCE_USER: ${XCELSIOR_POSTGRES_EXPORTER_USER:-xcelsior}
       DATA_SOURCE_PASS: ${XCELSIOR_POSTGRES_EXPORTER_PASSWORD:-${XCELSIOR_POSTGRES_PASSWORD:-}}
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"

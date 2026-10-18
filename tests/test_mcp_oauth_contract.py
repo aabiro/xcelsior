@@ -2,10 +2,11 @@
 
 import json
 import hashlib
+import os
 from types import SimpleNamespace
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 import oauth_service
 
@@ -51,6 +52,11 @@ def test_mcp_token_is_rs256_audience_bound_and_revocable(monkeypatch):
     }
     monkeypatch.setattr(oauth_service.OAuthStore, "get_client", lambda _: client)
     monkeypatch.setattr(oauth_service.OAuthStore, "update_last_used", lambda _: None)
+    monkeypatch.setattr(
+        oauth_service.OAuthStore,
+        "client_credential_revoked",
+        staticmethod(lambda _jti: False),
+    )
 
     bundle = oauth_service.issue_client_credentials_jwt(
         client,
@@ -91,12 +97,52 @@ def test_one_machine_token_revokes_without_disabling_the_client(monkeypatch):
         staticmethod(lambda jti, tenant_id, client_id, expires_at: revoked.add(jti)),
     )
 
+    def _resign(payload: dict) -> str:
+        key = json.loads(os.environ["XCELSIOR_OAUTH_JWT_KEYS_JSON"])["keys"][0]
+        header = {"alg": "RS256", "typ": "JWT", "kid": key["kid"]}
+        signing = ".".join(
+            [
+                oauth_service._base64url_encode(oauth_service._json_dumps(header).encode()),
+                oauth_service._base64url_encode(oauth_service._json_dumps(payload).encode()),
+            ]
+        )
+        private = serialization.load_pem_private_key(key["private_key_pem"].encode(), password=None)
+        signature = private.sign(signing.encode(), padding.PKCS1v15(), hashes.SHA256())
+        return f"{signing}.{oauth_service._base64url_encode(signature)}"
+
     first = oauth_service.issue_client_credentials_jwt(client, ["instances:read"])
     second = oauth_service.issue_client_credentials_jwt(client, ["instances:read"])
     assert oauth_service.revoke_client_credentials_jwt(first["access_token"]) is True
     assert oauth_service.validate_client_credentials_jwt(first["access_token"]) is None
     assert oauth_service.validate_client_credentials_jwt(second["access_token"]) is not None
     assert client["status"] == "active"
+    unsigned = json.loads(oauth_service._base64url_decode(second["access_token"].split(".")[1]))
+    unsigned.pop("jti")
+    assert oauth_service.validate_client_credentials_jwt(_resign(unsigned)) is None
+
+
+def test_revocation_lookup_failure_rejects_the_machine_token(monkeypatch):
+    monkeypatch.setenv("XCELSIOR_ENV", "production")
+    monkeypatch.setenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", _rsa_key_config())
+    client = {
+        "client_id": "mcp-client-test",
+        "client_secret_salt": "salt",
+        "status": "active",
+        "workspace_customer_id": "tenant-test",
+    }
+    monkeypatch.setattr(oauth_service.OAuthStore, "get_client", lambda _: client)
+    monkeypatch.setattr(oauth_service.OAuthStore, "update_last_used", lambda _: None)
+
+    def unavailable(_jti):
+        raise RuntimeError("revocation store unavailable")
+
+    monkeypatch.setattr(
+        oauth_service.OAuthStore,
+        "client_credential_revoked",
+        staticmethod(unavailable),
+    )
+    bundle = oauth_service.issue_client_credentials_jwt(client, ["instances:read"])
+    assert oauth_service.validate_client_credentials_jwt(bundle["access_token"]) is None
 
 
 def test_production_refuses_symmetric_machine_token(monkeypatch):

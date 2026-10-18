@@ -68,6 +68,18 @@ async def test_inventory_outage_keeps_established_relays(monkeypatch):
     assert server.closed is False
 
 
+@pytest.mark.asyncio
+async def test_gateway_requires_a_configured_database(monkeypatch):
+    monkeypatch.delenv("XCELSIOR_POSTGRES_DSN", raising=False)
+    monkeypatch.delenv("XCELSIOR_POSTGRES_DSN_SSH_GATEWAY", raising=False)
+    monkeypatch.delenv("XCELSIOR_PG_DSN", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "0")
+
+    with pytest.raises(RuntimeError, match="XCELSIOR_POSTGRES_DSN"):
+        await ssh_gateway._get_pg_conn()
+
+
 def test_route_query_excludes_suspended_accounts():
     import inspect
 

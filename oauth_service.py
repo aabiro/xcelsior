@@ -1212,15 +1212,19 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     if str(client.get("status", "active")) == "disabled" or account_suspended(client):
         return None
     jti = str(payload.get("jti") or "")
+    if not jti:
+        return None
     try:
-        if jti and OAuthStore.client_credential_revoked(jti):
+        if OAuthStore.client_credential_revoked(jti):
             return None
     except Exception:
-        # The client row was readable. A revocation-table miss or a lookup
-        # error must not reject every unrevoked machine token.
+        # A signed token whose revocation state cannot be read is not accepted.
+        # The client row was already loaded from this database, so a failure
+        # here is a broken denylist, not a reason to skip it.
         logging.getLogger("oauth").warning(
             "client credential revocation lookup failed", exc_info=True
         )
+        return None
 
     expected_secret_fingerprint = hashlib.sha256(
         f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
