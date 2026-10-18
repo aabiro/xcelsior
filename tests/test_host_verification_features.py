@@ -374,12 +374,12 @@ class TestMIGScheduling:
     """test_mig_scheduling — MIG-capable host scheduling."""
 
     def test_mig_detection(self):
-        source = Path(__file__).resolve().parent.parent / "security.py"
+        source = Path(__file__).resolve().parent.parent / "auth" / "security.py"
         text = source.read_text()
         assert "mig" in text.lower()
         assert "detect_mig" in text or "MIG" in text
 
     def test_mig_docker_args(self):
-        source = Path(__file__).resolve().parent.parent / "security.py"
+        source = Path(__file__).resolve().parent.parent / "auth" / "security.py"
         text = source.read_text()
         assert "build_mig_docker_args" in text or "mig" in text.lower()
