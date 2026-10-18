@@ -8,10 +8,11 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-PROJECT = Path(__file__).resolve().parent.parent
-ROUTES_DIR = PROJECT / "routes"
+_HERE = Path(__file__).resolve().parent
+PROJECT = _HERE.parent.parent if _HERE.parent.name == "api" else _HERE.parent
+ROUTES_DIR = (PROJECT / "api" / "routes") if (PROJECT / "api" / "routes").is_dir() else (PROJECT / "routes")
 TESTS_DIR = PROJECT / "tests"
-OUT = PROJECT / "UNTESTED_ENDPOINTS.md"
+OUT = PROJECT / "archive" / "UNTESTED_ENDPOINTS.md"
 
 ROUTE_RE = re.compile(
     r'@router\.(get|post|put|patch|delete)\(\s*["\']([^"\']+)["\']',
@@ -103,7 +104,7 @@ def _load_cli_test_corpus() -> str:
 
 
 def _parse_cli_commands(_corpus: str) -> list[tuple[str, str, bool]]:
-    cli = PROJECT / "cli.py"
+    cli = (PROJECT / "core" / "cli.py") if (PROJECT / "core" / "cli.py").exists() else (PROJECT / "cli.py")
     if not cli.exists():
         return []
     text = cli.read_text(encoding="utf-8", errors="replace")

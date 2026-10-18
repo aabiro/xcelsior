@@ -23,10 +23,15 @@
 # Costs real money: roughly $1.30 for the default 3 samples x 30 cases.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$(basename "$(dirname "${SCRIPT_DIR}")")" = "api" ]; then
+  REPO="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+else
+  REPO="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 PORT=39412
 SAMPLES=3
-OUT="${REPO}/eval-baseline.json"
+OUT="${REPO}/archive/eval-baseline.json"
 ONLY=""
 CASE=""
 LIMIT=""

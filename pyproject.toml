@@ -69,7 +69,7 @@ dependencies = [
 gpu = ["nvidia-ml-py~=13.590.48"]
 
 [project.scripts]
-xcelsior = "cli:main"
+xcelsior = "core.cli:main"
 
 [dependency-groups]
 dev = [
@@ -103,14 +103,14 @@ target-version = ["py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = ["templates"]
+exclude = ["templates", "api/templates"]
 
 [tool.ruff.lint]
 select = ["E9", "F63", "F7", "F82"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["archive", "billing", "workers", "auth", "hosts", "privacy", "api", "core"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
@@ -129,3 +129,8 @@ markers = [
     # going to be there. `-m` matches markers, which is the mechanism for this.
     "needs_db: requires a live PostgreSQL server; excluded from the sandboxed gates",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["archive*", "billing*", "workers*", "auth*", "hosts*", "privacy*", "api*", "core*"]
+
