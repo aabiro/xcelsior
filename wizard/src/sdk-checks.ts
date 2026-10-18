@@ -8,6 +8,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { detectEnvironment } from "./environment.js";
 import type { CheckResult } from "./checks.js";
+import {
+    SDK_FAIL_CREDENTIALS,
+    SDK_FAIL_NO_PACKAGE,
+    SDK_FAIL_PYTHON,
+    sdkInstallFailure,
+    unsupportedPackageManagerMessage,
+} from "./host-requirements.js";
 
 const exec = promisify(execFile);
 
@@ -36,7 +43,7 @@ export function checkSdkProject(): CheckResult[] {
         return [{
             name: "Project",
             ok: false,
-            detail: "This is a Python project; this path installs the TypeScript SDK",
+            detail: SDK_FAIL_PYTHON,
             remediation: "Call the REST API from Python with your xoa_ token, or press b to choose a different path",
             url: "https://docs.xcelsior.ca/api-overview",
         }];
@@ -45,7 +52,7 @@ export function checkSdkProject(): CheckResult[] {
         return [{
             name: "Project",
             ok: false,
-            detail: "No package.json found in this directory tree",
+            detail: SDK_FAIL_NO_PACKAGE,
             remediation: "cd into your app root (where package.json lives) and run the wizard again, or press b to choose a different path",
         }];
     }
@@ -61,7 +68,7 @@ export function projectPackageManager(root: string): string {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const declared = typeof pkg.packageManager === "string" ? pkg.packageManager.split("@")[0] : undefined;
     if (declared && !["npm", "pnpm", "yarn", "bun"].includes(declared)) {
-        throw new Error(`Unsupported package manager: ${declared}`);
+        throw new Error(unsupportedPackageManagerMessage(declared));
     }
     if (declared) return declared;
     if (existsSync(join(root, "pnpm-lock.yaml"))) return "pnpm";
@@ -87,7 +94,12 @@ export function packageManagerEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.
 export async function checkSdkPackage(): Promise<CheckResult[]> {
     const root = findProjectRoot(process.cwd());
     if (!existsSync(join(root, "package.json"))) {
-        return [{ name: SDK_PACKAGE, ok: false, detail: "A Node.js project with package.json is required" }];
+        return [{
+            name: SDK_PACKAGE,
+            ok: false,
+            detail: SDK_FAIL_NO_PACKAGE,
+            remediation: "cd into your app root (where package.json lives) and run the wizard again",
+        }];
     }
     const needsDotenv = detectEnvironment(root).framework !== "Next.js";
     const verify = async () => {
@@ -108,10 +120,18 @@ export async function checkSdkPackage(): Promise<CheckResult[]> {
         await verify();
         return [{ name: SDK_PACKAGE, ok: true, detail: `Installed with ${manager}; client import verified` }];
     } catch (error) {
-        return [{ name: SDK_PACKAGE, ok: false,
-            detail: error instanceof Error ? error.message : "SDK installation failed",
-            remediation: "Resolve the package-manager error above, then retry this step",
-        }];
+        const { redactSecrets } = await import("./wizard-state.js");
+        const raw = error instanceof Error ? error.message : "";
+        if (raw.includes("package manager")) {
+            return [{
+                name: SDK_PACKAGE,
+                ok: false,
+                detail: redactSecrets(raw),
+                remediation: "Change package.json to npm, pnpm, yarn, or bun, then retry this step",
+            }];
+        }
+        const failure = sdkInstallFailure(redactSecrets(raw));
+        return [{ name: SDK_PACKAGE, ok: false, detail: failure.detail, remediation: failure.remediation }];
     }
 }
 
@@ -168,7 +188,7 @@ export function writeSdkEnvSnippet(baseUrl: string, token: string, clientId?: st
     const framework = detectEnvironment(root).framework;
     const envPath = join(root, framework === "Next.js" ? ".env.local" : ".env");
     const useOAuth = !!(clientId && clientSecret);
-    if (!useOAuth && !token.startsWith("xcel_ai_")) throw new Error("SDK setup requires OAuth client credentials or a durable API key");
+    if (!useOAuth && !token.startsWith("xcel_ai_")) throw new Error(SDK_FAIL_CREDENTIALS);
     const values: Record<string, string> = { XCELSIOR_API_URL: baseUrl };
     if (useOAuth) {
         values.XCELSIOR_OAUTH_CLIENT_ID = clientId!;
@@ -188,7 +208,12 @@ export function writeSdkEnvSnippet(baseUrl: string, token: string, clientId?: st
 
 export async function checkSdkApi(baseUrl: string, token: string, clientId?: string, clientSecret?: string): Promise<CheckResult[]> {
     if ((!clientId || !clientSecret) && validateApiToken(token || "")) {
-        return [{ name: "SDK connection", ok: false, detail: "Complete authentication and credential setup first" }];
+        return [{
+            name: "SDK connection",
+            ok: false,
+            detail: SDK_FAIL_CREDENTIALS,
+            remediation: "Finish sign-in in the wizard, create an API key or OAuth client, then retry this step",
+        }];
     }
     try {
         const root = findProjectRoot(process.cwd());
@@ -200,7 +225,14 @@ export async function checkSdkApi(baseUrl: string, token: string, clientId?: str
         } });
         return [{ name: "SDK connection", ok: true, detail: "The installed SDK authenticated and listed instances" }];
     } catch (err) {
-        return [{ name: "SDK connection", ok: false, detail: err instanceof Error ? err.message : "SDK request failed" }];
+        const { redactSecrets } = await import("./wizard-state.js");
+        const raw = err instanceof Error ? err.message : "SDK request failed";
+        return [{
+            name: "SDK connection",
+            ok: false,
+            detail: "The installed SDK could not reach Xcelsior, so this app is not connected yet.",
+            remediation: `Check the API URL and credentials, then retry this step. It reported: ${redactSecrets(raw).split("\n")[0]?.slice(0, 180) ?? "the request failed"}`,
+        }];
     }
 }
 

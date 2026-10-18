@@ -3,6 +3,13 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import {
+    HOST_FAIL_DOCKER_DOWN,
+    HOST_FAIL_DOCKER_MISSING,
+    HOST_FAIL_GPU,
+    HOST_FAIL_NVIDIA_RUNTIME,
+    HOST_FAIL_NVIDIA_SMI,
+} from "./host-requirements.js";
 
 const exec = promisify(execFile);
 
@@ -48,22 +55,29 @@ export async function checkDocker(onItem?: (r: CheckResult) => void): Promise<Ch
     // Stream each item to the caller as it resolves (Part E — line-by-line status).
     const push = (r: CheckResult) => { results.push(r); onItem?.(r); };
 
-    const DOCKER_FIX = "Install Docker 24+ and start the daemon: https://docs.docker.com/engine/install/";
-
-    // 1. Docker daemon
-    const docker = await run("docker", ["info", "--format", "{{.ServerVersion}}"]);
-    if (docker.ok) {
-        const ver = parseVersion(docker.stdout);
-        const minVer: [number, number, number] = [24, 0, 0];
-        const ok = versionGte(ver, minVer);
-        push({
-            name: "Docker",
-            ok,
-            detail: ok ? `v${docker.stdout}` : `v${docker.stdout} — needs ≥24.0.0`,
-            ...(ok ? {} : { remediation: DOCKER_FIX }),
-        });
+    const dockerCli = await run("bash", ["-lc", "command -v docker"]);
+    if (!dockerCli.ok) {
+        push({ name: "Docker", ok: false, detail: HOST_FAIL_DOCKER_MISSING, remediation: HOST_FAIL_DOCKER_MISSING });
     } else {
-        push({ name: "Docker", ok: false, detail: "not found or daemon not running", remediation: DOCKER_FIX });
+        const docker = await run("docker", ["info", "--format", "{{.ServerVersion}}"]);
+        if (!docker.ok) {
+            push({ name: "Docker", ok: false, detail: HOST_FAIL_DOCKER_DOWN, remediation: HOST_FAIL_DOCKER_DOWN });
+        } else {
+            const runtime = await run("docker", ["info", "--format", "{{json .Runtimes}}"]);
+            if (!(runtime.ok && /nvidia/i.test(runtime.stdout))) {
+                push({ name: "Docker", ok: false, detail: HOST_FAIL_NVIDIA_RUNTIME, remediation: HOST_FAIL_NVIDIA_RUNTIME });
+            } else {
+                const ver = parseVersion(docker.stdout);
+                const minVer: [number, number, number] = [24, 0, 0];
+                const ok = versionGte(ver, minVer);
+                push({
+                    name: "Docker",
+                    ok,
+                    detail: ok ? `v${docker.stdout}` : `v${docker.stdout} — needs ≥24.0.0`,
+                    ...(ok ? {} : { remediation: "Upgrade Docker Engine to 24 or newer and restart it: https://docs.docker.com/engine/install/" }),
+                });
+            }
+        }
     }
 
     // 2. Docker Compose
@@ -75,17 +89,18 @@ export async function checkDocker(onItem?: (r: CheckResult) => void): Promise<Ch
     }
 
     // 3. NVIDIA Container Toolkit (nvidia-smi)
-    const nvidia = await run("nvidia-smi", ["--query-gpu=driver_version", "--format=csv,noheader"]);
-    if (nvidia.ok) {
+    const nvidiaCli = await run("bash", ["-lc", "command -v nvidia-smi"]);
+    const nvidia = nvidiaCli.ok
+        ? await run("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"])
+        : { stdout: "", ok: false };
+    if (nvidia.ok && nvidia.stdout.trim()) {
         const driver = nvidia.stdout.split("\n")[0];
-        push({ name: "NVIDIA Driver", ok: true, detail: `v${driver}` });
+        push({ name: "NVIDIA Driver", ok: true, detail: driver });
+    } else if (!nvidiaCli.ok) {
+        push({ name: "NVIDIA Driver", ok: false, detail: HOST_FAIL_NVIDIA_SMI, remediation: HOST_FAIL_NVIDIA_SMI });
     } else {
-        push({
-            name: "NVIDIA Driver", ok: false, detail: "nvidia-smi not found or no GPU",
-            remediation: "Install the NVIDIA driver 550+: https://www.nvidia.com/Download/index.aspx",
-        });
+        push({ name: "NVIDIA Driver", ok: false, detail: HOST_FAIL_GPU, remediation: HOST_FAIL_GPU });
     }
-
     // 4. runc version (gVisor compatibility)
     const runc = await run("runc", ["--version"]);
     if (runc.ok) {
