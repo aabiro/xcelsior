@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+[[ "$(basename "$PROJECT_DIR")" == "api" ]] && PROJECT_DIR="$(dirname "$PROJECT_DIR")"
 
 cd "$PROJECT_DIR"
 uv export --no-dev --format requirements-txt -o requirements.txt

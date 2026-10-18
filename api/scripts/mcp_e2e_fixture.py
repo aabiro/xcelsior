@@ -15,7 +15,9 @@ import sys
 import time
 import uuid
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+_ROOT = pathlib.Path(__file__).resolve().parents[2]
+for _pkg in ("archive", "billing", "workers", "auth", "hosts", "privacy", "api", "core", ""):
+    sys.path.insert(0, str(_ROOT / _pkg if _pkg else _ROOT))
 
 from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
 from control_plane.scheduler.service import SchedulerService

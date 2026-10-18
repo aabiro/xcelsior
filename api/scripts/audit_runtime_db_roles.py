@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+for _p in (Path(__file__).resolve().parents[1], Path(__file__).resolve().parents[2]):
+    sys.path.insert(0, str(_p))
 
 import psycopg
 from control_plane.db_roles import SERVICE_ROLES, service_dsn_env_var

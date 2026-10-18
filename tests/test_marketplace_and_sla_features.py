@@ -504,7 +504,7 @@ class TestPyPIPackaging:
         with open(os.path.join(os.path.dirname(__file__), "..", "pyproject.toml"), "rb") as f:
             data = tomllib.load(f)
 
-        assert data["project"]["scripts"]["xcelsior"] == "cli:main"
+        assert data["project"]["scripts"]["xcelsior"] == "core.cli:main"
 
     def test_requirements_has_rich(self):
         """requirements.txt includes rich."""

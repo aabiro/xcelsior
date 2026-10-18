@@ -37,7 +37,9 @@ def _webhook_secret() -> bytes:
 
         raw = API_TOKEN
     if not raw:
-        if os.environ.get("XCELSIOR_ENV", "production").lower() not in {"test", "dev", "development"}:
+        import env_config
+
+        if not env_config.is_relaxed_env():
             raise PublicHTTPError("webhook signing secret is not configured")
         raw = "xcelsior-serverless-webhook-dev"
     return raw.encode("utf-8")

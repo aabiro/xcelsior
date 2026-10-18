@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: mcp-cli
+        working-directory: api/mcp-cli
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,7 +24,7 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
       - run: npm run build
-        working-directory: mcp
+        working-directory: api/mcp
       - run: rm -rf dist && cp -r ../mcp/dist ./dist
       - run: npm publish --access public
         env:
