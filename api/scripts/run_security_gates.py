@@ -22,7 +22,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TESTS = [
     "tests/test_public_http.py",
     "tests/test_serverless_limits_webhooks.py",
@@ -167,18 +167,18 @@ def main() -> int:
             or p
             in {
                 "docker-compose.yml",
-                "scripts/install_nginx_vhosts.sh",
+                "api/scripts/install_nginx_vhosts.sh",
                 "pyproject.toml",
                 "uv.lock",
                 "requirements.txt",
-                "scripts/run_security_gates.py",
-                "scripts/worker-requirements.txt",
-                "scripts/worker-requirements.txt.sig",
-                "scripts/worker_agent.py.sig",
-                "scripts/agent-signing.pub",
-                "mcp/package.json",
-                "mcp/package-lock.json",
-                "infra/observability/prometheus/alert-rules.yml",
+                "api/scripts/run_security_gates.py",
+                "api/scripts/worker-requirements.txt",
+                "api/scripts/worker-requirements.txt.sig",
+                "api/scripts/worker_agent.py.sig",
+                "api/scripts/agent-signing.pub",
+                "api/mcp/package.json",
+                "api/mcp/package-lock.json",
+                "api/infra/observability/prometheus/alert-rules.yml",
                 ".github/workflows/ci.yml",
             }
         )
@@ -253,7 +253,7 @@ def main() -> int:
                 "worker_billing",
                 [
                     sys.executable,
-                    "scripts/worker_billing_acceptance.py",
+                    "api/scripts/worker_billing_acceptance.py",
                     "--output",
                     str(output / "worker_billing.json"),
                     "--image",

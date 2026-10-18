@@ -3,6 +3,7 @@
 # Example: ./scripts/run_staging_compose.sh up -d api
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[[ "$(basename "$ROOT")" == "api" ]] && ROOT="$(dirname "$ROOT")"
 cd "$ROOT"
 
 if [[ ! -f .env.staging ]]; then

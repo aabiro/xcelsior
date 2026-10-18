@@ -220,7 +220,8 @@ def _routes_that_verify_host_tokens() -> list[str]:
 
     auth_entry = "_require_agent_auth"
     handlers: set[str] = set()
-    for module in sorted(pathlib.Path("routes").glob("*.py")):
+    routes_dir = pathlib.Path(__file__).resolve().parent.parent / "api" / "routes"
+    for module in sorted(routes_dir.glob("*.py")):
         tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

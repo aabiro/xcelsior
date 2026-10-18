@@ -28,7 +28,7 @@ command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
 # one file while the runner serves three is a check that looks in the wrong
 # place — so the set is *discovered* from the workflows rather than listed.
 mapfile -t _sandboxed_workflows < <(
-    git -C "$HERE/../.." grep -lE 'runs-on:\s*\[\s*self-hosted\s*,\s*sandboxed\s*\]' \
+    git -C "$HERE/../../.." grep -lE 'runs-on:\s*\[\s*self-hosted\s*,\s*sandboxed\s*\]' \
         HEAD -- .github/workflows 2>/dev/null | sed 's|^HEAD:||' || true
 )
 
@@ -38,7 +38,7 @@ if [[ ${#_sandboxed_workflows[@]} -eq 0 ]]; then
 fi
 
 for _wf_path in "${_sandboxed_workflows[@]}"; do
-    _wf="$(git -C "$HERE/../.." show "HEAD:$_wf_path" 2>/dev/null || true)"
+    _wf="$(git -C "$HERE/../../.." show "HEAD:$_wf_path" 2>/dev/null || true)"
     [[ -n "$_wf" ]] || continue
     # `on:` triggers only — a `paths:` entry mentioning pull_request, or a job
     # named for one, is not a trigger. Anchored at two-space indent, which is

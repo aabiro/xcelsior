@@ -2034,8 +2034,9 @@ def _validate_ws_auth(
     if not token:
         return None
     from types import SimpleNamespace
+    from typing import cast
 
-    request = SimpleNamespace(headers={"authorization": "Bearer " + token}, cookies={})
+    request = cast(Request, SimpleNamespace(headers={"authorization": "Bearer " + token}, cookies={}))
     try:
         user = _get_current_user(request)
         if user and user.get("auth_type") == "master_token":

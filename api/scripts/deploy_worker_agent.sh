@@ -13,6 +13,7 @@ echo "⚠  DEV/ADMIN ONLY — do not include in provider onboarding artifacts" >
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+[[ "$(basename "$PROJECT_DIR")" == "api" ]] && PROJECT_DIR="$(dirname "$PROJECT_DIR")"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 SSH_CONTROL_PATH="${XCELSIOR_SSH_CONTROL_PATH:-$HOME/.ssh/cm-worker-%r@%h:%p}"
 WORKER_HOST=""
@@ -36,7 +37,7 @@ fi
 WORKER_USER="${WORKER_USER:-$USER}"
 REMOTE_DIR="${REMOTE_DIR:-$HOME/storage/projects/xcelsior}"
 
-SRC="$PROJECT_DIR/worker_agent.py"
+SRC="$PROJECT_DIR/workers/worker_agent.py"
 if [[ ! -f "$SRC" ]]; then
   echo "worker_agent.py not found at $SRC" >&2
   exit 1

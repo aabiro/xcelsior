@@ -3,7 +3,7 @@ name: Frontend CI
 on:
   pull_request:
     paths:
-      - 'frontend/**'
+      - 'api/frontend/**'
   push:
     branches: [main]
 
@@ -16,7 +16,7 @@ env:
 
 defaults:
   run:
-    working-directory: frontend
+    working-directory: api/frontend
 
 jobs:
   lint:
@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: api/frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Lint
@@ -57,7 +57,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: api/frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Run tests
@@ -79,7 +79,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: api/frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Type check
@@ -101,7 +101,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: api/frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Build

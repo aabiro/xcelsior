@@ -39,7 +39,9 @@ def project_root() -> Path:
         return Path(env)
     here = Path(__file__).resolve()
     checkout = here.parent.parent
-    if (checkout / "infra" / "headscale").is_dir():
+    if checkout.name == "api" and (checkout / "infra" / "headscale").is_dir():
+        return checkout.parent
+    if (checkout / "infra" / "headscale").is_dir() or (checkout / "api" / "infra" / "headscale").is_dir():
         return checkout
     return Path("/mnt/storage/projects/xcelsior")
 
@@ -886,7 +888,9 @@ def install_replica_into_live(settings: Settings, replica: ReplicaStatus) -> Non
     if config.is_file():
         copy_file(config, dest_config)
     elif not dest_config.is_file():
-        template = PROJECT / "infra" / "headscale" / "config.yaml"
+        template = PROJECT / "api" / "infra" / "headscale" / "config.yaml"
+        if not template.is_file():
+            template = PROJECT / "infra" / "headscale" / "config.yaml"
         if template.is_file():
             copy_file(template, dest_config)
     rewrite_server_url(dest_config, settings.login_server)
