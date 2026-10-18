@@ -24,8 +24,12 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATOR = ROOT / "scripts" / "regenerate_untested_endpoints.py"
-REPORT = ROOT / "UNTESTED_ENDPOINTS.md"
+GENERATOR = (
+    ROOT / "api" / "scripts" / "regenerate_untested_endpoints.py"
+    if (ROOT / "api" / "scripts" / "regenerate_untested_endpoints.py").exists()
+    else ROOT / "scripts" / "regenerate_untested_endpoints.py"
+)
+REPORT = ROOT / "archive" / "UNTESTED_ENDPOINTS.md"
 
 #: The one line allowed to differ: it carries the generation date.
 STAMP_PREFIX = "_Regenerated "

@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-10-12 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-10-18 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**0 of 531 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
+**2 of 535 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -14,7 +14,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 > Re-measure with `scripts/measure_route_execution.py` after a coverage run. Prefer it to the count above whenever the two are used to decide whether something is covered.
 
-## Routes (0 untested)
+## Routes (2 untested)
 
 ### `routes/action_plans.py` (0 untested)
 - [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
@@ -28,7 +28,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/v1/placements/evaluate` — `api_evaluate_placement`
 - [x] `POST /api/v1/placements/simulate` — `api_simulate_placement`
 
-### `routes/admin.py` (0 untested)
+### `routes/admin.py` (1 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/agent-tokens/coverage` — `api_admin_agent_token_coverage`
 - [x] `POST /api/admin/agent/rollout` — `api_admin_agent_rollout`  ✓ test_admin_endpoints_coverage.py
@@ -40,6 +40,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/admin/hosts/{host_id}/agent-tokens` — `api_admin_issue_host_agent_token`
 - [x] `POST /api/admin/hosts/{host_id}/agent-tokens/revoke` — `api_admin_revoke_host_agent_tokens`
 - [x] `GET /api/admin/infrastructure` — `api_admin_infrastructure`  ✓ test_admin_endpoints_coverage.py
+- [ ] `GET /api/admin/meta-capi/quality` — `api_admin_meta_capi_quality`
 - [x] `GET /api/admin/overview` — `api_admin_overview`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/reconciler/findings` — `api_admin_reconciler_findings`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/reconciler/findings/{finding_id}/dismiss` — `api_admin_reconciler_dismiss`
@@ -51,6 +52,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/admin/teams/{team_id}/members/{email}` — `api_admin_remove_team_member`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/unit-economics` — `api_admin_unit_economics`  ✓ test_admin_endpoints_coverage.py
 - [x] `GET /api/admin/users` — `api_admin_users`  ✓ test_admin_endpoints_coverage.py
+- [x] `POST /api/admin/users/{email}/delete` — `api_admin_delete_user`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/role` — `api_admin_set_user_role`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/suspend` — `api_admin_suspend_user`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/users/{email}/toggle-admin` — `api_admin_toggle_admin`  ✓ test_admin_endpoints_coverage.py
@@ -99,7 +101,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/artifacts/{job_id}` — `api_list_artifacts`  ✓ test_artifacts_endpoints_coverage.py
 - [x] `GET /api/artifacts/{job_id}/expiry` — `api_artifact_expiry`  ✓ test_artifacts_endpoints_coverage.py
 
-### `routes/auth.py` (0 untested)
+### `routes/auth.py` (1 untested)
 - [x] `GET /.well-known/jwks.json` — `oauth_jwks_document`  ✓ test_untested_endpoints_coverage.py
 - [x] `GET /.well-known/oauth-authorization-server` — `oauth_authorization_server_metadata`
 - [x] `GET /api/agent-keys` — `api_list_agent_keys`  ✓ test_untested_endpoints_coverage.py
@@ -123,6 +125,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `PUT /api/auth/me/profile` — `api_auth_put_profile`  ✓ test_untested_endpoints_coverage.py
 - [x] `POST /api/auth/oauth/facebook/deauthorize` — `facebook_deauthorize`
 - [x] `POST /api/auth/oauth/facebook/delete-data` — `facebook_delete_data`
+- [x] `GET /api/auth/oauth/providers` — `oauth_providers`
 - [x] `POST /api/auth/oauth/{provider}` — `api_auth_oauth_initiate`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/oauth/{provider}/callback` — `api_auth_oauth_callback`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/password-reset` — `api_auth_password_reset`
@@ -151,6 +154,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /oauth/authorize` — `oauth_authorize_decision`
 - [x] `POST /oauth/device/authorize` — `oauth_device_authorize`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /oauth/register` — `oauth_dynamic_client_registration`
+- [ ] `POST /oauth/revoke` — `oauth_revoke`
 - [x] `POST /oauth/token` — `oauth_token`  ✓ test_hosts_endpoints_coverage.py
 
 ### `routes/autoscale.py` (0 untested)
@@ -296,7 +300,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/status` — `service_status`
 - [x] `GET /api/stream` — `sse_stream`
 - [x] `POST /build` — `api_list_builds`  ✓ test_health_endpoints_coverage.py
-- [x] `POST /build/{model}/dockerfile` — `_sse_generator`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /build/{model}/dockerfile` — `_dashboard_event_visible`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /builds` — `api_generate_dockerfile`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /dashboard` — `dashboard`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /healthz` — `healthz`  ✓ test_health_endpoints_coverage.py

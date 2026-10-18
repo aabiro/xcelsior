@@ -5476,8 +5476,14 @@ def start_spot_price_monitor(interval=None, callback=None):
 # Xcelsior Compute Unit: normalize GPU performance across consumer cards.
 # RTX 3090 and 4090 both have 24GB VRAM but 4090 has ~2x TFLOPS.
 
+_SCHEDULER_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = (
+    os.path.dirname(_SCHEDULER_DIR)
+    if os.path.basename(_SCHEDULER_DIR) == "workers"
+    else _SCHEDULER_DIR
+)
 COMPUTE_SCORES_FILE = os.environ.get(
-    "XCELSIOR_COMPUTE_SCORES_FILE", os.path.join(os.path.dirname(__file__), "compute_scores.json")
+    "XCELSIOR_COMPUTE_SCORES_FILE", os.path.join(_REPO_ROOT, "archive", "compute_scores.json")
 )
 
 # Reference TFLOPS for common GPUs (FP16 tensor core)

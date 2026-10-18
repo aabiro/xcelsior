@@ -11,10 +11,22 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add project root to sys.path so `import scheduler`, `from api import app`, etc. work
+# Add project root and package subdirectories to sys.path so `import scheduler`, `from api import app`, etc. work
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+_PACKAGE_DIRS = [
+    os.path.join(PROJECT_ROOT, pkg)
+    for pkg in ("archive", "billing", "workers", "auth", "hosts", "privacy", "api", "core")
+]
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+for _pkg_dir in reversed(_PACKAGE_DIRS):
+    if _pkg_dir in sys.path:
+        sys.path.remove(_pkg_dir)
+    sys.path.insert(0, _pkg_dir)
+
+_existing_pypath = os.environ.get("PYTHONPATH", "")
+_pypath_entries = _PACKAGE_DIRS + [PROJECT_ROOT] + ([_existing_pypath] if _existing_pypath else [])
+os.environ["PYTHONPATH"] = os.pathsep.join(_pypath_entries)
 
 # Load test environment BEFORE any module imports touch os.environ
 from dotenv import load_dotenv
