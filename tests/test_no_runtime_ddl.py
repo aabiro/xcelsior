@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MIG_061 = PROJECT_ROOT / "migrations" / "versions" / "061_residual_runtime_ddl.py"
+MIG_061 = PROJECT_ROOT / "api" / "migrations" / "versions" / "061_residual_runtime_ddl.py"
 
 
 try:

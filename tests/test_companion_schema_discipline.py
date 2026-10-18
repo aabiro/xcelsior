@@ -43,7 +43,7 @@ except Exception as _probe_error:  # pragma: no cover - environment dependent
 # from this revision onward had no excuse to diverge.
 FIRST_GOVERNED_REVISION = "080"
 
-MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations" / "versions"
+MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "api" / "migrations" / "versions"
 
 # The trailing `(` is what keeps prose out of the result — several migrations
 # discuss `CREATE TABLE IF NOT EXISTS` in their docstrings.
@@ -340,7 +340,7 @@ def test_no_float_cad_column_shadows_a_micros_column():
 # the document is checked against the database like everything else here.
 COMPANION_DOC = (
     pathlib.Path(__file__).resolve().parent.parent
-    / "docs"
+    / "api" / "docs"
     / "xcelsior-production-data-architecture-companion.md"
 )
 

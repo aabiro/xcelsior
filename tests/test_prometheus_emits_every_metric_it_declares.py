@@ -68,7 +68,7 @@ def test_the_inference_throughput_metric_is_exported(exposition):
 
 
 def test_every_unlabelled_hand_rolled_metric_has_a_sample(exposition):
-    health_src = (Path(__file__).resolve().parents[1] / "routes" / "health.py").read_text(
+    health_src = (Path(__file__).resolve().parents[1] / "api" / "routes" / "health.py").read_text(
         encoding="utf-8"
     )
     declared = set(re.findall(r"#\s*TYPE\s+([a-zA-Z_][a-zA-Z0-9_]*)", health_src))

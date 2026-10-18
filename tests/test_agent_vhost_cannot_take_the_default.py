@@ -40,7 +40,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-NGINX = Path(__file__).resolve().parent.parent / "nginx"
+NGINX = Path(__file__).resolve().parent.parent / "api" / "nginx"
 AGENT = NGINX / "agent-xcelsior.conf"
 
 _LISTEN = re.compile(r"^\s*listen\s+([^;]+);", re.M)

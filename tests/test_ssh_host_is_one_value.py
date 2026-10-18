@@ -39,10 +39,10 @@ SOURCES = {
     "ai_assistant_config.py": re.compile(
         r'SSH_HOST\s*=\s*os\.environ\.get\(\s*"XCELSIOR_SSH_HOST",\s*"([^"]+)"'
     ),
-    "frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx": re.compile(
+    "api/frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx": re.compile(
         r'SSH_HOST\s*=\s*process\.env\.NEXT_PUBLIC_SSH_HOST\s*\|\|\s*"([^"]+)"'
     ),
-    "mcp/src/config.ts": re.compile(r'process\.env\.XCELSIOR_SSH_HOST\s*\|\|\s*"([^"]+)"'),
+    "api/mcp/src/config.ts": re.compile(r'process\.env\.XCELSIOR_SSH_HOST\s*\|\|\s*"([^"]+)"'),
 }
 
 

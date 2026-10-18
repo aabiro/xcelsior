@@ -34,7 +34,7 @@ from tests.test_from_empty_bootstrap import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ENV_PY = PROJECT_ROOT / "migrations" / "env.py"
+ENV_PY = PROJECT_ROOT / "api" / "migrations" / "env.py"
 
 DEADLOCK = "40P01"
 LOCK_TIMEOUT = "55P03"

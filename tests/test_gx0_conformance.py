@@ -76,7 +76,7 @@ class OAuthServer:
                 },
             )
         if path == "/gx0/client-v1.json":
-            document = json.loads(Path("scripts/fixtures/gx0-client-v1.json").read_text())
+            document = json.loads(Path("api/scripts/fixtures/gx0-client-v1.json").read_text())
             return httpx.Response(200, json=document)
         if path == "/oauth/authorize":
             params = request.url.params

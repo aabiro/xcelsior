@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _function(name: str) -> str:
-    script = (ROOT / "scripts/deploy.sh").read_text()
+    script = (ROOT / "api/scripts/deploy.sh").read_text()
     match = re.search(rf"^{name}\(\) \{{\n.*?^\}}\n", script, re.M | re.S)
     assert match
     return match.group(0)

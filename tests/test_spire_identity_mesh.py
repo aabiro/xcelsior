@@ -26,8 +26,8 @@ import yaml
 from control_plane import identity
 
 ROOT = Path(__file__).resolve().parent.parent
-SPIRE = ROOT / "infra" / "spire"
-ENVOY = ROOT / "infra" / "envoy" / "agent-gateway.yaml"
+SPIRE = ROOT / "api" / "infra" / "spire"
+ENVOY = ROOT / "api" / "infra" / "envoy" / "agent-gateway.yaml"
 
 
 # ── The identity contract ─────────────────────────────────────────────
@@ -429,7 +429,7 @@ def test_spire_agent_binds_svids_to_the_workload():
 
 def test_nginx_interim_gateway_does_not_fabricate_a_spiffe_id():
     """A certificate DN is not an SVID; synthesising one would be a lie."""
-    conf = (ROOT / "nginx" / "agent-xcelsior.conf").read_text()
+    conf = (ROOT / "api" / "nginx" / "agent-xcelsior.conf").read_text()
     assert "ssl_verify_client on" in conf
     # It may blank the header, but must never populate it from $ssl_client_s_dn.
     assert not re.search(r"proxy_set_header\s+X-Worker-Spiffe-Id\s+\$ssl_client_s_dn", conf)
@@ -440,7 +440,7 @@ def test_nginx_interim_gateway_does_not_fabricate_a_spiffe_id():
 
 def test_nginx_agent_gateway_has_its_own_limits():
     """§22.3: worker traffic must not share the user API's budget."""
-    conf = (ROOT / "nginx" / "agent-xcelsior.conf").read_text()
+    conf = (ROOT / "api" / "nginx" / "agent-xcelsior.conf").read_text()
     assert "limit_req_zone" in conf
     assert "client_max_body_size" in conf
     assert "location /agent/v2/" in conf

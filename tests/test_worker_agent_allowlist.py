@@ -21,7 +21,7 @@ def _server_side_allowlist() -> set[str]:
     """
     import ast
 
-    tree = ast.parse((Path(__file__).resolve().parent.parent / "routes" / "agent.py").read_text())
+    tree = ast.parse((Path(__file__).resolve().parent.parent / "api" / "routes" / "agent.py").read_text())
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:

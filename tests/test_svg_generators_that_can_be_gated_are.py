@@ -42,8 +42,8 @@ ROOT = Path(__file__).resolve().parents[1]
 #: matches their committed assets belong here; adding a diverged one would
 #: demand regeneration that destroys hand-evolved artwork.
 GATED = {
-    "generate_features_svgs.py": ROOT / "frontend" / "public" / "features",
-    "generate_gpu_page_svgs.py": ROOT / "frontend" / "public" / "gpu-fleet",
+    "generate_features_svgs.py": ROOT / "api" / "frontend" / "public" / "features",
+    "generate_gpu_page_svgs.py": ROOT / "api" / "frontend" / "public" / "gpu-fleet",
 }
 
 
@@ -54,7 +54,7 @@ def _regenerate_and_compare(generator: str, out_dir: Path) -> list[str]:
         shutil.copytree(out_dir, backup)
         try:
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / generator)],
+                [sys.executable, str(ROOT / "api" / "scripts" / generator)],
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
@@ -101,5 +101,5 @@ def test_the_gated_set_is_not_empty() -> None:
 def test_every_gated_generator_and_output_directory_exists() -> None:
     """A renamed generator would silently stop being checked."""
     for generator, out_dir in GATED.items():
-        assert (ROOT / "scripts" / generator).is_file(), f"{generator} no longer exists"
+        assert (ROOT / "api" / "scripts" / generator).is_file(), f"{generator} no longer exists"
         assert out_dir.is_dir(), f"{out_dir} no longer exists"

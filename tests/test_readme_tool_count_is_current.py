@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
-SURFACE = ROOT / "mcp" / "tool-surface.json"
+SURFACE = ROOT / "api" / "mcp" / "tool-surface.json"
 
 
 def _published_count() -> int:

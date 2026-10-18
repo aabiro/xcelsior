@@ -259,7 +259,7 @@ def test_the_fingerprint_command_is_on_both_allowlists():
 
     assert "fingerprint_environment" in worker_agent._AGENT_COMMAND_ALLOWED
 
-    tree = ast.parse(pathlib.Path("routes/agent.py").read_text(encoding="utf-8"))
+    tree = ast.parse(pathlib.Path("api/routes/agent.py").read_text(encoding="utf-8"))
     server: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(

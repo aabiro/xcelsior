@@ -26,7 +26,7 @@ import pytest
 
 from control_plane.launch.canonicalize import canonicalize, spec_hash
 
-ROUTES_DIR = pathlib.Path(__file__).resolve().parent.parent / "routes"
+ROUTES_DIR = pathlib.Path(__file__).resolve().parent.parent / "api" / "routes"
 
 # The only request handlers permitted to run the queue walker: they *are* the
 # on-demand queue processor (admin triggers), not a launch path.

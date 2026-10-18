@@ -39,7 +39,7 @@ import pathlib
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-SERVERLESS = REPO / "routes" / "serverless.py"
+SERVERLESS = REPO / "api" / "routes" / "serverless.py"
 
 MUTATING = {"post", "patch", "delete", "put"}
 

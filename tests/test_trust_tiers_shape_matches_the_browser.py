@@ -122,7 +122,7 @@ def test_thresholds_are_ordered_so_a_ladder_reads_as_one():
     )
 
 
-REPUTATION_PAGE = ROOT / "frontend/src/app/(dashboard)/dashboard/reputation/page.tsx"
+REPUTATION_PAGE = ROOT / "api/frontend/src/app/(dashboard)/dashboard/reputation/page.tsx"
 
 
 def _hardcoded_ladder() -> dict[str, dict[str, str]]:
@@ -214,7 +214,7 @@ def test_the_dashboards_tier_maps_key_on_the_ladder_it_renders():
     """
     import re
 
-    page = (ROOT / "frontend/src/app/(dashboard)/dashboard/trust/page.tsx").read_text(
+    page = (ROOT / "api/frontend/src/app/(dashboard)/dashboard/trust/page.tsx").read_text(
         encoding="utf-8"
     )
     sent = {str(entry["tier"]) for entry in _tiers()}

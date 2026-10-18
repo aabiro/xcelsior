@@ -1635,7 +1635,9 @@ def api_llms_txt():
     Per Report #1.B: "Standard llms.txt for AI agents".
     See https://llmstxt.org for specification.
     """
-    llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
+    llms_path = Path(__file__).resolve().parents[2] / "llms.txt"
+    if not llms_path.exists():
+        llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
     if llms_path.exists():
         from fastapi.responses import PlainTextResponse
 

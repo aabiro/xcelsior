@@ -41,7 +41,7 @@ import subprocess
 from control_plane.schema_compat import REQUIRED_MIN_REVISION
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-MIGRATIONS = REPO / "migrations" / "versions"
+MIGRATIONS = REPO / "api" / "migrations" / "versions"
 
 _ADD_COLUMN_DDL = re.compile(r"ADD COLUMN(?:\s+IF NOT EXISTS)?\s+([a-z_][a-z0-9_]*)", re.IGNORECASE)
 _ADD_COLUMN_OP = re.compile(
@@ -66,7 +66,7 @@ def _application_sql() -> str:
 
     chunks: list[str] = []
     for rel in listed:
-        if not rel or rel.startswith(("tests/", "migrations/", "scripts/")):
+        if not rel or rel.startswith(("tests/", "api/migrations/", "api/scripts/")):
             continue
         path = REPO / rel
         if not path.is_file():
@@ -141,5 +141,5 @@ def test_the_floor_names_a_migration_that_exists():
     }
     assert REQUIRED_MIN_REVISION in revisions, (
         f"REQUIRED_MIN_REVISION={REQUIRED_MIN_REVISION!r} is not a migration in "
-        "migrations/versions/"
+        "api/migrations/versions/"
     )

@@ -40,10 +40,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:${PATH}" \
-    HOME=/home/xcelsior
+    HOME=/home/xcelsior \
+    PYTHONPATH="/app/archive:/app/billing:/app/workers:/app/auth:/app/hosts:/app/privacy:/app/api:/app/core:/app"
 
 # Ensure templates and migrations are present
-RUN test -d templates && test -d migrations
+RUN test -d api/templates && test -d api/migrations
 
 # Precompile to bytecode as root so a read-only root filesystem at runtime
 # costs nothing: without this every import would recompile on each start.

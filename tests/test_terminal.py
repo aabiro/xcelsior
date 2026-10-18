@@ -1914,7 +1914,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -1926,7 +1926,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -1942,7 +1942,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -1956,7 +1956,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -1972,7 +1972,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -1988,7 +1988,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "hooks",
             "useInstanceWebSocket.ts",
@@ -2003,7 +2003,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -2024,7 +2024,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -2038,7 +2038,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -2052,7 +2052,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -2066,7 +2066,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -2082,7 +2082,7 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -2111,7 +2111,7 @@ class TestFrontendIntegration:
 
 class TestRouteWebsocketHardening:
     def test_routes_use_ticket_and_origin_hardening(self):
-        base = os.path.join(os.path.dirname(__file__), "..", "routes")
+        base = os.path.join(os.path.dirname(__file__), "..", "api", "routes")
 
         def _read(name):
             with open(os.path.join(base, name)) as f:

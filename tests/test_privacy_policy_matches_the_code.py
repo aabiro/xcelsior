@@ -37,7 +37,7 @@ import re
 
 import pytest
 
-I18N = pathlib.Path(__file__).resolve().parent.parent / "frontend" / "src" / "lib" / "i18n"
+I18N = pathlib.Path(__file__).resolve().parent.parent / "api" / "frontend" / "src" / "lib" / "i18n"
 
 #: All four carry the same `privacy.*` keys: the marketing bundles and the
 #: in-app ones. Editing one and not the others is how the French page came to
@@ -181,7 +181,7 @@ def test_french_is_reconciled_to_the_english_it_was_written_against():
 
     root = pathlib.Path(__file__).resolve().parent.parent
     result = subprocess.run(
-        [sys.executable, "scripts/sync_privacy_translations.py"],
+        [sys.executable, "api/scripts/sync_privacy_translations.py"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -240,7 +240,7 @@ def test_the_cross_border_toggle_is_not_offered_in_settings():
     """
     settings = (
         pathlib.Path(__file__).resolve().parent.parent
-        / "frontend"
+        / "api" / "frontend"
         / "src"
         / "app"
         / "(dashboard)"
@@ -274,7 +274,7 @@ def test_nothing_reads_the_deprecated_cross_border_field():
     # naming neither the sidecar nor the gate's subject —
     # `test_source_tree_is_shared.py` asserts the convergence, and caught this
     # file the first time it ran.
-    for path, rel in iter_source_files(exclude_prefixes=("migrations/",)):
+    for path, rel in iter_source_files(exclude_prefixes=("api/migrations/",)):
         text = path.read_text(encoding="utf-8", errors="ignore")
         for num, line in enumerate(text.splitlines(), 1):
             if "cross_border_consent" not in line:

@@ -28,10 +28,10 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SCOPES_TS = ROOT / "mcp" / "src" / "auth" / "scopes.ts"
+SCOPES_TS = ROOT / "api" / "mcp" / "src" / "auth" / "scopes.ts"
 
 
-CONTRACTS_TS = ROOT / "mcp" / "src" / "tools" / "contracts.ts"
+CONTRACTS_TS = ROOT / "api" / "mcp" / "src" / "tools" / "contracts.ts"
 
 
 def _tool_scope_entries() -> dict[str, str]:
@@ -79,7 +79,7 @@ def _declared_scopes() -> set[str]:
     return set(re.findall(r'"([a-z_]+:[a-z_]+)"', SCOPES_TS.read_text(encoding="utf-8")))
 
 
-SURFACE_JSON = ROOT / "mcp" / "tool-surface.json"
+SURFACE_JSON = ROOT / "api" / "mcp" / "tool-surface.json"
 
 
 def _published_surface() -> list[dict]:

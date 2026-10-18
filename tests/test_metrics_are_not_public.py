@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-CONF = Path(__file__).resolve().parents[1] / "nginx" / "xcelsior.conf"
+CONF = Path(__file__).resolve().parents[1] / "api" / "nginx" / "xcelsior.conf"
 
 
 @pytest.fixture(scope="module")

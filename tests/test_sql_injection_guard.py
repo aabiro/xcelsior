@@ -29,7 +29,7 @@ KNOWN_SAFE = {
     # two hardcoded strings. Headscale renamed `machines` to `nodes`, which is
     # why both are tried. A table name cannot be a bound parameter, and the
     # allowlist is a tuple of literals two lines from the query.
-    "scripts/headscale_failover.py",
+    "api/scripts/headscale_failover.py",
     # f"ORDER BY {order}" — order is mapped through _SORT_MAP allowlist.
     "billing/marketplace.py",
     # f"... SET {set_clause} ..." — keys come from ALLOWED_FIELDS set.
@@ -37,14 +37,14 @@ KNOWN_SAFE = {
     # f"... WHERE {where} ..." — where_parts are static literals, values via %s.
     "events.py",
     # f"... WHERE {where_clause} ..." / {group_sql} — static parts or _GROUP_SQL map.
-    "routes/admin.py",
-    "routes/billing.py",
+    "api/routes/admin.py",
+    "api/routes/billing.py",
     # f"... {placeholders}" — %s count for IN clause (no identifiers).
     "ai_assistant.py",
     # Dev-only migration script — reads table names from a hardcoded TABLES list.
-    "scripts/migrate_sqlite_to_pg.py",
+    "api/scripts/migrate_sqlite_to_pg.py",
     # Applied migration — every identifier comes from the immutable WALLET_MONEY tuple.
-    "migrations/versions/068_wallet_ledger_micro_units.py",
+    "api/migrations/versions/068_wallet_ledger_micro_units.py",
     # Applied migrations. Each interpolates only DDL identifiers taken from a
     # literal tuple written in the same file — no caller, request or database
     # value reaches them. Postgres accepts no placeholder for an identifier or
@@ -55,27 +55,27 @@ KNOWN_SAFE = {
     #   067: DDL fragments and columns from literals at L204 and L314
     #   080: columns/defaults from the literal tuples at L299 and L315
     #   085: (table, column) pairs from the module-level DEAD_COLUMNS tuple
-    "migrations/versions/054_control_plane_core_columns.py",
-    "migrations/versions/056_durable_control_work.py",
-    "migrations/versions/066_ln_deposits_typed_money_and_time.py",
-    "migrations/versions/067_shared_state_contract.py",
-    "migrations/versions/080_authoritative_provider_settlement.py",
-    "migrations/versions/085_drop_dead_columns.py",
+    "api/migrations/versions/054_control_plane_core_columns.py",
+    "api/migrations/versions/056_durable_control_work.py",
+    "api/migrations/versions/066_ln_deposits_typed_money_and_time.py",
+    "api/migrations/versions/067_shared_state_contract.py",
+    "api/migrations/versions/080_authoritative_provider_settlement.py",
+    "api/migrations/versions/085_drop_dead_columns.py",
     #   087: table/trigger/column names from the module-level DERIVED tuple
-    "migrations/versions/087_drop_derived_cad_columns.py",
+    "api/migrations/versions/087_drop_derived_cad_columns.py",
     #   090: table/column names from the literal tuples at L49, L92, L100,
     #        L146, L183 and L192; nothing external reaches the DDL
-    "migrations/versions/090_privacy_tables_companion_parity.py",
+    "api/migrations/versions/090_privacy_tables_companion_parity.py",
     #   092: table/column names are literals written inline in the same file
     #   093/094: single hardcoded table and column each, no variables at all
     #   095: (table, column) pairs from the module-level COLUMNS tuple; the
     #        micros name is derived from that column by _micros_name, so every
     #        identifier originates in this file and none is reachable by a
     #        caller, a request, or a database value
-    "migrations/versions/092_drop_residency_and_sovereignty.py",  # noqa: residency-guard
-    "migrations/versions/095_float_money_cutover_to_micros.py",
+    "api/migrations/versions/092_drop_residency_and_sovereignty.py",  # noqa: residency-guard
+    "api/migrations/versions/095_float_money_cutover_to_micros.py",
     #   097: same COLUMNS tuple, same closed set of identifiers
-    "migrations/versions/097_drop_float_cad_columns.py",
+    "api/migrations/versions/097_drop_float_cad_columns.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real

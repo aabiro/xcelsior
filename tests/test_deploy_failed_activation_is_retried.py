@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-DEPLOY = Path(__file__).resolve().parents[1] / "scripts/deploy.sh"
+DEPLOY = Path(__file__).resolve().parents[1] / "api/scripts/deploy.sh"
 
 
 def _function(name: str) -> str:

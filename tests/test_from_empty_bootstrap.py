@@ -21,8 +21,8 @@ import pytest
 from psycopg.conninfo import conninfo_to_dict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BOOTSTRAP_SCRIPT = PROJECT_ROOT / "scripts" / "bootstrap_pg_from_empty.sh"
-MIG_056 = PROJECT_ROOT / "migrations" / "versions" / "056_durable_control_work.py"
+BOOTSTRAP_SCRIPT = PROJECT_ROOT / "api" / "scripts" / "bootstrap_pg_from_empty.sh"
+MIG_056 = PROJECT_ROOT / "api" / "migrations" / "versions" / "056_durable_control_work.py"
 
 # Tables that pure-alembic must create without runtime DDL or a dump restore.
 REQUIRED_AT_HEAD = (

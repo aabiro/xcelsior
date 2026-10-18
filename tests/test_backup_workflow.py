@@ -27,7 +27,7 @@ def test_backup_reads_dotenv_as_data_and_rotates_sidecars(tmp_path: Path) -> Non
     backup_dir.mkdir()
 
     script = scripts / "backup-db.sh"
-    shutil.copy2(ROOT / "scripts" / "backup-db.sh", script)
+    shutil.copy2(ROOT / "api" / "scripts" / "backup-db.sh", script)
 
     executed_marker = tmp_path / "dotenv-was-executed"
     (project / ".env").write_text(

@@ -82,7 +82,7 @@ class TestProvisioningSafety:
     def test_mcp_scope_map_includes_pel_guardrail(self):
         from pathlib import Path
 
-        scopes = (Path(__file__).resolve().parent.parent / "mcp/src/auth/scopes.ts").read_text()
+        scopes = (Path(__file__).resolve().parent.parent / "api/mcp/src/auth/scopes.ts").read_text()
         assert "should_i_run_pel_job" in scopes
 
 

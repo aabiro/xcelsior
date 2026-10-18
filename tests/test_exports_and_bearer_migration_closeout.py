@@ -133,11 +133,11 @@ def test_owner_always_allowed_without_migration(monkeypatch):
 
 
 def test_public_nginx_strips_gateway_headers_structural():
-    conf = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    conf = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     agent = conf.split("location /agent/")[1].split("location /api/")[0]
     assert 'proxy_set_header X-Xcelsior-Gateway-Auth ""' in agent
     assert 'proxy_set_header X-Xcelsior-Agent-Gateway ""' in agent
-    agent_priv = (ROOT / "nginx" / "agent-xcelsior.conf").read_text()
+    agent_priv = (ROOT / "api" / "nginx" / "agent-xcelsior.conf").read_text()
     assert "X-Xcelsior-Gateway-Auth" in agent_priv
     assert "ssl_verify_client on" in agent_priv
 

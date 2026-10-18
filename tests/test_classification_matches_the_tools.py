@@ -49,7 +49,7 @@ import re
 from tests._source_tree import iter_source_files
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CLASSIFICATION = ROOT / "docs" / "endpoint-classification.json"
+CLASSIFICATION = ROOT / "api" / "docs" / "endpoint-classification.json"
 
 #: `client.get<T>("…")` / `client.post(`…`)` — the verb, then the first string
 #: literal argument. `[^(]*` spans generic type parameters, including nested
@@ -67,9 +67,9 @@ def _tool_calls() -> dict[str, str]:
     # `tests/test_source_tree_is_shared.py`.
     found: dict[str, str] = {}
     for path, rel in sorted(
-        iter_source_files("*.ts", include_prefixes=("mcp/src/",)), key=lambda pair: pair[1]
+        iter_source_files("*.ts", include_prefixes=("api/mcp/src/",)), key=lambda pair: pair[1]
     ):
-        if not rel.startswith("mcp/src/"):
+        if not rel.startswith("api/mcp/src/"):
             continue
         text = path.read_text(encoding="utf-8")
         for match in CALL.finditer(text):
