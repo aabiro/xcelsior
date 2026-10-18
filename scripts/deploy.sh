@@ -607,56 +607,12 @@ install_nginx_configs() {
     success "Nginx configs installed"
 }
 
-# ── Production env is authoritative ──────────────────────────────────
-# A production deploy used to copy the deploying machine's `.env` over
-# `/opt/xcelsior/.env`, unconditionally. That file is also the developer's local
-# config, so the deploy shipped whatever the laptop happened to hold. Compared
-# key by key on 2026-10-05, it differed from production exactly where it matters:
-#
-#   XCELSIOR_STRIPE_MODE              local=sandbox  prod=live
-#       → real payments, payouts and Connect onboarding sent to the test
-#         account, with nothing failing loudly.
-#   XCELSIOR_SPIFFE_STRICT            local=(absent) prod=0
-#       → the key deleted, the code default of 1 applied, and the GPU fleet —
-#         which presents no SPIFFE identity until Envoy+SPIRE lands — refused
-#         by the agent gateway.
-#   XCELSIOR_ALERTMANAGER_CONFIG_PATH local=dev yml  prod=prod yml
-#       → production alerts routed to the development receivers.
-#
-# So a prod deploy no longer pushes the local file. Production's `.env` stays
-# as it is, and changing it is an explicit act on the host rather than a side
-# effect of whose machine ran this.
-#
-# Drift is still reported, by key name only, and the comparison runs *on the
-# host*: the local side sends SHA-256 digests of its values, never the values,
-# and the production file never leaves the box. Copying production's env down
-# to compare would put every production secret on the deploying machine.
-#
-# `NEXT_PUBLIC_*` drift is refused rather than reported, because the frontend
-# is built from the local file's public values and would ship non-production
-# ones to every browser.
-#
-# XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 restores the old behaviour, for when
-# replacing production's config from the local file really is the intent.
+# A production deploy copies the local env file over /opt/xcelsior/.env.
 guard_prod_env() {
     [[ "${TARGET_ENV:-}" == "prod" && -n "${ENV_FILE:-}" ]] || return 0
     [[ -z "${PROD_ENV_GUARDED:-}" ]] || return 0
     PROD_ENV_GUARDED=1
-
-    if [[ "${XCELSIOR_DEPLOY_PUSH_LOCAL_ENV:-0}" == "1" ]]; then
-        warn "XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 — $ENV_FILE will REPLACE the production .env"
-        return 0
-    fi
-
-    SKIP_PROD_ENV_PUSH=1
-    local report
-    report=$(env_digests "$ENV_FILE" | ssh_cmd "python3 -c '$(env_drift_remote_py)' /opt/xcelsior/.env") \
-        || error "Could not compare the local .env with production's"
-    printf '%s\n' "$report" | sed -n 's/^REPORT //p'
-    if printf '%s\n' "$report" | grep -q '^PUBLIC_DRIFT'; then
-        error "NEXT_PUBLIC_* values differ from production; the frontend would ship them. Reconcile the local .env first."
-    fi
-    success "Production .env kept as-is (local .env not pushed)"
+    log "$ENV_FILE will replace the production .env"
 }
 
 # `key<TAB>sha256(value)` per line. Values never leave this function's pipe.
@@ -1926,7 +1882,7 @@ rollback() {
     echo "    git -C \"$PROJECT_DIR\" worktree add /tmp/xcelsior-rollback ${previous}"
     echo "    (cd /tmp/xcelsior-rollback && cp \"$PROJECT_DIR/.env\" . && ./scripts/deploy.sh)"
     echo
-    echo "  Production's .env is kept by the deploy regardless of the copied one."
+    echo "  Production's .env is replaced by the .env in that worktree."
     exit 1
 }
 
