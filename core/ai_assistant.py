@@ -422,7 +422,7 @@ def collect_public_docs() -> list[tuple[str, str]]:
     material that is already published or was written for external readers.
     See PUBLIC_DOC_GLOBS in ai_assistant_config.
     """
-    root = Path(os.path.dirname(__file__))
+    root = Path(__file__).resolve().parent.parent
     sources: list[tuple[str, str]] = []
 
     for filename in PUBLIC_DOC_FILES:
@@ -431,7 +431,7 @@ def collect_public_docs() -> list[tuple[str, str]]:
             sources.append((filename, path.read_text(encoding="utf-8")))
 
     for rel_dir, pattern in PUBLIC_DOC_GLOBS:
-        directory = root / rel_dir
+        directory = (root / "api" / rel_dir) if (root / "api" / rel_dir).is_dir() else (root / rel_dir)
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob(pattern)):

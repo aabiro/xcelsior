@@ -115,6 +115,6 @@ class TestModularizationHygiene:
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        assert (root / "ai_assistant_config.py").is_file()
-        assistant = (root / "ai_assistant.py").read_text()
+        assert (root / "core" / "ai_assistant_config.py").is_file()
+        assistant = (root / "core" / "ai_assistant.py").read_text()
         assert "from ai_assistant_config import" in assistant

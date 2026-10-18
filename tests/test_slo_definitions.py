@@ -52,7 +52,7 @@ def test_slo_alert_exists_in_alert_rules():
 
 
 def test_hard_invariant_metric_exists_in_catalog():
-    catalog = (ROOT / "metrics_catalog.py").read_text()
+    catalog = (ROOT / "core" / "metrics_catalog.py").read_text()
     for slo in HARD_INVARIANTS:
         assert (
             f'"{slo.metric}"' in catalog or f"'{slo.metric}'" in catalog

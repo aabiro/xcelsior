@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SQLITE_ALLOWED = {
     # The backend abstraction itself. Production selection of the SQLite
     # backend is refused by control_plane.startup_validation.
-    "db.py": "backend abstraction; production use blocked by the startup validator",
+    "core/db.py": "backend abstraction; production use blocked by the startup validator",
     # Reads the SQLite side during the one-time consolidation.
     "api/scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
     # Test/dev-only path, gated on XCELSIOR_DB_BACKEND != postgres.

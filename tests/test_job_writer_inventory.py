@@ -31,8 +31,8 @@ _JOB_WRITER_ALLOWLIST: dict[str, str] = {
     "api/serverless/service.py": "serverless worker provisioning — distinct lifecycle; B3.1 binds these to fenced attempts",
     "workers/inference.py": "PEL inference job submission — request/response inference, not an interactive instance",
     "api/routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
-    "ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
-    "cli.py": "local operator/dev CLI — not a network surface",
+    "core/ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
+    "core/cli.py": "local operator/dev CLI — not a network surface",
     "api/scripts/seed_reviewer_account.py": (
         "one-shot operator script that plants sample instances on the connector "
         "reviewer's own tenant — not a network surface, and deliberately does "

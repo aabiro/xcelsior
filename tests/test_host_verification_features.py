@@ -307,12 +307,12 @@ class TestSLAAutoCredit:
     """test_sla_auto_credit — SLA violations trigger automatic credits."""
 
     def test_auto_credit_in_sla(self):
-        source = Path(__file__).resolve().parent.parent / "sla.py"
+        source = Path(__file__).resolve().parent.parent / "core" / "sla.py"
         text = source.read_text()
         assert "auto_issue_credits" in text or "enforce_monthly" in text
 
     def test_credit_issuance_wired_to_billing(self):
-        source = Path(__file__).resolve().parent.parent / "sla.py"
+        source = Path(__file__).resolve().parent.parent / "core" / "sla.py"
         text = source.read_text()
         assert "deposit" in text or "credit" in text.lower()
 

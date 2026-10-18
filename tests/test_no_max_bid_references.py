@@ -26,7 +26,7 @@ SCAN_DIRS = (
     "workers/scheduler.py",
     "billing/marketplace.py",
     "billing/billing.py",
-    "db.py",
+    "core/db.py",
     "api/api.py",
     "api/templates",
     "api/frontend/src",

@@ -63,7 +63,7 @@ def test_event_stream_id_is_entity_scoped():
 
 def test_append_path_has_no_table_exclusive_lock():
     """Structural: production append must not serialize the whole table."""
-    src = Path(__file__).resolve().parents[1] / "events.py"
+    src = Path(__file__).resolve().parents[1] / "core" / "events.py"
     text = src.read_text()
     # Locate the EventStore.append body.
     start = text.find("def append(self, event: Event)")
@@ -378,7 +378,7 @@ def test_production_callers_still_use_event_store_append():
     # volumes constructs EventStore and appends lifecycle events
     assert ".append(" in volumes
 
-    events_src = (root / "events.py").read_text()
+    events_src = (root / "core" / "events.py").read_text()
     assert "def append(self, event: Event)" in events_src
     # Single authoritative append method still owns chain policy.
     assert events_src.count("def append(self, event: Event)") == 1
