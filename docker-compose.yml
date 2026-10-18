@@ -93,6 +93,11 @@ x-api-environment: &api-env
   # providers without a client id (GET /api/auth/oauth/providers).
   FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-}
   FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-}
+  # Meta Conversions API. The token stays on the API; the pixel id is public.
+  META_PIXEL_ID: ${META_PIXEL_ID:-}
+  META_DATASET_ID: ${META_DATASET_ID:-}
+  META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
+  META_TEST_EVENT_CODE: ${META_TEST_EVENT_CODE:-}
   # Stripe Connect
   XCELSIOR_STRIPE_MODE: ${XCELSIOR_STRIPE_MODE:-sandbox}
   XCELSIOR_STRIPE_SECRET_KEY: ${XCELSIOR_STRIPE_SECRET_KEY:-}
@@ -706,6 +711,7 @@ services:
         NEXT_PUBLIC_PAYPAL_MODE: ${NEXT_PUBLIC_PAYPAL_MODE:-sandbox}
         NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+        META_PIXEL_ID: ${META_PIXEL_ID:-}
         NEXT_PUBLIC_REOWN_PROJECT_ID: ${NEXT_PUBLIC_REOWN_PROJECT_ID:-}
         # Public/write-only phc_ token: Next.js must receive this while building
         # because NEXT_PUBLIC_* values are inlined into the browser bundle.
@@ -715,6 +721,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://localhost:9555}
+      META_PIXEL_ID: ${META_PIXEL_ID:-}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
       NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
