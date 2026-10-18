@@ -35,7 +35,7 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check .
       - name: Format check (black)
-        run: uv run black --check *.py routes/*.py tests/
+        run: uv run black --check archive/ billing/ workers/ auth/ hosts/ privacy/ api/ core/ tests/
 
   compose:
     # Catch docker-compose.yml regressions (bad interpolation, malformed
@@ -52,15 +52,15 @@ jobs:
       - uses: actions/checkout@v5
       - name: Validate docker-compose.yml
         run: docker compose config -q
-      - name: Validate SPIRE mesh compose (infra/spire)
+      - name: Validate SPIRE mesh compose (api/infra/spire)
         env:
           SPIRE_DATASTORE_DSN: postgresql://spire:spire@127.0.0.1:5432/spire
           XCELSIOR_AGENT_GATEWAY_SECRET: ci-placeholder
-        run: docker compose -f infra/spire/docker-compose.spire.yml config -q
+        run: docker compose -f api/infra/spire/docker-compose.spire.yml config -q
       - name: Validate Envoy agent gateway config
         run: |
           docker run --rm -e XCELSIOR_AGENT_GATEWAY_SECRET=ci-placeholder \
-            -v "$PWD/infra/envoy:/cfg:ro" \
+            -v "$PWD/api/infra/envoy:/cfg:ro" \
             --entrypoint /bin/sh envoyproxy/envoy:v1.32-latest -c \
             'envsubst < /cfg/agent-gateway.yaml > /tmp/envoy.yaml &&
              envoy --mode validate -c /tmp/envoy.yaml'
@@ -134,10 +134,10 @@ jobs:
           ignore-unfixed: true
       - name: MCP image must run unprivileged with a locked install
         run: |
-          docker build -t xcelsior-mcp:ci ./mcp
+          docker build -t xcelsior-mcp:ci ./api/mcp
           uid="$(docker run --rm --entrypoint id xcelsior-mcp:ci -u)"
           test "$uid" != "0"
-          ! grep -qE '^\s*RUN .*npm install' mcp/Dockerfile
+          ! grep -qE '^\s*RUN .*npm install' api/mcp/Dockerfile
       - name: Install cosign
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: sigstore/cosign-installer@v3
@@ -147,7 +147,7 @@ jobs:
           cosign sign-blob --yes \
             --output-signature worker_agent.py.cosign.sig \
             --output-certificate worker_agent.py.cosign.pem \
-            worker_agent.py
+            workers/worker_agent.py
       - name: Upload signing material
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
@@ -184,7 +184,7 @@ jobs:
       - name: Install deps + pyright (uv lockfile)
         run: uv sync --frozen
       - name: Wrong-call / wrong-arg gate (pyright)
-        run: uv run python scripts/pyright_gate.py
+        run: uv run python api/scripts/pyright_gate.py
 
   # Track A cross-cutting gate: the migration chain must cycle cleanly
   # (deploy runs `alembic upgrade head`; a broken downgrade would strand
@@ -241,7 +241,7 @@ jobs:
       - name: Bootstrap Postgres schema (from empty)
         env:
           PGPASSWORD: test
-        run: bash scripts/ci_bootstrap_pg_schema.sh
+        run: bash api/scripts/ci_bootstrap_pg_schema.sh
       - name: Migration reversibility gate — head → pre-Track-A (053) → head
         # Exercises that the Track A migrations (054–059) downgrade and
         # re-upgrade cleanly, so a production rollback can never strand.
@@ -309,11 +309,11 @@ jobs:
       - name: Bootstrap Postgres schema (from empty)
         env:
           PGPASSWORD: test
-        run: bash scripts/ci_bootstrap_pg_schema.sh
+        run: bash api/scripts/ci_bootstrap_pg_schema.sh
       - name: Critical route auth audit
-        run: uv run python scripts/audit_route_auth.py --critical --strict
+        run: uv run python api/scripts/audit_route_auth.py --critical --strict
       - name: Guarded route auth audit
-        run: uv run python scripts/audit_route_auth.py --guarded --strict
+        run: uv run python api/scripts/audit_route_auth.py --guarded --strict
       - name: Optional Stripe key (repository secret)
         # Uses XCELSIOR_STRIPE_SECRET_KEY only — no separate STRIPE_TEST_SECRET_KEY.
         run: |
@@ -322,11 +322,11 @@ jobs:
           fi
       - name: Verify agent signatures present
         run: |
-          test -f scripts/worker_agent.py.sig
-          test -f scripts/security.py.sig
-          test -f scripts/agent-signing.pub
-          uv run python scripts/sign-static-agent.py --verify
-          git diff --exit-code scripts/*.sig || (echo "Agent signatures out of date — run scripts/sign-static-agent.py" && exit 1)
+          test -f api/scripts/worker_agent.py.sig
+          test -f api/scripts/security.py.sig
+          test -f api/scripts/agent-signing.pub
+          uv run python api/scripts/sign-static-agent.py --verify
+          git diff --exit-code api/scripts/*.sig || (echo "Agent signatures out of date — run api/scripts/sign-static-agent.py" && exit 1)
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target
         # mappings (quick / ai / billing / security / e2e / live) and

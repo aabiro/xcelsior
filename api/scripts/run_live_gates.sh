@@ -16,6 +16,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ "$(basename "$ROOT")" == "api" ]] && ROOT="$(dirname "$ROOT")"
 cd "$ROOT"
 
 # Staging binds the host network, so it needs a port nothing else holds. 9500 is

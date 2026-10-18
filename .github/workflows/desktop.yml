@@ -3,27 +3,27 @@ name: Desktop CI
 on:
   pull_request:
     paths:
-      - "desktop/**"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "frontend/src/lib/desktop/**"
-      - "frontend/src/__tests__/desktop-*.test.*"
-      - "frontend/src/components/DesktopAppRuntime.tsx"
-      - "frontend/src/components/DesktopStatusStrip.tsx"
-      - "frontend/src/components/settings/NativeDesktopPreferences.tsx"
-      - "frontend/src/app/(dashboard)/dashboard-shell.tsx"
+      - "api/desktop/**"
+      - "api/frontend/package.json"
+      - "api/frontend/package-lock.json"
+      - "api/frontend/src/lib/desktop/**"
+      - "api/frontend/src/__tests__/desktop-*.test.*"
+      - "api/frontend/src/components/DesktopAppRuntime.tsx"
+      - "api/frontend/src/components/DesktopStatusStrip.tsx"
+      - "api/frontend/src/components/settings/NativeDesktopPreferences.tsx"
+      - "api/frontend/src/app/(dashboard)/dashboard-shell.tsx"
   push:
     branches: [main]
     paths:
-      - "desktop/**"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "frontend/src/lib/desktop/**"
-      - "frontend/src/__tests__/desktop-*.test.*"
-      - "frontend/src/components/DesktopAppRuntime.tsx"
-      - "frontend/src/components/DesktopStatusStrip.tsx"
-      - "frontend/src/components/settings/NativeDesktopPreferences.tsx"
-      - "frontend/src/app/(dashboard)/dashboard-shell.tsx"
+      - "api/desktop/**"
+      - "api/frontend/package.json"
+      - "api/frontend/package-lock.json"
+      - "api/frontend/src/lib/desktop/**"
+      - "api/frontend/src/__tests__/desktop-*.test.*"
+      - "api/frontend/src/components/DesktopAppRuntime.tsx"
+      - "api/frontend/src/components/DesktopStatusStrip.tsx"
+      - "api/frontend/src/components/settings/NativeDesktopPreferences.tsx"
+      - "api/frontend/src/app/(dashboard)/dashboard-shell.tsx"
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -34,7 +34,7 @@ env:
 
 defaults:
   run:
-    working-directory: desktop
+    working-directory: api/desktop
 
 jobs:
   desktop:
@@ -65,13 +65,13 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: api/desktop/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: api/desktop/src-tauri
 
       - name: Install desktop dependencies
         run: npm ci

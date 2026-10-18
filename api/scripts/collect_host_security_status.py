@@ -11,7 +11,8 @@ import re
 import sys
 import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+for _p in (Path(__file__).resolve().parents[1], Path(__file__).resolve().parents[2]):
+    sys.path.insert(0, str(_p))
 from scripts.check_ingress_policy import public_servers_protected
 
 

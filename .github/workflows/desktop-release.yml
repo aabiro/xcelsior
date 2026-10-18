@@ -21,7 +21,7 @@ env:
 
 defaults:
   run:
-    working-directory: desktop
+    working-directory: api/desktop
 
 jobs:
   build:
@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: api/desktop/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -76,7 +76,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: api/desktop/src-tauri
 
       # ── Version override ────────────────────────────────────────────
       - name: Set version
@@ -156,7 +156,7 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=$(jq -r .version desktop/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+            echo "version=$(jq -r .version api/desktop/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
           fi
         working-directory: .
 

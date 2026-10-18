@@ -53,6 +53,6 @@ jobs:
           GX0_PASSWORD: ${{ secrets.MCP_CONFORMANCE_PASSWORD }}
           GX0_CIMD_CLIENT_ID: ${{ vars.MCP_CONFORMANCE_CIMD_CLIENT_ID || 'https://downloads.xcelsior.ca/gx0/client-v1.json' }}
         run: |
-          python scripts/gx0_conformance.py \
+          python api/scripts/gx0_conformance.py \
             --base "$GX0_BASE" \
             --email "${GX0_EMAIL:-}"

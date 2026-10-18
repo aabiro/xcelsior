@@ -21,8 +21,9 @@ import threading
 import time
 import uuid
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+ROOT = Path(__file__).resolve().parents[2]
+for _pkg in ("archive", "billing", "workers", "auth", "hosts", "privacy", "api", "core", ""):
+    sys.path.insert(0, str(ROOT / _pkg if _pkg else ROOT))
 
 
 def require(condition: bool, message: str) -> None:

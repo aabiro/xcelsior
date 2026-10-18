@@ -22,8 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Repo root on path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+for _p in (Path(__file__).resolve().parents[1], Path(__file__).resolve().parents[2]):
+    sys.path.insert(0, str(_p))
 
 from serverless.b2_model_sync import default_b2_bucket, download_b2_object, ensure_b2_authorized
 from serverless.registry_models import (

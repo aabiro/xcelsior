@@ -13,6 +13,7 @@ set -euo pipefail
 # ── Configuration ─────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+[[ "$(basename "$PROJECT_DIR")" == "api" ]] && PROJECT_DIR="$(dirname "$PROJECT_DIR")"
 DEPLOY_DIR="/opt/xcelsior"
 REMOTE_USER="${XCELSIOR_DEPLOY_USER:-root}"
 REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
@@ -290,6 +291,7 @@ RSYNC_EXCLUDES=(
     --exclude='venv'
     --exclude='.venv'
     --exclude='/scripts/agent-signing.key'
+    --exclude='/api/scripts/agent-signing.key'
     --exclude='node_modules'
     --exclude='.next'
     --exclude='*.db'
@@ -297,6 +299,7 @@ RSYNC_EXCLUDES=(
     --exclude='*.log'
     --exclude='data'
     --exclude='/artifacts'
+    --exclude='/archive/artifacts'
     # Every `.env*` file except the templates. Excluding only `.env` shipped the
     # rest on every deploy — `.env.bak.*` backups of production's own env,
     # `.env.staging.secrets`, the worker envs — into /opt/xcelsior and, through
@@ -312,6 +315,7 @@ RSYNC_EXCLUDES=(
     # tree after being deleted locally.
     --exclude='._*'
     --exclude='/desktop'
+    --exclude='/api/desktop'
     --exclude='checkpoints'
     --exclude='.cursor'
     --exclude='terminals'
@@ -585,11 +589,13 @@ install_nginx_configs() {
     if ssh_cmd "cat /etc/nginx/nginx.conf" | nginx_conf_includes_tls_router; then
         topology=router
     fi
-    local api_live mcp_live rendered
+    local api_live mcp_live rendered nginx_dir
     api_live=$(read_remote_api_colour)
     mcp_live=$(read_remote_mcp_colour)
     rendered=$(mktemp -d)
-    python3 "$PROJECT_DIR/scripts/render_nginx_vhosts.py" "$PROJECT_DIR/nginx" "$rendered" \
+    nginx_dir="$PROJECT_DIR/api/nginx"
+    [[ -d "$nginx_dir" ]] || nginx_dir="$PROJECT_DIR/nginx"
+    python3 "$SCRIPT_DIR/render_nginx_vhosts.py" "$nginx_dir" "$rendered" \
         --topology "$topology" --api-live "$api_live" --mcp-live "$mcp_live" \
         || { rm -rf "$rendered"; error "Could not render the nginx vhosts"; }
     log "Vhosts rendered for the $topology ingress (API live: $api_live, MCP live: $mcp_live)"
@@ -601,7 +607,7 @@ install_nginx_configs() {
     # headscale / headscale-http are installed here too. hs.xcelsior.ca uses a
     # Let's Encrypt certificate issued on this host by DNS-01 (1624d67), so it
     # renews whichever host the record points at.
-    ssh_cmd "bash -s" < "$PROJECT_DIR/scripts/install_nginx_vhosts.sh" \
+    ssh_cmd "bash -s" < "$SCRIPT_DIR/install_nginx_vhosts.sh" \
         || error "Nginx install failed; the previous vhosts were restored and are serving"
     _deploy_mark "nginx-done"
     success "Nginx configs installed"
@@ -794,7 +800,7 @@ backup_current() {
     TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
     ssh_cmd << EOF
 set -e
-if [ -d "$DEPLOY_DIR" ] && [ -f "$DEPLOY_DIR/api.py" ]; then
+if [ -d "$DEPLOY_DIR" ] && { [ -f "$DEPLOY_DIR/api.py" ] || [ -f "$DEPLOY_DIR/api/api.py" ]; }; then
     # Archives include the production .env; restrict existing directories too.
     sudo install -d -m 700 "$BACKUP_DIR"
     umask 077
@@ -969,6 +975,7 @@ done
         --exclude='venv' \
         --exclude='.venv' \
         --exclude='./scripts/agent-signing.key' \
+        --exclude='./api/scripts/agent-signing.key' \
         --exclude='node_modules' \
         --exclude='.next' \
         --exclude='*.db' \
@@ -976,8 +983,10 @@ done
         --exclude='*.log' \
         --exclude='data' \
         --exclude='/artifacts' \
+        --exclude='./archive/artifacts' \
         --exclude='.env' \
         --exclude='./desktop' \
+        --exclude='./api/desktop' \
         --exclude='checkpoints' \
         -C "$PROJECT_DIR" . | "${tar_compress[@]}" >"$tarball"
 
@@ -1113,7 +1122,7 @@ verify_frontend_desktop_runtime_on_remote() {
 frontend/src/lib/desktop/runtime.tsx \
 frontend/src/lib/desktop/contract.ts \
 frontend/src/lib/desktop/tauri.ts; do
-  test -f \"/opt/xcelsior/\$f\" || echo \"\$f\"
+  test -f \"/opt/xcelsior/\$f\" || test -f \"/opt/xcelsior/api/\$f\" || echo \"\$f\"
 done" || true)
     if [[ -n "$missing" ]]; then
         error "Frontend desktop runtime missing on server (rsync exclude too broad?):
@@ -1185,7 +1194,7 @@ PY
 
 frontend_build_hash() {
     local source_hash env_hash
-    source_hash=$(hash_repo_subset frontend)
+    source_hash=$(hash_repo_subset frontend api/frontend)
     env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
     printf '%s%s' "$source_hash" "$env_hash" | sha256sum | cut -d' ' -f1
 }
@@ -1344,7 +1353,8 @@ DEPLOY_RUNTIME_CHANGED=true
 api_build_hash() {
     hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml uv.lock \
         "*.py" analytics control_plane routes serverless spot templates migrations \
-        "scripts/*.py" "scripts/*.sh" "scripts/*.pub" "scripts/*.sig"
+        "scripts/*.py" "scripts/*.sh" "scripts/*.pub" "scripts/*.sig" \
+        api auth billing core hosts privacy workers
 }
 
 runtime_build_hash() {
@@ -1372,7 +1382,7 @@ detect_deploy_inputs() {
     # Hash local inputs in parallel (CPU-bound).
     api_build_hash >"$hash_dir/api" & local pid_api=$!
     frontend_build_hash >"$hash_dir/frontend" & local pid_frontend=$!
-    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh scripts/check_ingress_policy.py >"$hash_dir/nginx" & local pid_nginx=$!
+    hash_repo_subset nginx api/nginx scripts/render_nginx_vhosts.py api/scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh api/scripts/install_nginx_vhosts.sh scripts/check_ingress_policy.py api/scripts/check_ingress_policy.py >"$hash_dir/nginx" & local pid_nginx=$!
     runtime_build_hash >"$hash_dir/runtime" & local pid_runtime=$!
 
     # Wait on each pid. A bare `wait` reaps them first, and the following
@@ -1777,7 +1787,7 @@ docker compose build $build_args frontend
     log "Verifying worker PATCH OAuth gate in running API container…"
     local api_container
     api_container=$(ssh_cmd "docker ps --format '{{.Names}}' | grep -E 'xcelsior-api' | head -1" 2>/dev/null || true)
-    if [[ -n "$api_container" ]] && ssh_cmd "docker exec $api_container grep -q 'client_credentials' /app/routes/instances.py" 2>/dev/null; then
+    if [[ -n "$api_container" ]] && ssh_cmd "docker exec $api_container sh -c 'grep -q client_credentials /app/api/routes/instances.py 2>/dev/null || grep -q client_credentials /app/routes/instances.py'" 2>/dev/null; then
         success "Worker PATCH accepts OAuth client_credentials"
     else
         warn "Worker PATCH OAuth gate missing in container — jobs may stick in leased/starting"

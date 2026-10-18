@@ -71,6 +71,8 @@ EXCLUDED_DIRS = (
     "coverage",
     ".hypothesis",  # property-test corpus: machine-generated string soup
     "worktrees",
+    "artifacts",  # release-evidence manifests and test run artifacts
+    "xcelsior.egg-info",  # setuptools editable-install metadata (SOURCES.txt)
     # Applied migration history. A migration that removed a column must name it;
     # rewriting one would falsify the record of what the schema used to be.
     "api/migrations/versions",
@@ -82,13 +84,9 @@ EXCLUDED_FILES = (
     "api/docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
     "api/docs/mcp_tools_gemini.md",
     "api/docs/mcp_tools_grok.md",
-    "api/docs/mcp_tools_chatgpt.md",
-    "api/docs/mcp_tools_gemini.md",
-    "api/docs/mcp_tools_grok.md",
     "stripe_embed.md",  # verbatim Stripe documentation dump
     "billing/stripe_embed.md",
     # Submitted as written; JSON carries no comment syntax for the marker.
-    "api/docs/compliance/scip_partner_loi.json",
     "api/docs/compliance/scip_partner_loi.json",
 )
 

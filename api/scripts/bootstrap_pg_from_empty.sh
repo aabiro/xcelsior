@@ -15,6 +15,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[[ "$(basename "$ROOT")" == "api" ]] && ROOT="$(dirname "$ROOT")"
+export PYTHONPATH="$ROOT/archive:$ROOT/billing:$ROOT/workers:$ROOT/auth:$ROOT/hosts:$ROOT/privacy:$ROOT/api:$ROOT/core:$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 cd "$ROOT"
 
 echo "from-empty bootstrap: alembic upgrade head"

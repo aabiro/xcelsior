@@ -56,7 +56,7 @@ class TestSystemPrompt:
         """The support bot must reach the whole corpus, not just llms.txt."""
         prompt = build_system_prompt("why does my terminal keep disconnecting")
         assert _GROUNDING_MARKER in prompt
-        assert "api/support_docs/" in prompt
+        assert "support_docs/" in prompt
 
     def test_grounding_never_cites_internal_documentation(self):
         prompt = build_system_prompt("business strategy revenue projections roadmap")

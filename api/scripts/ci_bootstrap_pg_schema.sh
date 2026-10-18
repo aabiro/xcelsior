@@ -22,7 +22,7 @@ if ! command -v psql >/dev/null 2>&1 || ! command -v pg_dump >/dev/null 2>&1; th
 fi
 
 echo "CI Postgres bootstrap: deterministic from-empty path (no schema-dump restore)"
-bash "$ROOT/scripts/bootstrap_pg_from_empty.sh"
+bash "$(dirname "$0")/bootstrap_pg_from_empty.sh"
 
 if [[ "${CI_WRITE_SCHEMA_CACHE:-0}" == "1" ]]; then
   mkdir -p "$(dirname "${SCHEMA_FILE}")"

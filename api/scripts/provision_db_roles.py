@@ -35,7 +35,8 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+for _p in (Path(__file__).resolve().parents[1], Path(__file__).resolve().parents[2]):
+    sys.path.insert(0, str(_p))
 
 from psycopg import sql  # noqa: E402
 

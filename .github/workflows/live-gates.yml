@@ -188,7 +188,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           XCELSIOR_STAGING_URL: ${{ secrets.XCELSIOR_STAGING_URL }}
         run: |
-          python scripts/mcp_tool_eval.py --out eval-baseline.json
+          python api/scripts/mcp_tool_eval.py --out eval-baseline.json
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           d = json.load(open("eval-baseline.json"))

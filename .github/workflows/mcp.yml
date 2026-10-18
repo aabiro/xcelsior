@@ -3,14 +3,14 @@ name: MCP Server
 on:
   push:
     paths:
-      - "mcp/**"
+      - "api/mcp/**"
       - "control_plane/**"
-      - "routes/**"
-      - "oauth_service.py"
-      - "scheduler.py"
-      - "db.py"
-      - "migrations/**"
-      - "scripts/mcp_e2e_fixture.py"
+      - "api/routes/**"
+      - "auth/oauth_service.py"
+      - "workers/scheduler.py"
+      - "core/db.py"
+      - "api/migrations/**"
+      - "api/scripts/mcp_e2e_fixture.py"
       - ".github/workflows/mcp.yml"
 
 # ── Why there is no `pull_request` trigger ────────────────────────────────────
@@ -67,14 +67,14 @@ jobs:
     if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     defaults:
       run:
-        working-directory: mcp
+        working-directory: api/mcp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: mcp/package-lock.json
+          cache-dependency-path: api/mcp/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check:api
@@ -104,7 +104,7 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t xcelsior-mcp:ci ./mcp
+      - run: docker build -t xcelsior-mcp:ci ./api/mcp
 
   real-stack:
     runs-on: ubuntu-latest
@@ -152,11 +152,11 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: mcp/package-lock.json
+          cache-dependency-path: api/mcp/package-lock.json
       - name: Install API and MCP dependencies
         run: |
           uv sync --frozen
-          npm ci --prefix mcp
+          npm ci --prefix api/mcp
           sudo apt-get update
           sudo apt-get install -y redis-server
       - name: Bootstrap real PostgreSQL and API
@@ -171,7 +171,7 @@ jobs:
           cat /tmp/xcelsior-mcp-api.log
           exit 1
       - name: Thirteen-step SDK production journey
-        working-directory: mcp
+        working-directory: api/mcp
         run: npm test -- --run tests/e2e/real-stack.test.ts
       - name: API logs on failure
         if: failure()
