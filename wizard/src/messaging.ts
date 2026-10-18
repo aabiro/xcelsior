@@ -32,9 +32,9 @@ const FAILURE_PHRASES: FailurePhrase[] = [
 ];
 
 /**
- * A concise, honest one-liner for a failed check set: names the primary issue
- * and conveys the wizard is helping. Falls back to the item name. Appends
- * "(+N more)" when several checks failed.
+ * Names every failed check. A check that already wrote its cause and next step
+ * keeps that sentence. Otherwise the summary uses a known phrase, then the
+ * check's own remediation. Falls back to the item name.
  */
 export function summarizeFailure(items: CheckResult[]): string {
     const failed = items.filter((i) => !i.ok);
