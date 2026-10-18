@@ -41,7 +41,7 @@ from tests._source_tree import strip_ts_comments  # noqa: E402
 
 client = TestClient(app)
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PAGE = ROOT / "frontend/src/app/(dashboard)/dashboard/compliance/page.tsx"
+PAGE = ROOT / "api/frontend/src/app/(dashboard)/dashboard/compliance/page.tsx"
 
 
 def _targets():

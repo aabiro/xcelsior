@@ -1,5 +1,6 @@
 # Agent signing private key (public key + .sig files are committed)
 scripts/agent-signing.key
+api/scripts/agent-signing.key
 
 # ── Environment ───────────────────────────────────────────────────────
 .env
@@ -70,12 +71,14 @@ nibi/
 *.slurm
 slurm-*.out
 docs/competitive_edge.md
+api/docs/competitive_edge.md
 docs_phase_plan.md
 prompt.md
 plan.md
 
 # ── Reports (generated, not tracked) ─────────────────────────────────
 docs/*
+api/docs/*
 # Review and incident records, un-ignored as a directory rather than file by
 # file. `docs/*` swallowed every new document until someone remembered to add an
 # exemption below, which is a list that has to be maintained to keep working —
@@ -83,7 +86,9 @@ docs/*
 # silently is not in the repository is worth less than no write-up, because it
 # reads as done.
 !docs/review/
+!api/docs/review/
 !docs/reconciliation.md
+!api/docs/reconciliation.md
 # Cited by shipped source, so they cannot stay local-only. `docs/*` above had
 # swallowed all three: `scheduler.py`, `control_plane/scheduler/preference.py`,
 # `control_plane/scheduler/migration_gate.py` and **migration 105** all point a
@@ -98,55 +103,93 @@ docs/*
 # it is a business document and publishing it is not a call to make while
 # tidying references.
 !docs/3060-utilization-plan.md
+!api/docs/3060-utilization-plan.md
 !docs/placement-preference-plan.md
+!api/docs/placement-preference-plan.md
 !docs/pipeline-plan.md
+!api/docs/pipeline-plan.md
 !docs/xcelsior-production-control-plane-mcp-blueprint.md
+!api/docs/xcelsior-production-control-plane-mcp-blueprint.md
 !docs/site-audit-prompt.md
+!api/docs/site-audit-prompt.md
 !docs/site-audit-report-2026-06-04.md
+!api/docs/site-audit-report-2026-06-04.md
 !docs/site-audit-report-2026-06-04-reaudit.md
+!api/docs/site-audit-report-2026-06-04-reaudit.md
 !docs/site-audit-report-2026-06-04-reaudit-mcp.md
+!api/docs/site-audit-report-2026-06-04-reaudit-mcp.md
 !docs/site-audit-report-2026-06-06-post-recovery.md
+!api/docs/site-audit-report-2026-06-06-post-recovery.md
 !docs/projection-delivery-audit-2026-07-27.md
+!api/docs/projection-delivery-audit-2026-07-27.md
 !docs/billing-money-path.md
+!api/docs/billing-money-path.md
 !docs/paypal-marketplace-e2e.md
+!api/docs/paypal-marketplace-e2e.md
 !docs/VOLUMES_RUNBOOK.md
+!api/docs/VOLUMES_RUNBOOK.md
 !docs/VOLUMES_COMPLETION_PLAN.md
+!api/docs/VOLUMES_COMPLETION_PLAN.md
 !docs/NEXT_PRIORITIES_ROADMAP.md
+!api/docs/NEXT_PRIORITIES_ROADMAP.md
 !docs/INFERENCE_DESIGN.md
+!api/docs/INFERENCE_DESIGN.md
 !docs/site-audit-report-2026-06-08-post-recovery.md
+!api/docs/site-audit-report-2026-06-08-post-recovery.md
 !docs/SPOT_INSTANCE_INTEGRATION_PLAN.md
+!api/docs/SPOT_INSTANCE_INTEGRATION_PLAN.md
 !docs/AI_ML_MASTER_INDEX_XCELSIOR.md
+!api/docs/AI_ML_MASTER_INDEX_XCELSIOR.md
 !docs/PXL_REGISTRY_SECTION_10_MIRROR.md
+!api/docs/PXL_REGISTRY_SECTION_10_MIRROR.md
 !docs/MASTER_INDEX_SECTION_10_XCELSIOR.synced.md
+!api/docs/MASTER_INDEX_SECTION_10_XCELSIOR.synced.md
 # MCP enterprise adoption: the plan of record and the documents the tracked
 # HANDOFF.md links to. Without these exceptions `docs/*` swallows them, and a
 # tracked handoff points at files that do not exist for anyone who clones.
 !docs/mcp-enterprise-adoption-plan.md
+!api/docs/mcp-enterprise-adoption-plan.md
 !docs/mcp-submission-readiness.md
+!api/docs/mcp-submission-readiness.md
 !docs/mcp-tool-versioning.md
+!api/docs/mcp-tool-versioning.md
 !docs/mcp-quickstarts.md
+!api/docs/mcp-quickstarts.md
 # Tool-surface track: the curated-surface plan X1 depends on, the provider axis,
 # and the research prompt that produces the tool enumeration.
 !docs/mcp-tool-surface-plan.md
+!api/docs/mcp-tool-surface-plan.md
 !docs/mcp-provider-axis-plan.md
+!api/docs/mcp-provider-axis-plan.md
 !docs/mcp-tool-surface-research-prompt.md
+!api/docs/mcp-tool-surface-research-prompt.md
 !docs/mcp-agent-native-implementation-plan.md
+!api/docs/mcp-agent-native-implementation-plan.md
 !docs/ci-cockpit-plan.md
+!api/docs/ci-cockpit-plan.md
 !docs/artifact-promotion-plan.md
+!api/docs/artifact-promotion-plan.md
 # GT0's classifications. Source, not a report: the inventory table is generated
 # from this, so `docs/*` swallowing it would leave every label blank for
 # everyone but the person who wrote them — which is how 158 rows of audit came
 # to exist only on a closed branch.
 !docs/endpoint-classification.json
+!api/docs/endpoint-classification.json
 !docs/mcp-tool-surface-synthesis.md
+!api/docs/mcp-tool-surface-synthesis.md
 !docs/mcp_tools_chatgpt.md
+!api/docs/mcp_tools_chatgpt.md
 !docs/mcp_tools_gemini.md
+!api/docs/mcp_tools_gemini.md
 !docs/mcp_tools_grok.md
+!api/docs/mcp_tools_grok.md
 # `docs/*` excludes the `docs/generated/` directory itself, and git will not
 # descend into an excluded directory — so the directory must be un-ignored
 # before a negation on a file inside it can match.
 !docs/generated/
+!api/docs/generated/
 !docs/generated/endpoint-inventory.md
+!api/docs/generated/endpoint-inventory.md
 # The audit-retention ruling. Not a report: `control_plane/audit_partitions.py`,
 # `privacy_sinks.verify_subject_absence` and `docs/gate-truth-table.md` all cite
 # it by path, and it carries the wording of a privacy-policy line that has to be
@@ -154,6 +197,7 @@ docs/*
 # file nobody who clones this repository can read, for the one document whose
 # entire purpose is that the policy is written down somewhere.
 !docs/audit-retention.md
+!api/docs/audit-retention.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
@@ -175,14 +219,22 @@ id_rsa*
 
 # SVG generation scripts
 scripts/calc_cities.py
+api/scripts/calc_cities.py
 scripts/canada_svg_generator.py
+api/scripts/canada_svg_generator.py
 scripts/gen_alaska_path.py
+api/scripts/gen_alaska_path.py
 scripts/globe_transform.py
+api/scripts/globe_transform.py
 
 frontend/public/sw*
+api/frontend/public/sw*
 frontend/playwright-report/
+api/frontend/playwright-report/
 frontend/test-results/
+api/frontend/test-results/
 frontend/test-results-prod/
+api/frontend/test-results-prod/
 
 # ── Checkpoints (test artifacts) ─────────────────────────────────────────
 checkpoints/
@@ -264,6 +316,7 @@ wget-log
 
 # Next.js incremental build cache
 frontend/tsconfig.tsbuildinfo
+api/frontend/tsconfig.tsbuildinfo
 *.tsbuildinfo
 .npmrc
 .env.local

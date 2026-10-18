@@ -30,8 +30,8 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-ROUTE = ROOT / "routes" / "instances.py"
-API_TS = ROOT / "frontend" / "src" / "lib" / "api.ts"
+ROUTE = ROOT / "api" / "routes" / "instances.py"
+API_TS = ROOT / "api" / "frontend" / "src" / "lib" / "api.ts"
 
 #: The lineage the gate names, plus the digest a sweep pins.
 LINEAGE_FIELDS = ("source_job_id", "base_image_ref", "host_id", "created_at", "image_digest")
@@ -84,7 +84,7 @@ def test_the_dashboard_actually_renders_the_lineage():
     drifted apart in the first place.
     """
     page = (
-        ROOT / "frontend" / "src" / "app" / "(dashboard)" / "dashboard" / "templates" / "page.tsx"
+        ROOT / "api" / "frontend" / "src" / "app" / "(dashboard)" / "dashboard" / "templates" / "page.tsx"
     ).read_text(encoding="utf-8")
     for field in ("base_image_ref", "source_job_id", "image_digest"):
         assert f"img.{field}" in page, (

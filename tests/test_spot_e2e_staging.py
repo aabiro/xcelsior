@@ -109,7 +109,7 @@ class TestStagingChecklistMigration040:
     """10.1 — Migration 040 applied (schema + bid retirement)."""
 
     def test_migration_040_module_present(self):
-        path = ROOT / "migrations" / "versions" / "040_retire_spot_bidding.py"
+        path = ROOT / "api" / "migrations" / "versions" / "040_retire_spot_bidding.py"
         assert path.is_file()
         text = path.read_text()
         assert 'revision = "040"' in text
@@ -306,7 +306,7 @@ class TestStagingChecklistApiSurface:
         assert "prices" in body or "spot_prices" in body
 
     def test_openapi_job_in_has_no_max_bid(self):
-        spec = json.loads((ROOT / "public" / "openapi.json").read_text())
+        spec = json.loads((ROOT / "api" / "public" / "openapi.json").read_text())
         job_in = spec["components"]["schemas"].get("JobIn", {})
         props = job_in.get("properties", {})
         assert "max_bid" not in props

@@ -32,7 +32,7 @@ import pathlib
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-CASES = REPO / "mcp" / "evals" / "tool-selection.jsonl"
+CASES = REPO / "api" / "mcp" / "evals" / "tool-selection.jsonl"
 
 #: The guardrail that belongs with each kind of spend, by the tool the case
 #: expects. Read from the tool surface's own intent, not invented here.
@@ -74,7 +74,7 @@ def test_every_spend_case_accepts_its_guardrail():
 
 def test_the_guardrails_are_real_tools():
     """A guardrail named here but absent from the surface guards nothing."""
-    surface = json.loads((REPO / "mcp" / "tool-surface.json").read_text(encoding="utf-8"))
+    surface = json.loads((REPO / "api" / "mcp" / "tool-surface.json").read_text(encoding="utf-8"))
     names = {tool["name"] for tool in surface["tools"]}
     missing = sorted(set(GUARDRAIL_FOR.values()) - names)
     assert not missing, f"guardrail tools not published on the surface: {missing}"

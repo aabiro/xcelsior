@@ -4,8 +4,8 @@ from pathlib import Path
 from scripts.generate_public_openapi import PUBLIC_SURFACE_NOTE, build_public_spec
 
 ROOT = Path(__file__).resolve().parent.parent
-FERN_OPENAPI = ROOT / "fern" / "openapi.json"
-PUBLIC_OPENAPI = ROOT / "public" / "openapi.json"
+FERN_OPENAPI = ROOT / "api" / "fern" / "openapi.json"
+PUBLIC_OPENAPI = ROOT / "api" / "public" / "openapi.json"
 
 
 def test_checked_in_public_openapi_matches_generator():

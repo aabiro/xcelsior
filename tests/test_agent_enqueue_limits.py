@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-SRC_AGENT = Path(__file__).resolve().parent.parent / "routes" / "agent.py"
+SRC_AGENT = Path(__file__).resolve().parent.parent / "api" / "routes" / "agent.py"
 
 
 def _mock_pool_factory(pending_count: int = 0, inserted_id: int = 42):

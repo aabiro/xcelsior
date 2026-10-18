@@ -27,13 +27,13 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # an interactive-instance launch (or are non-network operator tools).
 _JOB_WRITER_ALLOWLIST: dict[str, str] = {
     "control_plane/launch/service.py": "the unified launch service — the sanctioned authority (§14)",
-    "routes/instances.py": "REST /instance adapter — canonical-spec-aligned with the service (B2.6); full delegation is the B2.7 consolidation residual",
-    "serverless/service.py": "serverless worker provisioning — distinct lifecycle; B3.1 binds these to fenced attempts",
+    "api/routes/instances.py": "REST /instance adapter — canonical-spec-aligned with the service (B2.6); full delegation is the B2.7 consolidation residual",
+    "api/serverless/service.py": "serverless worker provisioning — distinct lifecycle; B3.1 binds these to fenced attempts",
     "workers/inference.py": "PEL inference job submission — request/response inference, not an interactive instance",
-    "routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
+    "api/routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
     "ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
     "cli.py": "local operator/dev CLI — not a network surface",
-    "scripts/seed_reviewer_account.py": (
+    "api/scripts/seed_reviewer_account.py": (
         "one-shot operator script that plants sample instances on the connector "
         "reviewer's own tenant — not a network surface, and deliberately does "
         "not go through the launch service because a demo account must never "

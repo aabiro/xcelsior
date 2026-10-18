@@ -140,7 +140,7 @@ from routes import static as static_routes  # noqa: E402
 SCRIPTS_DIR = (
     REPO_ROOT / "api" / "scripts"
     if (REPO_ROOT / "api" / "scripts").is_dir()
-    else REPO_ROOT / "scripts"
+    else REPO_ROOT / "api" / "scripts"
 )
 INSTALL_SH = SCRIPTS_DIR / "install.sh"
 
@@ -182,7 +182,7 @@ def test_signable_lists_agree():
 
 
 def test_nginx_forwards_exactly_the_installer_files():
-    conf = (REPO_ROOT / "nginx" / "xcelsior.conf").read_text()
+    conf = (REPO_ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     assert "location = /install.sh {" in conf
     m = re.search(r"location ~ (\^/static/\([^)]*\)\$) \{", conf)
     assert m, "no /static/ regex location in nginx/xcelsior.conf"

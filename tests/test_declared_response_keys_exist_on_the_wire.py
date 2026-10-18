@@ -48,7 +48,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from api import app  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-API_TS = ROOT / "frontend/src/lib/api.ts"
+API_TS = ROOT / "api/frontend/src/lib/api.ts"
 
 client = TestClient(app)
 

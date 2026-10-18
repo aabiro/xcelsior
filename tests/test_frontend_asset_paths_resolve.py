@@ -23,7 +23,7 @@ import re
 from tests._source_tree import iter_source_files, read_source
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FRONTEND = ROOT / "frontend"
+FRONTEND = ROOT / "api" / "frontend"
 SRC = FRONTEND / "src"
 PUBLIC = FRONTEND / "public"
 
@@ -54,8 +54,8 @@ def _references() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for suffix in SOURCE_SUFFIXES:
         # `include_prefixes` beats every exclude, so tests are dropped here.
-        for f, rel in iter_source_files(suffix, include_prefixes=("frontend/src/",)):
-            if not rel.startswith("frontend/src/") or rel.startswith("frontend/src/__tests__/"):
+        for f, rel in iter_source_files(suffix, include_prefixes=("api/frontend/src/",)):
+            if not rel.startswith("api/frontend/src/") or rel.startswith("api/frontend/src/__tests__/"):
                 continue
             for match in ASSET.finditer(read_source(f)):
                 path = match.group(1)

@@ -155,7 +155,7 @@ def test_no_handler_in_these_modules_discards_a_caught_exception() -> None:
 
     root = Path(__file__).resolve().parents[1]
     offenders: list[str] = []
-    for rel in ("routes/sla.py", "routes/billing.py", "routes/admin.py"):
+    for rel in ("api/routes/sla.py", "api/routes/billing.py", "api/routes/admin.py"):
         tree = ast.parse((root / rel).read_text(encoding="utf-8"))
         for handler in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
             if not handler.name:

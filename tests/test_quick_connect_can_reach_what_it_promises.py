@@ -47,10 +47,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: than pattern-matched: this is the set the consent text describes, and a
 #: reviewer should see it change.
 CONNECTION_HANDLERS = [
-    ("routes/instances.py", "api_instance_stream_ticket"),
-    ("routes/instances.py", "api_instances_auto_launch_get"),
-    ("routes/instances.py", "api_instances_expose"),
-    ("routes/terminal.py", "api_terminal_ticket"),
+    ("api/routes/instances.py", "api_instance_stream_ticket"),
+    ("api/routes/instances.py", "api_instances_auto_launch_get"),
+    ("api/routes/instances.py", "api_instances_expose"),
+    ("api/routes/terminal.py", "api_terminal_ticket"),
 ]
 
 
@@ -115,7 +115,7 @@ def test_the_frontend_list_matches_the_backend_one():
     """
     from oauth_service import MCP_QUICK_CONNECT_SCOPES
 
-    tsx = (ROOT / "frontend" / "src" / "components" / "settings" / "McpAgentSetup.tsx").read_text(
+    tsx = (ROOT / "api" / "frontend" / "src" / "components" / "settings" / "McpAgentSetup.tsx").read_text(
         encoding="utf-8"
     )
     block = tsx.split("const MCP_SCOPES = [", 1)[1].split("]", 1)[0]
@@ -132,7 +132,7 @@ def test_the_frontend_list_matches_the_backend_one():
 #: The MCP server's own tests assert what the connector credential can reach,
 #: against a literal list of its scopes. That is a third copy of a set already
 #: written twice, in a language that cannot import either of the others.
-TS_SCOPE_TEST = "mcp/tests/unit/scope-enforcement.test.ts"
+TS_SCOPE_TEST = "api/mcp/tests/unit/scope-enforcement.test.ts"
 
 
 def _ts_quick_connect_literals() -> list[set[str]]:
@@ -204,7 +204,7 @@ def test_no_new_scope_is_granted_without_a_tool_that_needs_it():
     import pathlib
 
     repo = pathlib.Path(__file__).resolve().parent.parent
-    registry = (repo / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
+    registry = (repo / "api" / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
     block = registry.split("const TOOL_SCOPE_REGISTRY = {", 1)[1].split("\n} satisfies", 1)[0]
     required_by_a_tool = set(re.findall(r'"([a-z_]+:[a-z_]+)"', block))
 

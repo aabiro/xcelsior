@@ -44,11 +44,11 @@ import sys
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-MIGRATIONS = REPO / "migrations" / "versions"
+MIGRATIONS = REPO / "api" / "migrations" / "versions"
 
 # Not part of the running application. `migrations` is excluded because a
 # migration must be able to name the column it drops.
-SKIP_PREFIXES = ("tests/", "migrations/", "scripts/")
+SKIP_PREFIXES = ("tests/", "api/migrations/", "api/scripts/")
 
 
 def _load(path: pathlib.Path):

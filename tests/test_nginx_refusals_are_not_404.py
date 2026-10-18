@@ -31,7 +31,7 @@ import time
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SITE = ROOT / "nginx" / "xcelsior.conf"
+SITE = ROOT / "api" / "nginx" / "xcelsior.conf"
 
 #: One signed-in dashboard load, measured against production on 2026-10-06.
 MEASURED_CONCURRENT_REQUESTS_PER_PAGE = 44

@@ -121,7 +121,7 @@ def test_auth_required_is_derived_from_the_resolver():
     depends on the environment the suite happens to run in — and `conftest`
     pins it to False, so reading it here would prove nothing.
     """
-    source = (ROOT / "routes" / "_deps.py").read_text(encoding="utf-8")
+    source = (ROOT / "api" / "routes" / "_deps.py").read_text(encoding="utf-8")
     assert "AUTH_REQUIRED = not env_config.is_relaxed_env()" in source, (
         "AUTH_REQUIRED is no longer derived from env_config; an unset "
         "XCELSIOR_ENV may once again disable authentication"
@@ -185,7 +185,7 @@ def test_no_security_decision_compares_the_environment_string_directly():
     `tests/test_source_tree_is_shared.py` is what caught it.
     """
     offenders: dict[str, list[str]] = {}
-    for path, rel in iter_source_files(exclude_prefixes=("migrations/", "wizard/")):
+    for path, rel in iter_source_files(exclude_prefixes=("api/migrations/", "api/wizard/")):
         if rel == "env_config.py":  # the resolver is allowed to read the variable
             continue
         try:

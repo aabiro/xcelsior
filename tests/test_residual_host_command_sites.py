@@ -521,7 +521,7 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
 def test_host_scoped_admin_rollout_not_job_dual_writer():
     """upgrade_agent / rollback_agent stay host-level (no job_id authority)."""
     root = Path(__file__).resolve().parents[1]
-    admin_src = (root / "routes" / "admin.py").read_text()
+    admin_src = (root / "api" / "routes" / "admin.py").read_text()
     bg_src = (root / "workers" / "bg_worker.py").read_text()
 
     # Admin rollout enqueues upgrade_agent by host_id only.
@@ -544,13 +544,13 @@ def test_enqueue_site_inventory_classifies_job_vs_host():
     """Static inventory: residual job sites gated; host sites separate."""
     root = Path(__file__).resolve().parents[1]
     sources = {
-        "ssh": (root / "routes" / "ssh.py").read_text(),
-        "instances": (root / "routes" / "instances.py").read_text(),
+        "ssh": (root / "api" / "routes" / "ssh.py").read_text(),
+        "instances": (root / "api" / "routes" / "instances.py").read_text(),
         "volumes": (root / "workers" / "volumes.py").read_text(),
         "bg_worker": (root / "workers" / "bg_worker.py").read_text(),
-        "admin": (root / "routes" / "admin.py").read_text(),
+        "admin": (root / "api" / "routes" / "admin.py").read_text(),
         "billing": (root / "billing" / "billing.py").read_text(),
-        "serverless": (root / "serverless" / "service.py").read_text(),
+        "serverless": (root / "api" / "serverless" / "service.py").read_text(),
     }
 
     # Job-scoped residuals must import / use the shared target resolver.

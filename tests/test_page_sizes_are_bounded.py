@@ -65,8 +65,8 @@ def _clamped_in_body(fn: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> b
 
 def test_no_route_lets_the_caller_choose_the_page_size():
     offenders: list[str] = []
-    for path, rel in iter_source_files(include_prefixes=("routes/",)):
-        if not rel.startswith("routes/"):
+    for path, rel in iter_source_files(include_prefixes=("api/routes/",)):
+        if not rel.startswith("api/routes/"):
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))

@@ -34,7 +34,7 @@ import pytest
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SSH_ROUTES = ROOT / "routes" / "ssh.py"
+SSH_ROUTES = ROOT / "api" / "routes" / "ssh.py"
 
 #: Helpers that refuse `client_credentials` outright, before any scope check.
 #: `_require_user_grant` documents this in its own docstring: "Rejects
@@ -190,7 +190,7 @@ def test_the_migration_that_makes_this_defensible_is_in_the_repository():
     tree cannot explain, and every other environment silently lacks the columns
     this route now writes.
     """
-    migration = ROOT / "migrations" / "versions" / "099_ssh_key_client_binding.py"
+    migration = ROOT / "api" / "migrations" / "versions" / "099_ssh_key_client_binding.py"
     assert migration.exists(), "migration 099 is missing from migrations/versions/"
     text = migration.read_text(encoding="utf-8")
     assert 'down_revision = "098"' in text, "099 no longer chains onto 098"

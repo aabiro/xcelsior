@@ -40,10 +40,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: Reads the response body incrementally; `apiFetch` resolves `.json()` and
 #: cannot return a stream. Checked below against the code, not taken on trust.
 STREAMING = {
-    "frontend/src/hooks/useAiChat.ts",
-    "frontend/src/hooks/useChatStream.ts",
-    "frontend/src/components/ai/xcel-ai-onboarding.tsx",
-    "frontend/src/app/(dashboard)/dashboard/analytics/analytics-ai-panel.tsx",
+    "api/frontend/src/hooks/useAiChat.ts",
+    "api/frontend/src/hooks/useChatStream.ts",
+    "api/frontend/src/components/ai/xcel-ai-onboarding.tsx",
+    "api/frontend/src/app/(dashboard)/dashboard/analytics/analytics-ai-panel.tsx",
 }
 
 #: Public pages. `apiFetch` redirects to login on a failed refresh, which would
@@ -53,7 +53,7 @@ STREAMING = {
 #: a className satisfied a substring check for "body". A guard that passes for
 #: the wrong reason is the thing this whole session kept finding.
 PUBLIC_UNAUTHENTICATED = {
-    "frontend/src/app/(marketing)/status/content.tsx",
+    "api/frontend/src/app/(marketing)/status/content.tsx",
 }
 
 EXEMPT = STREAMING | PUBLIC_UNAUTHENTICATED
@@ -71,12 +71,12 @@ def _raw_api_fetches() -> dict[str, list[str]]:
     """`file -> [call lines]` for `fetch("/api…")` outside the api client."""
     found: dict[str, list[str]] = {}
     sources = [
-        *iter_source_files("*.ts", include_prefixes=("frontend/src/",)),
-        *iter_source_files("*.tsx", include_prefixes=("frontend/src/",)),
+        *iter_source_files("*.ts", include_prefixes=("api/frontend/src/",)),
+        *iter_source_files("*.tsx", include_prefixes=("api/frontend/src/",)),
     ]
     assert sources, "no frontend sources found; the include prefix is wrong"
     for path, rel in sources:
-        if rel == "frontend/src/lib/api.ts":
+        if rel == "api/frontend/src/lib/api.ts":
             continue  # `apiFetch` itself is the one place a raw fetch belongs
         text = strip_ts_comments(read_source(path))
         for line in text.splitlines():
@@ -135,7 +135,7 @@ def test_raw_api_fetches_do_not_grow():
 def test_the_reputation_score_goes_through_the_api_client():
     """The one traced end to end: it rendered "0 points" for a stale token."""
     page = strip_ts_comments(
-        (ROOT / "frontend/src/app/(dashboard)/dashboard/reputation/page.tsx").read_text(
+        (ROOT / "api/frontend/src/app/(dashboard)/dashboard/reputation/page.tsx").read_text(
             encoding="utf-8"
         )
     )

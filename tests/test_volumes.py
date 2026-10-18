@@ -719,7 +719,7 @@ class TestVolumeSchema:
         import inspect
         from db import _ensure_pg_tables
 
-        mig_005 = Path("migrations/versions/005_payment_infrastructure.py")
+        mig_005 = Path("api/migrations/versions/005_payment_infrastructure.py")
         source = mig_005.read_text(encoding="utf-8")
         assert '"volumes"' in source or "volumes" in source
         assert "volume_attachments" in source
@@ -730,7 +730,7 @@ class TestVolumeSchema:
     def test_volume_attachments_table_in_alembic(self):
         from pathlib import Path
 
-        mig_005 = Path("migrations/versions/005_payment_infrastructure.py")
+        mig_005 = Path("api/migrations/versions/005_payment_infrastructure.py")
         source = mig_005.read_text(encoding="utf-8")
         assert "volume_attachments" in source
 

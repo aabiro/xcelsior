@@ -94,14 +94,14 @@ class TestNonScopedPrincipalsUnaffected:
 
 def test_no_wildcard_scope_survives_in_either_layer():
     """Neither layer may reintroduce a value that means "everything"."""
-    ts = (ROOT / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
+    ts = (ROOT / "api" / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
     assert '| "api"' not in ts, "`api` is back in the McpScope enum"
     assert 'granted.has("api")' not in ts, "`api` is back as a wildcard grant"
 
     # Sweep every route module, not just _deps. A third bypass was hiding in
     # routes/action_plans.py — `if "api" not in held` — and was only caught
     # because a worker test failed. A grep for the pattern finds it directly.
-    for module in sorted((ROOT / "routes").glob("*.py")):
+    for module in sorted((ROOT / "api" / "routes").glob("*.py")):
         body = module.read_text(encoding="utf-8")
         for pattern in (
             '"api" in granted',
@@ -112,7 +112,7 @@ def test_no_wildcard_scope_survives_in_either_layer():
         ):
             assert pattern not in body, f"{module.name} reintroduces an `api` bypass: {pattern}"
 
-    auth = (ROOT / "routes" / "auth.py").read_text(encoding="utf-8")
+    auth = (ROOT / "api" / "routes" / "auth.py").read_text(encoding="utf-8")
     assert (
         'default_factory=lambda: ["api"]' not in auth
     ), "client registration defaults to a wildcard scope again"

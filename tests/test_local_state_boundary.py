@@ -29,7 +29,7 @@ SQLITE_ALLOWED = {
     # backend is refused by control_plane.startup_validation.
     "db.py": "backend abstraction; production use blocked by the startup validator",
     # Reads the SQLite side during the one-time consolidation.
-    "scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
+    "api/scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
     # Test/dev-only path, gated on XCELSIOR_DB_BACKEND != postgres.
     "billing/bitcoin.py": "dev/test backend branch; production refuses a non-postgres backend",
     # Reads **Headscale's own** database, not Xcelsior state. Headscale stores
@@ -39,13 +39,13 @@ SQLITE_ALLOWED = {
     # Xcelsior control-plane or money state is involved, and nothing is written.
     # Operator CLI installed at /usr/local/sbin/headscale-failover, run on the
     # standby host and never in a deployed image (§10.2 items 2 and 3).
-    "scripts/headscale_failover.py": "reads Headscale's own sqlite tailnet DB read-only; operator CLI",
+    "api/scripts/headscale_failover.py": "reads Headscale's own sqlite tailnet DB read-only; operator CLI",
 }
 
 # Developer tooling that runs on a workstation, never in a deployed image
 # (§10.2 items 2 and 3). Exempted as a directory rather than file-by-file,
 # with `test_local_tooling_is_not_deployed` keeping the exemption honest.
-LOCAL_TOOLING_PREFIX = "scripts/local/"
+LOCAL_TOOLING_PREFIX = "api/scripts/local/"
 
 # Directories that are not production control-plane code. Note this repo
 # has BOTH `.venv` and `venv`; any directory containing `pyvenv.cfg` is
@@ -168,7 +168,7 @@ def test_local_tooling_is_not_deployed() -> None:
     evaporates and it becomes shared state on a shared host.
     """
     referenced = []
-    for artifact in ("docker-compose.yml", "Dockerfile", "mcp/Dockerfile"):
+    for artifact in ("docker-compose.yml", "Dockerfile", "api/mcp/Dockerfile"):
         path = PROJECT_ROOT / artifact
         if not path.is_file():
             continue

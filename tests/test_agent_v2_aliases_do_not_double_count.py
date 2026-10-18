@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from routes.agent_v2_aliases import ALIASES  # noqa: E402
 
-CLASSIFICATION = ROOT / "docs" / "endpoint-classification.json"
+CLASSIFICATION = ROOT / "api" / "docs" / "endpoint-classification.json"
 
 
 def _classification() -> dict[str, dict[str, str]]:

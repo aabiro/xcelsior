@@ -29,7 +29,7 @@ import re
 
 import pytest
 
-TABLE = pathlib.Path(__file__).resolve().parent.parent / "docs" / "gate-truth-table.md"
+TABLE = pathlib.Path(__file__).resolve().parent.parent / "api" / "docs" / "gate-truth-table.md"
 
 #: A clause row: `| 3 | the clause text | **PASS** | the evidence |`.
 CLAUSE_ROW = re.compile(r"^\|\s*\d+\s*\|")

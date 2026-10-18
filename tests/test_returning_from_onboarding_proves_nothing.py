@@ -171,7 +171,7 @@ def test_no_request_handler_completes_onboarding_directly():
     looks right, and a provider who abandoned KYC is payout-eligible.
     """
     offenders = []
-    for path in sorted((ROOT / "routes").glob("*.py")):
+    for path in sorted((ROOT / "api" / "routes").glob("*.py")):
         text = path.read_text(encoding="utf-8", errors="ignore")
         if COMPLETION not in text:
             continue

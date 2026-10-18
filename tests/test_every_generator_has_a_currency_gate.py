@@ -25,7 +25,7 @@ from pathlib import Path
 from tests._source_tree import iter_source_files
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
+SCRIPTS = ROOT / "api" / "scripts"
 SELF = Path(__file__).name
 
 
@@ -43,7 +43,7 @@ def _test_sources() -> list[tuple[Path, str]]:
         out.extend(
             iter_source_files(
                 suffix,
-                include_prefixes=("mcp/",),
+                include_prefixes=("api/mcp/",),
                 include_tests=True,
             )
         )

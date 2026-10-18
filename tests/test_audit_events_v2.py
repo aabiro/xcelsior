@@ -142,7 +142,7 @@ def test_write_beyond_window_lands_in_default_not_a_failure():
 def test_no_request_handler_creates_audit_partitions():
     """Static guard: no route handler does ad-hoc partition DDL for the table."""
     offenders = []
-    for path in (REPO / "routes").glob("*.py"):
+    for path in (REPO / "api" / "routes").glob("*.py"):
         src = path.read_text()
         if (
             "PARTITION OF audit_events_v2" in src

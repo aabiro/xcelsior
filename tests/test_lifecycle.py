@@ -27,8 +27,8 @@ os.environ.setdefault("XCELSIOR_ENV", "test")
 _ROOT = Path(__file__).resolve().parent.parent
 _BILLING_SRC = (_ROOT / "billing" / "billing.py").read_text()
 _SCHEDULER_SRC = (_ROOT / "workers" / "scheduler.py").read_text()
-_ROUTES_SRC = (_ROOT / "routes" / "instances.py").read_text()
-_MIGRATION_SRC = (_ROOT / "migrations" / "versions" / "019_instance_lifecycle.py").read_text()
+_ROUTES_SRC = (_ROOT / "api" / "routes" / "instances.py").read_text()
+_MIGRATION_SRC = (_ROOT / "api" / "migrations" / "versions" / "019_instance_lifecycle.py").read_text()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -712,7 +712,7 @@ class TestMigration019:
     """Verify migration 019 creates the storage_billing_rates table."""
 
     def test_migration_file_exists(self):
-        assert (_ROOT / "migrations" / "versions" / "019_instance_lifecycle.py").exists()
+        assert (_ROOT / "api" / "migrations" / "versions" / "019_instance_lifecycle.py").exists()
 
     def test_creates_storage_billing_rates_table(self):
         assert "storage_billing_rates" in _MIGRATION_SRC
@@ -750,7 +750,7 @@ class TestMigration019:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-_API_TS_SRC = (_ROOT / "frontend" / "src" / "lib" / "api.ts").read_text()
+_API_TS_SRC = (_ROOT / "api" / "frontend" / "src" / "lib" / "api.ts").read_text()
 
 
 class TestFrontendApiClient:
@@ -792,7 +792,7 @@ class TestFrontendApiClient:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-_BADGE_SRC = (_ROOT / "frontend" / "src" / "components" / "ui" / "badge.tsx").read_text()
+_BADGE_SRC = (_ROOT / "api" / "frontend" / "src" / "components" / "ui" / "badge.tsx").read_text()
 
 
 class TestFrontendBadge:

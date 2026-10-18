@@ -72,7 +72,7 @@ def test_dockerfile_drops_privileged_volume_tooling():
     for pkg in ("cryptsetup", "e2fsprogs"):
         assert pkg not in install, f"{pkg} must not ship in the unprivileged API image"
     # ...and must still be present where the privilege actually lives.
-    provisioner = (ROOT / "infra" / "volume-provisioner" / "Dockerfile").read_text()
+    provisioner = (ROOT / "api" / "infra" / "volume-provisioner" / "Dockerfile").read_text()
     assert "cryptsetup" in provisioner
 
 
@@ -263,7 +263,7 @@ def test_ingress_mode_defaults_to_allow(monkeypatch):
 
 
 def test_public_nginx_strips_forgeable_identity_headers():
-    conf = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    conf = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     from control_plane.identity import UNTRUSTED_IDENTITY_HEADERS
 
     agent_block = conf[conf.index("location /host") : conf.index("location /api/")]
@@ -275,7 +275,7 @@ def test_public_nginx_strips_forgeable_identity_headers():
 
 
 def test_retirement_snippet_is_a_drop_in_replacement():
-    snippet = (ROOT / "nginx" / "snippets" / "xcelsior-agent-retired.conf").read_text()
+    snippet = (ROOT / "api" / "nginx" / "snippets" / "xcelsior-agent-retired.conf").read_text()
     # Same two locations the public conf currently proxies.
     assert "location /host" in snippet
     assert "location /agent/" in snippet
@@ -288,6 +288,6 @@ def test_retirement_snippet_is_a_drop_in_replacement():
 
 
 def test_public_conf_documents_the_cutover_procedure():
-    conf = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    conf = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     assert "xcelsior-agent-retired.conf" in conf
     assert "XCELSIOR_AGENT_PUBLIC_INGRESS=deny" in conf
