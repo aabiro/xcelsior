@@ -12,6 +12,7 @@ WorkingDirectory=/opt/xcelsior
 
 # Environment variables - CUSTOMIZE THESE
 Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/xcelsior/archive:/opt/xcelsior/billing:/opt/xcelsior/workers:/opt/xcelsior/auth:/opt/xcelsior/hosts:/opt/xcelsior/privacy:/opt/xcelsior/api:/opt/xcelsior/core:/opt/xcelsior"
 Environment="XCELSIOR_HOST_ID=gpu-worker-01"
 Environment="XCELSIOR_SCHEDULER_URL=http://scheduler:8000"
 # Choose one auth method below. If both are set, the worker prefers OAuth client credentials.
@@ -24,7 +25,7 @@ Environment="XCELSIOR_REPORT_INTERVAL=5"
 # Or load from .env file:
 EnvironmentFile=-/opt/xcelsior/.env
 
-ExecStart=/opt/xcelsior/venv/bin/python3 worker_agent.py
+ExecStart=/opt/xcelsior/venv/bin/python3 workers/worker_agent.py
 
 # Restart policy
 Restart=always

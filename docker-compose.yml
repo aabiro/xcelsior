@@ -614,7 +614,7 @@ services:
   bg-worker:
     build: .
     <<: *api-hardening
-    command: python bg_worker.py
+    command: python workers/bg_worker.py
     network_mode: host
     environment:
       <<: *api-env
@@ -637,7 +637,7 @@ services:
       retries: 3
 
   mcp:
-    build: ./mcp
+    build: ./api/mcp
     network_mode: host
     environment:
       XCELSIOR_API_URL: ${XCELSIOR_API_URL:-http://127.0.0.1:9500}
@@ -700,7 +700,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./api/frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://xcelsior.ca}
@@ -731,7 +731,7 @@ services:
 
   ssh-gateway:
     build: .
-    command: python ssh_gateway.py
+    command: python hosts/ssh_gateway.py
     network_mode: host
     environment:
       XCELSIOR_SERVICE: ssh_gateway
@@ -759,7 +759,7 @@ services:
 
   ssh-gateway-blue:
     build: .
-    command: python ssh_gateway.py
+    command: python hosts/ssh_gateway.py
     network_mode: host
     profiles: ["blue"]
     environment:
@@ -788,7 +788,7 @@ services:
   # Default production path is host-SSH from API without this profile.
   volume-provisioner:
     build:
-      context: ./infra/volume-provisioner
+      context: ./api/infra/volume-provisioner
     profiles: ["volume-provisioner"]
     network_mode: host
     cap_add:
@@ -817,7 +817,7 @@ services:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
     volumes:
-      - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./api/infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - otel-collector-data:/var/lib/otelcol
     networks:
@@ -864,9 +864,9 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
-      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/observability/prometheus/recording-rules.yml:/etc/prometheus/rules/recording-rules.yml:ro
-      - ./infra/observability/prometheus/alert-rules.yml:/etc/prometheus/rules/alert-rules.yml:ro
+      - ./api/infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./api/infra/observability/prometheus/recording-rules.yml:/etc/prometheus/rules/recording-rules.yml:ro
+      - ./api/infra/observability/prometheus/alert-rules.yml:/etc/prometheus/rules/alert-rules.yml:ro
       - prometheus-data:/prometheus
     networks:
       - observability
@@ -905,7 +905,7 @@ services:
     ports:
       - "127.0.0.1:9093:9093"
     volumes:
-      - ${XCELSIOR_ALERTMANAGER_CONFIG_PATH:-./infra/observability/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+      - ${XCELSIOR_ALERTMANAGER_CONFIG_PATH:-./api/infra/observability/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
     networks:
       - observability
@@ -941,9 +941,9 @@ services:
     ports:
       - "127.0.0.1:3001:3000"
     volumes:
-      - ./infra/observability/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
-      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./api/infra/observability/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./api/infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./api/infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     networks:
       - observability
@@ -977,7 +977,7 @@ services:
     command:
       - -config.file=/etc/loki/loki.yaml
     volumes:
-      - ./infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - ./api/infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
     networks:
       - observability
@@ -1006,7 +1006,7 @@ services:
     command:
       - -config.file=/etc/tempo/tempo.yaml
     volumes:
-      - ./infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - ./api/infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
     networks:
       - observability

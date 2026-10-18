@@ -10,6 +10,7 @@ User=xcelsior
 Group=xcelsior
 WorkingDirectory=/opt/xcelsior
 Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/xcelsior/archive:/opt/xcelsior/billing:/opt/xcelsior/workers:/opt/xcelsior/auth:/opt/xcelsior/hosts:/opt/xcelsior/privacy:/opt/xcelsior/api:/opt/xcelsior/core:/opt/xcelsior"
 EnvironmentFile=/opt/xcelsior/.env
 
 # Run health monitor with 30-second check interval
