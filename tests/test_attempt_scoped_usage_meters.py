@@ -319,7 +319,7 @@ def test_active_attempt_on_job_row_preferred(cleanup):
 def test_production_meter_insert_inventory():
     """Static: only BillingEngine.meter_job inserts usage_meters rows."""
     root = Path(__file__).resolve().parents[1]
-    billing = (root / "billing.py").read_text()
+    billing = (root / "billing" / "billing.py").read_text()
     assert "def meter_job(" in billing
     assert "INSERT INTO usage_meters" in billing
     assert "resolve_meter_attempt_id" in billing

@@ -54,7 +54,7 @@ _SENSITIVE_FRAGMENTS = (
 _ALLOWLIST: set[tuple[str, int]] = {
     # stripe_connect.py logs only the public key-type prefix (sk_live / sk_test),
     # not any secret material — STRIPE_SECRET_KEY[:7] == "sk_live" or "sk_test".
-    ("stripe_connect.py", 50),
+    ("billing/stripe_connect.py", 50),
     # security.py warns that the dev key is in use — no value is logged.
     ("security.py", 41),
     # security.py logs failure to decrypt by *name*, not by value.

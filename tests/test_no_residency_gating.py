@@ -261,7 +261,7 @@ def test_absence_assertions_are_not_counted():
         "mcp/src/auth/scopes.ts",
         "routes/_deps.py",
         "scheduler.py",
-        "billing.py",
+        "billing/billing.py",
     ],
 )
 def test_high_traffic_surfaces_are_clean(path):

@@ -25,8 +25,12 @@ import time
 from pathlib import Path
 
 # Repo root on path for db imports
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+_HERE = Path(__file__).resolve().parent
+ROOT = _HERE.parent.parent if _HERE.parent.name == "api" else _HERE.parent
+for _pkg in ("core", "billing", ""):
+    _p = str(ROOT / _pkg) if _pkg else str(ROOT)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from db import _GPU_PRICING_BASE, _generate_gpu_pricing_rows  # noqa: E402
 
@@ -48,7 +52,7 @@ WALLET_PRODUCT_SKU = "xcelsior-compute-credits"
 METER_EVENT_NAME = "xcelsior_gpu_hour"
 SERVERLESS_METER_EVENT = "xcelsior_serverless_worker_second"
 STORAGE_METER_EVENT = "xcelsior_storage_gb_month"
-MANIFEST_PATH = ROOT / "config" / "stripe_catalog.json"
+MANIFEST_PATH = ROOT / "billing" / "stripe_catalog.json"
 
 # Preset wallet top-up amounts (CAD) — applied dynamically at checkout, not a product picker.
 WALLET_TOPUP_PRESETS_CAD = [5, 10, 25, 50, 100, 250, 500]

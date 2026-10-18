@@ -18,8 +18,9 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "config" / "stripe_catalog.json"
+_HERE = Path(__file__).resolve().parent
+ROOT = _HERE.parent.parent if _HERE.parent.name == "api" else _HERE.parent
+MANIFEST = ROOT / "billing" / "stripe_catalog.json"
 CANONICAL_SKU = "xcelsior-compute-credits"
 WALLET_NAME = "Xcelsior Compute Credits"
 

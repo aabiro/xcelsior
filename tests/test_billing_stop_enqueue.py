@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-BILLING_PY = Path(__file__).resolve().parent.parent / "billing.py"
+BILLING_PY = Path(__file__).resolve().parent.parent / "billing" / "billing.py"
 
 
 @pytest.fixture(scope="module")

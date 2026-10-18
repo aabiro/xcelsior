@@ -25,7 +25,7 @@ os.environ.setdefault("XCELSIOR_ENV", "test")
 # ── Paths ─────────────────────────────────────────────────────────────
 
 _ROOT = Path(__file__).resolve().parent.parent
-_BILLING_SRC = (_ROOT / "billing.py").read_text()
+_BILLING_SRC = (_ROOT / "billing" / "billing.py").read_text()
 _SCHEDULER_SRC = (_ROOT / "scheduler.py").read_text()
 _ROUTES_SRC = (_ROOT / "routes" / "instances.py").read_text()
 _MIGRATION_SRC = (_ROOT / "migrations" / "versions" / "019_instance_lifecycle.py").read_text()

@@ -399,7 +399,7 @@ def test_legacy_start_still_uses_start_container(cleanup_ids, captured_enqueue):
 def test_static_controller_reachable():
     from pathlib import Path
 
-    billing = Path("billing.py").read_text(encoding="utf-8")
+    billing = Path("billing/billing.py").read_text(encoding="utf-8")
     assert "request_fresh_attempt_resume" in billing
     assert 'intent="restart"' in billing or "intent='restart'" in billing
     assert 'reason": "fenced_resume_requires_new_attempt"' not in billing

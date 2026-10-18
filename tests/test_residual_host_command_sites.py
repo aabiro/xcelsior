@@ -549,7 +549,7 @@ def test_enqueue_site_inventory_classifies_job_vs_host():
         "volumes": (root / "volumes.py").read_text(),
         "bg_worker": (root / "bg_worker.py").read_text(),
         "admin": (root / "routes" / "admin.py").read_text(),
-        "billing": (root / "billing.py").read_text(),
+        "billing": (root / "billing" / "billing.py").read_text(),
         "serverless": (root / "serverless" / "service.py").read_text(),
     }
 

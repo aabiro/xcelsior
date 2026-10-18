@@ -17,7 +17,7 @@ from typing import Any
 log = logging.getLogger("xcelsior.stripe_catalog")
 
 _ROOT = Path(__file__).resolve().parent
-_MANIFEST_PATH = _ROOT / "config" / "stripe_catalog.json"
+_MANIFEST_PATH = _ROOT / "stripe_catalog.json"
 
 _TIER_LABELS = {
     "standard": "Standard",
