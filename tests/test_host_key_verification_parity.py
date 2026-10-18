@@ -51,7 +51,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 MCP_TOOL = ROOT / "mcp/src/tools/compute.ts"
 UI_COMPONENT = ROOT / "frontend/src/components/instances/host-key-verification.tsx"
-PY_VALIDATOR = ROOT / "host_key_fingerprint.py"
+PY_VALIDATOR = ROOT / "hosts" / "host_key_fingerprint.py"
 
 #: `ssh-keyscan` through the end of the pipe, however the source spells it.
 _COMMAND_SPAN = re.compile(r"ssh-keyscan.*?ssh-keygen\s+-lf\s+-", re.DOTALL)

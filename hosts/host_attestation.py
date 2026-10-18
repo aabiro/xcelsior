@@ -10,7 +10,12 @@ from typing import Any
 
 log = logging.getLogger("xcelsior.host_attestation")
 
-_COMPLIANCE_DIR = Path(__file__).resolve().parent / "docs" / "compliance"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_COMPLIANCE_DIR = (
+    (_REPO_ROOT / "api" / "docs" / "compliance")
+    if (_REPO_ROOT / "api" / "docs" / "compliance").exists()
+    else (_REPO_ROOT / "docs" / "compliance")
+)
 
 ATTESTATION_SCHEMA_VERSION = "1.0"
 ATTESTED_PREMIUM_MULTIPLIER = 2.5  # commodity ×2–3 for attested H100-class hosts
