@@ -432,6 +432,8 @@ export default function EarningsPage() {
                         providerId={providerId || customerId}
                         active
                         mode="manage"
+                        onRestartOnboarding={handleStripeConnect}
+                        restartingOnboarding={onboarding}
                       />
                     )}
                     <ConfirmDialog
@@ -451,6 +453,8 @@ export default function EarningsPage() {
                         providerId={providerId || customerId}
                         active
                         mode="setup"
+                        onRestartOnboarding={handleStripeConnect}
+                        restartingOnboarding={onboarding}
                       />
                     )}
                     <div className="flex items-center justify-between">
