@@ -1692,6 +1692,19 @@ def api_auth_register(body: RegisterRequest, request: Request):
 
     broadcast_sse("user_registered", {"email": email, "user_id": user_id})
 
+    try:
+        from meta_capi import track_event
+
+        track_event(
+            "CompleteRegistration",
+            f"reg_{user_id}",
+            user=user,
+            request=request,
+            custom_data={"status": "registered"},
+        )
+    except Exception:
+        log.debug("meta registration event skipped", exc_info=True)
+
     # Telegram alert for new signup
     try:
         alert("New Signup", f"{user['name']} ({email}) — role: {user.get('role', 'submitter')}")

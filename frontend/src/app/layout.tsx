@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
+import { MetaPixel } from "@/components/analytics/MetaPixel";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
 import { ClientToaster } from "@/components/ClientToaster";
 import { BRAND_ASSET_ORIGIN, SITE_ASSETS } from "@/lib/brand-assets";
@@ -11,6 +12,12 @@ import "@/components/marketing/marketing-theme.css";
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
   ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID!
   : null;
+
+const META_PIXEL_ID = /^\d{8,20}$/.test(process.env.META_PIXEL_ID ?? "")
+  ? process.env.META_PIXEL_ID!
+  : /^\d{8,20}$/.test(process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "")
+    ? process.env.NEXT_PUBLIC_META_PIXEL_ID!
+    : null;
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"], display: "swap", preload: false });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], display: "swap", preload: false });
@@ -161,6 +168,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <Providers>
+          {META_PIXEL_ID ? <MetaPixel pixelId={META_PIXEL_ID} /> : null}
           {children}
           <RootClientWidgets />
           <ClientToaster />
