@@ -45,9 +45,9 @@ import re
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SCOPES_TS = ROOT / "mcp" / "src" / "auth" / "scopes.ts"
-CONTRACTS_TS = ROOT / "mcp" / "src" / "tools" / "contracts.ts"
-DESCRIPTIONS_TS = ROOT / "mcp" / "src" / "tools" / "descriptions.ts"
+SCOPES_TS = ROOT / "api" / "mcp" / "src" / "auth" / "scopes.ts"
+CONTRACTS_TS = ROOT / "api" / "mcp" / "src" / "tools" / "contracts.ts"
+DESCRIPTIONS_TS = ROOT / "api" / "mcp" / "src" / "tools" / "descriptions.ts"
 
 #: Scope suffixes that mutate. `read` is the only one that does not, and
 #: `connect` is deliberately here: issuing connection material is a write in

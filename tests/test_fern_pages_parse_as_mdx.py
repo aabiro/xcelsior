@@ -14,8 +14,8 @@ from tests._source_tree import iter_source_files, read_source
 def _pages():
     return [
         (f, rel)
-        for f, rel in iter_source_files("*.mdx", include_prefixes=("fern/",))
-        if rel.startswith("fern/")
+        for f, rel in iter_source_files("*.mdx", include_prefixes=("api/fern/",))
+        if rel.startswith("api/fern/")
     ]
 
 

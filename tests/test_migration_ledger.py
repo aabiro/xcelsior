@@ -33,8 +33,8 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VERSIONS_DIR = PROJECT_ROOT / "migrations" / "versions"
-LEDGER_README = PROJECT_ROOT / "migrations" / "README.md"
+VERSIONS_DIR = PROJECT_ROOT / "api" / "migrations" / "versions"
+LEDGER_README = PROJECT_ROOT / "api" / "migrations" / "README.md"
 BOOTSTRAP_TEST = PROJECT_ROOT / "tests" / "test_from_empty_bootstrap.py"
 
 # Current Alembic head. Update in the same commit as a new migration.

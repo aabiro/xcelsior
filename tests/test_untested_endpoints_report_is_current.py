@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = (
     ROOT / "api" / "scripts" / "regenerate_untested_endpoints.py"
     if (ROOT / "api" / "scripts" / "regenerate_untested_endpoints.py").exists()
-    else ROOT / "scripts" / "regenerate_untested_endpoints.py"
+    else ROOT / "api" / "scripts" / "regenerate_untested_endpoints.py"
 )
 REPORT = ROOT / "archive" / "UNTESTED_ENDPOINTS.md"
 

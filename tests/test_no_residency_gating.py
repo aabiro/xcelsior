@@ -73,22 +73,22 @@ EXCLUDED_DIRS = (
     "worktrees",
     # Applied migration history. A migration that removed a column must name it;
     # rewriting one would falsify the record of what the schema used to be.
-    "migrations/versions",
+    "api/migrations/versions",
 )
 
 # Individual files that record the removal itself, or are third-party verbatim.
 EXCLUDED_FILES = (
     "tests/test_no_residency_gating.py",
-    "docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
-    "docs/mcp_tools_gemini.md",
-    "docs/mcp_tools_grok.md",
+    "api/docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
+    "api/docs/mcp_tools_gemini.md",
+    "api/docs/mcp_tools_grok.md",
     "api/docs/mcp_tools_chatgpt.md",
     "api/docs/mcp_tools_gemini.md",
     "api/docs/mcp_tools_grok.md",
     "stripe_embed.md",  # verbatim Stripe documentation dump
     "billing/stripe_embed.md",
     # Submitted as written; JSON carries no comment syntax for the marker.
-    "docs/compliance/scip_partner_loi.json",
+    "api/docs/compliance/scip_partner_loi.json",
     "api/docs/compliance/scip_partner_loi.json",
 )
 
@@ -257,15 +257,15 @@ def test_absence_assertions_are_not_counted():
     "path",
     [
         "llms.txt",
-        "templates/dashboard.html",
-        "fern/pages/compliance.mdx",
-        "fern/pages/security.mdx",
-        "fern/pages/introduction.mdx",
-        "frontend/src/lib/i18n/en.ts",
-        "frontend/src/lib/i18n/fr.ts",
+        "api/templates/dashboard.html",
+        "api/fern/pages/compliance.mdx",
+        "api/fern/pages/security.mdx",
+        "api/fern/pages/introduction.mdx",
+        "api/frontend/src/lib/i18n/en.ts",
+        "api/frontend/src/lib/i18n/fr.ts",
         "README.md",
-        "mcp/src/auth/scopes.ts",
-        "routes/_deps.py",
+        "api/mcp/src/auth/scopes.ts",
+        "api/routes/_deps.py",
         "workers/scheduler.py",
         "billing/billing.py",
     ],

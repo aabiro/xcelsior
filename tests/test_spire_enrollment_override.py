@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "scripts" / "spire_enrollment_override.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "api" / "scripts" / "spire_enrollment_override.py"
 spec = importlib.util.spec_from_file_location("spire_enrollment_override", MODULE_PATH)
 assert spec is not None and spec.loader is not None
 mod = importlib.util.module_from_spec(spec)

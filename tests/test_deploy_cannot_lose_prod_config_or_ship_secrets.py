@@ -37,7 +37,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DEPLOY = ROOT / "scripts" / "deploy.sh"
+DEPLOY = ROOT / "api" / "scripts" / "deploy.sh"
 
 
 def _function(name: str) -> str:

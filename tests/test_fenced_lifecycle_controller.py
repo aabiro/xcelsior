@@ -281,7 +281,7 @@ def test_routes_no_longer_hardfail_only_on_controller_missing():
     from pathlib import Path
 
     billing = Path("billing/billing.py").read_text(encoding="utf-8")
-    instances = Path("routes/instances.py").read_text(encoding="utf-8")
+    instances = Path("api/routes/instances.py").read_text(encoding="utf-8")
     assert "request_fenced_stop_remove" in billing
     assert "request_fenced_stop_remove" in instances
     # Must not be the only return for attempt-owned terminate.

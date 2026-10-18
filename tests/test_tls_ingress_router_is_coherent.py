@@ -35,9 +35,9 @@ import pytest
 yaml = pytest.importorskip("yaml")
 
 ROOT = Path(__file__).resolve().parents[1]
-NGINX = ROOT / "nginx"
+NGINX = ROOT / "api" / "nginx"
 ROUTER = NGINX / "stream-tls-router.conf"
-ENVOY = ROOT / "infra" / "envoy" / "agent-gateway.yaml"
+ENVOY = ROOT / "api" / "infra" / "envoy" / "agent-gateway.yaml"
 
 HEADSCALE_PORT = 8443
 BACKEND_PORT = 8444

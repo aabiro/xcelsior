@@ -30,12 +30,12 @@ import time
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "api" / "scripts"))
 
 import render_nginx_vhosts as rnv  # noqa: E402
 
-NGINX = ROOT / "nginx"
-INSTALLER = ROOT / "scripts" / "install_nginx_vhosts.sh"
+NGINX = ROOT / "api" / "nginx"
+INSTALLER = ROOT / "api" / "scripts" / "install_nginx_vhosts.sh"
 
 
 def _source(name: str) -> str:
@@ -253,7 +253,7 @@ def host(tmp_path):
     for name in rnv.VHOSTS:
         (etc / "sites-available" / name).write_text(f"old {name}\n")
         (src / f"{name}.conf").write_text(f"new {name}\n")
-    shutil.copyfile(ROOT / "scripts/check_ingress_policy.py", src / "check_ingress_policy.py")
+    shutil.copyfile(ROOT / "api/scripts/check_ingress_policy.py", src / "check_ingress_policy.py")
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",

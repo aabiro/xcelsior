@@ -278,7 +278,7 @@ def test_inventory_start_gate_and_expiry_registration():
     # start/restart use available gate
     assert billing.count("wallet_has_available_funds") >= 3
 
-    instances = (root / "routes" / "instances.py").read_text()
+    instances = (root / "api" / "routes" / "instances.py").read_text()
     assert "wallet_has_available_funds" in instances
     assert 'wallet["balance_cad"] <= 0' not in instances or instances.count("available") > 0
     # API start/restart must not only check raw balance_cad

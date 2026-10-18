@@ -114,7 +114,7 @@ def test_no_cookie_site_hardcodes_the_production_domain() -> None:
 
     root = Path(__file__).resolve().parents[1]
     offenders: list[str] = []
-    for rel in ("routes/_deps.py", "routes/auth.py"):
+    for rel in ("api/routes/_deps.py", "api/routes/auth.py"):
         path = root / rel
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

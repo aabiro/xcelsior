@@ -54,7 +54,7 @@ import pathlib
 
 import pytest
 
-ROUTES = pathlib.Path(__file__).resolve().parent.parent / "routes" / "instances.py"
+ROUTES = pathlib.Path(__file__).resolve().parent.parent / "api" / "routes" / "instances.py"
 SOURCE = ROUTES.read_text(encoding="utf-8")
 TREE = ast.parse(SOURCE)
 FUNCS = {

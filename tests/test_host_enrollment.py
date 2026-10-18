@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from control_plane import host_enrollment as he
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTER_HOST_SH = ROOT / "infra" / "spire" / "register-host.sh"
+REGISTER_HOST_SH = ROOT / "api" / "infra" / "spire" / "register-host.sh"
 
 
 @pytest.fixture

@@ -47,7 +47,7 @@ def test_user_images_endpoints_use_workspace_scope_helper():
     """All user-image handlers must honor the active personal/team workspace."""
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parent.parent / "routes" / "instances.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "api" / "routes" / "instances.py").read_text()
     # The three endpoints
     for endpoint in ("api_snapshot_instance", "api_list_user_images", "api_delete_user_image"):
         # Find the function

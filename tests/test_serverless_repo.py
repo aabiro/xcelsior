@@ -81,7 +81,7 @@ class TestMigration037:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "migrations",
+            "api", "migrations",
             "versions",
             "037_serverless_endpoints_workers_jobs_keys.py",
         )
@@ -95,7 +95,7 @@ class TestMigration037:
         import pathlib
 
         def _load(name: str):
-            path = pathlib.Path(__file__).resolve().parent.parent / "migrations" / "versions" / name
+            path = pathlib.Path(__file__).resolve().parent.parent / "api" / "migrations" / "versions" / name
             spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -106,7 +106,7 @@ class TestMigration037:
         assert m037.down_revision == "036"
 
     def test_claim_query_uses_skip_locked(self):
-        path = os.path.join(os.path.dirname(__file__), "..", "serverless", "repo.py")
+        path = os.path.join(os.path.dirname(__file__), "..", "api", "serverless", "repo.py")
         with open(path) as f:
             content = f.read()
         assert "FOR UPDATE SKIP LOCKED" in content
@@ -119,7 +119,7 @@ class TestMigration038:
 
         path = (
             pathlib.Path(__file__).resolve().parent.parent
-            / "migrations"
+            / "api" / "migrations"
             / "versions"
             / "038_serverless_limits_webhooks.py"
         )
@@ -135,7 +135,7 @@ class TestMigration038:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "migrations",
+            "api", "migrations",
             "versions",
             "038_serverless_limits_webhooks.py",
         )

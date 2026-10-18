@@ -34,7 +34,7 @@ from tests._source_tree import iter_source_files, read_source
 def test_no_module_defines_two_handlers_with_the_same_name() -> None:
     offenders: list[str] = []
     for path, rel in sorted(iter_source_files(), key=lambda pair: pair[1]):
-        if not rel.startswith("routes/"):
+        if not rel.startswith("api/routes/"):
             continue
         tree = ast.parse(read_source(path))
         seen: dict[str, list[int]] = collections.defaultdict(list)

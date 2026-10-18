@@ -32,7 +32,7 @@ import pathlib
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-EVAL = REPO / "scripts" / "mcp_tool_eval.py"
+EVAL = REPO / "api" / "scripts" / "mcp_tool_eval.py"
 
 
 def _grading_loop() -> ast.AST:

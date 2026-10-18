@@ -12,7 +12,7 @@ from control_plane.telemetry_retention import (
     DEFAULT_RETENTION_DAYS,
 )
 
-OBS_ROOT = Path(__file__).resolve().parent.parent / "infra" / "observability"
+OBS_ROOT = Path(__file__).resolve().parent.parent / "api" / "infra" / "observability"
 
 
 def test_retention_runs_against_the_real_postgres_column_type():

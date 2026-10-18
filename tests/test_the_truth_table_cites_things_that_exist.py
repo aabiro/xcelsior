@@ -46,7 +46,7 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TABLE = ROOT / "docs" / "gate-truth-table.md"
+TABLE = ROOT / "api" / "docs" / "gate-truth-table.md"
 
 #: A clause row: `| 3 | the clause text | **PASS** | the evidence |`.
 CLAUSE_ROW = re.compile(r"^\|\s*(\d+)\s*\|")

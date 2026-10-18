@@ -42,7 +42,7 @@ _REVISION = re.compile(r"^revision\s*(?::\s*\w+\s*)?=\s*[\"']([^\"']+)[\"']", re
 _DOWN_REVISION = re.compile(r"^down_revision\s*(?::[^=]*)?=\s*[\"']([^\"']+)[\"']", re.M)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-VERSIONS = REPO / "migrations" / "versions"
+VERSIONS = REPO / "api" / "migrations" / "versions"
 
 
 def repository_head() -> str:

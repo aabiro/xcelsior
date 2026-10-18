@@ -64,7 +64,7 @@ def _calls_in(handler_name: str) -> set[str]:
     import pathlib
 
     repo = pathlib.Path(__file__).resolve().parent.parent
-    tree = ast.parse((repo / "routes" / "mfa.py").read_text(encoding="utf-8"))
+    tree = ast.parse((repo / "api" / "routes" / "mfa.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == handler_name:
             return {

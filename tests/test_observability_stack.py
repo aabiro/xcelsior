@@ -11,7 +11,7 @@ import yaml
 from control_plane import operational_metrics
 
 ROOT = Path(__file__).resolve().parent.parent
-OBS = ROOT / "infra" / "observability"
+OBS = ROOT / "api" / "infra" / "observability"
 
 
 def _yaml(path: Path) -> dict:
@@ -139,7 +139,7 @@ def test_prometheus_scrapes_private_application_and_exporter_targets():
 
 
 def test_public_nginx_edge_blocks_metrics_instead_of_proxying_them():
-    config = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    config = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     assert "location = /metrics" in config
     assert "location ^~ /metrics/" in config
     assert config.count("return 404;") >= 2

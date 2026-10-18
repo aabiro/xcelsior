@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALL_SH = ROOT / "scripts" / "install.sh"
-REQUIREMENTS = ROOT / "scripts" / "worker-requirements.txt"
+INSTALL_SH = ROOT / "api" / "scripts" / "install.sh"
+REQUIREMENTS = ROOT / "api" / "scripts" / "worker-requirements.txt"
 
 
 @pytest.mark.skipif(
@@ -41,7 +41,7 @@ def test_worker_requirements_install_in_fresh_venv():
 
 def test_install_sh_has_platform_guard_and_npx_fallback():
     text = INSTALL_SH.read_text()
-    wizard_version = json.loads((ROOT / "wizard" / "package.json").read_text())["version"]
+    wizard_version = json.loads((ROOT / "api" / "wizard" / "package.json").read_text())["version"]
     assert "check_platform" in text
     assert f'WIZARD_PACKAGE="@xcelsior-gpu/wizard@{wizard_version}"' in text
     assert 'npx --yes "$WIZARD_PACKAGE"' in text
@@ -225,8 +225,8 @@ esac
 
 def test_install_messages_match_the_shared_requirement_copy():
     shell = INSTALL_SH.read_text()
-    wizard = (ROOT / "wizard" / "src" / "host-requirements.ts").read_text()
-    frontend = (ROOT / "frontend" / "src" / "lib" / "host-setup-requirements.ts").read_text()
+    wizard = (ROOT / "api" / "wizard" / "src" / "host-requirements.ts").read_text()
+    frontend = (ROOT / "api" / "frontend" / "src" / "lib" / "host-setup-requirements.ts").read_text()
     assert wizard == frontend
     for sentence in (
         "This machine is macOS (Darwin), so it cannot host an Xcelsior worker yet.",

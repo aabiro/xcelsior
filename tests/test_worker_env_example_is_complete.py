@@ -172,7 +172,7 @@ def test_example_declares_nothing_the_worker_or_installer_does_not_read():
     # Some options move into root-owned helper configuration at installation
     # rather than being read by the unprivileged agent. Derive those consumers
     # from the installer so their documented interface is not deleted as stale.
-    installer = (REPO / "scripts" / "install.sh").read_text(encoding="utf-8")
+    installer = (REPO / "api" / "scripts" / "install.sh").read_text(encoding="utf-8")
     installer_reads = set(re.findall(r"_env_value\s+(XCELSIOR_[A-Z0-9_]+)", installer))
 
     extra = sorted(documented - required - installer_reads)

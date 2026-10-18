@@ -41,7 +41,7 @@ import pytest
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-SERVERLESS = REPO / "routes" / "serverless.py"
+SERVERLESS = REPO / "api" / "routes" / "serverless.py"
 
 #: Handlers that change something a user owns. Named rather than inferred from
 #: the HTTP verb: `POST .../test/run` mutates, and a future GET that mutates

@@ -90,7 +90,7 @@ def test_the_bind_is_an_allowlist_rather_than_a_wildcard_switch():
 
 
 def test_the_staging_runner_pins_loopback():
-    runner = (ROOT / "scripts" / "run_staging_compose.sh").read_text(encoding="utf-8")
+    runner = (ROOT / "api" / "scripts" / "run_staging_compose.sh").read_text(encoding="utf-8")
     pinned = re.search(r'XCELSIOR_API_BIND="\$\{XCELSIOR_API_BIND:-([^}"]+)\}"', runner)
     assert pinned, (
         "scripts/run_staging_compose.sh no longer pins XCELSIOR_API_BIND; a "

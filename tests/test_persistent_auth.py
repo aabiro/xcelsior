@@ -755,7 +755,7 @@ class TestDashboardVersion:
     """Verify dashboard was bumped to v2.8.0."""
 
     def test_version_string(self):
-        with open("templates/dashboard.html") as f:
+        with open("api/templates/dashboard.html") as f:
             content = f.read()
         assert "v2.8.0" in content
         assert "v2.5.0" not in content

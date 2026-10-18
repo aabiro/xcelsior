@@ -18,7 +18,7 @@ import importlib.util
 
 _spec = importlib.util.spec_from_file_location(
     "capture_row_evidence",
-    ROOT / "scripts" / "capture_row_evidence.py",
+    ROOT / "api" / "scripts" / "capture_row_evidence.py",
 )
 cre = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None

@@ -32,7 +32,7 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PUBLIC = ROOT / "frontend" / "public"
+PUBLIC = ROOT / "api" / "frontend" / "public"
 
 #: Absolute asset URLs on the production origin, as embedded in server HTML.
 ASSET_URL = re.compile(r"https://xcelsior\.ca/([A-Za-z0-9._/-]+\.(?:svg|png|ico|jpg|jpeg))")
@@ -41,7 +41,7 @@ ASSET_URL = re.compile(r"https://xcelsior\.ca/([A-Za-z0-9._/-]+\.(?:svg|png|ico|
 def _referenced() -> dict[str, list[str]]:
     """`asset path -> [source files referencing it]`."""
     found: dict[str, list[str]] = {}
-    for path in sorted(ROOT.glob("routes/*.py")) + [ROOT / "api.py"]:
+    for path in sorted(ROOT.glob("api/routes/*.py")) + [ROOT / "api" / "api.py"]:
         if not path.is_file():
             continue
         for asset in ASSET_URL.findall(path.read_text(encoding="utf-8")):

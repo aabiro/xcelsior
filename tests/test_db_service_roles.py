@@ -251,7 +251,7 @@ def provisioned_roles():
 
     spec = importlib.util.spec_from_file_location(
         "provision_db_roles",
-        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "provision_db_roles.py",
+        pathlib.Path(__file__).resolve().parent.parent / "api" / "scripts" / "provision_db_roles.py",
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -436,7 +436,7 @@ def test_provisioning_is_idempotent(provisioned_roles):
 
     spec = importlib.util.spec_from_file_location(
         "provision_db_roles",
-        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "provision_db_roles.py",
+        pathlib.Path(__file__).resolve().parent.parent / "api" / "scripts" / "provision_db_roles.py",
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -474,7 +474,7 @@ def test_provisioner_refuses_an_over_privileged_existing_role(provisioned_roles)
 
     spec = importlib.util.spec_from_file_location(
         "provision_db_roles",
-        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "provision_db_roles.py",
+        pathlib.Path(__file__).resolve().parent.parent / "api" / "scripts" / "provision_db_roles.py",
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

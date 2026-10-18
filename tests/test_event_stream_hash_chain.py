@@ -369,7 +369,7 @@ def test_concurrent_same_stream_with_skewed_prelock_timestamps(clean_events):
 def test_production_callers_still_use_event_store_append():
     """Static inventory: audit / volumes go through EventStore.append only."""
     root = Path(__file__).resolve().parents[1]
-    deps = (root / "routes" / "_deps.py").read_text()
+    deps = (root / "api" / "routes" / "_deps.py").read_text()
     assert "get_event_store().append" in deps
     assert "append_user_audit_event" in deps
 

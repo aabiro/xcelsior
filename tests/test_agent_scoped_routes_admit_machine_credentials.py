@@ -93,7 +93,7 @@ def _unreachable_handlers(source: str, where: str) -> list[str]:
 
 
 def _route_sources() -> list[tuple[str, str]]:
-    return [(p.name, p.read_text(encoding="utf-8")) for p in sorted((ROOT / "routes").glob("*.py"))]
+    return [(p.name, p.read_text(encoding="utf-8")) for p in sorted((ROOT / "api" / "routes").glob("*.py"))]
 
 
 # ── the scan ─────────────────────────────────────────────────────────

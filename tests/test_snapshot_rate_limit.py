@@ -90,7 +90,7 @@ def test_rate_limit_snapshot_endpoint_calls_helper():
     """Source grep: the snapshot endpoint must call the rate limiter."""
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parent.parent / "routes" / "instances.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "api" / "routes" / "instances.py").read_text()
     idx = src.find("def api_snapshot_instance(")
     assert idx >= 0
     body_end = src.find("\n@router", idx)

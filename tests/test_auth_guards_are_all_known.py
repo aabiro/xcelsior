@@ -27,7 +27,7 @@ import ast
 
 from tests._source_tree import iter_source_files, read_source
 
-GENERATOR = "scripts/generate_endpoint_inventory.py"
+GENERATOR = "api/scripts/generate_endpoint_inventory.py"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 REFUSAL_CODES = {401, 403}
 
@@ -81,7 +81,7 @@ def test_every_guard_in_routes_is_known_to_the_inventory() -> None:
     missing: list[str] = []
 
     for path, rel in sorted(iter_source_files(), key=lambda pair: pair[1]):
-        if not rel.startswith("routes/"):
+        if not rel.startswith("api/routes/"):
             continue
         tree = ast.parse(read_source(path))
         for node in tree.body:

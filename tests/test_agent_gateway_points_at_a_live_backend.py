@@ -28,8 +28,8 @@ import pytest
 yaml = pytest.importorskip("yaml")
 
 ROOT = Path(__file__).resolve().parents[1]
-ENVOY = ROOT / "infra" / "envoy" / "agent-gateway.yaml"
-NGINX = ROOT / "nginx" / "agent-xcelsior.conf"
+ENVOY = ROOT / "api" / "infra" / "envoy" / "agent-gateway.yaml"
+NGINX = ROOT / "api" / "nginx" / "agent-xcelsior.conf"
 
 #: Headscale's port on the control-plane host. Not negotiable from here.
 HEADSCALE_PORT = 8443

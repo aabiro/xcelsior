@@ -54,8 +54,8 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-INVENTORY = ROOT / "docs" / "generated" / "endpoint-inventory.md"
-GENERATOR = ROOT / "scripts" / "generate_endpoint_inventory.py"
+INVENTORY = ROOT / "api" / "docs" / "generated" / "endpoint-inventory.md"
+GENERATOR = ROOT / "api" / "scripts" / "generate_endpoint_inventory.py"
 
 
 def _regenerate_to_string() -> str:

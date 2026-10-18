@@ -233,7 +233,7 @@ def test_the_tool_supplies_a_key_when_the_model_omits_one():
     import pathlib
 
     source = (
-        pathlib.Path(__file__).resolve().parent.parent / "mcp" / "src" / "tools" / "billing.ts"
+        pathlib.Path(__file__).resolve().parent.parent / "api" / "mcp" / "src" / "tools" / "billing.ts"
     ).read_text(encoding="utf-8")
 
     assert "randomUUID" in source, (

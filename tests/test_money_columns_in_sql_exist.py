@@ -75,7 +75,7 @@ def _sql_literals():
     # *at its own revision*, so 097 naming `amount_cad` is the drop itself, and
     # 043 naming `base_rate_cad` predates its removal. Checking them against
     # head would forbid every migration that has ever touched a money column.
-    for path, rel in iter_source_files(exclude_prefixes=("migrations/",)):
+    for path, rel in iter_source_files(exclude_prefixes=("api/migrations/",)):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:

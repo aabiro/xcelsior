@@ -528,7 +528,7 @@ def test_the_payout_tool_publishes_the_idempotency_this_file_proves():
     import pathlib
 
     surface = json.loads(
-        (pathlib.Path(__file__).resolve().parent.parent / "mcp" / "tool-surface.json").read_text(
+        (pathlib.Path(__file__).resolve().parent.parent / "api" / "mcp" / "tool-surface.json").read_text(
             encoding="utf-8"
         )
     )

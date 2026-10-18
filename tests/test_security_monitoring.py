@@ -33,7 +33,7 @@ def test_ingress_scope_and_malformed_configs(text, protected):
 def test_every_shipped_public_vhost_is_protected():
     root = Path(__file__).resolve().parents[1]
     for name in ("xcelsior", "mcp-xcelsior", "agent-xcelsior"):
-        assert public_servers_protected((root / "nginx" / f"{name}.conf").read_text()), name
+        assert public_servers_protected((root / "api" / "nginx" / f"{name}.conf").read_text()), name
 
 
 def test_host_collector_detects_missing_or_disabled_policy(tmp_path):

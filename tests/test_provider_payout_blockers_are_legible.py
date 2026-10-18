@@ -196,7 +196,7 @@ def test_the_tool_description_promises_only_fields_that_exist(provider_row):
     compared here, in both directions: a field named in the text must exist in
     the response, and a field in the block must be named in the text.
     """
-    text = (ROOT / "mcp" / "src" / "tools" / "descriptions.ts").read_text(encoding="utf-8")
+    text = (ROOT / "api" / "mcp" / "src" / "tools" / "descriptions.ts").read_text(encoding="utf-8")
     match = re.search(r"\n  get_provider_account:\n(.*?)\n\n", text, re.S)
     assert match, "get_provider_account's description block was not found"
     description = match.group(1)

@@ -62,7 +62,7 @@ def _called_names(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
 def test_every_admin_path_route_checks_for_an_admin() -> None:
     offenders: list[str] = []
     for path, rel in sorted(iter_source_files(), key=lambda pair: pair[1]):
-        if not rel.startswith("routes/"):
+        if not rel.startswith("api/routes/"):
             continue
         tree = ast.parse(read_source(path))
         for node in ast.walk(tree):

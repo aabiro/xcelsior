@@ -84,7 +84,7 @@ def test_the_runner_preflight_still_enforces_this() -> None:
     rule alone — and a test can be skipped, deselected, or simply not run by
     whoever pushes.
     """
-    script = (WORKFLOWS.parents[1] / "scripts" / "ci-runner" / "run-runner.sh").read_text(
+    script = (WORKFLOWS.parents[1] / "api" / "scripts" / "ci-runner" / "run-runner.sh").read_text(
         encoding="utf-8"
     )
     assert "REFUSING TO START" in script, (

@@ -38,8 +38,8 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 PRODUCER = ROOT / "billing" / "stripe_connect.py"
-TS_TYPES = ROOT / "frontend/src/lib/api.ts"
-EARNINGS_PAGE = ROOT / "frontend/src/app/(dashboard)/dashboard/earnings/page.tsx"
+TS_TYPES = ROOT / "api/frontend/src/lib/api.ts"
+EARNINGS_PAGE = ROOT / "api/frontend/src/app/(dashboard)/dashboard/earnings/page.tsx"
 
 
 def _producer_keys() -> set[str]:
@@ -121,7 +121,7 @@ def test_the_earnings_page_actually_renders_the_payout_state():
 
 def test_checked_live_is_still_the_field_that_gates_the_rendering():
     """The one property that makes this surface honest rather than reassuring."""
-    component = (ROOT / "frontend/src/components/providers/payout-requirements.tsx").read_text(
+    component = (ROOT / "api/frontend/src/components/providers/payout-requirements.tsx").read_text(
         encoding="utf-8"
     )
     assert "!payouts.checked_live" in component, (

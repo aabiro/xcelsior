@@ -7,7 +7,7 @@ import yaml
 from slo_definitions import ALL_SLOS, HARD_INVARIANTS
 
 ROOT = Path(__file__).resolve().parent.parent
-OBS = ROOT / "infra" / "observability"
+OBS = ROOT / "api" / "infra" / "observability"
 
 
 def _prometheus_rules() -> list[dict]:

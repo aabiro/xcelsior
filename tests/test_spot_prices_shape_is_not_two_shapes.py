@@ -86,7 +86,7 @@ def test_the_two_keys_agree_where_they_overlap():
 
 def test_the_launch_modal_no_longer_prefers_the_array():
     """The `||` chain is the defect; make it un-writable again without failing."""
-    modal = (ROOT / "frontend/src/components/instances/launch-instance-modal.tsx").read_text(
+    modal = (ROOT / "api/frontend/src/components/instances/launch-instance-modal.tsx").read_text(
         encoding="utf-8"
     )
     assert not re.search(r"res\.spot_prices\s*\|\|\s*res\.prices", modal), (

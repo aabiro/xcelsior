@@ -4,12 +4,16 @@ import os
 import sys
 from logging.config import fileConfig
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Add project root and package directories to path
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+for _sub in ("core", "api", "privacy", "hosts", "auth", "workers", "billing", "archive", ""):
+    _p = os.path.join(_REPO_ROOT, _sub) if _sub else _REPO_ROOT
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 # Auto-load .env from project root
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+load_dotenv(os.path.join(_REPO_ROOT, ".env"))
 
 from alembic import context
 

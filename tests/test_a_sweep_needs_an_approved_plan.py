@@ -35,7 +35,7 @@ import pathlib
 
 import pytest
 
-ROUTES = pathlib.Path(__file__).resolve().parent.parent / "routes" / "instances.py"
+ROUTES = pathlib.Path(__file__).resolve().parent.parent / "api" / "routes" / "instances.py"
 
 
 def _function(name: str) -> ast.FunctionDef:

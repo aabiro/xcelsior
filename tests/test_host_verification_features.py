@@ -56,7 +56,7 @@ class TestTimeToZero:
 
     def test_depletion_api_endpoint_exists(self):
         """API has /api/billing/wallet/{id}/depletion endpoint."""
-        source = Path(__file__).resolve().parent.parent / "routes" / "billing.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "billing.py"
         text = source.read_text()
         assert "/api/billing/wallet/{customer_id}/depletion" in text
 
@@ -76,7 +76,7 @@ class TestEarlyTerminationFee:
 
     def test_cancel_reservation_api_endpoint_exists(self):
         """DELETE /api/v2/marketplace/reservations/{id} exists."""
-        source = Path(__file__).resolve().parent.parent / "routes" / "marketplace.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "marketplace.py"
         text = source.read_text()
         assert "api/v2/marketplace/reservations/{reservation_id}" in text
         assert (
@@ -100,30 +100,30 @@ class TestV1InferenceEndpoints:
     """Verify /v1/inference sync, async, and poll endpoints."""
 
     def test_v1_inference_sync_endpoint(self):
-        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "inference.py"
         text = source.read_text()
         assert '"/v1/inference"' in text
 
     def test_v1_inference_async_endpoint(self):
-        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "inference.py"
         text = source.read_text()
         assert '"/v1/inference/async"' in text
 
     def test_v1_inference_poll_endpoint(self):
-        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "inference.py"
         text = source.read_text()
         assert '"/v1/inference/{job_id}"' in text
 
     def test_sse_streaming_support(self):
         """Sync endpoint supports SSE streaming when stream=true."""
-        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "inference.py"
         text = source.read_text()
         assert "text/event-stream" in text
         assert "inference.chunk" in text
 
     def test_openai_compatible_format(self):
         """Response uses OpenAI-compatible delta format for SSE."""
-        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "inference.py"
         text = source.read_text()
         assert "finish_reason" in text
         assert "[DONE]" in text
@@ -150,7 +150,7 @@ class TestUsageHeatmap:
     def test_heatmap_exists_in_billing_page(self):
         page = (
             Path(__file__).resolve().parent.parent
-            / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+            / "api/frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
         )
         text = page.read_text()
         assert "Usage Heatmap" in text
@@ -158,7 +158,7 @@ class TestUsageHeatmap:
     def test_heatmap_has_day_labels(self):
         page = (
             Path(__file__).resolve().parent.parent
-            / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+            / "api/frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
         )
         text = page.read_text()
         for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
@@ -167,7 +167,7 @@ class TestUsageHeatmap:
     def test_heatmap_has_legend(self):
         page = (
             Path(__file__).resolve().parent.parent
-            / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+            / "api/frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
         )
         text = page.read_text()
         assert "Less" in text
@@ -184,7 +184,7 @@ class TestWebhookIdempotency:
 
     def test_stripe_event_inbox_table_exists(self):
         """stripe_event_inbox table is in migration 005."""
-        mig = Path(__file__).resolve().parent.parent / "migrations/versions"
+        mig = Path(__file__).resolve().parent.parent / "api/migrations/versions"
         files = list(mig.glob("005_*"))
         assert files, "Migration 005 not found"
         text = files[0].read_text()
@@ -220,7 +220,7 @@ class TestAutoBillingCycle:
         assert hasattr(BillingEngine, "auto_billing_cycle")
 
     def test_billing_cycles_table_in_migration(self):
-        mig = Path(__file__).resolve().parent.parent / "migrations/versions"
+        mig = Path(__file__).resolve().parent.parent / "api/migrations/versions"
         files = list(mig.glob("005_*"))
         text = files[0].read_text()
         assert "billing_cycles" in text
@@ -297,7 +297,7 @@ class TestInferenceRouting:
         assert "route" in text.lower()
 
     def test_worker_model_cache_table(self):
-        mig = Path(__file__).resolve().parent.parent / "migrations/versions"
+        mig = Path(__file__).resolve().parent.parent / "api/migrations/versions"
         files = list(mig.glob("005_*"))
         text = files[0].read_text()
         assert "worker_model_cache" in text
@@ -327,7 +327,7 @@ class TestFINTRACThreshold:
         assert "10_000" in text or "10000" in text
 
     def test_fintrac_reports_table(self):
-        mig = Path(__file__).resolve().parent.parent / "migrations/versions"
+        mig = Path(__file__).resolve().parent.parent / "api/migrations/versions"
         files = list(mig.glob("005_*"))
         text = files[0].read_text()
         assert "fintrac_reports" in text
@@ -344,14 +344,14 @@ class TestVolumeLifecycle:
     """test_volume_lifecycle — Create, attach, detach, delete."""
 
     def test_volume_table_in_migration(self):
-        mig = Path(__file__).resolve().parent.parent / "migrations/versions"
+        mig = Path(__file__).resolve().parent.parent / "api/migrations/versions"
         files = list(mig.glob("005_*"))
         text = files[0].read_text()
         assert "volumes" in text
         assert "volume_attachments" in text
 
     def test_volume_api_endpoints(self):
-        source = Path(__file__).resolve().parent.parent / "routes" / "volumes.py"
+        source = Path(__file__).resolve().parent.parent / "api" / "routes" / "volumes.py"
         text = source.read_text()
         assert "/api/v2/volumes" in text
         assert "attach" in text

@@ -53,7 +53,7 @@ ACKNOWLEDGED_UNMAPPED = {
 
 #: Migrations run once against a database and never read a URL to talk to
 #: themselves, so a literal there is not an environment leak.
-_EXTRA_EXCLUDED = ("migrations/",)
+_EXTRA_EXCLUDED = ("api/migrations/",)
 
 
 def _environment_specific_reads() -> dict[str, tuple[str, str]]:
@@ -141,7 +141,7 @@ def test_the_var_from_issue_24_is_no_longer_the_only_name_that_works():
     `XCELSIOR_PUBLIC_URL` still wins when explicitly set, so it never appears
     here: it is read with `or`, not with a literal default.
     """
-    auth = (REPO / "routes" / "auth.py").read_text(encoding="utf-8")
+    auth = (REPO / "api" / "routes" / "auth.py").read_text(encoding="utf-8")
     assert 'os.environ.get("XCELSIOR_PUBLIC_URL", "https://xcelsior.ca")' not in auth, (
         "the Quick Connect connector URL is back to reading only the unmapped "
         "name, so staging would hand out a production URL again"

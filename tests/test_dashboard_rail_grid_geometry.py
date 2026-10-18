@@ -10,8 +10,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CSS = (ROOT / "frontend/src/components/marketing/dashboard-theme.css").read_text()
-SHELL = (ROOT / "frontend/src/app/(dashboard)/dashboard-shell.tsx").read_text()
+CSS = (ROOT / "api/frontend/src/components/marketing/dashboard-theme.css").read_text()
+SHELL = (ROOT / "api/frontend/src/app/(dashboard)/dashboard-shell.tsx").read_text()
 
 
 def _token(name: str) -> str:

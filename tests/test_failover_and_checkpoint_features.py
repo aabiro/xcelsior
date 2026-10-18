@@ -299,7 +299,7 @@ class TestInstanceTerminalIntegration:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -323,7 +323,7 @@ class TestInstanceTerminalIntegration:
         component_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "components",
             "terminal",
@@ -351,7 +351,7 @@ class TestSpotPricingRecharts:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -378,7 +378,7 @@ class TestSpotPricingRecharts:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -408,7 +408,7 @@ class TestMigration005Completeness:
         migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "migrations",
+            "api", "migrations",
             "versions",
             "005_payment_infrastructure.py",
         )
@@ -441,7 +441,7 @@ class TestMigration005Completeness:
         migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "migrations",
+            "api", "migrations",
             "versions",
             "005_payment_infrastructure.py",
         )
@@ -473,7 +473,7 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -500,7 +500,7 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -530,7 +530,7 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -575,7 +575,7 @@ class TestFrontendErrorFixes:
         api_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "frontend",
+            "api", "frontend",
             "src",
             "lib",
             "api.ts",

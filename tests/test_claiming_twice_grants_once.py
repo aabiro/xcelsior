@@ -143,7 +143,7 @@ def test_the_surface_still_publishes_the_promise_this_proves():
     """If the contract is changed to `none`, this file's subject is gone and it
     should be deleted deliberately rather than left asserting a property nobody
     relies on."""
-    surface = json.loads((ROOT / "mcp" / "tool-surface.json").read_text(encoding="utf-8"))
+    surface = json.loads((ROOT / "api" / "mcp" / "tool-surface.json").read_text(encoding="utf-8"))
     tool = next(t for t in surface["tools"] if t["name"] == "claim_reputation_milestones")
     assert tool["idempotency"] == "keyed", (
         f"the tool now publishes idempotency {tool['idempotency']!r}; this file "

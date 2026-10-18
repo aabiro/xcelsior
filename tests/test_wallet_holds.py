@@ -319,7 +319,7 @@ def test_preflight_fail_closed_no_soft_pass_on_hold_error(cleanup, monkeypatch):
 
 def test_production_submit_key_is_unique_per_attempt():
     """api_submit_instance must use a per-attempt uuid in the hold key."""
-    src = (Path(__file__).resolve().parents[1] / "routes" / "instances.py").read_text()
+    src = (Path(__file__).resolve().parents[1] / "api" / "routes" / "instances.py").read_text()
     assert 'f"launch:{customer_id}:{uuid.uuid4().hex}"' in src
     # Old deterministic shape must not be the production key.
     assert "j.name}:{j.pricing_mode}" not in src
@@ -334,7 +334,7 @@ def test_inventory_wallet_hold_sites():
     assert "FOR UPDATE" in billing
     assert "status <> 'held'" in billing  # terminal prior frees key
 
-    instances = (root / "routes" / "instances.py").read_text()
+    instances = (root / "api" / "routes" / "instances.py").read_text()
     assert "create_wallet_hold" in instances or "link_wallet_hold_to_job" in instances
     assert "_wallet_preflight" in instances
     assert "Unable to reserve wallet funds" in instances
@@ -342,6 +342,6 @@ def test_inventory_wallet_hold_sites():
     sched = (root / "workers" / "scheduler.py").read_text()
     assert "release_wallet_hold_for_job" in sched
 
-    mig = (root / "migrations" / "versions" / "063_wallet_holds.py").read_text()
+    mig = (root / "api" / "migrations" / "versions" / "063_wallet_holds.py").read_text()
     assert "CREATE TABLE IF NOT EXISTS wallet_holds" in mig
     assert "uq_wallet_holds_idempotency" in mig

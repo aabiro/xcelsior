@@ -74,8 +74,8 @@ def _inline_blocking_calls(fn: ast.AsyncFunctionDef) -> list[str]:
 
 def test_no_async_route_handler_opens_a_connection_on_the_loop():
     offenders: list[str] = []
-    for path, rel in iter_source_files(include_prefixes=("routes/",)):
-        if not rel.startswith("routes/"):
+    for path, rel in iter_source_files(include_prefixes=("api/routes/",)):
+        if not rel.startswith("api/routes/"):
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))

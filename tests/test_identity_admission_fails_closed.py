@@ -152,7 +152,7 @@ def test_gateway_mode_off_returns_none(monkeypatch):
 
 
 def test_public_nginx_strips_worker_identity_headers():
-    conf = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    conf = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     agent_block = conf.split("location /agent/")[1].split("location /api/")[0]
     for hdr in (
         "X-Worker-Host-Id",
@@ -221,7 +221,7 @@ def test_compose_api_has_no_sys_admin():
 
 
 def test_mcp_dockerfile_locked_npm_ci_and_non_root():
-    df = (ROOT / "mcp" / "Dockerfile").read_text()
+    df = (ROOT / "api" / "mcp" / "Dockerfile").read_text()
     run_lines = [ln.strip() for ln in df.splitlines() if ln.strip().upper().startswith("RUN ")]
     assert any("npm ci" in ln for ln in run_lines)
     assert not any("npm install" in ln for ln in run_lines)
@@ -229,9 +229,9 @@ def test_mcp_dockerfile_locked_npm_ci_and_non_root():
 
 
 def test_ingress_separation_configs_exist():
-    mcp = (ROOT / "nginx" / "mcp-xcelsior.conf").read_text()
-    agent = (ROOT / "nginx" / "agent-xcelsior.conf").read_text()
-    public = (ROOT / "nginx" / "xcelsior.conf").read_text()
+    mcp = (ROOT / "api" / "nginx" / "mcp-xcelsior.conf").read_text()
+    agent = (ROOT / "api" / "nginx" / "agent-xcelsior.conf").read_text()
+    public = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
     assert "mcp.xcelsior.ca" in mcp
     assert "agent.xcelsior.ca" in agent
     assert "ssl_verify_client on" in agent
@@ -249,7 +249,7 @@ def test_spire_mesh_assets_are_deployable():
     server, agent, and the SPIFFE-aware gateway. Behavioural coverage of
     the identity contract lives in tests/test_spire_identity_mesh.py.
     """
-    spire = ROOT / "infra" / "spire"
+    spire = ROOT / "api" / "infra" / "spire"
     for name in (
         "README.md",
         "server.conf",
@@ -260,4 +260,4 @@ def test_spire_mesh_assets_are_deployable():
         assert (spire / name).is_file(), f"missing infra/spire/{name}"
     assert not list(spire.glob("*.example")), "SPIRE configs must be deployable, not examples"
     assert os.access(spire / "register-host.sh", os.X_OK)
-    assert (ROOT / "infra" / "volume-provisioner" / "README.md").is_file()
+    assert (ROOT / "api" / "infra" / "volume-provisioner" / "README.md").is_file()

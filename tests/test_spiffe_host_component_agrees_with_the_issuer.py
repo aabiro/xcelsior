@@ -36,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 
 from control_plane.identity import spiffe_host_component  # noqa: E402
 
-SCRIPT = ROOT / "infra" / "spire" / "register-host.sh"
+SCRIPT = ROOT / "api" / "infra" / "spire" / "register-host.sh"
 
 CASES = [
     "aaryn-tuf-rtx2060",

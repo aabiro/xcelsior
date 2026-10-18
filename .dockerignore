@@ -4,27 +4,36 @@ __pycache__
 venv
 .venv
 scripts/agent-signing.key
+api/scripts/agent-signing.key
 node_modules
 .next
 *.db
 *.db-*
 *.log
 data/
+api/data/
 artifacts/
 # Every env file but the templates. Listing three names baked `.env.bak.*`
 # backups of production's env, and `.env.staging.secrets`, into the images.
 .env*
 !.env*.example
 /desktop
+/api/desktop
 checkpoints/
 .vscode/
 .github/
 migrations/versions/*.pyc
+api/migrations/versions/*.pyc
 frontend/scripts/
+api/frontend/scripts/
 frontend/src/__tests__/
+api/frontend/src/__tests__/
 tests/
 frontend/
+api/frontend/
 fern/
+api/fern/
 wizard/
+api/wizard/
 README.md
 .mcp.json

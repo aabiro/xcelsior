@@ -45,7 +45,7 @@ import re
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-API = ROOT / "api.py"
+API = ROOT / "api" / "api.py"
 
 
 def _middleware_call_source() -> str:

@@ -45,7 +45,7 @@ import pytest
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TOOLS_DIR = ROOT / "mcp" / "src" / "tools"
+TOOLS_DIR = ROOT / "api" / "mcp" / "src" / "tools"
 
 #: Helpers that refuse a machine credential outright, before any scope check.
 #: `_require_user_grant`'s own docstring: "Rejects client_credentials (machine)
@@ -196,7 +196,7 @@ def test_the_human_only_helpers_still_refuse_machine_credentials(helper: str):
     this file would keep passing while guarding nothing — and the *real* risk
     would have moved to the MFA and password routes it protects.
     """
-    source = (ROOT / "routes" / "_deps.py").read_text(encoding="utf-8")
+    source = (ROOT / "api" / "routes" / "_deps.py").read_text(encoding="utf-8")
     body = source.split(f"def {helper}(", 1)[1].split("\ndef ", 1)[0]
     assert "client_credentials" in body, (
         f"{helper} no longer mentions client_credentials; if it stopped "

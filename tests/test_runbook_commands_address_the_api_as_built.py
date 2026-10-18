@@ -64,7 +64,7 @@ _SHELL_VAR = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 
 def _docs_with_api_calls() -> list[Path]:
     found = []
-    for path in sorted((ROOT / "docs").glob("*.md")) + [ROOT / "README.md"]:
+    for path in sorted((ROOT / "api" / "docs").glob("*.md")) + [ROOT / "README.md"]:
         if path.exists() and _API_VAR.search(path.read_text(encoding="utf-8")):
             found.append(path)
     return found

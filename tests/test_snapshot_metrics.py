@@ -58,7 +58,7 @@ def test_c1_source_wires_counters_in_endpoint():
     """Source-grep guard: api_snapshot_instance wires all required outcomes."""
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parent.parent / "routes" / "instances.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "api" / "routes" / "instances.py").read_text()
     idx = src.find("def api_snapshot_instance(")
     end = src.find("\n@router", idx)
     body = src[idx:end]
@@ -71,7 +71,7 @@ def test_c1_source_wires_counters_in_endpoint():
 def test_c1_source_wires_completion_counter():
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parent.parent / "routes" / "instances.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "api" / "routes" / "instances.py").read_text()
     idx = src.find("def api_user_image_complete(")
     end = src.find("\n@router", idx)
     if end < 0:

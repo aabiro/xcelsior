@@ -38,7 +38,7 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-INVENTORY = ROOT / "docs" / "generated" / "endpoint-inventory.md"
+INVENTORY = ROOT / "api" / "docs" / "generated" / "endpoint-inventory.md"
 
 #: Lower this as rows are classified. It may never rise: a new endpoint arrives
 #: classified, or the commit that adds it also classifies it.
@@ -133,7 +133,7 @@ def test_no_classification_is_orphaned():
     import json
 
     labels = json.loads(
-        (ROOT / "docs" / "endpoint-classification.json").read_text(encoding="utf-8")
+        (ROOT / "api" / "docs" / "endpoint-classification.json").read_text(encoding="utf-8")
     )
     live = {f"{cells[1]} {cells[2].strip('`')}" for cells in _rows()}
     orphans = sorted(set(labels) - live)
@@ -156,7 +156,7 @@ def test_the_generator_actually_reads_the_classification_file():
     import json
 
     labels = json.loads(
-        (ROOT / "docs" / "endpoint-classification.json").read_text(encoding="utf-8")
+        (ROOT / "api" / "docs" / "endpoint-classification.json").read_text(encoding="utf-8")
     )
     rendered = {f"{cells[1]} {cells[2].strip('`')}": cells[5] for cells in _rows() if cells[5]}
     assert rendered, "no row in the table carries a class — regenerate the inventory"

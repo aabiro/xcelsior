@@ -332,6 +332,6 @@ def test_production_meter_insert_inventory():
     assert "meter_job" in sched
     assert "INSERT INTO usage_meters" not in sched
 
-    mig = (root / "migrations" / "versions" / "062_usage_meters_attempt_id.py").read_text()
+    mig = (root / "api" / "migrations" / "versions" / "062_usage_meters_attempt_id.py").read_text()
     assert "uq_usage_meters_one_per_attempt" in mig
     assert "ADD COLUMN IF NOT EXISTS attempt_id" in mig
