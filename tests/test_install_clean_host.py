@@ -423,7 +423,7 @@ esac
 exit 0
 """)
     (bin_dir / "sudo").chmod(0o755)
-    helper = ROOT / "worker_privileged.py"
+    helper = ROOT / "workers" / "worker_privileged.py"
     result = subprocess.run(
         ["/bin/bash", "-c", f"source {INSTALL_SH}; install_privd {helper}"],
         text=True,

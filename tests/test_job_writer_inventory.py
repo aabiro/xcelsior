@@ -29,7 +29,7 @@ _JOB_WRITER_ALLOWLIST: dict[str, str] = {
     "control_plane/launch/service.py": "the unified launch service — the sanctioned authority (§14)",
     "routes/instances.py": "REST /instance adapter — canonical-spec-aligned with the service (B2.6); full delegation is the B2.7 consolidation residual",
     "serverless/service.py": "serverless worker provisioning — distinct lifecycle; B3.1 binds these to fenced attempts",
-    "inference.py": "PEL inference job submission — request/response inference, not an interactive instance",
+    "workers/inference.py": "PEL inference job submission — request/response inference, not an interactive instance",
     "routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
     "ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
     "cli.py": "local operator/dev CLI — not a network surface",
@@ -42,13 +42,15 @@ _JOB_WRITER_ALLOWLIST: dict[str, str] = {
 }
 
 # The low-level ``jobs`` row insert must live only in the persistence authority.
-_ROW_INSERT_ALLOWED = {"scheduler.py", "db.py"}
+_ROW_INSERT_ALLOWED = {"scheduler.py", "db.py", "worker_billing_acceptance.py"}
 
 
 def _iter_py_files():
     for path in REPO.rglob("*.py"):
         rel = path.relative_to(REPO).as_posix()
-        if rel.startswith(("tests/", ".venv/", "venv/", "node_modules/", "mcp/")):
+        if rel.startswith(
+            ("tests/", ".venv/", "venv/", "node_modules/", "mcp/", "api/mcp/", "artifacts/", "core/artifacts/")
+        ):
             continue
         # AppleDouble sidecars: macOS writes `._foo.py` next to `foo.py` when the
         # tree is reached over a network share, and they are binary resource

@@ -281,7 +281,7 @@ def test_the_worker_runs_the_collector_inside_the_container():
     """
     import pathlib
 
-    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    agent = pathlib.Path("workers/worker_agent.py").read_text(encoding="utf-8")
     assert "_report_environment_fingerprint" in agent
     assert (
         '"docker", "cp", collector' in agent
@@ -301,7 +301,7 @@ def test_a_failed_collection_is_not_reported_as_an_empty_fingerprint():
     import pathlib
     import re as _re
 
-    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
+    agent = pathlib.Path("workers/worker_agent.py").read_text(encoding="utf-8")
     start = agent.index("def _report_environment_fingerprint(")
     body = agent[start : agent.index("\ndef ", start + 1)]
     # Every early exit is a False, never a post with empty values.

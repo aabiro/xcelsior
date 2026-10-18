@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKER = ROOT / "worker_agent.py"
+WORKER = ROOT / "workers" / "worker_agent.py"
 
 
 def _source() -> str:

@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-AGENT = REPO / "worker_agent.py"
+AGENT = REPO / "workers" / "worker_agent.py"
 EXAMPLE = REPO / ".env.worker.example"
 
 
@@ -44,10 +44,14 @@ def _shipped_modules() -> list[Path]:
 
     source = AGENT.read_text(encoding="utf-8")
     names = set(_re.findall(r'"([a-z_][a-z0-9_]*\.py)"', source))
-    return sorted(
-        {AGENT} | {REPO / n for n in names if (REPO / n).is_file()},
-        key=lambda p: p.name,
-    )
+    resolved: set[Path] = {AGENT}
+    for n in names:
+        for sub in ("workers", "auth", "hosts", "core", ""):
+            cand = (REPO / sub / n) if sub else (REPO / n)
+            if cand.is_file():
+                resolved.add(cand)
+                break
+    return sorted(resolved, key=lambda p: p.name)
 
 
 #: Read by the agent but deliberately absent from the template.

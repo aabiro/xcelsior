@@ -249,7 +249,7 @@ class TestRunJobEncryptedVolumes:
 
     def test_source_references_attach_detach(self):
         """run_job source calls attach_encrypted_volume and detach_encrypted_volume."""
-        source = Path(__file__).resolve().parent.parent / "worker_agent.py"
+        source = Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py"
         text = source.read_text()
         assert "attach_encrypted_volume" in text
         assert "detach_encrypted_volume" in text

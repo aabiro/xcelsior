@@ -20,25 +20,36 @@ from fastapi.responses import Response
 
 router = APIRouter()
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_SCRIPTS = _REPO_ROOT / "scripts"
+_HERE = Path(__file__).resolve().parent
+_REPO_ROOT = _HERE.parent.parent if _HERE.parent.name == "api" else _HERE.parent
+_SCRIPTS = (
+    _REPO_ROOT / "api" / "scripts"
+    if (_REPO_ROOT / "api" / "scripts").is_dir()
+    else _REPO_ROOT / "scripts"
+)
+
+
+def _locate(pkg: str, name: str) -> Path:
+    cand = _REPO_ROOT / pkg / name
+    return cand if cand.exists() else (_REPO_ROOT / name)
+
 
 _ALLOWED: dict[str, Path] = {
-    "worker_agent.py": _REPO_ROOT / "worker_agent.py",
-    "security.py": _REPO_ROOT / "security.py",
-    "nvml_telemetry.py": _REPO_ROOT / "nvml_telemetry.py",
-    "worker_image_cache.py": _REPO_ROOT / "worker_image_cache.py",
-    "worker_nfs.py": _REPO_ROOT / "worker_nfs.py",
-    "worker_nvme_cache.py": _REPO_ROOT / "worker_nvme_cache.py",
-    "worker_luks_volumes.py": _REPO_ROOT / "worker_luks_volumes.py",
+    "worker_agent.py": _locate("workers", "worker_agent.py"),
+    "security.py": _locate("auth", "security.py"),
+    "nvml_telemetry.py": _locate("workers", "nvml_telemetry.py"),
+    "worker_image_cache.py": _locate("workers", "worker_image_cache.py"),
+    "worker_nfs.py": _locate("workers", "worker_nfs.py"),
+    "worker_nvme_cache.py": _locate("workers", "worker_nvme_cache.py"),
+    "worker_luks_volumes.py": _locate("workers", "worker_luks_volumes.py"),
     # security.py imports env_config at module level; worker_agent imports criu_hosts
     # for checkpoint support. Without them an installed worker cannot start.
-    "env_config.py": _REPO_ROOT / "env_config.py",
-    "criu_hosts.py": _REPO_ROOT / "criu_hosts.py",
+    "env_config.py": _locate("core", "env_config.py"),
+    "criu_hosts.py": _locate("workers", "criu_hosts.py"),
     # Network protection for rented containers; root runs a copy of it.
-    "egress_isolation.py": _REPO_ROOT / "egress_isolation.py",
+    "egress_isolation.py": _locate("hosts", "egress_isolation.py"),
     # Root helper (client for the worker; also installed root-owned as xcelsior-privd).
-    "worker_privileged.py": _REPO_ROOT / "worker_privileged.py",
+    "worker_privileged.py": _locate("workers", "worker_privileged.py"),
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 

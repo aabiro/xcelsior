@@ -108,7 +108,7 @@ class TestModularizationHygiene:
     def test_worker_agent_uses_criu_hosts_module(self):
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / "worker_agent.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py").read_text()
         assert "from criu_hosts import" in src
 
     def test_ai_assistant_config_module_extracted(self):

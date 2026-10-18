@@ -51,7 +51,7 @@ PROJECTED_FLOAT_COLUMNS = {
 }
 FLOAT_MONEY_COLUMNS = tuple(sorted({c for cols in PROJECTED_FLOAT_COLUMNS.values() for c in cols}))
 
-SKIP_DIRS = {".venv", "venv", "node_modules", ".next", "migrations", "tests", "__pycache__"}
+SKIP_DIRS = {".venv", "venv", "node_modules", ".next", "migrations", "tests", "__pycache__", "worktrees"}
 
 
 def _application_sources():

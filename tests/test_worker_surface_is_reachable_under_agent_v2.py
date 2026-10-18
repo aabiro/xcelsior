@@ -35,7 +35,7 @@ import re
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WORKER = ROOT / "worker_agent.py"
+WORKER = ROOT / "workers" / "worker_agent.py"
 
 #: Paths the worker calls that are deliberately not being relocated, with the
 #: reason. Anything here is a decision someone made, not an oversight.

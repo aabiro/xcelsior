@@ -135,7 +135,7 @@ def test_retired_shared_state_modules_are_clean() -> None:
     shared between processes. Migration 060 moved them and Track B B9.3
     finished the contract — this asserts they do not drift back.
     """
-    for name in ("lightning.py", "slurm_adapter.py"):
+    for name in ("workers/lightning.py", "workers/slurm_adapter.py"):
         text = (PROJECT_ROOT / name).read_text(encoding="utf-8")
         assert not _SQLITE_IMPORT_RE.search(text), (
             f"{name} imports sqlite3 again; deposit and mapping state is " f"owned by PostgreSQL"
@@ -152,7 +152,7 @@ def test_worker_journal_is_documented_as_non_authority() -> None:
     grant a lease or extend a fence — those are PostgreSQL rows, and
     adoption still requires the API to confirm the attempt is current.
     """
-    text = (PROJECT_ROOT / "worker_agent.py").read_text(encoding="utf-8")
+    text = (PROJECT_ROOT / "workers" / "worker_agent.py").read_text(encoding="utf-8")
     assert "NOT CONTROL-PLANE AUTHORITY" in text, (
         "the worker journal must be explicitly documented as node-local "
         "recovery state (companion §10.2)"

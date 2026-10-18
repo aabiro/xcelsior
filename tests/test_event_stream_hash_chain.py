@@ -373,7 +373,7 @@ def test_production_callers_still_use_event_store_append():
     assert "get_event_store().append" in deps
     assert "append_user_audit_event" in deps
 
-    volumes = (root / "volumes.py").read_text()
+    volumes = (root / "workers" / "volumes.py").read_text()
     assert "EventStore" in volumes
     # volumes constructs EventStore and appends lifecycle events
     assert ".append(" in volumes

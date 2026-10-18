@@ -443,7 +443,7 @@ def test_inventory_process_local_emit_sites_classified():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    sched_src = (root / "scheduler.py").read_text()
+    sched_src = (root / "workers" / "scheduler.py").read_text()
     runtime_src = (root / "control_plane" / "outbox_runtime.py").read_text()
 
     assert "try_append_lifecycle_outbox" in runtime_src

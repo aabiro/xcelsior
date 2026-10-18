@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-WORKER = Path(__file__).parent.parent / "worker_agent.py"
+WORKER = Path(__file__).parent.parent / "workers" / "worker_agent.py"
 
 
 @pytest.fixture(scope="module")

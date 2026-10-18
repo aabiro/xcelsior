@@ -35,7 +35,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: Each surface, and the pattern that extracts its default.
 SOURCES = {
-    "worker_agent.py": re.compile(r'"XCELSIOR_PUBLIC_SSH_HOST":\s*"([^"]+)"'),
+    "workers/worker_agent.py": re.compile(r'"XCELSIOR_PUBLIC_SSH_HOST":\s*"([^"]+)"'),
     "ai_assistant_config.py": re.compile(
         r'SSH_HOST\s*=\s*os\.environ\.get\(\s*"XCELSIOR_SSH_HOST",\s*"([^"]+)"'
     ),

@@ -290,7 +290,7 @@ def test_every_credit_callback_passes_an_idempotency_key():
     root = Path(__file__).resolve().parent.parent
     call_sites = []
 
-    for path in (root / "bg_worker.py", root / "api.py"):
+    for path in (root / "workers" / "bg_worker.py", root / "api.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 SRC_INSTANCES = Path(__file__).resolve().parent.parent / "routes" / "instances.py"
-SRC_WORKER = Path(__file__).resolve().parent.parent / "worker_agent.py"
+SRC_WORKER = Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py"
 
 
 # ---------- B5 ----------

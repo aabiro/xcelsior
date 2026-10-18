@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Directories to skip entirely
-SKIP_DIRS = {"tests", "venv", ".venv", "env", "__pycache__", "site-packages", "node_modules"}
+SKIP_DIRS = {"tests", "venv", ".venv", "env", "__pycache__", "site-packages", "node_modules", "worktrees"}
 
 # Regex to match log-style call names
 _LOG_METHODS = re.compile(r"^(info|debug|warning|warn|error|critical|exception)$")
@@ -60,7 +60,7 @@ _ALLOWLIST: set[tuple[str, int]] = {
     # security.py logs failure to decrypt by *name*, not by value.
     ("security.py", 1140),
     # worker_agent.py logs an exception object, not the credential value.
-    ("worker_agent.py", 593),
+    ("workers/worker_agent.py", 593),
 }
 
 

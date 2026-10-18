@@ -261,12 +261,12 @@ class TestSpotPreemption:
     """test_spot_preemption — Spot pricing with preemption on outbid."""
 
     def test_preemption_cycle_exists(self):
-        source = Path(__file__).resolve().parent.parent / "scheduler.py"
+        source = Path(__file__).resolve().parent.parent / "workers" / "scheduler.py"
         text = source.read_text()
         assert "preemption_cycle" in text
 
     def test_spot_price_formula(self):
-        source = Path(__file__).resolve().parent.parent / "scheduler.py"
+        source = Path(__file__).resolve().parent.parent / "workers" / "scheduler.py"
         text = source.read_text()
         assert "spot" in text.lower()
         assert "surge" in text or "multiplier" in text
@@ -276,12 +276,12 @@ class TestBinPacking:
     """test_bin_packing — Best-fit bin-packing scheduler."""
 
     def test_bin_pack_scoring(self):
-        source = Path(__file__).resolve().parent.parent / "scheduler.py"
+        source = Path(__file__).resolve().parent.parent / "workers" / "scheduler.py"
         text = source.read_text()
         assert "waste" in text or "best_fit" in text or "score" in text
 
     def test_multi_gpu_gang_scheduling(self):
-        source = Path(__file__).resolve().parent.parent / "scheduler.py"
+        source = Path(__file__).resolve().parent.parent / "workers" / "scheduler.py"
         text = source.read_text()
         assert "num_gpus" in text
         assert "multi" in text.lower() or "gang" in text.lower()
@@ -291,7 +291,7 @@ class TestInferenceRouting:
     """test_inference_routing — Warm worker gets priority routing."""
 
     def test_warm_routing_exists(self):
-        source = Path(__file__).resolve().parent.parent / "inference.py"
+        source = Path(__file__).resolve().parent.parent / "workers" / "inference.py"
         text = source.read_text()
         assert "warm" in text.lower()
         assert "route" in text.lower()
@@ -363,8 +363,8 @@ class TestVolumeLifecycle:
         # names so callers are unaffected, but the "cryptsetup" implementation
         # detail now lives in the extracted module.
         root = Path(__file__).resolve().parent.parent
-        agent_text = (root / "worker_agent.py").read_text()
-        luks_text = (root / "worker_luks_volumes.py").read_text()
+        agent_text = (root / "workers" / "worker_agent.py").read_text()
+        luks_text = (root / "workers" / "worker_luks_volumes.py").read_text()
         assert "provision_encrypted_volume" in agent_text
         assert "destroy_encrypted_volume" in agent_text
         assert "cryptsetup" in luks_text

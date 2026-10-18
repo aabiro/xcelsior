@@ -29,7 +29,7 @@ _EMITTERS = {"broadcast_sse", "emit_event"}
 # Every non-test file that CALLS an emitter, with its classification + why.
 _EMITTER_FILES: dict[str, str] = {
     # ── durable / persistence path ────────────────────────────────────
-    "scheduler.py": "durable — job lifecycle routes through try_append_lifecycle_outbox; SSE mirrors it",
+    "workers/scheduler.py": "durable — job lifecycle routes through try_append_lifecycle_outbox; SSE mirrors it",
     "routes/instances.py": "durable — instance transitions are persisted via the scheduler outbox; these SSE calls mirror for the UI",
     # ── emitter primitive ─────────────────────────────────────────────
     "api.py": "primitive — app-level SSE broadcast wiring",
@@ -54,7 +54,9 @@ def _emitter_files() -> set[str]:
     found: set[str] = set()
     for path in REPO.rglob("*.py"):
         rel = path.relative_to(REPO).as_posix()
-        if rel.startswith(("tests/", ".venv/", "venv/", "node_modules/", "mcp/")):
+        if rel.startswith(
+            ("tests/", ".venv/", "venv/", "node_modules/", "mcp/", "api/mcp/", "artifacts/", "core/artifacts/")
+        ):
             continue
         # macOS AppleDouble sidecars (`._foo.py`) are binary resource forks
         # written when the tree is reached over a share — not source, and they
