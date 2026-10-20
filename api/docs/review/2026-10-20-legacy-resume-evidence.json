@@ -1,0 +1,689 @@
+{
+  "recorded_date": "2026-10-20",
+  "base_commit": "bfbd59f961b62c33e52fb00566bd4fae09d16170",
+  "production_actions": "read-only metadata, Docker GET census/inspect and filesystem stat; no job/config/service changes",
+  "source_sha256": {
+    "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc",
+    "api/routes/agent.py": "32e1f6ce2b20130acb475d123117ef721471c393983e18af7538ff57be38dbd9",
+    "control_plane/legacy_execution.py": "9541d68c0cece38a94c79430bf4d386e7f0d834ce6474c2ad37eabf80d0bed59",
+    "api/scripts/worker_billing_acceptance.py": "bdf6bf7f1c6fee4af2941fc68eb30e9a4754ec6b6c5396e53c4ca3fc35e51eab",
+    "api/scripts/audit_legacy_containers.py": "ce964894ae93fd29ed416416b5fb3b61797739027b3d5364ea6f7a65636a0cc7",
+    "tests/test_legacy_lifecycle_boundary.py": "32ab74088653a43b61a1f37ff466121320b8f22e6c6ffeca2365d9cd306cc53e",
+    "tests/test_legacy_container_inventory.py": "b90c1536d3b17dc49ef51d5c6054b690a6c75546c081baef74747276d0277e15",
+    "tests/test_agent_commands_lifecycle.py": "1978c4cbe597a40f48ee770165e30b2683d752574963381b8c844fc207ef7ea7",
+    "tests/test_worker_agent.py": "2fdac499d0c6dcdce535cf953d5d78b5ff51a74e75d427c1ff29e1c76fac5bdb"
+  },
+  "regression": {
+    "results": {
+      "tests": 523,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "selection": [
+      "tests/test_legacy_lifecycle_boundary.py",
+      "tests/test_legacy_container_inventory.py",
+      "tests/test_agent_commands_lifecycle.py",
+      "tests/test_billing_stop_enqueue_pg.py",
+      "tests/test_residual_host_command_sites.py",
+      "tests/test_fresh_attempt_resume_restart.py",
+      "tests/test_stopped_job_stop_redelivery.py",
+      "tests/test_worker_execution_boundary.py",
+      "tests/test_agent_v2.py",
+      "tests/test_worker_agent.py",
+      "tests/test_worker_agent_v2.py",
+      "tests/test_worker_terminal_recovery.py",
+      "tests/test_worker_startup_regressions.py",
+      "tests/test_events.py",
+      "tests/test_instance_flow.py",
+      "tests/test_scheduler_placement_partition.py",
+      "tests/test_active_meter_repair.py",
+      "tests/test_billing_controller.py",
+      "tests/test_worker_billing_acceptance_guard.py",
+      "tests/test_static_endpoints.py",
+      "tests/test_install_clean_host.py",
+      "tests/test_worker_api_calls_go_through_one_seam.py",
+      "tests/test_worker_v2_paths_match_the_server.py",
+      "tests/test_observability_stack.py",
+      "tests/test_host_agent_tokens.py",
+      "--deselect=tests/test_instance_flow.py::TestDockerComposeSmoke"
+    ],
+    "phases": {
+      "initdb": {
+        "exit_code": 0,
+        "seconds": 0.59
+      },
+      "start": {
+        "exit_code": 0,
+        "seconds": 0.12
+      },
+      "createdb": {
+        "exit_code": 0,
+        "seconds": 0.05
+      },
+      "migrate": {
+        "exit_code": 0,
+        "seconds": 2.56
+      },
+      "pytest": {
+        "exit_code": 0,
+        "seconds": 50.49
+      },
+      "stop": {
+        "exit_code": 0,
+        "seconds": 0.1
+      }
+    },
+    "excluded": "tests/test_instance_flow.py::TestDockerComposeSmoke"
+  },
+  "cuda": {
+    "passed": true,
+    "started_at": 1792479153.7260873,
+    "scope": "isolated CUDA worker protocol to invoice",
+    "image_id": "sha256:e2a75ae5a502eceac46a1b29c8acfe8876bb2216d32cd04dd1193f7e76366652",
+    "gpu_uuid": "GPU-f22a551d-2bee-2f17-22af-454481edcdc7",
+    "gpu_model": "NVIDIA GeForce RTX 2060",
+    "journeys": [
+      {
+        "job_id": "acceptance-e725d6c053d2-0-none",
+        "expected_exit_code": 0,
+        "terminal_fault": "none",
+        "command_id": "c5af20ad-8242-4c8f-b22d-cbf8c60e4410",
+        "spec_hash": "sha256:3d340360c4b074d466716f45cbcd5afac4ccf93ee2df3ebf825da1bd2c267c47",
+        "fencing_token": 1,
+        "lease_id": "5e038cf7-7323-461d-989f-1c67e1be3a39",
+        "container_id": "423d824ba8a50b2af64d236f8629cc940b5bd05b830f47651bd177f5d602cfee",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "02594a71-ec9",
+        "observation_id": "ed0e4053-a17b-462e-b180-728c8aeadb17",
+        "actual_exit_code": 0,
+        "stale_report_refused": true,
+        "attempt_id": "a9070c9d-7ad9-4893-b425-c8c990b25c3d",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792479158.75837,
+        "completed_at": 1792479159.591199,
+        "total_cost_micros": 200,
+        "invoice_delta_micros": 200,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-e725d6c053d2-7-none",
+        "expected_exit_code": 7,
+        "terminal_fault": "none",
+        "command_id": "da0101dc-88cc-475a-9436-bff7a0423641",
+        "spec_hash": "sha256:60bf5d5f4b9017188d01cdd44e8367d0a9a74090d6dfcbfc8e1ef2976b19db95",
+        "fencing_token": 2,
+        "lease_id": "f094bd46-bcb4-4167-8234-c6c3b20bf066",
+        "container_id": "c76c8a823d40e41d19fed66d9f76d04e107df6dad31b4420b7b670c09c7f8ae7",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "5d1487c0-c78",
+        "observation_id": "ac380ad6-f7aa-4b4c-909c-c7e82af426cc",
+        "actual_exit_code": 7,
+        "stale_report_refused": true,
+        "attempt_id": "159ad2a6-9c7d-424c-98ba-56f367e7cd1e",
+        "attempt_status": "failed",
+        "lease_status": "released",
+        "started_at": 1792479161.965651,
+        "completed_at": 1792479162.798761,
+        "total_cost_micros": 200,
+        "invoice_delta_micros": 200,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-e725d6c053d2-0-before_commit",
+        "expected_exit_code": 0,
+        "terminal_fault": "before_commit",
+        "command_id": "95e56066-bb94-446c-9f8f-723d3cfc7edf",
+        "spec_hash": "sha256:578a9cf05cde4862c0be54c956f0cdec0ca231a7bfab7d32f23c444ac7b750bf",
+        "fencing_token": 3,
+        "lease_id": "6b088e5c-f9e4-460f-8121-2ce7253ed99d",
+        "container_id": "f03d0e41948bd7a116d3c36cd3aa3b356ca95a039352bd99a43132140d55b3b5",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "6fa58289-6ed",
+        "observation_id": "d7208bc3-d5f7-44df-9b88-808b6bf4f569",
+        "actual_exit_code": 0,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": false,
+        "stale_report_refused": true,
+        "attempt_id": "41fd1d90-1e03-4312-8c0a-c1272e7dba7d",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792479165.294041,
+        "completed_at": 1792479171.17986,
+        "total_cost_micros": 1600,
+        "invoice_delta_micros": 1600,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-e725d6c053d2-7-after_commit",
+        "expected_exit_code": 7,
+        "terminal_fault": "after_commit",
+        "command_id": "a675b880-c7c2-4ce6-95cd-0a18e4e7863c",
+        "spec_hash": "sha256:cb4737c1d75c90090c6bd0ef530395bf0269221208c3ebf3f113ec648274bb07",
+        "fencing_token": 4,
+        "lease_id": "b836c4d2-3ab8-4831-b7f2-7edb634ed032",
+        "container_id": "a8b8512ef8a01da405f282c00110e5f57f0450fadc0d56b2f96e30c4aae9b134",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "0a9f8cf1-fd6",
+        "observation_id": "03dd95e5-2362-46fb-8650-65d79ac6698a",
+        "actual_exit_code": 7,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": true,
+        "stale_report_refused": true,
+        "attempt_id": "baaeece7-6142-4029-a80b-ffe02794884a",
+        "attempt_status": "failed",
+        "lease_status": "released",
+        "started_at": 1792479173.746003,
+        "completed_at": 1792479174.565446,
+        "total_cost_micros": 200,
+        "invoice_delta_micros": 200,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-e725d6c053d2-0-restart",
+        "expected_exit_code": 0,
+        "terminal_fault": "restart",
+        "command_id": "bba05915-2907-400d-9cda-b2e42c2cb029",
+        "spec_hash": "sha256:f4a2849f7f1d9d3fcae237b7e05ab52224929f1384da03fe9f1b2dc17e1c242c",
+        "fencing_token": 5,
+        "lease_id": "035c5d72-27a3-4097-a982-90f3505a1f0e",
+        "container_id": "10d2cf9f84a1ddc0d26dd7c52f93a692ded0a5fd969170aa3f5254561118e2e5",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "2fc96fc9-547",
+        "observation_id": "138b6caa-fa18-4e2a-bf67-bd2e1da19fe8",
+        "actual_exit_code": 0,
+        "separate_worker_processes": true,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": false,
+        "stale_report_refused": true,
+        "attempt_id": "9d7e6e67-2967-4aa3-840d-21331d73df92",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792479182.137996,
+        "completed_at": 1792479183.367579,
+        "total_cost_micros": 300,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0
+      }
+    ],
+    "legacy_preservation": {
+      "job_id": "acceptance-e725d6c053d2-legacy-preserve",
+      "container_id": "4d593a903b8281ffbc7d06f5258fc37422c66c43956cf114e86a01f4d1c6e1b7",
+      "container_retained": true,
+      "writable_layer_marker_preserved": true,
+      "marker_sha256": "7a31776fa923523439b0fe4708012b2b5122d30784fec330cb42390d9e518155",
+      "job_status": "stopped",
+      "lease_status": "released"
+    },
+    "finished_at": 1792479184.8437507
+  },
+  "cuda_phases": {
+    "initdb": {
+      "exit_code": 0,
+      "seconds": 0.62
+    },
+    "start": {
+      "exit_code": 0,
+      "seconds": 0.12
+    },
+    "createdb": {
+      "exit_code": 0,
+      "seconds": 0.05
+    },
+    "migrate": {
+      "exit_code": 0,
+      "seconds": 2.25
+    },
+    "worker_billing": {
+      "exit_code": 0,
+      "seconds": 31.64
+    },
+    "stop": {
+      "exit_code": 0,
+      "seconds": 0.1
+    }
+  },
+  "production_jobs": [
+    {
+      "job_id": "07b3353b",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-07b3353b",
+      "volume_ids": [
+        "vol-36592ad0362e"
+      ],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "177a3447",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-177a3447",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "19ee0dee",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-19ee0dee",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "1c6eb4c0",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-1c6eb4c0",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "2b9e67b8",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-2b9e67b8",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "3dadeca7",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-3dadeca7",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "4f8a1562",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-4f8a1562",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "68298d8b",
+      "status": "stopped",
+      "host_id": "tower-rtx3060",
+      "container_name": "xcl-68298d8b",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "86843a78",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-86843a78",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "9c116a30",
+      "status": "stopped",
+      "host_id": "tower-rtx3060",
+      "container_name": "xcl-9c116a30",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "cbe0a410",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-cbe0a410",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    },
+    {
+      "job_id": "f004d4f9",
+      "status": "stopped",
+      "host_id": "aaryn-tuf-rtx2060",
+      "container_name": "xcl-f004d4f9",
+      "volume_ids": [],
+      "interactive": "true",
+      "fenced_history": false
+    }
+  ],
+  "host_inventory": [
+    {
+      "host_id": "aaryn-tuf-rtx2060",
+      "read_only": true,
+      "socket": "/var/run/docker.sock",
+      "collected_at": "2026-10-20T06:53:53.625690+00:00",
+      "daemon_name": "aaryn-ASUS-TUF-Gaming-A15-FA506IV-TUF506IV",
+      "expected_daemon_name": "aaryn-ASUS-TUF-Gaming-A15-FA506IV-TUF506IV",
+      "host_verified": true,
+      "census_complete": true,
+      "observation_complete": true,
+      "jobs": [
+        {
+          "job_id": "07b3353b",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-07b3353b",
+          "volume_ids": [
+            "vol-36592ad0362e"
+          ],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "recover_storage"
+        },
+        {
+          "job_id": "177a3447",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-177a3447",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "19ee0dee",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-19ee0dee",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "1c6eb4c0",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-1c6eb4c0",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "2b9e67b8",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-2b9e67b8",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "3dadeca7",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-3dadeca7",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "4f8a1562",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-4f8a1562",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "86843a78",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-86843a78",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "cbe0a410",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-cbe0a410",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "f004d4f9",
+          "host_id": "aaryn-tuf-rtx2060",
+          "container_name": "xcl-f004d4f9",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        }
+      ]
+    },
+    {
+      "host_id": "tower-rtx3060",
+      "read_only": true,
+      "socket": "/var/run/docker.sock",
+      "collected_at": "2026-10-20T06:54:13.346975+00:00",
+      "daemon_name": "tower",
+      "expected_daemon_name": "tower",
+      "host_verified": true,
+      "census_complete": true,
+      "observation_complete": true,
+      "jobs": [
+        {
+          "job_id": "68298d8b",
+          "host_id": "tower-rtx3060",
+          "container_name": "xcl-68298d8b",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        },
+        {
+          "job_id": "9c116a30",
+          "host_id": "tower-rtx3060",
+          "container_name": "xcl-9c116a30",
+          "volume_ids": [],
+          "observed": {
+            "presence": "missing"
+          },
+          "next_gate": "assess_reprovision"
+        }
+      ]
+    }
+  ],
+  "volume_metadata": {
+    "volumes": [
+      {
+        "volume_id": "vol-36592ad0362e",
+        "storage_type": "nfs",
+        "size_gb": 1,
+        "encrypted": false,
+        "mount_path_host": "",
+        "status": "available",
+        "deleted_at": 0.0
+      }
+    ],
+    "attachments": [],
+    "snapshots": [],
+    "storage_config": {
+      "XCELSIOR_NFS_SERVER": "100.64.0.1",
+      "XCELSIOR_NFS_SSH_HOST": "127.0.0.1",
+      "XCELSIOR_NFS_EXPORT_BASE": "/exports/volumes",
+      "XCELSIOR_NFS_LUKS_SSH_HOST": null
+    }
+  },
+  "storage_probe": {
+    "source": "production_storage_host_read_only",
+    "base_exists": true,
+    "paths": [
+      {
+        "path": "/exports/volumes/vol-36592ad0362e",
+        "exists": false
+      },
+      {
+        "path": "/exports/volumes/vol-36592ad0362e.img",
+        "exists": false
+      },
+      {
+        "path": "/exports/volumes/_snapshots/vol-36592ad0362e",
+        "exists": false
+      }
+    ]
+  },
+  "retirement_metadata": {
+    "custom_mount_hints": [
+      {
+        "job_id": "07b3353b",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "177a3447",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "19ee0dee",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "1c6eb4c0",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "2b9e67b8",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "3dadeca7",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "4f8a1562",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "68298d8b",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "86843a78",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "9c116a30",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "cbe0a410",
+        "count": 0,
+        "format": "NoneType"
+      },
+      {
+        "job_id": "f004d4f9",
+        "count": 0,
+        "format": "NoneType"
+      }
+    ],
+    "pending_unexpired_legacy_lifecycle_commands": []
+  },
+  "distribution": {
+    "verified_signatures": 12,
+    "worker_signature_sha256": "ee1ac7f98d77d7455fd16b26f9c7efa7b7bfd13c962c15891ad87a9ab5134a0e"
+  },
+  "artifacts": [
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/verified/manifest.json",
+      "sha256": "9e3ee9cea5245272068a65a7856a6cc017d8ab9114d5d0e68d5baf05fe444d52"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/verified/junit.xml",
+      "sha256": "889591fcb3db8f956a1960aae56d833b10ec57b43d8b70be886afa1b439d0f4f"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/verified/pytest.log",
+      "sha256": "76d330944351a493ef3251ced2c09d1ed051e5e13de120a68b27a37cc73b2c77"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/cuda-verified/manifest.json",
+      "sha256": "a9c78ec7cc5ba7bc821cbde4a82037d85fc4ffbfe64095dce93e37392b16b882"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/cuda-verified/worker_billing.json",
+      "sha256": "e685cd834c044168aad18a18f3a5065040ae711072812df50ad583ca5a1d1b4c"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/cuda-verified/worker_billing.log",
+      "sha256": "d8b37604ec8273a66b2516c83dffb0aa60fa77092844746f1671d820fd09ed31"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/red-verified/manifest.json",
+      "sha256": "2522eeaf30119563d1521b9a155bffa169306763e91eeb205049ad29a659925a"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/stopped-jobs.json",
+      "sha256": "a631a20a111cc8fd6eb7a9d215545e535f5a233bfcad60abb074b2fb41db8e87"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/workstation-containers.json",
+      "sha256": "f5ce40b7d263fab9f12d3fa10ce0f9af70ec5d786eeba8e8272055b4f2712bc3"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/tower-containers.json",
+      "sha256": "96bf00977ca67d204347a8db34033307f7389d5f6a8ea1861802a4e5be7d2b6e"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/volume-metadata.json",
+      "sha256": "5644d7d5547bbbffd026cfe385b76007da00212b20ed43c0b5c6125dc7ea7292"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/volume-storage-probe.json",
+      "sha256": "2abf363c8fe74bc764a2006264ff801e72f9b5369452fa414827174aec63fa85"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/legacy-resume-evidence/retirement-metadata.json",
+      "sha256": "95073f47bfdb8b3b8270a5428aaf5af8fc1a6fd858fdd372d54b51f4d53bbddb"
+    }
+  ]
+}
