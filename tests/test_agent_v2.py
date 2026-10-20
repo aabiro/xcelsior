@@ -8,6 +8,7 @@ fence-loss signals.
 """
 
 import json
+import os
 import time
 import uuid
 
@@ -271,7 +272,7 @@ class TestCommandDeliveryPartition:
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
         labels = {"path": "work_poll", "outcome": "requested"}
         before = REGISTRY.get_sample_value("xcelsior_legacy_execution_total", labels) or 0
-        assert client.get("/agent/work/retired-probe").status_code == 204
+        assert client.get("/agent/work/retired-probe").status_code == 410
         assert REGISTRY.get_sample_value("xcelsior_legacy_execution_total", labels) == before + 1
         assert REGISTRY.get_sample_value("xcelsior_legacy_execution_enabled") == 0
         assert b'xcelsior_legacy_execution_total{' in generate_latest(REGISTRY)
@@ -719,3 +720,105 @@ class TestLegacyPatchFence:
             headers=_worker_headers(),
         )
         assert r.status_code == 200
+
+
+class TestCompleteWorkerCutover:
+    def test_host_commands_use_claim_ack_without_destructive_drain(self, fleet):
+        jid, hid, refs = _place_one(fleet, 'host-control-' + uuid.uuid4().hex[:8])
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "INSERT INTO agent_commands(host_id,job_id,command,args,created_at,expires_at,status) "
+                "VALUES(%s,%s,'reverify','{}',%s,%s,'pending') RETURNING command_id",
+                (hid, jid, time.time(), time.time() + 300),
+            ).fetchone()
+            command_id = str(row[0])
+        response = client.post('/agent/v2/commands/claim', json={
+            'host_id': hid, 'worker_session_id': 'complete-cutover', 'host_commands': True,
+        })
+        assert response.status_code == 200, response.text
+        assert {item['command_id'] for item in response.json()['commands']} == {command_id, refs['command_id']}
+        assert client.post('/agent/v2/commands/claim', json={
+            'host_id': hid, 'worker_session_id': 'other-session', 'host_commands': True,
+        }).json()['commands'] == []
+        assert client.post(f'/agent/v2/commands/{command_id}/ack', json={'host_id': hid, 'result': {'dispatched': True}}).status_code == 200
+        duplicate = client.post(f'/agent/v2/commands/{command_id}/ack', json={'host_id': hid})
+        assert duplicate.json()['duplicate'] is True
+        with _pool.connection() as conn:
+            assert conn.execute('SELECT status FROM agent_commands WHERE command_id=%s', (command_id,)).fetchone()[0] == 'acknowledged'
+
+    def test_runtime_connection_metadata_is_fenced_and_atomic(self, fleet):
+        jid, hid, refs = _place_one(fleet, 'runtime-meta-' + uuid.uuid4().hex[:8])
+        assert client.post('/agent/v2/leases/claim', json=_auth(jid, hid, refs)).status_code == 200
+        payload = {key: value for key, value in _auth(jid, hid, refs).items() if key not in ('lease_id', 'worker_session_id')}
+        payload.update(status='running', runtime_metadata={
+            'container_id': 'exact-container', 'container_name': 'xcl-exact-attempt',
+            'public_ssh_port': 12345, 'interactive': True,
+        })
+        response = client.post('/agent/v2/attempts/status', json=payload)
+        assert response.status_code == 200, response.text
+        # Same lifecycle status can receive a later connection observation.
+        payload['runtime_metadata']['public_ssh_port'] = 12346
+        assert client.post('/agent/v2/attempts/status', json=payload).status_code == 200
+        stale = {**payload, 'fencing_token': refs['fencing_token'] + 1, 'runtime_metadata': {'public_ssh_port': 12347}}
+        assert client.post('/agent/v2/attempts/status', json=stale).status_code == 409
+        invalid = {**payload, 'runtime_metadata': {'public_ssh_port': 22}}
+        assert client.post('/agent/v2/attempts/status', json=invalid).status_code == 422
+        assert client.post('/agent/v2/attempts/status', json={**payload, 'status': 'starting', 'runtime_metadata': {'public_ssh_port': 12348}}).status_code == 400
+        with _pool.connection() as conn:
+            row = conn.execute("SELECT status,payload->>'public_ssh_port',payload->>'container_name' FROM jobs WHERE job_id=%s", (jid,)).fetchone()
+            assert row == ('running', '12346', 'xcl-exact-attempt')
+        assert client.post('/agent/v2/attempts/status', json={**payload, 'status': 'succeeded'}).status_code == 200
+        with _pool.connection() as conn:
+            assert conn.execute('SELECT status,active_attempt_id FROM jobs WHERE job_id=%s', (jid,)).fetchone() == ('completed', None)
+
+    @pytest.mark.parametrize('method,path,body', [
+        ('GET', '/agent/work/cutover-host', None),
+        ('GET', '/agent/commands/cutover-host', None),
+        ('POST', '/agent/lease/claim', {'host_id': 'cutover-host', 'job_id': 'cutover-job'}),
+        ('POST', '/agent/lease/renew', {'host_id': 'cutover-host', 'job_id': 'cutover-job'}),
+        ('POST', '/agent/lease/release', {'job_id': 'cutover-job'}),
+        ('PATCH', '/instance/cutover-job', {'status': 'running', 'host_id': 'cutover-host'}),
+    ])
+    def test_active_mode_closes_legacy_worker_mutations(self, monkeypatch, method, path, body):
+        monkeypatch.setenv('XCELSIOR_SCHEDULER_MODE', 'active')
+        response = client.request(method, path, json=body, headers={"Authorization": "Bearer " + os.environ["XCELSIOR_API_TOKEN"]})
+        assert response.status_code == 410, response.text
+
+    def test_new_operational_metrics_read_durable_command_states(self, fleet):
+        from control_plane.operational_metrics import collect_operational_snapshot
+        jid, hid, refs = _place_one(fleet, 'durable-metrics-' + uuid.uuid4().hex[:8])
+        with _pool.connection() as conn:
+            before = collect_operational_snapshot(conn)
+            for state in ['pending', 'claimed', 'dead_letter']:
+                row = conn.execute("INSERT INTO agent_commands(host_id,job_id,command,args,status,created_at,expires_at) VALUES(%s,%s,'reverify','{}',%s,%s,%s) RETURNING command_id", (hid, jid, 'pending' if state == 'claimed' else state, time.time(), time.time()+300)).fetchone()
+                if state == 'claimed':
+                    conn.execute("UPDATE agent_commands SET status='claimed',claim_owner=%s,claim_session='metric-session',claim_expires_at=clock_timestamp()+interval '60 seconds',attempt_count=1 WHERE command_id=%s", (hid,row[0]))
+            after = collect_operational_snapshot(conn)
+            assert after['commands_pending'] == before['commands_pending'] + 1
+            assert after['commands_claimed'] == before['commands_claimed'] + 1
+            assert after['commands_dead_lettered'] == before['commands_dead_lettered'] + 1
+            assert after['active_attempts'] >= 1
+            assert after['active_gpu_allocations'] >= 1
+
+    def test_real_worker_health_probe_claims_and_acks_without_gpu_work(self, fleet, monkeypatch, tmp_path):
+        import worker_agent as worker
+        jid, hid, refs = _place_one(fleet, 'worker-probe-' + uuid.uuid4().hex[:8])
+        with _pool.connection() as conn:
+            conn.execute("UPDATE agent_commands SET status='cancelled' WHERE command_id=%s", (refs['command_id'],))
+            row = conn.execute("INSERT INTO agent_commands(host_id,job_id,command,args,status,created_at,expires_at) VALUES(%s,%s,'health_probe','{}','pending',%s,%s) RETURNING command_id", (hid,jid,time.time(),time.time()+300)).fetchone()
+            command_id = str(row[0])
+        monkeypatch.setattr(worker, 'HOST_ID', hid)
+        monkeypatch.setattr(worker, '_v2_enabled', True)
+        monkeypatch.setattr(worker, '_v2_attempts', {})
+        monkeypatch.setattr(worker, '_v2_completed_commands', {})
+        monkeypatch.setattr(worker, '_V2_JOURNAL_PATH', str(tmp_path/'probe-journal.json'))
+        def post(path, payload, timeout=10):
+            response = client.post(path, json=payload)
+            return response.status_code, response.json()
+        monkeypatch.setattr(worker, '_v2_post', post)
+        monkeypatch.setattr(worker.subprocess, 'run', lambda *a,**k: pytest.fail('probe must not launch a process'))
+        assert worker.drain_v2_commands() == 1
+        with _pool.connection() as conn:
+            state, result = conn.execute('SELECT status,ack_result FROM agent_commands WHERE command_id=%s', (command_id,)).fetchone()
+            assert state == 'acknowledged'
+            assert result['protocol'] == 2 and result['worker_session_id'] == worker.WORKER_SESSION_ID

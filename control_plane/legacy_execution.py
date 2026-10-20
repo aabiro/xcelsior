@@ -115,6 +115,14 @@ for _path in LEGACY_PATHS:
     )
 
 
+def require_legacy_route_enabled() -> None:
+    if not legacy_execution_allowed():
+        raise HTTPException(410, detail={"error": {
+            "code": "v2_protocol_required",
+            "message": "This control plane requires the durable v2 worker protocol",
+        }})
+
+
 class LegacyExecutionRejected(ValueError):
     code = "fenced_protocol_required"
 

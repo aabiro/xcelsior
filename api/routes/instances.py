@@ -72,7 +72,7 @@ from scheduler import (
     update_job_status,
 )
 from db import UserStore
-from control_plane.legacy_execution import legacy_request
+from control_plane.legacy_execution import legacy_request, require_legacy_route_enabled
 from routes.stream_auth import bind_stream_principal, watch_job_authorization
 from collections import defaultdict
 
@@ -1484,6 +1484,7 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     else:
         _require_worker_status_update(request)
     with legacy_request("status_patch") as observation:
+        require_legacy_route_enabled()
         if host_token:
             job = get_job(job_id)
             if not job:

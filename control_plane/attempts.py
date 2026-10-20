@@ -88,6 +88,7 @@ def report_attempt_status(
     status: str,
     failure_code: str | None = None,
     detail: dict[str, Any] | None = None,
+    runtime_metadata: dict[str, Any] | None = None,
 ) -> AttemptStatusResult:
     """Apply one fenced worker status report inside the caller's txn.
 
@@ -102,6 +103,9 @@ def report_attempt_status(
             f"status {status!r} is not reportable "
             f"(expected one of {sorted(_REPORT_ORDER)})",
         )
+
+    # Serialize metadata and lifecycle with placement on the job row.
+    conn.execute("SELECT job_id FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)).fetchone()
 
     # §8.1: authority first, before reading anything else.
     require_current_fence(
@@ -120,14 +124,29 @@ def report_attempt_status(
         raise AttemptStatusRejected("attempt_missing", f"attempt {attempt_id} vanished")
     current = str(_get(row, "status", 0))
 
-    if current == status:
-        return AttemptStatusResult(job_id, attempt_id, status, False, status in _TERMINAL)
     current_rank = _REPORT_ORDER.get(current, -1)  # reserved etc. rank below all
     if _REPORT_ORDER[status] < current_rank:
         raise AttemptStatusRejected(
             "out_of_order",
             f"attempt is {current}; cannot move backward to {status}",
         )
+
+    if runtime_metadata:
+        allowed = {"container_id", "container_name", "public_ssh_port", "interactive", "error_message", "resume_from", "resumable"}
+        if set(runtime_metadata).difference(allowed):
+            raise AttemptStatusRejected("invalid_runtime_metadata", "Unknown runtime metadata field")
+        port = runtime_metadata.get("public_ssh_port")
+        if port is not None and (type(port) is not int or not 10000 <= port <= 65000):
+            raise AttemptStatusRejected("invalid_runtime_metadata", "Invalid public SSH port")
+        conn.execute(
+            "UPDATE jobs SET payload=COALESCE(payload,'{}'::jsonb) || %s::jsonb, "
+            "version=version+1, updated_at=clock_timestamp() "
+            "WHERE job_id=%s AND active_attempt_id=%s "
+            "AND payload IS DISTINCT FROM COALESCE(payload,'{}'::jsonb) || %s::jsonb",
+            (Jsonb(runtime_metadata), job_id, attempt_id, Jsonb(runtime_metadata)),
+        )
+    if current == status:
+        return AttemptStatusResult(job_id, attempt_id, status, False, status in _TERMINAL)
 
     terminal = status in _TERMINAL
     stored_status = "cancelled" if status == "stopped" else status
