@@ -38,13 +38,34 @@ operations dashboard shows usage and retirement policy separately. Missing
 series, failed scrapes, counter resets and gaps need investigation before
 claiming a continuous zero-use window.
 
-The 2026-10-20 readiness audit found the live native Prometheus lacks an API
-scrape target and the retirement rule, and reproduced process-local counter
-loss across Gunicorn workers. The subsequent local candidate fixes worker
-aggregation and prepares an additive native monitoring plan. Production still
-needs that rollout; no zero-use window has started. See
+The 2026-10-20 readiness audit found missing native API scraping and reproduced
+counter loss across Gunicorn workers. The approved production follow-up deployed
+shared aggregation, the API target and retirement rule, keeping repairs
+report-only and scheduler scope canary. Native Grafana also has the dedicated
+**Xcelsior Legacy Retirement** dashboard described below. No agreed zero-use
+retention window is proven. See
 [the original audit](../../docs/review/2026-10-20-legacy-observation-gates.md) and
-[shared-counter acceptance](../../docs/review/2026-10-20-shared-legacy-metrics.md).
+[the production rollout](../../docs/review/2026-10-20-control-plane-production-rollout.md).
+
+For an existing native Grafana with Prometheus datasource UID `prometheus`,
+use `grafana/native/legacy-retirement.yml` with
+`grafana/dashboards/xcelsior-legacy-retirement.json`. The provider uses its own
+directory, `/var/lib/grafana/xcelsior-retirement`, and the Xcelsior folder. It
+does not replace other dashboard providers or datasource settings. The dashboard
+uses the raw API series rather than Compose-only recording rules. It has one
+usage panel per measured path, per-replica retirement expectations, and checks
+for scrape health, aggregation, expected series counts and generation changes.
+Missing observations remain `NO DATA`; graphs do not bridge missing values.
+
+The native provider file belongs in
+`/etc/grafana/provisioning/dashboards/xcelsior-retirement.yml`, and only the
+retirement dashboard belongs in its dedicated directory. Directories must be
+traversable and files readable by the Grafana user. Reload dashboard provisioning
+with existing authenticated Grafana admin access, then verify the stored
+dashboard, every datasource-proxy query and the rendered panels. See the
+[executed native dashboard evidence](../../docs/review/2026-10-20-native-legacy-dashboard.md).
+Do not apply the Compose datasource provisioning file to the shared native
+installation: that file contains datasource deletion/replacement directives.
 
 `requested` counts authenticated calls, including empty command polls and
 requests later refused by fencing. For `status_patch`, `used` counts completed

@@ -137,6 +137,28 @@ compatibility handlers that an active cutover is expected to retire.
    and rollout gates. See the
    [cutover record](../../docs/review/2026-10-20-worker-cutover-boundary.md).
 
+Native Grafana exposes the dedicated **Xcelsior Legacy Retirement** dashboard
+at `/d/xcelsior-legacy-retirement/xcelsior-legacy-retirement`. Start with its
+collection checks: each expected API target must be up, aggregation must be 1,
+and the complete eight-path inventory must supply 32 usage series and eight
+policy series per replica. Inspect generation age, generation changes and the
+scrape graph alongside the release inventory. A last-value count or an empty
+generation-change result cannot prove continuous coverage of a missing target.
+Each usage panel keeps outcomes and replicas separate; the policy table states
+whether callers are still permitted. These panels cover the eight measured API
+paths only; internal direct writers and the other B16 paths need their own gates.
+
+The native provider uses a dedicated directory and the existing datasource UID
+`prometheus`. Preserve other providers and datasource files. After reviewing the
+two new files, install readable files and traversable directories, then use
+Grafana's authenticated
+[`POST /api/admin/provisioning/dashboards/reload`](https://grafana.com/docs/grafana/latest/developer-resources/api-reference/http-api/api-legacy/admin/#reload-provisioning-configurations).
+Do not reset users or change Grafana authentication merely to reload a dashboard.
+Verify all queries through Grafana's datasource proxy and inspect the rendered
+policy table and usage graphs before claiming native dashboard coverage.
+The [executed evidence](../../docs/review/2026-10-20-native-legacy-dashboard.md)
+records preservation checks, query results and the browser inspection.
+
 Scheduler active mode alone does not retire `status_patch` or `command_drain`.
 Only after their separate removal gates close, declare them through
 `XCELSIOR_RETIRED_LEGACY_PATHS` to enable a zero-call alert. This observation

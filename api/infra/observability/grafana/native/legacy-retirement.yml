@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: XcelsiorLegacyRetirement
+    orgId: 1
+    folder: Xcelsior
+    folderUid: xcelsior
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/xcelsior-retirement
+      foldersFromFilesStructure: false

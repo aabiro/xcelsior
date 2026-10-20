@@ -1,0 +1,521 @@
+{
+  "collected_at": "2026-10-20T14:47:04.434345+00:00",
+  "base_commit": "adeb1889aff10befbc9d66a50cb6429131778179",
+  "scope": "Native retirement dashboard for the existing eight measured API paths; user-authorized correction of local and production Grafana admin environment variables.",
+  "files_sha256": {
+    "api/infra/observability/grafana/dashboards/xcelsior-legacy-retirement.json": "86b972e223d3ea60c769c87dceb4bf7e886dc5b43a433de0842d7313d9ca94d9",
+    "api/infra/observability/grafana/native/legacy-retirement.yml": "fc896713c35829b0f5ce3f13c8f2be01b18a8f353a5b67f41ac109ec2f0954d8"
+  },
+  "isolated_native_validation": {
+    "read_only_production_queries": true,
+    "dashboard_sha256": "953795dfd99a547e29a1356d622280f9628ce2df296315cb77060d74f274288f",
+    "queries": [
+      {
+        "panel": "API scrape up",
+        "expression": "up{job=\"xcelsior-api\"}",
+        "series_count": 1
+      },
+      {
+        "panel": "Shared worker aggregation",
+        "expression": "xcelsior_metrics_aggregation_enabled{job=\"xcelsior-api\"}",
+        "series_count": 1
+      },
+      {
+        "panel": "Usage series per replica \u2014 expected 32",
+        "expression": "count by (instance, job) (xcelsior_legacy_execution_total{job=\"xcelsior-api\"})",
+        "series_count": 1
+      },
+      {
+        "panel": "Policy series per replica \u2014 expected 8",
+        "expression": "count by (instance, job) (xcelsior_legacy_path_retired{job=\"xcelsior-api\"})",
+        "series_count": 1
+      },
+      {
+        "panel": "Metrics generation age",
+        "expression": "time() - xcelsior_metrics_generation_started_timestamp_seconds{job=\"xcelsior-api\"}",
+        "series_count": 1
+      },
+      {
+        "panel": "Generation changes in selected range",
+        "expression": "changes(xcelsior_metrics_generation_started_timestamp_seconds{job=\"xcelsior-api\"}[1h])",
+        "series_count": 1
+      },
+      {
+        "panel": "Scrape continuity by API replica",
+        "expression": "up{job=\"xcelsior-api\"}",
+        "series_count": 1
+      },
+      {
+        "panel": "Retirement expectation by path and API replica",
+        "expression": "xcelsior_legacy_path_retired{job=\"xcelsior-api\"}",
+        "series_count": 8
+      },
+      {
+        "panel": "Work polling",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"work_poll\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease claims",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"lease_claim\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease renewals",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"lease_renew\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease releases",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"lease_release\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy container starts",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"command_start\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy container pauses",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"command_pause\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Compatibility status writes",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"status_patch\"}[2m])",
+        "series_count": 4
+      },
+      {
+        "panel": "Destructive command drain",
+        "expression": "increase(xcelsior_legacy_execution_total{job=\"xcelsior-api\",path=\"command_drain\"}[2m])",
+        "series_count": 4
+      }
+    ],
+    "expected_targets": [
+      {
+        "labels": {
+          "instance": "127.0.0.1:9500",
+          "job": "xcelsior-api",
+          "replica": "green"
+        },
+        "scrapeUrl": "http://127.0.0.1:9500/metrics/prometheus",
+        "health": "up"
+      }
+    ],
+    "all_32_expected_counter_labels_present": true,
+    "isolated_grafana_health": {
+      "database": "ok",
+      "version": "13.2.3",
+      "commit": "90ffed056f0884267356c12a0eeb72a022af53f1"
+    },
+    "dashboard_loaded": true,
+    "panel_count": 18,
+    "native_grafana_pid_unchanged": true,
+    "validation_unit": "xcelsior-dashboard-validation-20261020"
+  },
+  "initial_native_activation": {
+    "installed_at": 1792507302.004871,
+    "uid": "xcelsior-legacy-retirement",
+    "native_admin_auth_verified": true,
+    "other_provider_files_before": {
+      "/etc/grafana/provisioning/dashboards/tower.yaml": "07e75cdb0dffb093327331dc63cd312c3743f22eaf4122a60a5200b92738e82b",
+      "/etc/grafana/provisioning/datasources/prometheus.yaml": "cb10d51ac5b74858e108d03c46c865a2bfed50bd564bf11e606693f5aab8c310",
+      "/var/lib/grafana/dashboards/tower-overview.json": "065099114f2c27c9cceef845c86e7f882fca6ca4da02051983b6992491010a5f"
+    },
+    "existing_dashboard_uids": [
+      "tower-overview"
+    ],
+    "applied": true,
+    "panel_count": 18,
+    "grafana_proxy_queries": [
+      {
+        "panel": "API scrape up",
+        "series_count": 1
+      },
+      {
+        "panel": "Shared worker aggregation",
+        "series_count": 1
+      },
+      {
+        "panel": "Usage series \u2014 expected 32",
+        "series_count": 1
+      },
+      {
+        "panel": "Policy series \u2014 expected 8",
+        "series_count": 1
+      },
+      {
+        "panel": "Metrics generation age",
+        "series_count": 1
+      },
+      {
+        "panel": "Generation changes",
+        "series_count": 1
+      },
+      {
+        "panel": "Scrape continuity by API replica",
+        "series_count": 1
+      },
+      {
+        "panel": "Retirement expectation by path and API replica",
+        "series_count": 8
+      },
+      {
+        "panel": "Work polling",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease claims",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease renewals",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease releases",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy container starts",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy container pauses",
+        "series_count": 4
+      },
+      {
+        "panel": "Compatibility status writes",
+        "series_count": 4
+      },
+      {
+        "panel": "Destructive command drain",
+        "series_count": 4
+      }
+    ],
+    "datasource_unchanged": true,
+    "existing_dashboards_preserved": true,
+    "other_provider_files_unchanged": true,
+    "dashboard_sha256": "d6c0240de0a9bbb066b3c5dc0edfa41f2a1660a0d7b6e13eb0d494c0f19a14ab",
+    "provider_sha256": "fc896713c35829b0f5ce3f13c8f2be01b18a8f353a5b67f41ac109ec2f0954d8",
+    "dashboard_url": "/d/xcelsior-legacy-retirement/xcelsior-legacy-retirement"
+  },
+  "policy_table_update": {
+    "dashboard_sha256": "86b972e223d3ea60c769c87dceb4bf7e886dc5b43a433de0842d7313d9ca94d9",
+    "policy_table_transform_loaded": true,
+    "dashboard_reloaded": true
+  },
+  "final_native_verification": {
+    "local_and_production_credentials_match": true,
+    "native_admin_auth_verified": true,
+    "only_admin_credential_variables_updated": true,
+    "native_grafana_pid": 182240,
+    "existing_tower_dashboard_available": true,
+    "protected_provider_files_unchanged": true,
+    "dashboard_provisioned": true,
+    "folder_uid": "xcelsior",
+    "final_dashboard_sha256": "86b972e223d3ea60c769c87dceb4bf7e886dc5b43a433de0842d7313d9ca94d9",
+    "final_queries": [
+      {
+        "panel": "API scrape up",
+        "series_count": 1
+      },
+      {
+        "panel": "Shared worker aggregation",
+        "series_count": 1
+      },
+      {
+        "panel": "Usage series \u2014 expected 32",
+        "series_count": 1
+      },
+      {
+        "panel": "Policy series \u2014 expected 8",
+        "series_count": 1
+      },
+      {
+        "panel": "Metrics generation age",
+        "series_count": 1
+      },
+      {
+        "panel": "Generation changes",
+        "series_count": 1
+      },
+      {
+        "panel": "Scrape continuity by API replica",
+        "series_count": 1
+      },
+      {
+        "panel": "Retirement expectation by path and API replica",
+        "series_count": 8
+      },
+      {
+        "panel": "Work polling",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease claims",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease renewals",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy lease releases",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy container starts",
+        "series_count": 4
+      },
+      {
+        "panel": "Legacy container pauses",
+        "series_count": 4
+      },
+      {
+        "panel": "Compatibility status writes",
+        "series_count": 4
+      },
+      {
+        "panel": "Destructive command drain",
+        "series_count": 4
+      }
+    ]
+  },
+  "rendered_browser_verification": {
+    "authenticated": true,
+    "dashboardUrl": "/d/xcelsior-legacy-retirement/xcelsior-legacy-retirement",
+    "panelCount": 18,
+    "queryPanelsViewed": [
+      "API scrape up",
+      "Shared worker aggregation",
+      "Usage series \u2014 expected 32",
+      "Policy series \u2014 expected 8",
+      "Metrics generation age",
+      "Generation changes",
+      "Scrape continuity by API replica",
+      "Retirement expectation by path and API replica",
+      "Work polling",
+      "Legacy lease claims",
+      "Legacy lease renewals",
+      "Legacy lease releases",
+      "Legacy container starts",
+      "Legacy container pauses",
+      "Compatibility status writes",
+      "Destructive command drain"
+    ],
+    "browserErrors": [],
+    "queryResponses": [
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 1
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 8
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      },
+      {
+        "status": 200,
+        "results": [
+          {
+            "status": 200,
+            "error": null,
+            "frames": 4
+          }
+        ]
+      }
+    ],
+    "policyRowsVisible": 8,
+    "noDataVisible": false,
+    "allQueryResponsesSuccessful": true
+  },
+  "credential_handling": {
+    "user_supplied_existing_login_tested": true,
+    "native_admin_auth_succeeded": true,
+    "local_and_production_environment_keys_updated": [
+      "XCELSIOR_GRAFANA_ADMIN_USER",
+      "XCELSIOR_GRAFANA_ADMIN_PASSWORD"
+    ],
+    "unrelated_production_environment_lines_verified_unchanged": true,
+    "credential_values_in_evidence": false,
+    "credential_values_committed": false,
+    "grafana_user_reset": false,
+    "grafana_authentication_configuration_changed": false
+  },
+  "preserved_scope": {
+    "scheduler": "same canary scope",
+    "repairs": "report_only",
+    "application_restarts": false,
+    "tower_serving_restarts": false,
+    "vtt_restarts": false,
+    "gpu_acceptance_executed": false,
+    "synthetic_alert_delivery_executed": false,
+    "stopped_job_or_volume_mutation": false
+  },
+  "temporary_validation": {
+    "native_grafana_process_unchanged": true,
+    "isolated_unit": "xcelsior-dashboard-validation-20261020",
+    "isolated_unit_stopped_after_verification": true,
+    "ssh_forwards_closed": true
+  },
+  "artifact_sha256": {
+    "validate_native.py": "7f4ff6d83bc9a09f85469306f39ca2c96981d70564a471b53a9443d832f62af0",
+    "apply_native.py": "24fa230e70d2011d260dbfbd76fdbfed31b207bc9a491a84d1dff521078e996c",
+    "verify_browser.cjs": "f8974c967388ea98823e3e59f71331484b4ba629bda414f322485dd09020aece",
+    "native-validation.json": "bfd50a97be4faa90fba1caf7d0048be40330e2fe14f51e91986db8d0f4e67fb8",
+    "native-apply.json": "9dfce335c7548721bd397b090be04842ddb242ef8d512ed63e89f1ae7fafabf3",
+    "native-update.json": "fd2964dc3456570ccafbcd598c0f7573ab6d7c042cded30fd1145876ee080981",
+    "final-postflight.json": "3a846533a4d36e09fa118cd8db87a2c5c2a2f7a899a94a0be9c4d0bebef293ad",
+    "native-browser.json": "80244617fee39e93da5ccccf61d389496fd920071cc675841d8e7a75e1f515d0",
+    "native-dashboard-loaded.png": "029caab505ef2208d3831b03573a2797ffa8335a5528cfda8f7ab0729ccef5db",
+    "native-policy-table.png": "029caab505ef2208d3831b03573a2797ffa8335a5528cfda8f7ab0729ccef5db"
+  },
+  "remaining": [
+    "Other B16 path instrumentation.",
+    "Receiver delivery and the agreed continuous zero-use retention window.",
+    "Recovery or explicit retirement disposition for twelve stopped rows and the missing volume.",
+    "B16.2/B16.3 contract migration and code removal; dependent fairness/preemption gates."
+  ]
+}
