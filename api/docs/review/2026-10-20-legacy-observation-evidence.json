@@ -702,12 +702,115 @@
     "recovery/aaryn-tuf-rtx2060-images.json": "a47a0e552197f9a58169a4c8e501ad530aceaa71496ae843e7e6f8b7338a574d",
     "recovery/backup-paths.json": "c5548b76370517c1efc10ce2050380cc1485630426809696e1724a92b2ebe55c",
     "recovery/registered-images.json": "26119571e5015ae02eef56df073a8177b4199ee6c38c4072e6287bf93db64fc3",
-    "recovery/tower-rtx3060-images.json": "9d3283ffa7cccd5ed830747803e9f2cfbf3fecaa937d5d5c24b2bffb591d7d5c"
+    "recovery/tower-rtx3060-images.json": "9d3283ffa7cccd5ed830747803e9f2cfbf3fecaa937d5d5c24b2bffb591d7d5c",
+    "production-observability.json": "e12649dc2c6f8b65e0e50f0cec10eac3727878d915d989845e76014b90a8d370",
+    "production-observability-details.json": "fbd931fb500e98a7f49e4fdb1e88a057e3aa304b5287ec83262c2d68322c3536",
+    "production-metric-workers.json": "5b2db3a69eef96254e3ccb3200498b2f2483850b02321cc84727640bd1da8051",
+    "worker-metric-isolation.json": "090d76f86c2e56d6283177ce2cea6b3bc05c8e018cee14941dbfa586120d0468",
+    "candidate-image.json": "9e13bf84e72fee5c7f86c56def88b96a607ff05b9630f990b8c0ff6d201f8f24"
   },
   "remaining": [
+    "shared Gunicorn counter aggregation including worker exit before scrape; native API scrape target, rule loading and notification validation",
     "deploy API metrics before alert rules and API contract before workers; verify bytes and journeys",
     "verified recovery source or explicit disposition for twelve stopped legacy jobs and missing volume",
     "remaining B16 path instrumentation",
     "agreed continuous zero-use window before schema and code removal"
-  ]
+  ],
+  "candidate_image": {
+    "source_hashes": {
+      "control_plane/legacy_execution.py": "a4ed934edd3a6c65c8bccbdd86acb395eb26cf9c16b6857d674e748fd89da393",
+      "api/routes/agent.py": "79a99c3f363a3fceb0c67f1371d30106198d5c898c90f9488b72371ad3693cbc",
+      "api/routes/instances.py": "1fe649f30c886bff7347c25a323169631ed2f7d22795be2e97930f7923b37702",
+      "docker-compose.yml": "e64e0203d75be0cb992621faf847d15f9827c3d9cc559656238bec467dbe94ae",
+      ".env.example": "adf111f97afcecbae7fde44fced04ee318e35f6a9acfc1d3cfd09a74e2796e76",
+      "api/infra/observability/prometheus/alert-rules.yml": "9b0e23ca4c5ef97412e3f28cd1695140998e6d6ebfc7ea54db77496bfb47888c",
+      "api/infra/observability/grafana/dashboards/xcelsior-operations.json": "25d99fb5516a940f5832677ee63c4b4099aadc0afa4583acaf4a9517e3ca3e5e",
+      "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc"
+    },
+    "legacy_paths": [
+      "work_poll",
+      "lease_claim",
+      "lease_renew",
+      "lease_release",
+      "command_start",
+      "command_pause",
+      "status_patch",
+      "command_drain"
+    ],
+    "worker_signatures_verified": 12,
+    "private_env_absent": true,
+    "signing_key_absent": true,
+    "image": "xcelsior-api:control-plane-97849ee1",
+    "image_id": "sha256:c1ef3e15ac3de512c2a6a32109c77fcf1342fd1fe3d0ca715939cd02b447fe81",
+    "commit": "97849ee1a9e14f92f1c7800b1874d109f210c9c6",
+    "runtime_probe_exit_code": 0,
+    "network": "none",
+    "rootfs": "read-only"
+  },
+  "monitoring_readiness": {
+    "production-observability": {
+      "collected_at": "2026-10-20T08:18:04.957595+00:00",
+      "read_only": true,
+      "systemd": {
+        "prometheus": "active",
+        "grafana-server": "active",
+        "alertmanager": "inactive"
+      },
+      "prometheus": {
+        "9090": {
+          "available": false,
+          "error_type": "HTTPError"
+        },
+        "9091": {
+          "available": true,
+          "active_targets": 8,
+          "target_jobs": [
+            "alertmanager",
+            "laptop-host",
+            "prod-hetzner-host",
+            "prometheus",
+            "tower-gpu",
+            "tower-host",
+            "tower-serverless",
+            "tower-storage"
+          ],
+          "xcelsior_targets": []
+        }
+      }
+    },
+    "production-observability-details": {
+      "collected_at": "2026-10-20T08:19:01.217133+00:00",
+      "read_only": true,
+      "flags": {
+        "config.file": "/etc/prometheus/prometheus.yml",
+        "web.listen-address": "127.0.0.1:9091",
+        "web.enable-lifecycle": "false",
+        "storage.tsdb.retention.time": "0s"
+      },
+      "alertmanagers": {
+        "active_count": 1,
+        "dropped_count": 0
+      },
+      "rules": {
+        "group_count": 2,
+        "legacy_retirement_rule_present": false
+      },
+      "api_network": "host {}"
+    },
+    "production-metric-workers": {
+      "configured_api_port": "9500",
+      "configured_gunicorn_workers": 2,
+      "multiprocess_metrics_enabled": false
+    },
+    "worker-metric-isolation": {
+      "read_only_local_probe": true,
+      "worker_exit_code": 0,
+      "worker_recorded_requests": 1,
+      "scraping_process_observed_delta": 0.0,
+      "aggregation_proven": false,
+      "required_next_gate": "shared Gunicorn worker aggregation, including worker exit before scrape"
+    },
+    "zero_use_window_started": false,
+    "all_worker_usage_proven": false
+  }
 }
