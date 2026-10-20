@@ -798,7 +798,7 @@ class TestCompleteWorkerCutover:
         monkeypatch.setattr(agent_routes, 'broadcast_sse', notify)
         response = client.post('/agent/preempt/cutover-host/cutover-job')
         assert response.status_code == 410, response.text
-        assert response.json()['detail']['error']['code'] == 'v2_protocol_required'
+        assert response.json()['error']['code'] == 'v2_protocol_required'
         enqueue.assert_not_called()
         notify.assert_not_called()
 

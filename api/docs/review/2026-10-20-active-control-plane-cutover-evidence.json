@@ -1,0 +1,759 @@
+{
+  "recorded_at": "2026-10-20T19:24:34.626645+00:00",
+  "scope": "operator-approved active runtime cutover and operational Grafana replacement; repairs report_only",
+  "implementation_commit": "742c63b1cba658745d6763a63695bee433332a5a",
+  "final_runtime_commit": "e388434f175ada40b5573c4bbb511f1f1cbbe009",
+  "tests": {
+    "results": {
+      "tests": 420,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "manifest_sha256": "0e1f541c555a35e529a159208434ac56add5525b1a111d5ab4025af827ce16a5",
+    "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
+    "tower_access": "none",
+    "explicitly_deselected": "tests/test_instance_flow.py::TestDockerComposeSmoke",
+    "final_test_agent_v2_sha256": "cc70dc53c3026130ef9efa14467547f220812f61b43382debbfe1a7ec05891a8",
+    "ruff": "passed",
+    "earlier_targeted_pyright": "0 errors"
+  },
+  "image": {
+    "tag": "xcelsior-api:active-cutover-e388434f",
+    "local_id": "sha256:4df2f8cdb859bed2b7e53c63ed241fbeca12b6fc4209e15179cb6923f663290b",
+    "remote_id": "sha256:1f9bc6218d06c79b279445b7eaa4e498d7200dc7bf20acb9e52def7fea67a84b",
+    "identical_fields": {
+      "Config": true,
+      "RootFS": true,
+      "Created": true,
+      "Architecture": true,
+      "Os": true
+    }
+  },
+  "runtime_source_sha256": {
+    "api/routes/agent.py": "d2d7796d1bf92a01f8f971c2c7a70dd2d3e3b83f0aa326f0accbeb3f02f6303e",
+    "api/routes/agent_v2.py": "9e2a44228a60bc5ef591d42ff7f7f328fcb77d6d17d54e7db7a68bb219b3e205",
+    "api/routes/instances.py": "7784d759ccb5efea65b2778cccb2ed686e0c3208975bfb145b1e475a1d4a1283",
+    "control_plane/attempts.py": "66d9c6d01f39ea7dca9b73919b37c9336632f3a00de392ee6f52980f861c7799",
+    "control_plane/legacy_execution.py": "5dffa1a94bdbff650cafee380c33d22d22703a208fddafc4ba88b27339bf0a7d",
+    "control_plane/operational_metrics.py": "c647f11e395cf1874d29119fdc19ba8af7eeed0d5b63cac0a5d06a2dd7c5be06",
+    "workers/worker_agent.py": "791751ace206dad948d813e491cbf8e52de6ccfa6a88df28b8111064ea575ab1",
+    "api/scripts/worker_agent.py.sig": "2b8aa0c33ce4e5ea0b9bd6886479e2ef75cfd3de2e2e767eeaa62ed8cb0d3213"
+  },
+  "preserved_live_source_sha256": {
+    "api/routes/billing.py": "747b4f9dae7998c3f64fe9832dcd94903e331d7e2324dd2c883b4d0020911936",
+    "billing/stripe_connect.py": "ef61621224a30d98747ea5e707793090e1fd319796e06d4e0c1fd2353b116c09",
+    "core/meta_capi.py": "b45e7e2943490c35e97eb1238e77f6d25ef0fec8b5405829875185e20e7704dd",
+    "core/gitguardian.py": "a57d811bfec8bd08314362221e550275b7ae5f76038ef10654557fac4691a93a"
+  },
+  "production": {
+    "containers": {
+      "xcelsior-api-1": {
+        "image": "sha256:1f9bc6218d06c79b279445b7eaa4e498d7200dc7bf20acb9e52def7fea67a84b",
+        "health": "healthy",
+        "mode": "active",
+        "source_hashes_verified": 12,
+        "repairs": "report_only",
+        "schema": "125",
+        "protected_jobs_unchanged": true
+      },
+      "xcelsior-bg-worker-1": {
+        "image": "sha256:1f9bc6218d06c79b279445b7eaa4e498d7200dc7bf20acb9e52def7fea67a84b",
+        "health": "healthy",
+        "mode": "active",
+        "source_hashes_verified": 12,
+        "repairs": "report_only",
+        "schema": "125",
+        "protected_jobs_unchanged": true
+      },
+      "xcelsior-scheduler-worker-1": {
+        "image": "sha256:1f9bc6218d06c79b279445b7eaa4e498d7200dc7bf20acb9e52def7fea67a84b",
+        "health": "healthy",
+        "mode": "active",
+        "source_hashes_verified": 12,
+        "repairs": "report_only",
+        "schema": "125",
+        "protected_jobs_unchanged": true
+      }
+    },
+    "route_checks": [
+      {
+        "method": "GET",
+        "path": "/agent/preempt/cutover-check",
+        "status": 410,
+        "probe": "live_http_authenticated"
+      },
+      {
+        "method": "POST",
+        "path": "/agent/preempt/cutover-check/cutover-check",
+        "status": 410,
+        "probe": "isolated_process_handler_with_admin_identity"
+      }
+    ],
+    "ready_hosts": 2.0,
+    "grafana_pid": 182240,
+    "grafana_dashboard_sha256": "03d25bc3fcf638c7410aaa9f21bb6d2a2ed9f97d9e2eaa39ba9a58eadcc9c255"
+  },
+  "workers": {
+    "tower": {
+      "host_id": "tower-rtx3060",
+      "old_pid": 1513278,
+      "new_pid": 1652317,
+      "signature_files_verified": 12,
+      "worker_sha256": "791751ace206dad948d813e491cbf8e52de6ccfa6a88df28b8111064ea575ab1",
+      "v2_negotiation_confirmed": true,
+      "legacy_execution_allowed": false,
+      "started_at": 1792509015.6161296,
+      "deregister_on_exit": false,
+      "backup": "/home/aaryn/.xcelsior/releases/active-cutover-20261020-rollback",
+      "startup_benchmark_deferred": true
+    },
+    "workstation": {
+      "host_id": "aaryn-tuf-rtx2060",
+      "old_pid": 2149129,
+      "new_pid": 2151007,
+      "signature_files_verified": 12,
+      "worker_sha256": "791751ace206dad948d813e491cbf8e52de6ccfa6a88df28b8111064ea575ab1",
+      "v2_negotiation_confirmed": true,
+      "legacy_execution_allowed": false,
+      "started_at": 1792509042.0452797,
+      "deregister_on_exit": false,
+      "backup": "/home/aaryn/.xcelsior/releases/active-cutover-20261020-rollback",
+      "startup_benchmark_deferred": true
+    },
+    "live_probes": [
+      {
+        "host_id": "aaryn-tuf-rtx2060",
+        "command_id": "b64f1d63-7587-46f3-93c7-58ec556f72ae",
+        "status": "acknowledged",
+        "result": {
+          "command": "health_probe",
+          "protocol": 2,
+          "dispatched": true,
+          "worker_session_id": "249427f4a5554bbca8f99a83684edfaf"
+        }
+      },
+      {
+        "host_id": "tower-rtx3060",
+        "command_id": "6f11200d-9b94-4ac9-8a6f-f479ed45aec8",
+        "status": "acknowledged",
+        "result": {
+          "command": "health_probe",
+          "protocol": 2,
+          "dispatched": true,
+          "worker_session_id": "1294ef39b817400d8851c18b2558c9b7"
+        }
+      }
+    ],
+    "signatures_verified": 12
+  },
+  "compatibility_http_checks": [
+    {
+      "method": "GET",
+      "path": "/agent/work/cutover-check",
+      "status": 410
+    },
+    {
+      "method": "GET",
+      "path": "/agent/commands/cutover-check",
+      "status": 410
+    },
+    {
+      "method": "POST",
+      "path": "/agent/lease/claim",
+      "status": 410
+    },
+    {
+      "method": "POST",
+      "path": "/agent/lease/renew",
+      "status": 410
+    },
+    {
+      "method": "POST",
+      "path": "/agent/lease/release",
+      "status": 410
+    },
+    {
+      "method": "PATCH",
+      "path": "/instance/cutover-check",
+      "status": 410
+    }
+  ],
+  "grafana": {
+    "url": "https://grafana.xcelsior.ca/d/xcelsior-control-plane/xcelsior-control-plane",
+    "activation": {
+      "applied_at": 1792509018.9299128,
+      "dashboard_uid": "xcelsior-control-plane",
+      "panels": 20,
+      "queries": [
+        {
+          "panel": "API up",
+          "expression": "up{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Durable metrics available",
+          "expression": "xcelsior_control_plane_metrics_available{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "V2 scheduling active",
+          "expression": "1 - xcelsior_legacy_execution_enabled{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Ready GPU hosts",
+          "expression": "xcelsior_ready_hosts{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Active attempts",
+          "expression": "xcelsior_active_attempts{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Queued jobs",
+          "expression": "xcelsior_queue_depth{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Queue depth",
+          "expression": "xcelsior_queue_depth{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Oldest queued job",
+          "expression": "xcelsior_queue_oldest_age_seconds{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Fenced attempts and reserved GPU devices",
+          "expression": "xcelsior_active_attempts{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Fenced attempts and reserved GPU devices",
+          "expression": "xcelsior_active_gpu_allocations{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Worker command delivery",
+          "expression": "xcelsior_commands_pending{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Worker command delivery",
+          "expression": "xcelsior_commands_claimed{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Worker command delivery",
+          "expression": "xcelsior_commands_dead_lettered{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Service heartbeat age",
+          "expression": "xcelsior_service_heartbeat_latest_age_seconds{job=\"xcelsior-api\"}",
+          "series_count": 4
+        },
+        {
+          "panel": "Fresh service replicas",
+          "expression": "xcelsior_service_heartbeat_fresh_replicas{job=\"xcelsior-api\"}",
+          "series_count": 4
+        },
+        {
+          "panel": "Reconciliation backlog and errors",
+          "expression": "xcelsior_reconciliation_queue_depth{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Reconciliation backlog and errors",
+          "expression": "xcelsior_reconciliation_queue_errors{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Reconciliation backlog and errors",
+          "expression": "xcelsior_reconciliation_critical_findings{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Reconciliation delay",
+          "expression": "xcelsior_reconciliation_oldest_due_age_seconds{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Lease and worker-observation problems",
+          "expression": "xcelsior_stale_active_leases{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Lease and worker-observation problems",
+          "expression": "xcelsior_stale_offered_leases{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Lease and worker-observation problems",
+          "expression": "xcelsior_stale_host_observations{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Oldest host observation",
+          "expression": "xcelsior_oldest_host_observation_age_seconds{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Billing invariants",
+          "expression": "xcelsior_billing_missing_meters{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Billing invariants",
+          "expression": "xcelsior_billing_open_terminal_meters{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Event and projection delivery",
+          "expression": "xcelsior_outbox_backlog{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Event and projection delivery",
+          "expression": "xcelsior_outbox_dead_letters{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Event and projection delivery",
+          "expression": "xcelsior_projection_outbox_unprepared{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Event and projection delivery",
+          "expression": "xcelsior_projection_orphaned_deliveries{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Background task failures",
+          "expression": "xcelsior_scheduled_task_failures{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Metrics freshness",
+          "expression": "time() - xcelsior_control_plane_metrics_last_success_timestamp_seconds{job=\"xcelsior-api\"}",
+          "series_count": 1
+        },
+        {
+          "panel": "Metrics freshness",
+          "expression": "time() - xcelsior_projection_metrics_last_success_timestamp_seconds{job=\"xcelsior-api\"}",
+          "series_count": 1
+        }
+      ],
+      "retirement_dashboard_removed": true,
+      "retirement_provider_removed": true,
+      "retirement_alert_reference_removed": true,
+      "other_dashboard_and_datasource_files_unchanged": true,
+      "grafana_pid_unchanged": true,
+      "grafana_pid": 182240,
+      "dashboard_sha256": "03d25bc3fcf638c7410aaa9f21bb6d2a2ed9f97d9e2eaa39ba9a58eadcc9c255",
+      "provider_sha256": "e53db78fd2905280e3cd8c0cd3fcbb4e325226ff6b272d273f2a4f92f9001b09",
+      "prometheus_config_sha256": "a0a78fce7e679b90412057883c088062c347f43627e5d3250dc2148ad714e994"
+    },
+    "browser": {
+      "authenticated": true,
+      "dashboardUrl": "/d/xcelsior-control-plane/xcelsior-control-plane",
+      "panelCount": 20,
+      "queryPanelsViewed": [
+        "API up",
+        "Durable metrics available",
+        "V2 scheduling active",
+        "Ready GPU hosts",
+        "Active attempts",
+        "Queued jobs",
+        "Queue depth",
+        "Oldest queued job",
+        "Fenced attempts and reserved GPU devices",
+        "Worker command delivery",
+        "Service heartbeat age",
+        "Fresh service replicas",
+        "Reconciliation backlog and errors",
+        "Reconciliation delay",
+        "Lease and worker-observation problems",
+        "Oldest host observation",
+        "Billing invariants",
+        "Event and projection delivery",
+        "Background task failures",
+        "Metrics freshness"
+      ],
+      "browserErrors": [],
+      "queryResponses": [
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 4
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 4
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        },
+        {
+          "status": 200,
+          "results": [
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            },
+            {
+              "status": 200,
+              "error": null,
+              "frames": 1
+            }
+          ]
+        }
+      ],
+      "noDataVisible": false,
+      "allQueryResponsesSuccessful": true
+    },
+    "cleanup": {
+      "obsolete_native_rule_file_removed": true,
+      "obsolete_dashboard_directory_removed": true,
+      "api_ready": true
+    }
+  },
+  "preservation": {
+    "serving": {
+      "workstation": {
+        "vtt": [
+          "ActiveState=active",
+          "MainPID=4234"
+        ],
+        "worker": [
+          "ActiveState=active",
+          "MainPID=2151007"
+        ]
+      },
+      "tower": {
+        "vtt": [
+          "MainPID=1515078",
+          "ActiveState=active"
+        ],
+        "worker": [
+          "MainPID=1652317",
+          "ActiveState=active"
+        ],
+        "serving": "a0efe0f79aa52237a6bb37dbf9717d8279a21fa3a8f383fdc5d84d9680e9b6d6 1514666 healthy"
+      }
+    },
+    "schema": "125",
+    "protected_stopped_jobs": 12,
+    "protected_job_row_hashes_unchanged": true,
+    "protected_volume_metadata_unchanged": true,
+    "volume_attachments": 0,
+    "volume_snapshots": 0,
+    "unrelated_local_files_unchanged": [
+      "api/routes/billing.py",
+      "billing/stripe_connect.py",
+      "core/meta_capi.py",
+      "tests/test_meta_capi.py",
+      "core/gitguardian.py",
+      "text.md"
+    ],
+    "repairs": "report_only",
+    "no_customer_or_gpu_workload_launched": true
+  },
+  "public_smoke": {
+    "transport": "curl over public HTTPS",
+    "checks": [
+      {
+        "path": "/healthz",
+        "expected": 200,
+        "status": 200
+      },
+      {
+        "path": "/readyz",
+        "expected": 200,
+        "status": 200
+      },
+      {
+        "path": "/api/pricing/rates",
+        "expected": 200,
+        "status": 200
+      },
+      {
+        "path": "/api/auth/oauth/providers",
+        "expected": 200,
+        "status": 200
+      },
+      {
+        "path": "/metrics/prometheus",
+        "expected": 404,
+        "status": 404
+      }
+    ],
+    "python_default_user_agent_health_check": 403
+  },
+  "qualification_limits": [
+    "GPU workload acceptance was not run by this change",
+    "Full production rollback drill was not run",
+    "Alert receiver delivery was not tested",
+    "Physical schema contraction and historical data disposition are separate",
+    "Durable fairness and preemption remain B16.4"
+  ],
+  "local_artifact_root": "artifacts/final-cutover-evidence",
+  "local_artifact_sha256": {
+    "complete-final/manifest.json": "0e1f541c555a35e529a159208434ac56add5525b1a111d5ab4025af827ce16a5",
+    "complete-final/pytest.log": "c22c90c33b1f8ceda48f53eac9262b12d5c87b8d0ef0a7c20e7a44970065b7a6",
+    "preemption-refinement/image-import.json": "0594d8d2dc2d7300f92b6d2d133788063a47cbafde51240d9fdc3273751d2f90",
+    "preemption-refinement/api-stage.jsonl": "180b3779a50e53e2c040a61730d3bf3c8d96ec026fb3c67a93352af2ae89373a",
+    "preemption-refinement/api-handoff.jsonl": "382fd077a84480ba258c6f89becfacdd36d90d87f202d973d98a05e8d57edd29",
+    "preemption-refinement/maintenance-handoff.jsonl": "b4f4cd95838197afd0eb123dc97f6a56c4913eb8bc3a0b3b3d36bb46aa379fdc",
+    "preemption-refinement/scheduler-handoff.jsonl": "dd2388d1fa8465c9350898ab3c38f9df15bdc041d90e246a3184b603846d65f0",
+    "preemption-refinement/host-source-update.json": "50d1b6fd42c8b0f404823df02bd432a0af26c6f8a95f898a724c4e95ba6de27f",
+    "preemption-refinement/live-verification.json": "6e8c98424d50500ef6dcdffd9dd44b6f94ee303438542eb5b8cfb65760d3784c",
+    "preemption-refinement/serving-preservation.json": "14893e7b607c74d655d557caa1db770ff72e46f02e5daaa1a7a5f48e7067d4bc",
+    "preemption-refinement/public-smoke.json": "6594af1f043304f68050228d410999132693b44d865a2577d1331c499a6f1217",
+    "dashboard-apply.json": "8293473742861a3cf29e7c929342aa66c9b51f99261c161eba1990de3d13c2e0",
+    "native-browser.json": "fd8a25bff40700abb01f4f2864b53c04b71804e29664f9114495a33847e81518",
+    "live-probes.json": "1b2f8c7082db14f4709a264722550756d71250ae4d91df27886b3c2361da3f99",
+    "tower-worker.json": "cf7586235247b0ecb06fb70c23463e5e5ade215b43ffda7ab9a93832ddf2052f",
+    "workstation-worker.json": "84d67f574d609e95ffd7d62af25867c87db458e782e6d12abb6e885a7f426720",
+    "public-distribution.json": "199bdd321a78f8bbd136490689a4fe2ebc76928c8cdb5526278651514d7272b3",
+    "postgres-postflight.json": "1e168858720cff3c46efcaa5406411f8b3570aae16355dfa7647134b022448ac",
+    "monitoring-cleanup.json": "a5aabbf249489478c1d30a68ef1a59afdffc7a628ea2edc71dc5c9edc124ea10"
+  }
+}

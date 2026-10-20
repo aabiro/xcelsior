@@ -1,5 +1,9 @@
 # Native legacy-retirement dashboard — 2026-10-20
 
+**Superseded:** the operator requested completion of the runtime cutover. This
+dashboard and provider were removed and replaced with operational Control Plane
+metrics. See the [active cutover record](2026-10-20-active-control-plane-cutover.md).
+
 The shared native Grafana now serves **Xcelsior Legacy Retirement** at
 `/d/xcelsior-legacy-retirement/xcelsior-legacy-retirement`, in the Xcelsior
 folder. It has one usage panel for each of the eight measured API compatibility
