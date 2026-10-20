@@ -144,6 +144,21 @@ keepalive = 5  # keep-alive between nginx ↔ gunicorn
 preload_app = True
 
 
+def on_starting(server):
+    """Every Gunicorn worker can be replaced, even when configured with one."""
+    from prometheus_export import validate_multiprocess_setup
+
+    validate_multiprocess_setup(server.cfg.workers, forking_server=True)
+
+
+def child_exit(server, worker):
+    """Discard dead live gauges while retaining cumulative worker counters."""
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        from prometheus_client import multiprocess
+
+        multiprocess.mark_process_dead(worker.pid)
+
+
 # ---------- Post-fork: reset shared state that doesn't survive fork ----------
 def post_fork(server, worker):
     """Reset PostgreSQL connection pool after fork.

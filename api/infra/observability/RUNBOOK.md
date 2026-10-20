@@ -163,3 +163,35 @@ still require storage/image/backup recovery checks; do not requeue a stopped job
 or delete metadata solely from this report. The
 [executed inventory](../../docs/review/2026-10-20-legacy-resume-retirement.md)
 records the current twelve-job disposition gates.
+
+Shared-worker qualification now additionally requires
+`xcelsior_metrics_aggregation_enabled == 1` on every expected API target.
+Compare `xcelsior_metrics_generation_started_timestamp_seconds` across scrapes:
+it must be stable and predate the beginning of the agreed retention window.
+Require all eight requested-counter paths and all eight retirement-policy paths,
+continuous healthy scrapes, and no counter reset or generation change. Worker
+replacement within one generation retains counter shards. A master/container
+restart starts a new generation and a new qualification window. The standalone
+single-process development exporter advertises aggregation 0 and cannot qualify
+retirement. Missing/corrupt shared storage or failed collectors return HTTP 503;
+the exporter does not silently fall back to a worker-local zero.
+
+On the native production host, prepare rather than replace the existing shared
+monitoring configuration:
+
+```sh
+python api/scripts/plan_native_prometheus.py \
+  --config /etc/prometheus/prometheus.yml \
+  --api-target green=127.0.0.1:9500 \
+  --rules-path /etc/prometheus/xcelsior-rules/legacy-retirement.yml \
+  --rule-source api/infra/observability/prometheus/alert-rules.yml
+```
+
+Include blue only while that replica is part of the verified active inventory.
+Review the structural additions and source SHA; rerun if the source changes.
+The tool validates through stdin and writes no service files. Its syntax-only
+check is not runtime activation: the approved rollout must back up the current
+configuration, stage the rule file, validate the complete installed candidate,
+switch/reload atomically, and verify targets, loaded rules and receiver delivery.
+Roll back to the preserved configuration if those checks fail. See
+[the executed plan and worker acceptance](../../docs/review/2026-10-20-shared-legacy-metrics.md).

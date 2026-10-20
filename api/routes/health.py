@@ -1592,7 +1592,7 @@ def metrics_prometheus():
     # hand-rolled lines above would miss xcelsior_terminal_* and any other
     # metric that uses the prometheus_client API directly.
     try:
-        from prometheus_client import generate_latest, REGISTRY
+        from prometheus_export import generate_application_metrics
 
         # Refresh registry-health gauges from the shared
         # DB cache before serialising. The bg_worker process runs the
@@ -1606,12 +1606,13 @@ def metrics_prometheus():
         except Exception as e:
             log.debug("registry_health gauge refresh failed: %s", e)
 
-        prom_bytes = generate_latest(REGISTRY)
+        prom_bytes = generate_application_metrics()
         if prom_bytes:
             lines.append("")
             lines.append(prom_bytes.decode("utf-8").rstrip("\n"))
     except Exception as e:
-        log.debug("prometheus_client registry export failed: %s", e)
+        log.warning("prometheus_client registry export failed: %s", e)
+        raise HTTPException(503, "Prometheus registry aggregation is unavailable") from e
 
     from starlette.responses import Response
 

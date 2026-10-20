@@ -104,6 +104,11 @@ all-worker usage. Implement and test shared worker aggregation, including a
 worker exit before the next scrape, before using these counters for retirement.
 No zero-use window has started.
 
+The subsequent [shared-counter increment](2026-10-20-shared-legacy-metrics.md)
+closes the local worker-aggregation gate and validates an additive native
+monitoring plan. The production state above remains an audit snapshot, not a
+claim that the later candidate has been deployed.
+
 ## Remaining gates
 
 1. Complete shared Gunicorn worker counter aggregation and its failure/restart

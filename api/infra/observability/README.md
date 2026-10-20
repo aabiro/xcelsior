@@ -38,12 +38,13 @@ operations dashboard shows usage and retirement policy separately. Missing
 series, failed scrapes, counter resets and gaps need investigation before
 claiming a continuous zero-use window.
 
-The 2026-10-20 readiness audit found the live native Prometheus still lacks an
-API scrape target and the retirement rule. It also reproduced process-local
-counter loss across Gunicorn workers. Shared worker aggregation and native
-monitoring integration are required gates; the endpoint counters currently
-provide local observations, not all-worker zero-use proof. See
-[the executed readiness audit](../../docs/review/2026-10-20-legacy-observation-gates.md).
+The 2026-10-20 readiness audit found the live native Prometheus lacks an API
+scrape target and the retirement rule, and reproduced process-local counter
+loss across Gunicorn workers. The subsequent local candidate fixes worker
+aggregation and prepares an additive native monitoring plan. Production still
+needs that rollout; no zero-use window has started. See
+[the original audit](../../docs/review/2026-10-20-legacy-observation-gates.md) and
+[shared-counter acceptance](../../docs/review/2026-10-20-shared-legacy-metrics.md).
 
 `requested` counts authenticated calls, including empty command polls and
 requests later refused by fencing. For `status_patch`, `used` counts completed
@@ -61,3 +62,28 @@ cutover. Only after their separate retirement gates close, list them in
 only changes observation policy; it does not disable handlers. Unknown path
 names refuse API startup. The alert joins policy on `instance`, `job` and
 `path`, so another replica or another path cannot create a false alert.
+
+API containers now start through `/bin/sh api/scripts/start_api.sh`. It creates
+a private multiprocess directory before Python imports, then execs Gunicorn.
+Deploy this launcher with the image and Compose commands together. Gunicorn
+refuses uninitialized shared metrics even with one worker, because that worker
+can be replaced. Exited workers' counters remain until the master generation
+ends; each new master gets a fresh directory. Container tmpfs owns its lifetime.
+
+The exporter merges additive counter/histogram/summary families across workers
+and retains live/default gauge and custom collectors separately. This preserves
+the callback-based retirement policy gauges, which the standard multiprocess
+collector cannot evaluate. Export failures return HTTP 503. A single-process
+development server exposes `xcelsior_metrics_aggregation_enabled=0`; retirement
+qualification requires 1 and a stable
+`xcelsior_metrics_generation_started_timestamp_seconds` throughout the agreed
+window. A new generation invalidates the window. See the upstream
+[multiprocess-mode constraints](https://prometheus.github.io/client_python/multiprocess/).
+
+For an existing native Prometheus, prepare changes with
+`api/scripts/plan_native_prometheus.py`. It preserves existing scrape jobs,
+rules and Alertmanager routing; validates syntax and the isolated retirement
+rule group with the installed native `promtool`; and reports only new operations
+and hashes. It never reloads a service or modifies its source. An explicit
+`--output` creates a mode-0600 candidate without overwriting existing files.
+Syntax validation does not install referenced files or prove alert delivery.

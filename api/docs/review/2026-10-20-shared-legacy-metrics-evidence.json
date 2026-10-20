@@ -1,0 +1,206 @@
+{
+  "collected_at": "2026-10-20T10:45:41.315923+00:00",
+  "base_commit": "e366748f3117bf14422321fb13b269afcf96a24d",
+  "source_sha256": {
+    "core/prometheus_export.py": "2f8b7391eb98f31064364e7ac774db702cfa04628da321861bebbab2e1e9299c",
+    "api/routes/health.py": "83f7db28bb0dec866986e443499c98140c789eb18b2fbf541b5b5b480b6c65d3",
+    "gunicorn.conf.py": "af444c13301fcebabaf30e3398db3fd0e5b097e4fe27c8e327512ddea377682c",
+    "api/scripts/start_api.sh": "913c72230a5b8f5a0995ef25be3896ab84890943b588efa48a2a86462e8a91b3",
+    "api/scripts/plan_native_prometheus.py": "a7ab0105b1a4477c02dff54b39102584daec258aa7860ed4aeb7404e1d242c0e",
+    "Dockerfile": "dabea238e3edce954c60106723fdfe0e5fc2b0ff56440b38aad2ff07d7114b7f",
+    "docker-compose.yml": "02223633d440bde39841d600e060a4bd0e7b9ce33b6eeded20564d3d958f6d35",
+    "tests/test_prometheus_worker_aggregation.py": "7002e23dfd660800e3eec1c59ca73e4324fde1fe7aba9b8a502cb3f13c474b15",
+    "tests/test_native_prometheus_plan.py": "e7f8db653a8ca02de848972c75f26c677b44fd1cdee015fbe904b8d1aa6b39b2",
+    "control_plane/legacy_execution.py": "a4ed934edd3a6c65c8bccbdd86acb395eb26cf9c16b6857d674e748fd89da393",
+    "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc"
+  },
+  "scope": {
+    "production_actions": "read-only inspection and promtool stdin validation only",
+    "production_deployment": false,
+    "production_monitoring_applied": false,
+    "notifications_sent": false,
+    "repairs_policy_changed": false,
+    "zero_use_window_started": false
+  },
+  "regressions_before_implementation": {
+    "results": {
+      "tests": 6,
+      "failures": 6,
+      "errors": 0,
+      "skipped": 0
+    },
+    "manifest_sha256": "a3152b7f23e83cf38d182fc8e88909dc6869e1d32273471ecc05312dcd926ba5"
+  },
+  "release_gate": {
+    "results": {
+      "tests": 336,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "gate_exit_code": 0,
+    "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
+    "tests": [
+      "tests/test_prometheus_worker_aggregation.py",
+      "tests/test_native_prometheus_plan.py",
+      "tests/test_legacy_observation_gates.py",
+      "tests/test_in_memory_auth_refuses_multiple_workers.py",
+      "tests/test_client_ip_survives_cloudflare.py",
+      "tests/test_staging_does_not_listen_beyond_loopback.py",
+      "tests/test_observability_stack.py",
+      "tests/test_hardened_runtime_and_ingress.py",
+      "tests/test_startup_validation.py",
+      "tests/test_security_monitoring.py",
+      "tests/test_metrics_catalog.py",
+      "tests/test_snapshot_metrics.py",
+      "tests/test_public_http.py",
+      "tests/test_metrics_are_not_public.py",
+      "tests/test_prometheus_emits_every_metric_it_declares.py",
+      "tests/test_agent_v2.py"
+    ],
+    "phases": {
+      "initdb": {
+        "exit_code": 0,
+        "seconds": 0.61
+      },
+      "start": {
+        "exit_code": 0,
+        "seconds": 0.11
+      },
+      "createdb": {
+        "exit_code": 0,
+        "seconds": 0.05
+      },
+      "migrate": {
+        "exit_code": 0,
+        "seconds": 2.56
+      },
+      "pytest": {
+        "exit_code": 0,
+        "seconds": 42.23
+      },
+      "stop": {
+        "exit_code": 0,
+        "seconds": 0.1
+      }
+    },
+    "manifest_sha256": "9dac2e3aba00bd2fc009f68c51936cfe0919ffbdee3d6baa7d02bfba65376ba2"
+  },
+  "worker_acceptance": {
+    "real_gunicorn_workers": 2,
+    "killed_before_first_scrape": true,
+    "replacement_confirmed": true,
+    "successful_http_scrapes_after_replacement": 6,
+    "full_counter_retained": true,
+    "generation_stable_across_worker_replacement": true,
+    "normal_exit_and_sigkill_fork_cases": true,
+    "independent_master_generations": true,
+    "missing_invalid_storage_http_status": 503,
+    "registry_failure_http_status": 503,
+    "startup_refuses_missing_and_late_multiprocess_initialization": [
+      1,
+      2
+    ]
+  },
+  "native_monitoring_plan": {
+    "read_only": true,
+    "applied": false,
+    "source_sha256": "6841aa84c7ffd334f8eff7ed66072ff94c3630f6d7acb9c014913b6eb00beb7f",
+    "candidate_sha256": "ad305f35e4f98345f30eaf62835d395f147c121984785130b7cee10978a0c781",
+    "rules_sha256": "0edb120e05e4e18e40669e7b4bd80e63fb38fb2cf74c9914c461bc3f0d0ab0d0",
+    "api_targets": {
+      "green": "127.0.0.1:9500"
+    },
+    "native_tool_version": "promtool, version 2.45.3+ds (branch: debian/sid, revision: 2.45.3+ds-2ubuntu0.3)",
+    "operations": [
+      {
+        "op": "add",
+        "path": "/scrape_configs/-",
+        "value": {
+          "job_name": "xcelsior-api",
+          "metrics_path": "/metrics/prometheus",
+          "static_configs": [
+            {
+              "targets": [
+                "127.0.0.1:9500"
+              ],
+              "labels": {
+                "replica": "green"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "op": "add",
+        "path": "/rule_files/-",
+        "value": "/etc/prometheus/xcelsior-rules/legacy-retirement.yml"
+      }
+    ],
+    "rules_document": {
+      "groups": [
+        {
+          "name": "xcelsior.legacy-retirement",
+          "rules": [
+            {
+              "alert": "XcelsiorRetiredExecutionPathUsed",
+              "expr": "sum by (path) (increase(xcelsior_legacy_execution_total{outcome=\"requested\"}[10m]) and on (instance, job, path) (xcelsior_legacy_path_retired == 1)) > 0",
+              "for": "1m",
+              "labels": {
+                "severity": "warning",
+                "owner": "platform"
+              },
+              "annotations": {
+                "summary": "A retired compatibility path still has callers",
+                "description": "Identify the old worker or client and inspect stopped legacy jobs before removing handlers. A blocked request still proves the path has callers.",
+                "runbook_url": "https://github.com/aabiro/xcelsior/blob/main/api/docs/review/2026-10-20-worker-cutover-boundary.md"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "validation": {
+      "config": {
+        "exit_code": 0,
+        "stdout_sha256": "ea777c764ff1acc7384a428749817ba2c25d55111d1fd8cb65bdbc4b96a830d3",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "rules": {
+        "exit_code": 0,
+        "stdout_sha256": "db3f70c1d8a041ea0a419cb7aeb718e31ba27d95659248aae9a1bdcdd865f3ca",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "passed": true
+  },
+  "checks": {
+    "ruff_exit_code": 0,
+    "pyright_errors": 0,
+    "pyright_targets": [
+      "core/prometheus_export.py",
+      "api/scripts/plan_native_prometheus.py"
+    ],
+    "shell_syntax_exit_code": 0,
+    "worker_distribution_signatures_verified": 12,
+    "whitespace_exit_code": 0
+  },
+  "remaining": [
+    "build and runtime-probe the committed candidate",
+    "API-first rollout of accumulated fixes with launcher/image/Compose deployed together; preserve scoped canary and report_only repairs",
+    "stage the isolated retirement rules and additive native monitoring candidate after verifying source hash; full installed validation and atomic reload with rollback",
+    "verify source identity, all expected API scrapes and complete series, aggregation 1, stable generation and receiver delivery",
+    "remaining B16 instrumentation, stopped-job recovery disposition and agreed continuous zero-use window before contraction"
+  ],
+  "synthetic_credential_fixture_followup": {
+    "reason": "Generate credentials per test process instead of embedding a synthetic password literal flagged by the commit scanner",
+    "results": {
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "gate_exit_code": 0,
+    "manifest_sha256": "7f8d8e166e96dfead7d34e279294a61a2ec88710e2f21acd0cbf4ebbb321a2d9"
+  }
+}

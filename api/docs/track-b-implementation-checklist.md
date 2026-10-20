@@ -2314,6 +2314,19 @@ period — measured, not assumed.
   two-worker Gunicorn configuration; a fork/worker-exit probe reproduced a
   request invisible to the scraping process. Shared worker aggregation and
   native monitoring integration must pass before a zero-use window can start.
+  **Shared-counter follow-up:** the new API launcher initializes standard
+  multiprocess storage before Python imports; Gunicorn refuses missing/late
+  initialization, including a single replaceable worker. The exporter merges
+  additive families while preserving callback gauges, fails a scrape with 503
+  on invalid shared state, and exposes aggregation readiness plus a master
+  generation timestamp. A real two-worker Gunicorn acceptance killed a worker
+  before the first scrape and verified retained totals after replacement.
+  **336 selected tests passed** without failures/errors/skips. The read-only
+  native plan passed config-syntax and retirement-rule validation on production's
+  actual Prometheus 2.45.3: one loopback API scrape job and one rule-file reference
+  are the only additions; existing jobs/rules/receivers are preserved. Deployment,
+  alert delivery and the agreed continuous zero-use window remain open. See
+  [acceptance and rollout gates](review/2026-10-20-shared-legacy-metrics.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration
