@@ -206,3 +206,23 @@ Transport acceptance does not establish that a person read the message.
 The exercised route surfaced two pre-existing proof attempts without usage
 meters. Keep their evidence and the billing alert visible while their ownership
 and price history are reviewed; do not invent a charge to clear a graph.
+
+### Native database freshness collection
+
+The native database timers write bounded `.prom` files under
+`/var/lib/node_exporter/textfile_collector`. The production host's Debian
+`prometheus-node-exporter` service needs the bundled
+`native/prometheus-node-exporter-textfile.conf` drop-in to collect that
+directory; it preserves the existing `$ARGS`. Validate the effective unit and
+restart only this exporter when installing the drop-in. The directory must be
+traversable by the exporter and the metrics files readable. The database dumps
+and restore evidence stay under their separate private backup directory.
+
+Verify `node_textfile_scrape_error == 0` and both
+`xcelsior_backup_last_success_timestamp_seconds` and
+`xcelsior_restore_last_success_timestamp_seconds` through native Prometheus's
+`prod-hetzner-host` target. `native-control-plane-rules.yml` includes separate
+missing, stale and failed-since-success alerts. A later success supersedes an
+older failure timestamp. Validate all native rule fixtures with `promtool`
+before reloading Prometheus; the configured receiver sends both webhook and
+Telegram notifications.
