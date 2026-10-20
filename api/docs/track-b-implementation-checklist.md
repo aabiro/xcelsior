@@ -510,7 +510,7 @@ Remaining lifecycle remediation and live acceptance stay open.
   strengthening it to a fully fence-token-invalidating primitive is tracked with
   Track A's fenced lifecycle.
 
-- [~] **B2.9 Job reconciliation controller** (updated 2026-10-17, §12.3–§12.4).
+- [~] **B2.9 Job reconciliation controller** (updated 2026-10-20, §12.3–§12.4).
   `control_plane/job_reconcile.py` evaluates current job/attempt/host/fence,
   lease validity, API-receipt observation freshness, immutable spec identity,
   stop-command delivery and active-meter presence. Findings are durable,
@@ -576,9 +576,20 @@ Remaining lifecycle remediation and live acceptance stay open.
   HTTP command/lease/status/observation helpers and the exit monitor, proving
   success and failure settlement, meter identity, stale-report rejection and
   exact invoice-line amounts. Runnable gate:
-  `scripts/run_security_gates.py --worker-billing-acceptance`; evidence and limits:
+  `python api/scripts/run_security_gates.py --worker-billing-acceptance`; evidence and limits:
   `docs/review/2026-10-17-worker-billing-acceptance.md`. The harness owns container
   launch; this does not close public launch/provisioning or deployed acceptance.
+  Terminal-report recovery now retains the exited container and journal across
+  transient failures and worker restart, stops renewal/report cleanup races,
+  preserves replacement authority and pending stop intent, and isolates v2 from
+  legacy adoption. Batch and newly journaled interactive attempts share retry
+  handling; uncertain Docker inspection never invents terminal failure. Gate:
+  `tests/test_worker_terminal_recovery.py`; the CUDA gate now proves pre-commit
+  failure, a lost committed reply and recovery across separate worker processes.
+  Executed evidence: `docs/review/2026-10-20-worker-terminal-recovery.md`.
+  This worker candidate is signed and locally verified; production worker
+  rollout, serverless callback recovery, older interactive journals and loss of
+  local evidence remain outside that proof.
   **Residual:** remaining lifecycle remediation through the scheduling/attempt/
   lease/billing authorities with per-type staged enforcement; production
   false-positive measurement and recovery/failure drills before enabling any

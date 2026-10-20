@@ -128,6 +128,42 @@ def run(args, evidence: dict) -> None:
     from billing import BillingEngine
     import uvicorn
     from api import app
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import JSONResponse
+
+    faults: dict[str, dict] = {}
+
+    class TerminalFaults(BaseHTTPMiddleware):
+        """Inject transport-visible failures around the real API transaction."""
+
+        async def dispatch(self, request, call_next):
+            if request.url.path != "/agent/v2/attempts/status":
+                return await call_next(request)
+            body = await request.json()
+            fault = faults.get(body.get("job_id"))
+            if fault is None or body.get("status") not in ("succeeded", "failed"):
+                return await call_next(request)
+            fault["requests"] += 1
+            if fault["requests"] == 2:
+                journal = json.loads((state / "attempts.json").read_text())
+                require(body["job_id"] in journal, "retry lost durable authority record")
+                require(
+                    command("docker", "inspect", fault["container"], check=False).returncode == 0,
+                    "container was removed before terminal retry",
+                )
+                fault["evidence_retained"] = True
+            if fault["requests"] == 1:
+                if fault["mode"] == "after_commit":
+                    response = await call_next(request)
+                    require(response.status_code == 200, "terminal transaction did not commit")
+                    async for _ in response.body_iterator:
+                        pass
+                    fault["committed_before_response_loss"] = True
+                fault["injected"].set()
+                return JSONResponse({"error": "isolated terminal-report fault"}, status_code=503)
+            return await call_next(request)
+
+    app.add_middleware(TerminalFaults)
 
     pool = _get_pg_pool()
     with pool.connection() as conn:
@@ -169,9 +205,19 @@ def run(args, evidence: dict) -> None:
     try:
         wait_for(lambda: server.started, 30, "loopback API startup")
         require(worker.negotiate_protocol_v2(), "worker did not negotiate v2 over HTTP")
-        for exit_code in (0, 7):
-            job_id = f"acceptance-{marker}-{exit_code}"
-            journey = {"job_id": job_id, "expected_exit_code": exit_code}
+        for exit_code, fault_mode in (
+            (0, "none"),
+            (7, "none"),
+            (0, "before_commit"),
+            (7, "after_commit"),
+            (0, "restart"),
+        ):
+            job_id = f"acceptance-{marker}-{exit_code}-{fault_mode}"
+            journey = {
+                "job_id": job_id,
+                "expected_exit_code": exit_code,
+                "terminal_fault": fault_mode,
+            }
             evidence["journeys"].append(journey)
             program = (
                 "import json,time,torch; from pathlib import Path; "
@@ -335,7 +381,70 @@ def run(args, evidence: dict) -> None:
             actual_exit = int(command("docker", "wait", container, timeout=30).stdout.strip())
             require(actual_exit == exit_code, "unexpected workload exit")
             journey["actual_exit_code"] = actual_exit
-            worker._monitor_container(job_id, container, is_v2_attempt=True)
+            if fault_mode != "none":
+                faults[job_id] = {
+                    "mode": fault_mode,
+                    "container": container,
+                    "requests": 0,
+                    "injected": threading.Event(),
+                    "evidence_retained": False,
+                }
+            if fault_mode == "restart":
+                # Two genuinely separate worker processes share only their
+                # on-disk journal and exited Docker container. SIGTERM ends the
+                # first monitor after the failed HTTP request, before retry.
+                child_code = """
+import json, signal, sys, threading
+from pathlib import Path
+root = Path(sys.argv[1])
+for package in ("archive", "billing", "workers", "auth", "hosts", "privacy", "api", "core", ""):
+    sys.path.insert(0, str(root / package))
+import worker_agent as worker
+signal.signal(signal.SIGTERM, lambda *_: worker._shutdown.set())
+worker._v2_enabled = True
+if sys.argv[2] == "monitor":
+    records = worker._v2_journal_load()
+    auth = records[sys.argv[3]]
+    auth["stop"] = threading.Event()
+    worker._v2_attempts[auth["job_id"]] = auth
+    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+else:
+    worker.v2_adopt_attempts()
+    assert sys.argv[3] not in worker._v2_journal_load(), "restart did not complete terminal reporting"
+"""
+                child = subprocess.Popen(
+                    [sys.executable, "-c", child_code, str(ROOT), "monitor", job_id]
+                )
+                try:
+                    require(
+                        faults[job_id]["injected"].wait(20), "worker did not reach injected fault"
+                    )
+                    child.terminate()
+                    require(child.wait(timeout=20) == 0, "worker monitor did not stop cleanly")
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                        child.wait(timeout=10)
+                require(
+                    job_id in json.loads((state / "attempts.json").read_text()),
+                    "worker restart lost terminal journal",
+                )
+                command(sys.executable, "-c", child_code, str(ROOT), "adopt", job_id, timeout=30)
+                worker._v2_forget_attempt(job_id, auth)
+                journey["separate_worker_processes"] = True
+            else:
+                worker._monitor_container(job_id, container, is_v2_attempt=True)
+            if fault_mode != "none":
+                fault = faults[job_id]
+                require(
+                    fault["requests"] == 2 and fault["evidence_retained"],
+                    "terminal recovery did not retry with durable evidence",
+                )
+                journey["terminal_report_requests"] = fault["requests"]
+                journey["retained_until_retry"] = fault["evidence_retained"]
+                journey["committed_before_response_loss"] = fault.get(
+                    "committed_before_response_loss", False
+                )
             require(
                 worker.v2_report_attempt_status(auth, "running") == "fenced",
                 "terminal authority accepted a stale report",

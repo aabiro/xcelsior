@@ -54,7 +54,7 @@ ALLOWED_DIRECT = {
     "url",  # agent upgrade download + serverless health probe: arbitrary URLs
     "f'{TOWER_SERVERLESS_URL}/admin/drain'",
     "f'{TOWER_SERVERLESS_URL}/admin/resume'",
-    "str(f.get('url') or '')",  # artifact fetch
+    "str(item.get('url') or '')",  # artifact fetch
 }
 
 _VERBS = {"get", "post", "put", "patch", "delete"}

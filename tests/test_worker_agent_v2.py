@@ -471,7 +471,7 @@ class TestStatusMirror:
         def fake_run(argv, **kw):
             killed.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(returncode=0, stdout="true 0 att-1", stderr="")
+                return SimpleNamespace(returncode=0, stdout="running 0 att-1", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self._register()
@@ -495,7 +495,7 @@ class TestStatusMirror:
         def fake_run(argv, **kwargs):
             docker_calls.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(returncode=0, stdout="true 0 att-newer", stderr="")
+                return SimpleNamespace(returncode=0, stdout="running 0 att-newer", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self._register()
@@ -550,7 +550,7 @@ class TestRenewalFenceLoss:
         def fake_run(argv, **kw):
             killed.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(returncode=0, stdout="true 0 att-1", stderr="")
+                return SimpleNamespace(returncode=0, stdout="running 0 att-1", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         auth = {

@@ -1,0 +1,269 @@
+{
+  "recorded_date": "2026-10-20",
+  "base_commit": "abbf0c178c86da49bad676387cf4c1e3c3198490",
+  "deployment": "local candidate; no production mutation",
+  "source_sha256": {
+    "workers/worker_agent.py": "4396334b07139e56cdd2fa703f798ee2d646b3f6a181ab85be885e5ae2839185",
+    "api/scripts/worker_billing_acceptance.py": "ebf40c557905948db4929cbe88ae39dd44a2ea8f5fc9a8e8031ff4aab6299fab",
+    "tests/test_worker_terminal_recovery.py": "ea4682915ebcdeeaf33b41a3b4319bf6f2b92f73ff83caf2d7a4f4b604284b5d",
+    "tests/test_worker_agent_v2.py": "dcd8759a8802db614875554d109f7131b20b8fd0d96ab84592ace754fef1c655",
+    "tests/test_worker_api_calls_go_through_one_seam.py": "0f161490bc9ace13c9109b5667a5dbca508d6d693d2a774ef3f5ffcbdc0abaf8"
+  },
+  "regression": {
+    "tests": 330,
+    "terminal_recovery_cases": 28,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": [
+      "tests/test_worker_terminal_recovery.py",
+      "tests/test_worker_agent.py",
+      "tests/test_worker_agent_v2.py",
+      "tests/test_agent_v2.py",
+      "tests/test_active_meter_repair.py",
+      "tests/test_billing_controller.py",
+      "tests/test_invoice_reads_match_billed_usage.py",
+      "tests/test_provider_settlement.py",
+      "tests/test_worker_billing_acceptance_guard.py",
+      "tests/test_static_endpoints.py",
+      "tests/test_install_clean_host.py",
+      "tests/test_worker_api_calls_go_through_one_seam.py",
+      "tests/test_worker_startup_regressions.py",
+      "tests/test_worker_v2_paths_match_the_server.py"
+    ],
+    "phases": {
+      "initdb": {
+        "exit_code": 0,
+        "seconds": 0.61
+      },
+      "start": {
+        "exit_code": 0,
+        "seconds": 0.11
+      },
+      "createdb": {
+        "exit_code": 0,
+        "seconds": 0.04
+      },
+      "migrate": {
+        "exit_code": 0,
+        "seconds": 2.14
+      },
+      "pytest": {
+        "exit_code": 0,
+        "seconds": 28.27
+      },
+      "stop": {
+        "exit_code": 0,
+        "seconds": 0.1
+      }
+    }
+  },
+  "cuda": {
+    "passed": true,
+    "started_at": 1792474817.225616,
+    "scope": "isolated CUDA worker protocol to invoice",
+    "image_id": "sha256:e2a75ae5a502eceac46a1b29c8acfe8876bb2216d32cd04dd1193f7e76366652",
+    "gpu_uuid": "GPU-f22a551d-2bee-2f17-22af-454481edcdc7",
+    "gpu_model": "NVIDIA GeForce RTX 2060",
+    "journeys": [
+      {
+        "job_id": "acceptance-497139c5ca43-0-none",
+        "expected_exit_code": 0,
+        "terminal_fault": "none",
+        "command_id": "bcea29e8-f488-4f80-821e-bfda50e90ded",
+        "spec_hash": "sha256:b2bd7318be5570b1f9fb80dfce7634472994262677c8c1428bf031366c8ac4a8",
+        "fencing_token": 1,
+        "lease_id": "782702eb-d73a-4a34-b304-d980c3f1fe27",
+        "container_id": "22bd6551086a23a481c1330193cc5bfb6f8472cb84d27a60470e56b1fb2dbd22",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "7d4f8d63-fd6",
+        "observation_id": "486534bf-a435-4ba7-84a1-d9e87b65afbd",
+        "actual_exit_code": 0,
+        "stale_report_refused": true,
+        "attempt_id": "51d99890-56f9-4d4a-bff6-2f3fca702200",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792474827.772411,
+        "completed_at": 1792474830.650429,
+        "total_cost_micros": 800,
+        "invoice_delta_micros": 800,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-497139c5ca43-7-none",
+        "expected_exit_code": 7,
+        "terminal_fault": "none",
+        "command_id": "030d2125-40d8-446b-8c7e-6542758c71ce",
+        "spec_hash": "sha256:8c5cd76c98742d3a3b0d774cad58d811853520003257fc4cf9bc8ab9fe0f2818",
+        "fencing_token": 2,
+        "lease_id": "d13ca665-80a7-44af-99b0-26a2d22c735e",
+        "container_id": "7ac109d5a5efad121d19e16076f884b86615da98f6fea81b78aa116a9206e4bb",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "fd615e92-292",
+        "observation_id": "2fa67e35-3a3f-4b61-899d-6ac9a16f2504",
+        "actual_exit_code": 7,
+        "stale_report_refused": true,
+        "attempt_id": "11edb5cd-5ab0-4497-95f3-d856cbffc95f",
+        "attempt_status": "failed",
+        "lease_status": "released",
+        "started_at": 1792474834.15846,
+        "completed_at": 1792474835.310897,
+        "total_cost_micros": 300,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-497139c5ca43-0-before_commit",
+        "expected_exit_code": 0,
+        "terminal_fault": "before_commit",
+        "command_id": "2fb1dc73-0851-482f-8634-85673dc43999",
+        "spec_hash": "sha256:9625f5759d3421cd7560f3319f7c80131a6fd902325b247e4c1ce457fec83717",
+        "fencing_token": 3,
+        "lease_id": "d377f634-4671-4b84-b2ab-73654fdb95ce",
+        "container_id": "a2250f8bf44e3a18c8a5ff5951df18d7e1235f0f1c7966312e9f0db6378ec42f",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "8ef67fdc-ad4",
+        "observation_id": "d50bfc23-0c24-4626-855d-826b11b56e08",
+        "actual_exit_code": 0,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": false,
+        "stale_report_refused": true,
+        "attempt_id": "f134f122-4df1-4058-aa67-2dcbc614abc4",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792474838.071882,
+        "completed_at": 1792474844.155793,
+        "total_cost_micros": 1700,
+        "invoice_delta_micros": 1700,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-497139c5ca43-7-after_commit",
+        "expected_exit_code": 7,
+        "terminal_fault": "after_commit",
+        "command_id": "74181257-ffd4-4928-aced-9cc6dda5d582",
+        "spec_hash": "sha256:4baaecb9fbefe553fd586b6bb6059f7ca9313e76ee73d7e7e23d89bc66106e9d",
+        "fencing_token": 4,
+        "lease_id": "86eed7ef-f5ae-4d97-9eaa-eae4c7263143",
+        "container_id": "04168000f93001cd0c818c01bd2f23c0290499a78044340e48890e890159ecba",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "b31cb39e-077",
+        "observation_id": "58717f33-b158-48fa-aca9-908f7c58c79c",
+        "actual_exit_code": 7,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": true,
+        "stale_report_refused": true,
+        "attempt_id": "9fa56cbb-23b8-4e2c-9ddd-7a6319855f50",
+        "attempt_status": "failed",
+        "lease_status": "released",
+        "started_at": 1792474847.346799,
+        "completed_at": 1792474848.463675,
+        "total_cost_micros": 300,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-497139c5ca43-0-restart",
+        "expected_exit_code": 0,
+        "terminal_fault": "restart",
+        "command_id": "473ba7e1-2d88-49b2-9ca8-9197812fac68",
+        "spec_hash": "sha256:f651737beb5eaf0b0828499b80cfd84af08022be2e03b15a4dd293f59fd87dde",
+        "fencing_token": 5,
+        "lease_id": "7a7984aa-606e-4743-9a09-abc2c78202c5",
+        "container_id": "5141736a469dffc3ec39be7f0a52afc4920361ea3df56ac4e6898fd3c997ecfd",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "054542d6-421",
+        "observation_id": "c45435da-fc54-421d-a3ee-6a852525255e",
+        "actual_exit_code": 0,
+        "separate_worker_processes": true,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": false,
+        "stale_report_refused": true,
+        "attempt_id": "0623e10b-b21a-4613-8d06-755b556bf5ac",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792474856.40235,
+        "completed_at": 1792474857.72208,
+        "total_cost_micros": 400,
+        "invoice_delta_micros": 400,
+        "invoice_display_subtotal_cad": 0.0
+      }
+    ],
+    "finished_at": 1792474858.6759777
+  },
+  "cuda_phases": {
+    "initdb": {
+      "exit_code": 0,
+      "seconds": 0.6
+    },
+    "start": {
+      "exit_code": 0,
+      "seconds": 0.12
+    },
+    "createdb": {
+      "exit_code": 0,
+      "seconds": 0.05
+    },
+    "migrate": {
+      "exit_code": 0,
+      "seconds": 2.76
+    },
+    "worker_billing": {
+      "exit_code": 0,
+      "seconds": 41.99
+    },
+    "stop": {
+      "exit_code": 0,
+      "seconds": 0.21
+    }
+  },
+  "distribution": {
+    "verified_signatures": 12,
+    "worker_signature_sha256": "8e7ff3581e9c9ca568544476d4366cacbde52c224f9a6f0c20b19bfc27a5b997",
+    "public_key_sha256": "5fc3065191bb1de2bfa0b13d6807604e2adb9b2d3f7488430c4517361a779d68"
+  },
+  "artifacts": [
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/terminal-recovery-evidence/verified-20261020/manifest.json",
+      "sha256": "cca05021f13a4c9c8383565c4ca627e69d32f10011c7a1679edcc3bcc82fa5a2"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/terminal-recovery-evidence/verified-20261020/junit.xml",
+      "sha256": "6f8568141aacec8afbb829f20fa9eab414c887db8a8c0f6584f8be461abda35d"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/terminal-recovery-evidence/verified-20261020/pytest.log",
+      "sha256": "56a2d0addb1e24df5e2432394099b27e0abbdaf911d23b94cc1fcfffa3b4a8b5"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/terminal-recovery-evidence/cuda-final-20261020/manifest.json",
+      "sha256": "a952f0cb615741a1a2462fa17e567b08abf137a7872f497b86b6c05cd8f29133"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/terminal-recovery-evidence/cuda-final-20261020/worker_billing.json",
+      "sha256": "fbf2e6e8c6c5bf8eade644cb57035fdd242b320ca4a8705ba98df2bf00f97f73"
+    },
+    {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/terminal-recovery-evidence/cuda-final-20261020/worker_billing.log",
+      "sha256": "1034b391f9f5c16298f0128a2a8e5dc32c9b57bba8cf8dced21bbd8b54a7b9d8"
+    }
+  ]
+}
