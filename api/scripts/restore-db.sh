@@ -29,15 +29,39 @@ warn() { echo -e "${YELLOW}⚠${NC} $*"; }
 err()  { echo -e "${RED}✗${NC} $*" >&2; }
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
 
-# ── Source .env ──────────────────────────────────────────────────────
+# ── Read selected project configuration without executing .env ────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/../.env"
+PROJECT_DIR="${XCELSIOR_PROJECT_DIR:-${SCRIPT_DIR}/..}"
+if [[ -z "${XCELSIOR_PROJECT_DIR:-}" && "$(basename "$(dirname "$SCRIPT_DIR")")" == "api" ]]; then
+    PROJECT_DIR="${SCRIPT_DIR}/../.."
+fi
+ENV_FILE="${PROJECT_DIR}/.env"
 if [[ -f "$ENV_FILE" ]]; then
-    set -a; source "$ENV_FILE"; set +a
-    DB_NAME="${XCELSIOR_POSTGRES_DB:-$DB_NAME}"
-    DB_USER="${XCELSIOR_POSTGRES_USER:-$DB_USER}"
-    DB_HOST="${XCELSIOR_POSTGRES_HOST:-$DB_HOST}"
-    DB_PORT="${XCELSIOR_POSTGRES_PORT:-$DB_PORT}"
+    mapfile -d '' -t database_settings < <(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+settings = {}
+for raw in Path(sys.argv[1]).read_text().splitlines():
+    line = raw.strip()
+    if line.startswith('export '):
+        line = line[7:].lstrip()
+    key, separator, value = line.partition('=')
+    if separator:
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        settings[key.strip()] = value
+for key in ('DB', 'USER', 'HOST', 'PORT', 'PASSWORD'):
+    sys.stdout.write(settings.get('XCELSIOR_POSTGRES_' + key, '') + '\0')
+PY
+    )
+    DB_NAME="${XCELSIOR_POSTGRES_DB:-${database_settings[0]:-$DB_NAME}}"
+    DB_USER="${XCELSIOR_POSTGRES_USER:-${database_settings[1]:-$DB_USER}}"
+    DB_HOST="${XCELSIOR_POSTGRES_HOST:-${database_settings[2]:-$DB_HOST}}"
+    DB_PORT="${XCELSIOR_POSTGRES_PORT:-${database_settings[3]:-$DB_PORT}}"
+    export XCELSIOR_POSTGRES_PASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-${database_settings[4]:-}}"
+    unset database_settings
 fi
 
 # ── Select backup file ───────────────────────────────────────────────
