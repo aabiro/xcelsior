@@ -30,7 +30,9 @@ if dsn:
     # Ensure we use psycopg3 driver (postgresql+psycopg://), not psycopg2
     if dsn.startswith("postgresql://"):
         dsn = dsn.replace("postgresql://", "postgresql+psycopg://", 1)
-    config.set_main_option("sqlalchemy.url", dsn)
+    # ConfigParser reserves percent signs for interpolation; URI-encoded
+    # passwords and Unix-socket query paths must remain literal URL bytes.
+    config.set_main_option("sqlalchemy.url", dsn.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

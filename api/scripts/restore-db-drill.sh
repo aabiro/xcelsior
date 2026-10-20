@@ -120,17 +120,20 @@ as_postgres pg_restore \
     --exit-on-error \
     --no-owner \
     --no-privileges \
+    --role="$APP_DB_ROLE" \
     --dbname="$target_db" \
     "$restore_input"
 
 if [[ "$RUN_MIGRATIONS" == "1" ]]; then
     [[ -f "$PROJECT_DIR/docker-compose.yml" ]] ||
         die "docker-compose.yml not found at $PROJECT_DIR"
+    [[ -f "$PROJECT_DIR/api/scripts/migrate_restore_database.py" ]] ||
+        die "isolated restore migration guard is missing"
     log "migrating restored database with the current API image"
     (
         cd "$PROJECT_DIR"
-        XCELSIOR_POSTGRES_DB="$target_db" docker compose run --rm --no-deps \
-            api python -m alembic upgrade head
+        docker compose run --rm --no-deps -T \
+            api python - "$target_db" < "$PROJECT_DIR/api/scripts/migrate_restore_database.py"
     )
 fi
 
@@ -161,7 +164,8 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM job_attempts
-        WHERE status IN ('reserved', 'offered', 'claimed', 'starting', 'running', 'stopping')
+        WHERE status IN ('reserved', 'command_pending', 'lease_offered',
+                         'lease_claimed', 'starting', 'running')
         GROUP BY job_id
         HAVING count(*) > 1
     ) THEN

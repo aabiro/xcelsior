@@ -17,6 +17,7 @@ not prove crash durability, absence of late command races, or all Track B work.
 | P1 | Journal persistence is not durable or serialized | Concurrent saves use the same `.tmp` outside the attempt lock; neither file nor parent directory is fsynced before ACK. The concurrency test detects overlapping writers, and simulated sync failure leaves a success replayable. A crash can lose a result the server considers acknowledged. |
 | P1 | Command ACK/NACK ignores session and delivery generation | After claim expiry and redelivery to a new session, the former session can still ACK with HTTP 200 or NACK the row back to pending. Host identity alone does not identify the current delivery. |
 | P2 | Host stop/remove reports failed Docker calls as success | Permission/daemon errors on inspect count as absence; failed stop/remove calls still increment dispatch success and discard local ownership. Three fault-injection cases reproduce false ACK. |
+| P1 | Restore migration can target the live database | A read-only Compose render with a disposable database override still resolves the migration DSN to `xcelsior`, because the production override pins that URI. The restore drill must rewrite and verify the connection before invoking Alembic. |
 
 All **nine audit regression cases failed against the unchanged implementation**
 on a disposable PostgreSQL database. Evidence is retained in
@@ -73,3 +74,13 @@ skips and the optional Compose smoke class deselected. It includes the original
 cutover suites plus twelve audit cases. All twelve distribution signatures and
 targeted Ruff checks passed. Production deployment is recorded separately;
 these test results alone do not prove deployment.
+
+The restore helper now rejects names outside the generated restore namespace,
+rewrites every inherited DSN, removes URI database-query overrides, disables
+dotenv loading and verifies `current_database()` before Alembic can run. Restore
+objects are owned by the designated application role. The active-attempt check
+uses the current state vocabulary. A fresh real PostgreSQL regression migrated
+an empty disposable database while the inherited DSNs pointed at the source;
+the source schema remained unchanged. Seven restore/backup tests passed.
+The real test also exposed ConfigParser interpreting percent-encoded URI bytes;
+the Alembic environment now escapes them before setting its configuration URL.
