@@ -1,73 +1,206 @@
 groups:
-  - name: xcelsior.control-plane
-    rules:
-      - alert: XcelsiorApiUnavailable
-        expr: up{job="xcelsior-api"} == 0 or absent(up{job="xcelsior-api"})
-        for: 2m
-        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Xcelsior API cannot be scraped
-          description: Check API readiness and the native Prometheus target before restarting services.
-      - alert: XcelsiorControlPlaneMetricsUnavailable
-        expr: xcelsior_control_plane_metrics_available{job="xcelsior-api"} == 0 or absent(xcelsior_control_plane_metrics_available{job="xcelsior-api"})
-        for: 2m
-        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Durable control-plane metrics are unavailable
-          description: Missing database evidence is unknown; inspect collection errors and retain report_only repairs.
-      - alert: XcelsiorControlPlaneMetricsStale
-        expr: time() - xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api"} > 120
-        for: 2m
-        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Control-plane metrics stopped refreshing
-          description: Inspect the API metrics collector and database connectivity.
-      - alert: XcelsiorWorkerCommandDeadLettered
-        expr: xcelsior_commands_dead_lettered{job="xcelsior-api"} > 0
-        for: 2m
-        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Worker commands exhausted delivery or failed permanently
-          description: Inspect command error codes, worker sessions and claim history. Preserve failed rows.
-      - alert: XcelsiorQueueDelayed
-        expr: xcelsior_queue_oldest_age_seconds{job="xcelsior-api"} > 900
-        for: 5m
-        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: A queued job has waited more than fifteen minutes
-          description: Inspect capacity, hard placement constraints, scheduler heartbeats and queue reasons.
-      - alert: XcelsiorReconciliationCriticalFindings
-        expr: xcelsior_reconciliation_critical_findings{job="xcelsior-api"} > 0
-        for: 2m
-        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Reconciliation found an unresolved critical inconsistency
-          description: Inspect the finding and preserve report_only repair policy; do not enable automatic repair from an alert.
-      - alert: XcelsiorServiceHeartbeatMissing
-        expr: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api"} == 0
-        for: 2m
-        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: A control-plane service has no fresh heartbeat
-          description: Check the named service and its readiness probe before a controlled handoff.
-      - alert: XcelsiorBillingInvariantViolation
-        expr: xcelsior_billing_open_terminal_meters{job="xcelsior-api"} > 0
-        for: 2m
-        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Attempt billing and lifecycle disagree
-          description: Preserve meter and attempt history; inspect the report-only billing reconciliation findings.
-      - alert: XcelsiorUsageEvidenceMissing
-        expr: xcelsior_billing_missing_meters{job="xcelsior-api"} > 0
-        for: 2m
-        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: A started attempt has no usage-meter evidence
-          description: Review the attempt age, owner and captured price. Historical proof runs with incomplete evidence must stay visible; do not manufacture charges or enable repair enforcement to clear this alert.
-      - alert: XcelsiorEventDeliveryDeadLettered
-        expr: xcelsior_outbox_dead_letters{job="xcelsior-api"} > 0
-        for: 2m
-        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
-        annotations:
-          summary: Durable event delivery exhausted retries
-          description: Inspect the destination and retry history before replaying the event.
+- name: xcelsior.control-plane
+  rules:
+  - alert: XcelsiorApiUnavailable
+    expr: up{job="xcelsior-api"} == 0 or absent(up{job="xcelsior-api"})
+    for: 2m
+    labels:
+      severity: critical
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Xcelsior API cannot be scraped
+      description: Check API readiness and the native Prometheus target before restarting
+        services.
+  - alert: XcelsiorControlPlaneMetricsUnavailable
+    expr: xcelsior_control_plane_metrics_available{job="xcelsior-api"} == 0 or absent(xcelsior_control_plane_metrics_available{job="xcelsior-api"})
+    for: 2m
+    labels:
+      severity: warning
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Durable control-plane metrics are unavailable
+      description: Missing database evidence is unknown; inspect collection errors
+        and retain report_only repairs.
+  - alert: XcelsiorControlPlaneMetricsStale
+    expr: time() - xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api"}
+      > 120
+    for: 2m
+    labels:
+      severity: warning
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Control-plane metrics stopped refreshing
+      description: Inspect the API metrics collector and database connectivity.
+  - alert: XcelsiorWorkerCommandDeadLettered
+    expr: xcelsior_commands_dead_lettered{job="xcelsior-api"} > 0
+    for: 2m
+    labels:
+      severity: warning
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Worker commands exhausted delivery or failed permanently
+      description: Inspect command error codes, worker sessions and claim history.
+        Preserve failed rows.
+  - alert: XcelsiorQueueDelayed
+    expr: xcelsior_queue_oldest_age_seconds{job="xcelsior-api"} > 900
+    for: 5m
+    labels:
+      severity: warning
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: A queued job has waited more than fifteen minutes
+      description: Inspect capacity, hard placement constraints, scheduler heartbeats
+        and queue reasons.
+  - alert: XcelsiorReconciliationCriticalFindings
+    expr: xcelsior_reconciliation_critical_findings{job="xcelsior-api"} > 0
+    for: 2m
+    labels:
+      severity: critical
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Reconciliation found an unresolved critical inconsistency
+      description: Inspect the finding and preserve report_only repair policy; do
+        not enable automatic repair from an alert.
+  - alert: XcelsiorServiceHeartbeatMissing
+    expr: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: A control-plane service has no fresh heartbeat
+      description: Check the named service and its readiness probe before a controlled
+        handoff.
+  - alert: XcelsiorBillingInvariantViolation
+    expr: xcelsior_billing_open_terminal_meters{job="xcelsior-api"} > 0
+    for: 2m
+    labels:
+      severity: critical
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Attempt billing and lifecycle disagree
+      description: Preserve meter and attempt history; inspect the report-only billing
+        reconciliation findings.
+  - alert: XcelsiorUsageEvidenceMissing
+    expr: xcelsior_billing_missing_meters{job="xcelsior-api"} > 0
+    for: 2m
+    labels:
+      severity: warning
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: A started attempt has no usage-meter evidence
+      description: Review the attempt age, owner and captured price. Historical proof
+        runs with incomplete evidence must stay visible; do not manufacture charges
+        or enable repair enforcement to clear this alert.
+  - alert: XcelsiorEventDeliveryDeadLettered
+    expr: xcelsior_outbox_dead_letters{job="xcelsior-api"} > 0
+    for: 2m
+    labels:
+      severity: warning
+      platform: xcelsior
+      component: control-plane
+      owner: platform
+    annotations:
+      summary: Durable event delivery exhausted retries
+      description: Inspect the destination and retry history before replaying the
+        event.
+- name: xcelsior.native-database-recovery
+  rules:
+  - alert: XcelsiorBackupMetricMissing
+    expr: absent(xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host"})
+    for: 15m
+    labels:
+      severity: critical
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: Database backup freshness metric is missing
+      description: The native production-host freshness metric is absent. Check node
+        exporter, its textfile directory and the database timer.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+  - alert: XcelsiorBackupStale
+    expr: time() - xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host"}
+      > 93600
+    for: 10m
+    labels:
+      severity: critical
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: No successful PostgreSQL backup in 26 hours
+      description: Check the backup timer and repository without overwriting the last
+        known-good backup.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+  - alert: XcelsiorBackupFailedSinceLastSuccess
+    expr: xcelsior_backup_last_failure_timestamp_seconds{job="prod-hetzner-host"}
+      > xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host"}
+    for: 5m
+    labels:
+      severity: critical
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: The latest PostgreSQL backup attempt failed
+      description: A failure timestamp is newer than the last successful backup.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+  - alert: XcelsiorRestoreDrillMetricMissing
+    expr: absent(xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host"})
+    for: 1h
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: Restore-drill freshness metric is missing
+      description: The native production-host freshness metric is absent. Check node
+        exporter, its textfile directory and the database timer.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+  - alert: XcelsiorRestoreDrillStale
+    expr: time() - xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host"}
+      > 3024000
+    for: 1h
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: No successful restore drill in 35 days
+      description: Backups are not proven recoverable until an isolated restore drill
+        succeeds.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+  - alert: XcelsiorRestoreDrillFailedSinceLastSuccess
+    expr: xcelsior_restore_last_failure_timestamp_seconds{job="prod-hetzner-host"}
+      > xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host"}
+    for: 10m
+    labels:
+      severity: critical
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: The latest restore drill failed
+      description: A restore failure timestamp is newer than the last successful drill.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness

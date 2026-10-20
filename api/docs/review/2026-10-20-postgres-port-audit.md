@@ -8,7 +8,7 @@ SSH-gateway connections on 5434. The MCP container has no PostgreSQL DSN.
 Port **5432** is also live on this host: it serves the separate SPIRE database
 and PixelSpark databases. Their connections were observed there; no Xcelsior
 application connections were observed on 5432 during this check. The cluster
-also contains an older database named `xcelsior`, so connecting successfully
+also contains a database named `xcelsior` with different row counts, so connecting successfully
 with the right database name alone does not prove the correct cluster.
 
 The workspace `.env` explicitly selects 5434 in its port setting and all three
@@ -40,6 +40,12 @@ additional examples and test defaults. The
 whole-token occurrences in tracked text before adding this report, including
 their line numbers. Font bytes, image coordinates and dependency hashes are
 not PostgreSQL references.
+
+The scan also covered PostgreSQL commands without a literal port. CI schema
+export and pytest database setup use libpq port selection; the test-container
+initializer uses its local PostgreSQL socket. SPIRE host registration uses the
+explicit application DSN. Role audits, role provisioning and partition
+maintenance require a supplied DSN; they do not independently hardcode 5432.
 
 ## Reproduced operations defects
 
