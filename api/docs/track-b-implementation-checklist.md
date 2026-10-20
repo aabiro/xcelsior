@@ -2277,8 +2277,8 @@ period — measured, not assumed.
   it under the placement job lock. Worker execution/adoption require a lease
   before any container side effect. Gates: `tests/test_worker_execution_boundary.py`,
   `tests/test_agent_v2.py`, `tests/fixtures/legacy_execution_alerts.yml`.
-  **Residual:** these metrics are not deployed and no retention-window zero-use
-  proof exists. Remaining paths listed above still need instrumentation and
+  **Residual:** the production follow-up below deploys these metrics, but no
+  retention-window zero-use proof exists. Remaining paths still need instrumentation and
   retirement; B16.2/B16.3 remain open. Production is still `canary`, with twelve
   stopped jobs lacking fenced history. See
   [cutover boundary evidence](review/2026-10-20-worker-cutover-boundary.md).
@@ -2307,9 +2307,9 @@ period — measured, not assumed.
   passed. The checked production-host backups contain none of the expected
   volume paths, and both workers have no matching job-labeled images; no user
   data was restored or retired. Internal direct status writers and the other
-  paths in B16.1 still need coverage. Deployment and the continuous zero-use
-  window remain open. [Evidence](review/2026-10-20-legacy-observation-gates.md).
-  **Readiness follow-up:** the running native Prometheus has no API scrape
+  paths in B16.1 still need coverage. The continuous zero-use window remains
+  open; deployment is recorded below. [Evidence](review/2026-10-20-legacy-observation-gates.md).
+  **Pre-rollout readiness finding:** the running native Prometheus had no API scrape
   target or retirement rule. The counters are also process-local under the
   two-worker Gunicorn configuration; a fork/worker-exit probe reproduced a
   request invisible to the scraping process. Shared worker aggregation and
@@ -2324,9 +2324,24 @@ period — measured, not assumed.
   **336 selected tests passed** without failures/errors/skips. The read-only
   native plan passed config-syntax and retirement-rule validation on production's
   actual Prometheus 2.45.3: one loopback API scrape job and one rule-file reference
-  are the only additions; existing jobs/rules/receivers are preserved. Deployment,
-  alert delivery and the agreed continuous zero-use window remain open. See
+  are the only additions; existing jobs/rules/receivers are preserved. Alert
+  delivery and the agreed continuous zero-use window remain open. See
   [acceptance and rollout gates](review/2026-10-20-shared-legacy-metrics.md).
+  **Production rollout, 2026-10-20:** the API, maintenance worker and scheduler
+  are healthy on the verified candidate, preserving four exact pre-existing live
+  files. Both signed GPU workers confirmed v2 negotiation. The native API target
+  is up with aggregation 1, 32 usage series, eight policy series and eight
+  successful scrapes over two minutes with a stable generation. The retirement
+  rule is loaded and healthy. **360 selected tests passed**, with no failures,
+  errors or skips; three additional pre-existing Stripe test failures reproduced
+  on the unchanged candidate and remain separately recorded. Scheduler scope
+  stays canary and all repair policies remain `report_only`; schema is still 125.
+  The twelve protected rows and selected missing-volume metadata are unchanged.
+  Work polling and command draining have nonzero request counts, and retirement
+  policy is 0 for every path under this canary: this is not a zero-use window.
+  Other path instrumentation, native dashboard verification, receiver delivery,
+  recovery disposition and B16.2/B16.3 remain open. See the
+  [live evidence and rollback record](review/2026-10-20-control-plane-production-rollout.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration

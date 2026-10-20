@@ -1,5 +1,11 @@
 # Shared legacy metrics and native monitoring plan — 2026-10-20
 
+**Production follow-up:** the approved increment is now deployed, including
+signed GPU workers and the exact native monitoring additions. Live checks pass;
+repairs remain report-only and scheduler scope remains canary. See the
+[production rollout evidence and remaining gates](2026-10-20-control-plane-production-rollout.md).
+The planning and local acceptance record below describes the pre-rollout state.
+
 The local candidate closes the observed Gunicorn counter-aggregation defect.
 It also prepares and validates the two additions needed in the existing native
 production Prometheus configuration. Production was inspected and validation
