@@ -251,6 +251,8 @@ def ack_command(
     *,
     command_id: str,
     host_id: str,
+    worker_session_id: str | None = None,
+    claim_attempt: int | None = None,
     result: dict[str, Any] | None = None,
     result_retention_sec: int = DEFAULT_RESULT_RETENTION_SEC,
 ) -> AckOutcome:
@@ -269,6 +271,8 @@ def ack_command(
          WHERE command_id = %(command_id)s
            AND claim_owner = %(host_id)s
            AND status = 'claimed'
+           AND (%(session)s::text IS NULL OR claim_session = %(session)s)
+           AND (%(attempt)s::integer IS NULL OR attempt_count = %(attempt)s)
         RETURNING command_id
         """,
         {
@@ -276,6 +280,8 @@ def ack_command(
             "retention": result_retention_sec,
             "command_id": command_id,
             "host_id": host_id,
+            "session": worker_session_id,
+            "attempt": claim_attempt,
         },
     ).fetchone()
     if row is not None:
@@ -283,7 +289,7 @@ def ack_command(
     # Not transitioned — either a duplicate ACK (fine, replay stored
     # result) or an illegitimate one (error).
     existing = conn.execute(
-        "SELECT status, claim_owner, ack_result FROM agent_commands "
+        "SELECT status, claim_owner, ack_result, claim_session, attempt_count FROM agent_commands "
         "WHERE command_id = %s",
         (command_id,),
     ).fetchone()
@@ -293,7 +299,9 @@ def ack_command(
         )
     status = _get(existing, "status", 0)
     owner = _get(existing, "claim_owner", 1)
-    if status == "acknowledged" and owner == host_id:
+    if (status == "acknowledged" and owner == host_id
+            and (worker_session_id is None or _get(existing, "claim_session", 3) == worker_session_id)
+            and (claim_attempt is None or _get(existing, "attempt_count", 4) == claim_attempt)):
         return AckOutcome(
             command_id=command_id,
             duplicate=True,
@@ -311,6 +319,8 @@ def nack_command(
     *,
     command_id: str,
     host_id: str,
+    worker_session_id: str | None = None,
+    claim_attempt: int | None = None,
     error_code: str,
     error_details: dict[str, Any] | None = None,
     retryable: bool = True,
@@ -332,6 +342,8 @@ def nack_command(
          WHERE command_id = %(command_id)s
            AND claim_owner = %(host_id)s
            AND status = 'claimed'
+           AND (%(session)s::text IS NULL OR claim_session = %(session)s)
+           AND (%(attempt)s::integer IS NULL OR attempt_count = %(attempt)s)
         RETURNING attempt_count, max_attempts
         """,
         {
@@ -339,6 +351,8 @@ def nack_command(
             "details": Jsonb(error_details or {}),
             "command_id": command_id,
             "host_id": host_id,
+            "session": worker_session_id,
+            "attempt": claim_attempt,
         },
     ).fetchone()
     if row is None:
