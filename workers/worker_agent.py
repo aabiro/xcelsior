@@ -2098,6 +2098,10 @@ def _dispatch_agent_commands(commands: list) -> int:
                         timeout=5,
                     )
                     if inspect.returncode != 0:
+                        error = ((inspect.stderr or "") + (inspect.stdout or "")).lower()
+                        if "no such container" not in error and "no such object" not in error:
+                            log.warning("stop_container cmd=%s cannot inspect container; preserving ownership", cmd_id)
+                            continue
                         _active_containers.pop(_job_id, None)
                         now = time.time()
                         last_log = _missing_stop_container_log_at.get(cname, 0.0)
@@ -2119,18 +2123,26 @@ def _dispatch_agent_commands(commands: list) -> int:
                     log.info(
                         "Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by
                     )
-                    subprocess.run(
+                    stopped = subprocess.run(
                         ["docker", "stop", "-t", "30", cname],
                         capture_output=True,
                         text=True,
                         timeout=45,
                     )
-                    subprocess.run(
+                    if stopped.returncode != 0:
+                        log.warning("stop_container cmd=%s stop failed; retaining container", cmd_id)
+                        continue
+                    removed = subprocess.run(
                         ["docker", "rm", "-f", cname],
                         capture_output=True,
                         text=True,
                         timeout=15,
                     )
+                    if removed.returncode != 0:
+                        error = ((removed.stderr or "") + (removed.stdout or "")).lower()
+                        if "no such container" not in error and "no such object" not in error:
+                            log.warning("stop_container cmd=%s remove failed; retaining ownership", cmd_id)
+                            continue
                     _active_containers.pop(_job_id, None)
                     dispatched += 1
                 except subprocess.TimeoutExpired:
@@ -2774,7 +2786,8 @@ _legacy_execution_allowed = False
 # {lease_id, job_id, attempt_id, host_id, fencing_token,
 #  worker_session_id, renewal_ttl_sec, stop: threading.Event}
 _v2_attempts: dict = {}
-_v2_attempts_lock = threading.Lock()
+_v2_attempts_lock = threading.RLock()
+_v2_delivery_context = threading.local()
 
 
 def negotiate_protocol_v2() -> bool:
@@ -2795,7 +2808,7 @@ def negotiate_protocol_v2() -> bool:
             _v2_enabled = body["v2"]
             _protocol_negotiated = True
             _legacy_execution_allowed = body.get("legacy_execution_allowed") is True
-            if not _legacy_execution_allowed and (not _v2_enabled or not {"commands.host_claim_ack", "attempts.runtime_metadata"}.issubset(body.get("features") or [])):
+            if not _legacy_execution_allowed and (not _v2_enabled or not {"commands.host_claim_ack", "commands.session_fencing", "attempts.runtime_metadata"}.issubset(body.get("features") or [])):
                 _v2_enabled = False
                 _protocol_negotiated = False
                 log.error("Active control plane did not confirm the complete v2 contract; execution waits")
@@ -2849,7 +2862,7 @@ def v2_claim_commands(limit: int = 5) -> list:
 def v2_ack_command(command_id: str, result: dict | None = None) -> bool:
     code, _ = _v2_post(
         f"/agent/v2/commands/{command_id}/ack",
-        {"host_id": HOST_ID, "result": result or {}},
+        {"host_id": HOST_ID, "result": result or {}, **_v2_command_claim_identity(command_id)},
     )
     return code == 200
 
@@ -2864,9 +2877,27 @@ def v2_nack_command(
             "error_code": error_code,
             "error_details": details or {},
             "retryable": retryable,
+            **_v2_command_claim_identity(command_id),
         },
     )
     return code == 200
+
+
+def _v2_command_claim_identity(command_id: str) -> dict:
+    """A handler retains its own delivery, even if another thread reclaims it."""
+    delivery = getattr(_v2_delivery_context, "claim", None)
+    if delivery and delivery[0] == command_id:
+        return {"worker_session_id": WORKER_SESSION_ID, "claim_attempt": delivery[1]}
+    return {"worker_session_id": WORKER_SESSION_ID}
+
+
+def _v2_run_claimed_command(handler, command: dict):
+    previous = getattr(_v2_delivery_context, "claim", None)
+    _v2_delivery_context.claim = (str(command.get("command_id") or ""), int(command.get("attempt_count") or 1))
+    try:
+        return handler(command)
+    finally:
+        _v2_delivery_context.claim = previous
 
 
 def _v2_auth_payload(auth: dict) -> dict:
@@ -3056,16 +3087,32 @@ def _v2_journal_save() -> bool:
         snapshot[_V2_COMPLETED_COMMANDS_KEY] = {
             command_id: dict(record) for command_id, record in _v2_completed_commands.items()
         }
-    try:
-        os.makedirs(os.path.dirname(_V2_JOURNAL_PATH), exist_ok=True)
-        tmp = _V2_JOURNAL_PATH + ".tmp"
-        with open(tmp, "w") as fh:
-            json.dump(snapshot, fh)
-        os.replace(tmp, _V2_JOURNAL_PATH)
-        return True
-    except OSError as e:
-        log.warning("v2 journal save failed (%s) — adoption unavailable", e)
-        return False
+        temporary = None
+        try:
+            import tempfile
+
+            directory = os.path.dirname(os.path.abspath(_V2_JOURNAL_PATH))
+            os.makedirs(directory, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(prefix=".v2-journal-", dir=directory)
+            with os.fdopen(fd, "w") as output:
+                json.dump(snapshot, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, _V2_JOURNAL_PATH)
+            temporary = None
+            directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            return True
+        except OSError as exc:
+            log.warning("v2 journal save failed (%s) — durable acknowledgement unavailable", exc)
+            return False
+        finally:
+            if temporary is not None:
+                with suppress(OSError):
+                    os.unlink(temporary)
 
 
 def _v2_journal_load() -> dict:
@@ -3091,18 +3138,33 @@ def _v2_journal_load() -> dict:
         return {}
 
 
-def _v2_mark_command_complete(command_id: str, result: dict, *, strict: bool = False) -> None:
-    """Durably remember an outcome before relying on its network ACK."""
+def _v2_mark_command_complete(command_id: str, result: dict, *, strict: bool = False) -> bool:
+    """Publish a replayable result only after its serialized save is durable."""
     with _v2_attempts_lock:
+        previous = _v2_completed_commands.get(command_id)
         _v2_completed_commands[command_id] = {
             "result": dict(result),
             "completed_at": time.time(),
         }
-    saved = _v2_journal_save()
-    if strict and not saved:
-        with _v2_attempts_lock:
+        if _v2_journal_save():
+            return True
+        if previous is None:
             _v2_completed_commands.pop(command_id, None)
-        raise OSError("Worker command result journal is unavailable")
+        else:
+            _v2_completed_commands[command_id] = previous
+        if strict:
+            raise OSError("Worker command result journal is unavailable")
+        return False
+
+
+def _v2_record_and_ack(command_id: str, result: dict) -> bool:
+    try:
+        _v2_mark_command_complete(command_id, result, strict=True)
+    except OSError:
+        v2_nack_command(command_id, "journal_unavailable", retryable=True)
+        return False
+    v2_ack_command(command_id, result)
+    return True
 
 
 def _v2_completed_command_result(command_id: str) -> dict | None:
@@ -3334,8 +3396,7 @@ def v2_adopt_attempts() -> int:
                 command_id = str(pending.get("command_id") or "")
                 result = pending.get("result")
                 if command_id and isinstance(result, dict):
-                    _v2_mark_command_complete(command_id, result)
-                    v2_ack_command(command_id, result)
+                    _v2_record_and_ack(command_id, result)
             if report_outcome == "error":
                 # Retain the terminal intent so the next redelivery/restart
                 # retries the fenced report instead of misclassifying a
@@ -3524,15 +3585,18 @@ def handle_start_attempt(cmd: dict) -> None:
 
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
-    _v2_journal_save()
+    if not _v2_journal_save():
+        _v2_forget_attempt(job_id, auth)
+        v2_nack_command(command_id, "journal_unavailable", retryable=True)
+        return
     lease_report = v2_report_attempt_status(auth, "lease_claimed")
     if lease_report == "fenced":
         _v2_forget_attempt(job_id)
         v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
         return
     start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
-    _v2_mark_command_complete(command_id, start_result)
-    v2_ack_command(command_id, start_result)
+    if not _v2_record_and_ack(command_id, start_result):
+        return
 
     threading.Thread(
         target=_v2_renewal_loop,
@@ -3703,8 +3767,7 @@ def handle_stop_attempt(cmd: dict) -> None:
         stop_event.set()
     outcome = v2_report_attempt_status(auth, "stopped")
     if outcome == "ok":
-        _v2_mark_command_complete(command_id, result)
-        v2_ack_command(command_id, result)
+        _v2_record_and_ack(command_id, result)
         _v2_forget_attempt(job_id)
     elif outcome == "fenced":
         v2_nack_command(command_id, "stop_status_fenced", retryable=False)
@@ -3816,62 +3879,64 @@ def _complete_host_restart_command(command_id: str, name: str) -> None:
 
 
 def drain_v2_commands() -> int:
-    """Claim + dispatch attempt-bound commands (v2 work delivery)."""
+    """Claim host and attempt commands without sharing delivery identity."""
     if not _v2_enabled:
         return 0
-    commands = v2_claim_commands()
+    return sum(_v2_run_claimed_command(_dispatch_v2_command, command) for command in v2_claim_commands())
+
+
+def _dispatch_v2_command(cmd: dict) -> int:
     dispatched = 0
-    for cmd in commands:
-        command_id = str(cmd.get("command_id") or "")
-        completed_result = _v2_completed_command_result(command_id)
-        if completed_result is not None:
-            # The side effect and terminal status completed before an earlier
-            # ACK reached the API. Replay only the durable result; never touch
-            # Docker twice.
-            if v2_ack_command(command_id, completed_result):
+    command_id = str(cmd.get("command_id") or "")
+    completed_result = _v2_completed_command_result(command_id)
+    if completed_result is not None:
+        # The side effect and terminal status completed before an earlier
+        # ACK reached the API. Replay only the durable result; never touch
+        # Docker twice.
+        if v2_ack_command(command_id, completed_result):
+            dispatched += 1
+        return dispatched
+    name = cmd.get("command")
+    if name == "start_attempt":
+        job_ref = str(cmd.get("job_id") or "?")
+        threading.Thread(
+            target=_v2_run_claimed_command,
+            args=(handle_start_attempt, cmd),
+            name=f"v2-start-{job_ref[:8]}",
+            daemon=True,
+        ).start()
+        dispatched += 1
+    elif name == "stop_attempt":
+        job_ref = str(cmd.get("job_id") or "?")
+        threading.Thread(
+            target=_v2_run_claimed_command,
+            args=(handle_stop_attempt, cmd),
+            name=f"v2-stop-{job_ref[:8]}",
+            daemon=True,
+        ).start()
+        dispatched += 1
+    elif name in _AGENT_COMMAND_ALLOWED and not cmd.get("attempt_id"):
+        # Host commands now share the durable command protocol. A lost ACK
+        # replays the journaled result rather than deleting work on fetch.
+        host_cmd = {**cmd, "id": command_id, "_durable": True}
+        if _dispatch_agent_commands([host_cmd]) == 1:
+            result = {"dispatched": True, "command": name, "worker_session_id": WORKER_SESSION_ID, "protocol": 2}
+            try:
+                _v2_mark_command_complete(command_id, result, strict=True)
+            except OSError:
+                v2_nack_command(command_id, "journal_unavailable", retryable=True)
+                return dispatched
+            if v2_ack_command(command_id, result):
                 dispatched += 1
-            continue
-        name = cmd.get("command")
-        if name == "start_attempt":
-            job_ref = str(cmd.get("job_id") or "?")
-            threading.Thread(
-                target=handle_start_attempt,
-                args=(cmd,),
-                name=f"v2-start-{job_ref[:8]}",
-                daemon=True,
-            ).start()
-            dispatched += 1
-        elif name == "stop_attempt":
-            job_ref = str(cmd.get("job_id") or "?")
-            threading.Thread(
-                target=handle_stop_attempt,
-                args=(cmd,),
-                name=f"v2-stop-{job_ref[:8]}",
-                daemon=True,
-            ).start()
-            dispatched += 1
-        elif name in _AGENT_COMMAND_ALLOWED and not cmd.get("attempt_id"):
-            # Host commands now share the durable command protocol. A lost ACK
-            # replays the journaled result rather than deleting work on fetch.
-            host_cmd = {**cmd, "id": command_id, "_durable": True}
-            if _dispatch_agent_commands([host_cmd]) == 1:
-                result = {"dispatched": True, "command": name, "worker_session_id": WORKER_SESSION_ID, "protocol": 2}
-                try:
-                    _v2_mark_command_complete(command_id, result, strict=True)
-                except OSError:
-                    v2_nack_command(command_id, "journal_unavailable", retryable=True)
-                    continue
-                if v2_ack_command(command_id, result):
-                    dispatched += 1
-            else:
-                v2_nack_command(command_id, "host_command_failed", retryable=True)
         else:
-            v2_nack_command(
-                command_id,
-                "unsupported_command",
-                {"command": str(name)},
-                retryable=False,
-            )
+            v2_nack_command(command_id, "host_command_failed", retryable=True)
+    else:
+        v2_nack_command(
+            command_id,
+            "unsupported_command",
+            {"command": str(name)},
+            retryable=False,
+        )
     return dispatched
 
 
@@ -5564,8 +5629,7 @@ def _v2_monitor_container(auth: dict) -> None:
                     command_id = str(pending.get("command_id") or "")
                     result = pending.get("result")
                     if command_id and isinstance(result, dict):
-                        _v2_mark_command_complete(command_id, result)
-                        v2_ack_command(command_id, result)
+                        _v2_record_and_ack(command_id, result)
                 if outcome != "error":
                     _v2_forget_attempt(job_id, auth)
             else:

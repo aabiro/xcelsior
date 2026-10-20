@@ -48,6 +48,7 @@ FEATURES = (
     "leases.fenced",
     "attempts.fenced_status",
     "commands.host_claim_ack",
+    "commands.session_fencing",
     "attempts.runtime_metadata",
 )
 
@@ -137,6 +138,8 @@ def api_v2_commands_claim(req: CommandClaimRequest, request: Request):
 
 class CommandAckRequest(BaseModel):
     host_id: str = Field(min_length=1, max_length=128)
+    worker_session_id: str | None = Field(default=None, min_length=1, max_length=128)
+    claim_attempt: int | None = Field(default=None, ge=1, strict=True)
     result: dict[str, Any] | None = None
 
 
@@ -144,9 +147,12 @@ class CommandAckRequest(BaseModel):
 def api_v2_command_ack(command_id: str, req: CommandAckRequest, request: Request):
     """Once-only terminal ACK; duplicates replay the stored result."""
     _require_agent_auth(request, host_id=req.host_id)
+    _require_command_claim_identity(req.worker_session_id, req.claim_attempt)
     try:
         outcome = run_transaction(
-            lambda c: ack_command(c, command_id=command_id, host_id=req.host_id, result=req.result),
+            lambda c: ack_command(c, command_id=command_id, host_id=req.host_id,
+                                  worker_session_id=req.worker_session_id, claim_attempt=req.claim_attempt,
+                                  result=req.result),
             what="v2_command_ack",
         )
     except CommandProtocolError as exc:
@@ -156,6 +162,8 @@ def api_v2_command_ack(command_id: str, req: CommandAckRequest, request: Request
 
 class CommandNackRequest(BaseModel):
     host_id: str = Field(min_length=1, max_length=128)
+    worker_session_id: str | None = Field(default=None, min_length=1, max_length=128)
+    claim_attempt: int | None = Field(default=None, ge=1, strict=True)
     error_code: str = Field(min_length=1, max_length=64)
     error_details: dict[str, Any] | None = None
     retryable: bool = True
@@ -165,12 +173,15 @@ class CommandNackRequest(BaseModel):
 def api_v2_command_nack(command_id: str, req: CommandNackRequest, request: Request):
     """Typed failure report → bounded-backoff redelivery or dead-letter."""
     _require_agent_auth(request, host_id=req.host_id)
+    _require_command_claim_identity(req.worker_session_id, req.claim_attempt)
     try:
         status = run_transaction(
             lambda c: nack_command(
                 c,
                 command_id=command_id,
                 host_id=req.host_id,
+                worker_session_id=req.worker_session_id,
+                claim_attempt=req.claim_attempt,
                 error_code=req.error_code,
                 error_details=req.error_details,
                 retryable=req.retryable,
@@ -180,6 +191,16 @@ def api_v2_command_nack(command_id: str, req: CommandNackRequest, request: Reque
     except CommandProtocolError as exc:
         raise HTTPException(409, detail={"error": {"code": "nack_rejected", "message": str(exc)}})
     return {"ok": True, "status": status}
+
+
+def _require_command_claim_identity(session: str | None, attempt: int | None) -> None:
+    from control_plane.legacy_execution import legacy_execution_allowed
+
+    if not legacy_execution_allowed() and (not session or attempt is None):
+        raise HTTPException(422, detail={"error": {
+            "code": "command_claim_identity_required",
+            "message": "Active command completion requires the claiming session and delivery attempt",
+        }})
 
 
 # ── Fenced leases (§11.2 hard gate) ──────────────────────────────────
