@@ -186,7 +186,6 @@
     "whitespace_exit_code": 0
   },
   "remaining": [
-    "build and runtime-probe the committed candidate",
     "API-first rollout of accumulated fixes with launcher/image/Compose deployed together; preserve scoped canary and report_only repairs",
     "stage the isolated retirement rules and additive native monitoring candidate after verifying source hash; full installed validation and atomic reload with rollback",
     "verify source identity, all expected API scrapes and complete series, aggregation 1, stable generation and receiver delivery",
@@ -202,5 +201,96 @@
     },
     "gate_exit_code": 0,
     "manifest_sha256": "7f8d8e166e96dfead7d34e279294a61a2ec88710e2f21acd0cbf4ebbb321a2d9"
+  },
+  "candidate_image": {
+    "source_sha256": {
+      "core/prometheus_export.py": "2f8b7391eb98f31064364e7ac774db702cfa04628da321861bebbab2e1e9299c",
+      "api/routes/health.py": "83f7db28bb0dec866986e443499c98140c789eb18b2fbf541b5b5b480b6c65d3",
+      "gunicorn.conf.py": "af444c13301fcebabaf30e3398db3fd0e5b097e4fe27c8e327512ddea377682c",
+      "api/scripts/start_api.sh": "913c72230a5b8f5a0995ef25be3896ab84890943b588efa48a2a86462e8a91b3",
+      "api/scripts/plan_native_prometheus.py": "a7ab0105b1a4477c02dff54b39102584daec258aa7860ed4aeb7404e1d242c0e",
+      "Dockerfile": "dabea238e3edce954c60106723fdfe0e5fc2b0ff56440b38aad2ff07d7114b7f",
+      "docker-compose.yml": "02223633d440bde39841d600e060a4bd0e7b9ce33b6eeded20564d3d958f6d35",
+      "control_plane/legacy_execution.py": "a4ed934edd3a6c65c8bccbdd86acb395eb26cf9c16b6857d674e748fd89da393",
+      "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc"
+    },
+    "counter_after_normal_exit_and_sigkill": 7.0,
+    "aggregation_enabled": 1,
+    "worker_signatures_verified": 12,
+    "private_environment_absent": true,
+    "signing_key_absent": true,
+    "metrics_directory_mode": 448,
+    "generation_started": 1792493310.7974432,
+    "image": "xcelsior-api:shared-metrics-82c4a59b",
+    "image_id": "sha256:f937b0e132f817036f8f5dbc1df987213d98c80e5dc36afcd8fb227c32a66f4d",
+    "commit": "82c4a59bbce64b489776e72cd2f7b9f28e52dcd2",
+    "build_exit_code": 0,
+    "runtime_probe_exit_code": 0,
+    "runtime_user": "10001:10001",
+    "network": "none",
+    "rootfs": "read-only"
+  },
+  "native_api_scrape_probe": {
+    "http_status": 200,
+    "prometheus_type_present": true,
+    "legacy_usage_present": false,
+    "read_only": true,
+    "collected_at": "2026-10-20T10:46:41.295581+00:00",
+    "endpoint": "http://127.0.0.1:9500/metrics/prometheus"
+  },
+  "production_policies": {
+    "xcelsior-api-1": {
+      "collected_at": "2026-10-20T10:48:50.747408+00:00",
+      "scheduler_mode": "canary",
+      "canary_hosts": "aaryn-tuf-rtx2060,tower-rtx3060",
+      "canary_gpu_models": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+      "repairs": {
+        "attempt_container_missing": "report_only",
+        "billing_active_meter_missing": "report_only",
+        "billing_missing_meter": "report_only",
+        "billing_orphaned_meter": "report_only",
+        "job_lease_authority_missing": "report_only",
+        "job_stop_command_missing": "report_only",
+        "orphaned_allocation": "report_only",
+        "stale_fence_container": "report_only"
+      }
+    },
+    "xcelsior-bg-worker-1": {
+      "collected_at": "2026-10-20T10:48:53.110439+00:00",
+      "scheduler_mode": "canary",
+      "canary_hosts": "aaryn-tuf-rtx2060,tower-rtx3060",
+      "canary_gpu_models": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+      "repairs": {
+        "attempt_container_missing": "report_only",
+        "billing_active_meter_missing": "report_only",
+        "billing_missing_meter": "report_only",
+        "billing_orphaned_meter": "report_only",
+        "job_lease_authority_missing": "report_only",
+        "job_stop_command_missing": "report_only",
+        "orphaned_allocation": "report_only",
+        "stale_fence_container": "report_only"
+      }
+    },
+    "xcelsior-scheduler-worker-1": {
+      "collected_at": "2026-10-20T10:48:55.527259+00:00",
+      "scheduler_mode": "canary",
+      "canary_hosts": "aaryn-tuf-rtx2060,tower-rtx3060",
+      "canary_gpu_models": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+      "repairs": {
+        "attempt_container_missing": "report_only",
+        "billing_active_meter_missing": "report_only",
+        "billing_missing_meter": "report_only",
+        "billing_orphaned_meter": "report_only",
+        "job_lease_authority_missing": "report_only",
+        "job_stop_command_missing": "report_only",
+        "orphaned_allocation": "report_only",
+        "stale_fence_container": "report_only"
+      }
+    }
+  },
+  "artifact_sha256": {
+    "candidate-image.json": "500f628dd26abfd74531d31134753635b65b380b62735b4c4e297a5cb15a7af7",
+    "native-api-scrape-probe.json": "3dd5a4359d25cdfee9ffbce57f1afd818dff2f5f61d204acff44eab9b342ba37",
+    "production-policies.json": "1eb386a38565b03360e264bd060e786a941419d238063c1e5ae46e1d3d6454ec"
   }
 }

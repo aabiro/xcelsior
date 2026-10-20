@@ -86,9 +86,31 @@ The complete reviewed plan and validation output digests are in the evidence.
 No configuration credentials appear in the report. A syntax-only check does not
 install referenced files or prove that targets/rules/notifications are live.
 
+An unauthenticated request to the API's private loopback metrics socket returned
+HTTP 200 and Prometheus text; the current deployed image does not yet expose the
+legacy usage family. This confirms scrape reachability, not deployment of the
+new counters.
+
+## Committed candidate package
+
+Implementation commit `82c4a59bbce64b489776e72cd2f7b9f28e52dcd2` built from a
+clean worktree as `xcelsior-api:shared-metrics-82c4a59b`, image
+`sha256:f937b0e132f817036f8f5dbc1df987213d98c80e5dc36afcd8fb227c32a66f4d`.
+The packaged default command uses the new launcher and runs as `10001:10001`.
+A network-disabled, read-only probe used the actual launcher and Gunicorn hooks,
+recorded seven requests across normal worker exit and SIGKILL, and exported all
+seven after both workers were gone. Aggregation readiness was 1, the directory
+was mode 0700, all selected sources matched and all twelve distribution
+signatures verified. The image contains neither the private environment file
+nor the signing key. This is local package proof, not production deployment.
+
+The commit scanner flagged an embedded synthetic password in a planner test.
+The fixture now generates that value per process; all 19 planner tests passed
+again, and the normal commit scan passed without bypassing it.
+
 ## Rollout and remaining gates
 
-Build/probe the committed candidate, then deploy the image and launcher/Compose
+Deploy the verified candidate image and launcher/Compose
 changes together in API-first order before upgrading signed workers. Preserve
 the scoped canary and all report-only repair policies. Back up and verify the
 native monitoring source hash before staging its isolated rule file and the
