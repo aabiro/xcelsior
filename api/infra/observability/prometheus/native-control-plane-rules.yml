@@ -1,0 +1,66 @@
+groups:
+  - name: xcelsior.control-plane
+    rules:
+      - alert: XcelsiorApiUnavailable
+        expr: up{job="xcelsior-api"} == 0 or absent(up{job="xcelsior-api"})
+        for: 2m
+        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Xcelsior API cannot be scraped
+          description: Check API readiness and the native Prometheus target before restarting services.
+      - alert: XcelsiorControlPlaneMetricsUnavailable
+        expr: xcelsior_control_plane_metrics_available{job="xcelsior-api"} == 0 or absent(xcelsior_control_plane_metrics_available{job="xcelsior-api"})
+        for: 2m
+        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Durable control-plane metrics are unavailable
+          description: Missing database evidence is unknown; inspect collection errors and retain report_only repairs.
+      - alert: XcelsiorControlPlaneMetricsStale
+        expr: time() - xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api"} > 120
+        for: 2m
+        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Control-plane metrics stopped refreshing
+          description: Inspect the API metrics collector and database connectivity.
+      - alert: XcelsiorWorkerCommandDeadLettered
+        expr: xcelsior_commands_dead_lettered{job="xcelsior-api"} > 0
+        for: 2m
+        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Worker commands exhausted delivery or failed permanently
+          description: Inspect command error codes, worker sessions and claim history. Preserve failed rows.
+      - alert: XcelsiorQueueDelayed
+        expr: xcelsior_queue_oldest_age_seconds{job="xcelsior-api"} > 900
+        for: 5m
+        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: A queued job has waited more than fifteen minutes
+          description: Inspect capacity, hard placement constraints, scheduler heartbeats and queue reasons.
+      - alert: XcelsiorReconciliationCriticalFindings
+        expr: xcelsior_reconciliation_critical_findings{job="xcelsior-api"} > 0
+        for: 2m
+        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Reconciliation found an unresolved critical inconsistency
+          description: Inspect the finding and preserve report_only repair policy; do not enable automatic repair from an alert.
+      - alert: XcelsiorServiceHeartbeatMissing
+        expr: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api"} == 0
+        for: 2m
+        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: A control-plane service has no fresh heartbeat
+          description: Check the named service and its readiness probe before a controlled handoff.
+      - alert: XcelsiorBillingInvariantViolation
+        expr: xcelsior_billing_missing_meters{job="xcelsior-api"} > 0 or xcelsior_billing_open_terminal_meters{job="xcelsior-api"} > 0
+        for: 2m
+        labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Attempt billing and lifecycle disagree
+          description: Preserve meter and attempt history; inspect the report-only billing reconciliation findings.
+      - alert: XcelsiorEventDeliveryDeadLettered
+        expr: xcelsior_outbox_dead_letters{job="xcelsior-api"} > 0
+        for: 2m
+        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: Durable event delivery exhausted retries
+          description: Inspect the destination and retry history before replaying the event.
