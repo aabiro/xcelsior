@@ -116,7 +116,7 @@ def test_negotiation_failure_never_falls_back_to_legacy_poll(
 def test_negotiation_requires_explicit_boolean_permission(
     isolated_worker, monkeypatch, legacy_allowed
 ):
-    body = {"protocol": 2, "v2": True, "features": []}
+    body = {"protocol": 2, "v2": True, "features": ["commands.host_claim_ack", "attempts.runtime_metadata"]}
     if legacy_allowed is not None:
         body["legacy_execution_allowed"] = legacy_allowed
     api = mock.Mock(return_value=SimpleNamespace(status_code=200, json=lambda: body))
@@ -149,7 +149,7 @@ def test_uncertain_startup_retries_then_adopts_once(isolated_worker, monkeypatch
         SimpleNamespace(status_code=503, json=lambda: {}),
         SimpleNamespace(
             status_code=200,
-            json=lambda: {"protocol": 2, "v2": True, "legacy_execution_allowed": False},
+            json=lambda: {"protocol": 2, "v2": True, "legacy_execution_allowed": False, "features": ["commands.host_claim_ack", "attempts.runtime_metadata"]},
         ),
     ]
     api = mock.Mock(side_effect=bodies)

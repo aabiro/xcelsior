@@ -1710,7 +1710,7 @@ def _fetch_sibling_modules(base_url: str, modules: dict) -> dict[Path, bytes] | 
     return staged
 
 
-def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
+def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?", before_restart=None) -> bool:
     """Handle an ``upgrade_agent`` directive from the control plane (P1.2).
 
     args: {
@@ -1875,6 +1875,8 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
             cmd_id,
             actual_sha[:12],
         )
+        if before_restart:
+            before_restart()
         logging.shutdown()
         os._exit(0)
     except Exception as e:
@@ -1893,6 +1895,7 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
 #: sync with routes/agent.py::_AGENT_COMMAND_ALLOWED.
 _AGENT_COMMAND_ALLOWED = frozenset(
     {
+        "health_probe",
         "reinject_shell",
         "upgrade_agent",
         "rollback_agent",  # P1.2 — auto-rollback driver restores .bak
@@ -1963,6 +1966,8 @@ def drain_agent_commands() -> int:
 
     Returns the number of commands successfully dispatched.
     """
+    if _v2_enabled or (_protocol_negotiated and not _legacy_execution_allowed):
+        return 0
     try:
         resp = _api_request(
             "get",
@@ -1977,6 +1982,11 @@ def drain_agent_commands() -> int:
         _report_agent_degraded("drain_commands_error", context=str(e))
         return 0
 
+    return _dispatch_agent_commands(commands)
+
+
+def _dispatch_agent_commands(commands: list) -> int:
+    """Execute already-delivered host directives; delivery owns ACK/NACK."""
     dispatched = 0
     for cmd in commands:
         name = cmd.get("command")
@@ -1999,7 +2009,9 @@ def drain_agent_commands() -> int:
                 _agent_commands_rejected_total.labels(command=name).inc()
                 _report_agent_degraded("legacy_lifecycle_refused", context=f"command={name} id={cmd_id}")
                 continue
-            if name == "reinject_shell":
+            if name == "health_probe":
+                dispatched += 1
+            elif name == "reinject_shell":
                 job_id = args.get("job_id") or ""
                 container_name = args.get("container_name") or (f"xcl-{job_id}" if job_id else "")
                 if not job_id or not container_name:
@@ -2029,7 +2041,10 @@ def drain_agent_commands() -> int:
                 dispatched += 1
             elif name == "upgrade_agent":
                 log.info("Executing admin upgrade_agent cmd=%s by=%s", cmd_id, by)
-                if _handle_upgrade_agent(args, cmd_id=str(cmd_id or ""), by=str(by)):
+                kwargs = {"cmd_id": str(cmd_id or ""), "by": str(by)}
+                if cmd.get("_durable"):
+                    kwargs["before_restart"] = lambda: _complete_host_restart_command(str(cmd_id), name)
+                if _handle_upgrade_agent(args, **kwargs):
                     dispatched += 1
             elif name == "rollback_agent":
                 # P1.2 — auto-rollback driver: swap the previously-written
@@ -2060,6 +2075,8 @@ def drain_agent_commands() -> int:
 
                     _os.replace(_bak, _self)
                     log.warning("rollback_agent cmd=%s restored .bak — exiting for restart", cmd_id)
+                    if cmd.get("_durable"):
+                        _complete_host_restart_command(str(cmd_id), name)
                     logging.shutdown()
                     _os._exit(0)
                 except Exception as e:
@@ -2520,6 +2537,16 @@ def report_job_status(
     if expected_v2_auth is not None and not _v2_same_authority(v2_auth, expected_v2_auth):
         return False
 
+    runtime_metadata = {}
+    for name, value in (("container_id", container_id), ("container_name", container_name),
+                        ("public_ssh_port", ssh_port), ("interactive", interactive)):
+        if value is not None:
+            runtime_metadata[name] = value
+    if error_message:
+        runtime_metadata["error_message"] = error_message[:500]
+    if resume_from:
+        runtime_metadata.update(resume_from=resume_from, resumable=bool(resume_from.get("success")))
+
     # Phase 5: mirror lifecycle onto the fenced attempt when this job is
     # v2-owned (no-op otherwise). Runs first so the fenced report cannot
     # be skipped by a v1 transport failure.
@@ -2528,6 +2555,7 @@ def report_job_status(
         mirror_outcome = _v2_on_job_status(
             job_id, status, error_message=error_message, policy_reason=policy_reason,
             expected_auth=expected_v2_auth,
+            **({"runtime_metadata": runtime_metadata} if runtime_metadata else {}),
         )
     except Exception as _v2_exc:
         log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
@@ -2542,6 +2570,11 @@ def report_job_status(
             job_id,
             mirror_outcome,
         )
+        return False
+
+    if v2_auth:
+        return mirror_outcome == "ok"
+    if _protocol_negotiated and not _legacy_execution_allowed:
         return False
 
     # The fenced transaction is authoritative. A lost compatibility PATCH
@@ -2762,6 +2795,10 @@ def negotiate_protocol_v2() -> bool:
             _v2_enabled = body["v2"]
             _protocol_negotiated = True
             _legacy_execution_allowed = body.get("legacy_execution_allowed") is True
+            if not _legacy_execution_allowed and (not _v2_enabled or not {"commands.host_claim_ack", "attempts.runtime_metadata"}.issubset(body.get("features") or [])):
+                _v2_enabled = False
+                _protocol_negotiated = False
+                log.error("Active control plane did not confirm the complete v2 contract; execution waits")
             log.info("Protocol negotiated: v2=%s legacy_execution=%s", _v2_enabled,
                      _legacy_execution_allowed)
         else:
@@ -2802,7 +2839,7 @@ def _v2_post(path: str, payload: dict, timeout: int = 10):
 def v2_claim_commands(limit: int = 5) -> list:
     code, body = _v2_post(
         "/agent/v2/commands/claim",
-        {"host_id": HOST_ID, "worker_session_id": WORKER_SESSION_ID, "limit": limit},
+        {"host_id": HOST_ID, "worker_session_id": WORKER_SESSION_ID, "limit": limit, "host_commands": True},
     )
     if code != 200:
         return []
@@ -2873,7 +2910,8 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
 
 
 def v2_report_attempt_status(
-    auth: dict, status: str, failure_code: str | None = None, detail: dict | None = None
+    auth: dict, status: str, failure_code: str | None = None, detail: dict | None = None,
+    runtime_metadata: dict | None = None,
 ) -> str:
     """Fenced status report. Returns 'ok', 'fenced', or 'error'."""
     payload = {
@@ -2887,6 +2925,8 @@ def v2_report_attempt_status(
         payload["failure_code"] = failure_code
     if detail:
         payload["detail"] = detail
+    if runtime_metadata:
+        payload["runtime_metadata"] = runtime_metadata
     code, _body = _v2_post("/agent/v2/attempts/status", payload)
     if code == 200:
         return "ok"
@@ -2983,7 +3023,7 @@ _V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
 _v2_completed_commands: dict[str, dict] = {}
 
 
-def _v2_journal_save() -> None:
+def _v2_journal_save() -> bool:
     """Persist attempt authority and replayable command results atomically."""
     with _v2_attempts_lock:
         cutoff = time.time() - _V2_COMMAND_RESULT_RETENTION_SEC
@@ -3022,8 +3062,10 @@ def _v2_journal_save() -> None:
         with open(tmp, "w") as fh:
             json.dump(snapshot, fh)
         os.replace(tmp, _V2_JOURNAL_PATH)
+        return True
     except OSError as e:
         log.warning("v2 journal save failed (%s) — adoption unavailable", e)
+        return False
 
 
 def _v2_journal_load() -> dict:
@@ -3049,14 +3091,18 @@ def _v2_journal_load() -> dict:
         return {}
 
 
-def _v2_mark_command_complete(command_id: str, result: dict) -> None:
+def _v2_mark_command_complete(command_id: str, result: dict, *, strict: bool = False) -> None:
     """Durably remember an outcome before relying on its network ACK."""
     with _v2_attempts_lock:
         _v2_completed_commands[command_id] = {
             "result": dict(result),
             "completed_at": time.time(),
         }
-    _v2_journal_save()
+    saved = _v2_journal_save()
+    if strict and not saved:
+        with _v2_attempts_lock:
+            _v2_completed_commands.pop(command_id, None)
+        raise OSError("Worker command result journal is unavailable")
 
 
 def _v2_completed_command_result(command_id: str) -> dict | None:
@@ -3375,9 +3421,9 @@ _V2_STATUS_MAP = {
 
 def _v2_on_job_status(
     job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None,
-    expected_auth: dict | None = None,
+    expected_auth: dict | None = None, runtime_metadata: dict | None = None,
 ) -> str:
-    """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
+    """Shared runner status funnel: mirror lifecycle onto the fenced attempt.
 
     report_job_status() is the single funnel every v1 code path uses, so
     hooking here covers all of run_job's exit points without forking its
@@ -3395,7 +3441,8 @@ def _v2_on_job_status(
         return "not_v2"
     failure_code = (policy_reason or "container_failed") if v2_status == "failed" else None
     detail = {"error": error_message[:300]} if (error_message and failure_code) else None
-    outcome = v2_report_attempt_status(auth, v2_status, failure_code, detail)
+    outcome = (v2_report_attempt_status(auth, v2_status, failure_code, detail, runtime_metadata=runtime_metadata)
+               if runtime_metadata else v2_report_attempt_status(auth, v2_status, failure_code, detail))
     if outcome == "fenced":
         container_name = auth.get("container_name")
         _v2_forget_attempt(job_id, auth)
@@ -3761,6 +3808,13 @@ def report_observations_v2(force: bool = False) -> bool:
     return code == 200
 
 
+def _complete_host_restart_command(command_id: str, name: str) -> None:
+    """Retain success before the process exits to run newly installed bytes."""
+    result = {"dispatched": True, "command": name}
+    _v2_mark_command_complete(command_id, result, strict=True)
+    v2_ack_command(command_id, result)
+
+
 def drain_v2_commands() -> int:
     """Claim + dispatch attempt-bound commands (v2 work delivery)."""
     if not _v2_enabled:
@@ -3796,6 +3850,21 @@ def drain_v2_commands() -> int:
                 daemon=True,
             ).start()
             dispatched += 1
+        elif name in _AGENT_COMMAND_ALLOWED and not cmd.get("attempt_id"):
+            # Host commands now share the durable command protocol. A lost ACK
+            # replays the journaled result rather than deleting work on fetch.
+            host_cmd = {**cmd, "id": command_id, "_durable": True}
+            if _dispatch_agent_commands([host_cmd]) == 1:
+                result = {"dispatched": True, "command": name, "worker_session_id": WORKER_SESSION_ID, "protocol": 2}
+                try:
+                    _v2_mark_command_complete(command_id, result, strict=True)
+                except OSError:
+                    v2_nack_command(command_id, "journal_unavailable", retryable=True)
+                    continue
+                if v2_ack_command(command_id, result):
+                    dispatched += 1
+            else:
+                v2_nack_command(command_id, "host_command_failed", retryable=True)
         else:
             v2_nack_command(
                 command_id,
@@ -7830,7 +7899,10 @@ def main():
     # ── Step 7c: Benchmark + verification report, in the background ──
     # After adoption, so a job that survived the restart is known: the benchmark
     # saturates the GPU and is deferred while one runs (see _start_reverification).
-    _start_reverification()
+    if os.environ.get("XCELSIOR_WORKER_VERIFY_ON_STARTUP", "true").strip().lower() in ("1", "true", "yes", "on"):
+        _start_reverification()
+    else:
+        log.info("Startup verification deferred by operator; serving workloads retain the GPU")
 
     # ── Step 8: Start background threads ──
     threads = []
@@ -7897,7 +7969,7 @@ def main():
         try:
             _ensure_work_protocol()
             # Check for preemptions
-            preempt_jobs = check_preemption()
+            preempt_jobs = check_preemption() if not _v2_enabled else []
             if preempt_jobs:
                 handle_preemptions(preempt_jobs)
 

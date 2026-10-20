@@ -26,7 +26,7 @@ from scheduler import (
 )
 from events import Event, get_event_store, get_state_machine
 from control_plane.legacy_execution import (
-    LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, legacy_request, record_use,
+    LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, legacy_request, record_use, require_legacy_route_enabled,
     require_legacy_container_command,
 )
 from security import check_node_versions, recommend_runtime
@@ -392,7 +392,7 @@ def api_agent_work(host_id: str, request: Request):
     record_use("work_poll", "requested")
     if not legacy_execution_allowed():
         record_use("work_poll", "blocked")
-        return Response(status_code=204)
+        require_legacy_route_enabled()
     all_jobs = list_jobs()
     pending = [
         j for j in all_jobs if j.get("host_id") == host_id and j.get("status") in ("assigned",)
@@ -533,6 +533,7 @@ except Exception:  # pragma: no cover — prom lib not installed
 
 
 _AGENT_COMMAND_ALLOWED = {
+    "health_probe",  # Read-only worker delivery/ACK readiness probe.
     "reinject_shell",
     "upgrade_agent",
     "rollback_agent",  # P1.2 — auto-rollback driver
@@ -576,6 +577,7 @@ def api_agent_commands_drain(host_id: str, request: Request):
     if not host_id or len(host_id) > 128:
         raise HTTPException(400, "Invalid host_id")
     with legacy_request("command_drain") as observation:
+        require_legacy_route_enabled()
         pool = _get_pg_pool()
         with pool.connection() as conn, conn.cursor() as cur:
             # Drop expired rows for any host (cheap housekeeping). Attempt-
@@ -931,6 +933,7 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
     """
     _require_agent_auth(request, host_id=req.host_id)
     record_use("lease_claim", "requested")
+    require_legacy_route_enabled()
     store = get_event_store()
     sm = get_state_machine()
 
@@ -1017,6 +1020,7 @@ def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
     """Agent renews its lease on a job. Must be called before expiry."""
     _require_agent_auth(request, host_id=req.host_id)
     record_use("lease_renew", "requested")
+    require_legacy_route_enabled()
     store = get_event_store()
     try:
         lease = store.renew_lease(req.job_id, req.host_id)
@@ -1041,6 +1045,7 @@ def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
     """Agent releases its lease (job completed/failed/preempted)."""
     _require_agent_auth(request)
     record_use("lease_release", "requested")
+    require_legacy_route_enabled()
     store = get_event_store()
     try:
         released = store.release_lease(req.job_id)
