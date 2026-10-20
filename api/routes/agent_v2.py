@@ -18,7 +18,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from control_plane.attempts import AttemptStatusRejected, report_attempt_status
 from control_plane.observations import ingest_observation
@@ -47,6 +47,8 @@ FEATURES = (
     "commands.claim_ack",
     "leases.fenced",
     "attempts.fenced_status",
+    "commands.host_claim_ack",
+    "attempts.runtime_metadata",
 )
 
 
@@ -95,11 +97,12 @@ class CommandClaimRequest(BaseModel):
     host_id: str = Field(min_length=1, max_length=128)
     worker_session_id: str = Field(min_length=1, max_length=128)
     limit: int = Field(default=10, ge=1, le=50)
+    host_commands: bool = False
 
 
 @router.post("/agent/v2/commands/claim", tags=["AgentV2"])
 def api_v2_commands_claim(req: CommandClaimRequest, request: Request):
-    """Claim attempt-bound commands (pending → claimed; redelivered on
+    """Claim host and attempt commands (pending → claimed; redelivered on
     crash via claim expiry — never destructively drained)."""
     _require_agent_auth(request, host_id=req.host_id)
     claimed = run_transaction(
@@ -108,7 +111,7 @@ def api_v2_commands_claim(req: CommandClaimRequest, request: Request):
             host_id=req.host_id,
             worker_session_id=req.worker_session_id,
             limit=req.limit,
-            attempt_commands_only=True,
+            attempt_commands_only=not req.host_commands,
         ),
         what="v2_commands_claim",
     )
@@ -311,6 +314,17 @@ def api_v2_observations(report: ObservationReport, request: Request):
 # ── Fenced attempt status (§8.1 write gate) ──────────────────────────
 
 
+class RuntimeMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    container_id: str | None = Field(default=None, max_length=128)
+    container_name: str | None = Field(default=None, max_length=128)
+    public_ssh_port: int | None = Field(default=None, ge=10000, le=65000)
+    interactive: bool | None = None
+    error_message: str | None = Field(default=None, max_length=500)
+    resume_from: dict[str, Any] | None = None
+    resumable: bool | None = None
+
+
 class AttemptStatusRequest(BaseModel):
     job_id: str = Field(min_length=1, max_length=128)
     attempt_id: str = Field(min_length=1, max_length=64)
@@ -319,6 +333,7 @@ class AttemptStatusRequest(BaseModel):
     status: str = Field(min_length=1, max_length=32)
     failure_code: str | None = Field(default=None, max_length=64)
     detail: dict[str, Any] | None = None
+    runtime_metadata: RuntimeMetadata | None = None
 
 
 @router.post("/agent/v2/attempts/status", tags=["AgentV2"])
@@ -338,6 +353,7 @@ def api_v2_attempt_status(req: AttemptStatusRequest, request: Request):
                 status=req.status,
                 failure_code=req.failure_code,
                 detail=req.detail,
+                runtime_metadata=req.runtime_metadata.model_dump(exclude_none=True) if req.runtime_metadata else None,
             ),
             what="v2_attempt_status",
         )
