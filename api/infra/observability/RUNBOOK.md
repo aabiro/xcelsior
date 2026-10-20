@@ -174,7 +174,7 @@ must preserve that historical disposition.
 ## Native alert delivery
 
 Native Prometheus loads `prometheus/native-control-plane-rules.yml` for the
-active control plane. Its nine rules use raw metrics and label notifications
+active control plane. Its ten rules use raw metrics and label notifications
 with `platform=xcelsior,component=control-plane`; Tower rule groups are retained.
 Validate both syntax and `tests/fixtures/native_control_plane_alerts.yml` using
 the installed native `promtool` before reload.
