@@ -1,0 +1,26 @@
+[Unit]
+Description=Xcelsior Alertmanager webhook delivery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/xcelsior/alert-webhook.env
+ExecStart=/usr/bin/python3 /opt/xcelsior/api/scripts/alert_webhook.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=64M
+TasksMax=32
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
