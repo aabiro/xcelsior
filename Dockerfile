@@ -63,4 +63,4 @@ USER ${APP_UID}:${APP_GID}
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -sf http://localhost:${XCELSIOR_API_PORT:-9500}/healthz || exit 1
 
-CMD ["gunicorn", "api:app", "-c", "gunicorn.conf.py"]
+CMD ["/bin/sh", "api/scripts/start_api.sh"]
