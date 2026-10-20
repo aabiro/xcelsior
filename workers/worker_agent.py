@@ -1566,6 +1566,8 @@ def poll_for_work():
     GET /agent/work/{host_id}
     Returns list of job dicts, or empty list.
     """
+    if not _protocol_negotiated or not _legacy_execution_allowed:
+        return []
     try:
         resp = _api_request(
             "get",
@@ -2697,6 +2699,8 @@ def release_lease(job_id, reason="completed"):
 WORKER_SESSION_ID = uuid.uuid4().hex
 
 _v2_enabled = False
+_protocol_negotiated = False
+_legacy_execution_allowed = False
 # job_id -> v2 authority dict while an attempt runs on this host:
 # {lease_id, job_id, attempt_id, host_id, fencing_token,
 #  worker_session_id, renewal_ttl_sec, stop: threading.Event}
@@ -2706,7 +2710,9 @@ _v2_attempts_lock = threading.Lock()
 
 def negotiate_protocol_v2() -> bool:
     """Ask the API which protocol this host should speak (canary rollout)."""
-    global _v2_enabled
+    global _v2_enabled, _protocol_negotiated, _legacy_execution_allowed
+    _protocol_negotiated = False
+    _legacy_execution_allowed = False
     try:
         resp = _api_request(
             "get",
@@ -2714,32 +2720,31 @@ def negotiate_protocol_v2() -> bool:
             headers=_api_headers(),
             timeout=10,
         )
-        if resp.status_code == 200 and resp.json().get("v2"):
-            _v2_enabled = True
-            log.info(
-                "Protocol v2 negotiated (session=%s features=%s)",
-                WORKER_SESSION_ID[:8],
-                resp.json().get("features"),
-            )
+        body = resp.json() if resp.status_code == 200 else {}
+        if (isinstance(body, dict) and type(body.get("v2")) is bool
+                and body.get("protocol") == (2 if body["v2"] else 1)):
+            _v2_enabled = body["v2"]
+            _protocol_negotiated = True
+            _legacy_execution_allowed = body.get("legacy_execution_allowed") is True
+            log.info("Protocol negotiated: v2=%s legacy_execution=%s", _v2_enabled,
+                     _legacy_execution_allowed)
         else:
             _v2_enabled = False
-            # Say why. This branch used to be silent, so a worker sitting on v1
-            # looked identical to one that had never tried — and the actual
-            # reason (a 403 for a host that was not admitted) was only findable
-            # in the API's access log on the server.
-            try:
-                detail = resp.json()
-            except ValueError:
-                detail = (resp.text or "")[:200]
-            log.warning(
-                "Protocol v2 declined (HTTP %s) — staying on v1: %s",
-                resp.status_code,
-                detail,
-            )
-    except requests.RequestException as e:
+            log.warning("Protocol negotiation unconfirmed (HTTP %s); execution waits", resp.status_code)
+    except (requests.RequestException, ValueError) as e:
         _v2_enabled = False
-        log.info("Protocol negotiation unavailable (%s) — staying on v1", e)
+        log.warning("Protocol negotiation unavailable (%s); execution waits", e)
     return _v2_enabled
+
+
+def _ensure_work_protocol() -> None:
+    """Retry uncertain startup without silently switching to legacy execution."""
+    if _protocol_negotiated:
+        return
+    negotiate_protocol_v2()
+    if _protocol_negotiated:
+        v2_adopt_attempts()
+        adopt_running_containers()
 
 
 def _v2_post(path: str, payload: dict, timeout: int = 10):
@@ -3038,6 +3043,11 @@ def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
         auth = _v2_attempts.pop(job_id, None)
     if auth is not None:
         auth["stop"].set()
+        with _active_lock:
+            if (job_id in _adopted_containers
+                    and _active_containers.get(job_id) == auth.get("container_name")):
+                _active_containers.pop(job_id, None)
+                _adopted_containers.discard(job_id)
         _v2_journal_save()
 
 
@@ -3078,6 +3088,13 @@ def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple
     return ("running" if running else "exited", exit_code, label)
 
 
+def _v2_track_adopted(auth: dict) -> None:
+    """Keep restart survivors visible to heartbeat, warmers and benchmarks."""
+    with _active_lock:
+        _active_containers[auth["job_id"]] = auth["container_name"]
+        _adopted_containers.add(auth["job_id"])
+
+
 def _v2_pending_adoption_loop(auth: dict) -> None:
     """Bound restart uncertainty; adopt only after an exact renew succeeds."""
     job_id = str(auth["job_id"])
@@ -3089,6 +3106,9 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
         if stop.is_set():
             return
         if code == 200:
+            state, _exit_code, label = _v2_container_state(job_id, auth["container_name"])
+            if state == "running" and label == auth["attempt_id"]:
+                _v2_track_adopted(auth)
             threading.Thread(
                 target=_v2_renewal_loop,
                 args=(auth,),
@@ -3187,6 +3207,7 @@ def v2_adopt_attempts() -> int:
                 continue
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
+            _v2_track_adopted(auth)
             if code == 200:
                 threading.Thread(
                     target=_v2_renewal_loop,
@@ -4322,6 +4343,29 @@ def run_job(job):
       8b. Detach encrypted volumes
     """
     job_id = job.get("job_id", "unknown")
+    v2_attempt_id = str(job.get("_v2_attempt_id") or "")
+    is_v2_attempt = bool(v2_attempt_id)
+    container_name = str(
+        job.get("_v2_container_name")
+        or (_v2_container_name(job_id, v2_attempt_id) if is_v2_attempt else f"xcl-{job_id}")
+    )
+    with _v2_attempts_lock:
+        authority = _v2_attempts.get(job_id)
+    if is_v2_attempt:
+        if (authority is None or authority.get("attempt_id") != v2_attempt_id
+                or authority.get("fencing_token") != job.get("_v2_fencing_token")
+                or authority.get("container_name") != container_name):
+            log.error("Job %s: no matching local fenced authority; refusing execution", job_id)
+            return
+        lease_info = None  # The fenced handler already claimed the exact lease.
+    else:
+        if not _protocol_negotiated or not _legacy_execution_allowed or authority is not None:
+            log.error("Job %s: legacy execution is not authorized", job_id)
+            return
+        lease_info = claim_lease(job_id)
+        if not lease_info:
+            log.error("Job %s: legacy lease claim failed; refusing container changes", job_id)
+            return
     job_name = job.get("name", "unnamed")
     image = job.get("image", job.get("docker_image", ""))
     command = job.get("command")
@@ -4353,13 +4397,6 @@ def run_job(job):
         report_job_status(job_id, "failed")
         return
 
-    v2_attempt_id = str(job.get("_v2_attempt_id") or "")
-    is_v2_attempt = bool(v2_attempt_id)
-    container_name = str(
-        job.get("_v2_container_name")
-        or (_v2_container_name(job_id, v2_attempt_id) if is_v2_attempt else f"xcl-{job_id}")
-    )
-
     # ── Requeue guard: stop old container if this job was already running ──
     with _active_lock:
         if job_id in _active_containers:
@@ -4373,7 +4410,6 @@ def run_job(job):
 
     # ── Lease Protocol: claim lease before starting work ──
     # Job arrives as "assigned"; agent claims lease → "leased" → then "running"
-    lease_info = None if is_v2_attempt else claim_lease(job_id)
     lease_interval = (lease_info or {}).get("duration_sec", 300) // 2  # Renew at half-life
 
     # Report starting status (leased → starting); will become "running" after
@@ -7303,6 +7339,8 @@ def adopt_running_containers():
     If the worker agent wasn't running at the time, it needs to discover
     and adopt these containers to provide log forwarding and monitoring.
     """
+    if not _protocol_negotiated or not _legacy_execution_allowed:
+        return
     try:
         result = subprocess.run(
             ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.Names}}"],
@@ -7338,10 +7376,6 @@ def adopt_running_containers():
             with _active_lock:
                 if job_id in _active_containers:
                     continue  # Already tracking this container
-                _active_containers[job_id] = container_name
-                _adopted_containers.add(job_id)
-
-            log.info("Adopting running container %s (job %s)", container_name, job_id)
 
             # Reclaim the lease for this running job. The server now accepts
             # claim requests for jobs in leased/starting/running state if the
@@ -7352,6 +7386,13 @@ def adopt_running_containers():
             except Exception as e:
                 log.debug("Lease reclaim on adoption failed for %s: %s", job_id, e)
                 lease_info = None
+            if not lease_info:
+                log.warning("Legacy adoption refused without a lease: %s", container_name)
+                continue
+            with _active_lock:
+                _active_containers[job_id] = container_name
+                _adopted_containers.add(job_id)
+            log.info("Adopting authorized legacy container %s (job %s)", container_name, job_id)
 
             # Start log forwarding
             log_fwd = LogForwarder(job_id, container_name)
@@ -7662,14 +7703,10 @@ def main():
     print_startup_banner(gpu_info, host_ip, admitted, runtime_name)
 
     # ── Protocol negotiation (Phase 5): v2 claim/ACK + fenced leases ──
-    negotiate_protocol_v2()
-
-    # §11.6 restart adoption: re-arm renewals for journaled attempts
-    # whose containers survived the agent restart.
     try:
-        v2_adopt_attempts()
+        _ensure_work_protocol()
     except Exception as e:
-        log.error("v2 attempt adoption failed: %s", e)
+        log.error("Worker protocol/adoption startup failed: %s", e)
 
     # ── Step 6: Initialize image cache ──
     cache_init()
@@ -7740,9 +7777,6 @@ def main():
         warmer_thread.start()
     else:
         log.info("Image warmer disabled by XCELSIOR_IMAGE_WARMER_ENABLED")
-
-    # ── Step 7: Adopt containers started by scheduler (before agent was running) ──
-    adopt_running_containers()
 
     # ── Step 7a: Re-apply shell setup (MOTD/PS1/sshd keepalive) to adopted containers ──
     # The injection logic evolves; existing containers started under older agent
@@ -7824,6 +7858,7 @@ def main():
 
     while not _shutdown.is_set():
         try:
+            _ensure_work_protocol()
             # Check for preemptions
             preempt_jobs = check_preemption()
             if preempt_jobs:
