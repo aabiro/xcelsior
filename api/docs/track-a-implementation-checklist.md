@@ -284,6 +284,17 @@ of the last edit to this file.
   history and need explicit state-preserving disposition before contraction.
   Full removal belongs to Track B B16, not this code-readiness checkbox.
   [Current boundary evidence](review/2026-10-20-worker-cutover-boundary.md). ✔
+  **Active operator cutover, 2026-10-20:** all three production services now
+  use `active`. Both signed workers negotiate v2 with legacy execution disabled,
+  host-management commands use claim/ACK, and runtime connection metadata is
+  committed with fenced status. Old work/command/lease/status routes and
+  process-memory preemption routes return 410 in active mode.
+  Live GPU-free health commands reached durable ACK on both hosts. The twelve
+  stopped rows and missing-volume metadata remain unchanged. **420 selected
+  tests passed** with no failures/errors/skips; no customer or GPU workload was
+  launched. The operator explicitly requested this quiescent cutover without
+  extending a retirement-observation window. See the
+  [executed active cutover](review/2026-10-20-active-control-plane-cutover.md).
 
 ## A3 — Worker lease & fencing engine
 
@@ -843,4 +854,3 @@ and enrol hosts; flip `XCELSIOR_TRUSTED_AGENT_GATEWAY=1` +
 `XCELSIOR_AGENT_PUBLIC_INGRESS=deny` with the Nginx retirement snippet;
 run `scripts/provision_db_roles.py` and set the per-service DSNs; canary/active
 scheduler env flip (P4.4b) and the hardened agent rollout (P5.5).
-

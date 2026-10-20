@@ -108,112 +108,65 @@ User impact: recovery point or recoverability is unproven.
 4. Never restore into production, overwrite the source database, or declare a
    backup healthy without a successful restore validation.
 
-## Legacy execution retirement
+## Active v2 control plane
 
-User impact: old execution clients or stopped instances still depend on
-compatibility handlers that an active cutover is expected to retire.
+Production uses `XCELSIOR_SCHEDULER_MODE=active` in the API, scheduler and
+maintenance worker. All standard placements use the transactional scheduler.
+The API advertises host claim/ACK and fenced runtime-metadata features; signed
+workers confirm v2 with legacy execution disabled. Old authenticated worker work,
+lease, command-drain and status-PATCH mutations return HTTP 410. The old
+process-memory preemption poll and admin enqueue routes also return 410; they
+cannot announce a request that v2 workers will never consume. Durable fair-share
+preemption remains the separately tracked B16.4 feature.
 
-1. Use the **Legacy compatibility use** panel to compare requested, used, blocked
-   and failed calls. A blocked request is still a caller; an empty command poll
-   still prevents a zero-use claim. Status PATCH counts include the fenced
-   compatibility projections still sent by v2 workers.
-2. Inspect `xcelsior_legacy_execution_enabled` per API replica. Zero means that
-   replica's scheduler policy disables legacy starts. The **Legacy retirement
-   policy by replica** table shows `xcelsior_legacy_path_retired{path}`. The alert
-   joins usage to that policy on the same `instance`, `job` and `path`.
-3. Locate the old worker/client, inspect stopped jobs and preserve container and
-   storage state before changing resume paths. Deploy the explicit negotiation
-   contract before mixed-mode workers; restarting workers refreshes the policy.
-4. Require continuous healthy scrapes throughout the agreed retention window.
-   Missing data is not zero use. These counters cover work polling, legacy
-   lease operations, start/pause command insertion, status PATCH and destructive
-   command draining. Other B16 paths, including internal direct status writers,
-   still require their own evidence. Start/pause `used` counts authorized queue
-   insertion; drain `used` counts rows removed for delivery. Neither is a
-   physical execution ACK. Status `used` counts completed lifecycle mutator
-   calls, including idempotent calls. Errors after a known effect and server
-   errors count as `failed`; uncertain commit results never imply no effect.
-5. Keep repairs report-only. Schema/table/code removal requires the B16 migration
-   and rollout gates. See the
-   [cutover record](../../docs/review/2026-10-20-worker-cutover-boundary.md).
+Open **Xcelsior Control Plane** at
+`/d/xcelsior-control-plane/xcelsior-control-plane`:
 
-Native Grafana exposes the dedicated **Xcelsior Legacy Retirement** dashboard
-at `/d/xcelsior-legacy-retirement/xcelsior-legacy-retirement`. Start with its
-collection checks: each expected API target must be up, aggregation must be 1,
-and the complete eight-path inventory must supply 32 usage series and eight
-policy series per replica. Inspect generation age, generation changes and the
-scrape graph alongside the release inventory. A last-value count or an empty
-generation-change result cannot prove continuous coverage of a missing target.
-Each usage panel keeps outcomes and replicas separate; the policy table states
-whether callers are still permitted. These panels cover the eight measured API
-paths only; internal direct writers and the other B16 paths need their own gates.
+1. Check API up, durable metrics available and V2 scheduling active. These should
+   be 1. `NO DATA` is unknown, not a healthy zero.
+2. Check ready hosts and worker observations. `xcelsior_ready_hosts` requires
+   admission, availability and a fresh v2 observation; registration alone does
+   not prove usable capacity.
+3. Compare queue depth/age with active attempts and reserved GPU devices. Zero
+   jobs is expected on an idle site. Reserved and preparing attempts count as
+   active even before a container starts.
+4. Inspect pending, claimed and dead-letter worker commands. Pending counts
+   exclude expired commands; claimed work remains visible until ACK/NACK or
+   claim expiry. NACKs retry with bounded backoff. Dead letters need inspection;
+   do not delete rows simply to clear the graph.
+5. Check service heartbeat age/fresh replicas, reconciliation backlog/errors,
+   expired leases, billing invariants, event delivery and background failures.
+   Keep repair policies in the approved `report_only` posture.
 
-The native provider uses a dedicated directory and the existing datasource UID
-`prometheus`. Preserve other providers and datasource files. After reviewing the
-two new files, install readable files and traversable directories, then use
-Grafana's authenticated
-[`POST /api/admin/provisioning/dashboards/reload`](https://grafana.com/docs/grafana/latest/developer-resources/api-reference/http-api/api-legacy/admin/#reload-provisioning-configurations).
-Do not reset users or change Grafana authentication merely to reload a dashboard.
-Verify all queries through Grafana's datasource proxy and inspect the rendered
-policy table and usage graphs before claiming native dashboard coverage.
-The [executed evidence](../../docs/review/2026-10-20-native-legacy-dashboard.md)
-records preservation checks, query results and the browser inspection.
+Host-management directives now use the same durable command table and protocol
+as attempt commands. Results are journaled before ACK; lost ACKs replay the
+recorded result. A journal write failure produces a retryable NACK. `health_probe`
+is a GPU-free readiness directive that exercises claim, dispatch and durable ACK
+without creating a customer job or touching a container.
 
-Scheduler active mode alone does not retire `status_patch` or `command_drain`.
-Only after their separate removal gates close, declare them through
-`XCELSIOR_RETIRED_LEGACY_PATHS` to enable a zero-call alert. This observation
-setting does not disable either handler. Unknown path names refuse startup.
-Deploy the new API series before its corresponding alert rule, and check every
-replica for all eight paths before starting the retention window. See the
-[measurement and recovery evidence](../../docs/review/2026-10-20-legacy-observation-gates.md).
+Runtime connection details, including the public SSH port, are included in the
+fenced attempt-status transaction. Stale authority or invalid metadata cannot
+change those fields. Repeating a status may update connection metadata without
+replaying the lifecycle. The shared runner does not send a compatibility PATCH
+for a fenced attempt.
 
-For a stopped-job inventory, first obtain a read-only list of job IDs, assigned
-host IDs, container names and volume IDs. Independently verify the Docker daemon
-name against the assigned host, then run:
+For a worker update on a serving host, use the actual systemd script path and
+verify every signed dependency. `XCELSIOR_WORKER_VERIFY_ON_STARTUP=0` explicitly
+defers the startup GPU benchmark during that handoff; restore the unit's normal
+configuration afterward. Verify the new source hash, v2-only negotiation,
+heartbeat/observation and a durable health-probe ACK. Check existing serving and
+VTT process identities before and after.
 
-```sh
-python api/scripts/audit_legacy_containers.py \
-  --host-id HOST_ID --expected-daemon-name VERIFIED_DOCKER_NAME \
-  --jobs /tmp/stopped-jobs.json --output /tmp/container-inventory.json
-```
+Native Grafana uses the dedicated `grafana/native/control-plane.yml` provider
+and existing datasource UID `prometheus`. Preserve other providers/datasources.
+Use Grafana's authenticated dashboard-provisioning reload endpoint and verify
+all datasource queries and rendered panels. The executed
+[cutover and monitoring record](../../docs/review/2026-10-20-active-control-plane-cutover.md)
+contains the package identity, checks and rollback boundary.
 
-The tool uses GET requests on the explicit local Docker socket, excludes
-environment/command contents, and exits 2 if observation is incomplete. It checks
-the full name/label census before accepting a named-container 404 as absence.
-Wrong-host, unavailable and malformed evidence stays unknown. Missing containers
-still require storage/image/backup recovery checks; do not requeue a stopped job
-or delete metadata solely from this report. The
-[executed inventory](../../docs/review/2026-10-20-legacy-resume-retirement.md)
-records the current twelve-job disposition gates.
-
-Shared-worker qualification now additionally requires
-`xcelsior_metrics_aggregation_enabled == 1` on every expected API target.
-Compare `xcelsior_metrics_generation_started_timestamp_seconds` across scrapes:
-it must be stable and predate the beginning of the agreed retention window.
-Require all eight requested-counter paths and all eight retirement-policy paths,
-continuous healthy scrapes, and no counter reset or generation change. Worker
-replacement within one generation retains counter shards. A master/container
-restart starts a new generation and a new qualification window. The standalone
-single-process development exporter advertises aggregation 0 and cannot qualify
-retirement. Missing/corrupt shared storage or failed collectors return HTTP 503;
-the exporter does not silently fall back to a worker-local zero.
-
-On the native production host, prepare rather than replace the existing shared
-monitoring configuration:
-
-```sh
-python api/scripts/plan_native_prometheus.py \
-  --config /etc/prometheus/prometheus.yml \
-  --api-target green=127.0.0.1:9500 \
-  --rules-path /etc/prometheus/xcelsior-rules/legacy-retirement.yml \
-  --rule-source api/infra/observability/prometheus/alert-rules.yml
-```
-
-Include blue only while that replica is part of the verified active inventory.
-Review the structural additions and source SHA; rerun if the source changes.
-The tool validates through stdin and writes no service files. Its syntax-only
-check is not runtime activation: the approved rollout must back up the current
-configuration, stage the rule file, validate the complete installed candidate,
-switch/reload atomically, and verify targets, loaded rules and receiver delivery.
-Roll back to the preserved configuration if those checks fail. See
-[the executed plan and worker acceptance](../../docs/review/2026-10-20-shared-legacy-metrics.md).
+The former retirement dashboard and native alert are removed. The operator
+requested the active cutover while no customer jobs were running, without a
+long retirement-observation wait. Historical stopped jobs and missing-volume
+metadata remain protected; the active cutover does not pretend to restore or
+retire their data. Physical schema contraction is a separate migration and
+must preserve that historical disposition.

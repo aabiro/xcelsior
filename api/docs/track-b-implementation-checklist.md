@@ -2254,9 +2254,11 @@ invariant verification.
 ## B16 — Contract migration and legacy removal
 
 Blueprint §13.7, Phase 12. **This phase is last and its migration is
-always the head of the chain (§B1).** Nothing here starts until the
-relevant legacy-path usage metric has read zero for the agreed retention
-period — measured, not assumed.
+always the head of the chain (§B1).** The original plan called for a measured
+zero-use retention window before contraction. On 2026-10-20 the operator
+explicitly requested the quiescent runtime cutover without extending that wait.
+That runtime cutover is complete; physical schema contraction and historical
+data disposition remain separately scoped below.
 
 - [~] **B16.1 Legacy-use metrics.** Instrument every legacy path so
   "measured zero" is a real number: v1 `/agent/*` calls, direct legacy
@@ -2353,6 +2355,21 @@ period — measured, not assumed.
   for these eight paths; the remaining B16 paths, alert delivery and the agreed
   zero-use retention period remain open. See the
   [executed native dashboard evidence](review/2026-10-20-native-legacy-dashboard.md).
+  **Active cutover supersedes the observation-only rollout, 2026-10-20:**
+  the operator requested completion while the site had no running customer work.
+  All standard placement is now active v2; workers use durable host commands
+  and fenced runtime metadata, and old authenticated worker mutations return
+  410. The native retirement dashboard/provider and alert reference were
+  removed. Their replacement is **Xcelsior Control Plane**, with 20 operational
+  panels and 32 live queries, including six new database-backed command,
+  attempt, allocation and ready-host gauges. Both real workers durably ACKed
+  GPU-free health probes; **420 tests passed**, and the rendered dashboard was
+  verified. No long observation wait blocks this completed runtime cutover.
+  Historical rows/storage metadata remain protected. See the
+  [active cutover evidence](review/2026-10-20-active-control-plane-cutover.md).
+  Active mode also rejects the obsolete process-memory preemption poll and
+  admin enqueue routes before any queue or notification effect. Durable
+  fair-share/preemption remains the separately tracked B16.4 feature.
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration
