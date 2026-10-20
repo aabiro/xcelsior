@@ -276,4 +276,13 @@ unconfirmed negotiation. Clean/signal exits of supported legacy interactive
 containers retain their writable layer. The shared status funnel supplies host
 attribution for legacy host-token calls as well as fenced calls. These behaviors
 are checked by a real stopped-container marker test in the isolated acceptance.
+
+The next B16 increment measures authenticated status PATCH and destructive
+command-drain calls, including empty polls and fencing refusals. Status counts
+include v2 compatibility projections, and command delivery is not an execution
+ACK. Retirement policy is exposed per replica and per path; active scheduler
+mode does not declare these two handlers retired. Both still need continuous
+deployed evidence before removal. See the
+[measurement and recovery audit](review/2026-10-20-legacy-observation-gates.md),
+which also records the checked offsite volume paths and worker image censuses.
 See the [resume-retirement record](review/2026-10-20-legacy-resume-retirement.md).

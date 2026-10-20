@@ -30,3 +30,27 @@ Local interfaces:
 
 Prometheus retains 30 days subject to a size cap, Loki retains 14 days, and
 Tempo retains seven days. All stateful components use named volumes.
+
+Legacy retirement uses `xcelsior_legacy_execution_total{path,outcome}` and
+`xcelsior_legacy_path_retired{path}`. Deploy the API metrics before the updated
+alert rule, and verify that every scraped API replica exports every path. The
+operations dashboard shows usage and retirement policy separately. Missing
+series, failed scrapes, counter resets and gaps need investigation before
+claiming a continuous zero-use window.
+
+`requested` counts authenticated calls, including empty command polls and
+requests later refused by fencing. For `status_patch`, `used` counts completed
+lifecycle mutator calls (including idempotent calls and fenced compatibility
+projections). For `command_drain`, it counts rows deleted for delivery, not
+worker execution or ACK. On these two paths, `blocked` means a client refusal before a known
+effect; `failed` covers server errors or an error after a known effect. A failed
+request with uncertain commit state must not be inferred to have had no effect.
+
+Active scheduler mode declares the six execution paths retired: `work_poll`,
+`lease_claim`, `lease_renew`, `lease_release`, `command_start`, `command_pause`.
+The `status_patch` and `command_drain` handlers still serve v2 workers during
+cutover. Only after their separate retirement gates close, list them in
+`XCELSIOR_RETIRED_LEGACY_PATHS` to declare the zero-call expectation. The flag
+only changes observation policy; it does not disable handlers. Unknown path
+names refuse API startup. The alert joins policy on `instance`, `job` and
+`path`, so another replica or another path cannot create a false alert.

@@ -113,23 +113,37 @@ User impact: recovery point or recoverability is unproven.
 User impact: old execution clients or stopped instances still depend on
 compatibility handlers that an active cutover is expected to retire.
 
-1. Use the **Legacy execution use** panel to compare requested, used and blocked
-   work polls, lease operations and old start/pause command insertion. A blocked request is still a caller; an empty
-   poll still prevents a zero-use claim.
+1. Use the **Legacy compatibility use** panel to compare requested, used, blocked
+   and failed calls. A blocked request is still a caller; an empty command poll
+   still prevents a zero-use claim. Status PATCH counts include the fenced
+   compatibility projections still sent by v2 workers.
 2. Inspect `xcelsior_legacy_execution_enabled` per API replica. Zero means that
-   replica's scheduler policy disables legacy starts. The alert joins usage to
-   policy on the same scrape target, including the job label.
+   replica's scheduler policy disables legacy starts. The **Legacy retirement
+   policy by replica** table shows `xcelsior_legacy_path_retired{path}`. The alert
+   joins usage to that policy on the same `instance`, `job` and `path`.
 3. Locate the old worker/client, inspect stopped jobs and preserve container and
    storage state before changing resume paths. Deploy the explicit negotiation
    contract before mixed-mode workers; restarting workers refreshes the policy.
 4. Require continuous healthy scrapes throughout the agreed retention window.
    Missing data is not zero use. These counters cover work polling, legacy
-   lease operations and start/pause command insertion; other B16 paths require
-   their own evidence. Command `used` counts an authorized queue insertion,
-   not physical execution or successful completion.
+   lease operations, start/pause command insertion, status PATCH and destructive
+   command draining. Other B16 paths, including internal direct status writers,
+   still require their own evidence. Start/pause `used` counts authorized queue
+   insertion; drain `used` counts rows removed for delivery. Neither is a
+   physical execution ACK. Status `used` counts completed lifecycle mutator
+   calls, including idempotent calls. Errors after a known effect and server
+   errors count as `failed`; uncertain commit results never imply no effect.
 5. Keep repairs report-only. Schema/table/code removal requires the B16 migration
    and rollout gates. See the
    [cutover record](../../docs/review/2026-10-20-worker-cutover-boundary.md).
+
+Scheduler active mode alone does not retire `status_patch` or `command_drain`.
+Only after their separate removal gates close, declare them through
+`XCELSIOR_RETIRED_LEGACY_PATHS` to enable a zero-call alert. This observation
+setting does not disable either handler. Unknown path names refuse startup.
+Deploy the new API series before its corresponding alert rule, and check every
+replica for all eight paths before starting the retention window. See the
+[measurement and recovery evidence](../../docs/review/2026-10-20-legacy-observation-gates.md).
 
 For a stopped-job inventory, first obtain a read-only list of job IDs, assigned
 host IDs, container names and volume IDs. Independently verify the Docker daemon

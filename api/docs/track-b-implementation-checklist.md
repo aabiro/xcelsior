@@ -2296,6 +2296,19 @@ period — measured, not assumed.
   `tests/test_legacy_lifecycle_boundary.py`, `tests/test_legacy_container_inventory.py`,
   and the real writable-layer preservation case in the hardware acceptance.
   [Inventory and recovery gates](review/2026-10-20-legacy-resume-retirement.md).
+  The next local increment measures `status_patch` and `command_drain`, with
+  separate request, completed-mutator/delivery, refusal and failure counts.
+  Empty polls and rejected fenced writes still prove callers. A per-path,
+  per-replica retirement gauge and alert avoid assuming that scheduler active
+  mode retires the status/command handlers still used by v2 workers. These two
+  paths require explicit observation policy after their separate gates close;
+  that policy does not disable handlers. **294 selected tests**, five fenced
+  CUDA journeys, the retained-marker case, and five Prometheus alert cases
+  passed. The checked production-host backups contain none of the expected
+  volume paths, and both workers have no matching job-labeled images; no user
+  data was restored or retired. Internal direct status writers and the other
+  paths in B16.1 still need coverage. Deployment and the continuous zero-use
+  window remain open. [Evidence](review/2026-10-20-legacy-observation-gates.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration

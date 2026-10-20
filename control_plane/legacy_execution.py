@@ -1,5 +1,9 @@
-"""Fence the remaining compatibility execution paths and expose their use."""
+"""Fence compatibility execution and measure paths awaiting retirement."""
 
+from contextlib import contextmanager
+import os
+
+from fastapi import HTTPException
 from prometheus_client import Counter, Gauge, REGISTRY
 
 from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
@@ -16,20 +20,50 @@ except ValueError:
         raise
     _uses = _existing
 
-for _path in (
+EXECUTION_PATHS = (
     "work_poll",
     "lease_claim",
     "lease_renew",
     "lease_release",
     "command_start",
     "command_pause",
-):
-    for _outcome in ("requested", "used", "blocked"):
+)
+LEGACY_PATHS = (*EXECUTION_PATHS, "status_patch", "command_drain")
+
+for _path in LEGACY_PATHS:
+    for _outcome in ("requested", "used", "blocked", "failed"):
         _uses.labels(path=_path, outcome=_outcome)
 
 
 def record_use(path: str, outcome: str, count: int = 1) -> None:
     _uses.labels(path=path, outcome=outcome).inc(count)
+
+
+class LegacyRequest:
+    def __init__(self, path: str):
+        self.path = path
+        self.effects = 0
+
+    def effect(self, count: int = 1) -> None:
+        """Record completed mutator calls or committed command deliveries."""
+        record_use(self.path, "used", count)
+        self.effects += count
+
+
+@contextmanager
+def legacy_request(path: str):
+    if path not in LEGACY_PATHS:
+        raise ValueError("Unknown legacy observation path")
+    observation = LegacyRequest(path)
+    record_use(path, "requested")
+    try:
+        yield observation
+    except Exception as exc:
+        # An HTTP failure can follow a committed mutation. Calling that
+        # blocked would erase evidence that the compatibility path was used.
+        refused = isinstance(exc, HTTPException) and 400 <= exc.status_code < 500
+        record_use(path, "blocked" if refused and not observation.effects else "failed")
+        raise
 
 
 def legacy_execution_allowed() -> bool:
@@ -46,6 +80,39 @@ except ValueError:
         raise
     _enabled = _existing_gauge
 _enabled.set_function(lambda: int(legacy_execution_allowed()))
+
+
+def retired_paths() -> set[str]:
+    declared = {
+        name.strip()
+        for name in os.environ.get("XCELSIOR_RETIRED_LEGACY_PATHS", "").split(",")
+        if name.strip()
+    }
+    if declared.difference(LEGACY_PATHS):
+        raise ValueError("XCELSIOR_RETIRED_LEGACY_PATHS contains an unknown path")
+    return declared
+
+
+# Refuse a misspelled policy on startup rather than silently suppress an alert.
+retired_paths()
+try:
+    _retired = Gauge(
+        "xcelsior_legacy_path_retired",
+        "Whether this replica expects no authenticated calls to a legacy path",
+        ["path"],
+    )
+except ValueError:
+    _existing_retired = REGISTRY._names_to_collectors["xcelsior_legacy_path_retired"]
+    if not isinstance(_existing_retired, Gauge):
+        raise
+    _retired = _existing_retired
+
+for _path in LEGACY_PATHS:
+    _retired.labels(path=_path).set_function(
+        lambda path=_path: int(
+            path in retired_paths() or (path in EXECUTION_PATHS and not legacy_execution_allowed())
+        )
+    )
 
 
 class LegacyExecutionRejected(ValueError):
