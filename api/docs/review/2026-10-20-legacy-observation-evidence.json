@@ -1,0 +1,713 @@
+{
+  "collected_at": "2026-10-20T08:15:52.909823+00:00",
+  "scope": {
+    "production_access": "read-only",
+    "production_deployment": false,
+    "production_restore": false,
+    "automatic_retirement": false,
+    "repairs": "report_only"
+  },
+  "base_commit": "4dd272d8c4cb91f6c9b9e7e037dd602922c2d0b4",
+  "source_sha256": {
+    "control_plane/legacy_execution.py": "a4ed934edd3a6c65c8bccbdd86acb395eb26cf9c16b6857d674e748fd89da393",
+    "api/routes/agent.py": "79a99c3f363a3fceb0c67f1371d30106198d5c898c90f9488b72371ad3693cbc",
+    "api/routes/instances.py": "1fe649f30c886bff7347c25a323169631ed2f7d22795be2e97930f7923b37702",
+    "tests/test_legacy_observation_gates.py": "2a05b39259558c0f089cb1a4d7f215998c3cb6996583a9bef80569a302f050b3",
+    "docker-compose.yml": "e64e0203d75be0cb992621faf847d15f9827c3d9cc559656238bec467dbe94ae",
+    ".env.example": "adf111f97afcecbae7fde44fced04ee318e35f6a9acfc1d3cfd09a74e2796e76",
+    "api/infra/observability/prometheus/alert-rules.yml": "9b0e23ca4c5ef97412e3f28cd1695140998e6d6ebfc7ea54db77496bfb47888c",
+    "tests/fixtures/legacy_execution_alerts.yml": "c5e27e3db0b037e349c1d2de837ffcb3bdc4316729d48ef63ead2045aa4b4565",
+    "api/infra/observability/grafana/dashboards/xcelsior-operations.json": "25d99fb5516a940f5832677ee63c4b4099aadc0afa4583acaf4a9517e3ca3e5e",
+    "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc"
+  },
+  "regression_gate": {
+    "gate_exit_code": 0,
+    "results": {
+      "tests": 294,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tests": [
+      "tests/test_legacy_observation_gates.py",
+      "tests/test_agent_v2.py",
+      "tests/test_legacy_status_outbox.py",
+      "tests/test_host_agent_tokens.py",
+      "tests/test_legacy_lifecycle_boundary.py",
+      "tests/test_worker_execution_boundary.py",
+      "tests/test_residual_host_command_sites.py",
+      "tests/test_reverification_sweep.py",
+      "tests/test_control_plane_commands_outbox.py",
+      "tests/test_instance_flow.py",
+      "tests/test_instances_endpoints_coverage.py",
+      "tests/test_hardened_runtime_and_ingress.py",
+      "tests/test_startup_validation.py",
+      "--deselect=tests/test_instance_flow.py::TestDockerComposeSmoke"
+    ],
+    "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
+    "manifest_sha256": "09bf2c0dfa933592593a5f03907bad945046b5146333b76398de7d5d8fe90c18"
+  },
+  "hardware_gate": {
+    "gate_exit_code": 0,
+    "passed": true,
+    "image_id": "sha256:e2a75ae5a502eceac46a1b29c8acfe8876bb2216d32cd04dd1193f7e76366652",
+    "gpu_model": "NVIDIA GeForce RTX 2060",
+    "journeys": [
+      {
+        "job_id": "acceptance-77412f6cedcc-0-none",
+        "expected_exit_code": 0,
+        "terminal_fault": "none",
+        "command_id": "1319dbbe-079a-44ba-a9fb-083428427005",
+        "spec_hash": "sha256:2016c86e3328b74ac95b37516ee270588904614266ea03269afa39a9e844d37b",
+        "fencing_token": 1,
+        "lease_id": "f0347683-9db5-4af2-b5a9-c9899c53cd71",
+        "container_id": "a4982bfbf2a2ba0a56bd721f6de283f21c3297873442173ad49cb99d731b64a7",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "c6958e0a-344",
+        "observation_id": "c4487f7d-db1b-405e-89f5-06f832e2d647",
+        "actual_exit_code": 0,
+        "stale_report_refused": true,
+        "attempt_id": "297caa82-b0d9-4377-a1ad-0b124d20c0f4",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792483805.20787,
+        "completed_at": 1792483806.355458,
+        "total_cost_micros": 300,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-77412f6cedcc-7-none",
+        "expected_exit_code": 7,
+        "terminal_fault": "none",
+        "command_id": "0bb1c721-fb7e-4619-b86e-a16a1a1b62be",
+        "spec_hash": "sha256:45eb57cdbaaa53b0a7ad4143199974129c691ce349ff048ebb3956f0aacace0b",
+        "fencing_token": 2,
+        "lease_id": "96b2edf8-d13b-488b-9d56-74ead2671ce5",
+        "container_id": "9d46f4c6bd77595ce1068bd57385cc30b5a9e5b3865d852bce810b6913e6dfb0",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "017e8a6c-257",
+        "observation_id": "2ec7d696-4885-4911-8e7d-56478d3adfb3",
+        "actual_exit_code": 7,
+        "stale_report_refused": true,
+        "attempt_id": "474a266d-6791-409b-8b17-510fa5203a92",
+        "attempt_status": "failed",
+        "lease_status": "released",
+        "started_at": 1792483809.421775,
+        "completed_at": 1792483810.440893,
+        "total_cost_micros": 300,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-77412f6cedcc-0-before_commit",
+        "expected_exit_code": 0,
+        "terminal_fault": "before_commit",
+        "command_id": "ed7de6f2-031b-484e-ac3e-8282b6aff9a8",
+        "spec_hash": "sha256:b4b7186ec5959740abf2bd21f6636b631093346b75212952352528e0e2ac543a",
+        "fencing_token": 3,
+        "lease_id": "7c687655-1bf0-46fd-b9d0-abc76db6bfe9",
+        "container_id": "83a56c40c5a191dc96d5685b317872b7ca3c4cf3e466ecc8601149acefd7ef46",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "8d2d6098-a9e",
+        "observation_id": "6275837c-2073-4f6e-9b0f-1edce1f43e3b",
+        "actual_exit_code": 0,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": false,
+        "stale_report_refused": true,
+        "attempt_id": "bdfb124e-2f9b-4c74-b280-c97a04d65eeb",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792483813.009112,
+        "completed_at": 1792483819.010356,
+        "total_cost_micros": 1700,
+        "invoice_delta_micros": 1700,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-77412f6cedcc-7-after_commit",
+        "expected_exit_code": 7,
+        "terminal_fault": "after_commit",
+        "command_id": "f21f2a87-0191-49be-8336-1e76c6fa8d32",
+        "spec_hash": "sha256:f51b30be719fa095fcf65be8f9f1e3082c7be6507c509142481c2604b816de76",
+        "fencing_token": 4,
+        "lease_id": "a6be459c-bb8a-4c54-9c87-5e7ce4c52ee9",
+        "container_id": "4f637e75b1c52b11aaefb1f021dc86e27d78342e9b7a1d38181dc89ebe489755",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "b4ddab6f-c87",
+        "observation_id": "3cccdbbc-57eb-4a58-ba69-1457c527640a",
+        "actual_exit_code": 7,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": true,
+        "stale_report_refused": true,
+        "attempt_id": "d388967d-36b3-485a-a9a5-978b0897716c",
+        "attempt_status": "failed",
+        "lease_status": "released",
+        "started_at": 1792483822.233248,
+        "completed_at": 1792483823.213592,
+        "total_cost_micros": 300,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0
+      },
+      {
+        "job_id": "acceptance-77412f6cedcc-0-restart",
+        "expected_exit_code": 0,
+        "terminal_fault": "restart",
+        "command_id": "36824ee0-a00d-4bbf-ade9-d42cccbdea9f",
+        "spec_hash": "sha256:c2fdf1d22743634f1737032b001c10e57e638922bd9485c0ec8b324a8c92f02c",
+        "fencing_token": 5,
+        "lease_id": "23ba6b56-bba1-4115-a62e-a354ca0859ab",
+        "container_id": "41390f6aa46715c972bec31884896effeb9339c2b7f31679baba692244c1261a",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "meter_id": "2e7bd256-88f",
+        "observation_id": "d8e9e7e4-520f-44af-8c36-d17ff4809af9",
+        "actual_exit_code": 0,
+        "separate_worker_processes": true,
+        "terminal_report_requests": 2,
+        "retained_until_retry": true,
+        "committed_before_response_loss": false,
+        "stale_report_refused": true,
+        "attempt_id": "98c47fba-df29-4037-9080-a691d721366c",
+        "attempt_status": "succeeded",
+        "lease_status": "released",
+        "started_at": 1792483830.587631,
+        "completed_at": 1792483832.163465,
+        "total_cost_micros": 400,
+        "invoice_delta_micros": 400,
+        "invoice_display_subtotal_cad": 0.0
+      }
+    ],
+    "legacy_preservation": {
+      "job_id": "acceptance-77412f6cedcc-legacy-preserve",
+      "container_id": "c15c977903e92cedec4afea22f2eddd86cc13be773f5c37aff7c60c06d70e76f",
+      "container_retained": true,
+      "writable_layer_marker_preserved": true,
+      "marker_sha256": "a4c8f5d5b0ce60554548da0c59c48f600a448523246870c8541a088418243bb1",
+      "job_status": "stopped",
+      "lease_status": "released"
+    },
+    "manifest_sha256": "5d61c3911938512802b0d18abfec40208b16c3079e4beac04e093e15ece00ac8"
+  },
+  "observability": {
+    "promtool_image": "prom/prometheus:v3.5.0",
+    "rule_unit_tests": 5,
+    "rule_unit_test_exit_code": 0,
+    "worker_signatures_verified": 12,
+    "ruff": "passed",
+    "pyright_target": "control_plane/legacy_execution.py",
+    "pyright_errors": 0
+  },
+  "recovery": {
+    "aaryn-tuf-rtx2060-images": {
+      "collected_at": "2026-10-20T08:09:29.557570+00:00",
+      "host_id": "aaryn-tuf-rtx2060",
+      "daemon_name": "aaryn-ASUS-TUF-Gaming-A15-FA506IV-TUF506IV",
+      "host_verified": true,
+      "read_only": true,
+      "observation_complete": true,
+      "image_count": 46,
+      "matching_job_labeled_images": [],
+      "limitation": "Unlabeled or externally exported images are not ruled out by this census."
+    },
+    "backup-paths": {
+      "collected_at": "2026-10-20T08:09:04.626163+00:00",
+      "read_only": true,
+      "scope": "expected volume paths in retained production-host copies only; GPU-host Docker writable layers are not covered",
+      "snapshots": [
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-09/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-10T03:27:37Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-10/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-10T08:43:15Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-11/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-11T08:43:11Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-12/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-12T08:47:08Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-13/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-13T08:46:07Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-14/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-14T08:39:19Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-15/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-15T08:42:29Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-16/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-16T08:37:58Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-17/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-17T08:41:18Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-18/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-18T08:35:20Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/prod-hetzner/2026-10-19/root",
+          "snapshot_metadata": {
+            "taken": "2026-10-19T08:43:58Z",
+            "rsync exit": "0"
+          },
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        },
+        {
+          "backup_root": "/mnt/storage/backups/vultr-cutover-2026-10-07/full-root/pixelenhance",
+          "snapshot_metadata": {},
+          "export_base": {
+            "presence": "present",
+            "size_bytes": 4096,
+            "directory": true
+          },
+          "candidates": [
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/vol-36592ad0362e.img",
+              "presence": "missing"
+            },
+            {
+              "relative_path": "exports/volumes/_snapshots/vol-36592ad0362e",
+              "presence": "missing"
+            }
+          ]
+        }
+      ]
+    },
+    "registered-images": {
+      "collected_at": "2026-10-20T08:09:07.227568+00:00",
+      "read_only": true,
+      "jobs": [
+        {
+          "job_id": "07b3353b",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "177a3447",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "19ee0dee",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "1c6eb4c0",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "2b9e67b8",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "3dadeca7",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "4f8a1562",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "68298d8b",
+          "status": "stopped",
+          "host_id": "tower-rtx3060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "86843a78",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "9c116a30",
+          "status": "stopped",
+          "host_id": "tower-rtx3060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "cbe0a410",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        },
+        {
+          "job_id": "f004d4f9",
+          "status": "stopped",
+          "host_id": "aaryn-tuf-rtx2060",
+          "active_attempt_id": null
+        }
+      ],
+      "registered_images": []
+    },
+    "tower-rtx3060-images": {
+      "collected_at": "2026-10-20T08:09:29.946573+00:00",
+      "host_id": "tower-rtx3060",
+      "daemon_name": "tower",
+      "host_verified": true,
+      "read_only": true,
+      "observation_complete": true,
+      "image_count": 18,
+      "matching_job_labeled_images": [],
+      "limitation": "Unlabeled or externally exported images are not ruled out by this census."
+    }
+  },
+  "production_policy": {
+    "xcelsior-api-1": {
+      "collected_at": "2026-10-20T08:13:09.224218+00:00",
+      "configuration": {
+        "XCELSIOR_SCHEDULER_MODE": "canary",
+        "XCELSIOR_SCHEDULER_CANARY_HOSTS": "aaryn-tuf-rtx2060,tower-rtx3060",
+        "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+        "XCELSIOR_SCHEDULER_CLAIMS_ENABLED": "true",
+        "XCELSIOR_AGENT_V2_HOSTS": "*",
+        "XCELSIOR_RETIRED_LEGACY_PATHS": null
+      },
+      "effective_repairs": {
+        "attempt_container_missing": "report_only",
+        "billing_active_meter_missing": "report_only",
+        "billing_missing_meter": "report_only",
+        "billing_orphaned_meter": "report_only",
+        "job_lease_authority_missing": "report_only",
+        "job_stop_command_missing": "report_only",
+        "orphaned_allocation": "report_only",
+        "stale_fence_container": "report_only"
+      }
+    },
+    "xcelsior-bg-worker-1": {
+      "collected_at": "2026-10-20T08:13:11.599794+00:00",
+      "configuration": {
+        "XCELSIOR_SCHEDULER_MODE": "canary",
+        "XCELSIOR_SCHEDULER_CANARY_HOSTS": "aaryn-tuf-rtx2060,tower-rtx3060",
+        "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+        "XCELSIOR_SCHEDULER_CLAIMS_ENABLED": "true",
+        "XCELSIOR_AGENT_V2_HOSTS": "*",
+        "XCELSIOR_RETIRED_LEGACY_PATHS": null
+      },
+      "effective_repairs": {
+        "attempt_container_missing": "report_only",
+        "billing_active_meter_missing": "report_only",
+        "billing_missing_meter": "report_only",
+        "billing_orphaned_meter": "report_only",
+        "job_lease_authority_missing": "report_only",
+        "job_stop_command_missing": "report_only",
+        "orphaned_allocation": "report_only",
+        "stale_fence_container": "report_only"
+      }
+    },
+    "xcelsior-scheduler-worker-1": {
+      "collected_at": "2026-10-20T08:13:13.964580+00:00",
+      "configuration": {
+        "XCELSIOR_SCHEDULER_MODE": "canary",
+        "XCELSIOR_SCHEDULER_CANARY_HOSTS": "aaryn-tuf-rtx2060,tower-rtx3060",
+        "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+        "XCELSIOR_SCHEDULER_CLAIMS_ENABLED": "true",
+        "XCELSIOR_AGENT_V2_HOSTS": null,
+        "XCELSIOR_RETIRED_LEGACY_PATHS": null
+      },
+      "effective_repairs": {
+        "attempt_container_missing": "report_only",
+        "billing_active_meter_missing": "report_only",
+        "billing_missing_meter": "report_only",
+        "billing_orphaned_meter": "report_only",
+        "job_lease_authority_missing": "report_only",
+        "job_stop_command_missing": "report_only",
+        "orphaned_allocation": "report_only",
+        "stale_fence_container": "report_only"
+      }
+    }
+  },
+  "artifact_sha256": {
+    "recovery/aaryn-tuf-rtx2060-images.json": "a47a0e552197f9a58169a4c8e501ad530aceaa71496ae843e7e6f8b7338a574d",
+    "recovery/backup-paths.json": "c5548b76370517c1efc10ce2050380cc1485630426809696e1724a92b2ebe55c",
+    "recovery/registered-images.json": "26119571e5015ae02eef56df073a8177b4199ee6c38c4072e6287bf93db64fc3",
+    "recovery/tower-rtx3060-images.json": "9d3283ffa7cccd5ed830747803e9f2cfbf3fecaa937d5d5c24b2bffb591d7d5c"
+  },
+  "remaining": [
+    "deploy API metrics before alert rules and API contract before workers; verify bytes and journeys",
+    "verified recovery source or explicit disposition for twelve stopped legacy jobs and missing volume",
+    "remaining B16 path instrumentation",
+    "agreed continuous zero-use window before schema and code removal"
+  ]
+}

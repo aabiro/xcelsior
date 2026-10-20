@@ -47,6 +47,13 @@ recovery sources were not proven or exhausted, so the evidence does not establis
 irrecoverable data loss. No replacement empty directory was created and the
 volume metadata was not changed to imply a restore.
 
+A subsequent [recovery-source audit](2026-10-20-legacy-observation-gates.md)
+checked the expected paths in eleven retained production-host copies and the
+old-server cutover copy. It also checked registered snapshots and job-labeled
+images on both Docker hosts. None supplied a recovery candidate. This does not
+rule out unlabeled/external exports or earlier backups and does not establish
+irrecoverable loss. The stopped rows and volume metadata remain unchanged.
+
 ## Safeguards implemented
 
 Old `start_container` commands bypassed the runner's legacy lease guard by

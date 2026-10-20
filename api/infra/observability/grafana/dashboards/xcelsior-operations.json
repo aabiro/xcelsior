@@ -914,8 +914,8 @@
     {
       "id": 14,
       "type": "timeseries",
-      "title": "Legacy execution use",
-      "description": "Authenticated compatibility execution requests, delivered work and blocked attempts. Use a continuous scrape window before retiring handlers; missing data is not zero use.",
+      "title": "Legacy compatibility use",
+      "description": "Authenticated requests and completed mutations by compatibility path. status_patch used counts completed lifecycle mutator calls, including idempotent calls; command_drain used counts destructively delivered rows, not worker ACKs. Failed includes server errors and errors after a known effect. Missing data is not zero use.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -948,6 +948,40 @@
         "tooltip": {
           "mode": "multi"
         }
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Legacy retirement policy by replica",
+      "description": "1 means this replica expects zero authenticated requests for this path. Active mode retires execution paths; status_patch and command_drain require their own declared retirement policy. This flag enables an alert; it does not disable a handler.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "xcelsior_legacy_path_retired",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true
       }
     }
   ],
