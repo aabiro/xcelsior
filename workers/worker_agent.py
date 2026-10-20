@@ -2467,6 +2467,8 @@ def report_job_status(
     error_message=None,
     resume_from=None,
     policy_reason=None,
+    *,
+    expected_v2_auth=None,
 ):
     """Update job status on the scheduler.
 
@@ -2477,6 +2479,8 @@ def report_job_status(
     # tuple so the API can distinguish it from a stale worker.
     with _v2_attempts_lock:
         v2_auth = dict(_v2_attempts.get(job_id) or {})
+    if expected_v2_auth is not None and not _v2_same_authority(v2_auth, expected_v2_auth):
+        return False
 
     # Phase 5: mirror lifecycle onto the fenced attempt when this job is
     # v2-owned (no-op otherwise). Runs first so the fenced report cannot
@@ -2484,7 +2488,8 @@ def report_job_status(
     mirror_outcome = "not_v2"
     try:
         mirror_outcome = _v2_on_job_status(
-            job_id, status, error_message=error_message, policy_reason=policy_reason
+            job_id, status, error_message=error_message, policy_reason=policy_reason,
+            expected_auth=expected_v2_auth,
         )
     except Exception as _v2_exc:
         log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
@@ -2500,6 +2505,10 @@ def report_job_status(
             mirror_outcome,
         )
         return False
+
+    # The fenced transaction is authoritative. A lost compatibility PATCH
+    # must not turn a committed terminal report into a legacy retry.
+    terminal_confirmed = bool(v2_auth) and status in ("completed", "failed", "stopped", "terminated")
 
     data = {"status": status}
     if policy_reason:
@@ -2540,11 +2549,11 @@ def report_job_status(
                 resp.status_code,
                 (getattr(resp, "text", "") or "")[:200],
             )
-            return False
+            return terminal_confirmed
         return True
     except requests.RequestException as e:
         log.error("Status update failed for job %s: %s", job_id, e)
-        return False
+        return terminal_confirmed
 
 
 def _push_log_lines(job_id, lines):
@@ -2954,6 +2963,7 @@ def _v2_journal_save() -> None:
                 "container_name": a.get("container_name")
                 or _v2_container_name(a["job_id"], a["attempt_id"]),
                 "spec_hash": a.get("spec_hash"),
+                "interactive": bool(a.get("interactive", False)),
                 **(
                     {"pending_command": dict(a["pending_command"])}
                     if isinstance(a.get("pending_command"), dict)
@@ -3017,8 +3027,14 @@ def _v2_completed_command_result(command_id: str) -> dict | None:
         return dict(result) if isinstance(result, dict) else {}
 
 
-def _v2_forget_attempt(job_id: str) -> None:
+def _v2_same_authority(left: dict, right: dict) -> bool:
+    return all(left.get(k) == right.get(k) for k in ("job_id", "attempt_id", "fencing_token", "lease_id"))
+
+
+def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
     with _v2_attempts_lock:
+        if expected_auth is not None and not _v2_same_authority(_v2_attempts.get(job_id) or {}, expected_auth):
+            return
         auth = _v2_attempts.pop(job_id, None)
     if auth is not None:
         auth["stop"].set()
@@ -3028,7 +3044,7 @@ def _v2_forget_attempt(job_id: str) -> None:
 def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple[str, int, str]:
     """Return state, exit code, and attempt label for one owned container.
 
-    state is 'running', 'exited', or 'missing'.
+    state is 'running', 'exited', 'missing', or 'unknown' on inspect failure.
     """
     container_name = container_name or f"xcl-{job_id}"
     try:
@@ -3037,7 +3053,7 @@ def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple
                 "docker",
                 "inspect",
                 "-f",
-                "{{.State.Running}} {{.State.ExitCode}} "
+                "{{.State.Status}} {{.State.ExitCode}} "
                 '{{index .Config.Labels "ai.xcelsior.attempt_id"}}',
                 container_name,
             ],
@@ -3046,15 +3062,18 @@ def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple
             timeout=10,
         )
     except Exception:
-        return ("missing", -1, "")
+        return ("unknown", -1, "")
     if inspect.returncode != 0:
-        return ("missing", -1, "")
+        missing = "no such object" in (inspect.stderr or "").lower()
+        return ("missing" if missing else "unknown", -1, "")
     parts = (inspect.stdout or "").strip().split()
-    running = len(parts) > 0 and parts[0] == "true"
+    if len(parts) < 2 or parts[0] not in ("running", "exited", "created", "restarting", "paused"):
+        return ("unknown", -1, "")
+    running = parts[0] != "exited"
     try:
         exit_code = int(parts[1]) if len(parts) > 1 else -1
     except ValueError:
-        exit_code = -1
+        return ("unknown", -1, "")
     label = parts[2] if len(parts) > 2 else ""
     return ("running" if running else "exited", exit_code, label)
 
@@ -3065,8 +3084,10 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
     ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
     deadline = time.monotonic() + ttl
     stop: threading.Event = auth["stop"]
-    while not stop.is_set():
+    while not stop.is_set() and not _shutdown.is_set():
         code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        if stop.is_set():
+            return
         if code == 200:
             threading.Thread(
                 target=_v2_renewal_loop,
@@ -3074,6 +3095,7 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
                 name=f"v2-renew-{job_id[:8]}",
                 daemon=True,
             ).start()
+            _v2_start_exit_monitor(auth)
             log.info(
                 "adoption confirmed after retry: attempt %s job %s",
                 auth["attempt_id"][:8],
@@ -3087,7 +3109,7 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
                 else "adoption confirmation grace expired"
             )
             container_name = auth.get("container_name")
-            _v2_forget_attempt(job_id)
+            _v2_forget_attempt(job_id, auth)
             _v2_stop_container(
                 job_id,
                 reason,
@@ -3125,6 +3147,7 @@ def v2_adopt_attempts() -> int:
                     or _v2_container_name(str(rec["job_id"]), str(rec["attempt_id"]))
                 ),
                 "spec_hash": rec.get("spec_hash"),
+                "interactive": bool(rec.get("interactive", False)),
                 "stop": threading.Event(),
             }
             if isinstance(rec.get("pending_command"), dict):
@@ -3132,6 +3155,17 @@ def v2_adopt_attempts() -> int:
         except (KeyError, TypeError, ValueError):
             continue
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        if state == "unknown":
+            # A Docker timeout/daemon error is not evidence of workload loss.
+            # Seek exact lease authority within the existing bounded grace;
+            # the exit monitor will retry inspection after renewal succeeds.
+            with _v2_attempts_lock:
+                _v2_attempts[job_id] = auth
+            threading.Thread(
+                target=_v2_pending_adoption_loop, args=(auth,),
+                name=f"v2-adopt-{job_id[:8]}", daemon=True,
+            ).start()
+            continue
         if state != "missing" and label != auth["attempt_id"]:
             log.warning(
                 "adoption: container for job %s belongs to attempt %s "
@@ -3160,6 +3194,7 @@ def v2_adopt_attempts() -> int:
                     name=f"v2-renew-{job_id[:8]}",
                     daemon=True,
                 ).start()
+                _v2_start_exit_monitor(auth)
                 adopted += 1
                 log.info(
                     "adopted running attempt %s for job %s (fence=%s)",
@@ -3178,11 +3213,13 @@ def v2_adopt_attempts() -> int:
                     daemon=True,
                 ).start()
         elif state == "exited":
+            with _v2_attempts_lock:
+                _v2_attempts[job_id] = auth
             pending = auth.get("pending_command")
             outcome = (
                 str(pending.get("terminal_status"))
                 if isinstance(pending, dict) and pending.get("terminal_status")
-                else "succeeded" if exit_code == 0 else "failed"
+                else _V2_STATUS_MAP[_v2_exit_status(auth, exit_code)]
             )
             report_outcome = v2_report_attempt_status(
                 auth,
@@ -3196,12 +3233,16 @@ def v2_adopt_attempts() -> int:
                 if command_id and isinstance(result, dict):
                     _v2_mark_command_complete(command_id, result)
                     v2_ack_command(command_id, result)
-            elif report_outcome == "error":
+            if report_outcome == "error":
                 # Retain the terminal intent so the next redelivery/restart
                 # retries the fenced report instead of misclassifying a
                 # deliberately stopped container as a successful workload.
                 with _v2_attempts_lock:
                     _v2_attempts[job_id] = auth
+                _v2_start_exit_monitor(auth)
+            else:
+                _v2_forget_attempt(job_id, auth)
+                _v2_cleanup_exited(auth)
             log.info(
                 "adoption: job %s container exited (%d) — reported %s",
                 job_id,
@@ -3236,12 +3277,14 @@ def _v2_renewal_loop(auth: dict) -> None:
     stop: threading.Event = auth["stop"]
     while not stop.wait(interval):
         code, body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        if stop.is_set():
+            return  # Exit reporting now owns completion and journal cleanup.
         if code == 200:
             last_ok = time.time()
             continue
         if code == 409:
             container_name = auth.get("container_name")
-            _v2_forget_attempt(job_id)
+            _v2_forget_attempt(job_id, auth)
             _v2_stop_container(
                 job_id,
                 "lease renewal rejected",
@@ -3253,7 +3296,7 @@ def _v2_renewal_loop(auth: dict) -> None:
         # authority window, but no further.
         if time.time() - last_ok > ttl:
             container_name = auth.get("container_name")
-            _v2_forget_attempt(job_id)
+            _v2_forget_attempt(job_id, auth)
             _v2_stop_container(
                 job_id,
                 "renewal window expired while disconnected",
@@ -3274,7 +3317,8 @@ _V2_STATUS_MAP = {
 
 
 def _v2_on_job_status(
-    job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None
+    job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None,
+    expected_auth: dict | None = None,
 ) -> str:
     """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
 
@@ -3288,6 +3332,8 @@ def _v2_on_job_status(
         return "unsupported"
     with _v2_attempts_lock:
         auth = _v2_attempts.get(job_id)
+    if expected_auth is not None and not _v2_same_authority(auth or {}, expected_auth):
+        return "fenced"
     if auth is None:
         return "not_v2"
     failure_code = (policy_reason or "container_failed") if v2_status == "failed" else None
@@ -3295,11 +3341,11 @@ def _v2_on_job_status(
     outcome = v2_report_attempt_status(auth, v2_status, failure_code, detail)
     if outcome == "fenced":
         container_name = auth.get("container_name")
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
         _v2_stop_container(job_id, "status report fenced", container_name, auth["attempt_id"])
         return outcome
     if outcome == "ok" and v2_status in ("succeeded", "failed", "stopped"):
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
     return outcome
 
 
@@ -3370,6 +3416,7 @@ def handle_start_attempt(cmd: dict) -> None:
         return
     auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
+    auth["interactive"] = bool(spec.get("interactive", False))
 
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
@@ -5330,8 +5377,86 @@ class LogForwarder:
             pass
 
 
+def _v2_start_exit_monitor(auth: dict) -> None:
+    threading.Thread(
+        target=_v2_monitor_container, args=(auth,),
+        name=f"v2-exit-{auth['job_id'][:8]}", daemon=True,
+    ).start()
+
+
+def _v2_cleanup_exited(auth: dict) -> None:
+    pending = auth.get("pending_command") or {}
+    if (pending.get("result") or {}).get("preserved"):
+        return
+    state, _exit_code, label = _v2_container_state(auth["job_id"], auth["container_name"])
+    if state == "exited" and label == auth["attempt_id"]:
+        _remove_container(auth["container_name"])
+
+
+def _v2_exit_status(auth: dict, exit_code: int) -> str:
+    if auth.get("interactive"):
+        return "stopped" if exit_code in (0, 130, 137, 143) else "failed"
+    return "completed" if exit_code == 0 else "failed"
+
+
+def _v2_monitor_container(auth: dict) -> None:
+    """Retain exited-container evidence until a fenced report resolves.
+
+    The existing journal plus the labeled container survives a worker restart.
+    Transport failure is retried; a definitive fence rejection ends retries.
+    An old monitor never borrows a replacement attempt's authority.
+    """
+    job_id = auth["job_id"]
+    while not _shutdown.is_set():
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is not auth:
+                return
+        state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        if state == "exited" and label == auth["attempt_id"]:
+            # Do not let a renewal's post-completion 409 erase the journal
+            # while an uncertain terminal report is still being retried.
+            auth["stop"].set()
+            pending = auth.get("pending_command")
+            if isinstance(pending, dict) and pending.get("terminal_status"):
+                outcome = v2_report_attempt_status(auth, str(pending["terminal_status"]))
+                if outcome == "ok":
+                    command_id = str(pending.get("command_id") or "")
+                    result = pending.get("result")
+                    if command_id and isinstance(result, dict):
+                        _v2_mark_command_complete(command_id, result)
+                        v2_ack_command(command_id, result)
+                if outcome != "error":
+                    _v2_forget_attempt(job_id, auth)
+            else:
+                confirmed = report_job_status(
+                    job_id, _v2_exit_status(auth, exit_code), expected_v2_auth=auth,
+                )
+                with _v2_attempts_lock:
+                    still_current = _v2_attempts.get(job_id) is auth
+                outcome = "ok" if confirmed else "error" if still_current else "fenced"
+            if outcome != "error":
+                _v2_cleanup_exited(auth)
+                return
+            log.warning("Terminal report pending for job %s; retaining container and journal", job_id)
+        elif state not in ("missing", "unknown") and label != auth["attempt_id"]:
+            log.warning("Exit monitor refused mismatched attempt label for job %s", job_id)
+            return
+        # Missing/uncertain inspect results are not proof that execution failed.
+        # Lease authority and reconciliation handle that case; keep evidence.
+        for _ in range(5):
+            if _shutdown.is_set():
+                return
+            time.sleep(1)
+
+
 def _monitor_container(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
     """Monitor a running container until it exits or is preempted."""
+    if is_v2_attempt:
+        with _v2_attempts_lock:
+            auth = _v2_attempts.get(job_id)
+        if auth is not None and auth.get("container_name") == container_name:
+            _v2_monitor_container(auth)
+        return
     check_interval = 5  # seconds
 
     while not _shutdown.is_set():
@@ -5413,6 +5538,14 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None, is_v2_attem
     - Worker shuts down gracefully
     - Container crashes unexpectedly
     """
+    if is_v2_attempt:
+        with _v2_attempts_lock:
+            auth = _v2_attempts.get(job_id)
+        if auth is not None and auth.get("container_name") == container_name:
+            auth["interactive"] = True
+            _v2_journal_save()
+            _v2_monitor_container(auth)
+        return
     check_interval = 10  # Check less frequently — container is meant to stay alive
 
     log.info(
@@ -7187,6 +7320,18 @@ def adopt_running_containers():
         for container_name in containers:
             # Extract job_id from container name (xcl-{job_id})
             if not container_name.startswith("xcl-"):
+                continue
+            try:
+                inspected = subprocess.run(
+                    ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if inspected.returncode != 0:
+                    continue
+                labels = json.loads(inspected.stdout) or {}
+                if not isinstance(labels, dict) or "ai.xcelsior.attempt_id" in labels:
+                    continue  # Fenced containers belong exclusively to v2 adoption.
+            except (OSError, subprocess.TimeoutExpired, ValueError):
                 continue
             job_id = container_name[4:]  # Remove "xcl-" prefix
 

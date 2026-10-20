@@ -183,7 +183,7 @@ Run the explicit hardware gate on a workstation with local Docker, the NVIDIA
 container runtime, a GPU with at least 1 GiB free, and a cached PyTorch CUDA image:
 
 ```sh
-python scripts/run_security_gates.py --worker-billing-acceptance \
+python api/scripts/run_security_gates.py --worker-billing-acceptance \
   --gpu-device 0 \
   --cuda-image pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime \
   --output /tmp/xcelsior-worker-billing-acceptance
@@ -197,19 +197,38 @@ and a 90-second internal deadline. Only the gate's named containers are removed.
 Worker tokens/journals live inside the temporary state directory, including when
 the same runner executes regular worker tests.
 
-The gate places two attempts through the real scheduler and exercises worker
+The gate places five attempts through the real scheduler and exercises worker
 command claim/ACK, lease claim, CUDA computation, running observation, active
 meter repair, exit monitoring, fenced terminal reporting and invoice generation.
-Exit 0 must become `succeeded`; exit 7 must become `failed`. Both must release
+Exit 0 must become `succeeded`; exit 7 must become `failed`. Every attempt must release
 allocations/leases, settle their original meter exactly once, reject stale
 running reports, and match invoice line micro-CAD. Display totals are checked
 separately using the currency rounding rule. A queued job, an observation without
 matching authority, a zero-cost terminal meter or an incomplete cleanup fails.
 Logs, source hashes and `worker_billing.json` remain in the output directory.
 
+Three journeys inject one HTTP 503: before the terminal transaction, after the
+transaction commits, and before a worker-process restart. The retry must find
+both the on-disk attempt journal and the real exited container intact. A second
+worker process adopts the restart case. After a lost committed reply, the API's
+409 ends retries without a legacy status fallback. Every journey retains exactly
+one settled meter and the matching invoice amount.
+
+Batch and interactive v2 exit monitors retry uncertain terminal reports. They
+stop renewal before reporting, preserve stop-command intent and requested
+container retention, and recheck the exact attempt label before cleanup. Running
+restart adoption rearms exit monitoring; legacy adoption skips v2 labels. Docker
+timeouts, daemon errors and malformed inspect output cannot fabricate a failed
+workload. Newly journaled interactive attempts retain their exit interpretation
+across restart. Gate: `tests/test_worker_terminal_recovery.py`.
+
 This proves the worker protocol/observation/exit path against real CUDA and
 PostgreSQL. The harness launches the container after lease claim; public launch,
 `run_job` provisioning, deployed service identities, private ingress, wallet debit,
-provider payment and lost-terminal-report recovery remain separate gates. It does
-not enable production reconciliation policies. See
-`docs/review/2026-10-17-worker-billing-acceptance.md` for executed evidence.
+provider payment, serverless callback recovery and deployed failure drills remain
+separate gates. Recovery relies on the local journal and labeled container;
+external deletion and outages beyond lease authority are not covered by this
+proof. Existing journals without the interactive field retain the older batch
+interpretation. Production reconciliation policies remain report-only. See the
+[original acceptance](review/2026-10-17-worker-billing-acceptance.md) and
+[terminal recovery evidence](review/2026-10-20-worker-terminal-recovery.md).
