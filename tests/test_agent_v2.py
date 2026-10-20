@@ -774,6 +774,7 @@ class TestCompleteWorkerCutover:
     @pytest.mark.parametrize('method,path,body', [
         ('GET', '/agent/work/cutover-host', None),
         ('GET', '/agent/commands/cutover-host', None),
+        ('GET', '/agent/preempt/cutover-host', None),
         ('POST', '/agent/lease/claim', {'host_id': 'cutover-host', 'job_id': 'cutover-job'}),
         ('POST', '/agent/lease/renew', {'host_id': 'cutover-host', 'job_id': 'cutover-job'}),
         ('POST', '/agent/lease/release', {'job_id': 'cutover-job'}),
@@ -783,6 +784,23 @@ class TestCompleteWorkerCutover:
         monkeypatch.setenv('XCELSIOR_SCHEDULER_MODE', 'active')
         response = client.request(method, path, json=body, headers={"Authorization": "Bearer " + os.environ["XCELSIOR_API_TOKEN"]})
         assert response.status_code == 410, response.text
+
+    def test_active_mode_rejects_legacy_admin_preemption_before_queue_effect(self, monkeypatch):
+        import agent_preempt
+        import routes.agent as agent_routes
+        from unittest.mock import Mock
+
+        monkeypatch.setenv('XCELSIOR_SCHEDULER_MODE', 'active')
+        monkeypatch.setattr(agent_routes, '_require_user_grant', lambda *a, **k: {'is_admin': True})
+        enqueue = Mock(side_effect=AssertionError('legacy preemption queued'))
+        notify = Mock(side_effect=AssertionError('preemption announced without delivery'))
+        monkeypatch.setattr(agent_preempt, 'schedule_host_preemptions', enqueue)
+        monkeypatch.setattr(agent_routes, 'broadcast_sse', notify)
+        response = client.post('/agent/preempt/cutover-host/cutover-job')
+        assert response.status_code == 410, response.text
+        assert response.json()['detail']['error']['code'] == 'v2_protocol_required'
+        enqueue.assert_not_called()
+        notify.assert_not_called()
 
     def test_new_operational_metrics_read_durable_command_states(self, fleet):
         from control_plane.operational_metrics import collect_operational_snapshot
