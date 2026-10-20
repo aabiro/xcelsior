@@ -24,6 +24,7 @@ from psycopg import Connection
 from psycopg.types.json import Jsonb
 
 from control_plane.leases import require_current_fence
+from control_plane.attempt_billing import sync_attempt_billing
 
 log = logging.getLogger("xcelsior.control_plane.attempts")
 
@@ -146,6 +147,7 @@ def report_attempt_status(
             (Jsonb(runtime_metadata), job_id, attempt_id, Jsonb(runtime_metadata)),
         )
     if current == status:
+        sync_attempt_billing(conn, attempt_id)
         return AttemptStatusResult(job_id, attempt_id, status, False, status in _TERMINAL)
 
     terminal = status in _TERMINAL
@@ -361,6 +363,8 @@ def report_attempt_status(
             """,
             {"job_status": job_status, "job_id": job_id, "attempt_id": attempt_id},
         )
+
+    sync_attempt_billing(conn, attempt_id)
 
     conn.execute(
         """

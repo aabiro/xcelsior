@@ -67,7 +67,7 @@ def fleet():
         conn.commit()
 
 
-def _place_one(fleet, marker):
+def _place_one(fleet, marker, *, owner=None):
     """Seed host+job and place through the real reservation pipeline.
 
     Returns (job_id, host_id, command_row) where command_row carries the
@@ -95,6 +95,8 @@ def _place_one(fleet, marker):
         "vram_needed_gb": 8.0,
         "status": "queued",
     }
+    if owner is not None:
+        job_payload['owner'] = owner
     with _pool.connection() as conn:
         conn.execute(
             "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
@@ -102,9 +104,9 @@ def _place_one(fleet, marker):
             (host_id, time.time(), json.dumps(host_payload)),
         )
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-            "VALUES (%s, 'queued', 0, %s, %s)",
-            (job_id, time.time(), json.dumps(job_payload)),
+            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id) "
+            "VALUES (%s, 'queued', 0, %s, %s, %s)",
+            (job_id, time.time(), json.dumps(job_payload), owner),
         )
         conn.commit()
     fleet["hosts"].append(host_id)
@@ -723,6 +725,86 @@ class TestLegacyPatchFence:
 
 
 class TestCompleteWorkerCutover:
+    def test_wallet_period_uses_the_same_captured_price_as_its_attempt_meter(self, fleet, monkeypatch):
+        from billing import BillingEngine
+        from unittest.mock import Mock
+
+        owner='cutover-wallet-test'
+        jid,hid,refs=_place_one(fleet,'wallet-cutover-'+uuid.uuid4().hex[:8],owner=owner)
+        try:
+            assert client.post('/agent/v2/leases/claim',json=_auth(jid,hid,refs)).status_code==200
+            body={key:value for key,value in _auth(jid,hid,refs).items() if key not in ('lease_id','worker_session_id')}
+            assert client.post('/agent/v2/attempts/status',json={**body,'status':'running'}).status_code==200
+            engine=BillingEngine()
+            charge=Mock(return_value={'charged':True})
+            monkeypatch.setattr(engine,'charge',charge)
+            with _pool.connection() as conn:
+                conn.execute("UPDATE hosts SET payload=jsonb_set(payload,'{cost_per_hour}','99') WHERE host_id=%s",(hid,))
+                conn.execute("UPDATE job_attempts SET started_at=clock_timestamp()-interval '1 hour' WHERE attempt_id=%s",(refs['attempt_id'],))
+                result=engine._bill_gpu_period(conn,{'job_id':jid,'host_id':hid,'owner':owner},time.time()-3600,time.time(),min_seconds=0)
+                assert result['amount_cad']==1.0
+            assert charge.call_args.args[:2]==(owner,1.0)
+        finally:
+            with _pool.connection() as conn:
+                conn.execute('DELETE FROM billing_cycles WHERE job_id=%s',(jid,))
+                conn.execute('DELETE FROM usage_meters WHERE job_id=%s',(jid,))
+
+    def test_fenced_wallet_period_excludes_time_before_the_current_attempt(self, fleet, monkeypatch):
+        from billing import BillingEngine
+        from unittest.mock import Mock
+
+        owner='cutover-gap-test'
+        jid,hid,refs=_place_one(fleet,'gap-cutover-'+uuid.uuid4().hex[:8],owner=owner)
+        try:
+            assert client.post('/agent/v2/leases/claim',json=_auth(jid,hid,refs)).status_code==200
+            body={key:value for key,value in _auth(jid,hid,refs).items() if key not in ('lease_id','worker_session_id')}
+            assert client.post('/agent/v2/attempts/status',json={**body,'status':'running'}).status_code==200
+            engine=BillingEngine()
+            charge=Mock(side_effect=AssertionError('stopped interval must not be billed'))
+            monkeypatch.setattr(engine,'charge',charge)
+            with _pool.connection() as conn:
+                assert engine._bill_gpu_period(conn,{'job_id':jid,'host_id':hid,'owner':owner},time.time()-3600,time.time(),min_seconds=60) is None
+            charge.assert_not_called()
+        finally:
+            with _pool.connection() as conn:
+                conn.execute('DELETE FROM usage_meters WHERE job_id=%s',(jid,))
+
+    @pytest.mark.parametrize('terminal', ['succeeded','failed','stopped'])
+    def test_fenced_status_opens_and_settles_one_meter_at_reserved_price(self, fleet, terminal):
+        from billing import BillingEngine
+        owner='cutover-billing-'+uuid.uuid4().hex
+        jid,hid,refs=_place_one(fleet,'billing-cutover-'+uuid.uuid4().hex[:8],owner=owner)
+        try:
+            engine=BillingEngine()
+            engine.deposit(owner,2.0,description='isolated cutover billing fixture')
+            hold=engine.create_wallet_hold(owner,1.0,idempotency_key=jid)
+            assert engine.link_wallet_hold_to_job(hold['hold_id'],jid)
+            assert client.post('/agent/v2/leases/claim',json=_auth(jid,hid,refs)).status_code==200
+            body={key:value for key,value in _auth(jid,hid,refs).items() if key not in ('lease_id','worker_session_id')}
+            # Price may change after reservation; accepted work keeps its rate.
+            with _pool.connection() as conn:
+                conn.execute("UPDATE hosts SET payload=jsonb_set(payload,'{cost_per_hour}','99') WHERE host_id=%s",(hid,))
+            running=client.post('/agent/v2/attempts/status',json={**body,'status':'running'})
+            assert running.status_code==200,running.text
+            with _pool.connection() as conn:
+                rows=conn.execute('SELECT base_rate_per_hour,completed_at FROM usage_meters WHERE attempt_id=%s',(refs['attempt_id'],)).fetchall()
+                assert rows==[(1.0,None)]
+            assert client.post('/agent/v2/attempts/status',json={**body,'status':'running'}).status_code==200
+            done=client.post('/agent/v2/attempts/status',json={**body,'status':terminal})
+            assert done.status_code==200,done.text
+            with _pool.connection() as conn:
+                rows=conn.execute('SELECT base_rate_per_hour,completed_at,duration_sec FROM usage_meters WHERE attempt_id=%s',(refs['attempt_id'],)).fetchall()
+                assert len(rows)==1 and rows[0][0]==1.0 and rows[0][1]>0 and rows[0][2]>=0
+                assert conn.execute('SELECT status FROM wallet_holds WHERE hold_id=%s',(hold['hold_id'],)).fetchone()[0]=='released'
+                assert conn.execute('SELECT wallet_hold_id FROM jobs WHERE job_id=%s',(jid,)).fetchone()[0] is None
+        finally:
+            with _pool.connection() as conn:
+                conn.execute('DELETE FROM usage_meters WHERE job_id=%s',(jid,))
+                conn.execute('UPDATE jobs SET wallet_hold_id=NULL WHERE job_id=%s',(jid,))
+                conn.execute('DELETE FROM wallet_holds WHERE customer_id=%s',(owner,))
+                conn.execute('DELETE FROM wallet_transactions WHERE customer_id=%s',(owner,))
+                conn.execute('DELETE FROM wallets WHERE customer_id=%s',(owner,))
+
     def test_host_commands_use_claim_ack_without_destructive_drain(self, fleet):
         jid, hid, refs = _place_one(fleet, 'host-control-' + uuid.uuid4().hex[:8])
         with _pool.connection() as conn:
