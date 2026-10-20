@@ -107,3 +107,24 @@ User impact: recovery point or recoverability is unproven.
 3. Re-run an isolated restore drill only through the checked-in workflow.
 4. Never restore into production, overwrite the source database, or declare a
    backup healthy without a successful restore validation.
+
+## Legacy execution retirement
+
+User impact: old execution clients or stopped instances still depend on
+compatibility handlers that an active cutover is expected to retire.
+
+1. Use the **Legacy execution use** panel to compare requested, used and blocked
+   work polls and lease operations. A blocked request is still a caller; an empty
+   poll still prevents a zero-use claim.
+2. Inspect `xcelsior_legacy_execution_enabled` per API replica. Zero means that
+   replica's scheduler policy disables legacy starts. The alert joins usage to
+   policy on the same scrape target, including the job label.
+3. Locate the old worker/client, inspect stopped jobs and preserve container and
+   storage state before changing resume paths. Deploy the explicit negotiation
+   contract before mixed-mode workers; restarting workers refreshes the policy.
+4. Require continuous healthy scrapes throughout the agreed retention window.
+   Missing data is not zero use. These counters cover work polling and legacy
+   lease operations; other B16 paths require their own evidence.
+5. Keep repairs report-only. Schema/table/code removal requires the B16 migration
+   and rollout gates. See the
+   [cutover record](../../docs/review/2026-10-20-worker-cutover-boundary.md).

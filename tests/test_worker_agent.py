@@ -31,6 +31,8 @@ def _patch_base(
 ):
     """Apply the common module-level patches for most tests."""
     monkeypatch.setattr(worker_agent, "HOST_ID", host_id)
+    monkeypatch.setattr(worker_agent, "_protocol_negotiated", True)
+    monkeypatch.setattr(worker_agent, "_legacy_execution_allowed", True)
     monkeypatch.setattr(worker_agent, "SCHEDULER_URL", url)
     monkeypatch.setattr(worker_agent, "API_TOKEN", token)
     monkeypatch.setattr(worker_agent, "OAUTH_CLIENT_ID", oauth_client_id)

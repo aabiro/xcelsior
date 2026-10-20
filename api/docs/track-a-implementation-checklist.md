@@ -266,7 +266,7 @@ of the last edit to this file.
   (attempt fails/lost, allocations released once, durable reason,
   higher fence on retry). User relaunch of a v2 job stays blocked until
   the Phase 5 attempt-termination flow. 2 interlock tests. ✔
-- [x] **P4.4b Canary enablement + widen + retire legacy path** (code
+- [x] **P4.4b Canary partition and cutover readiness** (code
   cutover readiness, 2026-07-19; gated on P3.3 shadow sign-off): legacy
   walkers exclusive-skip the transactional ownership partition; under
   `active` they assign nothing; `process_assigned` skips attempt-owned
@@ -277,12 +277,13 @@ of the last edit to this file.
   the transactional tick. Durable command → lease claim remains start
   authority. Gate: `tests/test_scheduler_placement_partition.py` (partition
   exclusivity, all walkers, host-pin defer, fail-closed SSH skip) +
-  service suite. **Operator residual (not claimed by code):** set
-  `XCELSIOR_SCHEDULER_MODE=canary` +
-  `XCELSIOR_SCHEDULER_CANARY_GPU_MODELS`/`_HOSTS` on live prod, then
-  widen → active. Note: billing/serverless raw status writes on *running*
-  v2 jobs remain unfenced until fully on `/agent/v2` — keep canary scope
-  on fresh workloads until then. ✔
+  service suite. **Operator state, verified 2026-10-20:** production is
+  `canary`, scoped to the RTX 2060/3060 models and two named hosts; the API
+  enrolls all hosts for v2. Widening to `active` and deleting compatibility
+  execution are still open. Twelve stopped jobs have no fenced-attempt
+  history and need explicit state-preserving disposition before contraction.
+  Full removal belongs to Track B B16, not this code-readiness checkbox.
+  [Current boundary evidence](review/2026-10-20-worker-cutover-boundary.md). ✔
 
 ## A3 — Worker lease & fencing engine
 
@@ -332,7 +333,8 @@ of the last edit to this file.
   longer destroy a v2 start command it doesn't understand. v2 claim
   takes only attempt-bound commands. Proven by test. ✔
 - [x] **P5.4 Worker v2 client + hard gate** — `worker_agent.py`:
-  startup protocol negotiation (v1 unless server enrolls the host),
+  explicit startup protocol negotiation (v1 only when the server authorizes
+  compatibility execution; negotiation errors wait and retry),
   per-process `WORKER_SESSION_ID`, claim+ACK drain loop dispatching
   `start_attempt` (unknown commands NACK non-retryable). Order enforced:
   lease claim FIRST (abort on rejection — no container), then
@@ -841,5 +843,4 @@ and enrol hosts; flip `XCELSIOR_TRUSTED_AGENT_GATEWAY=1` +
 `XCELSIOR_AGENT_PUBLIC_INGRESS=deny` with the Nginx retirement snippet;
 run `scripts/provision_db_roles.py` and set the per-service DSNs; canary/active
 scheduler env flip (P4.4b) and the hardened agent rollout (P5.5).
-
 

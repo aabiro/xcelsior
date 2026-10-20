@@ -27,6 +27,11 @@ def _resp(status_code=200, body=None):
     return SimpleNamespace(status_code=status_code, json=lambda: body or {})
 
 
+def _run_authority():
+    return {"job-1": {"attempt_id": "att-1", "fencing_token": 7,
+                      "container_name": "xcl-job-1-att-1"}}
+
+
 def _start_cmd():
     spec = {"job_id": "job-1", "name": "job-1", "image": "x"}
     canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"), default=str)
@@ -205,6 +210,7 @@ class TestHardLeaseGate:
             "_v2_container_name": "xcl-job-1-att-1",
         }
         with (
+            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
             mock.patch.object(worker_agent, "claim_lease") as legacy_claim,
@@ -229,6 +235,7 @@ class TestHardLeaseGate:
             "_v2_container_name": "xcl-job-1-att-1",
         }
         with (
+            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={"gpu_model": "RTX 2060"}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
             mock.patch.object(worker_agent, "_kill_container"),
@@ -258,6 +265,7 @@ class TestHardLeaseGate:
             "_v2_container_name": "xcl-job-1-att-1",
         }
         with (
+            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
             mock.patch.object(worker_agent, "_kill_container"),
@@ -581,12 +589,19 @@ class TestRenewalFenceLoss:
 class TestJournalAndAdoption:
     def setup_method(self):
         worker_agent._v2_enabled = True
+        self._active = dict(worker_agent._active_containers)
+        self._adopted = set(worker_agent._adopted_containers)
 
     def teardown_method(self):
         worker_agent._v2_enabled = False
         with worker_agent._v2_attempts_lock:
             worker_agent._v2_attempts.clear()
             worker_agent._v2_completed_commands.clear()
+        with worker_agent._active_lock:
+            worker_agent._active_containers.clear()
+            worker_agent._active_containers.update(self._active)
+            worker_agent._adopted_containers.clear()
+            worker_agent._adopted_containers.update(self._adopted)
 
     def _journal(self, tmp_path, records):
         path = tmp_path / "v2_attempts.json"

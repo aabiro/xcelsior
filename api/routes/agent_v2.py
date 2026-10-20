@@ -77,11 +77,14 @@ def api_v2_negotiate(host_id: str, request: Request):
     """Which protocol should this host speak? (canary rollout control)"""
     _require_agent_auth(request, host_id=host_id)
     enabled = _v2_enabled_for(host_id)
+    from control_plane.legacy_execution import legacy_execution_allowed
+
     return {
         "ok": True,
         "protocol": PROTOCOL_VERSION if enabled else 1,
         "v2": enabled,
         "features": list(FEATURES) if enabled else [],
+        "legacy_execution_allowed": legacy_execution_allowed(),
     }
 
 

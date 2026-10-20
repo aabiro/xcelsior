@@ -232,3 +232,31 @@ proof. Existing journals without the interactive field retain the older batch
 interpretation. Production reconciliation policies remain report-only. See the
 [original acceptance](review/2026-10-17-worker-billing-acceptance.md) and
 [terminal recovery evidence](review/2026-10-20-worker-terminal-recovery.md).
+
+## Execution cutover versus compatibility removal
+
+V2 enrollment and the private gateway's `/agent/v2` prefix do not retire the
+compatibility execution protocol. The work alias still invokes the compatibility
+handler. Production remained in scoped scheduler `canary` mode on 2026-10-20;
+full contraction is Track B B16 and is not complete.
+
+Protocol negotiation now returns `legacy_execution_allowed`. The server disables
+new legacy work in `active` mode; the worker requires an explicit boolean `true`
+before legacy polling, execution or startup adoption. An old server that omits
+the field cannot authorize compatibility work for the new worker. Deploy the API
+contract before upgrading mixed-mode workers. Unconfirmed negotiation waits and
+retries without legacy fallback. API rejection/inspection failures never imply
+permission to change a container.
+
+The API verifies compatibility candidates against current database status,
+host, active attempt and all attempt history. Failed ownership reads preserve
+queued hints and return 503. Legacy lease operations lock the placement job row
+and refuse any fenced history before writing the legacy lease table. Genuine
+legacy renewal/release can drain existing work during cutover; new claims are
+disabled in active mode. The remaining administrative command/SSH/lifecycle
+compatibility paths are separate B16 removal gates.
+
+Read-only production evidence found twelve stopped jobs without fenced history.
+Preserve their container/storage state while deciding migration or retirement;
+these jobs were not changed. See the
+[cutover boundary record](review/2026-10-20-worker-cutover-boundary.md).

@@ -10,6 +10,12 @@ import requests
 import worker_agent as worker
 
 
+@pytest.fixture(autouse=True)
+def negotiated_legacy_fixture(monkeypatch):
+    monkeypatch.setattr(worker, "_protocol_negotiated", True)
+    monkeypatch.setattr(worker, "_legacy_execution_allowed", True)
+
+
 def test_managed_engine_flags_preserve_the_image_entrypoint():
     from serverless.service import _preset_startup_command
 
@@ -42,7 +48,7 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
     for name in ("_kill_container", "_remove_container", "destroy_encrypted_volume"):
         monkeypatch.setattr(worker, name, Mock())
     monkeypatch.setattr(worker.time, "sleep", Mock())
-    monkeypatch.setattr(worker, "claim_lease", Mock(return_value=None))
+    monkeypatch.setattr(worker, "claim_lease", Mock(return_value={"duration_sec": 300}))
     release = Mock()
     monkeypatch.setattr(worker, "release_lease", release)
     report = Mock(return_value=True)
@@ -119,7 +125,7 @@ def test_exclusive_gpu_refusal_clears_worker_bookkeeping(monkeypatch):
     for name in ("_kill_container", "_remove_container", "release_lease"):
         monkeypatch.setattr(worker, name, Mock())
     monkeypatch.setattr(worker.time, "sleep", Mock())
-    monkeypatch.setattr(worker, "claim_lease", Mock(return_value=None))
+    monkeypatch.setattr(worker, "claim_lease", Mock(return_value={"duration_sec": 300}))
     monkeypatch.setattr(worker, "report_job_status", Mock(return_value=True))
     monkeypatch.setattr(
         worker, "_acquire_exclusive_gpu", Mock(return_value={"ok": False, "error": "busy"})
