@@ -19,6 +19,33 @@ LOG_PREFIX="[xcelsior-restore-drill]"
 log() { echo "${LOG_PREFIX} $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"; }
 die() { log "ERROR $*" >&2; exit 1; }
 
+# Administrative libpq tools otherwise silently select the default cluster.
+# Read only the configured port as data, preserving an explicit PGPORT override.
+if [[ -z "${PGPORT:-}" ]]; then
+    PGPORT="${XCELSIOR_POSTGRES_PORT:-}"
+    if [[ -z "$PGPORT" && -f "$PROJECT_DIR/.env" ]]; then
+        PGPORT="$(python3 - "$PROJECT_DIR/.env" <<'PY'
+from pathlib import Path
+import sys
+
+value = ''
+for raw in Path(sys.argv[1]).read_text().splitlines():
+    line = raw.strip()
+    if line.startswith('export '):
+        line = line[7:].lstrip()
+    key, separator, candidate = line.partition('=')
+    if separator and key.strip() == 'XCELSIOR_POSTGRES_PORT':
+        value = candidate.strip().strip('\"\'')
+print(value, end='')
+PY
+        )"
+    fi
+    PGPORT="${PGPORT:-5432}"
+fi
+[[ "$PGPORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PGPORT > 0 && 10#$PGPORT <= 65535 )) ||
+    die "invalid PostgreSQL port"
+export PGPORT
+
 write_textfile_metric() {
     local filename="$1"
     shift
