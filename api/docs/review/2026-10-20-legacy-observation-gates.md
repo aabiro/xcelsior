@@ -77,17 +77,48 @@ The [machine-readable evidence](2026-10-20-legacy-observation-evidence.json)
 records source hashes, gate results, curated recovery inventories and runtime
 policy. Full local logs remain in `artifacts/legacy-observation-evidence`.
 
+## Candidate image and live monitoring readiness
+
+Implementation commit `97849ee1a9e14f92f1c7800b1874d109f210c9c6` was built
+from its clean worktree as `xcelsior-api:control-plane-97849ee1`, image
+`sha256:c1ef3e15ac3de512c2a6a32109c77fcf1342fd1fe3d0ca715939cd02b447fe81`.
+A network-disabled, read-only container verified the selected source hashes,
+all twelve signatures and the absence of the private environment/signing key.
+This proves the packaged candidate, not production deployment.
+
+The live native Prometheus on `127.0.0.1:9091` has eight scrape targets but no
+`xcelsior-api` target, and its loaded rules do not include
+`XcelsiorRetiredExecutionPathUsed`. It has one configured Alertmanager;
+notification delivery was not tested. An inactive systemd unit named
+`alertmanager` alone does not establish that its configured receiver is down.
+Preserve this shared host's existing scrape jobs and receivers when adding
+Xcelsior monitoring; the repository's Compose configuration is not the running
+native configuration.
+
+There is also a producer-side gate: the current Prometheus client counters are
+process-local, and production is configured for two Gunicorn workers without
+multiprocess metrics enabled. A local fork probe incremented the actual legacy
+request counter in a child that exited successfully; the scraping parent saw a
+delta of zero. The endpoint instrumentation therefore does **not** yet prove
+all-worker usage. Implement and test shared worker aggregation, including a
+worker exit before the next scrape, before using these counters for retirement.
+No zero-use window has started.
+
 ## Remaining gates
 
-1. Deploy the accumulated API/worker safeguards and observability changes in
+1. Complete shared Gunicorn worker counter aggregation and its failure/restart
+   acceptance. Add and validate the API scrape target and retirement rules in
+   the existing native monitoring configuration, preserving other targets and
+   receiver routing. Verify notification delivery.
+2. Deploy the accumulated API/worker safeguards and observability changes in
    API-first order, keeping scheduler scope and repairs unchanged. Verify the
    exact deployed bytes, signatures and worker journeys.
-2. Obtain a verified recovery source or an explicit disposition for each
+3. Obtain a verified recovery source or an explicit disposition for each
    stopped row and the missing volume. A new fenced attempt is reprovisioning,
    not recovery of the old writable layer.
-3. Instrument the other B16 paths, including internal direct status writers,
+4. Instrument the other B16 paths, including internal direct status writers,
    direct scheduler SSH, process-memory preemption, old launch/confirmation
    surfaces and broad scope issuance.
-4. Establish the agreed continuous zero-use window before contract migration,
+5. Establish the agreed continuous zero-use window before contract migration,
    code removal and the dependent fairness/preemption work. No point-in-time
    inventory or passing synthetic gate closes that window.

@@ -2309,6 +2309,11 @@ period — measured, not assumed.
   data was restored or retired. Internal direct status writers and the other
   paths in B16.1 still need coverage. Deployment and the continuous zero-use
   window remain open. [Evidence](review/2026-10-20-legacy-observation-gates.md).
+  **Readiness follow-up:** the running native Prometheus has no API scrape
+  target or retirement rule. The counters are also process-local under the
+  two-worker Gunicorn configuration; a fork/worker-exit probe reproduced a
+  request invisible to the scraping process. Shared worker aggregation and
+  native monitoring integration must pass before a zero-use window can start.
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration

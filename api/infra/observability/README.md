@@ -38,6 +38,13 @@ operations dashboard shows usage and retirement policy separately. Missing
 series, failed scrapes, counter resets and gaps need investigation before
 claiming a continuous zero-use window.
 
+The 2026-10-20 readiness audit found the live native Prometheus still lacks an
+API scrape target and the retirement rule. It also reproduced process-local
+counter loss across Gunicorn workers. Shared worker aggregation and native
+monitoring integration are required gates; the endpoint counters currently
+provide local observations, not all-worker zero-use proof. See
+[the executed readiness audit](../../docs/review/2026-10-20-legacy-observation-gates.md).
+
 `requested` counts authenticated calls, including empty command polls and
 requests later refused by fencing. For `status_patch`, `used` counts completed
 lifecycle mutator calls (including idempotent calls and fenced compatibility
