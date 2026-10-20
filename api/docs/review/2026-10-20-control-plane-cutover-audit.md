@@ -100,3 +100,88 @@ The alert route surfaced two such older proof attempts (`track-a-v2-proof`,
 `tower-exclusive-smoke-20261017`). Their missing usage evidence stays visible as
 a warning; open meters after terminal attempts remain a separate critical alert.
 The old critical notification was not evidence of new customer traffic.
+
+## Deployed follow-up and final gates
+
+The final application runtime is `cb71106b`, image
+`xcelsior-api:cutover-audit-cb71106b`. API, maintenance and scheduler handoffs
+passed readiness and source checks: all three are healthy and active, with
+23 verified source fingerprints each. Imported image Config, RootFS, creation
+and platform match the frozen local image. All eight repair types remain
+`report_only`; schema remains 125 and the twelve protected stopped-job row
+hashes are unchanged. Selected protected volume metadata, zero attachments
+and zero snapshots remain unchanged.
+
+Both workers run the newly signed source SHA-256
+`296bdd6fe71317abb04f7fc0112fa9dcae66da384f13e6726de5835d09da8e17`.
+Twelve package signatures passed for each installation. Real GPU-free health
+commands reached durable ACK with the corresponding session identity. Tower
+serving container identity/PID and both VTT process identities were preserved.
+The old worker mutation routes remain closed in active mode.
+
+The final combined gate at `cb71106b` passed **623 tests**, with zero failures,
+errors or skips. One optional Docker Compose smoke class was deliberately
+excluded. Tests used a fresh local Unix-socket-only PostgreSQL cluster, without
+live dotenv credentials or Tower access. The subsequent native monitoring
+change separately passed production `promtool` validation for **16 rules and
+12 fixture scenarios**. These gates do not constitute a production customer
+purchase or GPU workload journey.
+
+The native Alertmanager receiver has independent webhook and Telegram
+integrations. Both accepted firing and resolved delivery. The webhook adapter
+requires an upstream receipt before returning success; three receipt IDs are
+retained in the evidence. Telegram transport reported acceptance with no
+failures. Native Alertmanager 0.26 counters lack receiver labels: an initial
+probe used an unsupported selector and timed out, then resolved its test.
+The later verification used integration counters and dedicated adapter
+receipts without resending. Historical failures on the other webhook receiver
+are not attributed to this test. Human reading of the notification is not
+claimed. The operator selected webhook delivery, so no email was sent to
+`hello@xcelsior.ca`.
+
+The real restore first failed closed before Alembic because host tools chose
+5432 while the application URI selected 5434. Investigation also found stale
+native unit paths after the script relocation. These are corrected, including
+backup/manual-restore dotenv lookup and safe data-only configuration parsing.
+The [port audit](2026-10-20-postgres-port-audit.md) distinguishes application,
+SPIRE, test and example references.
+
+A new checksummed backup of the application cluster on 5434 then restored into
+a disposable database, validated migration head 125 and passed exclusive GPU
+allocation, active-attempt reference, one-active-attempt and exact-wallet
+projection checks. Restore duration was **23 seconds**. Both clusters were
+checked for disposable-database cleanup, all fifteen earlier backups retained
+their hashes, and both native timers are active and enabled. No live database
+was restored over. The full regional/PITR/object recovery contract remains open.
+
+A final monitoring check found that native node exporter had no textfile
+collector directory. Its owned drop-in now enables the scripts' existing
+metrics directory, preserving its existing arguments. Only the production
+host exporter was restarted. Fresh backup/restore timestamps now reach native
+Prometheus, with missing/stale/failed-since-success alerts routed through the
+same webhook and Telegram receiver. Newer success clears historical failure;
+missing metrics do not become a successful zero. Grafana and Tower monitoring
+configuration were preserved.
+
+Machine-readable deployment, delivery, test and recovery evidence is in
+[the follow-up evidence](2026-10-20-control-plane-cutover-audit-evidence.json).
+Raw test failures and frozen manifests remain under the local artifact
+root; production drill journals and credential-bearing release/configuration
+backups remain private on the production host. The six unrelated workspace files and four existing live
+source files were preserved byte-for-byte.
+
+## Remaining engineering work
+
+- Dedicated runtime-role readiness still fails because the service-specific
+  DSNs are absent. Shared-role production operation is not role isolation.
+- B16.2 schema contraction, B16.3 physical removal of compatibility code and
+  B16.4 durable fair-share/preemption remain open. Active-mode endpoint closure
+  does not remove the projection trigger or build a durable preemption plan.
+- Repair enforcement qualification remains open; no repair policy was enabled.
+- Historical missing-volume recovery/disposition and proof-attempt usage
+  evidence remain explicitly unresolved. The separate `xcelsior` database on
+  5432 is preserved; no current application sessions were observed there. No data or monetary history was
+  fabricated to clear an alert.
+- Broader UI, trace/backend, HA/PITR, retrieval/warehouse and live product
+  journeys retain their individual checklist gates. Apple Developer Program
+  work and CI cockpit remain outside this request.

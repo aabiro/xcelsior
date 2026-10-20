@@ -147,8 +147,12 @@ depend on them; none are Track B's to mark complete.
 - Issue per-host tokens; flip `XCELSIOR_AGENT_HOST_TOKENS=require`.
 - Flip `XCELSIOR_AGENT_PUBLIC_INGRESS=deny` with the Nginx retirement snippet.
 - Run `scripts/provision_db_roles.py`; set the per-service DSNs.
-- Flip `XCELSIOR_SCHEDULER_MODE=canary` → `active` (Track A P4.4b).
-- Roll out the hardened worker agent (Track A P5.5).
+
+Completed in production on 2026-10-20: scheduler active mode and both signed
+v2 workers. The cutover audit subsequently fixed journal durability, stale
+command delivery identity and normal fenced billing; see the
+[verified follow-up](review/2026-10-20-control-plane-cutover-audit.md).
+Dedicated runtime-role DSNs remain absent; these cutovers do not close that item.
 
 ---
 
@@ -159,7 +163,7 @@ since spent on other content. `DA§14` and `DA§22.10` both instruct the
 implementer to inspect the real head and renumber; this section is that
 renumbering, recorded once so no future item guesses.
 
-**Repository head verified 2026-10-16: `123`.** The ledger below records
+**Repository and production head verified 2026-10-20: `125`.** The ledger below records
 the original 2026-07-22 renumbering baseline (`069`); later landed migrations
 are recorded in their phase entries and `migrations/README.md`. Do not use
 the historical baseline to assign a new revision.
@@ -1214,14 +1218,17 @@ accessibility gates pass.
 
 Blueprint §25, Phase 11; `DA§9`.
 
-**Current state (verified 2026-07-21):** `docker-compose.yml` contains
-Jaeger only. No OTel Collector, Prometheus, Alertmanager, Grafana, Loki, or
-Tempo. `pyproject.toml` has none of `structlog`, `tenacity`, or the OTel
-instrumentation packages from §24.1. Track A landed `telemetry_latest`
-(shared across replicas) and partitioned `telemetry_samples`, so the
-domain-state half of §25.1 exists.
+**Production state verified 2026-10-20:** native Prometheus, Alertmanager
+and Grafana serve the active control plane; the existing Jaeger container is
+healthy. The native dashboard has 20 panels and 32 verified expressions. Sixteen
+native operational alerts route independently to a receipt-checked webhook
+and Telegram; firing and resolved delivery were accepted by both transports.
+Compose also defines the broader observability stack, but a deployed collector,
+Loki/Tempo ingestion and the required end-to-end trace are not proven by the
+native metrics/dashboard rollout. See the
+[cutover audit and delivery evidence](review/2026-10-20-control-plane-cutover-audit.md).
 
-- [ ] **B7.1 Collector and backends** (§25.1, `DA§9`). Deploy the OTel
+- [~] **B7.1 Collector and backends** (§25.1, `DA§9`). Deploy the OTel
   Collector, Prometheus, Alertmanager, Grafana, Loki, and Tempo (Jaeger may
   remain as a trace UI during transition). Gate: a compose validation job;
   every service exports to the collector; a synthetic trace is retrievable
@@ -1379,7 +1386,7 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   retrieval, migration (session-capable, never PgBouncer), operator read.
   Gate: pool saturation and oldest-transaction alerts fire in a drill; a
   PgBouncer session-state audit test.
-- [ ] **B8.8 Backup and recovery evidence** (`DA§4.6`). Managed automated
+- [~] **B8.8 Backup and recovery evidence** (`DA§4.6`). Managed automated
   backups and PITR; encrypted backup storage under a separate backup-admin
   boundary; retention aligned to finance, privacy, and contract; a
   **monthly automated restore into an isolated environment** with migration
@@ -1391,6 +1398,21 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   `scripts/backup-db.sh` as a development/manual logical backup.
   **A backup is proven by a restore, not by an upload.** Gate: the restore
   job is scheduled and its evidence is queryable.
+  **Production increment, 2026-10-20:** corrected both native unit program
+  paths after the `api/scripts` relocation and fixed database-tool cluster
+  selection. A fresh checksummed backup from port 5434 restored into a
+  disposable database, migrated/validated at revision 125 and passed all four
+  control-plane/exact-wallet invariants in 23 seconds. Cleanup was verified on
+  both local clusters, all 15 prior backups were preserved, and daily backup
+  plus monthly restore timers are active and enabled. Six workflow tests and
+  the 623-test isolated application gate passed. The first drill failed closed
+  because its default-cluster database was absent from the application cluster;
+  that failed run is retained in the audit evidence.
+  **Residual:** managed/PITR and encrypted separate-admin backup boundaries,
+  quarterly object/catalog/projection recovery and the complete RPO/RTO matrix
+  remain unproven. This is a logical backup/isolated database restore, not a
+  regional failover or application-level object recovery.
+  [Evidence and port audit](review/2026-10-20-postgres-port-audit.md).
 - [ ] **B8.9 Redis production contract** (§23.2, `DA§5.3`). HA managed
   instance; separate logical domains for auth-ephemeral, limits, and cache
   with distinct ACL users and key prefixes (separate instances where
@@ -2370,6 +2392,12 @@ data disposition remain separately scoped below.
   Active mode also rejects the obsolete process-memory preemption poll and
   admin enqueue routes before any queue or notification effect. Durable
   fair-share/preemption remains the separately tracked B16.4 feature.
+  **Post-cutover audit:** durable result writes and session/delivery fencing
+  are deployed to the API and both signed workers. Normal fenced attempts now
+  capture their reservation price and meter/settle through the fenced status
+  transaction. Native webhook/Telegram delivery and a real isolated database
+  restore have passed; repairs remain `report_only`. The final isolated gate
+  passed 623 tests. [Audit](review/2026-10-20-control-plane-cutover-audit.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration

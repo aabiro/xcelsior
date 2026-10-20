@@ -1,0 +1,480 @@
+{
+  "recorded_at": "2026-10-20T21:16:11.598894+00:00",
+  "scope": "post-cutover audit, authorized fixes and deployment, webhook and Telegram, PostgreSQL port/backup/restore audit; Apple Developer Program and CI cockpit excluded",
+  "audited_baseline": "a7f139f6",
+  "final_application_runtime_commit": "cb71106ba62edb5f4f1ea75b7f994f248d7415d4",
+  "corrective_commits": [
+    "9d8f3524",
+    "91f65ba1",
+    "c2b9145d",
+    "ce099cac",
+    "76f19fca",
+    "cb71106b"
+  ],
+  "final_test_gate": {
+    "results": {
+      "tests": 623,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "manifest_sha256": "9878c6c77f978264147f870be1d0382bce167f55d39cc871bdac1624db089478",
+    "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
+    "tower_access": "none",
+    "excluded": "tests/test_instance_flow.py::TestDockerComposeSmoke",
+    "post_gate_changes": "documentation and separately validated native monitoring only"
+  },
+  "image": {
+    "local_id": "sha256:e4505d56361e84d12de1a49c8722cc9e9ef1244b094179ef710e4a86cabdc74f",
+    "remote_id": "sha256:84782ae9a3aa325175ddc041528d7129cc709cc812160452999c17b0187ab1b6",
+    "identical_fields": {
+      "Config": true,
+      "RootFS": true,
+      "Created": true,
+      "Architecture": true,
+      "Os": true
+    },
+    "image": "xcelsior-api:cutover-audit-cb71106b"
+  },
+  "owned_runtime_source_sha256": {
+    "api/routes/agent.py": "d2d7796d1bf92a01f8f971c2c7a70dd2d3e3b83f0aa326f0accbeb3f02f6303e",
+    "api/routes/agent_v2.py": "3de9bafcea59b1adeff446f792c0a5e26acc18889221a04631ac8622648a6078",
+    "api/routes/instances.py": "7784d759ccb5efea65b2778cccb2ed686e0c3208975bfb145b1e475a1d4a1283",
+    "control_plane/attempts.py": "f7551f8e63d7c902172d96d4477c812748ee8bdc0bb692cad9644175e666f3f9",
+    "control_plane/legacy_execution.py": "5dffa1a94bdbff650cafee380c33d22d22703a208fddafc4ba88b27339bf0a7d",
+    "control_plane/operational_metrics.py": "c647f11e395cf1874d29119fdc19ba8af7eeed0d5b63cac0a5d06a2dd7c5be06",
+    "workers/worker_agent.py": "296bdd6fe71317abb04f7fc0112fa9dcae66da384f13e6726de5835d09da8e17",
+    "api/scripts/worker_agent.py.sig": "baf7fe1ab5daed922b9b3841d6e17b3ece1d5c1d3a676fb6ecb58233d3575992",
+    "control_plane/commands.py": "d2b1b3dcf06811cdf95db4e32415fef66083fe4443d58339369cea43223c471d",
+    "control_plane/attempt_billing.py": "a3d6cf6371e06b30aea6052787b98bacf0c3d78d476b16a93db63ebfc22ca3a2",
+    "control_plane/scheduler/reservation.py": "e773e65cf2af022183f997fe6e870edeedda4acc878f0c03e2a186c337b6fc41",
+    "billing/billing.py": "bd45bc3406f6ddac03672cd97e1ed406af7cb395701991e52b73a6661ac6f688",
+    "api/migrations/env.py": "d31815beffcc57c4719d9a63c155489c3d20ef40db3e16208173e7543e19c245",
+    "api/scripts/migrate_restore_database.py": "b7b990d8202bd213c0b1ba8ee8e566d98df99ba7faccb93c0a06ebf589d5e141",
+    "api/scripts/restore-db-drill.sh": "585148151c78d9b3b0e183db3ecd107e44cb15d830bf125effd70b192e7eaed4",
+    "api/scripts/backup-db.sh": "27f534039751a06cfdc2b7a258c8872063fcd7af544d1f500ae8bf6211ea7c67",
+    "api/scripts/restore-db.sh": "b599d46c5ac1f1bef0c06b09c1b882cc448370dec7c6318ec767bbd9c6318f7c",
+    "api/infra/systemd/xcelsior-db-backup.service": "1aa3f49b0de514020e5df7890f8f975fefd595cb34b6eb762eeae1c2bb8b3a2d",
+    "api/infra/systemd/xcelsior-db-restore-drill.service": "9b3a62d1034c5e9b8aa0072dfe7704d741c3ad267e2855acf49872c81cfa6969"
+  },
+  "preserved_live_source_sha256": {
+    "api/routes/billing.py": "747b4f9dae7998c3f64fe9832dcd94903e331d7e2324dd2c883b4d0020911936",
+    "billing/stripe_connect.py": "ef61621224a30d98747ea5e707793090e1fd319796e06d4e0c1fd2353b116c09",
+    "core/meta_capi.py": "b45e7e2943490c35e97eb1238e77f6d25ef0fec8b5405829875185e20e7704dd",
+    "core/gitguardian.py": "a57d811bfec8bd08314362221e550275b7ae5f76038ef10654557fac4691a93a"
+  },
+  "production": {
+    "containers": {
+      "xcelsior-api-1": {
+        "image": "sha256:84782ae9a3aa325175ddc041528d7129cc709cc812160452999c17b0187ab1b6",
+        "health": "healthy",
+        "mode": "active",
+        "source_hashes_verified": 23,
+        "repairs": "report_only",
+        "schema": "125",
+        "protected_jobs_unchanged": true
+      },
+      "xcelsior-bg-worker-1": {
+        "image": "sha256:84782ae9a3aa325175ddc041528d7129cc709cc812160452999c17b0187ab1b6",
+        "health": "healthy",
+        "mode": "active",
+        "source_hashes_verified": 23,
+        "repairs": "report_only",
+        "schema": "125",
+        "protected_jobs_unchanged": true
+      },
+      "xcelsior-scheduler-worker-1": {
+        "image": "sha256:84782ae9a3aa325175ddc041528d7129cc709cc812160452999c17b0187ab1b6",
+        "health": "healthy",
+        "mode": "active",
+        "source_hashes_verified": 23,
+        "repairs": "report_only",
+        "schema": "125",
+        "protected_jobs_unchanged": true
+      }
+    },
+    "route_checks": [
+      {
+        "method": "GET",
+        "path": "/agent/preempt/cutover-check",
+        "status": 410,
+        "probe": "live_http_authenticated"
+      },
+      {
+        "method": "POST",
+        "path": "/agent/preempt/cutover-check/cutover-check",
+        "status": 410,
+        "probe": "isolated_process_handler_with_admin_identity"
+      }
+    ],
+    "ready_hosts": 2.0,
+    "grafana_pid": 182240,
+    "grafana_dashboard_sha256": "03d25bc3fcf638c7410aaa9f21bb6d2a2ed9f97d9e2eaa39ba9a58eadcc9c255"
+  },
+  "workers": {
+    "workstation": {
+      "host_id": "aaryn-tuf-rtx2060",
+      "old_pid": 2151007,
+      "new_pid": 2754129,
+      "signature_files_verified": 12,
+      "worker_sha256": "296bdd6fe71317abb04f7fc0112fa9dcae66da384f13e6726de5835d09da8e17",
+      "v2_negotiation_confirmed": true,
+      "legacy_execution_allowed": false,
+      "started_at": 1792527321.0895166,
+      "deregister_on_exit": false,
+      "backup": "/home/aaryn/.xcelsior/releases/cutover-audit-20261020-rollback",
+      "startup_benchmark_deferred": true
+    },
+    "tower": {
+      "host_id": "tower-rtx3060",
+      "old_pid": 1652317,
+      "new_pid": 1877963,
+      "signature_files_verified": 12,
+      "worker_sha256": "296bdd6fe71317abb04f7fc0112fa9dcae66da384f13e6726de5835d09da8e17",
+      "v2_negotiation_confirmed": true,
+      "legacy_execution_allowed": false,
+      "started_at": 1792527355.882013,
+      "deregister_on_exit": false,
+      "backup": "/home/aaryn/.xcelsior/releases/cutover-audit-20261020-rollback",
+      "startup_benchmark_deferred": true
+    }
+  },
+  "final_live_protocol_checks": {
+    "scheduler_mode": "active",
+    "repairs": "report_only",
+    "worker_probes": [
+      {
+        "host_id": "aaryn-tuf-rtx2060",
+        "command_id": "d10150ae-ab4c-4a63-995f-62de2a62a6e5",
+        "status": "acknowledged",
+        "result": {
+          "command": "health_probe",
+          "protocol": 2,
+          "dispatched": true,
+          "worker_session_id": "90c6aab8fb8940e893fef6afb5bc8b4e"
+        }
+      },
+      {
+        "host_id": "tower-rtx3060",
+        "command_id": "19862893-eab1-4ac3-9278-b942ae24557f",
+        "status": "acknowledged",
+        "result": {
+          "command": "health_probe",
+          "protocol": 2,
+          "dispatched": true,
+          "worker_session_id": "ee728b38c344454bb37d2f181ea7aca1"
+        }
+      }
+    ],
+    "legacy_routes": [
+      {
+        "method": "GET",
+        "path": "/agent/work/cutover-check",
+        "status": 410
+      },
+      {
+        "method": "GET",
+        "path": "/agent/commands/cutover-check",
+        "status": 410
+      },
+      {
+        "method": "POST",
+        "path": "/agent/lease/claim",
+        "status": 410
+      },
+      {
+        "method": "POST",
+        "path": "/agent/lease/renew",
+        "status": 410
+      },
+      {
+        "method": "POST",
+        "path": "/agent/lease/release",
+        "status": 410
+      },
+      {
+        "method": "PATCH",
+        "path": "/instance/cutover-check",
+        "status": 410
+      }
+    ]
+  },
+  "alert_delivery": {
+    "firing_and_resolved_delivered": true,
+    "independent_integrations": [
+      "webhook",
+      "telegram"
+    ],
+    "telegram_transport_accepted": true,
+    "webhook_upstream_receipt_ids": [
+      "T2xyWtm31kYK",
+      "yYuOlFPGsHCI",
+      "D8w6P1FoGpdU"
+    ],
+    "integration_counters": {
+      "webhook_total": 920.0,
+      "webhook_failed_total": 751.0,
+      "telegram_total": 3.0,
+      "telegram_failed_total": 0.0
+    },
+    "controlled_test_active": false,
+    "verification_note": "Alertmanager 0.26 counters have integration labels but no receiver label; initial probe timed out due to wrong counter selector, then resolved its test. Delivery was confirmed from native counters and the dedicated adapter receipts without resending.",
+    "human_read_confirmation": false
+  },
+  "native_monitoring": {
+    "node_exporter_old_pid": 182304,
+    "node_exporter_new_pid": 2939529,
+    "node_textfile_scrape_error": 0,
+    "metrics_in_native_prometheus": {
+      "xcelsior_backup_last_success_timestamp_seconds": 1792530416.0,
+      "xcelsior_restore_last_success_timestamp_seconds": 1792530439.0
+    },
+    "native_rule_count": 16,
+    "promtool_fixture_scenarios": 12,
+    "native_rules_sha256": "e35156e769805b9314289beb432ddc2bd2bd43fbc6b0ca69b5dd999727d448e0",
+    "node_exporter_dropin_sha256": "0588547d72bd147abe6067e0ee4006ce11f03c8d7f748ad5e55a0d69c75043b9"
+  },
+  "native_alert_health": {
+    "native_rule_count": 16,
+    "all_rule_health_ok": true,
+    "alerts": [
+      {
+        "name": "XcelsiorApiUnavailable",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorControlPlaneMetricsUnavailable",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorControlPlaneMetricsStale",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorWorkerCommandDeadLettered",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorQueueDelayed",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorReconciliationCriticalFindings",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorServiceHeartbeatMissing",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorBillingInvariantViolation",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorUsageEvidenceMissing",
+        "state": "firing"
+      },
+      {
+        "name": "XcelsiorEventDeliveryDeadLettered",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorBackupMetricMissing",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorBackupStale",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorBackupFailedSinceLastSuccess",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorRestoreDrillMetricMissing",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorRestoreDrillStale",
+        "state": "inactive"
+      },
+      {
+        "name": "XcelsiorRestoreDrillFailedSinceLastSuccess",
+        "state": "inactive"
+      }
+    ]
+  },
+  "database_recovery": {
+    "started_at_unix": 1792530402.097476,
+    "backup": {
+      "exit_code": 0,
+      "elapsed_seconds": 14.56
+    },
+    "restore-drill": {
+      "exit_code": 0,
+      "elapsed_seconds": 38.02
+    },
+    "restore_evidence": {
+      "backup_file": "xcelsior_20261020_210642.dump",
+      "backup_sha256": "a747e6d4dcec0b62ec777617ff87d2eb47a504774143b28fd0846005ddc91f0f",
+      "completed_at": "2026-10-20T21:07:19Z",
+      "duration_seconds": 23,
+      "invariants": {
+        "active_attempt_references": true,
+        "exact_wallet_projection": true,
+        "exclusive_gpu_allocations": true,
+        "one_active_attempt_per_job": true
+      },
+      "row_counts": {
+        "hosts": 6,
+        "invoices": 201386,
+        "jobs": 364,
+        "users": 143,
+        "wallet_transactions": 31110,
+        "wallets": 149
+      },
+      "schema_revision": "125"
+    },
+    "existing_backups_unchanged": 15,
+    "restore_databases_cleaned_up_on_both_clusters": true,
+    "timers_active_and_enabled": true,
+    "completed_at_unix": 1792530441.0593405
+  },
+  "runtime_role_readiness": {
+    "xcelsior-api-1": {
+      "api": {
+        "issues": [
+          "dedicated service DSN is missing"
+        ],
+        "ok": false,
+        "service": "api"
+      }
+    },
+    "xcelsior-scheduler-worker-1": {
+      "scheduler": {
+        "issues": [
+          "dedicated service DSN is missing"
+        ],
+        "ok": false,
+        "service": "scheduler"
+      },
+      "reconciler": {
+        "issues": [
+          "dedicated service DSN is missing"
+        ],
+        "ok": false,
+        "service": "reconciler"
+      },
+      "projector": {
+        "issues": [
+          "dedicated service DSN is missing"
+        ],
+        "ok": false,
+        "service": "projector"
+      }
+    },
+    "xcelsior-bg-worker-1": {
+      "api": {
+        "issues": [
+          "dedicated service DSN is missing"
+        ],
+        "ok": false,
+        "service": "api"
+      },
+      "billing": {
+        "issues": [
+          "dedicated service DSN is missing"
+        ],
+        "ok": false,
+        "service": "billing"
+      }
+    }
+  },
+  "public_smoke": [
+    {
+      "url": "https://xcelsior.ca/healthz",
+      "expected": 200,
+      "status": 200,
+      "curl_exit": 0
+    },
+    {
+      "url": "https://xcelsior.ca/readyz",
+      "expected": 200,
+      "status": 200,
+      "curl_exit": 0
+    },
+    {
+      "url": "https://xcelsior.ca/api/pricing/rates",
+      "expected": 200,
+      "status": 200,
+      "curl_exit": 0
+    },
+    {
+      "url": "https://xcelsior.ca/api/auth/oauth/providers",
+      "expected": 200,
+      "status": 200,
+      "curl_exit": 0
+    },
+    {
+      "url": "https://xcelsior.ca/metrics/prometheus",
+      "expected": 404,
+      "status": 404,
+      "curl_exit": 0
+    }
+  ],
+  "additional_hostname_probe": [
+    {
+      "url": "https://api.xcelsior.ca/readyz",
+      "status": "000",
+      "curl_exit": 35
+    },
+    {
+      "url": "https://xcelsior.ca/readyz",
+      "status": "200",
+      "curl_exit": 0
+    }
+  ],
+  "preservation": {
+    "protected_job_rows": 12,
+    "protected_rows_unchanged": true,
+    "volume_metadata_unchanged": true,
+    "attachments": 0,
+    "snapshots": 0,
+    "unrelated_local_file_sha256": {
+      "api/routes/billing.py": "747b4f9dae7998c3f64fe9832dcd94903e331d7e2324dd2c883b4d0020911936",
+      "billing/stripe_connect.py": "ef61621224a30d98747ea5e707793090e1fd319796e06d4e0c1fd2353b116c09",
+      "core/meta_capi.py": "b45e7e2943490c35e97eb1238e77f6d25ef0fec8b5405829875185e20e7704dd",
+      "tests/test_meta_capi.py": "13783a3e40b21fca7caf19549fcfc62a71dd48d404db235078c4a2e1befdfff2",
+      "core/gitguardian.py": "a57d811bfec8bd08314362221e550275b7ae5f76038ef10654557fac4691a93a",
+      "text.md": "e581fe63cb81e9516e6e1621dc60cec57a37062b2b0455b5d1c08f9464dc936c"
+    },
+    "workstation_vtt_pid": 4234,
+    "tower_vtt_pid": 1515078,
+    "tower_serving_container_pid": 1514666,
+    "tower_serving_container_identity_unchanged": true,
+    "tower_serving_container_healthy": true,
+    "grafana_pid": 182240,
+    "repairs": "report_only"
+  },
+  "qualification_limits": [
+    "Transport acceptance does not prove human reading.",
+    "No production customer purchase or GPU job was launched.",
+    "Dedicated service DSNs are absent; runtime role isolation is not complete.",
+    "Logical restore on the same host does not prove HA/PITR, regional failover or object recovery.",
+    "Historical proof-attempt missing usage evidence and missing volume data remain unresolved.",
+    "Schema contraction, physical legacy code removal and durable fairness/preemption remain open."
+  ],
+  "private_local_artifact_root": "/mnt/storage/projects/xcelsior/artifacts/control-plane-audit-followups-20261020",
+  "production_rollback_directory": "/opt/xcelsior-releases/cutover-audit-dbtools-20261020/rollback",
+  "postgres_port_audit": {
+    "application_and_workspace_env_port": 5434,
+    "native_main_cluster_port": 5432,
+    "observed_consumers_on_5432": [
+      "SPIRE",
+      "PixelSpark"
+    ],
+    "xcelsior_database_on_5432": "different counts; no active Xcelsior application sessions observed; preserved",
+    "test_env_port": 5432,
+    "literal_reference_inventory": "2026-10-20-postgres-port-audit-locations.json"
+  }
+}

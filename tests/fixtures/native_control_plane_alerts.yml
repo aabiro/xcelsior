@@ -25,6 +25,10 @@ tests:
     values: '0x20'
   - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
     values: '0x20'
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
   alert_rule_test:
   - eval_time: 10m
     alertname: XcelsiorApiUnavailable
@@ -79,6 +83,10 @@ tests:
     values: '0x20'
   - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
     values: '0x20'
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
   alert_rule_test:
   - eval_time: 5m
     alertname: XcelsiorApiUnavailable
@@ -117,6 +125,10 @@ tests:
     values: '0x20'
   - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
     values: '0x20'
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
   alert_rule_test:
   - eval_time: 5m
     alertname: XcelsiorWorkerCommandDeadLettered
@@ -155,6 +167,10 @@ tests:
     values: '0x20'
   - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
     values: '0x20'
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
   alert_rule_test:
   - eval_time: 5m
     alertname: XcelsiorUsageEvidenceMissing
@@ -197,6 +213,10 @@ tests:
     values: 2x20
   - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
     values: '0x20'
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
   alert_rule_test:
   - eval_time: 5m
     alertname: XcelsiorBillingInvariantViolation
@@ -212,3 +232,168 @@ tests:
         summary: Attempt billing and lifecycle disagree
         description: Preserve meter and attempt history; inspect the report-only billing
           reconciliation findings.
+- name: XcelsiorBackupMetricMissing uses native host metrics
+  interval: 1m
+  input_series:
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorBackupMetricMissing
+    exp_alerts:
+    - exp_labels:
+        job: prod-hetzner-host
+        severity: critical
+        owner: platform
+        platform: xcelsior
+        component: control-plane
+      exp_annotations:
+        summary: Database backup freshness metric is missing
+        description: The native production-host freshness metric is absent. Check
+          node exporter, its textfile directory and the database timer.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: XcelsiorBackupStale uses native host metrics
+  interval: 1m
+  input_series:
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: -4000000x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorBackupStale
+    exp_alerts:
+    - exp_labels:
+        job: prod-hetzner-host
+        severity: critical
+        owner: platform
+        platform: xcelsior
+        component: control-plane
+        instance: prod
+      exp_annotations:
+        summary: No successful PostgreSQL backup in 26 hours
+        description: Check the backup timer and repository without overwriting the
+          last known-good backup.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: XcelsiorBackupFailedSinceLastSuccess uses native host metrics
+  interval: 1m
+  input_series:
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: '0x90'
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_backup_last_failure_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 1000x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorBackupFailedSinceLastSuccess
+    exp_alerts:
+    - exp_labels:
+        job: prod-hetzner-host
+        severity: critical
+        owner: platform
+        platform: xcelsior
+        component: control-plane
+        instance: prod
+      exp_annotations:
+        summary: The latest PostgreSQL backup attempt failed
+        description: A failure timestamp is newer than the last successful backup.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: XcelsiorRestoreDrillMetricMissing uses native host metrics
+  interval: 1m
+  input_series:
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorRestoreDrillMetricMissing
+    exp_alerts:
+    - exp_labels:
+        job: prod-hetzner-host
+        severity: warning
+        owner: platform
+        platform: xcelsior
+        component: control-plane
+      exp_annotations:
+        summary: Restore-drill freshness metric is missing
+        description: The native production-host freshness metric is absent. Check
+          node exporter, its textfile directory and the database timer.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: XcelsiorRestoreDrillStale uses native host metrics
+  interval: 1m
+  input_series:
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: -4000000x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorRestoreDrillStale
+    exp_alerts:
+    - exp_labels:
+        job: prod-hetzner-host
+        severity: warning
+        owner: platform
+        platform: xcelsior
+        component: control-plane
+        instance: prod
+      exp_annotations:
+        summary: No successful restore drill in 35 days
+        description: Backups are not proven recoverable until an isolated restore
+          drill succeeds.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: XcelsiorRestoreDrillFailedSinceLastSuccess uses native host metrics
+  interval: 1m
+  input_series:
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: '0x90'
+  - series: xcelsior_restore_last_failure_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 1000x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorRestoreDrillFailedSinceLastSuccess
+    exp_alerts:
+    - exp_labels:
+        job: prod-hetzner-host
+        severity: critical
+        owner: platform
+        platform: xcelsior
+        component: control-plane
+        instance: prod
+      exp_annotations:
+        summary: The latest restore drill failed
+        description: A restore failure timestamp is newer than the last successful
+          drill.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: newer successful recovery clears historical failure
+  interval: 1m
+  input_series:
+  - series: xcelsior_backup_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 2000x90
+  - series: xcelsior_restore_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 2000x90
+  - series: xcelsior_backup_last_failure_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 1000x90
+  - series: xcelsior_restore_last_failure_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 1000x90
+  alert_rule_test:
+  - eval_time: 61m
+    alertname: XcelsiorBackupFailedSinceLastSuccess
+    exp_alerts: []
+  - eval_time: 61m
+    alertname: XcelsiorBackupMetricMissing
+    exp_alerts: []
+  - eval_time: 61m
+    alertname: XcelsiorBackupStale
+    exp_alerts: []
+  - eval_time: 61m
+    alertname: XcelsiorRestoreDrillFailedSinceLastSuccess
+    exp_alerts: []
+  - eval_time: 61m
+    alertname: XcelsiorRestoreDrillMetricMissing
+    exp_alerts: []
+  - eval_time: 61m
+    alertname: XcelsiorRestoreDrillStale
+    exp_alerts: []
