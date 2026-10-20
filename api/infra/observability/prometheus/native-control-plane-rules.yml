@@ -51,12 +51,19 @@ groups:
           summary: A control-plane service has no fresh heartbeat
           description: Check the named service and its readiness probe before a controlled handoff.
       - alert: XcelsiorBillingInvariantViolation
-        expr: xcelsior_billing_missing_meters{job="xcelsior-api"} > 0 or xcelsior_billing_open_terminal_meters{job="xcelsior-api"} > 0
+        expr: xcelsior_billing_open_terminal_meters{job="xcelsior-api"} > 0
         for: 2m
         labels: {severity: critical, platform: xcelsior, component: control-plane, owner: platform}
         annotations:
           summary: Attempt billing and lifecycle disagree
           description: Preserve meter and attempt history; inspect the report-only billing reconciliation findings.
+      - alert: XcelsiorUsageEvidenceMissing
+        expr: xcelsior_billing_missing_meters{job="xcelsior-api"} > 0
+        for: 2m
+        labels: {severity: warning, platform: xcelsior, component: control-plane, owner: platform}
+        annotations:
+          summary: A started attempt has no usage-meter evidence
+          description: Review the attempt age, owner and captured price. Historical proof runs with incomplete evidence must stay visible; do not manufacture charges or enable repair enforcement to clear this alert.
       - alert: XcelsiorEventDeliveryDeadLettered
         expr: xcelsior_outbox_dead_letters{job="xcelsior-api"} > 0
         for: 2m

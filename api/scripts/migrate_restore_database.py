@@ -14,7 +14,7 @@ from sqlalchemy.engine import make_url
 def migrate(target: str) -> None:
     if not re.fullmatch(r'xcelsior_restore_[0-9]{8}_[0-9]{6}_[0-9]+', target):
         raise ValueError('refusing a database outside the generated restore namespace')
-    base = next((os.environ[key] for key in ('XCELSIOR_POSTGRES_DSN','XCELSIOR_PG_DSN','DATABASE_URL') if os.environ.get(key)), None)
+    base = next((os.environ[key] for key in ('XCELSIOR_POSTGRES_DSN_MIGRATOR','XCELSIOR_POSTGRES_DSN','XCELSIOR_PG_DSN','DATABASE_URL') if os.environ.get(key)), None)
     if not base:
         raise ValueError('the application connection is required to locate the restore server')
     url = make_url(base)

@@ -51,6 +51,9 @@ tests:
     alertname: XcelsiorBillingInvariantViolation
     exp_alerts: []
   - eval_time: 10m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts: []
+  - eval_time: 10m
     alertname: XcelsiorEventDeliveryDeadLettered
     exp_alerts: []
 - name: XcelsiorApiUnavailable fires with native raw metrics
@@ -129,3 +132,83 @@ tests:
         summary: Worker commands exhausted delivery or failed permanently
         description: Inspect command error codes, worker sessions and claim history.
           Preserve failed rows.
+- name: XcelsiorUsageEvidenceMissing is classified independently
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="api"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_available{job="xcelsior-api",instance="api"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api",instance="api"}
+    values: 0+60x20
+  - series: xcelsior_commands_dead_lettered{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_queue_oldest_age_seconds{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_reconciliation_critical_findings{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",instance="api",service="scheduler"}
+    values: 1x20
+  - series: xcelsior_billing_missing_meters{job="xcelsior-api",instance="api"}
+    values: 2x20
+  - series: xcelsior_billing_open_terminal_meters{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        job: xcelsior-api
+        instance: api
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+      exp_annotations:
+        summary: A started attempt has no usage-meter evidence
+        description: Review the attempt age, owner and captured price. Historical
+          proof runs with incomplete evidence must stay visible; do not manufacture
+          charges or enable repair enforcement to clear this alert.
+  - eval_time: 5m
+    alertname: XcelsiorBillingInvariantViolation
+    exp_alerts: []
+- name: XcelsiorBillingInvariantViolation is classified independently
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="api"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_available{job="xcelsior-api",instance="api"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api",instance="api"}
+    values: 0+60x20
+  - series: xcelsior_commands_dead_lettered{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_queue_oldest_age_seconds{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_reconciliation_critical_findings{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",instance="api",service="scheduler"}
+    values: 1x20
+  - series: xcelsior_billing_missing_meters{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  - series: xcelsior_billing_open_terminal_meters{job="xcelsior-api",instance="api"}
+    values: 2x20
+  - series: xcelsior_outbox_dead_letters{job="xcelsior-api",instance="api"}
+    values: '0x20'
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: XcelsiorBillingInvariantViolation
+    exp_alerts:
+    - exp_labels:
+        job: xcelsior-api
+        instance: api
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+      exp_annotations:
+        summary: Attempt billing and lifecycle disagree
+        description: Preserve meter and attempt history; inspect the report-only billing
+          reconciliation findings.
