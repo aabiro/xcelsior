@@ -170,3 +170,39 @@ long retirement-observation wait. Historical stopped jobs and missing-volume
 metadata remain protected; the active cutover does not pretend to restore or
 retire their data. Physical schema contraction is a separate migration and
 must preserve that historical disposition.
+
+## Native alert delivery
+
+Native Prometheus loads `prometheus/native-control-plane-rules.yml` for the
+active control plane. Its nine rules use raw metrics and label notifications
+with `platform=xcelsior,component=control-plane`; Tower rule groups are retained.
+Validate both syntax and `tests/fixtures/native_control_plane_alerts.yml` using
+the installed native `promtool` before reload.
+
+That label pair routes to the `xcelsior-control-plane` receiver in the private
+native Alertmanager configuration. The primary webhook is
+`http://127.0.0.1:9103/alert`, served by `xcelsior-alert-webhook.service`.
+It forwards to the existing ntfy destination, requires an upstream receipt,
+and returns HTTP 503 on delivery failure so Alertmanager retries. Telegram is
+a separate native integration in the same receiver, with independent retries.
+The existing Tower relay and default route are preserved.
+
+The adapter reads only `NTFY_URL` and `NTFY_TOKEN` from the root-owned mode-0600
+`/etc/xcelsior/alert-webhook.env`. The native Alertmanager file containing the
+bot credential is mode 0600 and owned by its runtime user. Render secrets on the
+host; never commit that file or print full integration URLs/tokens. The
+[official configuration reference](https://prometheus.io/docs/alerting/latest/configuration/)
+documents routing and Telegram/webhook integrations. Validate with the installed
+`amtool`; native production uses Alertmanager 0.26.
+
+For a bounded operator-authorized delivery test, post one synthetic alert to
+native Alertmanager, verify webhook upstream receipts and Telegram transport
+success, then resolve the test and verify it is absent from active alerts.
+Version 0.26's notification counters have `integration` labels, without a
+`receiver` label. Those counters include historical/shared integrations: use the
+dedicated adapter receipts and routing evidence to attribute Xcelsior delivery.
+Transport acceptance does not establish that a person read the message.
+
+The exercised route surfaced two pre-existing proof attempts without usage
+meters. Keep their evidence and the billing alert visible while their ownership
+and price history are reviewed; do not invent a charge to clear a graph.
