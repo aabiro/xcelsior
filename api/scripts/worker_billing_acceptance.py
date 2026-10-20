@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from decimal import Decimal
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -531,6 +532,104 @@ else:
                 invoice_delta_micros=after_micros - before_micros,
                 invoice_display_subtotal_cad=after.subtotal_cad,
             )
+
+        # Preserve a real legacy interactive writable layer after a clean stop.
+        # This is a separate state-preservation proof, not another CUDA journey.
+        legacy_job = f"acceptance-{marker}-legacy-preserve"
+        container = f"xcl-{legacy_job}"
+        marker_value = f"preserve-{uuid.uuid4().hex}"
+        with pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload) "
+                "VALUES(%s,'assigned',%s,0,%s,%s)",
+                (
+                    legacy_job,
+                    host_id,
+                    time.time(),
+                    Jsonb(
+                        {
+                            "job_id": legacy_job,
+                            "owner": owner,
+                            "interactive": True,
+                            "container_name": container,
+                            "cost_per_hour": 0.0,
+                        }
+                    ),
+                ),
+            )
+        require(worker.claim_lease(legacy_job) is not None, "legacy preservation lease rejected")
+        require(
+            worker.report_job_status(legacy_job, "starting", host_id=host_id),
+            "legacy starting report rejected",
+        )
+        program = (
+            "from pathlib import Path; import signal; signal.alarm(30); "
+            "p=Path('/workspace/.retirement-preservation-marker'); "
+            f"p.parent.mkdir(parents=True,exist_ok=True); p.write_text({marker_value!r})"
+        )
+        command(
+            "docker",
+            "run",
+            "-d",
+            "--pull=never",
+            "--name",
+            container,
+            "--network=none",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--memory=256m",
+            "--cpus=1",
+            "--pids-limit=128",
+            "--label",
+            f"ai.xcelsior.job_id={legacy_job}",
+            image_id,
+            "python",
+            "-c",
+            program,
+        )
+        require(
+            worker.report_job_status(legacy_job, "running", host_id=host_id),
+            "legacy running report rejected",
+        )
+        require(
+            command("docker", "wait", container).stdout.strip() == "0",
+            "legacy preservation container failed",
+        )
+        worker._active_containers[legacy_job] = container
+        worker._monitor_interactive(legacy_job, container)
+        observed = json.loads(command("docker", "inspect", container).stdout)[0]
+        require(observed["State"]["Status"] == "exited", "stopped container was not retained")
+        marker_file = state / "preserved-marker"
+        command(
+            "docker",
+            "cp",
+            f"{container}:/workspace/.retirement-preservation-marker",
+            str(marker_file),
+        )
+        require(marker_file.read_text() == marker_value, "preserved writable layer lost its marker")
+        with pool.connection() as conn:
+            row = conn.execute(
+                "SELECT j.status,l.status FROM jobs j JOIN leases l ON l.job_id=j.job_id "
+                "WHERE j.job_id=%s",
+                (legacy_job,),
+            ).fetchone()
+            require(row == ("stopped", "released"), "legacy stop/lease projection disagrees")
+        evidence["legacy_preservation"] = {
+            "job_id": legacy_job,
+            "container_id": observed["Id"],
+            "container_retained": True,
+            "writable_layer_marker_preserved": True,
+            "marker_sha256": hashlib.sha256(marker_value.encode()).hexdigest(),
+            "job_status": row[0],
+            "lease_status": row[1],
+        }
+        command("docker", "rm", container)
+        require(
+            command("docker", "inspect", container, check=False).returncode != 0,
+            "legacy preservation container cleanup failed",
+        )
+        worker._active_containers.pop(legacy_job, None)
+        container = None
     finally:
         if container:
             command("docker", "rm", "-f", container, check=False)

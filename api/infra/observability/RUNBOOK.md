@@ -114,7 +114,7 @@ User impact: old execution clients or stopped instances still depend on
 compatibility handlers that an active cutover is expected to retire.
 
 1. Use the **Legacy execution use** panel to compare requested, used and blocked
-   work polls and lease operations. A blocked request is still a caller; an empty
+   work polls, lease operations and old start/pause command insertion. A blocked request is still a caller; an empty
    poll still prevents a zero-use claim.
 2. Inspect `xcelsior_legacy_execution_enabled` per API replica. Zero means that
    replica's scheduler policy disables legacy starts. The alert joins usage to
@@ -123,8 +123,29 @@ compatibility handlers that an active cutover is expected to retire.
    storage state before changing resume paths. Deploy the explicit negotiation
    contract before mixed-mode workers; restarting workers refreshes the policy.
 4. Require continuous healthy scrapes throughout the agreed retention window.
-   Missing data is not zero use. These counters cover work polling and legacy
-   lease operations; other B16 paths require their own evidence.
+   Missing data is not zero use. These counters cover work polling, legacy
+   lease operations and start/pause command insertion; other B16 paths require
+   their own evidence. Command `used` counts an authorized queue insertion,
+   not physical execution or successful completion.
 5. Keep repairs report-only. Schema/table/code removal requires the B16 migration
    and rollout gates. See the
    [cutover record](../../docs/review/2026-10-20-worker-cutover-boundary.md).
+
+For a stopped-job inventory, first obtain a read-only list of job IDs, assigned
+host IDs, container names and volume IDs. Independently verify the Docker daemon
+name against the assigned host, then run:
+
+```sh
+python api/scripts/audit_legacy_containers.py \
+  --host-id HOST_ID --expected-daemon-name VERIFIED_DOCKER_NAME \
+  --jobs /tmp/stopped-jobs.json --output /tmp/container-inventory.json
+```
+
+The tool uses GET requests on the explicit local Docker socket, excludes
+environment/command contents, and exits 2 if observation is incomplete. It checks
+the full name/label census before accepting a named-container 404 as absence.
+Wrong-host, unavailable and malformed evidence stays unknown. Missing containers
+still require storage/image/backup recovery checks; do not requeue a stopped job
+or delete metadata solely from this report. The
+[executed inventory](../../docs/review/2026-10-20-legacy-resume-retirement.md)
+records the current twelve-job disposition gates.

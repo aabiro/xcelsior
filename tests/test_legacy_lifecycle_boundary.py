@@ -1,0 +1,161 @@
+"""Old start/stop directives cannot bypass active-mode or attempt fencing."""
+
+import json
+import threading
+import time
+import uuid
+from types import SimpleNamespace
+from unittest import mock
+
+import pytest
+from fastapi import HTTPException
+
+import worker_agent as worker
+from db import _get_pg_pool
+from routes.agent import enqueue_agent_command
+
+
+@pytest.fixture
+def legacy_job():
+    marker = uuid.uuid4().hex[:10]
+    job_id, host_id, cname = f"legacy-{marker}", f"host-{marker}", f"xcl-legacy-{marker}"
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload) "
+            "VALUES(%s,'stopped',%s,0,%s,%s)",
+            (job_id, host_id, time.time(), json.dumps({"container_name": cname})),
+        )
+    yield job_id, host_id, cname
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM agent_commands WHERE host_id=%s", (host_id,))
+        conn.execute("DELETE FROM job_attempts WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
+
+
+@pytest.mark.parametrize("command", ["start_container", "pause_container"])
+def test_enqueue_refuses_fenced_history(legacy_job, command):
+    job_id, host_id, cname = legacy_job
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            "INSERT INTO job_attempts(attempt_id,job_id,attempt_number,status,host_id,"
+            "fencing_token,job_generation) VALUES(%s,%s,1,'cancelled',%s,1,1)",
+            (str(uuid.uuid4()), job_id, host_id),
+        )
+    with pytest.raises(HTTPException) as exc:
+        enqueue_agent_command(host_id, command, {"job_id": job_id, "container_name": cname})
+    assert exc.value.status_code == 409
+    with _get_pg_pool().connection() as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE host_id=%s", (host_id,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_active_mode_refuses_legacy_resume_but_allows_state_preserving_stop(
+    legacy_job, monkeypatch
+):
+    job_id, host_id, cname = legacy_job
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
+    with pytest.raises(HTTPException) as exc:
+        enqueue_agent_command(
+            host_id, "start_container", {"job_id": job_id, "container_name": cname}
+        )
+    assert exc.value.status_code == 409
+    assert enqueue_agent_command(
+        host_id, "pause_container", {"job_id": job_id, "container_name": cname}
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value", [("host_id", "other-host"), ("container_name", "other-container")]
+)
+def test_enqueue_requires_current_host_and_container(legacy_job, field, value):
+    job_id, host_id, cname = legacy_job
+    if field == "host_id":
+        host_id = value
+    else:
+        cname = value
+    with pytest.raises(HTTPException) as exc:
+        enqueue_agent_command(
+            host_id, "start_container", {"job_id": job_id, "container_name": cname}
+        )
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "labels,negotiated,allowed,current",
+    [
+        ({"ai.xcelsior.attempt_id": "old-attempt"}, True, True, False),
+        ({}, False, True, False),
+        ({}, True, False, False),
+        ({}, True, True, True),
+    ],
+)
+def test_worker_refuses_stale_or_unauthorized_start(
+    monkeypatch, labels, negotiated, allowed, current
+):
+    job_id, cname = "guard-job", "xcl-guard-job"
+    monkeypatch.setattr(worker, "_protocol_negotiated", negotiated)
+    monkeypatch.setattr(worker, "_legacy_execution_allowed", allowed)
+    monkeypatch.setattr(
+        worker,
+        "_v2_attempts",
+        {job_id: {"attempt_id": "live", "stop": threading.Event()}} if current else {},
+    )
+    api = mock.Mock(
+        return_value=SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "commands": [
+                    {
+                        "id": 1,
+                        "command": "start_container",
+                        "args": {"job_id": job_id, "container_name": cname},
+                    }
+                ]
+            },
+        )
+    )
+    monkeypatch.setattr(worker, "_api_request", api)
+    docker = mock.Mock(
+        return_value=SimpleNamespace(returncode=0, stdout=json.dumps(labels), stderr="")
+    )
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    assert worker.drain_agent_commands() == 0
+    assert not any(call.args[0][:2] == ["docker", "start"] for call in docker.call_args_list)
+
+
+@pytest.mark.parametrize("exit_code", [0, 130, 137, 143])
+def test_legacy_interactive_clean_stop_preserves_container(monkeypatch, exit_code):
+    monkeypatch.setattr(worker, "_shutdown", threading.Event())
+    monkeypatch.setattr(worker, "_active_containers", {"job-1": "xcl-job-1"})
+    inspect = mock.Mock(
+        side_effect=[
+            SimpleNamespace(returncode=0, stdout="exited"),
+            SimpleNamespace(returncode=0, stdout=str(exit_code)),
+        ]
+    )
+    monkeypatch.setattr(worker.subprocess, "run", inspect)
+    report = mock.Mock(return_value=True)
+    monkeypatch.setattr(worker, "report_job_status", report)
+    monkeypatch.setattr(worker, "release_lease", mock.Mock())
+    remove = mock.Mock()
+    monkeypatch.setattr(worker, "_remove_container", remove)
+    worker._monitor_interactive("job-1", "xcl-job-1")
+    report.assert_called_once_with("job-1", "stopped")
+    remove.assert_not_called()
+
+
+def test_active_mode_worker_can_stop_a_genuine_legacy_container(monkeypatch):
+    monkeypatch.setattr(worker, "_protocol_negotiated", True)
+    monkeypatch.setattr(worker, "_legacy_execution_allowed", False)
+    monkeypatch.setattr(worker, "_v2_attempts", {})
+    monkeypatch.setattr(
+        worker.subprocess, "run", mock.Mock(return_value=SimpleNamespace(returncode=0, stdout="{}"))
+    )
+    assert worker._legacy_container_command_allowed(
+        "pause_container", {"job_id": "job-1", "container_name": "xcl-job-1"}
+    )
