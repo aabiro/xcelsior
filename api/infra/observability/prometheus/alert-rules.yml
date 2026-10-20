@@ -2,13 +2,13 @@ groups:
   - name: xcelsior.legacy-retirement
     rules:
       - alert: XcelsiorRetiredExecutionPathUsed
-        expr: sum by (path) (increase(xcelsior_legacy_execution_total{outcome="requested"}[10m]) and on (instance, job) (xcelsior_legacy_execution_enabled == 0)) > 0
+        expr: sum by (path) (increase(xcelsior_legacy_execution_total{outcome="requested"}[10m]) and on (instance, job, path) (xcelsior_legacy_path_retired == 1)) > 0
         for: 1m
         labels:
           severity: warning
           owner: platform
         annotations:
-          summary: A compatibility execution endpoint was called after active cutover
+          summary: A retired compatibility path still has callers
           description: Identify the old worker or client and inspect stopped legacy jobs before removing handlers. A blocked request still proves the path has callers.
           runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/docs/review/2026-10-20-worker-cutover-boundary.md
   - name: xcelsior.security

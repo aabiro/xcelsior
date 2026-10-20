@@ -26,7 +26,7 @@ from scheduler import (
 )
 from events import Event, get_event_store, get_state_machine
 from control_plane.legacy_execution import (
-    LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, record_use,
+    LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, legacy_request, record_use,
     require_legacy_container_command,
 )
 from security import check_node_versions, recommend_runtime
@@ -575,48 +575,50 @@ def api_agent_commands_drain(host_id: str, request: Request):
     _require_agent_auth(request, host_id=host_id)
     if not host_id or len(host_id) > 128:
         raise HTTPException(400, "Invalid host_id")
-    pool = _get_pg_pool()
-    with pool.connection() as conn, conn.cursor() as cur:
-        # Drop expired rows for any host (cheap housekeeping). Attempt-
-        # bound commands are excluded: their lifecycle (claim/ACK,
-        # backoff, dead-letter, cancellation on lease expiry) is owned by
-        # the /agent/v2 protocol and control_plane.commands.
-        cur.execute(
-            "DELETE FROM agent_commands "
-            "WHERE expires_at < EXTRACT(EPOCH FROM NOW()) "
-            "AND attempt_id IS NULL"
-        )
-        # Atomically claim pending rows for this host. attempt_id IS NULL:
-        # a legacy drain must never destroy a v2 start_attempt command —
-        # v1 dispatch would refuse the unknown name and the DELETE would
-        # have already destroyed the placement's only delivery.
-        cur.execute(
-            """
-            DELETE FROM agent_commands
-            WHERE id IN (
-                SELECT id FROM agent_commands
-                WHERE host_id = %s AND status = 'pending'
-                  AND attempt_id IS NULL
-                ORDER BY created_at ASC
-                LIMIT 50
-                FOR UPDATE SKIP LOCKED
+    with legacy_request("command_drain") as observation:
+        pool = _get_pg_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            # Drop expired rows for any host (cheap housekeeping). Attempt-
+            # bound commands are excluded: their lifecycle (claim/ACK,
+            # backoff, dead-letter, cancellation on lease expiry) is owned by
+            # the /agent/v2 protocol and control_plane.commands.
+            cur.execute(
+                "DELETE FROM agent_commands "
+                "WHERE expires_at < EXTRACT(EPOCH FROM NOW()) "
+                "AND attempt_id IS NULL"
             )
-            RETURNING id, command, args, created_at, created_by
-            """,
-            (host_id,),
-        )
-        rows = cur.fetchall()
-    commands = [
-        {
-            "id": r[0],
-            "command": r[1],
-            "args": r[2] or {},
-            "created_at": float(r[3]),
-            "created_by": r[4],
-        }
-        for r in rows
-    ]
-    return {"ok": True, "commands": commands}
+            # Atomically claim pending rows for this host. attempt_id IS NULL:
+            # a legacy drain must never destroy a v2 start_attempt command —
+            # v1 dispatch would refuse the unknown name and the DELETE would
+            # have already destroyed the placement's only delivery.
+            cur.execute(
+                """
+                DELETE FROM agent_commands
+                WHERE id IN (
+                    SELECT id FROM agent_commands
+                    WHERE host_id = %s AND status = 'pending'
+                      AND attempt_id IS NULL
+                    ORDER BY created_at ASC
+                    LIMIT 50
+                    FOR UPDATE SKIP LOCKED
+                )
+                RETURNING id, command, args, created_at, created_by
+                """,
+                (host_id,),
+            )
+            rows = cur.fetchall()
+        observation.effect(len(rows))
+        commands = [
+            {
+                "id": r[0],
+                "command": r[1],
+                "args": r[2] or {},
+                "created_at": float(r[3]),
+                "created_by": r[4],
+            }
+            for r in rows
+        ]
+        return {"ok": True, "commands": commands}
 
 
 def prune_expired_agent_commands(conn, *, limit: int = 5000) -> int:
