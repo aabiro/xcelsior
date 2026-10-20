@@ -260,3 +260,20 @@ Read-only production evidence found twelve stopped jobs without fenced history.
 Preserve their container/storage state while deciding migration or retirement;
 these jobs were not changed. See the
 [cutover boundary record](review/2026-10-20-worker-cutover-boundary.md).
+
+The next inventory checked each assigned Docker host's daemon identity, named
+container and full name/label census. No matching containers remained for any
+of the twelve stopped rows. The only referenced managed volume was registered
+`available` with no attachments or snapshots, while its expected directory,
+image and snapshot directory were absent on the configured storage host. These
+rows need recovery/metadata disposition rather than a blind container restart;
+the audit does not establish irrecoverable loss or authorize retirement.
+
+Legacy `start_container`/`pause_container` queue insertion now checks current
+host/container identity and fenced history under the job lock. Old starts are
+disabled in active mode, and the worker refuses stale attempt labels or
+unconfirmed negotiation. Clean/signal exits of supported legacy interactive
+containers retain their writable layer. The shared status funnel supplies host
+attribution for legacy host-token calls as well as fenced calls. These behaviors
+are checked by a real stopped-container marker test in the isolated acceptance.
+See the [resume-retirement record](review/2026-10-20-legacy-resume-retirement.md).

@@ -27,6 +27,7 @@ from scheduler import (
 from events import Event, get_event_store, get_state_machine
 from control_plane.legacy_execution import (
     LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, record_use,
+    require_legacy_container_command,
 )
 from security import check_node_versions, recommend_runtime
 from db import _get_pg_pool
@@ -666,6 +667,13 @@ def enqueue_agent_command(
     """
     if command not in _AGENT_COMMAND_ALLOWED:
         raise HTTPException(400, f"Unknown agent command: {command}")
+    command_args = args or {}
+    lifecycle_path = {"start_container": "command_start", "pause_container": "command_pause"}.get(command)
+    if lifecycle_path:
+        record_use(lifecycle_path, "requested")
+        if not command_args.get("job_id") or not command_args.get("container_name"):
+            record_use(lifecycle_path, "blocked")
+            raise HTTPException(400, "Legacy lifecycle commands require job and container identity")
     import json as _json
 
     # P3/C4 — args size cap. Serialised JSON > 16 KB almost certainly
@@ -682,6 +690,15 @@ def enqueue_agent_command(
 
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
+        if lifecycle_path:
+            try:
+                require_legacy_container_command(
+                    conn, job_id=str(command_args["job_id"]), host_id=host_id,
+                    container_name=str(command_args["container_name"]), starting=command == "start_container",
+                )
+            except LegacyExecutionRejected as exc:
+                record_use(lifecycle_path, "blocked")
+                raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
         # P3/C5 — per-host queue cap. Prevents a buggy caller or
         # compromised admin token from flooding a single host with more
         # pending commands than it can reasonably drain (default 50/drain,
@@ -713,6 +730,8 @@ def enqueue_agent_command(
             (host_id, command, args_json, created_by, int(ttl_sec)),
         )
         row = cur.fetchone()
+    if lifecycle_path:
+        record_use(lifecycle_path, "used")  # Authorized queue insertion, not Docker completion.
     return int(row[0])
 
 

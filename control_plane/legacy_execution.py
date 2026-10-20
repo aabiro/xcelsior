@@ -16,7 +16,14 @@ except ValueError:
         raise
     _uses = _existing
 
-for _path in ("work_poll", "lease_claim", "lease_renew", "lease_release"):
+for _path in (
+    "work_poll",
+    "lease_claim",
+    "lease_renew",
+    "lease_release",
+    "command_start",
+    "command_pause",
+):
     for _outcome in ("requested", "used", "blocked"):
         _uses.labels(path=_path, outcome=_outcome)
 
@@ -76,3 +83,22 @@ def eligible_work_ids(conn, host_id: str, job_ids: list[str]) -> set[str]:
         (job_ids, host_id),
     ).fetchall()
     return {str(row["job_id"] if isinstance(row, dict) else row[0]) for row in rows}
+
+
+def require_legacy_container_command(
+    conn, *, job_id: str, host_id: str, container_name: str, starting: bool
+) -> None:
+    """Keep compatibility directives on the same job lock as placement."""
+    row = conn.execute(
+        "SELECT host_id,payload->>'container_name' AS container_name FROM jobs "
+        "WHERE job_id=%s FOR UPDATE",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise LegacyExecutionRejected("Legacy container job was not found")
+    assigned_host = row.get("host_id") if isinstance(row, dict) else row[0]
+    stored_name = row.get("container_name") if isinstance(row, dict) else row[1]
+    expected_name = str(stored_name or f"xcl-{job_id}")
+    if str(assigned_host or "") != host_id or expected_name != container_name:
+        raise LegacyExecutionRejected("Legacy container identity no longer matches the job")
+    require_legacy_job(conn, job_id, new_claim=starting)

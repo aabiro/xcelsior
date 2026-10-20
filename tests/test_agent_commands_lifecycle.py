@@ -36,6 +36,14 @@ os.environ.setdefault("XCELSIOR_API_URL", "http://localhost:9500")
 import worker_agent  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def negotiated_legacy_commands(monkeypatch):
+    monkeypatch.setattr(worker_agent, "_protocol_negotiated", True)
+    monkeypatch.setattr(worker_agent, "_legacy_execution_allowed", True)
+    monkeypatch.setattr(worker_agent, "_v2_attempts", {})
+    monkeypatch.setattr(worker_agent, "_report_agent_degraded", mock.Mock())
+
+
 def _ok(stdout: str = "", stderr: str = "", rc: int = 0):
     """Build a CompletedProcess-like object."""
     return SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr)
@@ -179,7 +187,7 @@ def test_pause_container_does_not_remove_container(monkeypatch):
 
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
-        return _ok()
+        return _ok("{}" if "inspect" in argv else "")
 
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
@@ -239,14 +247,17 @@ def test_start_container_runs_docker_start(monkeypatch):
 
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
-        return _ok()
+        return _ok("{}" if "inspect" in argv else "")
 
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
     n = worker_agent.drain_agent_commands()
 
     assert n == 1
-    assert calls == [["docker", "start", "xcl-ddd"]]
+    assert calls == [
+        ["docker", "inspect", "-f", "{{json .Config.Labels}}", "xcl-ddd"],
+        ["docker", "start", "xcl-ddd"],
+    ]
 
 
 def test_start_container_failure_reports_stopped(monkeypatch):
@@ -267,7 +278,7 @@ def test_start_container_failure_reports_stopped(monkeypatch):
     monkeypatch.setattr(
         worker_agent.subprocess,
         "run",
-        lambda *a, **kw: _ok(stderr="Error: no such container: xcl-eee", rc=1),
+        lambda argv, **kw: _ok("{}") if "inspect" in argv else _ok(stderr="Error: no such container: xcl-eee", rc=1),
     )
 
     reports: list[tuple] = []

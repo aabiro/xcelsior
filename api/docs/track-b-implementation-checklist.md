@@ -2282,6 +2282,20 @@ period — measured, not assumed.
   retirement; B16.2/B16.3 remain open. Production is still `canary`, with twelve
   stopped jobs lacking fenced history. See
   [cutover boundary evidence](review/2026-10-20-worker-cutover-boundary.md).
+  The subsequent resume-retirement increment adds `command_start` and
+  `command_pause` usage. Queue insertion locks the job and checks current
+  host/container identity and all fenced history; active mode refuses old
+  starts while permitting state-preserving stops of genuine legacy work.
+  Worker execution rechecks negotiated policy, local authority and physical
+  attempt labels. Legacy interactive clean/signal stops now retain the
+  container; their status reports include the host ID required by host tokens.
+  A read-only inventory verified both Docker hosts and found no matching
+  containers for the twelve stopped rows. The one referenced NFS volume is
+  registered `available`, but its expected storage/snapshot paths were absent.
+  No production records were retired or requeued. Gates:
+  `tests/test_legacy_lifecycle_boundary.py`, `tests/test_legacy_container_inventory.py`,
+  and the real writable-layer preservation case in the hardware acceptance.
+  [Inventory and recovery gates](review/2026-10-20-legacy-resume-retirement.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration

@@ -1920,6 +1920,37 @@ _AGENT_COMMAND_ALLOWED = frozenset(
 )
 
 
+def _legacy_container_command_allowed(command: str, args: dict) -> bool:
+    """Recheck physical identity when an old queued directive reaches a host."""
+    job_id = str(args.get("job_id") or "")
+    container_name = str(args.get("container_name") or "")
+    if not job_id or not container_name or not _protocol_negotiated:
+        return False
+    if command == "start_container" and not _legacy_execution_allowed:
+        return False
+    with _v2_attempts_lock:
+        if job_id in _v2_attempts:
+            return False
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+        labels = json.loads(result.stdout)
+        if labels is None:
+            labels = {}
+        if not isinstance(labels, dict):
+            return False
+        if any(key in labels for key in ("ai.xcelsior.attempt_id", "xcelsior.attempt_id")):
+            return False
+        label_job = labels.get("ai.xcelsior.job_id") or labels.get("xcelsior.job_id")
+        return not label_job or label_job == job_id
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+
+
 def drain_agent_commands() -> int:
     """Drain admin control-plane commands from the API and dispatch them.
 
@@ -1963,6 +1994,11 @@ def drain_agent_commands() -> int:
             _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
             continue
         try:
+            if name in ("start_container", "pause_container") and not _legacy_container_command_allowed(name, args):
+                log.warning("Refused legacy lifecycle command=%s id=%s; authority or identity unconfirmed", name, cmd_id)
+                _agent_commands_rejected_total.labels(command=name).inc()
+                _report_agent_degraded("legacy_lifecycle_refused", context=f"command={name} id={cmd_id}")
+                continue
             if name == "reinject_shell":
                 job_id = args.get("job_id") or ""
                 container_name = args.get("container_name") or (f"xcl-{job_id}" if job_id else "")
@@ -2520,8 +2556,8 @@ def report_job_status(
         data["host_id"] = HOST_ID
         data["attempt_id"] = v2_auth.get("attempt_id")
         data["fencing_token"] = v2_auth.get("fencing_token")
-    elif host_id:
-        data["host_id"] = host_id
+    else:
+        data["host_id"] = host_id or HOST_ID
     if container_id:
         data["container_id"] = container_id
     if container_name:
@@ -5650,7 +5686,8 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None, is_v2_attem
                 report_job_status(job_id, reported_status)
                 if not is_v2_attempt:
                     release_lease(job_id, reported_status)
-                _remove_container(container_name)
+                if reported_status != "stopped":
+                    _remove_container(container_name)
                 return
 
             elif status not in ("running", "created", "restarting", "paused"):

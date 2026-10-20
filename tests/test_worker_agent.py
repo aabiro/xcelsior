@@ -508,6 +508,7 @@ class TestReportJobStatus:
         assert ok is True
         assert "/instance/j-42" in captured["url"]
         assert captured["json"]["status"] == "completed"
+        assert captured["json"]["host_id"] == "rig-01"
 
     def test_with_host_id(self, monkeypatch):
         _patch_base(monkeypatch)
