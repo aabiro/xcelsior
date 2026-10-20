@@ -90,7 +90,11 @@ echo $$ > "$LOCK_FILE"
 
 # ── Read selected .env values without executing the file ─────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/../.env"
+PROJECT_DIR="${XCELSIOR_PROJECT_DIR:-${SCRIPT_DIR}/..}"
+if [[ -z "${XCELSIOR_PROJECT_DIR:-}" && "$(basename "$(dirname "$SCRIPT_DIR")")" == "api" ]]; then
+    PROJECT_DIR="${SCRIPT_DIR}/../.."
+fi
+ENV_FILE="${PROJECT_DIR}/.env"
 
 read_dotenv_value() {
     local key="$1"

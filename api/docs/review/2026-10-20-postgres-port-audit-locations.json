@@ -1,0 +1,180 @@
+{
+  "scope": "Tracked text, whole numeric token 5432; binary files excluded; no file contents or credentials recorded",
+  "references": [
+    {
+      "file": ".env.example",
+      "lines": [
+        53,
+        56,
+        743
+      ],
+      "category": "examples"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "lines": [
+        57,
+        211,
+        221,
+        222,
+        279,
+        291,
+        292
+      ],
+      "category": "tests"
+    },
+    {
+      "file": ".github/workflows/mcp.yml",
+      "lines": [
+        126,
+        135,
+        136
+      ],
+      "category": "tests"
+    },
+    {
+      "file": "alembic.ini",
+      "lines": [
+        7
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/fern/pages/architecture.mdx",
+      "lines": [
+        76
+      ],
+      "category": "documentation"
+    },
+    {
+      "file": "api/infra/spire/rollout-enrollment.sh",
+      "lines": [
+        54
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/backup-db.sh",
+      "lines": [
+        139
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/bootstrap_pg_from_empty.sh",
+      "lines": [
+        9
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/deploy.sh",
+      "lines": [
+        1912
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/incident/audit_operator_clients.py",
+      "lines": [
+        10
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/provision_spire_datastore.sh",
+      "lines": [
+        54
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/restore-db-drill.sh",
+      "lines": [
+        43
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/restore-db.sh",
+      "lines": [
+        19
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "api/scripts/setup_pytest_db.sh",
+      "lines": [
+        53
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "core/db.py",
+      "lines": [
+        47
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "docker-compose.yml",
+      "lines": [
+        32,
+        523,
+        741,
+        770,
+        1039
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "hosts/ssh_gateway.py",
+      "lines": [
+        114
+      ],
+      "category": "application or operations"
+    },
+    {
+      "file": "tests/test_backup_workflow.py",
+      "lines": [
+        42
+      ],
+      "category": "tests"
+    },
+    {
+      "file": "tests/test_from_empty_bootstrap.py",
+      "lines": [
+        83,
+        119
+      ],
+      "category": "tests"
+    },
+    {
+      "file": "tests/test_public_status_is_public_and_says_nothing_extra.py",
+      "lines": [
+        49
+      ],
+      "category": "tests"
+    },
+    {
+      "file": "tests/test_startup_validation.py",
+      "lines": [
+        33,
+        94,
+        99,
+        107,
+        115,
+        116,
+        123
+      ],
+      "category": "tests"
+    },
+    {
+      "file": "tests/test_structured_logging.py",
+      "lines": [
+        80
+      ],
+      "category": "tests"
+    }
+  ]
+}

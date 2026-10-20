@@ -1,6 +1,6 @@
 [Unit]
 Description=Xcelsior isolated PostgreSQL restore and invariant drill
-Documentation=file:/opt/xcelsior/docs/xcelsior-production-data-architecture-companion.md
+Documentation=file:/opt/xcelsior/api/docs/xcelsior-production-data-architecture-companion.md
 After=network-online.target postgresql.service docker.service
 Wants=network-online.target
 Requires=docker.service

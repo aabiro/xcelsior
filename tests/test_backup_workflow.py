@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import time
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -16,9 +18,10 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def test_backup_reads_dotenv_as_data_and_rotates_sidecars(tmp_path: Path) -> None:
+@pytest.mark.parametrize("script_directory", ["scripts", "api/scripts"])
+def test_backup_reads_dotenv_as_data_and_rotates_sidecars(tmp_path: Path, script_directory: str) -> None:
     project = tmp_path / "project"
-    scripts = project / "scripts"
+    scripts = project / script_directory
     fake_bin = tmp_path / "bin"
     backup_dir = tmp_path / "backups"
     metrics_dir = tmp_path / "metrics"
@@ -110,3 +113,19 @@ printf 'valid fixture dump\\n' >"$output"
     success_metrics = (metrics_dir / "xcelsior_backup_success.prom").read_text(encoding="utf-8")
     assert "xcelsior_backup_last_success_timestamp_seconds" in success_metrics
     assert "xcelsior_backup_last_size_bytes" in success_metrics
+
+
+@pytest.mark.parametrize('script_directory', ['scripts', 'api/scripts'])
+def test_manual_restore_reads_project_config_as_data_and_aborts_before_mutation(tmp_path, script_directory):
+    project=tmp_path/'project';scripts=project/script_directory;scripts.mkdir(parents=True)
+    script=scripts/'restore-db.sh'
+    shutil.copy2(ROOT/'api/scripts/restore-db.sh',script)
+    marker=tmp_path/'dotenv-executed'
+    (project/'.env').write_text(f'XCELSIOR_POSTGRES_DB=fixture\nXCELSIOR_POSTGRES_HOST=127.0.0.1\nXCELSIOR_POSTGRES_PORT=5434\nUNRELATED=$(touch {marker})\n')
+    backup=tmp_path/'fixture.dump';backup.write_bytes(b'fixture dump')
+    env={k:v for k,v in os.environ.items() if not k.startswith(('XCELSIOR_','PG'))}
+    result=subprocess.run(['bash',str(script),str(backup)],input='no\n',env=env,capture_output=True,text=True,cwd=project)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert 'Host: 127.0.0.1:5434' in result.stdout
+    assert 'Aborted.' in result.stdout
+    assert not marker.exists()
