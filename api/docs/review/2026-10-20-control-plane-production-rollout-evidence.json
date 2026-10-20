@@ -1,0 +1,947 @@
+{
+  "implementation_commit": "82c4a59bbce64b489776e72cd2f7b9f28e52dcd2",
+  "source_package_commit": "b181c1cf06eb3890161c17813631f17c59fb55e0",
+  "approval": "User approved the reviewed API-first production rollout, signed worker handoffs and two native Prometheus additions; repairs remain report_only and scheduler scope remains canary.",
+  "collected_at": "2026-10-20T12:14:54.926697+00:00",
+  "image_import": {
+    "local_id": "sha256:026984f3e0ab1cc4a4fde96e6c257fdce974040c0588e4ad533d3ba535d6ac4f",
+    "remote_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27",
+    "identical_fields": {
+      "Config": true,
+      "RootFS": true,
+      "Created": true,
+      "Architecture": true,
+      "Os": true
+    },
+    "local_layers": [
+      "sha256:15f1c8eb1ab18eae260c7fb6296434cbe1ff0e1e30fd814ae92a80dd54005e62",
+      "sha256:e1fa2746ad6d51e7de9171dfcbb1fe93d01d51c5d8d3623e0c3b223076dc5d23",
+      "sha256:b361fa3b97940ee89a1aab8fde1027e47ab2c2e700ca2f8d5988ad2c64386e5c",
+      "sha256:dca2a125b4903477bcb42084172cfc98865299810620ffd617bf6e12dd83d89f",
+      "sha256:cd7f3812b7086b1a277cbe4ef201f4b07d1e7b3f8414d13eba2b9dfa99f0cca4",
+      "sha256:62402ee3e20eb410f9d9c83304804ad0dd0ee50d859ff8949b06a682012187b9",
+      "sha256:fc9dfa7b5953f172554298f72e5f2f35609b7694cf6edf4a2359ae16b450b9e5",
+      "sha256:3b5bfd11aaff9e6bc92a765f6c318dc657e7a594fae72f29cbb892a513d1fb47",
+      "sha256:8762eb7be4dab537418f6695eaa151ff9b0bcf28849bfae051a96f462165f751",
+      "sha256:bcd774fd3e21b1f03abc5cacabd0d6b59aaf77c83843429013047a83020ef455",
+      "sha256:20e0d802180094329f61ba7ca2257af8b976846f5b140e085c19dff625cda9f6",
+      "sha256:2e208eb8fb01dc2ab4e79b2704d16eab83d43d353736321b24323ed125d89554",
+      "sha256:be21a32b93874a6ce4abca5fdbfe513eae466089e2ee2fd9e739c776d1a565c6",
+      "sha256:4d650d9714c3f4ed8d06f7b748c2f074e518cebc560a1dde590b6604d38682ce",
+      "sha256:c4312bbab8cad59edb21663df016d4ff6d2c53f8f243a9408c6e5352fb75ac84",
+      "sha256:c434eac025723daee9a546dbcd7c123fb95454511b405c7edc172e5c30becd57",
+      "sha256:2dea666d576675a7f2b6e9fc5d99dca0b3351c29980d1e33e19ba3cb5a26ec56",
+      "sha256:07d0c2cc02c0a3f3dd3fb7e99a7706da20579ac236f4b5d70031e0cef0168a02"
+    ],
+    "remote_layers": [
+      "sha256:15f1c8eb1ab18eae260c7fb6296434cbe1ff0e1e30fd814ae92a80dd54005e62",
+      "sha256:e1fa2746ad6d51e7de9171dfcbb1fe93d01d51c5d8d3623e0c3b223076dc5d23",
+      "sha256:b361fa3b97940ee89a1aab8fde1027e47ab2c2e700ca2f8d5988ad2c64386e5c",
+      "sha256:dca2a125b4903477bcb42084172cfc98865299810620ffd617bf6e12dd83d89f",
+      "sha256:cd7f3812b7086b1a277cbe4ef201f4b07d1e7b3f8414d13eba2b9dfa99f0cca4",
+      "sha256:62402ee3e20eb410f9d9c83304804ad0dd0ee50d859ff8949b06a682012187b9",
+      "sha256:fc9dfa7b5953f172554298f72e5f2f35609b7694cf6edf4a2359ae16b450b9e5",
+      "sha256:3b5bfd11aaff9e6bc92a765f6c318dc657e7a594fae72f29cbb892a513d1fb47",
+      "sha256:8762eb7be4dab537418f6695eaa151ff9b0bcf28849bfae051a96f462165f751",
+      "sha256:bcd774fd3e21b1f03abc5cacabd0d6b59aaf77c83843429013047a83020ef455",
+      "sha256:20e0d802180094329f61ba7ca2257af8b976846f5b140e085c19dff625cda9f6",
+      "sha256:2e208eb8fb01dc2ab4e79b2704d16eab83d43d353736321b24323ed125d89554",
+      "sha256:be21a32b93874a6ce4abca5fdbfe513eae466089e2ee2fd9e739c776d1a565c6",
+      "sha256:4d650d9714c3f4ed8d06f7b748c2f074e518cebc560a1dde590b6604d38682ce",
+      "sha256:c4312bbab8cad59edb21663df016d4ff6d2c53f8f243a9408c6e5352fb75ac84",
+      "sha256:c434eac025723daee9a546dbcd7c123fb95454511b405c7edc172e5c30becd57",
+      "sha256:2dea666d576675a7f2b6e9fc5d99dca0b3351c29980d1e33e19ba3cb5a26ec56",
+      "sha256:07d0c2cc02c0a3f3dd3fb7e99a7706da20579ac236f4b5d70031e0cef0168a02"
+    ]
+  },
+  "image_tag": "xcelsior-api:shared-metrics-82c4a59b-preserved-live",
+  "preserved_live_files": {
+    "api/routes/billing.py": "747b4f9dae7998c3f64fe9832dcd94903e331d7e2324dd2c883b4d0020911936",
+    "billing/stripe_connect.py": "ef61621224a30d98747ea5e707793090e1fd319796e06d4e0c1fd2353b116c09",
+    "core/meta_capi.py": "b45e7e2943490c35e97eb1238e77f6d25ef0fec8b5405829875185e20e7704dd",
+    "core/gitguardian.py": "a57d811bfec8bd08314362221e550275b7ae5f76038ef10654557fac4691a93a"
+  },
+  "runtime_source_sha256": {
+    "api/routes/agent.py": "79a99c3f363a3fceb0c67f1371d30106198d5c898c90f9488b72371ad3693cbc",
+    "api/routes/agent_v2.py": "3a640779c1e6cfe37812b329c82e5bf52469b319f672212645669f96cd977087",
+    "api/routes/health.py": "83f7db28bb0dec866986e443499c98140c789eb18b2fbf541b5b5b480b6c65d3",
+    "api/routes/instances.py": "1fe649f30c886bff7347c25a323169631ed2f7d22795be2e97930f7923b37702",
+    "api/scripts/audit_legacy_containers.py": "ce964894ae93fd29ed416416b5fb3b61797739027b3d5364ea6f7a65636a0cc7",
+    "api/scripts/plan_native_prometheus.py": "a7ab0105b1a4477c02dff54b39102584daec258aa7860ed4aeb7404e1d242c0e",
+    "api/scripts/start_api.sh": "913c72230a5b8f5a0995ef25be3896ab84890943b588efa48a2a86462e8a91b3",
+    "api/scripts/worker_agent.py.sig": "ee1ac7f98d77d7455fd16b26f9c7efa7b7bfd13c962c15891ad87a9ab5134a0e",
+    "api/scripts/worker_billing_acceptance.py": "bdf6bf7f1c6fee4af2941fc68eb30e9a4754ec6b6c5396e53c4ca3fc35e51eab",
+    "control_plane/legacy_execution.py": "a4ed934edd3a6c65c8bccbdd86acb395eb26cf9c16b6857d674e748fd89da393",
+    "core/events.py": "c4fa4067af5a177098cb6b476e122d37fd4c3f02eef40521b50eb61db7db1a6a",
+    "core/prometheus_export.py": "2f8b7391eb98f31064364e7ac774db702cfa04628da321861bebbab2e1e9299c",
+    "gunicorn.conf.py": "af444c13301fcebabaf30e3398db3fd0e5b097e4fe27c8e327512ddea377682c",
+    "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc",
+    "Dockerfile": "dabea238e3edce954c60106723fdfe0e5fc2b0ff56440b38aad2ff07d7114b7f",
+    "billing/stripe_connect.py": "ef61621224a30d98747ea5e707793090e1fd319796e06d4e0c1fd2353b116c09",
+    "core/meta_capi.py": "b45e7e2943490c35e97eb1238e77f6d25ef0fec8b5405829875185e20e7704dd",
+    "core/gitguardian.py": "a57d811bfec8bd08314362221e550275b7ae5f76038ef10654557fac4691a93a",
+    "api/routes/billing.py": "747b4f9dae7998c3f64fe9832dcd94903e331d7e2324dd2c883b4d0020911936",
+    "control_plane/job_reconcile.py": "202d3cef58aa5e9d87cbd73d37b5a82c5e68feece5574f3b46b6332382eaef19"
+  },
+  "validation": {
+    "gate_exit_code": 0,
+    "results": {
+      "tests": 360,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "test_files": [
+      "tests/test_prometheus_worker_aggregation.py",
+      "tests/test_native_prometheus_plan.py",
+      "tests/test_legacy_observation_gates.py",
+      "tests/test_in_memory_auth_refuses_multiple_workers.py",
+      "tests/test_client_ip_survives_cloudflare.py",
+      "tests/test_staging_does_not_listen_beyond_loopback.py",
+      "tests/test_observability_stack.py",
+      "tests/test_hardened_runtime_and_ingress.py",
+      "tests/test_startup_validation.py",
+      "tests/test_security_monitoring.py",
+      "tests/test_metrics_catalog.py",
+      "tests/test_snapshot_metrics.py",
+      "tests/test_public_http.py",
+      "tests/test_metrics_are_not_public.py",
+      "tests/test_prometheus_emits_every_metric_it_declares.py",
+      "tests/test_agent_v2.py",
+      "tests/test_meta_capi.py",
+      "tests/test_stripe_connect_v2_endpoints_coverage.py",
+      "tests/test_stripe_webhook_refuses_unverified.py"
+    ],
+    "billing_expansion": {
+      "results": {
+        "tests": 404,
+        "failures": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "baseline_results": {
+        "tests": 3,
+        "failures": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "reason": "Three pre-existing payment-intent tests reach external Stripe using synthetic credentials. All three reproduce on the unchanged candidate. No billing implementation was changed."
+    }
+  },
+  "api_stages": [
+    {
+      "event": "standby_verified",
+      "at": 1792497814.5055788,
+      "aggregation": 1,
+      "paths": [
+        "command_drain",
+        "command_pause",
+        "command_start",
+        "lease_claim",
+        "lease_release",
+        "lease_renew",
+        "status_patch",
+        "work_poll"
+      ],
+      "counter_series": 32,
+      "generation": 1792497806.2990837,
+      "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27"
+    },
+    {
+      "event": "nginx_handoff",
+      "at": 1792497821.7393231,
+      "colour": "blue",
+      "port": 9501
+    },
+    {
+      "event": "nginx_handoff",
+      "at": 1792497840.3783324,
+      "colour": "green",
+      "port": 9500
+    },
+    {
+      "event": "api_rollout_verified",
+      "at": 1792497847.4015017,
+      "aggregation": 1,
+      "paths": [
+        "command_drain",
+        "command_pause",
+        "command_start",
+        "lease_claim",
+        "lease_release",
+        "lease_renew",
+        "status_patch",
+        "work_poll"
+      ],
+      "counter_series": 32,
+      "generation": 1792497831.0478325,
+      "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27"
+    },
+    {
+      "event": "service_handoff_verified",
+      "at": 1792497909.2362423,
+      "service": "bg-worker",
+      "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27"
+    },
+    {
+      "event": "service_handoff_verified",
+      "at": 1792497923.221534,
+      "service": "scheduler-worker",
+      "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27"
+    }
+  ],
+  "workers": {
+    "workstation": {
+      "host_id": "aaryn-tuf-rtx2060",
+      "old_pid": 8611,
+      "new_pid": 1775481,
+      "signature_files_verified": 12,
+      "worker_sha256": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc",
+      "v2_negotiation_confirmed": true,
+      "legacy_execution_allowed": true,
+      "started_at": 1792498003.606614,
+      "deregister_on_exit": false,
+      "backup": "/home/aaryn/.xcelsior/releases/shared-metrics-20261020-rollback"
+    },
+    "tower": {
+      "host_id": "tower-rtx3060",
+      "old_pid": 0,
+      "new_pid": 1513278,
+      "signature_files_verified": 12,
+      "worker_sha256": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc",
+      "v2_negotiation_confirmed": true,
+      "legacy_execution_allowed": true,
+      "started_at": 1792498043.5105977,
+      "deregister_on_exit": false,
+      "backup": "/home/aaryn/.xcelsior/releases/shared-metrics-20261020-rollback"
+    }
+  },
+  "public_distribution": [
+    {
+      "name": "worker_agent.py",
+      "sha256": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc",
+      "signature_verified": true
+    },
+    {
+      "name": "security.py",
+      "sha256": "d9d1d3f4ff34b0a602f35f1634b198a7e8b8d30926eeb11af1a9697236df9420",
+      "signature_verified": true
+    },
+    {
+      "name": "nvml_telemetry.py",
+      "sha256": "d8fa2d842ff8c87101649b1096f14a1fe5dd1751a345ac21db8bba3e74c625f4",
+      "signature_verified": true
+    },
+    {
+      "name": "worker_image_cache.py",
+      "sha256": "a794e2cb1e4e4320070bfba885b8c8018cebfe62b18423a09a5d3e4a712a89e8",
+      "signature_verified": true
+    },
+    {
+      "name": "worker_nfs.py",
+      "sha256": "71fc5e7740b7f52734dec69235c12921b1d8e54e1f7ab58a9ef426c7935948b3",
+      "signature_verified": true
+    },
+    {
+      "name": "worker_nvme_cache.py",
+      "sha256": "13d7bd7dc02d1950960a5af61c7fb48b7e83f81e2dc38488752257315ebc6a93",
+      "signature_verified": true
+    },
+    {
+      "name": "worker_luks_volumes.py",
+      "sha256": "d717cf4a0386415bcde62ffbb55bacc6be96755ebc7b2da671ac8ad8b766d06b",
+      "signature_verified": true
+    },
+    {
+      "name": "env_config.py",
+      "sha256": "98666f091fe24d0f8a87ff6e1a330887abf44bae626de0d15cb377aa02dcdff6",
+      "signature_verified": true
+    },
+    {
+      "name": "criu_hosts.py",
+      "sha256": "4e1a1f66795f634e8401d915546eef7b174a91f86711733a56cd70c0625d79d0",
+      "signature_verified": true
+    },
+    {
+      "name": "egress_isolation.py",
+      "sha256": "0909d0fb7307f3e520d355308b841577c2593aa42536c84ba65ef883f215e416",
+      "signature_verified": true
+    },
+    {
+      "name": "worker_privileged.py",
+      "sha256": "87e03bfe2f5d951a386fe89dae0d9883e13b9a1a41cbb74222efa64482616639",
+      "signature_verified": true
+    },
+    {
+      "name": "worker-requirements.txt",
+      "sha256": "f18d48ccac360a3ce396515937ebae4887c1dc6b0f98c5cf808f3a9b8ca62d84",
+      "signature_verified": true
+    }
+  ],
+  "native_monitoring": {
+    "source_sha256": "6841aa84c7ffd334f8eff7ed66072ff94c3630f6d7acb9c014913b6eb00beb7f",
+    "candidate_sha256": "ad305f35e4f98345f30eaf62835d395f147c121984785130b7cee10978a0c781",
+    "rules_sha256": "0edb120e05e4e18e40669e7b4bd80e63fb38fb2cf74c9914c461bc3f0d0ab0d0",
+    "operations": [
+      {
+        "op": "add",
+        "path": "/scrape_configs/-",
+        "value": {
+          "job_name": "xcelsior-api",
+          "metrics_path": "/metrics/prometheus",
+          "static_configs": [
+            {
+              "targets": [
+                "127.0.0.1:9500"
+              ],
+              "labels": {
+                "replica": "green"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "op": "add",
+        "path": "/rule_files/-",
+        "value": "/etc/prometheus/xcelsior-rules/legacy-retirement.yml"
+      }
+    ],
+    "full_config_validation_exit": 0,
+    "reload_success": true,
+    "api_target": {
+      "health": "up",
+      "lastScrape": "2026-10-20T12:07:12.236598293Z",
+      "scrapeUrl": "http://127.0.0.1:9500/metrics/prometheus"
+    },
+    "jobs": [
+      "alertmanager",
+      "laptop-host",
+      "prod-hetzner-host",
+      "prometheus",
+      "tower-gpu",
+      "tower-host",
+      "tower-serverless",
+      "tower-storage",
+      "xcelsior-api"
+    ],
+    "retirement_rules": [
+      "XcelsiorRetiredExecutionPathUsed"
+    ],
+    "rule_health": [
+      "unknown"
+    ],
+    "applied": true
+  },
+  "live_verification": {
+    "collected_at": 1792498242.6314704,
+    "containers": {
+      "xcelsior-api-1": {
+        "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27",
+        "health": "healthy",
+        "command": [
+          "/bin/sh",
+          "api/scripts/start_api.sh"
+        ],
+        "source_hashes_verified": 20
+      },
+      "xcelsior-bg-worker-1": {
+        "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27",
+        "health": "healthy",
+        "command": [
+          "python",
+          "workers/bg_worker.py"
+        ],
+        "source_hashes_verified": 20
+      },
+      "xcelsior-scheduler-worker-1": {
+        "image_id": "sha256:07e7b4dceefad6044dd68640f5e6b0c971538a241f74d1c3bdbfe0c54f50af27",
+        "health": "healthy",
+        "command": [
+          "python",
+          "-c",
+          "from scheduler import scheduler_main; scheduler_main()"
+        ],
+        "source_hashes_verified": 20
+      }
+    },
+    "worker_distribution_signatures_verified": 12,
+    "environment_file_unchanged": true,
+    "standby_stopped": true,
+    "queries": {
+      "up": [
+        {
+          "metric": {
+            "__name__": "up",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.498,
+            "1"
+          ]
+        }
+      ],
+      "aggregation": [
+        {
+          "metric": {
+            "__name__": "xcelsior_metrics_aggregation_enabled",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.5,
+            "1"
+          ]
+        }
+      ],
+      "generation": [
+        {
+          "metric": {
+            "__name__": "xcelsior_metrics_generation_started_timestamp_seconds",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.501,
+            "1792497831.0478325"
+          ]
+        }
+      ],
+      "usage_series": [
+        {
+          "metric": {},
+          "value": [
+            1792498243.502,
+            "32"
+          ]
+        }
+      ],
+      "policy_series": [
+        {
+          "metric": {},
+          "value": [
+            1792498243.504,
+            "8"
+          ]
+        }
+      ],
+      "scrapes_2m": [
+        {
+          "metric": {
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.505,
+            "8"
+          ]
+        }
+      ],
+      "minimum_up_2m": [
+        {
+          "metric": {
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.506,
+            "1"
+          ]
+        }
+      ],
+      "generation_changes_2m": [
+        {
+          "metric": {
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.507,
+            "0"
+          ]
+        }
+      ],
+      "requested_by_path": [
+        {
+          "metric": {
+            "path": "command_drain"
+          },
+          "value": [
+            1792498243.508,
+            "44"
+          ]
+        },
+        {
+          "metric": {
+            "path": "command_pause"
+          },
+          "value": [
+            1792498243.508,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "path": "command_start"
+          },
+          "value": [
+            1792498243.508,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "path": "lease_claim"
+          },
+          "value": [
+            1792498243.508,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "path": "lease_release"
+          },
+          "value": [
+            1792498243.508,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "path": "lease_renew"
+          },
+          "value": [
+            1792498243.508,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "path": "status_patch"
+          },
+          "value": [
+            1792498243.508,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "path": "work_poll"
+          },
+          "value": [
+            1792498243.508,
+            "43"
+          ]
+        }
+      ],
+      "retired_policy": [
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "command_drain",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "command_pause",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "command_start",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "lease_claim",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "lease_release",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "lease_renew",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "status_patch",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "xcelsior_legacy_path_retired",
+            "instance": "127.0.0.1:9500",
+            "job": "xcelsior-api",
+            "path": "work_poll",
+            "replica": "green"
+          },
+          "value": [
+            1792498243.509,
+            "0"
+          ]
+        }
+      ]
+    },
+    "monitoring": {
+      "group_names": [
+        "tower-integrity",
+        "tower",
+        "xcelsior.legacy-retirement"
+      ],
+      "retirement_rules": [
+        {
+          "name": "XcelsiorRetiredExecutionPathUsed",
+          "health": "ok",
+          "state": "inactive",
+          "lastEvaluation": "2026-10-20T12:10:37.005546903Z"
+        }
+      ],
+      "jobs": [
+        "alertmanager",
+        "laptop-host",
+        "prod-hetzner-host",
+        "prometheus",
+        "tower-gpu",
+        "tower-host",
+        "tower-serverless",
+        "tower-storage",
+        "xcelsior-api"
+      ],
+      "active_alertmanager_count": 1,
+      "receiver_delivery_tested": false
+    }
+  },
+  "canary_flags": {
+    "XCELSIOR_AGENT_V2_HOSTS": "*",
+    "XCELSIOR_BG_TASKS": "false",
+    "XCELSIOR_SCHEDULER_CANARY_GPU_MODELS": "rtx 2060,nvidia geforce rtx 2060,rtx 3060,nvidia geforce rtx 3060",
+    "XCELSIOR_SCHEDULER_CANARY_HOSTS": "aaryn-tuf-rtx2060,tower-rtx3060",
+    "XCELSIOR_SCHEDULER_CLAIMS_ENABLED": "true",
+    "XCELSIOR_SCHEDULER_MODE": "canary"
+  },
+  "effective_repair_policies": {
+    "attempt_container_missing": "report_only",
+    "billing_active_meter_missing": "report_only",
+    "billing_missing_meter": "report_only",
+    "billing_orphaned_meter": "report_only",
+    "job_lease_authority_missing": "report_only",
+    "job_stop_command_missing": "report_only",
+    "orphaned_allocation": "report_only",
+    "stale_fence_container": "report_only"
+  },
+  "schema": [
+    [
+      "125"
+    ]
+  ],
+  "protected_job_rows_unchanged": true,
+  "protected_jobs": [
+    {
+      "job_id": "07b3353b",
+      "row_sha256": "0c9a0accfc1a0cc0507ff7171e7a81f4081cc6f0f36140c93f25962f6405a4fb",
+      "status": "stopped"
+    },
+    {
+      "job_id": "177a3447",
+      "row_sha256": "0891d7f92364bd08abc7326bc5aa004c1cbe0ddab4c1ce7793dd625626fc3500",
+      "status": "stopped"
+    },
+    {
+      "job_id": "19ee0dee",
+      "row_sha256": "4b9a3b8ac62c40d0d90b701fd1912f152c810902753fee558a10409675f52f1e",
+      "status": "stopped"
+    },
+    {
+      "job_id": "1c6eb4c0",
+      "row_sha256": "e7cc5fa6913b4232b8c957097da7bbb1b444ef6c64dae968b9877a6ec340c460",
+      "status": "stopped"
+    },
+    {
+      "job_id": "2b9e67b8",
+      "row_sha256": "6d4c5f70c3010f392295bfff2dc2c300b8c457adc595bdb45d59bd20d3e8d2b2",
+      "status": "stopped"
+    },
+    {
+      "job_id": "3dadeca7",
+      "row_sha256": "14e25a6de914f5d45c92a81c81b88c373d3879b8defa53ed68720eb8ed63a85b",
+      "status": "stopped"
+    },
+    {
+      "job_id": "4f8a1562",
+      "row_sha256": "411f415d4f36c93cc2bc0f7ff44ef6cdfdc9ca522e9a604c106a2a8c29f495af",
+      "status": "stopped"
+    },
+    {
+      "job_id": "68298d8b",
+      "row_sha256": "a7b068cda968515d26801db2508caa4295742a27c7ce5f5714485dae148a2bba",
+      "status": "stopped"
+    },
+    {
+      "job_id": "86843a78",
+      "row_sha256": "50f07b02d190f1ee24c991661b6a58468bafccd27318e3823ca13ef31fd58d78",
+      "status": "stopped"
+    },
+    {
+      "job_id": "9c116a30",
+      "row_sha256": "6c1af9adca0ff65b3a30c4c0a8cfb336d6e9dd1d5a05554f3b4b48dd7161265f",
+      "status": "stopped"
+    },
+    {
+      "job_id": "cbe0a410",
+      "row_sha256": "a258ba2a44c9c7f4a0b2072ec0f579def6dfb9c68f985cfcbe3aed0d97cce000",
+      "status": "stopped"
+    },
+    {
+      "job_id": "f004d4f9",
+      "row_sha256": "b400668570ff8566c85eaf7f69cf23b2fd9bae4da67f06380fb42025cc45b9db",
+      "status": "stopped"
+    }
+  ],
+  "protected_volume_metadata_unchanged": true,
+  "postgres_postflight": {
+    "hosts": [
+      {
+        "host_id": "aaryn-tuf-rtx2060",
+        "status": "active",
+        "administrative_state": "admitted",
+        "availability_state": "ready",
+        "admission_state": "admitted",
+        "generation": 1,
+        "observed_generation": 0,
+        "last_observed_at": "2026-10-20 12:11:01.823058+00:00",
+        "observation_session_id": null
+      },
+      {
+        "host_id": "tower-rtx3060",
+        "status": "active",
+        "administrative_state": "admitted",
+        "availability_state": "ready",
+        "admission_state": "admitted",
+        "generation": 1,
+        "observed_generation": 0,
+        "last_observed_at": "2026-10-20 12:10:43.114670+00:00",
+        "observation_session_id": null
+      }
+    ],
+    "service_heartbeats": [
+      {
+        "service": "outbox",
+        "last_heartbeat_at": "2026-10-20 12:11:22.766311+00:00"
+      },
+      {
+        "service": "reconciler",
+        "last_heartbeat_at": "2026-10-20 12:11:21.055606+00:00"
+      },
+      {
+        "service": "scheduler",
+        "last_heartbeat_at": "2026-10-20 12:11:21.049180+00:00"
+      }
+    ],
+    "volumes": [
+      {
+        "volume_id": "vol-36592ad0362e",
+        "storage_type": "nfs",
+        "size_gb": 1,
+        "encrypted": false,
+        "mount_path_host": "",
+        "status": "available",
+        "deleted_at": 0.0
+      }
+    ],
+    "attachment_count": 0,
+    "snapshot_count": 0
+  },
+  "public_smoke": [
+    {
+      "path": "/healthz",
+      "expected": 200,
+      "status": 200,
+      "passed": true
+    },
+    {
+      "path": "/readyz",
+      "expected": 200,
+      "status": 200,
+      "passed": true
+    },
+    {
+      "path": "/api/pricing/rates",
+      "expected": 200,
+      "status": 200,
+      "passed": true
+    },
+    {
+      "path": "/api/auth/oauth/providers",
+      "expected": 200,
+      "status": 200,
+      "passed": true
+    },
+    {
+      "path": "/api/pricing/models",
+      "expected": 401,
+      "status": 401,
+      "passed": true
+    },
+    {
+      "path": "/metrics/prometheus",
+      "expected": 404,
+      "status": 404,
+      "passed": true
+    }
+  ],
+  "vtt_read_only_check": {
+    "collected_at": "2026-10-20T12:12:49.276123+00:00",
+    "checks": {
+      "workstation": {
+        "status": 200,
+        "body": {
+          "status": "healthy",
+          "timestamp": "2026-10-20T12:12:48.847679",
+          "active_jobs": 0
+        }
+      },
+      "tower": {
+        "status": 200,
+        "body": {
+          "status": "healthy",
+          "timestamp": "2026-10-20T12:12:49.274332",
+          "active_jobs": 0
+        }
+      }
+    },
+    "inference_submitted": false,
+    "service_restarted_by_this_rollout": false,
+    "gpu_acceptance_run_this_turn": false
+  },
+  "host_source_update": {
+    "source_files_updated": 15,
+    "protected_files_unchanged": [
+      ".env",
+      "api/routes/billing.py",
+      "billing/stripe_connect.py",
+      "core/meta_capi.py",
+      "core/gitguardian.py"
+    ],
+    "source_sha256": {
+      "api/routes/agent.py": "79a99c3f363a3fceb0c67f1371d30106198d5c898c90f9488b72371ad3693cbc",
+      "api/routes/agent_v2.py": "3a640779c1e6cfe37812b329c82e5bf52469b319f672212645669f96cd977087",
+      "api/routes/health.py": "83f7db28bb0dec866986e443499c98140c789eb18b2fbf541b5b5b480b6c65d3",
+      "api/routes/instances.py": "1fe649f30c886bff7347c25a323169631ed2f7d22795be2e97930f7923b37702",
+      "api/scripts/audit_legacy_containers.py": "ce964894ae93fd29ed416416b5fb3b61797739027b3d5364ea6f7a65636a0cc7",
+      "api/scripts/plan_native_prometheus.py": "a7ab0105b1a4477c02dff54b39102584daec258aa7860ed4aeb7404e1d242c0e",
+      "api/scripts/start_api.sh": "913c72230a5b8f5a0995ef25be3896ab84890943b588efa48a2a86462e8a91b3",
+      "api/scripts/worker_agent.py.sig": "ee1ac7f98d77d7455fd16b26f9c7efa7b7bfd13c962c15891ad87a9ab5134a0e",
+      "api/scripts/worker_billing_acceptance.py": "bdf6bf7f1c6fee4af2941fc68eb30e9a4754ec6b6c5396e53c4ca3fc35e51eab",
+      "control_plane/legacy_execution.py": "a4ed934edd3a6c65c8bccbdd86acb395eb26cf9c16b6857d674e748fd89da393",
+      "core/events.py": "c4fa4067af5a177098cb6b476e122d37fd4c3f02eef40521b50eb61db7db1a6a",
+      "core/prometheus_export.py": "2f8b7391eb98f31064364e7ac774db702cfa04628da321861bebbab2e1e9299c",
+      "gunicorn.conf.py": "af444c13301fcebabaf30e3398db3fd0e5b097e4fe27c8e327512ddea377682c",
+      "workers/worker_agent.py": "c2b9cfc1b43593193f501d64c729cc67df97de61e5d1bf10320cb1650091affc",
+      "Dockerfile": "dabea238e3edce954c60106723fdfe0e5fc2b0ff56440b38aad2ff07d7114b7f"
+    }
+  },
+  "unrelated_local_files_unchanged": {
+    "api/routes/billing.py": "747b4f9dae7998c3f64fe9832dcd94903e331d7e2324dd2c883b4d0020911936",
+    "billing/stripe_connect.py": "ef61621224a30d98747ea5e707793090e1fd319796e06d4e0c1fd2353b116c09",
+    "core/meta_capi.py": "b45e7e2943490c35e97eb1238e77f6d25ef0fec8b5405829875185e20e7704dd",
+    "tests/test_meta_capi.py": "13783a3e40b21fca7caf19549fcfc62a71dd48d404db235078c4a2e1befdfff2",
+    "core/gitguardian.py": "a57d811bfec8bd08314362221e550275b7ae5f76038ef10654557fac4691a93a",
+    "text.md": "e581fe63cb81e9516e6e1621dc60cec57a37062b2b0455b5d1c08f9464dc936c"
+  },
+  "remaining_gates": [
+    "No agreed continuous zero-use retention window is proven; live compatibility polling/draining remains nonzero and all retirement policies are 0 under the preserved canary.",
+    "Other B16 legacy-path instrumentation and native dashboard provisioning/verification remain open.",
+    "Retirement alert is loaded and healthy; external receiver delivery was not exercised.",
+    "No new production GPU/public purchase/provisioning journey was run. No GPU acceptance test or VTT inference was submitted during this turn.",
+    "Twelve stopped jobs and the missing volume still need explicit recovery or retirement disposition; no restore, requeue, deletion or volume replacement occurred.",
+    "Contract migration, code removal and dependent fairness/preemption qualification remain open."
+  ],
+  "rollback": {
+    "production_release_directory": "/opt/xcelsior-releases/shared-metrics-20261020",
+    "production_backup_subdirectory": "rollback",
+    "old_images_retained": true,
+    "worker_backups": "/home/aaryn/.xcelsior/releases/shared-metrics-20261020-rollback",
+    "ordering": "Roll back signed workers before rolling the API back to a version without explicit execution negotiation. Restore prior native monitoring configuration separately."
+  },
+  "artifact_sha256": {
+    "source-inventory.json": "8a36e5310e76fb80e42dff99cd47f1a1403ed209857fa64863d99143be186c8b",
+    "preservation-release/manifest.json": "87518cc8e9e2a8bb582a49b5b2a73d7bc0f31b2f765f637f9d3aad47efafb71a",
+    "preservation-release/pytest.log": "bb3a220042d4cfab56f2007f0a58f6bc9503a02af8bffb9f2c30033ab5917e4f",
+    "billing-baseline/manifest.json": "b96cbe0515e48289c476185879845c53c84b9c2dc7cbeba2f8c3516e382625ba",
+    "imported-image.json": "fd9a97281e6a8d336f10892df73e4efc20eb3775cd388ff4387402a0cdef4026",
+    "signed-worker-package.tar.gz": "c7157bc7989c373c6416aba0efbe0fb5a06ec50fb8c295210c05c8fc6463f817",
+    "runtime-source-update.tar.gz": "ee0c2da195c08c4c03ec8bbd8138a1bf9cf0468e5d26077f2008cb9d4fae625a",
+    "deploy_api.py": "ace410d5d9553019dc7fe33e65e76d7703d4e896527cbeefb3e40be4da2a0d1b",
+    "apply_monitoring.py": "4d914a3a0a34ce5352442fa065fa9ef6cc5763e9fda7362b2ce7efa116cdac11",
+    "install_worker.py": "8045e56a6ffac8288b946c7579eb8b4bfe58fa16a7755b38fe5896dac0910ee1",
+    "verify_production.py": "0c1c3c60f6c75c9a62e43caea3bc7ed65ec01d5498be62a2641bd2946cdbaede",
+    "update_host_sources.py": "0add37fc66ba4df3281db44170a1aed76922e3caab9f112885805207058d695d"
+  }
+}
