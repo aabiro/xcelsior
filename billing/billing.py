@@ -3390,7 +3390,19 @@ class BillingEngine:
             "host_gpu_model": job_row.get("host_gpu_model"),
             "num_gpus": job_row.get("num_gpus") or 1,
         }
-        rate_per_hour, pricing_mode = resolve_compute_rate_cad(job_payload, host_payload)
+        from control_plane.attempt_billing import pinned_period_rate
+
+        captured = pinned_period_rate(conn, job_id, customer_id, host_id)
+        if captured is not None:
+            rate_per_hour, pricing_mode, attempt_started = captured
+            # A previous attempt's final cycle can predate a restart. Never
+            # charge the stopped interval, even with a stale caller snapshot.
+            period_start = max(period_start, attempt_started)
+            duration_sec = period_end - period_start
+            if duration_sec <= 0 or duration_sec < min_seconds:
+                return None
+        else:
+            rate_per_hour, pricing_mode = resolve_compute_rate_cad(job_payload, host_payload)
 
         tier_multiplier = 1.0
 
