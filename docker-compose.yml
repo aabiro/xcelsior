@@ -440,7 +440,7 @@ services:
   api:
     build: .
     <<: *api-hardening
-    command: gunicorn api:app -c gunicorn.conf.py
+    command: ["/bin/sh", "api/scripts/start_api.sh"]
     # Phase 10: API is unprivileged — LUKS/NFS privileged ops run via SSH
     # to the host or the volume-provisioner service (no SYS_ADMIN here).
     environment:
@@ -470,7 +470,7 @@ services:
   api-blue:
     build: .
     <<: *api-hardening
-    command: gunicorn api:app -c gunicorn.conf.py
+    command: ["/bin/sh", "api/scripts/start_api.sh"]
     environment:
       <<: *api-env
       XCELSIOR_SERVICE: api
