@@ -2342,6 +2342,17 @@ period — measured, not assumed.
   Other path instrumentation, native dashboard verification, receiver delivery,
   recovery disposition and B16.2/B16.3 remain open. See the
   [live evidence and rollback record](review/2026-10-20-control-plane-production-rollout.md).
+  **Native dashboard follow-up, 2026-10-20:** the dedicated Xcelsior Legacy
+  Retirement dashboard is now provisioned in the shared native Grafana. It
+  covers all eight measured API paths with per-replica outcomes, retirement
+  expectations and collection/generation checks. All 16 queries passed both
+  native Prometheus and Grafana's authenticated datasource proxy; browser checks
+  verified every query panel and all eight policy rows. The existing Tower
+  dashboard, provider and datasource were preserved, and Grafana was not
+  restarted. Missing data stays visible. This closes native dashboard coverage
+  for these eight paths; the remaining B16 paths, alert delivery and the agreed
+  zero-use retention period remain open. See the
+  [executed native dashboard evidence](review/2026-10-20-native-legacy-dashboard.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration
