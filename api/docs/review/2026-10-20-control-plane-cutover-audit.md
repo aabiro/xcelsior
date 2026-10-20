@@ -18,6 +18,7 @@ not prove crash durability, absence of late command races, or all Track B work.
 | P1 | Command ACK/NACK ignores session and delivery generation | After claim expiry and redelivery to a new session, the former session can still ACK with HTTP 200 or NACK the row back to pending. Host identity alone does not identify the current delivery. |
 | P2 | Host stop/remove reports failed Docker calls as success | Permission/daemon errors on inspect count as absence; failed stop/remove calls still increment dispatch success and discard local ownership. Three fault-injection cases reproduce false ACK. |
 | P1 | Restore migration can target the live database | A read-only Compose render with a disposable database override still resolves the migration DSN to `xcelsior`, because the production override pins that URI. The restore drill must rewrite and verify the connection before invoking Alembic. |
+| P1 | Fenced status bypasses normal billing settlement | Removing the compatibility PATCH also removes the old caller of normal metering and hold release. Three real HTTP/PostgreSQL cases return running/success while creating no usage meter. Repeated running status also lacks the legacy server-start projection needed by wallet billing. |
 
 All **nine audit regression cases failed against the unchanged implementation**
 on a disposable PostgreSQL database. Evidence is retained in
@@ -84,3 +85,18 @@ an empty disposable database while the inherited DSNs pointed at the source;
 the source schema remained unchanged. Seven restore/backup tests passed.
 The real test also exposed ConfigParser interpreting percent-encoded URI bytes;
 the Alembic environment now escapes them before setting its configuration URL.
+
+The normal fenced lifecycle now opens and closes one attempt meter within the
+same transaction. Reservation captures owner, explicit rate and GPU count from
+locked server rows; a later host price cannot reprice the meter or wallet
+period. Server attempt timestamps populate compatibility fields, terminal
+settlement releases linked launch holds, and wallet periods cannot include
+stopped time before the current attempt's server start. Invalid or absent rates
+for owned work refuse placement rather than fabricate a price. These are normal
+forward lifecycle actions, not an enablement of reconciliation enforcement.
+Historical attempts without captured evidence are not retrospectively charged.
+
+The alert route surfaced two such older proof attempts (`track-a-v2-proof`,
+`tower-exclusive-smoke-20261017`). Their missing usage evidence stays visible as
+a warning; open meters after terminal attempts remain a separate critical alert.
+The old critical notification was not evidence of new customer traffic.

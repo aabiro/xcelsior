@@ -140,7 +140,7 @@ def reserve_and_bind(
     job = conn.execute(
         """
         SELECT status, phase, desired_state, generation, version, payload,
-               spec, spec_hash, schedule_claim_token, schedule_claim_expires_at
+               spec, spec_hash, schedule_claim_token, schedule_claim_expires_at, owner_id
           FROM jobs
          WHERE job_id = %s
            FOR UPDATE
@@ -176,7 +176,7 @@ def reserve_and_bind(
     # ── Step 4-5: lock host, verify state + inventory generation ────
     host = conn.execute(
         """
-        SELECT status, administrative_state, inventory_generation
+        SELECT status, administrative_state, inventory_generation, payload
           FROM hosts
          WHERE host_id = %s
            FOR UPDATE
@@ -266,6 +266,17 @@ def reserve_and_bind(
     payload = _one(job, "payload", 5) or {}
     spec = _one(job, "spec", 6) or payload
     spec_hash = _one(job, "spec_hash", 7) or canonical_spec_hash(dict(spec))
+    from control_plane.attempt_billing import capture_billing_snapshot
+
+    host_payload = {**(_one(host, 'payload', 3) or {}), 'host_id': host_id}
+    try:
+        billing_snapshot = capture_billing_snapshot(dict(payload), _one(job, 'owner_id', 10), host_payload)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise HostNotEligible('billable placement evidence is invalid', reason=str(exc)) from exc
+    explanation = {**(placement_explanation or {})}
+    # This field is generated only from the locked server rows, never from
+    # a client explanation or from a later host-price observation.
+    explanation['billing_snapshot'] = billing_snapshot
     attempt_number = int(
         _require(
             conn.execute(
@@ -289,7 +300,7 @@ def reserve_and_bind(
             (
                 job_id, attempt_number, host_id, fencing_token, job_generation,
                 spec_hash, FILTER_POLICY_VERSION, placement_score,
-                Jsonb(placement_explanation) if placement_explanation else None,
+                Jsonb(explanation),
                 f"scheduler:{replica_id}", trace_id,
             ),
         ).fetchone()

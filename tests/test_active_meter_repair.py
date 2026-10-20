@@ -45,13 +45,21 @@ def _meters(p):
         ).fetchall()
 
 
-def _finish(p):
+def _finish(p, *, simulate_orphan=False):
     with p["pool"].connection() as conn:
         report_attempt_status(
             conn,
             **{k: p[k] for k in ("job_id", "attempt_id", "host_id", "fencing_token")},
             status="succeeded",
         )
+        if simulate_orphan:
+            # Reproduce an orphan left by the older separate settlement path.
+            # Normal fenced completion now settles in this same transaction.
+            conn.execute(
+                "UPDATE usage_meters SET completed_at=NULL,duration_sec=0,"
+                "gpu_seconds=0,total_cost_micros=0 WHERE attempt_id=%s",
+                (p['attempt_id'],),
+            )
 
 
 @pytest.mark.parametrize("policy", [None, "report_only", "typo"])
@@ -134,7 +142,7 @@ def test_completion_settles_same_meter_at_captured_rate_once(running, monkeypatc
 def test_orphaned_settlement_uses_same_authority_and_is_transactional(running, monkeypatch):
     monkeypatch.setenv(FLAG, "enforce")
     mid = _run(running).meters_created[0]
-    _finish(running)
+    _finish(running, simulate_orphan=True)
     monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", "enforce")
     with running["pool"].connection() as conn:
         with pytest.raises(RuntimeError, match="abort"):
@@ -335,7 +343,7 @@ def test_settlement_requires_terminal_binding_and_time_evidence(running, monkeyp
     monkeypatch.setenv(FLAG, "enforce")
     _run(running)
     if defect != "running":
-        _finish(running)
+        _finish(running, simulate_orphan=True)
     with running["pool"].connection() as conn:
         if defect == "missing_end":
             conn.execute(
@@ -428,7 +436,7 @@ def test_runtime_api_login_can_repair_and_settle_without_broader_role_grants(
             )
             created = reconcile_billing_meters(conn).meters_created
             assert len(created) == 1
-        _finish(running)
+        _finish(running, simulate_orphan=True)
         with psycopg.connect(make_conninfo(dsn, user="xcelsior_api")) as conn:
             assert reconcile_billing_meters(conn).meters_closed == created
             for role in ("xcelsior_scheduler", "xcelsior_reconciler"):
