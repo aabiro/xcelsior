@@ -2258,13 +2258,30 @@ always the head of the chain (§B1).** Nothing here starts until the
 relevant legacy-path usage metric has read zero for the agreed retention
 period — measured, not assumed.
 
-- [ ] **B16.1 Legacy-use metrics.** Instrument every legacy path so
+- [~] **B16.1 Legacy-use metrics.** Instrument every legacy path so
   "measured zero" is a real number: v1 `/agent/*` calls, direct legacy
   status writes, `/instance` versus `/api/v1/launch-plans`, the legacy
   `leases` table, process-memory preemption, direct scheduler SSH
   execution, broad `api` scope issuance, and `confirm:true` without a plan.
   Gate: a dashboard panel per path plus an alert when a supposedly-dead
   path is used.
+  **2026-10-20 local candidate:** authenticated compatibility work polling
+  (including its `/agent/v2/work` alias) and lease claim/renew/release now
+  expose `xcelsior_legacy_execution_total{path,outcome}`. Requested, used and
+  blocked counts are separate; blocked requests still prove a caller exists.
+  The operations dashboard adds a per-path view and the alert detects calls
+  on a replica whose scheduler policy is `active`. API negotiation explicitly
+  reports whether legacy execution is allowed; active-mode workers skip legacy
+  polling/adoption. Missing negotiation never falls back to v1. Compatibility
+  work delivery excludes fenced history and authoritative lease writes refuse
+  it under the placement job lock. Worker execution/adoption require a lease
+  before any container side effect. Gates: `tests/test_worker_execution_boundary.py`,
+  `tests/test_agent_v2.py`, `tests/fixtures/legacy_execution_alerts.yml`.
+  **Residual:** these metrics are not deployed and no retention-window zero-use
+  proof exists. Remaining paths listed above still need instrumentation and
+  retirement; B16.2/B16.3 remain open. Production is still `canary`, with twelve
+  stopped jobs lacking fenced history. See
+  [cutover boundary evidence](review/2026-10-20-worker-cutover-boundary.md).
 - [ ] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration

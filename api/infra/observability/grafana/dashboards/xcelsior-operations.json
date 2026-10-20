@@ -910,6 +910,45 @@
       ],
       "title": "Freshness signals",
       "type": "timeseries"
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Legacy execution use",
+      "description": "Authenticated compatibility execution requests, delivered work and blocked attempts. Use a continuous scrape window before retiring handlers; missing data is not zero use.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (path, outcome) (increase(xcelsior_legacy_execution_total[$__rate_interval]))",
+          "legendFormat": "{{path}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ],
   "refresh": "30s",
@@ -929,6 +968,6 @@
   "timezone": "browser",
   "title": "Xcelsior Operations",
   "uid": "xcelsior-operations",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

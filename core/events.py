@@ -576,6 +576,9 @@ class EventStore:
             duration_sec=duration_sec,
         )
         with self._conn() as conn:
+            from control_plane.legacy_execution import require_legacy_job
+
+            require_legacy_job(conn, job_id, new_claim=True)
             # Remove any existing leases for this job (active, released, or expired)
             conn.execute(
                 "DELETE FROM leases WHERE job_id = %s",
@@ -623,6 +626,9 @@ class EventStore:
     def renew_lease(self, job_id: str, host_id: str) -> Optional[Lease]:
         """Renew an active lease. Returns None if no active lease found."""
         with self._conn() as conn:
+            from control_plane.legacy_execution import require_legacy_job
+
+            require_legacy_job(conn, job_id)
             row = conn.execute(
                 "SELECT * FROM leases WHERE job_id = %s AND host_id = %s AND status = 'active'",
                 (job_id, host_id),
@@ -730,6 +736,9 @@ class EventStore:
     def release_lease(self, job_id: str) -> bool:
         """Release a lease (job completed/failed/preempted)."""
         with self._conn() as conn:
+            from control_plane.legacy_execution import require_legacy_job
+
+            require_legacy_job(conn, job_id)
             result = conn.execute(
                 "UPDATE leases SET status = 'released' WHERE job_id = %s AND status = 'active'",
                 (job_id,),

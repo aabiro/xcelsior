@@ -27,6 +27,8 @@ def execution(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "_v2_attempts", {auth["job_id"]: auth})
     monkeypatch.setattr(worker, "_v2_completed_commands", {})
     monkeypatch.setattr(worker, "_v2_enabled", True)
+    monkeypatch.setattr(worker, "_protocol_negotiated", True)
+    monkeypatch.setattr(worker, "_legacy_execution_allowed", True)
     monkeypatch.setattr(worker, "_shutdown", threading.Event())
     monkeypatch.setattr(worker, "_active_containers", {auth["job_id"]: {}})
     monkeypatch.setattr(worker.time, "sleep", lambda _: None)
@@ -212,6 +214,10 @@ def test_running_restart_rearms_exit_monitor(execution, monkeypatch):
         worker._v2_renewal_loop,
         worker._v2_monitor_container,
     }
+    assert worker._active_containers[auth["job_id"]] == auth["container_name"]
+    assert auth["job_id"] in worker._adopted_containers
+    worker._v2_forget_attempt(auth["job_id"], worker._v2_attempts[auth["job_id"]])
+    assert auth["job_id"] not in worker._active_containers
 
 
 @pytest.mark.parametrize(
@@ -264,7 +270,7 @@ def test_legacy_adoption_respects_fenced_ownership(execution, monkeypatch, label
             ]
         ),
     )
-    claim = mock.Mock(return_value=None)
+    claim = mock.Mock(return_value={"duration_sec": 300})
     monkeypatch.setattr(worker, "claim_lease", claim)
     with (
         mock.patch.object(worker, "LogForwarder") as forwarder,
@@ -273,7 +279,7 @@ def test_legacy_adoption_respects_fenced_ownership(execution, monkeypatch, label
         worker.adopt_running_containers()
     assert claim.call_count == expected_claims
     assert forwarder.call_count == expected_claims
-    assert thread.call_count == expected_claims
+    assert thread.call_count == 2 * expected_claims
 
 
 @pytest.mark.parametrize(

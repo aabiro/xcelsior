@@ -26,7 +26,9 @@ from fastapi.testclient import TestClient
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_instflow_")
 _tmpdir = _tmp_ctx.name
 
-os.environ["XCELSIOR_API_TOKEN"] = ""
+# Preserve conftest's synthetic worker token. Clearing it during collection
+# invalidates the API's already-imported credential and every worker PATCH.
+os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"

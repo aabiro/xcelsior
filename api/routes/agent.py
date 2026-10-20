@@ -25,6 +25,9 @@ from scheduler import (
     update_job_status,
 )
 from events import Event, get_event_store, get_state_machine
+from control_plane.legacy_execution import (
+    LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, record_use,
+)
 from security import check_node_versions, recommend_runtime
 from db import _get_pg_pool
 import threading
@@ -385,14 +388,41 @@ def api_agent_network_download(host_id: str, request: Request):
 def api_agent_work(host_id: str, request: Request):
     """Pull pending work for an agent. Returns assigned jobs."""
     _require_agent_auth(request, host_id=host_id)
+    record_use("work_poll", "requested")
+    if not legacy_execution_allowed():
+        record_use("work_poll", "blocked")
+        return Response(status_code=204)
     all_jobs = list_jobs()
     pending = [
         j for j in all_jobs if j.get("host_id") == host_id and j.get("status") in ("assigned",)
     ]
     with _agent_lock:
-        queued_work = _agent_work.pop(host_id, [])
+        queued_work = list(_agent_work.get(host_id, []))
 
-    jobs = pending + queued_work
+    # Cached payloads are hints, never authority to execute fenced work. Read
+    # authoritative ownership before consuming the cache; failures leave it intact.
+    candidates = {}
+    for job in pending + queued_work:
+        if job.get("job_id"):
+            candidates.setdefault(str(job["job_id"]), job)
+    try:
+        with _get_pg_pool().connection() as conn:
+            eligible = eligible_work_ids(conn, host_id, list(candidates))
+    except Exception as exc:
+        raise HTTPException(503, "Legacy work ownership could not be verified") from exc
+    from control_plane.scheduler.config import SchedulerConfig
+
+    config = SchedulerConfig.from_env()
+    jobs = [job for jid, job in candidates.items() if jid in eligible and not config.owns_job(job)]
+    record_use("work_poll", "blocked", len(candidates) - len(jobs))
+    record_use("work_poll", "used", len(jobs))
+    with _agent_lock:
+        consumed = {id(job) for job in queued_work}
+        remaining = [job for job in _agent_work.get(host_id, []) if id(job) not in consumed]
+        if remaining:
+            _agent_work[host_id] = remaining
+        else:
+            _agent_work.pop(host_id, None)
     if not jobs:
         # 204 must have no body. JSONResponse(None) emits four bytes (null),
         # which Uvicorn rejects after it has sent the no-content headers.
@@ -879,6 +909,7 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
     the lease clock. The agent must renew before expiry.
     """
     _require_agent_auth(request, host_id=req.host_id)
+    record_use("lease_claim", "requested")
     store = get_event_store()
     sm = get_state_machine()
 
@@ -910,7 +941,12 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
         )
 
     # Grant lease (or re-grant after worker restart)
-    lease = store.grant_lease(req.job_id, req.host_id)
+    try:
+        lease = store.grant_lease(req.job_id, req.host_id)
+    except LegacyExecutionRejected as exc:
+        record_use("lease_claim", "blocked")
+        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
+    record_use("lease_claim", "used")
 
     if not is_reclaim:
         # Normal first-claim: transition assigned → leased
@@ -959,13 +995,19 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
 def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
     """Agent renews its lease on a job. Must be called before expiry."""
     _require_agent_auth(request, host_id=req.host_id)
+    record_use("lease_renew", "requested")
     store = get_event_store()
-    lease = store.renew_lease(req.job_id, req.host_id)
+    try:
+        lease = store.renew_lease(req.job_id, req.host_id)
+    except LegacyExecutionRejected as exc:
+        record_use("lease_renew", "blocked")
+        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
     if not lease:
         raise HTTPException(
             status_code=404,
             detail=f"No active lease for job {req.job_id} on host {req.host_id}",
         )
+    record_use("lease_renew", "used")
     return {
         "ok": True,
         "lease_id": lease.lease_id,
@@ -977,10 +1019,16 @@ def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
 def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
     """Agent releases its lease (job completed/failed/preempted)."""
     _require_agent_auth(request)
+    record_use("lease_release", "requested")
     store = get_event_store()
-    released = store.release_lease(req.job_id)
+    try:
+        released = store.release_lease(req.job_id)
+    except LegacyExecutionRejected as exc:
+        record_use("lease_release", "blocked")
+        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
     if not released:
         return {"ok": True, "released": False, "detail": "No active lease"}
+    record_use("lease_release", "used")
     return {"ok": True, "released": True}
 
 

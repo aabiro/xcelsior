@@ -1,0 +1,49 @@
+rule_files:
+- /rules/alert-rules.yml
+evaluation_interval: 1m
+tests:
+- name: active_calls_alert
+  interval: 1m
+  input_series:
+  - series: xcelsior_legacy_execution_total{path="work_poll",outcome="requested",instance="api-a",job="xcelsior-api"}
+    values: 0+1x15
+  - series: xcelsior_legacy_execution_enabled{instance="api-a",job="xcelsior-api"}
+    values: 0+0x15
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: XcelsiorRetiredExecutionPathUsed
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        owner: platform
+        path: work_poll
+      exp_annotations:
+        summary: A compatibility execution endpoint was called after active cutover
+        description: Identify the old worker or client and inspect stopped legacy
+          jobs before removing handlers. A blocked request still proves the path has
+          callers.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/docs/review/2026-10-20-worker-cutover-boundary.md
+- name: canary_calls_do_not_alert
+  interval: 1m
+  input_series:
+  - series: xcelsior_legacy_execution_total{path="work_poll",outcome="requested",instance="api-a",job="xcelsior-api"}
+    values: 0+1x15
+  - series: xcelsior_legacy_execution_enabled{instance="api-a",job="xcelsior-api"}
+    values: 1+0x15
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: XcelsiorRetiredExecutionPathUsed
+    exp_alerts: []
+- name: other_active_replica_does_not_change_canary_policy
+  interval: 1m
+  input_series:
+  - series: xcelsior_legacy_execution_total{path="work_poll",outcome="requested",instance="api-a",job="xcelsior-api"}
+    values: 0+1x15
+  - series: xcelsior_legacy_execution_enabled{instance="api-a",job="xcelsior-api"}
+    values: 1+0x15
+  - series: xcelsior_legacy_execution_enabled{instance="api-b",job="xcelsior-api"}
+    values: 0+0x15
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: XcelsiorRetiredExecutionPathUsed
+    exp_alerts: []
