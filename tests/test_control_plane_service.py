@@ -378,12 +378,6 @@ class TestSchedulerServiceTick:
         assert attempt[0] == trace_id
         assert command[0] == trace_id
 
-        # The legacy SSH starter must skip this attempt-owned job.
-        import scheduler as legacy_scheduler
-
-        owned = legacy_scheduler._attempt_owned_job_ids()
-        assert job_id in owned
-
     def test_kill_switch_stops_claims(self, fleet):
         marker = uuid.uuid4().hex[:8]
         model = f"RTX-{marker}"

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from control_plane.db_roles import SERVICE_ROLES, domain_of, sequence_domains
+from control_plane.db_roles import (
+    RUNTIME_READ_ONLY_TABLES,
+    SERVICE_ROLES,
+    domain_of,
+    sequence_domains,
+)
 
 
 def _only_declared_column_updates(cur, name: str, qualified: str, allowed) -> bool:
@@ -107,7 +112,7 @@ def role_violations(conn, service: str, *, check_session: bool = True) -> list[s
             ):
                 issues.append(f"{name} can read outside its domains: {schema}.{table}")
             column_only = (
-                table != "alembic_version"
+                table not in RUNTIME_READ_ONLY_TABLES
                 and domain not in role.write
                 and write
                 and _only_declared_column_updates(
@@ -119,7 +124,7 @@ def role_violations(conn, service: str, *, check_session: bool = True) -> list[s
             )
             if (
                 write
-                and (domain not in role.write or table == "alembic_version")
+                and (domain not in role.write or table in RUNTIME_READ_ONLY_TABLES)
                 and not column_only
             ):
                 issues.append(f"{name} can write outside its domains: {schema}.{table}")
