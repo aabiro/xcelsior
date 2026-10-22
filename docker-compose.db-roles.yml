@@ -1,0 +1,53 @@
+# Opt-in production cutover. Supply runtime DSNs through a private env file.
+# Merge AFTER other deployment overrides; inspect the final config privately.
+# The shared owner and migration credentials must never reach these services.
+x-strict: &strict
+  XCELSIOR_DB_ROLES_REQUIRED: "1"
+  XCELSIOR_POSTGRES_ADMIN_DSN: ""
+  XCELSIOR_POSTGRES_DSN_MIGRATOR: ""
+
+x-api-role: &api-role
+  <<: *strict
+  XCELSIOR_SERVICE: api
+  XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:?API role DSN required}
+  XCELSIOR_POSTGRES_DSN: ${XCELSIOR_POSTGRES_DSN_API:?API role DSN required}
+  XCELSIOR_PG_DSN: ${XCELSIOR_POSTGRES_DSN_API:?API role DSN required}
+  DATABASE_URL: ${XCELSIOR_POSTGRES_DSN_API:?API role DSN required}
+
+x-gateway-role: &gateway-role
+  <<: *strict
+  XCELSIOR_SERVICE: ssh_gateway
+  XCELSIOR_POSTGRES_DSN_SSH_GATEWAY: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:?SSH gateway role DSN required}
+  XCELSIOR_POSTGRES_DSN: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:?SSH gateway role DSN required}
+  XCELSIOR_PG_DSN: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:?SSH gateway role DSN required}
+  DATABASE_URL: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:?SSH gateway role DSN required}
+
+services:
+  api:
+    environment: *api-role
+  api-blue:
+    environment: *api-role
+  scheduler-worker:
+    environment:
+      <<: *strict
+      XCELSIOR_SERVICE: scheduler
+      XCELSIOR_POSTGRES_DSN_SCHEDULER: ${XCELSIOR_POSTGRES_DSN_SCHEDULER:?Scheduler role DSN required}
+      XCELSIOR_POSTGRES_DSN: ${XCELSIOR_POSTGRES_DSN_SCHEDULER:?Scheduler role DSN required}
+      XCELSIOR_PG_DSN: ${XCELSIOR_POSTGRES_DSN_SCHEDULER:?Scheduler role DSN required}
+      DATABASE_URL: ${XCELSIOR_POSTGRES_DSN_SCHEDULER:?Scheduler role DSN required}
+  bg-worker:
+    environment:
+      <<: *strict
+      XCELSIOR_SERVICE: reconciler
+      XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE: "1"
+      XCELSIOR_POSTGRES_DSN: ${XCELSIOR_POSTGRES_DSN_RECONCILER:?Reconciler role DSN required}
+      XCELSIOR_PG_DSN: ${XCELSIOR_POSTGRES_DSN_RECONCILER:?Reconciler role DSN required}
+      DATABASE_URL: ${XCELSIOR_POSTGRES_DSN_RECONCILER:?Reconciler role DSN required}
+      XCELSIOR_POSTGRES_DSN_RECONCILER: ${XCELSIOR_POSTGRES_DSN_RECONCILER:?Reconciler role DSN required}
+      XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:?API role DSN required}
+      XCELSIOR_POSTGRES_DSN_BILLING: ${XCELSIOR_POSTGRES_DSN_BILLING:?Billing role DSN required}
+      XCELSIOR_POSTGRES_DSN_PROJECTOR: ${XCELSIOR_POSTGRES_DSN_PROJECTOR:?Projector role DSN required}
+  ssh-gateway:
+    environment: *gateway-role
+  ssh-gateway-blue:
+    environment: *gateway-role
