@@ -283,12 +283,13 @@ class ServerlessRepo:
         allocated_at: float | None = None,
         billing_exempt: bool = False,
         warm_expires_at: float = 0,
+        conn=None,
     ) -> dict:
         now = time.time()
         worker_id = f"swk-{uuid.uuid4().hex[:12]}"
         alloc = allocated_at if allocated_at is not None else now
-        with self._conn() as conn:
-            conn.execute(
+        with nullcontext(conn) if conn is not None else self._conn() as write_conn:
+            write_conn.execute(
                 """
                 INSERT INTO serverless_workers (
                     worker_id, endpoint_id, scheduler_job_id, state, gpu_count,
@@ -309,7 +310,7 @@ class ServerlessRepo:
                     float(warm_expires_at or 0),
                 ),
             )
-        row = self.get_worker(worker_id)
+            row = self.get_worker(worker_id, conn=write_conn)
         assert row is not None
         return row
 
@@ -1112,14 +1113,21 @@ class ServerlessRepo:
         return [dict(row) for row in rows]
 
     def list_stuck_booting_workers(self, *, booting_before: float) -> list[dict]:
+        """Age boot attempts from creation; allocation stays zero until running.
+
+        Include failed submissions with no scheduler row so old orphans can
+        reach the same guarded release path as interrupted boot submissions.
+        """
         with self._conn() as conn:
             rows = conn.execute(
                 """
-                SELECT * FROM serverless_workers
-                WHERE state = %s AND allocated_at < %s
-                ORDER BY allocated_at ASC
+                SELECT * FROM serverless_workers w
+                WHERE released_at IS NULL AND created_at < %s
+                  AND (state = 'booting' OR (state = 'error' AND NOT EXISTS
+                    (SELECT 1 FROM jobs j WHERE j.job_id=w.scheduler_job_id)))
+                ORDER BY created_at ASC LIMIT 500
                 """,
-                (WORKER_STATE_BOOTING, booting_before),
+                (booting_before,),
             ).fetchall()
         return [dict(r) for r in rows]
 

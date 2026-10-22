@@ -156,6 +156,10 @@ def test_recorded_identity_migration_is_resumable_and_never_guesses(empty_db):
             ("recorded", {"owner": "customer", "team_id": "team"}),
             ("unknown", {}),
             ("invalid", {"owner": {"invalid": "object"}}),
+            ("owner-id", {"owner_id": "id-customer"}),
+            ("both", {"owner_id": "id-owner", "owner": "old-owner"}),
+            ("fallback", {"owner_id": 42, "owner": "valid-owner"}),
+            ("bad-id", {"owner_id": ["invalid"]}),
         ]:
             conn.execute(
                 "INSERT INTO jobs(job_id,status,priority,submitted_at,payload) VALUES(%s,'stopped',0,1,%s)",
@@ -167,9 +171,14 @@ def test_recorded_identity_migration_is_resumable_and_never_guesses(empty_db):
         conn.execute(
             'INSERT INTO hosts(host_id,status,registered_at,payload) VALUES(\'host\',\'active\',1,\'{"owner":"provider-user","capabilities":{"egress_isolation":true}}\')'
         )
+        conn.execute(
+            "INSERT INTO hosts(host_id,status,registered_at,payload) "
+            "VALUES('host-id','active',1,%s)",
+            (Jsonb({"owner_id": "provider-id", "owner": "stale-provider"}),),
+        )
         record = {
             "lease_id": "archive",
-            "job_id": "recorded",
+            "job_id": "owner-id",
             "host_id": "host",
             "status": "released",
         }
@@ -180,8 +189,12 @@ def test_recorded_identity_migration_is_resumable_and_never_guesses(empty_db):
     _alembic(empty_db, "upgrade", "128")
     with _connect(empty_db) as conn:
         expected = [
+            ("bad-id", None, None, None),
+            ("both", "id-owner", "id-owner", None),
+            ("fallback", "valid-owner", "valid-owner", None),
             ("invalid", None, None, None),
             ("known", "known-owner", "known-tenant", None),
+            ("owner-id", "id-customer", "id-customer", None),
             ("recorded", "customer", "customer", "team"),
             ("unknown", None, None, None),
         ]
@@ -193,11 +206,19 @@ def test_recorded_identity_migration_is_resumable_and_never_guesses(empty_db):
         )
         assert conn.execute(
             "SELECT tenant_id,tenant_attributed,record FROM legacy_lease_archive"
-        ).fetchone() == ("customer", True, record)
-        assert conn.execute("SELECT owner_id,tenant_id,capabilities FROM hosts").fetchone() == (
+        ).fetchone() == ("id-customer", True, record)
+        assert conn.execute(
+            "SELECT owner_id,tenant_id,capabilities FROM hosts WHERE host_id='host'"
+        ).fetchone() == (
             "provider-user",
             "provider-user",
             {"egress_isolation": True},
+        )
+        assert conn.execute(
+            "SELECT owner_id,tenant_id FROM hosts WHERE host_id='host-id'"
+        ).fetchone() == (
+            "provider-id",
+            "provider-id",
         )
         assert (
             conn.execute("SELECT status FROM jobs WHERE job_id='recorded'").fetchone()[0]

@@ -344,6 +344,13 @@ def charge_serverless_execution(billing_engine, repo, worker, endpoint, **kwargs
         result = _charge_serverless_execution(
             billing_engine, repo, worker, endpoint, _conn=conn, **kwargs
         )
+    from db import NotificationStore
+
+    for notification_id in result.pop("notification_ids", []):
+        try:
+            NotificationStore.deliver(notification_id)
+        except Exception as exc:
+            log.warning("serverless wallet push pending: %s", exc)
     # This optional external dual-write cannot precede the authoritative commit.
     if result.get("charged") and result.get("tx_id"):
         try:
@@ -528,6 +535,7 @@ def _charge_serverless_execution(
         "period_start": period_start,
         "period_end": period_end,
         "balance_cad": charge_result.get("balance_cad"),
+        "notification_ids": charge_result.get("notification_ids", []),
     }
 
 

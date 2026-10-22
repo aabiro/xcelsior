@@ -2084,27 +2084,34 @@ class BillingEngine:
     def _charge_on_connection(self, conn, customer_id, amount_cad, *, job_id, description):
         """Debit and journal inside the caller's billing-cycle transaction.
 
-        Notifications and external projections must run after that transaction
-        commits. A failed cycle insert must roll the wallet debit back too.
+        Notices commit with the debit and cycle; push delivery follows commit.
+        A failed cycle insert must roll the wallet debit and notices back too.
         """
         if not customer_id:
             return {"charged": False, "reason": "missing_customer"}
         self.get_wallet(customer_id)  # Ensure the ordinary zero-funded row exists.
         amount_micros = cad_to_micros(round(float(amount_cad), 4))
         wallet = conn.execute(
-            "SELECT balance_micros,status FROM wallets WHERE customer_id=%s FOR UPDATE",
+            "SELECT balance_micros,status,auto_topup_threshold_micros,low_balance_warned_at "
+            "FROM wallets WHERE customer_id=%s FOR UPDATE",
             (customer_id,),
         ).fetchone()
         balance = int(wallet["balance_micros"] or 0)
         if wallet["status"] == "suspended" or amount_micros <= 0 or balance < amount_micros:
+            notification_ids = []
             if balance <= 0 and amount_micros > 0:
                 conn.execute(
                     "UPDATE wallets SET status='suspended',updated_at=%s WHERE customer_id=%s",
                     (time.time(), customer_id),
                 )
+            if amount_micros > 0:
+                notification_ids = self._record_wallet_alerts(
+                    conn, customer_id, wallet, balance, job_id=job_id
+                )
             return {
                 "charged": False,
                 "balance_cad": micros_to_cad(balance),
+                "notification_ids": notification_ids,
                 "reason": (
                     "wallet_suspended"
                     if wallet["status"] == "suspended"
@@ -2131,7 +2138,50 @@ class BillingEngine:
             "balance_cad": micros_to_cad(remaining),
             "tx_id": tx_id,
             "hard_stop": remaining == 0,
+            "notification_ids": self._record_wallet_alerts(
+                conn, customer_id, wallet, remaining, job_id=job_id
+            ),
         }
+
+    def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
+        """Persist rate-limited notices while the billing transaction owns the wallet lock."""
+        from db import NotificationStore
+
+        threshold = micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0)
+        if threshold <= 0:
+            threshold = float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
+        balance_cad = micros_to_cad(remaining)
+        now = time.time()
+        last = float(wallet.get("low_balance_warned_at") or 0)
+        notices = []
+        if balance_cad <= threshold and (not last or now - last >= 6 * 3600):
+            conn.execute(
+                "UPDATE wallets SET low_balance_warned_at=%s WHERE customer_id=%s",
+                (now, customer_id),
+            )
+            notices.append(
+                NotificationStore.create(
+                    customer_id,
+                    "billing_low_balance",
+                    "Low balance warning",
+                    f"Your wallet is ${balance_cad:.2f} CAD (warning at ${threshold:.2f} CAD). "
+                    "Top up to avoid hard stop.",
+                    {"balance_cad": balance_cad, "threshold_cad": threshold},
+                    conn=conn,
+                )
+            )
+        if remaining <= 0 and wallet["status"] != "suspended":
+            notices.append(
+                NotificationStore.create(
+                    customer_id,
+                    "billing_suspended",
+                    "Wallet suspended",
+                    "Your wallet is empty. Top up to resume compute.",
+                    {"balance_cad": balance_cad, "job_id": job_id},
+                    conn=conn,
+                )
+            )
+        return notices
 
     def _credit_wallet(
         self, customer_id: str, amount_cad: float, description: str = "Refund credit"

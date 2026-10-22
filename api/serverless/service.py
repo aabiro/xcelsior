@@ -378,47 +378,46 @@ class ServerlessService:
             volume_mounts[cache_vol] = "/xcelsior-cache"
 
         scheduler_job_id = str(uuid.uuid4())
-        worker = self.repo.create_worker(
-            endpoint_id,
-            scheduler_job_id=scheduler_job_id,
-            gpu_count=gpu_count,
-            allocated_at=0,
-            billing_exempt=not billable,
-            warm_expires_at=warm_expires_at if not billable else 0,
-        )
         try:
             from scheduler import submit_job
 
-            job = submit_job(
-                name=f"serverless-{endpoint_id}",
-                job_id=scheduler_job_id,
-                serverless_config={
-                    "serverless_worker_id": str(worker["worker_id"]),
-                    "serverless_endpoint_id": endpoint_id,
-                    "environment": endpoint_env,
-                    "volume_mounts": volume_mounts,
-                    "http_port": http_port,
-                    "health_check_path": health_check_path,
-                },
-                vram_needed_gb=vram,
-                priority=5,
-                tier="on-demand",
-                num_gpus=gpu_count,
-                gpu_model=gpu_model,
-                image=image,
-                command=command,
-                owner=str(ep["owner_id"]),
-                volume_ids=volume_ids or None,
-                exposed_ports=[http_port],
-                job_type="serverless_worker",
-                region=str(ep.get("region") or ""),
-            )
+            with self.repo._conn() as conn:
+                worker = self.repo.create_worker(
+                    endpoint_id,
+                    scheduler_job_id=scheduler_job_id,
+                    gpu_count=gpu_count,
+                    allocated_at=0,
+                    billing_exempt=not billable,
+                    warm_expires_at=warm_expires_at if not billable else 0,
+                    conn=conn,
+                )
+
+                submit_job(
+                    conn=conn,
+                    name=f"serverless-{endpoint_id}",
+                    job_id=scheduler_job_id,
+                    serverless_config={
+                        "serverless_worker_id": str(worker["worker_id"]),
+                        "serverless_endpoint_id": endpoint_id,
+                        "environment": endpoint_env,
+                        "volume_mounts": volume_mounts,
+                        "http_port": http_port,
+                        "health_check_path": health_check_path,
+                    },
+                    vram_needed_gb=vram,
+                    priority=5,
+                    tier="on-demand",
+                    num_gpus=gpu_count,
+                    gpu_model=gpu_model,
+                    image=image,
+                    command=command,
+                    owner=str(ep["owner_id"]),
+                    volume_ids=volume_ids or None,
+                    exposed_ports=[http_port],
+                    job_type="serverless_worker",
+                    region=str(ep.get("region") or ""),
+                )
         except Exception as e:
-            self.repo.update_worker(
-                str(worker["worker_id"]),
-                state=WORKER_STATE_ERROR,
-                error_message="scheduler submission failed",
-            )
             log.error(
                 "provision_worker submit_job failed endpoint=%s gpu_tier=%s region=%s image=%s: %s",
                 endpoint_id,
@@ -812,33 +811,28 @@ class ServerlessService:
         if not worker or worker.get("released_at") is not None:
             return {"requested": False, "reason": "already_released_or_missing"}
         job_id = str(worker.get("scheduler_job_id") or "")
-        with self.repo._conn() as conn:
-            job = conn.execute(
-                "SELECT job_id,status,host_id,active_attempt_id FROM jobs WHERE job_id=%s",
-                (job_id,),
-            ).fetchone()
-        if not job:
-            return {"requested": False, "reason": "scheduler_job_missing"}
         if cancel_unstarted_worker(worker_id, job_id):
             return {"requested": True, "pending": False}
-        attempt_id = str(job.get("active_attempt_id") or "")
-        if not attempt_id or str(worker.get("attempt_id") or "") != attempt_id:
-            return {"requested": False, "reason": "no_matching_attempt_authority"}
         with self.repo._conn() as conn:
             current = conn.execute(
-                """SELECT j.job_id FROM jobs j
+                """SELECT j.job_id,j.active_attempt_id FROM jobs j
                      JOIN serverless_workers w ON w.scheduler_job_id=j.job_id
                       AND w.attempt_id=j.active_attempt_id AND w.host_id=j.host_id
-                    WHERE j.job_id=%s AND j.active_attempt_id=%s AND w.worker_id=%s
+                    WHERE j.job_id=%s AND w.worker_id=%s
                       AND w.released_at IS NULL
                       AND j.payload->>'job_type'='serverless_worker'
                       AND j.payload->>'serverless_worker_id'=w.worker_id
                       AND j.payload->>'serverless_endpoint_id'=w.endpoint_id
                     FOR UPDATE OF j,w""",
-                (job_id, attempt_id, worker_id),
+                (job_id, worker_id),
             ).fetchone()
             if current is None:
-                return {"requested": False, "reason": "attempt_changed"}
+                exists = conn.execute("SELECT 1 FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
+                return {
+                    "requested": False,
+                    "reason": "attempt_changed" if exists else "scheduler_job_missing",
+                }
+            attempt_id = str(current["active_attempt_id"])
             conn.execute(
                 "UPDATE serverless_workers SET state='draining',updated_at=%s "
                 "WHERE worker_id=%s AND attempt_id=%s AND released_at IS NULL",

@@ -14,7 +14,7 @@ import threading
 import time
 import urllib.request
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from email.mime.text import MIMEText
 from typing import TYPE_CHECKING, Any, cast
 
@@ -535,6 +535,12 @@ def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
     del jobs  # capacity applied separately
     if not hosts:
         return []
+
+    preferred_host_id = job.get("preferred_host_id")
+    if preferred_host_id:
+        hosts = [h for h in hosts if h.get("host_id") == preferred_host_id]
+        if not hosts:
+            return []
 
     num_gpus_needed = job.get("num_gpus", 1) or 1
     requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
@@ -1670,6 +1676,7 @@ def submit_job(
     exclusive_gpu=False,
     preferred_host_id=None,
     serverless_config=None,
+    conn=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1700,8 +1707,8 @@ def submit_job(
     if job_id:
         from abuse_policy import job_blocked
 
-        with get_engine().connection() as (conn, backend):
-            if job_blocked(conn, job_id, backend=backend):
+        with get_engine().connection() as (policy_conn, backend):
+            if job_blocked(policy_conn, job_id, backend=backend):
                 raise ValueError(f"Job '{job_id}' is blocked by security policy")
 
     pricing_mode = (pricing_mode or "on_demand").strip().lower()
@@ -1815,23 +1822,28 @@ def submit_job(
         job["pricing_mode"] = "spot"
 
     outbox_enqueued = False
-    with _atomic_mutation() as conn:
-        _upsert_job_row(conn, job)
+    if conn is not None and (serverless_config is None or _active_backend() != "postgres"):
+        raise ValueError("caller-owned submission requires native serverless provisioning")
+    with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
+        _upsert_job_row(write_conn, job)
         if _active_backend() == "postgres":
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 
             outbox_enqueued = try_append_lifecycle_outbox(
-                _pg_conn(conn),
+                _pg_conn(write_conn),
                 aggregate_type="job",
                 aggregate_id=str(job["job_id"]),
                 event_type="job.v1.submitted",
                 payload={"name": name, "tier": tier},
                 idempotency_key=f"job_submitted:{job['job_id']}",
             )
+            if conn is not None and not outbox_enqueued:
+                raise RuntimeError("native serverless submission requires its transactional outbox")
 
     # Mirror to secondary DB
-    engine = get_engine()
-    engine.mirror_to_secondary(DatabaseOps.upsert_job, job)
+    if conn is None:
+        engine = get_engine()
+        engine.mirror_to_secondary(DatabaseOps.upsert_job, job)
 
     if not outbox_enqueued:
         emit_event(
