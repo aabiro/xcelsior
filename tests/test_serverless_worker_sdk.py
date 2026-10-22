@@ -161,7 +161,7 @@ class TestWorkerRoutes:
         job = repo.enqueue_job(ep_id, str(owner_row["owner_id"]), {"prompt": "route"})
 
         ready = client.post(f"/api/v2/serverless/workers/{worker_id}/ready", json={"host_id": "h1"})
-        assert ready.status_code == 200
+        assert ready.status_code == 410
 
         hb = client.post(f"/api/v2/serverless/workers/{worker_id}/heartbeat")
         assert hb.status_code == 200
@@ -226,13 +226,13 @@ class TestDeployMaintenance:
 
             drain = client.post(f"/host/{host_id}/drain")
             assert drain.status_code == 200
-            assert job["job_id"] in drain.json().get("preempted", [])
+            assert drain.json().get("preempted", []) == []
 
             summary = client.get(f"/host/{host_id}/maintenance")
             data = summary.json()
             assert data["draining"] is True
-            assert data["active_serverless_workers"] == 0
-            assert data["safe_to_maintain"] is True
+            assert data["active_serverless_workers"] >= 1
+            assert data["safe_to_maintain"] is False
 
 
 class TestWorkerClientRetries:
@@ -267,7 +267,6 @@ class TestRunWorkerConcurrency:
         mock_client = MagicMock()
         mock_client.worker_id = "swkr-tok"
         mock_client.is_job_cancelled.return_value = False
-        mock_client.signal_ready.return_value = {"ok": True}
         mock_client.heartbeat.return_value = {"ok": True}
         mock_client.claim_job.side_effect = [
             {"job_id": "tok-job", "payload": {"x": 1}, "input": {"x": 1}},
@@ -311,7 +310,6 @@ class TestRunWorkerLoop:
         mock_client = MagicMock()
         mock_client.worker_id = worker_id
         mock_client.is_job_cancelled.return_value = False
-        mock_client.signal_ready.return_value = {"ok": True}
         mock_client.heartbeat.return_value = {"ok": True}
         mock_client.claim_job.side_effect = [
             {"job_id": "sjob-test", "payload": {"prompt": "loop"}, "input": {"prompt": "loop"}},

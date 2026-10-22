@@ -1817,11 +1817,7 @@ def api_serverless_worker_ready(
     worker_id: str, request: Request, body: WorkerReadyBody | None = None
 ):
     _require_worker_callback(request)
-    host_id = str((body.host_id if body else "") or "")
-    w = _svc().mark_worker_ready(worker_id, host_id=host_id)
-    if not w:
-        raise HTTPException(404, "Worker not found")
-    return {"ok": True, "worker": w}
+    raise HTTPException(410, "Readiness is reported through the fenced native attempt protocol")
 
 
 class JobCompleteBody(BaseModel):
@@ -1859,15 +1855,7 @@ def api_serverless_worker_exited(
     body: WorkerExitedBody | None = None,
 ):
     _require_worker_callback(request)
-    payload = body or WorkerExitedBody()
-    w = _svc().worker_exited(
-        worker_id,
-        exit_code=int(payload.exit_code),
-        error_message=str(payload.error_message or ""),
-    )
-    if not w:
-        raise HTTPException(404, "Worker not found")
-    return {"ok": True, "worker": w}
+    raise HTTPException(410, "Exit is reported through the fenced native attempt protocol")
 
 
 @router.post("/api/v2/serverless/workers/{worker_id}/jobs/claim", tags=["Serverless"])

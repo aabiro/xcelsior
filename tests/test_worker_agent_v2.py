@@ -221,7 +221,9 @@ class TestHardLeaseGate:
         ):
             worker_agent.run_job(job)
         kill.assert_called_once_with("xcl-job-1-att-1")
-        report.assert_called_once_with("job-1", "starting", host_id=worker_agent.HOST_ID)
+        report.assert_called_once_with(
+            "job-1", "starting", host_id=worker_agent.HOST_ID, expected_v2_auth=mock.ANY
+        )
 
     def test_required_gvisor_missing_aborts_before_docker_start(self):
         job = {

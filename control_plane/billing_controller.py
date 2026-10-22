@@ -185,9 +185,10 @@ def _reconcile_active_meters(conn: Connection, result: BillingReconcileResult, l
     for aid, job_id, tenant_id in candidates:
         # Serialize finding creation across billing sweeps without waiting on
         # another replica. The attempt's locks separately fence lifecycle races.
-        if not conn.execute(
+        lock_row = conn.execute(
             "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 719))", (aid,)
-        ).fetchone()[0]:
+        ).fetchone()
+        if not lock_row or not lock_row[0]:
             continue
         if conn.execute(
             "SELECT 1 FROM usage_meters WHERE attempt_id=%s "

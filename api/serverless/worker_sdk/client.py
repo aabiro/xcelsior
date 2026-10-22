@@ -37,9 +37,9 @@ class WorkerClient:
         token: str | None = None,
         timeout_sec: float = 30.0,
     ):
-        self.base_url = (base_url or os.environ.get("XCELSIOR_API_URL", "http://127.0.0.1:9500")).rstrip(
-            "/"
-        )
+        self.base_url = (
+            base_url or os.environ.get("XCELSIOR_API_URL", "http://127.0.0.1:9500")
+        ).rstrip("/")
         self.worker_id = worker_id or os.environ.get("XCELSIOR_WORKER_ID", "")
         self.token = token or os.environ.get("XCELSIOR_API_TOKEN", "")
         self.timeout_sec = timeout_sec
@@ -55,12 +55,6 @@ class WorkerClient:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
-
-    def signal_ready(self, *, host_id: str = "") -> dict[str, Any]:
-        return self._post(
-            f"/api/v2/serverless/workers/{self.worker_id}/ready",
-            {"host_id": host_id},
-        )
 
     def heartbeat(self) -> dict[str, Any]:
         return self._post(f"/api/v2/serverless/workers/{self.worker_id}/heartbeat", {})

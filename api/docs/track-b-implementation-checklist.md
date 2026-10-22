@@ -2452,6 +2452,18 @@ data disposition remain separately scoped below.
   remain guarded. The serverless callback/terminal flow, other SSH callers,
   worker decomposition and rollout still remain open.
   [Receipt](review/2026-10-22-native-only-worker.md).
+  **Serverless lifecycle follow-up, 2026-10-22:** service/reaper SSH kill and
+  premature release/charge writers are removed. Native attempt transactions
+  project serverless readiness and confirmed release, requeue requests and
+  retain the actual release timestamp for retryable final billing. Unclaimed
+  offers are revoked under lock; claimed work waits for fenced stop. The old
+  callback writers, SDK readiness sender and separate monitor are removed.
+  Provisioning includes execution metadata before work becomes runnable.
+  The SDK image passes a local nonroot/read-only/network-isolated boot and real
+  readiness check; standalone packaging and health callback binding are fixed.
+  Registry image pinning, callback/claim fencing, lease-expiry handoff and
+  coordinated rollout remain open.
+  [Receipt](review/2026-10-22-serverless-native-lifecycle.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

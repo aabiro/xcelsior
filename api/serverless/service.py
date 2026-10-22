@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,9 +26,7 @@ from serverless.cache import (
 from serverless.github_deploy import GitHubSourceError, apply_github_source
 from serverless.dispatcher import ServerlessDispatcher
 from serverless.metering import (
-    charge_serverless_worker,
     pricing_for_endpoint,
-    record_cold_start_line_item,
     token_cost_metadata,
 )
 from serverless.repo import (
@@ -67,6 +66,7 @@ def _record_queue_depth_sample(endpoint_id: str, depth: int) -> list[tuple[float
     if len(hist) > _QUEUE_HISTORY_MAX:
         del hist[: len(hist) - _QUEUE_HISTORY_MAX]
     return list(hist)
+
 
 # Use the published upstream image. The former xcelsior/serverless-vllm
 # reference was never published and every managed launch failed on pull.
@@ -185,7 +185,9 @@ class ServerlessService:
                 f"managed_engine must be one of: {', '.join(sorted(ALLOWED_MANAGED_ENGINES))}"
             )
         if spec.mode == "custom" and not spec.image_ref:
-            if (spec.source_type or "").strip().lower() != "github" or not (spec.source_ref or "").strip():
+            if (spec.source_type or "").strip().lower() != "github" or not (
+                spec.source_ref or ""
+            ).strip():
                 raise ValueError("image_ref is required for custom endpoints")
         if spec.min_workers < 0 or spec.max_workers < spec.min_workers:
             raise ValueError("invalid min_workers / max_workers")
@@ -199,7 +201,9 @@ class ServerlessService:
                 name = str(adapter.get("name") or "").strip()
                 source = str(adapter.get("source") or "").strip()
                 if not name or not source:
-                    raise ValueError("each lora adapter needs a 'name' and a 'source' (HF repo or path)")
+                    raise ValueError(
+                        "each lora adapter needs a 'name' and a 'source' (HF repo or path)"
+                    )
                 if not name.replace("-", "").replace("_", "").replace(".", "").isalnum():
                     raise ValueError(f"invalid lora adapter name: {name!r}")
                 if name in seen_names:
@@ -373,11 +377,29 @@ class ServerlessService:
             volume_ids.append(cache_vol)
             volume_mounts[cache_vol] = "/xcelsior-cache"
 
+        scheduler_job_id = str(uuid.uuid4())
+        worker = self.repo.create_worker(
+            endpoint_id,
+            scheduler_job_id=scheduler_job_id,
+            gpu_count=gpu_count,
+            allocated_at=0,
+            billing_exempt=not billable,
+            warm_expires_at=warm_expires_at if not billable else 0,
+        )
         try:
-            from scheduler import _set_job_fields, submit_job
+            from scheduler import submit_job
 
             job = submit_job(
                 name=f"serverless-{endpoint_id}",
+                job_id=scheduler_job_id,
+                serverless_config={
+                    "serverless_worker_id": str(worker["worker_id"]),
+                    "serverless_endpoint_id": endpoint_id,
+                    "environment": endpoint_env,
+                    "volume_mounts": volume_mounts,
+                    "http_port": http_port,
+                    "health_check_path": health_check_path,
+                },
                 vram_needed_gb=vram,
                 priority=5,
                 tier="on-demand",
@@ -391,8 +413,12 @@ class ServerlessService:
                 job_type="serverless_worker",
                 region=str(ep.get("region") or ""),
             )
-            scheduler_job_id = str(job.get("job_id") or "")
         except Exception as e:
+            self.repo.update_worker(
+                str(worker["worker_id"]),
+                state=WORKER_STATE_ERROR,
+                error_message="scheduler submission failed",
+            )
             log.error(
                 "provision_worker submit_job failed endpoint=%s gpu_tier=%s region=%s image=%s: %s",
                 endpoint_id,
@@ -407,27 +433,6 @@ class ServerlessService:
                 {"status": ENDPOINT_STATUS_ERROR},
             )
             return None
-
-        worker = self.repo.create_worker(
-            endpoint_id,
-            scheduler_job_id=scheduler_job_id,
-            gpu_count=gpu_count,
-            allocated_at=time.time(),
-            billing_exempt=not billable,
-            warm_expires_at=warm_expires_at if not billable else 0,
-        )
-        try:
-            _set_job_fields(
-                scheduler_job_id,
-                serverless_worker_id=str(worker["worker_id"]),
-                serverless_endpoint_id=endpoint_id,
-                environment=endpoint_env,
-                volume_mounts=volume_mounts,
-                http_port=http_port,
-                health_check_path=health_check_path,
-            )
-        except Exception as e:
-            log.warning("provision_worker _set_job_fields failed: %s", e)
 
         self.repo.patch_endpoint(
             endpoint_id,
@@ -488,7 +493,11 @@ class ServerlessService:
 
                     process_queue()
                 except Exception as exc:
-                    log.debug("process_queue after serverless warm failed endpoint=%s: %s", endpoint_id, exc)
+                    log.debug(
+                        "process_queue after serverless warm failed endpoint=%s: %s",
+                        endpoint_id,
+                        exc,
+                    )
 
         workers = self.repo.list_workers(endpoint_id)
         ready_count = sum(
@@ -527,20 +536,21 @@ class ServerlessService:
         }
 
     def worker_heartbeat(self, worker_id: str) -> dict | None:
-        w = self.repo.get_worker(worker_id)
-        if not w or w.get("state") == WORKER_STATE_TERMINATED:
-            return None
-        now = time.time()
-        state = str(w.get("state") or WORKER_STATE_BOOTING)
-        if state == WORKER_STATE_BOOTING:
-            state = WORKER_STATE_READY
-        if int(w.get("current_concurrency") or 0) == 0 and state == WORKER_STATE_READY:
-            state = WORKER_STATE_IDLE
-        return self.repo.update_worker(worker_id, last_heartbeat_at=now, state=state)
+        # A late heartbeat cannot revive released capacity or bypass the
+        # native running/health transition, including a concurrent exit.
+        with self.repo._conn() as conn:
+            row = conn.execute(
+                "UPDATE serverless_workers SET last_heartbeat_at=%s,updated_at=%s,"
+                "state=CASE WHEN state='ready' AND current_concurrency=0 THEN 'idle' ELSE state END "
+                "WHERE worker_id=%s AND released_at IS NULL "
+                "AND state IN ('booting','ready','idle','draining') RETURNING *",
+                (time.time(), time.time(), worker_id),
+            ).fetchone()
+        return dict(row) if row else None
 
     def worker_claim_job(self, worker_id: str) -> dict | None:
         w = self.repo.get_worker(worker_id)
-        if not w:
+        if not w or w.get("released_at") is not None:
             return None
         state = str(w.get("state") or "")
         if state in (
@@ -557,7 +567,11 @@ class ServerlessService:
         if int(w.get("current_concurrency") or 0) >= max_conc:
             return None
         from routes._deps import otel_span
-        from serverless.observability import log_job_event, record_cold_start, refresh_endpoint_gauges
+        from serverless.observability import (
+            log_job_event,
+            record_cold_start,
+            refresh_endpoint_gauges,
+        )
 
         with otel_span(
             "serverless.job.claim",
@@ -709,7 +723,11 @@ class ServerlessService:
         """Mark a queued/in-flight job failed (no worker callback) and notify webhook."""
         completed = self.repo.complete_job(job_id, error=error)
         if completed:
-            from serverless.observability import log_job_event, record_job_terminal, refresh_endpoint_gauges
+            from serverless.observability import (
+                log_job_event,
+                record_job_terminal,
+                refresh_endpoint_gauges,
+            )
 
             eid = str(completed.get("endpoint_id") or "")
             self.repo.append_stream_event(
@@ -809,109 +827,70 @@ class ServerlessService:
             return None
         return self.repo.append_stream_event(job_id, event_type, payload)
 
-    def mark_worker_ready(self, worker_id: str, host_id: str = "") -> dict | None:
-        now = time.time()
-        w = self.repo.update_worker(
-            worker_id,
-            state=WORKER_STATE_READY,
-            host_id=host_id or None,
-            last_heartbeat_at=now,
-        )
-        if not w:
-            return None
-        ep = self.repo.get_endpoint(str(w["endpoint_id"]))
-        if ep:
-            if bool(w.get("billing_exempt")):
-                w = self.repo.update_worker(
-                    worker_id,
-                    warm_expires_at=now + int(ep.get("idle_timeout_sec") or 60),
-                ) or w
-            if ep.get("status") in (ENDPOINT_STATUS_PROVISIONING, ENDPOINT_STATUS_SCALED_DOWN):
-                self.repo.patch_endpoint(
-                    str(ep["endpoint_id"]),
-                    str(ep["owner_id"]),
-                    {"status": ENDPOINT_STATUS_ACTIVE},
-                )
-            alloc = float(w.get("allocated_at") or 0)
-            if alloc:
-                cold = max(0, int(now - alloc))
-                if cold:
-                    try:
-                        from billing import get_billing_engine
+    def deprovision_worker(self, worker_id: str, *, charge: bool = True) -> dict:
+        """Persist stop intent; native terminal evidence releases and bills work.
 
-                        record_cold_start_line_item(
-                            get_billing_engine(),
-                            self.repo,
-                            w,
-                            ep,
-                            cold_start_seconds=cold,
-                            ready_at=now,
-                        )
-                    except Exception as e:
-                        log.debug("cold_start line item skipped: %s", e)
-        self._broadcast("serverless_worker.ready", {"worker_id": worker_id})
-        return self.repo.get_worker(worker_id)
+        ``charge`` no longer causes a synchronous speculative final charge.
+        Normal metering owns real running consumption and its confirmed end.
+        A worker that never reached native running is never finally charged.
+        """
+        from control_plane.lifecycle import request_fenced_stop_remove
+        from control_plane.serverless_workers import cancel_unstarted_worker
 
-    def worker_exited(
-        self,
-        worker_id: str,
-        *,
-        exit_code: int = 0,
-        error_message: str = "",
-    ) -> dict | None:
-        """Worker container exited — requeue in-flight jobs and mark worker lost."""
-        w = self.repo.get_worker(worker_id)
-        if not w or w.get("state") == WORKER_STATE_TERMINATED:
-            return None
-        self.dispatcher.handle_worker_lost(worker_id)
-        state = WORKER_STATE_ERROR if exit_code != 0 else WORKER_STATE_TERMINATED
-        released = time.time()
-        self.repo.update_worker(
-            worker_id,
-            state=state,
-            released_at=released,
-            error_message=(error_message or f"exit code {exit_code}")[:500] or None,
-        )
-        if not bool(w.get("billing_exempt")):
-            try:
-                charge_serverless_worker(self.repo, {**w, "released_at": released}, released_at=released)
-            except Exception as exc:
-                log.error("final serverless worker charge failed worker=%s: %s", worker_id, exc)
-        self._broadcast(
-            "serverless_worker.exited",
-            {"worker_id": worker_id, "exit_code": exit_code},
-        )
-        return self.repo.get_worker(worker_id)
-
-    def deprovision_worker(self, worker_id: str, *, charge: bool = True) -> None:
-        w = self.repo.get_worker(worker_id)
-        if not w:
-            return
-        ep = self.repo.get_endpoint(str(w["endpoint_id"]))
-        now = time.time()
-        released_at = float(w.get("released_at") or 0) or now
-        self.dispatcher.terminate_worker(worker_id)
-
-        scheduler_job_id = str(w.get("scheduler_job_id") or "")
-        if scheduler_job_id:
-            try:
-                from scheduler import kill_job, list_jobs, list_hosts
-
-                jobs = {j["job_id"]: j for j in list_jobs()}
-                job = jobs.get(scheduler_job_id)
-                if job and job.get("host_id"):
-                    hosts = {h["host_id"]: h for h in list_hosts()}
-                    host = hosts.get(job["host_id"])
-                    if host:
-                        kill_job(job, host)
-            except Exception as e:
-                log.warning("kill_job failed for %s: %s", scheduler_job_id, e)
-
-        self.repo.update_worker(worker_id, state=WORKER_STATE_TERMINATED, released_at=released_at)
-        if charge and not bool(w.get("billing_exempt")):
-            charge_serverless_worker(
-                self.repo, {**w, "released_at": released_at}, released_at=released_at
+        worker = self.repo.get_worker(worker_id)
+        if not worker or worker.get("released_at") is not None:
+            return {"requested": False, "reason": "already_released_or_missing"}
+        job_id = str(worker.get("scheduler_job_id") or "")
+        with self.repo._conn() as conn:
+            job = conn.execute(
+                "SELECT job_id,status,host_id,active_attempt_id FROM jobs WHERE job_id=%s",
+                (job_id,),
+            ).fetchone()
+        if not job:
+            return {"requested": False, "reason": "scheduler_job_missing"}
+        if cancel_unstarted_worker(worker_id, job_id):
+            return {"requested": True, "pending": False}
+        attempt_id = str(job.get("active_attempt_id") or "")
+        if not attempt_id or str(worker.get("attempt_id") or "") != attempt_id:
+            return {"requested": False, "reason": "no_matching_attempt_authority"}
+        with self.repo._conn() as conn:
+            current = conn.execute(
+                """SELECT j.job_id FROM jobs j
+                     JOIN serverless_workers w ON w.scheduler_job_id=j.job_id
+                      AND w.attempt_id=j.active_attempt_id AND w.host_id=j.host_id
+                    WHERE j.job_id=%s AND j.active_attempt_id=%s AND w.worker_id=%s
+                      AND w.released_at IS NULL
+                      AND j.payload->>'job_type'='serverless_worker'
+                      AND j.payload->>'serverless_worker_id'=w.worker_id
+                      AND j.payload->>'serverless_endpoint_id'=w.endpoint_id
+                    FOR UPDATE OF j,w""",
+                (job_id, attempt_id, worker_id),
+            ).fetchone()
+            if current is None:
+                return {"requested": False, "reason": "attempt_changed"}
+            conn.execute(
+                "UPDATE serverless_workers SET state='draining',updated_at=%s "
+                "WHERE worker_id=%s AND attempt_id=%s AND released_at IS NULL",
+                (time.time(), worker_id, attempt_id),
             )
+            conn.execute(
+                "UPDATE jobs SET payload=COALESCE(payload,'{}'::jsonb)||"
+                "jsonb_build_object('serverless_stop_requested',true) WHERE job_id=%s",
+                (job_id,),
+            )
+        result = request_fenced_stop_remove(
+            job_id=job_id,
+            intent="terminate",
+            created_by="serverless_deprovision",
+            reason_tag="serverless_deprovision",
+        )
+        return {
+            "requested": result.ok,
+            "pending": True,
+            "reason": result.reason,
+            "command_id": result.command_id,
+            "attempt_id": result.attempt_id,
+        }
 
     # ── Reconcile (autoscaler + dispatch) ─────────────────────────────
 

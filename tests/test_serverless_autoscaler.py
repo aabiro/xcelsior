@@ -199,6 +199,9 @@ class TestReaper:
             patch.object(svc.repo, "list_booting_workers", return_value=[]),
             patch.object(svc.repo, "get_endpoint", return_value=ep),
             patch.object(svc, "deprovision_worker"),
+            patch.object(
+                svc.repo, "get_worker", return_value={**worker, "released_at": time.time()}
+            ),
             patch.object(svc, "_endpoint_needs_workers", return_value=True),
             patch.object(
                 svc, "provision_worker", return_value={"worker_id": "swk-new"}
