@@ -1,0 +1,153 @@
+{
+  "recorded_at": "2026-10-22T23:15:27.084473+00:00",
+  "base_commit": "03296cd44d46c80333a1e2f0cf78c4d5d2001477",
+  "scope": "recorded execution spec qualification and first native job-column contract",
+  "migrations": {
+    "129": {
+      "qualification": "matching recorded job/command/attempt hashes, host/fence/job-generation and command argument binding",
+      "unchanged": "unavailable/nonterminal evidence is assessed without modifying job state; existing specs win",
+      "batching": "500 rows per independent transaction; locked work and unrelated state drift refuse completion",
+      "provenance": "migration-owned job_spec_backfill_evidence; runtime direct writes denied; job-lifetime FK",
+      "downgrade": "retains recovered specs and assessment evidence at 128"
+    },
+    "130": {
+      "columns": "jobs.phase and desired_state NOT NULL; pending jobs require recorded queue time",
+      "bridge": "job projection fires only on status/priority/submission writes and changes only affected legacy projections",
+      "preserves": "unchanged raw fields preserve effective priority, queue time and native intent through metadata/claim/upsert paths",
+      "downgrade": "restores 129 nullability and legacy trigger without changing stored rows"
+    }
+  },
+  "validation": {
+    "expanded": {
+      "tests": 2614,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "tests": 222,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "production_derived_drill": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "baseline_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "pyright": {
+      "filesAnalyzed": 246,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 29.283
+    },
+    "black_python_files": 13,
+    "ruff": "repository passed",
+    "worker_signatures": 12,
+    "full_manifest_sha256": "42fca5256f0fb2842820f6c888d828b36a07c733f6a33c60f5b0eb30393d14d1",
+    "focused_manifest_sha256": "61a6bd569fcdddfd7d814ce74aa32dd1dc189200d18fc676d98a638b173858b2",
+    "drill_manifest_sha256": "9ab82036b092d7aea0ff3581dba5596b4c018605a5fa49d6ade8e32928dd8013",
+    "scratch_postgres_removed": true,
+    "scratch_redis_removed": true
+  },
+  "source_sha256": {
+    "api/migrations/versions/129_qualify_recorded_job_specs.py": "cd09bea3fd0b65871e55d0e50ed6f5db0f4f55f4b0c6482a5e7dd3a9eb3ad973",
+    "api/migrations/versions/130_contract_job_projection_columns.py": "cd4d7fd08ba49ababf11e6667a05a2f60a4bab6fed63cc1c4aabd631051e42af",
+    "api/scripts/audit_spec_qualification.py": "302ac6c3dbf899a8182afab97ba90fe1239c98b2f54a25f3ba93c4e1fafbcd5e",
+    "control_plane/db_role_audit.py": "2ee97e2b4a130658b33cc04a8a75d4cb94752941933bb48dca494c449b129962",
+    "control_plane/db_roles.py": "df795a38da6010b2a24922d45fdc952a0dde86f4593b1edb213bc770cb23070f",
+    "control_plane/spec_qualification.py": "66fa8f7b4365a87e1e3b9ff7a405cd6c07fb6e148f999355f6d3dc59969be62e",
+    "tests/test_control_plane_service.py": "ccaa9d91df2bf5335c498c70002c21dac7e3002df8b2090cb739730fccc7f14a",
+    "tests/test_data_population.py": "f775da4748b457d64d1b12e6147ef8dc2202e95e036a25f9c839d255b0a0428b",
+    "tests/test_db_service_roles.py": "b11434f0addf0a69570d858745cec1da6309179ffee988b6f0933728095932c5",
+    "tests/test_from_empty_bootstrap.py": "624f4b99faf9f59ba8f832a12fde43ed0f2ab27784d699ae7b39b0aab7df6a90",
+    "tests/test_historical_spec_qualification.py": "c8412dad1c54318d9002b092382d6456e575df7ceeae96657280874c9d7a312d",
+    "tests/test_job_projection_contract.py": "536cff735dfb097c69e1d52d43bb899816e3fadcb0811920b61099ba454f5d7c",
+    "tests/test_migration_ledger.py": "a6334c548f9740fc96a4fc25d7483e44c12d3776aa09d3ef86957f4107bfb7d1"
+  },
+  "rehearsal": {
+    "jobs": 364,
+    "recovered_exact_specs": 4,
+    "unavailable_assessments": 360,
+    "other_job_fields_unchanged": true,
+    "history_unchanged": true,
+    "roundtrip_preserved": true,
+    "spec_contract_guard_exit": 2,
+    "audit": {
+      "collected_at": "2026-10-22T23:00:45.794131+00:00",
+      "complete": true,
+      "read_only": true,
+      "database": "bootstrap_empty_4750092889",
+      "port": 5432,
+      "specs": {
+        "total": 364,
+        "valid_admission": 0,
+        "valid_recorded": 4,
+        "invalid": 0,
+        "missing": 360,
+        "recorded_without_provenance": 0
+      },
+      "backfill_evidence": {
+        "unavailable": 360,
+        "recovered_execution": 4
+      },
+      "normalized_column_gaps": {
+        "phase": 0,
+        "desired_state": 0,
+        "pending_queued_at": 0
+      },
+      "transitional_triggers": [
+        "trg_hosts_control_plane_projection",
+        "trg_jobs_control_plane_projection"
+      ],
+      "required_columns_not_null": {
+        "desired_state": true,
+        "phase": true
+      },
+      "pending_queue_check_validated": true,
+      "all_job_specs_qualified": false,
+      "trigger_removal_requires_native_writer_gate": true
+    },
+    "minimization": "Only the four hashed jobs and their execution commands retain complete payloads; other payloads contain identity/admission facts only. Wallet-hold reference columns are omitted; no financial restore is claimed.",
+    "fixture_sha256": "5aad5d1fd39653175d883c54c3eb0519a0101055e9898f71b5915f69926a5336"
+  },
+  "drill_script_sha256": "1954a5c22349bc7531db93417a4d0e61c4ce9dfd7bb812f5f6f79e49a6fe458a",
+  "production": {
+    "deployed": false,
+    "migrations_applied": false,
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "protected_job_hashes_unchanged": true,
+    "legacy_lease_digest_unchanged": true,
+    "images_and_pids_unchanged": true
+  },
+  "unrelated_root_paths_preserved": 9,
+  "remaining": [
+    "native phase/desired-state/queue writer conversion before physically dropping both projection triggers",
+    "recovery or reviewed disposition of 360 historical spec gaps before full spec contraction and payload-bridge removal",
+    "remaining JSONB compatibility and all-table semantic review",
+    "durable fairness/preemption",
+    "coordinated production rollout; repairs stay report_only"
+  ],
+  "local_evidence": "/mnt/storage/projects/xcelsior/artifacts/historical-spec-contract-20261022"
+}

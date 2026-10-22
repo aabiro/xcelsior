@@ -2529,6 +2529,17 @@ data disposition remain separately scoped below.
   removal before column/trigger contraction. This is a source candidate with
   no production backfill or deployment; B16 remains open.
   [Canonical admission receipt](review/2026-10-22-canonical-admission.md).
+  **Historical qualification and column contract, 2026-10-22:** migration 129
+  recovers execution specs only from matching job/command/attempt hashes and
+  fenced bindings, with explicit assessment evidence for unavailable history.
+  The production-derived local rehearsal recovers four specs and records 360
+  unavailable assessments. Migration 130 requires non-null job phase/desired
+  state and a recorded queue time for pending jobs. It narrows the job trigger
+  so unrelated writes preserve priority boosts and native queue/intent state.
+  Both triggers remain until native status/admission writers are converted;
+  the historical spec gaps and full contraction remain open. These migrations
+  are locally qualified source candidates, not production mutations.
+  [Backfill and column contract receipt](review/2026-10-22-historical-spec-contract.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

@@ -90,7 +90,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `128_backfill_recorded_control_plane_metadata.py`.**
+**Repository head: `130_contract_job_projection_columns.py`.**
 
 126 adds hash-only attempt callback credentials. 127 verifies and archives inactive
 v1 lease history, then drops the obsolete table and its eight columns. Apply 127
@@ -107,6 +107,24 @@ or sealed audit rows. Historical tenant/trace IDs come only from original event
 headers. Newly recovered job tenancy can resolve archive attribution. Units
 commit per table, use bounded SKIP LOCKED selection, and refuse incomplete
 locked work; rerun after contention clears. Downgrade retains recovered facts.
+
+129 (`129_qualify_recorded_job_specs.py`) recovers a historical execution spec
+only when its saved job hash agrees with a fenced start command and attempt.
+It records migration-owned assessment evidence for recovered and unavailable
+history; current payload never becomes an invented approved spec. Each batch
+commits independently, detects locked unfinished rows and refuses unrelated
+job-state drift. Downgrade retains recovered specs and provenance.
+
+130 contracts `jobs.phase` and `desired_state` to non-null and requires an
+actual queue timestamp for pending jobs. Missing projections use recorded
+status/submission evidence; unknown history aborts the table unit. The job
+projection bridge now fires only for legacy status/priority/submission writes
+and changes priority only when the raw priority changes. Claims, observations
+and billing metadata no longer erase priority boosts or native intent.
+Both projection triggers still exist: full removal remains dependent on native
+status-writer conversion and its runnable gate. This is not the final B16.2
+contract-cleanup migration. Runtime floor remains 126; staged rollout still
+requires the native handoff before 127, then the later data/column migrations.
 
 (`125` stores one revoked client-credentials JWT id until that token's own
 expiry. Downgrade drops the table.)

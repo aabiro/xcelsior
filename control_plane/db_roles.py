@@ -219,6 +219,7 @@ AUDIT_TABLES = frozenset(
         "events",
         "events_archive",
         "legacy_lease_archive",
+        "job_spec_backfill_evidence",
         "event_snapshots",
         "outbox_events",
         "alembic_version",
@@ -285,6 +286,11 @@ TABLE_DOMAINS: dict[str, frozenset[str]] = {
 }
 
 ALL_DOMAINS = tuple(TABLE_DOMAINS) + ("storage",)
+
+# Runtime readers may inspect migration-owned evidence, never rewrite it.
+RUNTIME_READ_ONLY_TABLES = frozenset(
+    {"alembic_version", "legacy_lease_archive", "job_spec_backfill_evidence"}
+)
 
 
 def domain_of(table: str) -> str | None:
@@ -433,6 +439,9 @@ DENIAL_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("api", "legacy_lease_archive", "UPDATE"),
     ("api", "legacy_lease_archive", "INSERT"),
     ("api", "legacy_lease_archive", "DELETE"),
+    ("api", "job_spec_backfill_evidence", "INSERT"),
+    ("api", "job_spec_backfill_evidence", "UPDATE"),
+    ("api", "job_spec_backfill_evidence", "DELETE"),
     ("readonly", "wallets", "UPDATE"),
     # retrieval never touches the control plane
     ("retrieval", "jobs", "UPDATE"),
@@ -542,7 +551,7 @@ def grant_statements(
             # Runtime audit writers must not rewrite the migration stamp.
             verbs = (
                 "SELECT"
-                if table in {"alembic_version", "legacy_lease_archive"} and role.runtime
+                if table in RUNTIME_READ_ONLY_TABLES and role.runtime
                 else "SELECT, INSERT, UPDATE, DELETE"
             )
             stmts.append(f"GRANT {verbs} ON {_qualified(domain, table)} " f'TO "{role.name}"')

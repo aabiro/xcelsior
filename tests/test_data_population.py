@@ -143,7 +143,7 @@ def test_runtime_heartbeat_records_actual_database_revision(monkeypatch):
             assert conn.execute(
                 "SELECT schema_revision,service_version FROM service_heartbeats WHERE replica_id=%s",
                 (marker,),
-            ).fetchone() == ("128", "test-source-version")
+            ).fetchone() == ("130", "test-source-version")
     finally:
         with _get_pg_pool().connection() as conn:
             conn.execute("DELETE FROM service_heartbeats WHERE replica_id=%s", (marker,))
