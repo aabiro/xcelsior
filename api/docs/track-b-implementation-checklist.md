@@ -2429,6 +2429,12 @@ data disposition remain separately scoped below.
   both projection triggers, 302 historical leases, null canonical specs on all
   364 historical jobs, and unresolved identity/tenancy. See the
   [removal candidate and contraction prerequisites](review/2026-10-21-legacy-control-plane-removal.md).
+  **Follow-up, 2026-10-22:** legacy container-name startup adoption and its
+  startup call are removed, along with unused scheduler SSH start/stop/wait
+  helpers and an unused unfenced cancellation helper. Native journal/label
+  recovery remains covered; the expanded gate passed 1,387 tests. This is
+  still a source candidate, with no worker rollout or historical deletion.
+  [Receipt](review/2026-10-22-legacy-startup-removal.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

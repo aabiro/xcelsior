@@ -2684,47 +2684,6 @@ def kill_job(job, host):
     )
 
 
-def stop_container_graceful(job, host):
-    """Gracefully stop a container with SIGTERM, then SIGKILL after 10s.
-
-    Unlike kill_job, the container is NOT removed — it is left in an exited
-    state so that docker start can restore it with volumes intact.
-    Returns True on success, False if the container was already gone.
-    """
-    container_name = job.get("container_name", f"xcl-{job['job_id']}")
-    _validate_name(container_name, "container name")
-    rc, _, _ = ssh_exec(host["ip"], f"docker stop -t 10 {shlex.quote(container_name)}")
-    ok = rc == 0
-    log.info(
-        "STOP_GRACEFUL job=%s host=%s container=%s ok=%s",
-        job["job_id"],
-        host["host_id"],
-        container_name,
-        ok,
-    )
-    return ok
-
-
-def start_stopped_container(job, host):
-    """Start a previously stopped (but not removed) container.
-
-    Used for the Start and Restart flows. The container must still exist
-    on the host in an exited state. Returns True on success.
-    """
-    container_name = job.get("container_name", f"xcl-{job['job_id']}")
-    _validate_name(container_name, "container name")
-    rc, _, _ = ssh_exec(host["ip"], f"docker start {shlex.quote(container_name)}")
-    ok = rc == 0
-    log.info(
-        "START_STOPPED job=%s host=%s container=%s ok=%s",
-        job["job_id"],
-        host["host_id"],
-        container_name,
-        ok,
-    )
-    return ok
-
-
 def terminate_job(job, host):
     """Hard-kill and fully remove a container (user-initiated terminate).
 
@@ -2739,48 +2698,6 @@ def terminate_job(job, host):
     log.info(
         "TERMINATE job=%s host=%s container=%s", job["job_id"], host["host_id"], container_name
     )
-
-
-def wait_for_job(job, host, poll_interval=5, max_wait=172800):
-    """
-    Watch a job until it finishes on its own.
-    When the container exits, mark it complete and clean up.
-    Returns final status: "completed", "failed", or "timeout".
-    max_wait defaults to 48 hours.
-    """
-    container_name = job.get("container_name", f"xcl-{job['job_id']}")
-    _validate_name(container_name, "container name")
-
-    start = time.time()
-    while True:
-        if time.time() - start > max_wait:
-            log.warning("JOB TIMEOUT job=%s exceeded max_wait=%ds", job["job_id"], max_wait)
-            update_job_status(job["job_id"], "failed")
-            return "timeout"
-        # Check if container still exists
-        cmd = f"docker inspect -f '{{{{.State.Status}}}}' {shlex.quote(container_name)}"
-        rc, stdout, _ = ssh_exec(host["ip"], cmd)
-
-        if rc != 0:
-            # Container gone entirely
-            update_job_status(job["job_id"], "failed")
-            return "failed"
-
-        if stdout == "exited":
-            # Check exit code
-            cmd_exit = f"docker inspect -f '{{{{.State.ExitCode}}}}' {shlex.quote(container_name)}"
-            _, exit_code, _ = ssh_exec(host["ip"], cmd_exit)
-            # Clean up
-            ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
-
-            if exit_code == "0":
-                update_job_status(job["job_id"], "completed")
-                return "completed"
-            else:
-                update_job_status(job["job_id"], "failed")
-                return "failed"
-
-        time.sleep(poll_interval)
 
 
 def run_job_local(job, docker_image=None):
