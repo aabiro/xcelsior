@@ -16,7 +16,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v2"
+FILTER_POLICY_VERSION = "filters/v3"
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,17 @@ def _f(value: Any, default: float = 0.0) -> float:
 
 
 # ── Individual hard filters ──────────────────────────────────────────
+
+
+def host_pin(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
+    wanted = job.get("preferred_host_id")
+    if wanted and str(host.get("host_id")) != str(wanted):
+        return FilterReason(
+            "host_pin_mismatch",
+            "job is pinned to another host",
+            {"requested_host_id": wanted},
+        )
+    return None
 
 
 def host_admitted(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
@@ -164,6 +175,7 @@ def price(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
 # Order matters only for explanation readability; all filters always run
 # so the queue reason lists *every* failed constraint, not just the first.
 HARD_FILTERS: Sequence[Callable[[dict, dict, FilterContext], FilterReason | None]] = (
+    host_pin,
     host_admitted,
     host_ready,
     gpu_model,
@@ -175,9 +187,7 @@ HARD_FILTERS: Sequence[Callable[[dict, dict, FilterContext], FilterReason | None
 )
 
 
-def evaluate_host(
-    job: dict, host: dict, ctx: FilterContext | None = None
-) -> list[FilterReason]:
+def evaluate_host(job: dict, host: dict, ctx: FilterContext | None = None) -> list[FilterReason]:
     """All failed hard constraints for this (job, host); empty = eligible."""
     ctx = ctx or FilterContext()
     reasons = []

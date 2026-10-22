@@ -410,10 +410,9 @@ def api_register_host(h: HostIn, request: Request):
         entry["status"] = "pending"
 
     # Persist the updated entry (country, province, admitted status)
-    from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
+    from scheduler import _atomic_mutation, _upsert_host_row
 
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         _upsert_host_row(conn, entry)
 
     # A deterministic score is safe to show while pending, but marketplace
@@ -890,10 +889,9 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     entry["status"] = "pending"
 
     # Persist the full entry
-    from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
+    from scheduler import _atomic_mutation, _upsert_host_row
 
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         _upsert_host_row(conn, entry)
 
     # Manual registration records inventory and a display score only. It must
@@ -1152,14 +1150,11 @@ def api_drain_host(host_id: str, request: Request):
         raise HTTPException(status_code=409, detail="Cannot drain a dead host")
 
     updated = set_host_draining(host_id, draining=True)
-    from scheduler import run_drain_preemptions
-
-    preempted = run_drain_preemptions(host_id)
     broadcast_sse("host_update", {"host_id": host_id, "status": "draining"})
     return {
         "ok": True,
         "host": updated,
-        "preempted": [j["job_id"] for j in preempted],
+        "preempted": [],
         "maintenance": api_host_maintenance(host_id, request),
     }
 

@@ -6,9 +6,9 @@ workload running. Removing running workloads is a **separate**, separately
 authorized, separately audited action (`/evictions`) that fences the workload
 before it can be reassigned.
 
-Track A's legacy `POST /host/{id}/drain` conflates the two — it calls
-`run_drain_preemptions`, which "preempts all workloads on a draining host" — so
-these v1 endpoints implement the correct split. Domain failures are RFC 9457
+Both drain routes stop new placements without eviction. Eviction execution is
+unavailable until the durable preemption controller can wait for worker stop
+confirmation. Domain failures are RFC 9457
 problem+json (B2.8); optimistic concurrency uses the host `version` so a stale
 operator request is refused rather than racing.
 """
@@ -649,7 +649,6 @@ def api_v1_execute_eviction_plan(host_id: str, plan_id: UUID, request: Request):
     from control_plane.db import control_plane_transaction
     from control_plane.launch import action_plans as plans_repo
     from control_plane.launch.service import PlanConflict, PlanNotFound
-    from scheduler import run_drain_preemptions
 
     user = _require_host_operator(request, "hosts:evict")
     principal = _operator_plan_principal(user)
@@ -667,33 +666,18 @@ def api_v1_execute_eviction_plan(host_id: str, plan_id: UUID, request: Request):
         if canonical["host_id"] != host_id:
             raise PlanConflict("resource_mismatch", "plan belongs to a different host")
         _check_version(host_id, int(canonical["expected_version"]))
-        plans_repo.mark_executing(conn, str(plan_id))
-
-    evicted = run_drain_preemptions(host_id)
-    response = {
-        "ok": True,
-        "host_id": host_id,
-        "evicted": [j["job_id"] for j in evicted],
-        "plan_id": str(plan_id),
-    }
-    with control_plane_transaction() as conn:
-        plans_repo.mark_consumed(
-            conn,
-            str(plan_id),
-            job_id=host_id,
-            wallet_hold_id=None,
-            idempotent_response=response,
-            idempotency_key=f"eviction-plan:{plan_id}",
+        raise ProblemException(
+            status=501,
+            code="durable_preemption_unavailable",
+            detail="durable preemption must confirm worker stop before reassignment",
         )
-    return response
 
 
 @router.post("/api/v1/hosts/{host_id}/drain")
 def api_v1_drain_host(host_id: str, request: Request, body: _OpIn | None = None):
     """§3.3 drain — stop **new** placements only. Running workloads keep running.
 
-    Unlike the legacy endpoint, this does NOT preempt. To remove workloads, call
-    `/evictions` (a separate scope + audit trail).
+    Eviction requires a separate scope and the durable preemption controller.
     """
     from scheduler import set_host_draining
 
@@ -735,14 +719,7 @@ def api_v1_undrain_host(host_id: str, request: Request, body: _OpIn | None = Non
 
 @router.post("/api/v1/hosts/{host_id}/evictions")
 def api_v1_evict_host_workloads(host_id: str, request: Request, body: _OpIn | None = None):
-    """§3.3 evict — remove running workloads from a host, distinct from drain.
-
-    Requires the `hosts:evict` scope (a principal cleared only to drain cannot
-    evict). Each workload is preempted (running → preempted → requeued), which
-    abandons its placement so a fresh, fenced attempt is scheduled elsewhere.
-    Records a separate `host.workloads_evicted` audit event.
-    """
-    from scheduler import run_drain_preemptions
+    """Validate eviction authority; execution awaits durable preemption."""
 
     user = _require_host_operator(request, "hosts:evict")
     resolved, host = _host_or_problem(host_id)
@@ -759,12 +736,11 @@ def api_v1_evict_host_workloads(host_id: str, request: Request, body: _OpIn | No
         )
     _check_version(resolved, body.expected_version if body else None)
 
-    evicted = run_drain_preemptions(resolved)
-    evicted_ids = [j["job_id"] for j in evicted]
-    append_user_audit_event(
-        "host.workloads_evicted", "host", resolved, user, data={"evicted": evicted_ids}
+    raise ProblemException(
+        status=501,
+        code="durable_preemption_unavailable",
+        detail="durable preemption must confirm worker stop before reassignment",
     )
-    return {"ok": True, "host_id": resolved, "evicted": evicted_ids}
 
 
 @router.get("/api/v1/instances/{job_id}/control-plane")

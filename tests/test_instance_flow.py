@@ -152,6 +152,39 @@ def _get_instance(job_id):
 class TestHappyPathLifecycle:
     """Full happy-path: host→submit→assign→lease→run→log→bill→cancel."""
 
+    def test_host_pinned_launch_waits_for_transactional_placement(self, monkeypatch):
+        _reset_state()
+        _register_host("pin-launch-host", vram=24)
+        _admit_host("pin-launch-host")
+        monkeypatch.setattr("security.probe_image_exists", lambda image: None)
+        response = client.post(
+            "/instance",
+            json={
+                "name": "pinned-launch",
+                "host_id": "pin-launch-host",
+                "image": "nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+                "vram_needed_gb": 8,
+            },
+        )
+        assert response.status_code == 200, response.text
+        job = response.json()["instance"]
+        assert job["status"] == "queued"
+        assert job.get("host_id") is None
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT active_attempt_id,payload->>'preferred_host_id' FROM jobs WHERE job_id=%s",
+                (job["job_id"],),
+            ).fetchone()
+            assert row == (None, "pin-launch-host")
+            assert (
+                conn.execute(
+                    "SELECT count(*) FROM agent_commands WHERE job_id=%s", (job["job_id"],)
+                ).fetchone()[0]
+                == 0
+            )
+
     def test_full_lifecycle_register_through_cancel(self):
         """Register host, submit job, walk through every status, bill, cancel."""
         _reset_state()
@@ -235,8 +268,8 @@ class TestHappyPathLifecycle:
         assert bill["cost"] > 0
         assert bill["duration_sec"] > 0
 
-    def test_lifecycle_with_cancel_while_running(self):
-        """Submit → run → cancel mid-execution."""
+    def test_cancel_refuses_running_job_without_fenced_authority(self):
+        """An old running row cannot authorize a destructive cancellation."""
         _reset_state()
         _register_host("cancel-h", vram=24)
         _admit_host("cancel-h")
@@ -253,10 +286,10 @@ class TestHappyPathLifecycle:
 
         # Cancel
         cancel_resp = client.post(f"/instances/{job_id}/cancel")
-        assert cancel_resp.status_code == 200
+        assert cancel_resp.status_code == 409
 
         inst = _get_instance(job_id)
-        assert inst["status"] in ("cancelled", "completed", "failed")
+        assert inst["status"] == "running"
 
     def test_lifecycle_queued_cancel(self):
         """Cancel while still queued — should succeed immediately."""
@@ -597,10 +630,7 @@ class TestWalletEmptyStopStart:
         inst = _get_instance(job_id)
         assert inst["status"] == "stopped"
 
-        from unittest.mock import patch
-
-        with patch("scheduler.run_job", return_value="fake-container-id"):
-            start_resp = client.post(f"/instances/{job_id}/start")
+        start_resp = client.post(f"/instances/{job_id}/start")
         assert start_resp.status_code == 200
         assert start_resp.json().get("ok") is True
 
