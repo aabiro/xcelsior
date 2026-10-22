@@ -892,40 +892,12 @@ def api_v1_instance_active_lease(job_id: str, request: Request):
     """Current lease health with a tenant-safe host alias and no credentials."""
     from db import _get_pg_pool
 
+    _require_scope(_require_auth(request), "instances:read")
     _job_for_caller(request, job_id)
+    from control_plane.lease_views import current_lease_view
+
     with _get_pg_pool().connection() as conn:
-        row = conn.execute(
-            """
-            SELECT lease_id, attempt_id, host_id, status, offered_at,
-                   claim_deadline, claimed_at, last_renewed_at, expires_at
-              FROM placement_leases
-             WHERE job_id=%s AND status IN ('offered','active')
-             ORDER BY offered_at DESC LIMIT 1
-            """,
-            (job_id,),
-        ).fetchone()
-    if not row:
-        return {"ok": True, "job_id": job_id, "lease": None}
-    keys = [
-        "lease_id",
-        "attempt_id",
-        "host_id",
-        "status",
-        "offered_at",
-        "claim_deadline",
-        "claimed_at",
-        "last_renewed_at",
-        "expires_at",
-    ]
-    lease = dict(zip(keys, row))
-    host_id = str(lease.pop("host_id"))
-    lease["host_alias"] = f"host-{hashlib.sha256(host_id.encode()).hexdigest()[:10]}"
-    for key, value in list(lease.items()):
-        lease[key] = (
-            _iso(value)
-            if hasattr(value, "isoformat")
-            else str(value) if isinstance(value, UUID) else value
-        )
+        lease = current_lease_view(conn, job_id)
     return {"ok": True, "job_id": job_id, "lease": lease}
 
 

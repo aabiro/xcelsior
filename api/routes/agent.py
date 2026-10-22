@@ -24,7 +24,7 @@ from scheduler import (
     register_compute_score,
     update_job_status,
 )
-from events import Event, get_event_store, get_state_machine
+from events import Event
 from control_plane.legacy_execution import (
     LegacyExecutionRejected,
     eligible_work_ids,
@@ -933,136 +933,47 @@ class LeaseReleaseRequest(BaseModel):
 
 @router.post("/agent/lease/claim", tags=["Agent"])
 def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
-    """Agent claims a lease for an assigned job.
-
-    This transitions the job from ASSIGNED → LEASED and starts
-    the lease clock. The agent must renew before expiry.
-    """
+    """Permanent tombstone for the retired v1 lease protocol."""
     _require_agent_auth(request, host_id=req.host_id)
-    record_use("lease_claim", "requested")
-    require_legacy_route_enabled()
-    store = get_event_store()
-    sm = get_state_machine()
-
-    # Validate the job is in a claimable state.
-    # Normal flow: job must be "assigned".
-    # Restart-recovery: allow re-claiming if job is already leased/starting/running
-    # on this same host (worker restart without server-side requeue).
-    _RECLAIM_STATUSES = {"leased", "starting", "running"}
-    jobs = list_jobs()
-    job = next((j for j in jobs if j.get("job_id") == req.job_id), None)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {req.job_id} not found")
-
-    current_status = job.get("status", "queued")
-    is_reclaim = current_status in _RECLAIM_STATUSES
-
-    if current_status != "assigned" and not is_reclaim:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Job {req.job_id} is '{current_status}', expected 'assigned'",
-        )
-
-    # Verify the requesting host is the one assigned to this job
-    assigned_host = job.get("host_id", "")
-    if assigned_host and assigned_host != req.host_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Host {req.host_id} is not assigned to job {req.job_id}",
-        )
-
-    # Grant lease (or re-grant after worker restart)
-    try:
-        lease = store.grant_lease(req.job_id, req.host_id)
-    except LegacyExecutionRejected as exc:
-        record_use("lease_claim", "blocked")
-        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
-    record_use("lease_claim", "used")
-
-    if not is_reclaim:
-        # Normal first-claim: transition assigned → leased
-        try:
-            sm.transition(
-                req.job_id,
-                "assigned",
-                "leased",
-                actor=f"agent:{req.host_id}",
-                data={"lease_id": lease.lease_id},
-            )
-        except ValueError:
-            pass  # Event already recorded by grant_lease
-
-        # Update scheduler's job status to leased (lifecycle log emitted by update_job_status)
-        update_job_status(req.job_id, "leased", host_id=req.host_id)
-    else:
-        # Restart-recovery reclaim: job already past "leased", don't regress its status.
-        # Just refresh the lease clock so the scheduler doesn't requeue a live container.
-        log.info(
-            "LEASE RECLAIM job=%s host=%s (status was '%s') — refreshing lease without status change",
-            req.job_id,
-            req.host_id,
-            current_status,
-        )
-
-    broadcast_sse(
-        "lease_granted",
+    raise HTTPException(
+        410,
         {
-            "job_id": req.job_id,
-            "host_id": req.host_id,
-            "lease_id": lease.lease_id,
-            "expires_at": lease.expires_at,
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use fenced /agent/v2 lease operations",
+            }
         },
     )
-
-    return {
-        "ok": True,
-        "lease_id": lease.lease_id,
-        "expires_at": lease.expires_at,
-        "duration_sec": lease.duration_sec,
-    }
 
 
 @router.post("/agent/lease/renew", tags=["Agent"])
 def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
-    """Agent renews its lease on a job. Must be called before expiry."""
+    """Permanent tombstone for the retired v1 lease protocol."""
     _require_agent_auth(request, host_id=req.host_id)
-    record_use("lease_renew", "requested")
-    require_legacy_route_enabled()
-    store = get_event_store()
-    try:
-        lease = store.renew_lease(req.job_id, req.host_id)
-    except LegacyExecutionRejected as exc:
-        record_use("lease_renew", "blocked")
-        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
-    if not lease:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No active lease for job {req.job_id} on host {req.host_id}",
-        )
-    record_use("lease_renew", "used")
-    return {
-        "ok": True,
-        "lease_id": lease.lease_id,
-        "expires_at": lease.expires_at,
-    }
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use fenced /agent/v2 lease operations",
+            }
+        },
+    )
 
 
 @router.post("/agent/lease/release", tags=["Agent"])
 def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
-    """Agent releases its lease (job completed/failed/preempted)."""
+    """Permanent tombstone for the retired v1 lease protocol."""
     _require_agent_auth(request)
-    record_use("lease_release", "requested")
-    require_legacy_route_enabled()
-    store = get_event_store()
-    try:
-        released = store.release_lease(req.job_id)
-    except LegacyExecutionRejected as exc:
-        record_use("lease_release", "blocked")
-        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
-    if not released:
-        return {"ok": True, "released": False, "detail": "No active lease"}
-    record_use("lease_release", "used")
-    return {"ok": True, "released": True}
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use fenced /agent/v2 lease operations",
+            }
+        },
+    )
 
 
 @router.get("/agent/popular-images", tags=["Agent"])

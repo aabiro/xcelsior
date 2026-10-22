@@ -1,0 +1,204 @@
+{
+  "candidate_parent": "1a8b2e8a5dad0e8bd1b3df5d40fc78b6cf78b95b",
+  "status": "source candidate; not merged or deployed",
+  "removed": [
+    "events.Lease",
+    "EventStore.grant_lease",
+    "EventStore.renew_lease",
+    "EventStore.release_lease",
+    "EventStore.get_active_lease",
+    "EventStore.expire_stale_leases",
+    "scheduler legacy lease expiry/requeue loop"
+  ],
+  "protocol": {
+    "v1_mutations": "authenticated permanent HTTP 410 in paused, canary and active modes",
+    "native": "fenced /agent/v2/leases remains operational",
+    "diagnostics": "current_lease_view verifies the job, attempt, host, fence and active state; aliases the host and omits fencing tokens",
+    "scopes": {
+      "event_diagnostic": "events:read",
+      "v1_diagnostic": "instances:read"
+    }
+  },
+  "validation": {
+    "results": {
+      "tests": 1536,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused_results": {
+      "tests": 175,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
+    "tests": [
+      "tests/test_cutover_audit_regressions.py",
+      "tests/test_alert_webhook.py",
+      "tests/test_restore_migration_isolation.py",
+      "tests/test_backup_workflow.py",
+      "tests/test_attempt_billing_snapshot.py",
+      "tests/test_attempt_scoped_usage_meters.py",
+      "tests/test_active_meter_repair.py",
+      "tests/test_billing_controller.py",
+      "tests/test_billing_spot_metering.py",
+      "tests/test_provider_settlement.py",
+      "tests/test_wallet_holds.py",
+      "tests/test_db_service_roles.py",
+      "tests/test_job_reconcile_queue.py",
+      "tests/test_complete_worker_cutover.py",
+      "tests/test_agent_v2.py",
+      "tests/test_worker_agent_v2.py",
+      "tests/test_worker_terminal_recovery.py",
+      "tests/test_worker_execution_boundary.py",
+      "tests/test_legacy_observation_gates.py",
+      "tests/test_agent_commands_lifecycle.py",
+      "tests/test_scheduler_placement_partition.py",
+      "tests/test_observability_stack.py",
+      "tests/test_prometheus_worker_aggregation.py",
+      "tests/test_control_plane_leases.py",
+      "tests/test_worker_agent.py",
+      "tests/test_worker_startup_regressions.py",
+      "tests/test_legacy_lifecycle_boundary.py",
+      "tests/test_instance_flow.py",
+      "tests/test_worker_api_calls_go_through_one_seam.py",
+      "tests/test_host_agent_tokens.py",
+      "tests/test_static_endpoints.py",
+      "--deselect=tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_restore_tools_cluster.py",
+      "tests/test_generated_artifacts_are_current.py",
+      "tests/test_public_openapi.py",
+      "tests/test_gate_truth_table_tally.py",
+      "tests/test_migration_ledger.py",
+      "tests/test_no_runtime_ddl.py",
+      "tests/test_startup_env_is_wired.py",
+      "tests/test_source_tree_is_shared.py",
+      "tests/test_companion_schema_discipline.py",
+      "tests/test_sql_injection_guard.py",
+      "tests/test_migration_lock_discipline.py",
+      "tests/test_gt0_classification_ratchet.py",
+      "tests/test_requirements_export_matches_lock.py",
+      "tests/test_sandboxed_gates_are_db_free.py",
+      "tests/test_instance_connect_scope.py",
+      "tests/test_customer_billing_reads_require_scope.py",
+      "tests/test_log_scrubbing_stays_linear.py",
+      "tests/test_no_payment_secrets_in_logs.py",
+      "--deselect=tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "--deselect=tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database",
+      "tests/test_api.py",
+      "tests/test_volumes.py",
+      "tests/test_scheduler.py",
+      "tests/test_preemption_capacity.py",
+      "tests/test_spot_capacity.py",
+      "tests/test_control_plane_v1_drain_evict.py",
+      "tests/test_fenced_lifecycle_controller.py",
+      "tests/test_control_plane_filters_scoring.py",
+      "tests/test_control_plane_reservation.py",
+      "tests/test_shared_state_contract.py",
+      "tests/test_bg_worker.py",
+      "tests/test_request_path_instance_lifecycle_sse.py",
+      "tests/test_identity_admission_fails_closed.py",
+      "tests/test_lifecycle.py",
+      "tests/test_legacy_lease_protocol_removal.py",
+      "tests/test_events.py",
+      "tests/test_audit_fixes.py",
+      "tests/test_placement_explanation_reaches_the_browser.py",
+      "tests/test_control_plane_reconcile.py",
+      "tests/test_job_reconcile_observations.py",
+      "tests/test_job_reconcile_lease_repair.py",
+      "tests/test_reconcile_runtime_events.py"
+    ],
+    "exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "manifest_sha256": "33ddb40ab5984b6d43027fa7c955f540a103a7f9e5d72c57cb6efd0ae6e8a202",
+    "all_changed_python_matches_manifest": true,
+    "pyright": {
+      "filesAnalyzed": 241,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 23.711
+    },
+    "ruff": "passed",
+    "black": "12 changed Python files passed",
+    "worker_signatures_verified": 12,
+    "direct_legacy_lease_sql_references_in_runtime_folders": [],
+    "endpoint_operations": 568,
+    "endpoint_classifications": 568
+  },
+  "source_sha256": {
+    "api/routes/agent.py": "c03fa7893f2dbfa31fddc474c49cbd04a03860f1d7a855150acb992b7154ba37",
+    "api/routes/control_plane_v1.py": "bf61f811cc6c58a2515c9b3d11a57a5276bf0b7119d4000fa758144020c58080",
+    "api/routes/events.py": "cc7ff1ad12194852396d047711ec07f4f2b8cb6ad8c193c9c496895cb380575b",
+    "core/events.py": "0eba2613798a5da8bcc4726b2d650818b264fb59c2b8a1cf9d489cb2caa0c006",
+    "tests/test_agent_v2.py": "2485ecc3986b5257171b875a928a3bbefacb8a386e44642450899813e058d4c9",
+    "tests/test_audit_fixes.py": "4b234269068e916c91511e71ebc94eb8b253ecffd4c0aafc8afe5cd57972feaa",
+    "tests/test_events.py": "222bdd7d6c27ab066e0ca3086139f1bdfbddd91a0bbf6a8c8e2b79669716dc9f",
+    "tests/test_instance_flow.py": "56a6feab20f5f33ab84cf7d51bfa9be9fe913606b8257daaaf1ea3995e092af9",
+    "tests/test_placement_explanation_reaches_the_browser.py": "ebcf1f3cbfcacbf5afb0fbf82aae9be10266f72868d3f1f54a570d50ad7d5bbe",
+    "workers/scheduler.py": "de937ca0b27a012af460613cef6c7a6c686197af131518460eefa76157bfb650",
+    "control_plane/lease_views.py": "e6181639d953d6a508e84328c30af682ce26b296de7040f344ebc273705a68ad",
+    "tests/test_legacy_lease_protocol_removal.py": "deb82b24f18d0846bb01615246df4b2ad0264279108e4c04f60365568f961bad",
+    "api/docs/endpoint-classification.json": "0fcfad91ec5fc6f44327a10c8182f9767f539ee7751eba34364d9a2c51e1a003",
+    "api/docs/generated/endpoint-inventory.md": "6fc9ff3febd09b6d860383a32c5433418feca3599d1cd23f5cf8913d21bf55ca"
+  },
+  "production_history": {
+    "collected_at": "2026-10-22T06:44:56.572612+00:00",
+    "current_placement_lease_states": [
+      [
+        "released",
+        4
+      ]
+    ],
+    "database": "xcelsior",
+    "legacy_lease_rows": 302,
+    "legacy_lease_rows_sha256": "51e36cc4b32cbf7c1f4938ab5ef5decdcbf68e435b6256190523b1f1804635fd",
+    "legacy_lease_states": [
+      [
+        "expired",
+        225
+      ],
+      [
+        "released",
+        77
+      ]
+    ],
+    "port": 5434,
+    "read_only": true,
+    "schema": "125",
+    "legacy_lease_rows_unchanged": true,
+    "protected_stopped_job_rows": 12,
+    "protected_stopped_job_rows_unchanged": true,
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "active_jobs": []
+  },
+  "production_boundary": {
+    "application_deployed": false,
+    "worker_restarted": false,
+    "schema_changed": false,
+    "historical_records_deleted": false,
+    "repair_enforcement_enabled": false
+  },
+  "remaining": [
+    "worker-side v1 compatibility helpers",
+    "legacy work, queue, status and resume/control paths",
+    "SSH lifecycle/serverless/checkpoint/migration callers",
+    "SQL JSONB compatibility and decomposition",
+    "dedicated database-role deployment",
+    "schema/trigger contraction and historical-data qualification",
+    "durable fairness/preemption and repair qualification"
+  ]
+}
