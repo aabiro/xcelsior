@@ -277,7 +277,7 @@ def test_the_command_is_on_both_allowlists():
     # dispatcher's source because that is where a name is matched — an entry in
     # the allowlist with no `elif` branch is a command the agent accepts and
     # then does nothing about, which is worse than refusing it.
-    dispatch = inspect.getsource(wa.drain_agent_commands)
+    dispatch = inspect.getsource(wa._dispatch_agent_commands)
     assert 'name == "promote_artifacts"' in dispatch, (
         "the agent has no dispatch branch for promote_artifacts, so it would "
         "accept the command and silently do nothing"

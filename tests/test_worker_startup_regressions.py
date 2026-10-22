@@ -11,9 +11,24 @@ import worker_agent as worker
 
 
 @pytest.fixture(autouse=True)
-def negotiated_legacy_fixture(monkeypatch):
+def native_execution(monkeypatch):
     monkeypatch.setattr(worker, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", True)
+    monkeypatch.setattr(worker, "_v2_enabled", True)
+    monkeypatch.setattr(worker, "_v2_attempts", {})
+    monkeypatch.setattr(worker, "_active_containers", {})
+
+
+def _fenced_job(job_id, **spec):
+    cname = f"xcl-{job_id}-attempt"
+    worker._v2_attempts[job_id] = {
+        "job_id": job_id,
+        "attempt_id": "attempt",
+        "fencing_token": 7,
+        "container_name": cname,
+    }
+    return dict(
+        spec, job_id=job_id, _v2_attempt_id="attempt", _v2_fencing_token=7, _v2_container_name=cname
+    )
 
 
 def test_managed_engine_flags_preserve_the_image_entrypoint():
@@ -48,9 +63,6 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
     for name in ("_kill_container", "_remove_container", "destroy_encrypted_volume"):
         monkeypatch.setattr(worker, name, Mock())
     monkeypatch.setattr(worker.time, "sleep", Mock())
-    monkeypatch.setattr(worker, "claim_lease", Mock(return_value={"duration_sec": 300}))
-    release = Mock()
-    monkeypatch.setattr(worker, "release_lease", release)
     report = Mock(return_value=True)
     monkeypatch.setattr(worker, "report_job_status", report)
     monkeypatch.setattr(worker, "_mount_nfs", Mock(side_effect=[True, False]))
@@ -58,12 +70,12 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
     monkeypatch.setattr(worker, "_unmount_nfs", unmount)
 
     worker.run_job(
-        {
-            "job_id": "mount-failure-regression",
-            "image": "test/image:1",
-            "volume_ids": ["vol-present", "vol-missing"],
-            "nfs_server": "192.0.2.1",
-        }
+        _fenced_job(
+            "mount-failure-regression",
+            image="test/image:1",
+            volume_ids=["vol-present", "vol-missing"],
+            nfs_server="192.0.2.1",
+        )
     )
 
     report.assert_any_call(
@@ -71,7 +83,6 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
         "failed",
         error_message="required volume mount failed: vol-missing",
     )
-    release.assert_called_once_with("mount-failure-regression", "failed")
     unmount.assert_called_once_with("/mnt/xcelsior-volumes/vol-present")
     worker.destroy_encrypted_volume.assert_not_called()
     assert "mount-failure-regression" not in worker._active_containers
@@ -122,16 +133,15 @@ def test_network_measurement_requires_real_payload_and_ping_evidence(monkeypatch
 def test_exclusive_gpu_refusal_clears_worker_bookkeeping(monkeypatch):
     for name in ("get_gpu_info", "build_platform_env"):
         monkeypatch.setattr(worker, name, Mock(return_value={}))
-    for name in ("_kill_container", "_remove_container", "release_lease"):
+    for name in ("_kill_container", "_remove_container"):
         monkeypatch.setattr(worker, name, Mock())
     monkeypatch.setattr(worker.time, "sleep", Mock())
-    monkeypatch.setattr(worker, "claim_lease", Mock(return_value={"duration_sec": 300}))
     monkeypatch.setattr(worker, "report_job_status", Mock(return_value=True))
     monkeypatch.setattr(
         worker, "_acquire_exclusive_gpu", Mock(return_value={"ok": False, "error": "busy"})
     )
-    worker.run_job(
-        {"job_id": "gpu-busy-regression", "image": "test/image:1", "exclusive_gpu": True}
-    )
+    worker.run_job(_fenced_job("gpu-busy-regression", image="test/image:1", exclusive_gpu=True))
     assert "gpu-busy-regression" not in worker._active_containers
-    worker.release_lease.assert_called_once_with("gpu-busy-regression", "failed")
+    worker.report_job_status.assert_any_call(
+        "gpu-busy-regression", "failed", error_message="exclusive_gpu acquire failed: busy"
+    )
