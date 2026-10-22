@@ -60,3 +60,7 @@ The final read-only probe matched the complete 302-row legacy lease digest
 and all twelve protected stopped-job row hashes to their baselines. Repairs
 still resolve to `report_only`; no production jobs are active. Six protected
 unrelated workspace file hashes also remain unchanged.
+
+Worker-side polling, lease clients, raw status mutation and unfenced execution
+are removed in the later [native-only worker follow-up](2026-10-22-native-only-worker.md).
+This lease receipt remains the evidence snapshot for its own source commit.

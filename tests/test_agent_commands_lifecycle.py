@@ -1,14 +1,14 @@
-"""C7 — subprocess-mocked lifecycle tests for worker_agent.drain_agent_commands.
+"""C7 — subprocess-mocked lifecycle tests for worker_agent._dispatch_agent_commands.
 
 Covers the four container-lifecycle command handlers introduced in P3.2 / A3:
     - snapshot_container  (docker commit + docker push)
     - stop_container      (docker stop -t 30  +  docker rm -f)
-    - start_container     (docker start)
+    - start_container     (permanently refused; native start_attempt required)
     - pause_container     (docker stop -t 30 ONLY — no rm)
 
-Tests mock both ``worker_agent.requests`` (to feed a crafted commands list
-without touching the real API) and ``worker_agent.subprocess.run`` (to
-capture the docker argv and return canned CompletedProcess results).
+Tests deliver host directives directly to the shared handler and mock Docker
+and callback IO. Durable claim, ACK, NACK and replay are covered separately in
+test_complete_worker_cutover.py.
 """
 
 from __future__ import annotations
@@ -37,9 +37,8 @@ import worker_agent  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def negotiated_legacy_commands(monkeypatch):
+def native_host_directives(monkeypatch):
     monkeypatch.setattr(worker_agent, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker_agent, "_legacy_execution_allowed", True)
     monkeypatch.setattr(worker_agent, "_v2_attempts", {})
     monkeypatch.setattr(worker_agent, "_report_agent_degraded", mock.Mock())
 
@@ -47,18 +46,6 @@ def negotiated_legacy_commands(monkeypatch):
 def _ok(stdout: str = "", stderr: str = "", rc: int = 0):
     """Build a CompletedProcess-like object."""
     return SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr)
-
-
-def _mock_requests_get(commands: list[dict]):
-    """Return a callable that mimics ``requests.get`` for /agent/commands/*."""
-
-    def _fake_get(url, headers=None, timeout=None):
-        return SimpleNamespace(
-            status_code=200,
-            json=lambda: {"commands": commands},
-        )
-
-    return _fake_get
 
 
 def _mock_requests_post_noop():
@@ -87,7 +74,7 @@ def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
 
     calls: list[list[str]] = []
@@ -98,7 +85,7 @@ def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
 
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
     assert n == 1
     assert ["docker", "stop", "-t", "30", "xcl-aaa"] in calls
@@ -117,7 +104,7 @@ def test_stop_container_absent_is_acknowledged_without_stop_rm(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
 
     calls: list[list[str]] = []
@@ -130,7 +117,7 @@ def test_stop_container_absent_is_acknowledged_without_stop_rm(monkeypatch):
 
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
     assert n == 1
     assert ["docker", "inspect", "-f", "{{.Id}}", "xcl-missing"] in calls
@@ -150,14 +137,14 @@ def test_stop_container_missing_container_name_is_skipped(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
     called = []
     monkeypatch.setattr(
         worker_agent.subprocess, "run", lambda *a, **kw: (called.append(a), _ok())[1]
     )
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
     assert n == 0
     assert called == []
 
@@ -180,7 +167,7 @@ def test_pause_container_does_not_remove_container(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
 
     calls: list[list[str]] = []
@@ -191,7 +178,7 @@ def test_pause_container_does_not_remove_container(monkeypatch):
 
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
     assert n == 1
     assert ["docker", "stop", "-t", "30", "xcl-bbb"] in calls
@@ -213,13 +200,13 @@ def test_pause_container_nonzero_rc_is_not_counted(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
     monkeypatch.setattr(
         worker_agent.subprocess, "run", lambda *a, **kw: _ok(stderr="no such container", rc=1)
     )
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
     assert n == 0  # failed rc → not counted dispatched
 
 
@@ -228,7 +215,7 @@ def test_pause_container_nonzero_rc_is_not_counted(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_start_container_runs_docker_start(monkeypatch):
+def test_old_start_directive_never_starts_a_container(monkeypatch):
     cmds = [
         {
             "id": 301,
@@ -240,7 +227,7 @@ def test_start_container_runs_docker_start(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
 
     calls: list[list[str]] = []
@@ -251,16 +238,13 @@ def test_start_container_runs_docker_start(monkeypatch):
 
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
-    assert n == 1
-    assert calls == [
-        ["docker", "inspect", "-f", "{{json .Config.Labels}}", "xcl-ddd"],
-        ["docker", "start", "xcl-ddd"],
-    ]
+    assert n == 0
+    assert calls == []
 
 
-def test_start_container_failure_reports_stopped(monkeypatch):
+def test_refused_old_start_does_not_change_job_status(monkeypatch):
     """B8 regression: docker start rc!=0 must flip job back to stopped."""
     cmds = [
         {
@@ -273,7 +257,7 @@ def test_start_container_failure_reports_stopped(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
     monkeypatch.setattr(
         worker_agent.subprocess,
@@ -294,14 +278,10 @@ def test_start_container_failure_reports_stopped(monkeypatch):
         ),
     )
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
     assert n == 0
-    assert len(reports) == 1
-    job_id, status, err = reports[0]
-    assert job_id == "job-eee"
-    assert status == "stopped"
-    assert err and "start failed" in err
+    assert reports == []
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +309,6 @@ def test_snapshot_container_commits_and_pushes(monkeypatch):
         worker_agent,
         "requests",
         SimpleNamespace(
-            get=_mock_requests_get(cmds),
             post=_mock_requests_post_noop(),
             RequestException=Exception,
         ),
@@ -359,13 +338,12 @@ def test_snapshot_container_commits_and_pushes(monkeypatch):
         worker_agent,
         "requests",
         SimpleNamespace(
-            get=_mock_requests_get(cmds),
             post=_fake_post,
             RequestException=Exception,
         ),
     )
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
     assert n == 1
     # Commit + push must both have run with the exact image_ref.
@@ -417,14 +395,13 @@ def test_snapshot_container_no_registry_reports_failure(monkeypatch):
         worker_agent,
         "requests",
         SimpleNamespace(
-            get=_mock_requests_get(cmds),
             post=_fake_post,
             RequestException=Exception,
         ),
     )
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
-    worker_agent.drain_agent_commands()
+    worker_agent._dispatch_agent_commands(cmds)
 
     # MUST have rmi'd the locally-committed tag (B6 cleanup).
     rmi_calls = [c for c in calls if len(c) >= 2 and c[0] == "docker" and c[1] == "rmi"]
@@ -453,14 +430,14 @@ def test_unknown_command_is_rejected_not_dispatched(monkeypatch):
     monkeypatch.setattr(
         worker_agent,
         "requests",
-        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+        SimpleNamespace(RequestException=Exception),
     )
     called = []
     monkeypatch.setattr(
         worker_agent.subprocess, "run", lambda *a, **kw: (called.append(a), _ok())[1]
     )
 
-    n = worker_agent.drain_agent_commands()
+    n = worker_agent._dispatch_agent_commands(cmds)
 
     assert n == 0
     assert called == [], "unknown command must never reach subprocess.run"

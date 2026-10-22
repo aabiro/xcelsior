@@ -2443,6 +2443,15 @@ data disposition remain separately scoped below.
   302 historical lease records remain intact; the table is not dropped.
   Worker compatibility and other legacy execution paths remain open.
   [Receipt](review/2026-10-22-legacy-lease-removal.md).
+  **Native-only worker follow-up, 2026-10-22:** v1 work polling, destructive
+  command drain, old lease client/renewal loop, raw status PATCH, unfenced
+  start and the separate legacy batch/interactive monitors are removed.
+  Execution requires the full native handshake and matching local attempt
+  authority. Native terminal recovery and durable maintenance delivery remain;
+  queued old starts are permanently NACKed. Historical state-preserving stops
+  remain guarded. The serverless callback/terminal flow, other SSH callers,
+  worker decomposition and rollout still remain open.
+  [Receipt](review/2026-10-22-native-only-worker.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
