@@ -302,7 +302,9 @@ def expire_stale_leases(
     In both cases, atomically: lease → expired, attempt → terminal,
     allocations → released (exactly once), job authority cleared and desired
     stop/terminal state preserved, outbox event appended. Work still desired
-    running is requeued with a durable reason. A retry
+    running is requeued with a durable reason, except serverless workers:
+    their scheduler job closes and endpoint reconciliation provisions a fresh
+    worker/job identity for queued requests. A normal job retry
     then mints a *new* attempt with a higher fence via the normal
     scheduler path.
     """
@@ -310,7 +312,9 @@ def expire_stale_leases(
         """
         SELECT l.lease_id, l.job_id, l.attempt_id, l.host_id, l.fencing_token, l.status,
                j.status AS job_status, j.desired_state,
-               j.payload->>'lifecycle_intent' AS lifecycle_intent
+               j.payload->>'lifecycle_intent' AS lifecycle_intent,
+               j.payload->>'job_type' AS job_type,
+               (j.active_attempt_id=l.attempt_id AND j.host_id=l.host_id) AS current_authority
           FROM placement_leases l JOIN jobs j ON j.job_id = l.job_id
          WHERE ((l.status = 'offered' AND l.claim_deadline < clock_timestamp())
             OR (l.status = 'active'
@@ -337,27 +341,56 @@ def expire_stale_leases(
             # Reconciliation owns a queue row already. Runtime writers can
             # hold these rows while waiting for that queue, so fail fast and
             # let process_due roll back its savepoint instead of deadlocking.
-            for table in ("job_attempts", "gpu_device_allocations", "agent_commands"):
+            for table in (
+                "job_attempts",
+                "gpu_device_allocations",
+                "agent_commands",
+                "usage_meters",
+                "serverless_workers",
+            ):
                 conn.execute(
-                    sql.SQL(
-                        "SELECT 1 FROM {} WHERE attempt_id = %s FOR UPDATE NOWAIT"
-                    ).format(sql.Identifier(table)),
+                    sql.SQL("SELECT 1 FROM {} WHERE attempt_id = %s FOR UPDATE NOWAIT").format(
+                        sql.Identifier(table)
+                    ),
                     (attempt_id,),
                 ).fetchall()
+            conn.execute(
+                "SELECT 1 FROM wallet_holds WHERE job_id=%s FOR UPDATE NOWAIT", (job_id,)
+            ).fetchall()
+            conn.execute(
+                "SELECT 1 FROM serverless_jobs WHERE worker_id IN "
+                "(SELECT worker_id FROM serverless_workers WHERE attempt_id=%s) FOR UPDATE NOWAIT",
+                (attempt_id,),
+            ).fetchall()
         was = str(_get(row, "status", 5))
         terminal = "failed" if was == "offered" else "lost"
-        failure_code = (
-            "lease_claim_timeout" if was == "offered" else "lease_renewal_timeout"
-        )
+        failure_code = "lease_claim_timeout" if was == "offered" else "lease_renewal_timeout"
         job_status = str(_get(row, "job_status", 6))
         desired = str(_get(row, "desired_state", 7))
         intent = _get(row, "lifecycle_intent", 8)
-        if job_status not in {"completed", "failed", "terminated", "cancelled", "stopped", "paused"}:
+        serverless = _get(row, "job_type", 9) == "serverless_worker"
+        current_authority = bool(_get(row, "current_authority", 10))
+        if job_status not in {
+            "completed",
+            "failed",
+            "terminated",
+            "cancelled",
+            "stopped",
+            "paused",
+        }:
             if desired == "stopped":
-                job_status = {"terminate": "terminated", "cancel": "cancelled",
-                              "restart": "queued"}.get(intent, "stopped")
+                job_status = {
+                    "terminate": "terminated",
+                    "cancel": "cancelled",
+                    "restart": "queued",
+                }.get(intent, "stopped")
             else:
                 job_status = "queued"
+        # A serverless worker represents one attempt and one billing span.
+        # Close it permanently; endpoint reconciliation creates fresh worker
+        # and scheduler-job IDs instead of lending this identity to a retry.
+        if serverless and job_status == "queued":
+            job_status = "failed"
 
         conn.execute(
             "UPDATE placement_leases SET status = 'expired' WHERE lease_id = %s",
@@ -373,6 +406,12 @@ def expire_stale_leases(
             """,
             (terminal, failure_code, attempt_id),
         )
+        if current_authority:
+            from control_plane.attempt_billing import sync_attempt_billing
+            from control_plane.serverless_workers import sync_serverless_attempt
+
+            sync_attempt_billing(conn, attempt_id)
+            sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
         conn.execute(
             """
             UPDATE gpu_device_allocations
