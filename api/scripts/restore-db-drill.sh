@@ -8,7 +8,11 @@ umask 077
 
 BACKUP_DIR="${XCELSIOR_BACKUP_DIR:-/var/backups/xcelsior}"
 EVIDENCE_DIR="${XCELSIOR_RESTORE_EVIDENCE_DIR:-${BACKUP_DIR}/restore-evidence}"
-APP_DB_ROLE="${XCELSIOR_RESTORE_APP_ROLE:-xcelsior}"
+DEFAULT_DB_ROLE=xcelsior
+if [[ -n "${XCELSIOR_POSTGRES_DSN_MIGRATOR:-}" ]]; then
+    DEFAULT_DB_ROLE=xcelsior_migrator
+fi
+APP_DB_ROLE="${XCELSIOR_RESTORE_APP_ROLE:-$DEFAULT_DB_ROLE}"
 KEEP_RESTORE_DB="${XCELSIOR_RESTORE_KEEP_DATABASE:-0}"
 REQUIRE_CHECKSUM="${XCELSIOR_RESTORE_REQUIRE_CHECKSUM:-1}"
 RUN_MIGRATIONS="${XCELSIOR_RESTORE_RUN_MIGRATIONS:-1}"
@@ -18,6 +22,13 @@ LOG_PREFIX="[xcelsior-restore-drill]"
 
 log() { echo "${LOG_PREFIX} $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"; }
 die() { log "ERROR $*" >&2; exit 1; }
+
+if [[ "${XCELSIOR_DB_ROLES_REQUIRED:-0}" == "1" && -z "${XCELSIOR_POSTGRES_DSN_MIGRATOR:-}" ]]; then
+    die "strict-role restore requires XCELSIOR_POSTGRES_DSN_MIGRATOR"
+fi
+if [[ -n "${XCELSIOR_POSTGRES_DSN_MIGRATOR:-}" && "$APP_DB_ROLE" != "xcelsior_migrator" ]]; then
+    die "dedicated migration credential requires xcelsior_migrator restore ownership"
+fi
 
 # Administrative libpq tools otherwise silently select the default cluster.
 # Read only the configured port as data, preserving an explicit PGPORT override.
@@ -159,7 +170,15 @@ if [[ "$RUN_MIGRATIONS" == "1" ]]; then
     log "migrating restored database with the current API image"
     (
         cd "$PROJECT_DIR"
+        migration_environment=()
+        if [[ -n "${XCELSIOR_POSTGRES_DSN_MIGRATOR:-}" ]]; then
+            # Pass only the variable name in argv; the secret stays in the
+            # one-shot environment and is never added to the API service.
+            export XCELSIOR_POSTGRES_DSN_MIGRATOR
+            migration_environment=(-e XCELSIOR_POSTGRES_DSN_MIGRATOR)
+        fi
         docker compose run --rm --no-deps -T \
+            "${migration_environment[@]}" \
             api python - "$target_db" < "$PROJECT_DIR/api/scripts/migrate_restore_database.py"
     )
 fi

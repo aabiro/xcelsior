@@ -1,0 +1,157 @@
+{
+  "recorded_at": "2026-10-22T17:52:15.459610+00:00",
+  "merged_main": "674e1fa9",
+  "repair_commit": "ccb0401f",
+  "reviewed_head": "ebe2235be229c4541b67134af96adc46b45d45d4",
+  "scope": "source repairs for all seven review findings, merged with current main dashboard and dedicated-role work",
+  "findings": {
+    "dashboard_replica_sum": "deduplicate API observations then count distinct fresh required service identities; six Prometheus expression fixtures pass",
+    "host_pin": "common compatibility allocation filter enforces pin without fallback",
+    "stop_race": "reload and lock current binding after cancellation loses claim race; persist stop intent before enqueue",
+    "orphan_worker": "atomic worker/job/outbox submission; guarded release of unsubmitted rows; creation-based boot timeout and reaper replenishment",
+    "wallet_alerts": "notices and rate-limit watermark commit with debit/cycle; push after commit; suspension only on transition",
+    "missing_callback_token": "serverless mint failure aborts claim transaction and preserves offer for retry",
+    "payload_owner_id": "migration 128 reads valid owner_id before owner; existing canonical authority preserved"
+  },
+  "validation": {
+    "expanded": {
+      "tests": 2386,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "role_integration": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "repair_focused": {
+      "tests": 112,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "production_record_drill": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "prometheus_service_count_fixtures": {
+      "exit_code": 0,
+      "fixtures": 6,
+      "dashboard_sha256": "87323c3e566234fd669426ef617e08269cd4c5e54c3086ed613b3d120912cd3e",
+      "fixture_sha256": "40e9226c5afcfe6c18938e8f4bb13358b2760314b30ed98af4e5c50019cf5f3a",
+      "image": "sha256:a3bc50fcb50fb1409287c32773d8fe799f6cad5511c4ba3e2e851784e7a05026",
+      "expression": "count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job=\"xcelsior-api\",service=~\"scheduler|reconciler|outbox|maintenance\"}) > 0) or vector(0)"
+    },
+    "full_manifest_sha256": "e79204ee5924841319a4f75f8ba9174aa6ac2035b2abcf035c4484b6861e7cf4",
+    "focused_manifest_sha256": "68697c3631676789662c197051204da837d780d0ebffcfc111cb1bc58cca4a6f",
+    "drill_manifest_sha256": "e0ed82bb4a5a4e75ad37b82fc9a59b82772c942e3d9bb70d765a56d16baa87a9",
+    "black_changed_python_files": 24,
+    "ruff": "repository check passed",
+    "pyright": {
+      "filesAnalyzed": 244,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 39.717
+    },
+    "worker_signatures_verified": 12,
+    "generated_inventory_and_public_openapi": "passed within expanded gate",
+    "baseline_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "scratch_postgres": "all final successful gates stopped their disposable clusters",
+    "scratch_redis_removed": true
+  },
+  "source_sha256": {
+    "api/migrations/connection.py": "2c8d24f2346e78d1df27a0689cc02a2c2f68bf3df46494fa353f8a1f1703cff7",
+    "api/migrations/env.py": "8bc3bccf992324da35f359c30ef2b8870eb4a238427b9ea890e902c69b8b1280",
+    "api/migrations/versions/128_backfill_recorded_control_plane_metadata.py": "e023c9b58172f32655777af31e9cdf0aa55b31e7ae8917af77e11deb34efa04a",
+    "api/routes/agent_v2.py": "b7aa241a402ad4f89dff3fc50ed6c36854b0e5fb42434810a3d8f3b394b2d2bd",
+    "api/scripts/migrate_restore_database.py": "826ac5116de8546600b4ca3e0c2e0127cf960f0885f9da2b42fd69a018fd90f8",
+    "api/scripts/run_db_migrations.py": "7f0ecfd60d3cf9ef1eb9dd35329cfeb9d5d090360377614788f979940f92e7c7",
+    "api/scripts/transfer_db_ownership.py": "9dbed0d3ddd044944c421bebae411ff543a392de447323452f90c40f0ea52325",
+    "api/serverless/metering.py": "c7457874d5c806056263b739b02adf2ec4044f82b69b38eaa6749e5951020eb0",
+    "api/serverless/repo.py": "a3033c8ebc69635d22171f1dfefca3ad17b71bf9fb8fd7d0cb3a97bbb95075d8",
+    "api/serverless/service.py": "384963ca827ef487c4d9e762ed4132b136c62f7d033ece07b110db3698e30ed6",
+    "billing/billing.py": "d582e7b304c4998e64956dd8c05e7c9784a397cff3ee4f0fdac50858bdadccdb",
+    "control_plane/db_role_audit.py": "c3c498ecf95d557e006047d8947414968211b0a35547c57bbcbafd62ad69ebc2",
+    "control_plane/db_roles.py": "c6d6481b4e17ea5a68a6a186bab84337f0bd363a834d14f72f18c915fa028756",
+    "control_plane/serverless_workers.py": "8fcb2dbbc124abcaa0056262185acfe06b168c97ae7dcf7141a15ade93f26fbf",
+    "control_plane/task_identities.py": "3788069380617494bed62bd5dcd9ab6c648d8e4769c36674a1004dbe7b69f244",
+    "core/db.py": "8aabfa7419abbb342ebdb3a23a7e1dc9b0604b276bc34f5f89cad79635a97a18",
+    "tests/test_control_plane_review_regressions.py": "7eeceb35e8ce4109da78f4c360feedf790136c369d714125e04c873929a6953f",
+    "tests/test_data_population.py": "521b6147e62ca2b0c07642d706d5f5958f25bfa9df1a29d56ff868094c1bb721",
+    "tests/test_db_migration_entrypoint.py": "e182830d389fd0e5ccbd9feace4d831f6c6bb74fd237251c43c68dc48c7869c0",
+    "tests/test_db_role_cutover.py": "5d79808cd38c43431a1119e46dc7d4e4c841bcc214ce818486418821377278b7",
+    "tests/test_db_role_restore_drill.py": "1ed1be04d7e4c17204ad909113300a12b9499d5d5b2034ea43572a0e9b4b0ba0",
+    "tests/test_db_role_workflows.py": "685d7b7e1855b185010ccd6d1460cb4167a1c8e1a9ff10a6e90dd068aac53247",
+    "tests/test_scheduler_placement_partition.py": "ae3251641935cdbf2879c9f8919246ba22f087da1eadc3ec2b615e54a9107f11",
+    "workers/scheduler.py": "84a4e68b6903df2252ac01ec40f2187a6d65eb788e013854bf8f4a993f3ee049"
+  },
+  "production_rehearsal": {
+    "fixture_sha256": "ae713df5c8048535fdb14a3eb0433aec994b5e865eabe2286f2b597c62606f62",
+    "jobs": 364,
+    "hosts": 6,
+    "leases": 302,
+    "job_missing_identities_before": [
+      72,
+      72
+    ],
+    "job_missing_identities_after": [
+      20,
+      20
+    ],
+    "job_owner_and_tenant_recovered": 52,
+    "hosts_missing_identity_after": 0,
+    "archive_attributions_recovered": 36,
+    "archive_unresolved_remaining": 8,
+    "source_lease_records_unchanged": true,
+    "other_job_fields_unchanged": true,
+    "downgrade_upgrade_retains_recovered_facts": true
+  },
+  "fresh_read_only_export": {
+    "jobs": {
+      "rows": 364,
+      "missing_owner": 72,
+      "recoverable_owner_id_only": 0
+    },
+    "hosts": {
+      "rows": 6,
+      "missing_owner": 4,
+      "recoverable_owner_id_only": 0
+    },
+    "leases": 302
+  },
+  "production_boundary": {
+    "schema_125": true,
+    "no_active_jobs": true,
+    "repair_modes_unchanged_report_only": true,
+    "protected_stopped_jobs_unchanged": true,
+    "source_lease_records_unchanged": true,
+    "protected_stopped_job_count": 12,
+    "source_lease_count": 302,
+    "service_images_and_processes_unchanged": true,
+    "final_runtime_schema_protected_jobs_and_modes_unchanged": true,
+    "final_service_images_and_processes_unchanged": true
+  },
+  "deployment_performed": false,
+  "migration_128_applied_in_production": false,
+  "unrelated_work_preserved": true,
+  "remaining": [
+    "canonical specs and remaining JSONB compatibility paths",
+    "canonical column and transitional trigger contraction",
+    "historical disposition, including 20 jobs and eight archive attributions",
+    "all-table semantic population review",
+    "durable fairness and preemption",
+    "coordinated runtime and schema rollout, dedicated-role deployment, SDK and real GPU acceptance",
+    "repair qualification; all production modes remain report_only"
+  ],
+  "local_evidence": "/mnt/storage/projects/xcelsior/artifacts/bugbot-cutover-repairs-20261022",
+  "private_row_exports_committed": false
+}

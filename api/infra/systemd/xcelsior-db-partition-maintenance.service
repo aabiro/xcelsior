@@ -1,0 +1,20 @@
+[Unit]
+Description=Xcelsior partition maintenance under the migration database login
+After=network-online.target postgresql.service docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/xcelsior
+EnvironmentFile=/etc/xcelsior/db-maintenance.env
+ExecStart=/opt/xcelsior/api/scripts/run-db-partition-maintenance.sh
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/docker.sock /var/lib/node_exporter/textfile_collector
+NoNewPrivileges=true
+TimeoutStartSec=30min

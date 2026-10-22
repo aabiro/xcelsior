@@ -1,0 +1,131 @@
+rule_files: []
+evaluation_interval: 1m
+tests:
+- name: two API targets and multiple replicas
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-1"}
+    values: 3 3
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-2"}
+    values: 3 3
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-1"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-2"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="outbox",instance="api-1"}
+    values: 1 1
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="outbox",instance="api-2"}
+    values: 1 1
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-1"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-2"}
+    values: 2 2
+  promql_expr_test:
+  - expr: count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service=~"scheduler|reconciler|outbox|maintenance"})
+      > 0) or vector(0)
+    eval_time: 1m
+    exp_samples:
+    - labels: '{}'
+      value: 4
+- name: missing identity and unrelated service
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-1"}
+    values: 3 3
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-2"}
+    values: 3 3
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-1"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-2"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-1"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-2"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="extra",instance="api-1"}
+    values: 100 100
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="extra",instance="api-2"}
+    values: 100 100
+  promql_expr_test:
+  - expr: count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service=~"scheduler|reconciler|outbox|maintenance"})
+      > 0) or vector(0)
+    eval_time: 1m
+    exp_samples:
+    - labels: '{}'
+      value: 3
+- name: stale required service
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-1"}
+    values: 3 3
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-2"}
+    values: 3 3
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-1"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-2"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="outbox",instance="api-1"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="outbox",instance="api-2"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-1"}
+    values: 2 2
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-2"}
+    values: 2 2
+  promql_expr_test:
+  - expr: count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service=~"scheduler|reconciler|outbox|maintenance"})
+      > 0) or vector(0)
+    eval_time: 1m
+    exp_samples:
+    - labels: '{}'
+      value: 3
+- name: all stale
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-1"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-2"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-1"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="reconciler",instance="api-2"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="outbox",instance="api-1"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="outbox",instance="api-2"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-1"}
+    values: 0 0
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="maintenance",instance="api-2"}
+    values: 0 0
+  promql_expr_test:
+  - expr: count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service=~"scheduler|reconciler|outbox|maintenance"})
+      > 0) or vector(0)
+    eval_time: 1m
+    exp_samples:
+    - labels: '{}'
+      value: 0
+- name: no series
+  interval: 1m
+  input_series: []
+  promql_expr_test:
+  - expr: count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service=~"scheduler|reconciler|outbox|maintenance"})
+      > 0) or vector(0)
+    eval_time: 1m
+    exp_samples:
+    - labels: '{}'
+      value: 0
+- name: one service with many replicas
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-1"}
+    values: 100 100
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service="scheduler",instance="api-2"}
+    values: 100 100
+  promql_expr_test:
+  - expr: count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",service=~"scheduler|reconciler|outbox|maintenance"})
+      > 0) or vector(0)
+    eval_time: 1m
+    exp_samples:
+    - labels: '{}'
+      value: 1
