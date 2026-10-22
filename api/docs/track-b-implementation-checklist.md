@@ -2509,6 +2509,15 @@ data disposition remain separately scoped below.
   repairs with PostgreSQL regression and production-record rehearsal proof,
   not completion of the open cutover or a production rollout.
   [Review repair receipt](review/2026-10-22-control-plane-review-repairs.md).
+  **Worker handoff follow-up, 2026-10-22:** ordinary SIGTERM preserves newly
+  started and adopted native containers, their journaled authority and mounted
+  resources for verified restart adoption. A tokenless grant from an older API
+  now persists a no-execution abort and settles the exact claimed attempt;
+  outages retry in process and after restart. Pre-start journal failures use
+  the same settlement path. The worker is re-signed; real PostgreSQL/API and
+  isolated Docker tests cover these paths. This is not a production handoff
+  or live GPU acceptance.
+  [Worker recovery receipt](review/2026-10-22-worker-shutdown-claim-handoff.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
