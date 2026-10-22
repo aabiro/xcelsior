@@ -1113,7 +1113,7 @@ class ServerlessRepo:
         return [dict(row) for row in rows]
 
     def list_stuck_booting_workers(self, *, booting_before: float) -> list[dict]:
-        """Age boot attempts from creation; allocation stays zero until running.
+        """Age boot attempts from creation; allocation stays zero until placement.
 
         Include failed submissions with no scheduler row so old orphans can
         reach the same guarded release path as interrupted boot submissions.

@@ -5,6 +5,25 @@ from __future__ import annotations
 from control_plane.db_roles import SERVICE_ROLES, domain_of, sequence_domains
 
 
+def _only_declared_column_updates(cur, name: str, qualified: str, allowed) -> bool:
+    if not allowed:
+        return False
+    cur.execute(
+        "SELECT has_table_privilege(%s, %s, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')",
+        (name, qualified),
+    )
+    if cur.fetchone()[0]:
+        return False
+    cur.execute(
+        "SELECT attname FROM pg_attribute WHERE attrelid=to_regclass(%s) "
+        "AND attnum>0 AND NOT attisdropped AND ("
+        "has_column_privilege(%s,attrelid,attnum,'INSERT,REFERENCES') OR "
+        "(has_column_privilege(%s,attrelid,attnum,'UPDATE') AND NOT attname=ANY(%s)))",
+        (qualified, name, name, sorted(allowed)),
+    )
+    return not cur.fetchall()
+
+
 def role_violations(conn, service: str, *, check_session: bool = True) -> list[str]:
     role = SERVICE_ROLES[service]
     name = role.name
@@ -87,7 +106,22 @@ def role_violations(conn, service: str, *, check_session: bool = True) -> list[s
                 and f"{schema}.{table}" not in role.read_tables
             ):
                 issues.append(f"{name} can read outside its domains: {schema}.{table}")
-            if write and (domain not in role.write or table == "alembic_version"):
+            column_only = (
+                table != "alembic_version"
+                and domain not in role.write
+                and write
+                and _only_declared_column_updates(
+                    cur,
+                    name,
+                    f"{schema}.{table}",
+                    role.column_updates.get(f"{schema}.{table}"),
+                )
+            )
+            if (
+                write
+                and (domain not in role.write or table == "alembic_version")
+                and not column_only
+            ):
                 issues.append(f"{name} can write outside its domains: {schema}.{table}")
             if extra:
                 issues.append(f"{name} has non-DML authority on {schema}.{table}")

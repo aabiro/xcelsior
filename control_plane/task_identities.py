@@ -22,6 +22,7 @@ TASK_SERVICES = {
     "spot_updater": "api",
     "serverless_reconcile": "api",
     "serverless_webhook_retry": "api",
+    "serverless_callback_credential_retention": "reconciler",
     "burst_evaluator": "api",
     "sla_credits": "api",
     "reverification_sweep": "api",
