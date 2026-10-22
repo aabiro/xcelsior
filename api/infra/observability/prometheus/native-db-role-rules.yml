@@ -1,0 +1,37 @@
+# Install with the dedicated-role cutover after its first qualified one-shot.
+groups:
+  - name: xcelsior.native-db-role-maintenance
+    rules:
+      - alert: XcelsiorPartitionMaintenanceMetricMissing
+        expr: absent(xcelsior_partition_maintenance_last_run_success{job="prod-hetzner-host"}) or absent(xcelsior_partition_maintenance_last_success_timestamp_seconds{job="prod-hetzner-host"})
+        for: 5m
+        labels:
+          severity: warning
+          platform: xcelsior
+          component: database-maintenance
+          owner: platform
+        annotations:
+          summary: Native partition maintenance evidence is missing
+          description: Check the native maintenance timer and node-exporter textfile ingestion.
+      - alert: XcelsiorPartitionMaintenanceStale
+        expr: time() - xcelsior_partition_maintenance_last_success_timestamp_seconds{job="prod-hetzner-host"} > 93600
+        for: 30m
+        labels:
+          severity: warning
+          platform: xcelsior
+          component: database-maintenance
+          owner: platform
+        annotations:
+          summary: Native partition maintenance has not succeeded within 26 hours
+          description: Check the timer and direct migration login before the partition window expires.
+      - alert: XcelsiorPartitionMaintenanceFailed
+        expr: xcelsior_partition_maintenance_last_run_success{job="prod-hetzner-host"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          platform: xcelsior
+          component: database-maintenance
+          owner: platform
+        annotations:
+          summary: Native partition maintenance failed
+          description: Inspect the one-shot journal and database grants. Keep repairs report_only.

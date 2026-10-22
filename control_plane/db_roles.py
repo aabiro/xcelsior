@@ -326,6 +326,8 @@ class ServiceRole:
     #: Roles that must never be granted to a long-running runtime service.
     runtime: bool = True
     read_tables: frozenset[str] = field(default_factory=frozenset)
+    #: Narrow projections across a domain boundary, never whole-table writes.
+    column_updates: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
     @property
     def readable(self) -> frozenset[str]:
@@ -362,6 +364,9 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
         description="Claim and placement rights; no arbitrary billing mutation, no identity writes.",
         write=frozenset({"control", "audit"}),
         read=frozenset({"identity", "billing", "marketplace", "serverless"}),
+        column_updates={
+            "public.serverless_workers": frozenset({"attempt_id", "host_id", "updated_at"}),
+        },
     ),
     "reconciler": ServiceRole(
         name="xcelsior_reconciler",
@@ -395,9 +400,7 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
     "ssh_gateway": ServiceRole(
         name="xcelsior_ssh_gateway",
         description="SSH route inventory only; no credential, billing, or command access.",
-        read_tables=frozenset(
-            {"public.jobs", "public.hosts", "public.ssh_account_suspensions"}
-        ),
+        read_tables=frozenset({"public.jobs", "public.hosts", "public.ssh_account_suspensions"}),
     ),
 }
 
@@ -447,8 +450,15 @@ def sequence_domains(conn) -> list[tuple[str, str, str | None]]:
          WHERE seq.relkind='S' AND ns.nspname IN ('public','storage')
     """).fetchall()
     return [
-        (schema, seq, domain_of(f"{ts}.{table}") if table else
-         {"public.placement_fencing_token_seq": "control"}.get(f"{schema}.{seq}"))
+        (
+            schema,
+            seq,
+            (
+                domain_of(f"{ts}.{table}")
+                if table
+                else {"public.placement_fencing_token_seq": "control"}.get(f"{schema}.{seq}")
+            ),
+        )
         for schema, seq, ts, table in rows
     ]
 
@@ -521,11 +531,12 @@ def grant_statements(
             if not exists(domain, table):
                 continue
             # Runtime audit writers must not rewrite the migration stamp.
-            verbs = "SELECT" if table == "alembic_version" and role.runtime else "SELECT, INSERT, UPDATE, DELETE"
-            stmts.append(
-                f"GRANT {verbs} ON {_qualified(domain, table)} "
-                f'TO "{role.name}"'
+            verbs = (
+                "SELECT"
+                if table == "alembic_version" and role.runtime
+                else "SELECT, INSERT, UPDATE, DELETE"
             )
+            stmts.append(f"GRANT {verbs} ON {_qualified(domain, table)} " f'TO "{role.name}"')
     for domain in sorted(role.read - role.write):
         tables = set(_domain_tables(domain, storage_tables))
         if present is not None:
@@ -544,6 +555,14 @@ def grant_statements(
         if present is None or qualified in present:
             schema, table = qualified.split(".", 1)
             stmts.append(f'GRANT SELECT ON "{schema}"."{table}" TO "{role.name}"')
+    for qualified, columns in sorted(role.column_updates.items()):
+        if present is not None and qualified not in present:
+            continue
+        schema, table = qualified.split(".", 1)
+        relation = '"' + schema.replace('"', '""') + '"."' + table.replace('"', '""') + '"'
+        names = ", ".join('"' + name.replace('"', '""') + '"' for name in sorted(columns))
+        if names:
+            stmts.append(f'GRANT UPDATE ({names}) ON {relation} TO "{role.name}"')
     return stmts
 
 
@@ -663,7 +682,9 @@ def resolve_service_dsn(service: str | None = None, *, fallback: str | None = No
     if specific:
         return specific
     if roles_required():
-        raise RuntimeError(f"{service_dsn_env_var(svc)} is required; shared database fallback refused")
+        raise RuntimeError(
+            f"{service_dsn_env_var(svc)} is required; shared database fallback refused"
+        )
     if fallback is not None:
         return fallback
     # The *shared* DSN, never the service-aware one — resolving another

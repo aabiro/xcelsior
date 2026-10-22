@@ -1576,7 +1576,7 @@ docker compose build $build_args frontend
     # migration. That is how the 2026-10-05 redeploy stopped; it also left the
     # container crash-looping, ready to take the port the next time the
     # host's redis restarted.
-    ssh_cmd "cd /opt/xcelsior && docker compose run --rm --no-deps api python -m alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
+    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
     success "Migrations applied"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────
