@@ -1615,33 +1615,24 @@ def api_auth_register(body: RegisterRequest, request: Request):
     if existing_user and existing_user.get("password_hash"):
         raise HTTPException(409, "Email already registered")
 
-    password_hash, salt = _hash_password(body.password)
-
-    if existing_user and not existing_user.get("password_hash"):
-        # OAuth-only account — link password to existing account
-        if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(
-                email,
-                {
-                    "password_hash": password_hash,
-                    "salt": salt,
-                    "email_verified": 1,  # Already verified via OAuth
+    # OAuth-only account — registering never claims it. Knowing the address
+    # proves nothing; the emailed reset link is the path that adds a password.
+    if existing_user:
+        provider = existing_user.get("oauth_provider", "OAuth")
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "oauth_account": True,
+                "oauth_provider": provider,
+                "error": {
+                    "code": "oauth_only",
+                    "message": f"This account was created with {provider.title()}. Please sign in with {provider.title()}, or use 'Forgot password' to set a password.",
                 },
-            )
-        else:
-            existing_user["password_hash"] = password_hash
-            existing_user["salt"] = salt
-            existing_user["email_verified"] = 1
-            with _user_lock:
-                _users_db[email] = existing_user
-        user = existing_user
-        user["password_hash"] = password_hash
-        user["salt"] = salt
-
-        token_bundle = issue_user_tokens(
-            user, request, client_id="xcelsior-web", session_type="browser"
+            },
         )
-        return _build_auth_response(token_bundle, user=user)
+
+    password_hash, salt = _hash_password(body.password)
 
     user_id = f"user-{uuid.uuid4().hex[:12]}"
     customer_id = f"cust-{uuid.uuid4().hex[:8]}"
