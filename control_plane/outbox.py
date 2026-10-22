@@ -11,6 +11,8 @@ effect must be idempotent (keyed by ``idempotency_key``).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -59,6 +61,10 @@ def append_event(
     destination_class: str = "default",
     idempotency_key: str | None = None,
     aggregate_version: int = 0,
+    tenant_id: str | None = None,
+    trace_id: str | None = None,
+    correlation_id: str | None = None,
+    causation_id: str | None = None,
 ) -> str | None:
     """Append one side-effect intent in the caller's open transaction.
 
@@ -67,21 +73,66 @@ def append_event(
     again must not duplicate it.
     """
     key = idempotency_key or f"{event_type}:{aggregate_id}:{aggregate_version}"
+    from analytics.contracts import CONTRACTS
+
+    metadata = dict(headers or {})
+    tenant_id = (
+        tenant_id
+        or metadata.get("tenant_id")
+        or metadata.get("workspace_id")
+        or metadata.get("customer_id")
+    )
+    if not tenant_id and aggregate_type in {"job", "host"}:
+        # Identity comes from the normalized authority, never payload guesses.
+        table = "jobs" if aggregate_type == "job" else "hosts"
+        primary_key = "job_id" if aggregate_type == "job" else "host_id"
+        from psycopg import sql
+
+        identity = conn.execute(
+            sql.SQL("SELECT tenant_id FROM {} WHERE {}=%s").format(
+                sql.Identifier(table), sql.Identifier(primary_key)
+            ),
+            (aggregate_id,),
+        ).fetchone()
+        tenant_id = _get(identity, "tenant_id", 0) if identity else None
+    contract = next((c for c in CONTRACTS if c.event_type == event_type and c.version == 1), None)
+    digest = payload_digest(payload or {})
     row = conn.execute(
         """
         INSERT INTO outbox_events
             (aggregate_type, aggregate_id, aggregate_version, event_type,
-             payload, headers, destination_class, idempotency_key)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+             payload, headers, destination_class, idempotency_key,
+             tenant_id, occurred_at, classification, payload_sha256,
+             trace_id, correlation_id, causation_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                %s, clock_timestamp(), %s, %s, %s, %s, %s)
         ON CONFLICT (destination_class, idempotency_key) DO NOTHING
         RETURNING event_id
         """,
         (
-            aggregate_type, aggregate_id, aggregate_version, event_type,
-            Jsonb(payload or {}), Jsonb(headers or {}), destination_class, key,
+            aggregate_type,
+            aggregate_id,
+            aggregate_version,
+            event_type,
+            Jsonb(payload or {}),
+            Jsonb(headers or {}),
+            destination_class,
+            key,
+            tenant_id,
+            contract.classification if contract else None,
+            digest,
+            trace_id or metadata.get("trace_id"),
+            correlation_id or metadata.get("correlation_id"),
+            causation_id or metadata.get("causation_id"),
         ),
     ).fetchone()
     return str(_get(row, "event_id", 0)) if row is not None else None
+
+
+def payload_digest(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
 
 
 def claim_batch(
@@ -258,9 +309,7 @@ class OutboxDispatcher:
             except Exception as exc:
                 stats["failed"] += 1
                 outcome = run_transaction(
-                    lambda conn, _eid=event.event_id, _err=repr(exc): mark_failed(
-                        conn, _eid, _err
-                    ),
+                    lambda conn, _eid=event.event_id, _err=repr(exc): mark_failed(conn, _eid, _err),
                     what="outbox_mark_failed",
                 )
                 log.warning(

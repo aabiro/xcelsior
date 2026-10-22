@@ -2482,6 +2482,15 @@ data disposition remain separately scoped below.
   candidate, not production pruning or completion of the remaining canonical
   columns, projection-trigger cleanup or historical event/state disposition.
   [Receipt](review/2026-10-22-scoped-callbacks-lease-contraction.md).
+  **Population follow-up, 2026-10-22:** a read-only scan covered all 164 live
+  application tables/1,984 columns. Job/host normalized metadata and outbox
+  envelope writers are corrected. Migration 128 backfills recorded evidence
+  without guessing identities or rewriting sealed audit data. The isolated
+  production-record rehearsal recovered 52 job identities and 36 archive
+  attributions; 20 jobs/eight archived leases remain unresolved. Canonical
+  specs, trigger removal, all-table semantic review and the broader cutover
+  remain open. This candidate is not a production backfill.
+  [Audit and repair receipt](review/2026-10-22-data-population-repair.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

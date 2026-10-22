@@ -454,20 +454,18 @@ def reserve_and_bind(
         "policy_version": FILTER_POLICY_VERSION,
     }
     for destination in ("default", "agent_wake"):
-        conn.execute(
-            """
-            INSERT INTO outbox_events
-                (aggregate_type, aggregate_id, aggregate_version, event_type,
-                 payload, destination_class, idempotency_key)
-            VALUES ('job', %s, %s, 'job.v1.placement_reserved', %s, %s, %s)
-            """,
-            (
-                job_id,
-                job_generation,
-                Jsonb(event_payload),
-                destination,
-                f"placement:{attempt_id}",
-            ),
+        from control_plane.outbox import append_event
+
+        append_event(
+            conn,
+            aggregate_type="job",
+            aggregate_id=job_id,
+            aggregate_version=job_generation,
+            event_type="job.v1.placement_reserved",
+            payload=event_payload,
+            destination_class=destination,
+            idempotency_key=f"placement:{attempt_id}",
+            trace_id=trace_id,
         )
 
     return Reservation(

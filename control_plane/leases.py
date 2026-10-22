@@ -466,21 +466,15 @@ def expire_stale_leases(
             """,
             {"reason": failure_code, "job": job_id, "attempt": attempt_id, "status": job_status},
         )
-        conn.execute(
-            """
-            INSERT INTO outbox_events
-                (aggregate_type, aggregate_id, event_type, payload,
-                 destination_class, idempotency_key)
-            VALUES ('job', %s, 'job.v1.lease_expired',
-                    jsonb_build_object(
-                        'attempt_id', %s::text,
-                        'lease_id', %s::text,
-                        'reason', %s::text
-                    ),
-                    'default', %s)
-            ON CONFLICT (destination_class, idempotency_key) DO NOTHING
-            """,
-            (job_id, attempt_id, lease_id, failure_code, f"lease_expired:{lease_id}"),
+        from control_plane.outbox import append_event
+
+        append_event(
+            conn,
+            aggregate_type="job",
+            aggregate_id=job_id,
+            event_type="job.v1.lease_expired",
+            payload={"attempt_id": attempt_id, "lease_id": lease_id, "reason": failure_code},
+            idempotency_key=f"lease_expired:{lease_id}",
         )
         expired.append(
             {
