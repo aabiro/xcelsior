@@ -28,8 +28,9 @@ def _resp(status_code=200, body=None):
 
 
 def _run_authority():
-    return {"job-1": {"attempt_id": "att-1", "fencing_token": 7,
-                      "container_name": "xcl-job-1-att-1"}}
+    return {
+        "job-1": {"attempt_id": "att-1", "fencing_token": 7, "container_name": "xcl-job-1-att-1"}
+    }
 
 
 def _start_cmd():

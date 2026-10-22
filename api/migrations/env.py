@@ -13,6 +13,7 @@ for _sub in ("core", "api", "privacy", "hosts", "auth", "workers", "billing", "a
 
 # Auto-load .env from project root
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(_REPO_ROOT, ".env"))
 
 from alembic import context

@@ -26,7 +26,12 @@ from scheduler import (
 )
 from events import Event, get_event_store, get_state_machine
 from control_plane.legacy_execution import (
-    LegacyExecutionRejected, eligible_work_ids, legacy_execution_allowed, legacy_request, record_use, require_legacy_route_enabled,
+    LegacyExecutionRejected,
+    eligible_work_ids,
+    legacy_execution_allowed,
+    legacy_request,
+    record_use,
+    require_legacy_route_enabled,
     require_legacy_container_command,
 )
 from security import check_node_versions, recommend_runtime
@@ -674,7 +679,9 @@ def enqueue_agent_command(
     if command not in _AGENT_COMMAND_ALLOWED:
         raise HTTPException(400, f"Unknown agent command: {command}")
     command_args = args or {}
-    lifecycle_path = {"start_container": "command_start", "pause_container": "command_pause"}.get(command)
+    lifecycle_path = {"start_container": "command_start", "pause_container": "command_pause"}.get(
+        command
+    )
     if lifecycle_path:
         record_use(lifecycle_path, "requested")
         if not command_args.get("job_id") or not command_args.get("container_name"):
@@ -699,8 +706,11 @@ def enqueue_agent_command(
         if lifecycle_path:
             try:
                 require_legacy_container_command(
-                    conn, job_id=str(command_args["job_id"]), host_id=host_id,
-                    container_name=str(command_args["container_name"]), starting=command == "start_container",
+                    conn,
+                    job_id=str(command_args["job_id"]),
+                    host_id=host_id,
+                    container_name=str(command_args["container_name"]),
+                    starting=command == "start_container",
                 )
             except LegacyExecutionRejected as exc:
                 record_use(lifecycle_path, "blocked")

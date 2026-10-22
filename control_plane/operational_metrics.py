@@ -402,12 +402,32 @@ def render_operational_metrics(snapshot: Mapping[str, Any]) -> list[str]:
     )
 
     definitions = (
-        ("xcelsior_commands_pending", "Pending non-expired durable worker commands", "commands_pending"),
-        ("xcelsior_commands_claimed", "Durable worker commands awaiting acknowledgement", "commands_claimed"),
-        ("xcelsior_commands_dead_lettered", "Worker commands that exhausted delivery or failed permanently", "commands_dead_lettered"),
+        (
+            "xcelsior_commands_pending",
+            "Pending non-expired durable worker commands",
+            "commands_pending",
+        ),
+        (
+            "xcelsior_commands_claimed",
+            "Durable worker commands awaiting acknowledgement",
+            "commands_claimed",
+        ),
+        (
+            "xcelsior_commands_dead_lettered",
+            "Worker commands that exhausted delivery or failed permanently",
+            "commands_dead_lettered",
+        ),
         ("xcelsior_active_attempts", "Nonterminal fenced placement attempts", "active_attempts"),
-        ("xcelsior_active_gpu_allocations", "GPU devices reserved by active placement allocations", "active_gpu_allocations"),
-        ("xcelsior_ready_hosts", "Admitted ready hosts with a recent v2 observation", "ready_hosts"),
+        (
+            "xcelsior_active_gpu_allocations",
+            "GPU devices reserved by active placement allocations",
+            "active_gpu_allocations",
+        ),
+        (
+            "xcelsior_ready_hosts",
+            "Admitted ready hosts with a recent v2 observation",
+            "ready_hosts",
+        ),
         (
             "xcelsior_queue_oldest_age_seconds",
             "Age of the oldest queued job",

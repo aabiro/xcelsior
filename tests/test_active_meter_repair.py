@@ -58,7 +58,7 @@ def _finish(p, *, simulate_orphan=False):
             conn.execute(
                 "UPDATE usage_meters SET completed_at=NULL,duration_sec=0,"
                 "gpu_seconds=0,total_cost_micros=0 WHERE attempt_id=%s",
-                (p['attempt_id'],),
+                (p["attempt_id"],),
             )
 
 

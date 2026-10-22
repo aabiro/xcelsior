@@ -150,9 +150,14 @@ def api_v2_command_ack(command_id: str, req: CommandAckRequest, request: Request
     _require_command_claim_identity(req.worker_session_id, req.claim_attempt)
     try:
         outcome = run_transaction(
-            lambda c: ack_command(c, command_id=command_id, host_id=req.host_id,
-                                  worker_session_id=req.worker_session_id, claim_attempt=req.claim_attempt,
-                                  result=req.result),
+            lambda c: ack_command(
+                c,
+                command_id=command_id,
+                host_id=req.host_id,
+                worker_session_id=req.worker_session_id,
+                claim_attempt=req.claim_attempt,
+                result=req.result,
+            ),
             what="v2_command_ack",
         )
     except CommandProtocolError as exc:
@@ -197,10 +202,15 @@ def _require_command_claim_identity(session: str | None, attempt: int | None) ->
     from control_plane.legacy_execution import legacy_execution_allowed
 
     if not legacy_execution_allowed() and (not session or attempt is None):
-        raise HTTPException(422, detail={"error": {
-            "code": "command_claim_identity_required",
-            "message": "Active command completion requires the claiming session and delivery attempt",
-        }})
+        raise HTTPException(
+            422,
+            detail={
+                "error": {
+                    "code": "command_claim_identity_required",
+                    "message": "Active command completion requires the claiming session and delivery attempt",
+                }
+            },
+        )
 
 
 # ── Fenced leases (§11.2 hard gate) ──────────────────────────────────
@@ -374,7 +384,11 @@ def api_v2_attempt_status(req: AttemptStatusRequest, request: Request):
                 status=req.status,
                 failure_code=req.failure_code,
                 detail=req.detail,
-                runtime_metadata=req.runtime_metadata.model_dump(exclude_none=True) if req.runtime_metadata else None,
+                runtime_metadata=(
+                    req.runtime_metadata.model_dump(exclude_none=True)
+                    if req.runtime_metadata
+                    else None
+                ),
             ),
             what="v2_attempt_status",
         )

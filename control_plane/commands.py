@@ -232,9 +232,7 @@ def claim_commands(
             args=_get(r, "args", 2) or {},
             job_id=_get(r, "job_id", 3),
             attempt_id=(
-                str(_get(r, "attempt_id", 4))
-                if _get(r, "attempt_id", 4) is not None
-                else None
+                str(_get(r, "attempt_id", 4)) if _get(r, "attempt_id", 4) is not None else None
             ),
             fencing_token=_get(r, "fencing_token", 5),
             spec_hash=_get(r, "spec_hash", 6),
@@ -294,14 +292,15 @@ def ack_command(
         (command_id,),
     ).fetchone()
     if existing is None:
-        raise CommandProtocolError(
-            f"command {command_id} does not exist", command_id=command_id
-        )
+        raise CommandProtocolError(f"command {command_id} does not exist", command_id=command_id)
     status = _get(existing, "status", 0)
     owner = _get(existing, "claim_owner", 1)
-    if (status == "acknowledged" and owner == host_id
-            and (worker_session_id is None or _get(existing, "claim_session", 3) == worker_session_id)
-            and (claim_attempt is None or _get(existing, "attempt_count", 4) == claim_attempt)):
+    if (
+        status == "acknowledged"
+        and owner == host_id
+        and (worker_session_id is None or _get(existing, "claim_session", 3) == worker_session_id)
+        and (claim_attempt is None or _get(existing, "attempt_count", 4) == claim_attempt)
+    ):
         return AckOutcome(
             command_id=command_id,
             duplicate=True,

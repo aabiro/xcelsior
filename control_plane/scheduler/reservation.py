@@ -187,9 +187,7 @@ def reserve_and_bind(
         raise HostNotEligible(f"host {host_id} no longer exists", host_id=host_id)
     admin_state = _one(host, "administrative_state", 1)
     if admin_state != "admitted":
-        raise HostNotEligible(
-            f"host {host_id} is {admin_state}", administrative_state=admin_state
-        )
+        raise HostNotEligible(f"host {host_id} is {admin_state}", administrative_state=admin_state)
     inventory_generation = int(_one(host, "inventory_generation", 2))
     if (
         expected_inventory_generation is not None
@@ -220,9 +218,7 @@ def reserve_and_bind(
         (host_id,),
     ).fetchall()
     if not devices:
-        raise CapacityConflict(
-            f"host {host_id} has no registered GPU devices", host_id=host_id
-        )
+        raise CapacityConflict(f"host {host_id} has no registered GPU devices", host_id=host_id)
     allocated = {
         str(_one(row, "gpu_device_id", 0))
         for row in conn.execute(
@@ -250,8 +246,7 @@ def reserve_and_bind(
     if len(free) < num_gpus:
         # Multi-GPU is all-or-nothing (§8.2): nothing is inserted.
         raise CapacityConflict(
-            f"host {host_id} has {len(free)} free schedulable GPUs, "
-            f"need {num_gpus}",
+            f"host {host_id} has {len(free)} free schedulable GPUs, " f"need {num_gpus}",
             free=len(free),
             requested=num_gpus,
         )
@@ -268,15 +263,17 @@ def reserve_and_bind(
     spec_hash = _one(job, "spec_hash", 7) or canonical_spec_hash(dict(spec))
     from control_plane.attempt_billing import capture_billing_snapshot
 
-    host_payload = {**(_one(host, 'payload', 3) or {}), 'host_id': host_id}
+    host_payload = {**(_one(host, "payload", 3) or {}), "host_id": host_id}
     try:
-        billing_snapshot = capture_billing_snapshot(dict(payload), _one(job, 'owner_id', 10), host_payload)
+        billing_snapshot = capture_billing_snapshot(
+            dict(payload), _one(job, "owner_id", 10), host_payload
+        )
     except (ValueError, TypeError, OverflowError) as exc:
-        raise HostNotEligible('billable placement evidence is invalid', reason=str(exc)) from exc
+        raise HostNotEligible("billable placement evidence is invalid", reason=str(exc)) from exc
     explanation = {**(placement_explanation or {})}
     # This field is generated only from the locked server rows, never from
     # a client explanation or from a later host-price observation.
-    explanation['billing_snapshot'] = billing_snapshot
+    explanation["billing_snapshot"] = billing_snapshot
     attempt_number = int(
         _require(
             conn.execute(
@@ -287,9 +284,8 @@ def reserve_and_bind(
         )[0]
     )
     job_generation = int(_one(job, "generation", 3))
-    attempt_id_row = (
-        conn.execute(
-            """
+    attempt_id_row = conn.execute(
+        """
             INSERT INTO job_attempts
                 (job_id, attempt_number, status, host_id, fencing_token,
                  job_generation, spec_hash, policy_version, placement_score,
@@ -297,14 +293,20 @@ def reserve_and_bind(
             VALUES (%s, %s, 'reserved', %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING attempt_id
             """,
-            (
-                job_id, attempt_number, host_id, fencing_token, job_generation,
-                spec_hash, FILTER_POLICY_VERSION, placement_score,
-                Jsonb(explanation),
-                f"scheduler:{replica_id}", trace_id,
-            ),
-        ).fetchone()
-    )
+        (
+            job_id,
+            attempt_number,
+            host_id,
+            fencing_token,
+            job_generation,
+            spec_hash,
+            FILTER_POLICY_VERSION,
+            placement_score,
+            Jsonb(explanation),
+            f"scheduler:{replica_id}",
+            trace_id,
+        ),
+    ).fetchone()
     attempt_id = str(_require(attempt_id_row)[0])
 
     # ── Step 10: device allocations (partial unique index backstops) ─
@@ -324,7 +326,9 @@ def reserve_and_bind(
     # here — in the same transaction that created the attempt and its
     # allocations — makes serverless capacity attempt-scoped: one worker, one
     # fenced attempt, one allocation set, closed once when the attempt is fenced.
-    serverless_worker_id = payload.get("serverless_worker_id") if isinstance(payload, dict) else None
+    serverless_worker_id = (
+        payload.get("serverless_worker_id") if isinstance(payload, dict) else None
+    )
     if serverless_worker_id:
         # serverless_workers keeps epoch-float timestamps (not timestamptz), so
         # updated_at takes EXTRACT(EPOCH …), matching that table's convention.
@@ -340,9 +344,8 @@ def reserve_and_bind(
         )
 
     # ── Step 11: lease offer bound to attempt/host/fence ─────────────
-    lease_id_row = (
-        conn.execute(
-            """
+    lease_id_row = conn.execute(
+        """
             INSERT INTO placement_leases
                 (job_id, attempt_id, host_id, fencing_token, status,
                  claim_deadline, claim_ttl_sec, renewal_ttl_sec)
@@ -350,12 +353,16 @@ def reserve_and_bind(
                     clock_timestamp() + make_interval(secs => %s), %s, %s)
             RETURNING lease_id
             """,
-            (
-                job_id, attempt_id, host_id, fencing_token,
-                lease_claim_ttl_sec, lease_claim_ttl_sec, lease_renewal_ttl_sec,
-            ),
-        ).fetchone()
-    )
+        (
+            job_id,
+            attempt_id,
+            host_id,
+            fencing_token,
+            lease_claim_ttl_sec,
+            lease_claim_ttl_sec,
+            lease_renewal_ttl_sec,
+        ),
+    ).fetchone()
     lease_id = str(_require(lease_id_row)[0])
 
     # ── Step 12: durable start command (§11.1 payload shape) ─────────
@@ -368,9 +375,8 @@ def reserve_and_bind(
         "spec_hash": spec_hash,
         "spec": dict(spec),
     }
-    command_id_row = (
-        conn.execute(
-            """
+    command_id_row = conn.execute(
+        """
             INSERT INTO agent_commands
                 (host_id, command, args, status, created_by, expires_at,
                  job_id, attempt_id, fencing_token, spec_hash,
@@ -380,13 +386,19 @@ def reserve_and_bind(
                     %s, %s, %s, %s, %s, %s)
             RETURNING command_id
             """,
-            (
-                host_id, Jsonb(command_args), f"scheduler:{replica_id}",
-                _START_COMMAND_EXPIRY_SEC, job_id, attempt_id, fencing_token,
-                spec_hash, f"start:{attempt_id}", trace_id,
-            ),
-        ).fetchone()
-    )
+        (
+            host_id,
+            Jsonb(command_args),
+            f"scheduler:{replica_id}",
+            _START_COMMAND_EXPIRY_SEC,
+            job_id,
+            attempt_id,
+            fencing_token,
+            spec_hash,
+            f"start:{attempt_id}",
+            trace_id,
+        ),
+    ).fetchone()
     command_id = str(_require(command_id_row)[0])
 
     # ── Step 13: job projection update + claim consumption ───────────
@@ -412,9 +424,7 @@ def reserve_and_bind(
         (host_id, attempt_id, spec_hash, job_id, claim_token),
     )
     if updated.rowcount != 1:  # pragma: no cover - job row is locked by us
-        raise ClaimLost(
-            f"claim token for {job_id} vanished inside reservation", job_id=job_id
-        )
+        raise ClaimLost(f"claim token for {job_id} vanished inside reservation", job_id=job_id)
 
     # ── Step 14: outbox intents (same transaction, §16.1) ────────────
     event_payload = {
@@ -435,7 +445,10 @@ def reserve_and_bind(
             VALUES ('job', %s, %s, 'job.v1.placement_reserved', %s, %s, %s)
             """,
             (
-                job_id, job_generation, Jsonb(event_payload), destination,
+                job_id,
+                job_generation,
+                Jsonb(event_payload),
+                destination,
                 f"placement:{attempt_id}",
             ),
         )
