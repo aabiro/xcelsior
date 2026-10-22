@@ -55,6 +55,17 @@ def scratch():
             conn.execute("DELETE FROM usage_meters WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in made["hosts"]:
+            conn.execute(
+                "DELETE FROM observed_workloads WHERE observation_id IN "
+                "(SELECT observation_id FROM host_observations WHERE host_id=%s)",
+                (hid,),
+            )
+            conn.execute("DELETE FROM host_observations WHERE host_id=%s", (hid,))
+            conn.execute("DELETE FROM reconciliation_queue WHERE resource_id=%s", (hid,))
+            conn.execute(
+                "DELETE FROM reconciliation_findings WHERE resource_type='host' AND resource_id=%s",
+                (hid,),
+            )
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
         conn.commit()
 
@@ -327,3 +338,105 @@ def test_duplicate_delivery_creates_no_second_charge(scratch):
     eng.meter_job(job_dict, host_dict)
     eng.meter_job(job_dict, host_dict)  # duplicate delivery
     assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", attempt) == 1
+
+
+def _all_findings(attempt: str, finding_type: str) -> int:
+    return _count(
+        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s",
+        attempt,
+        finding_type,
+    )
+
+
+def _open_findings(attempt: str, finding_type: str) -> int:
+    return _count(
+        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s "
+        "AND resolved_at IS NULL",
+        attempt,
+        finding_type,
+    )
+
+
+def test_host_pass_does_not_resolve_billing_findings(scratch, monkeypatch):
+    """A host reconcile pass must not clear findings it does not evaluate.
+
+    Regression: `reconcile_host` resolved every open finding on the host's
+    attempts, so each billing sweep reopened `billing_missing_meter` and the
+    critical-findings alert flapped (1,619 findings for two attempts in 3 days).
+    """
+    from control_plane.db import run_transaction
+    from control_plane.observations import ingest_observation
+    from control_plane.reconcile import reconcile_host
+
+    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", raising=False)
+    host = _mk_host(scratch)
+    job = _mk_job(scratch)
+    attempt = _mk_attempt(scratch, job, host, status="succeeded")
+    _run()
+    assert _open_findings(attempt, FINDING_MISSING_METER) == 1
+
+    run_transaction(
+        lambda c: ingest_observation(
+            c,
+            host_id=host,
+            session_id=f"sess-{uuid.uuid4().hex[:8]}",
+            observation_generation=1,
+            workloads=[],
+            agent_version="test",
+            worker_reported_at=time.time(),
+        ),
+        what="test_ingest",
+    )
+    with _pool.connection() as conn:
+        reconcile_host(conn, host)
+        conn.commit()
+
+    assert _open_findings(attempt, FINDING_MISSING_METER) == 1
+    _run()
+    assert _all_findings(attempt, FINDING_MISSING_METER) == 1
+
+
+def test_missing_meter_finding_resolves_once_metered(scratch, monkeypatch):
+    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", raising=False)
+    host = _mk_host(scratch)
+    job = _mk_job(scratch)
+    attempt = _mk_attempt(scratch, job, host, status="succeeded")
+    _run()
+    assert _open_findings(attempt, FINDING_MISSING_METER) == 1
+
+    # A normal completion writer meters the attempt between sweeps.
+    with _pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO usage_meters (meter_id, job_id, attempt_id, owner, started_at, completed_at, pricing_mode) "
+            "VALUES (%s, %s, %s, 'cust-bc', %s, %s, 'on_demand')",
+            (f"mtr-{uuid.uuid4().hex[:12]}", job, attempt, time.time() - 3600, time.time()),
+        )
+        conn.commit()
+    _run()
+    assert _open_findings(attempt, FINDING_MISSING_METER) == 0
+    assert _all_findings(attempt, FINDING_MISSING_METER) == 1
+
+
+def test_orphaned_meter_finding_resolves_once_closed(scratch, monkeypatch):
+    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", raising=False)
+    host = _mk_host(scratch)
+    job = _mk_job(scratch)
+    attempt = _mk_attempt(scratch, job, host, status="succeeded")
+    meter_id = f"mtr-{uuid.uuid4().hex[:12]}"
+    with _pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO usage_meters (meter_id, job_id, attempt_id, owner, started_at, completed_at, pricing_mode) "
+            "VALUES (%s, %s, %s, 'cust-bc', %s, NULL, 'on_demand')",
+            (meter_id, job, attempt, time.time()),
+        )
+        conn.commit()
+    _run()
+    assert _open_findings(attempt, FINDING_ORPHANED_METER) == 1
+
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE usage_meters SET completed_at=%s WHERE meter_id=%s", (time.time(), meter_id)
+        )
+        conn.commit()
+    _run()
+    assert _open_findings(attempt, FINDING_ORPHANED_METER) == 0
