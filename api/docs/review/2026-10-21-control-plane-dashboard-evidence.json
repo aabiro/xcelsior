@@ -1,0 +1,30 @@
+{
+  "capacity_and_alerts_screenshot_sha256": "11cb5a95e89d8408edb3507df90459a000d47e6bc03aa2265f22eaf38a022607",
+  "captured_at_utc": "2026-10-22T01:39:25.570191+00:00",
+  "dashboard": {
+    "grafana_pid_unchanged": "182240",
+    "legacy_queries": 0,
+    "panels": 30,
+    "provisioned": true,
+    "queries": 50,
+    "source_sha256": "c8e356472d0ee5fdbcf275db232d5f1892be5228051bf2204603144034806884",
+    "uid": "xcelsior-control-plane",
+    "url": "/d/xcelsior-control-plane/xcelsior-control-plane"
+  },
+  "endpoint_inventory": "568/568 classified; committed and pushed to main at ac1852ad",
+  "native_partition_alerts": "qualified separately in DB-role PR 81; activation follows dedicated-role deployment",
+  "repairs": "report_only",
+  "rollback_file": "/opt/xcelsior-releases/control-plane-dashboard-20261021/before-dashboard.json",
+  "screenshot_sha256": "6352e9391c77830fa57fd809e3736225c50df845a28edfb853896cf12120a2ef",
+  "state": "deployed and rendered in production Grafana",
+  "validation": {
+    "artifact_directory": "/mnt/storage/projects/xcelsior/artifacts/control-plane-dashboard-20261021",
+    "browser_datasource_errors": 0,
+    "browser_page_errors": 0,
+    "finite_queries": 50,
+    "nonempty_queries": 50,
+    "observability_tests": 16,
+    "queries": 50,
+    "rendered_panels": 30
+  }
+}
