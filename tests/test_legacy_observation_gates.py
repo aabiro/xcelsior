@@ -13,7 +13,6 @@ from prometheus_client import REGISTRY
 from api import app
 from db import _get_pg_pool
 
-
 client = TestClient(app, raise_server_exceptions=False)
 
 

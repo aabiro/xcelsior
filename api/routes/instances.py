@@ -1119,7 +1119,10 @@ def api_submit_instance(j: JobIn, request: Request):
                     f"first_gpu_{user.get('user_id') or customer_id}",
                     user=user,
                     request=request,
-                    custom_data={"content_ids": [gpu_model] if gpu_model else None, "content_category": "gpu_compute"},
+                    custom_data={
+                        "content_ids": [gpu_model] if gpu_model else None,
+                        "content_category": "gpu_compute",
+                    },
                 )
         except Exception:
             log.debug("meta first gpu event skipped", exc_info=True)
@@ -1515,7 +1518,9 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 status_kwargs["_authority_host_id"] = update.host_id
             if update.policy_reason:
                 if update.status != "terminated" or not update.host_id:
-                    raise HTTPException(400, "Policy termination requires a host and terminated status")
+                    raise HTTPException(
+                        400, "Policy termination requires a host and terminated status"
+                    )
                 from routes.agent import _require_agent_auth
 
                 _require_agent_auth(request, host_id=update.host_id)
@@ -1528,7 +1533,9 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
                 status_kwargs["error_message"] = update.error_message[:500]
                 status_kwargs["failure_reason"] = update.error_message[:500]
             try:
-                updated = update_job_status(job_id, update.status, host_id=update.host_id, **status_kwargs)
+                updated = update_job_status(
+                    job_id, update.status, host_id=update.host_id, **status_kwargs
+                )
                 if updated is not None:
                     observation.effect()
             except ValueError as e:

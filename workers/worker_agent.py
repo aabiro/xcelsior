@@ -1937,7 +1937,9 @@ def _legacy_container_command_allowed(command: str, args: dict) -> bool:
     try:
         result = subprocess.run(
             ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode != 0:
             return False
@@ -2004,10 +2006,19 @@ def _dispatch_agent_commands(commands: list) -> int:
             _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
             continue
         try:
-            if name in ("start_container", "pause_container") and not _legacy_container_command_allowed(name, args):
-                log.warning("Refused legacy lifecycle command=%s id=%s; authority or identity unconfirmed", name, cmd_id)
+            if name in (
+                "start_container",
+                "pause_container",
+            ) and not _legacy_container_command_allowed(name, args):
+                log.warning(
+                    "Refused legacy lifecycle command=%s id=%s; authority or identity unconfirmed",
+                    name,
+                    cmd_id,
+                )
                 _agent_commands_rejected_total.labels(command=name).inc()
-                _report_agent_degraded("legacy_lifecycle_refused", context=f"command={name} id={cmd_id}")
+                _report_agent_degraded(
+                    "legacy_lifecycle_refused", context=f"command={name} id={cmd_id}"
+                )
                 continue
             if name == "health_probe":
                 dispatched += 1
@@ -2041,10 +2052,15 @@ def _dispatch_agent_commands(commands: list) -> int:
                 dispatched += 1
             elif name == "upgrade_agent":
                 log.info("Executing admin upgrade_agent cmd=%s by=%s", cmd_id, by)
-                kwargs = {"cmd_id": str(cmd_id or ""), "by": str(by)}
+                before_restart = None
                 if cmd.get("_durable"):
-                    kwargs["before_restart"] = lambda: _complete_host_restart_command(str(cmd_id), name)
-                if _handle_upgrade_agent(args, **kwargs):
+                    before_restart = lambda: _complete_host_restart_command(str(cmd_id), name)
+                if _handle_upgrade_agent(
+                    args,
+                    cmd_id=str(cmd_id or ""),
+                    by=str(by),
+                    before_restart=before_restart,
+                ):
                     dispatched += 1
             elif name == "rollback_agent":
                 # P1.2 — auto-rollback driver: swap the previously-written
@@ -2100,7 +2116,10 @@ def _dispatch_agent_commands(commands: list) -> int:
                     if inspect.returncode != 0:
                         error = ((inspect.stderr or "") + (inspect.stdout or "")).lower()
                         if "no such container" not in error and "no such object" not in error:
-                            log.warning("stop_container cmd=%s cannot inspect container; preserving ownership", cmd_id)
+                            log.warning(
+                                "stop_container cmd=%s cannot inspect container; preserving ownership",
+                                cmd_id,
+                            )
                             continue
                         _active_containers.pop(_job_id, None)
                         now = time.time()
@@ -2130,7 +2149,9 @@ def _dispatch_agent_commands(commands: list) -> int:
                         timeout=45,
                     )
                     if stopped.returncode != 0:
-                        log.warning("stop_container cmd=%s stop failed; retaining container", cmd_id)
+                        log.warning(
+                            "stop_container cmd=%s stop failed; retaining container", cmd_id
+                        )
                         continue
                     removed = subprocess.run(
                         ["docker", "rm", "-f", cname],
@@ -2141,7 +2162,9 @@ def _dispatch_agent_commands(commands: list) -> int:
                     if removed.returncode != 0:
                         error = ((removed.stderr or "") + (removed.stdout or "")).lower()
                         if "no such container" not in error and "no such object" not in error:
-                            log.warning("stop_container cmd=%s remove failed; retaining ownership", cmd_id)
+                            log.warning(
+                                "stop_container cmd=%s remove failed; retaining ownership", cmd_id
+                            )
                             continue
                     _active_containers.pop(_job_id, None)
                     dispatched += 1
@@ -2550,8 +2573,12 @@ def report_job_status(
         return False
 
     runtime_metadata = {}
-    for name, value in (("container_id", container_id), ("container_name", container_name),
-                        ("public_ssh_port", ssh_port), ("interactive", interactive)):
+    for name, value in (
+        ("container_id", container_id),
+        ("container_name", container_name),
+        ("public_ssh_port", ssh_port),
+        ("interactive", interactive),
+    ):
         if value is not None:
             runtime_metadata[name] = value
     if error_message:
@@ -2565,7 +2592,10 @@ def report_job_status(
     mirror_outcome = "not_v2"
     try:
         mirror_outcome = _v2_on_job_status(
-            job_id, status, error_message=error_message, policy_reason=policy_reason,
+            job_id,
+            status,
+            error_message=error_message,
+            policy_reason=policy_reason,
             expected_auth=expected_v2_auth,
             **({"runtime_metadata": runtime_metadata} if runtime_metadata else {}),
         )
@@ -2591,7 +2621,12 @@ def report_job_status(
 
     # The fenced transaction is authoritative. A lost compatibility PATCH
     # must not turn a committed terminal report into a legacy retry.
-    terminal_confirmed = bool(v2_auth) and status in ("completed", "failed", "stopped", "terminated")
+    terminal_confirmed = bool(v2_auth) and status in (
+        "completed",
+        "failed",
+        "stopped",
+        "terminated",
+    )
 
     data = {"status": status}
     if policy_reason:
@@ -2803,20 +2838,37 @@ def negotiate_protocol_v2() -> bool:
             timeout=10,
         )
         body = resp.json() if resp.status_code == 200 else {}
-        if (isinstance(body, dict) and type(body.get("v2")) is bool
-                and body.get("protocol") == (2 if body["v2"] else 1)):
+        if (
+            isinstance(body, dict)
+            and type(body.get("v2")) is bool
+            and body.get("protocol") == (2 if body["v2"] else 1)
+        ):
             _v2_enabled = body["v2"]
             _protocol_negotiated = True
             _legacy_execution_allowed = body.get("legacy_execution_allowed") is True
-            if not _legacy_execution_allowed and (not _v2_enabled or not {"commands.host_claim_ack", "commands.session_fencing", "attempts.runtime_metadata"}.issubset(body.get("features") or [])):
+            if not _legacy_execution_allowed and (
+                not _v2_enabled
+                or not {
+                    "commands.host_claim_ack",
+                    "commands.session_fencing",
+                    "attempts.runtime_metadata",
+                }.issubset(body.get("features") or [])
+            ):
                 _v2_enabled = False
                 _protocol_negotiated = False
-                log.error("Active control plane did not confirm the complete v2 contract; execution waits")
-            log.info("Protocol negotiated: v2=%s legacy_execution=%s", _v2_enabled,
-                     _legacy_execution_allowed)
+                log.error(
+                    "Active control plane did not confirm the complete v2 contract; execution waits"
+                )
+            log.info(
+                "Protocol negotiated: v2=%s legacy_execution=%s",
+                _v2_enabled,
+                _legacy_execution_allowed,
+            )
         else:
             _v2_enabled = False
-            log.warning("Protocol negotiation unconfirmed (HTTP %s); execution waits", resp.status_code)
+            log.warning(
+                "Protocol negotiation unconfirmed (HTTP %s); execution waits", resp.status_code
+            )
     except (requests.RequestException, ValueError) as e:
         _v2_enabled = False
         log.warning("Protocol negotiation unavailable (%s); execution waits", e)
@@ -2852,7 +2904,12 @@ def _v2_post(path: str, payload: dict, timeout: int = 10):
 def v2_claim_commands(limit: int = 5) -> list:
     code, body = _v2_post(
         "/agent/v2/commands/claim",
-        {"host_id": HOST_ID, "worker_session_id": WORKER_SESSION_ID, "limit": limit, "host_commands": True},
+        {
+            "host_id": HOST_ID,
+            "worker_session_id": WORKER_SESSION_ID,
+            "limit": limit,
+            "host_commands": True,
+        },
     )
     if code != 200:
         return []
@@ -2893,7 +2950,10 @@ def _v2_command_claim_identity(command_id: str) -> dict:
 
 def _v2_run_claimed_command(handler, command: dict):
     previous = getattr(_v2_delivery_context, "claim", None)
-    _v2_delivery_context.claim = (str(command.get("command_id") or ""), int(command.get("attempt_count") or 1))
+    _v2_delivery_context.claim = (
+        str(command.get("command_id") or ""),
+        int(command.get("attempt_count") or 1),
+    )
     try:
         return handler(command)
     finally:
@@ -2941,7 +3001,10 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
 
 
 def v2_report_attempt_status(
-    auth: dict, status: str, failure_code: str | None = None, detail: dict | None = None,
+    auth: dict,
+    status: str,
+    failure_code: str | None = None,
+    detail: dict | None = None,
     runtime_metadata: dict | None = None,
 ) -> str:
     """Fenced status report. Returns 'ok', 'fenced', or 'error'."""
@@ -3177,19 +3240,24 @@ def _v2_completed_command_result(command_id: str) -> dict | None:
 
 
 def _v2_same_authority(left: dict, right: dict) -> bool:
-    return all(left.get(k) == right.get(k) for k in ("job_id", "attempt_id", "fencing_token", "lease_id"))
+    return all(
+        left.get(k) == right.get(k) for k in ("job_id", "attempt_id", "fencing_token", "lease_id")
+    )
 
 
 def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
     with _v2_attempts_lock:
-        if expected_auth is not None and not _v2_same_authority(_v2_attempts.get(job_id) or {}, expected_auth):
+        if expected_auth is not None and not _v2_same_authority(
+            _v2_attempts.get(job_id) or {}, expected_auth
+        ):
             return
         auth = _v2_attempts.pop(job_id, None)
     if auth is not None:
         auth["stop"].set()
         with _active_lock:
-            if (job_id in _adopted_containers
-                    and _active_containers.get(job_id) == auth.get("container_name")):
+            if job_id in _adopted_containers and _active_containers.get(job_id) == auth.get(
+                "container_name"
+            ):
                 _active_containers.pop(job_id, None)
                 _adopted_containers.discard(job_id)
         _v2_journal_save()
@@ -3326,8 +3394,10 @@ def v2_adopt_attempts() -> int:
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
             threading.Thread(
-                target=_v2_pending_adoption_loop, args=(auth,),
-                name=f"v2-adopt-{job_id[:8]}", daemon=True,
+                target=_v2_pending_adoption_loop,
+                args=(auth,),
+                name=f"v2-adopt-{job_id[:8]}",
+                daemon=True,
             ).start()
             continue
         if state != "missing" and label != auth["attempt_id"]:
@@ -3481,8 +3551,12 @@ _V2_STATUS_MAP = {
 
 
 def _v2_on_job_status(
-    job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None,
-    expected_auth: dict | None = None, runtime_metadata: dict | None = None,
+    job_id: str,
+    status: str,
+    error_message: str | None = None,
+    policy_reason: str | None = None,
+    expected_auth: dict | None = None,
+    runtime_metadata: dict | None = None,
 ) -> str:
     """Shared runner status funnel: mirror lifecycle onto the fenced attempt.
 
@@ -3502,8 +3576,13 @@ def _v2_on_job_status(
         return "not_v2"
     failure_code = (policy_reason or "container_failed") if v2_status == "failed" else None
     detail = {"error": error_message[:300]} if (error_message and failure_code) else None
-    outcome = (v2_report_attempt_status(auth, v2_status, failure_code, detail, runtime_metadata=runtime_metadata)
-               if runtime_metadata else v2_report_attempt_status(auth, v2_status, failure_code, detail))
+    outcome = (
+        v2_report_attempt_status(
+            auth, v2_status, failure_code, detail, runtime_metadata=runtime_metadata
+        )
+        if runtime_metadata
+        else v2_report_attempt_status(auth, v2_status, failure_code, detail)
+    )
     if outcome == "fenced":
         container_name = auth.get("container_name")
         _v2_forget_attempt(job_id, auth)
@@ -3882,7 +3961,9 @@ def drain_v2_commands() -> int:
     """Claim host and attempt commands without sharing delivery identity."""
     if not _v2_enabled:
         return 0
-    return sum(_v2_run_claimed_command(_dispatch_v2_command, command) for command in v2_claim_commands())
+    return sum(
+        _v2_run_claimed_command(_dispatch_v2_command, command) for command in v2_claim_commands()
+    )
 
 
 def _dispatch_v2_command(cmd: dict) -> int:
@@ -3920,7 +4001,12 @@ def _dispatch_v2_command(cmd: dict) -> int:
         # replays the journaled result rather than deleting work on fetch.
         host_cmd = {**cmd, "id": command_id, "_durable": True}
         if _dispatch_agent_commands([host_cmd]) == 1:
-            result = {"dispatched": True, "command": name, "worker_session_id": WORKER_SESSION_ID, "protocol": 2}
+            result = {
+                "dispatched": True,
+                "command": name,
+                "worker_session_id": WORKER_SESSION_ID,
+                "protocol": 2,
+            }
             try:
                 _v2_mark_command_complete(command_id, result, strict=True)
             except OSError:
@@ -4522,9 +4608,12 @@ def run_job(job):
     with _v2_attempts_lock:
         authority = _v2_attempts.get(job_id)
     if is_v2_attempt:
-        if (authority is None or authority.get("attempt_id") != v2_attempt_id
-                or authority.get("fencing_token") != job.get("_v2_fencing_token")
-                or authority.get("container_name") != container_name):
+        if (
+            authority is None
+            or authority.get("attempt_id") != v2_attempt_id
+            or authority.get("fencing_token") != job.get("_v2_fencing_token")
+            or authority.get("container_name") != container_name
+        ):
             log.error("Job %s: no matching local fenced authority; refusing execution", job_id)
             return
         lease_info = None  # The fenced handler already claimed the exact lease.
@@ -5585,8 +5674,10 @@ class LogForwarder:
 
 def _v2_start_exit_monitor(auth: dict) -> None:
     threading.Thread(
-        target=_v2_monitor_container, args=(auth,),
-        name=f"v2-exit-{auth['job_id'][:8]}", daemon=True,
+        target=_v2_monitor_container,
+        args=(auth,),
+        name=f"v2-exit-{auth['job_id'][:8]}",
+        daemon=True,
     ).start()
 
 
@@ -5634,7 +5725,9 @@ def _v2_monitor_container(auth: dict) -> None:
                     _v2_forget_attempt(job_id, auth)
             else:
                 confirmed = report_job_status(
-                    job_id, _v2_exit_status(auth, exit_code), expected_v2_auth=auth,
+                    job_id,
+                    _v2_exit_status(auth, exit_code),
+                    expected_v2_auth=auth,
                 )
                 with _v2_attempts_lock:
                     still_current = _v2_attempts.get(job_id) is auth
@@ -5642,7 +5735,9 @@ def _v2_monitor_container(auth: dict) -> None:
             if outcome != "error":
                 _v2_cleanup_exited(auth)
                 return
-            log.warning("Terminal report pending for job %s; retaining container and journal", job_id)
+            log.warning(
+                "Terminal report pending for job %s; retaining container and journal", job_id
+            )
         elif state not in ("missing", "unknown") and label != auth["attempt_id"]:
             log.warning("Exit monitor refused mismatched attempt label for job %s", job_id)
             return
@@ -7532,7 +7627,9 @@ def adopt_running_containers():
             try:
                 inspected = subprocess.run(
                     ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 if inspected.returncode != 0:
                     continue
@@ -7963,7 +8060,12 @@ def main():
     # ── Step 7c: Benchmark + verification report, in the background ──
     # After adoption, so a job that survived the restart is known: the benchmark
     # saturates the GPU and is deferred while one runs (see _start_reverification).
-    if os.environ.get("XCELSIOR_WORKER_VERIFY_ON_STARTUP", "true").strip().lower() in ("1", "true", "yes", "on"):
+    if os.environ.get("XCELSIOR_WORKER_VERIFY_ON_STARTUP", "true").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         _start_reverification()
     else:
         log.info("Startup verification deferred by operator; serving workloads retain the GPU")

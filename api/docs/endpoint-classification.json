@@ -227,6 +227,10 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "GET /api/admin/meta-capi/quality": {
+    "class": "internal",
+    "notes": "Platform-admin marketing delivery-quality diagnostics; operator observability, not a customer MCP capability."
+  },
   "GET /api/admin/overview": {
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
@@ -330,6 +334,10 @@
   "GET /api/auth/mfa/methods": {
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
+  },
+  "GET /api/auth/oauth/providers": {
+    "class": "internal",
+    "notes": "First-party login and registration provider discovery; public authentication UI configuration rather than a customer MCP tool."
   },
   "GET /api/auth/oauth/{provider}/callback": {
     "class": "internal",
@@ -1355,6 +1363,10 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "POST /api/admin/users/{email}/delete": {
+    "class": "internal",
+    "notes": "Platform-admin account removal through the durable privacy-deletion workflow; destructive operator administration is not exposed as a customer MCP tool."
+  },
   "POST /api/admin/users/{email}/role": {
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
@@ -2154,6 +2166,10 @@
   "POST /oauth/register": {
     "class": "internal",
     "notes": "OAuth/OIDC protocol surface — the authorization server itself. An MCP client speaks this to obtain a token; a tool never calls it"
+  },
+  "POST /oauth/revoke": {
+    "class": "internal",
+    "notes": "OAuth transport lifecycle endpoint: revokes the token presented by its holder; client protocol machinery rather than an MCP tool."
   },
   "POST /oauth/token": {
     "class": "internal",
