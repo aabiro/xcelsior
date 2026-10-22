@@ -472,8 +472,8 @@
     "notes": "_require_admin — the account-wide feed is a platform-operator view, never an agent capability."
   },
   "GET /api/events/leases/{job_id}": {
-    "class": "gap",
-    "notes": "the account's activity stream. `events:read` is advertised in scopes_supported and no tool reads events, so a user grants it on first connection and nothing can use it"
+    "class": "redundant",
+    "notes": "Compatibility diagnostic over the same current fenced lease as the v1 active-lease route used by MCP get_active_lease. It retains events:read and ownership checks; no separate tool is needed."
   },
   "GET /api/events/{entity_type}/{entity_id}": {
     "class": "covered",
@@ -1197,15 +1197,15 @@
   },
   "POST /agent/lease/claim": {
     "class": "internal",
-    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+    "notes": "Authenticated permanent HTTP 410 tombstone. Legacy lease mutations and expiry are removed; workers use fenced /agent/v2/leases operations."
   },
   "POST /agent/lease/release": {
     "class": "internal",
-    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+    "notes": "Authenticated permanent HTTP 410 tombstone. Legacy lease mutations and expiry are removed; workers use fenced /agent/v2/leases operations."
   },
   "POST /agent/lease/renew": {
     "class": "internal",
-    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+    "notes": "Authenticated permanent HTTP 410 tombstone. Legacy lease mutations and expiry are removed; workers use fenced /agent/v2/leases operations."
   },
   "POST /agent/logs/{job_id}": {
     "class": "internal",

@@ -211,55 +211,6 @@ class TestStateTransitions:
 # ── Lease deletion fix ───────────────────────────────────────────────
 
 
-class TestLeaseGrantDeletion:
-    """Test that grant_lease deletes existing leases instead of just releasing them."""
-
-    def test_grant_lease_succeeds_on_re_grant(self):
-        from events import get_event_store
-
-        es = get_event_store()
-
-        # Grant first lease
-        lease1 = es.grant_lease("j-dup", "h1", duration_sec=600)
-        assert lease1.job_id == "j-dup"
-
-        # Re-granting should not raise UniqueViolation
-        lease2 = es.grant_lease("j-dup", "h2", duration_sec=600)
-        assert lease2.job_id == "j-dup"
-        assert lease2.host_id == "h2"
-        assert lease2.lease_id != lease1.lease_id
-
-    def test_grant_lease_after_release(self):
-        from events import get_event_store
-
-        es = get_event_store()
-
-        lease1 = es.grant_lease("j-dup2", "h1", duration_sec=600)
-        es.release_lease("j-dup2")
-
-        # Should succeed — old released lease is deleted
-        lease2 = es.grant_lease("j-dup2", "h3", duration_sec=600)
-        assert lease2.host_id == "h3"
-
-    def test_grant_lease_deletes_all_previous(self):
-        from events import get_event_store
-        from db import _get_pg_pool
-        from psycopg.rows import dict_row
-
-        es = get_event_store()
-
-        es.grant_lease("j-dup3", "h1", duration_sec=600)
-        es.grant_lease("j-dup3", "h2", duration_sec=600)
-
-        # Only one lease row should exist for this job_id
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            rows = conn.execute("SELECT * FROM leases WHERE job_id = %s", ("j-dup3",)).fetchall()
-        assert len(rows) == 1
-        assert rows[0]["host_id"] == "h2"
-
-
 # ── ConsentManager dict-row fix ──────────────────────────────────────
 
 
