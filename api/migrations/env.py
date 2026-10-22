@@ -20,13 +20,9 @@ from alembic import context
 
 config = context.config
 
-# Override sqlalchemy.url from environment if available (match db.resolve_postgres_dsn)
-dsn = (
-    os.environ.get("XCELSIOR_POSTGRES_DSN")
-    or os.environ.get("XCELSIOR_PG_DSN")
-    or os.environ.get("DATABASE_URL")
-    or config.get_main_option("sqlalchemy.url")
-)
+from migrations.connection import migration_dsn, require_migration_identity
+
+dsn = migration_dsn(config.get_main_option("sqlalchemy.url"))
 if dsn:
     # Ensure we use psycopg3 driver (postgresql+psycopg://), not psycopg2
     if dsn.startswith("postgresql://"):
@@ -69,6 +65,9 @@ def run_migrations_online():
     engine = create_engine(config.get_main_option("sqlalchemy.url"))
 
     with engine.connect() as connection:
+        current, login = connection.execute(text("SELECT current_user, session_user")).one()
+        require_migration_identity(current, login)
+        connection.commit()
         # `SET` takes no bind parameters; `checked_timeout` is what makes the
         # interpolation of an environment variable safe here.
         connection.execute(text(f"SET lock_timeout = '{checked_timeout(LOCK_TIMEOUT)}'"))

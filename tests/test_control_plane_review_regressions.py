@@ -212,21 +212,26 @@ def test_wallet_notices_rollback_with_cycle_then_commit_once_and_push_after_comm
     assert len(pushes) == 2
 
 
-def test_control_plane_dashboard_keeps_shared_heartbeat_counts_per_service():
+def test_control_plane_dashboard_counts_distinct_required_service_identities():
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
     dashboard = json.loads(
         (
-            Path(__file__).resolve().parents[1]
-            / "api/infra/observability/grafana/dashboards/xcelsior-control-plane.json"
+            root / "api/infra/observability/grafana/dashboards/xcelsior-control-plane.json"
         ).read_text()
     )
-    counts = [
-        target["expr"]
-        for panel in dashboard["panels"]
-        for target in panel.get("targets", [])
-        if "xcelsior_service_heartbeat_fresh_replicas" in target.get("expr", "")
-    ]
-    assert counts == ['xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api"}']
-    assert not any(panel["title"] == "Services" for panel in dashboard["panels"])
+    panel = next(p for p in dashboard["panels"] if p["title"] == "Services")
+    fixtures = yaml.safe_load((root / "tests/fixtures/control_plane_service_count.yml").read_text())
+    expressions = {case["promql_expr_test"][0]["expr"] for case in fixtures["tests"]}
+    assert expressions == {panel["targets"][0]["expr"]}
+    assert [
+        case["promql_expr_test"][0]["exp_samples"][0]["value"] for case in fixtures["tests"]
+    ] == [4, 3, 3, 0, 0, 1]
+    assert panel["fieldConfig"]["defaults"]["thresholds"]["steps"][-1] == {
+        "value": 4,
+        "color": "green",
+    }
 
 
 @pytest.mark.parametrize("state", ["booting", "error"])

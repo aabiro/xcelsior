@@ -10,6 +10,9 @@ Type=oneshot
 User=root
 Group=root
 WorkingDirectory=/opt/xcelsior
+# Optional until dedicated roles are deployed. Root-only; contains only
+# XCELSIOR_POSTGRES_DSN_MIGRATOR and strict-role/drill settings.
+EnvironmentFile=-/etc/xcelsior/db-maintenance.env
 ExecStart=/opt/xcelsior/api/scripts/restore-db-drill.sh
 Nice=15
 IOSchedulingClass=best-effort

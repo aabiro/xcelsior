@@ -14,6 +14,10 @@ from sqlalchemy.engine import make_url
 def migrate(target: str) -> None:
     if not re.fullmatch(r"xcelsior_restore_[0-9]{8}_[0-9]{6}_[0-9]+", target):
         raise ValueError("refusing a database outside the generated restore namespace")
+    if os.environ.get("XCELSIOR_DB_ROLES_REQUIRED") == "1" and not os.environ.get(
+        "XCELSIOR_POSTGRES_DSN_MIGRATOR"
+    ):
+        raise ValueError("strict-role restore requires a dedicated migration credential")
     base = next(
         (
             os.environ[key]

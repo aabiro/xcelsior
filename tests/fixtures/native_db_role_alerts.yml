@@ -1,0 +1,82 @@
+rule_files:
+- ../../api/infra/observability/prometheus/native-db-role-rules.yml
+evaluation_interval: 1m
+tests:
+- name: qualified native partition job is healthy
+  interval: 1m
+  input_series:
+  - series: xcelsior_partition_maintenance_last_run_success{job="prod-hetzner-host",instance="prod"}
+    values: 1x20
+  - series: xcelsior_partition_maintenance_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: XcelsiorPartitionMaintenanceMetricMissing
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: XcelsiorPartitionMaintenanceStale
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: XcelsiorPartitionMaintenanceFailed
+    exp_alerts: []
+- name: XcelsiorPartitionMaintenanceMetricMissing fires on its native signal
+  interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: XcelsiorPartitionMaintenanceMetricMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: database-maintenance
+        owner: platform
+        job: prod-hetzner-host
+      exp_annotations:
+        summary: Native partition maintenance evidence is missing
+        description: Check the native maintenance timer and node-exporter textfile
+          ingestion.
+- name: XcelsiorPartitionMaintenanceStale fires on its native signal
+  interval: 1m
+  input_series:
+  - series: xcelsior_partition_maintenance_last_run_success{job="prod-hetzner-host",instance="prod"}
+    values: 1x1700
+  - series: xcelsior_partition_maintenance_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: '0x1700'
+  alert_rule_test:
+  - eval_time: 27h
+    alertname: XcelsiorPartitionMaintenanceStale
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: database-maintenance
+        owner: platform
+        job: prod-hetzner-host
+        instance: prod
+      exp_annotations:
+        summary: Native partition maintenance has not succeeded within 26 hours
+        description: Check the timer and direct migration login before the partition
+          window expires.
+- name: XcelsiorPartitionMaintenanceFailed fires on its native signal
+  interval: 1m
+  input_series:
+  - series: xcelsior_partition_maintenance_last_run_success{job="prod-hetzner-host",instance="prod"}
+    values: '0x20'
+  - series: xcelsior_partition_maintenance_last_success_timestamp_seconds{job="prod-hetzner-host",instance="prod"}
+    values: 0+60x20
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: XcelsiorPartitionMaintenanceFailed
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: database-maintenance
+        owner: platform
+        job: prod-hetzner-host
+        instance: prod
+      exp_annotations:
+        summary: Native partition maintenance failed
+        description: Inspect the one-shot journal and database grants. Keep repairs
+          report_only.

@@ -154,6 +154,13 @@ command delivery identity and normal fenced billing; see the
 [verified follow-up](review/2026-10-20-control-plane-cutover-audit.md).
 Dedicated runtime-role DSNs remain absent; these cutovers do not close that item.
 
+**2026-10-21 dedicated-role candidate:** restricted workflow qualification
+found and fixed the scheduler's missing three-column serverless binding grant.
+The candidate also supplies strict migration credentials, scoped ownership
+transfer, native partition maintenance, strict Compose wiring and restore
+qualification. [Candidate and production gates](review/2026-10-21-db-role-cutover.md).
+Production logins/ownership have not changed; this residual remains open.
+
 ---
 
 ## B1 — Migration ledger reconciliation (blocking prerequisite)
@@ -2491,6 +2498,17 @@ data disposition remain separately scoped below.
   specs, trigger removal, all-table semantic review and the broader cutover
   remain open. This candidate is not a production backfill.
   [Audit and repair receipt](review/2026-10-22-data-population-repair.md).
+  **Review repairs, 2026-10-22:** compatibility placement now honors host pins;
+  serverless stop reloads authority after a cancellation race; provisioning
+  commits worker/job/outbox together and safely retires unsubmitted orphans;
+  wallet notices share billing-cycle commit; missing callback credentials roll
+  back the lease claim; migration 128 accepts recorded `owner_id` as well as
+  `owner`. The expanded dashboard deduplicates API observations and counts
+  distinct required fresh service identities. Dedicated-role integration keeps
+  archive immutability and adds the exact allocation/retention permissions. These are source
+  repairs with PostgreSQL regression and production-record rehearsal proof,
+  not completion of the open cutover or a production rollout.
+  [Review repair receipt](review/2026-10-22-control-plane-review-repairs.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

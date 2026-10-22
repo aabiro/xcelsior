@@ -330,6 +330,8 @@ class ServiceRole:
     #: Roles that must never be granted to a long-running runtime service.
     runtime: bool = True
     read_tables: frozenset[str] = field(default_factory=frozenset)
+    #: Narrow projections across a domain boundary, never whole-table writes.
+    column_updates: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
     @property
     def readable(self) -> frozenset[str]:
@@ -366,6 +368,11 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
         description="Claim and placement rights; no arbitrary billing mutation, no identity writes.",
         write=frozenset({"control", "audit"}),
         read=frozenset({"identity", "billing", "marketplace", "serverless"}),
+        column_updates={
+            "public.serverless_workers": frozenset(
+                {"attempt_id", "host_id", "allocated_at", "updated_at"}
+            ),
+        },
     ),
     "reconciler": ServiceRole(
         name="xcelsior_reconciler",
@@ -557,6 +564,14 @@ def grant_statements(
         if present is None or qualified in present:
             schema, table = qualified.split(".", 1)
             stmts.append(f'GRANT SELECT ON "{schema}"."{table}" TO "{role.name}"')
+    for qualified, columns in sorted(role.column_updates.items()):
+        if present is not None and qualified not in present:
+            continue
+        schema, table = qualified.split(".", 1)
+        relation = '"' + schema.replace('"', '""') + '"."' + table.replace('"', '""') + '"'
+        names = ", ".join('"' + name.replace('"', '""') + '"' for name in sorted(columns))
+        if names:
+            stmts.append(f'GRANT UPDATE ({names}) ON {relation} TO "{role.name}"')
     return stmts
 
 
