@@ -162,7 +162,6 @@ STAGES: list[tuple[str, list[str], str]] = [
             "user_avatars.py",
             "meta_capi.py",
             "web_push.py",
-            "agent_preempt.py",
             "ai_assistant.py",
             "ai_assistant_config.py",
             "fix_sprites.py",
@@ -253,19 +252,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def select_stages(
     stage_filters: list[str] | None,
 ) -> list[tuple[int, str, list[str], str]]:
-    indexed = [
-        (idx, dest, items, msg)
-        for idx, (dest, items, msg) in enumerate(STAGES, start=1)
-    ]
+    indexed = [(idx, dest, items, msg) for idx, (dest, items, msg) in enumerate(STAGES, start=1)]
     if not stage_filters:
         return indexed
 
     wanted = {token.strip().rstrip("/") for token in stage_filters}
-    selected = [
-        entry
-        for entry in indexed
-        if str(entry[0]) in wanted or entry[1] in wanted
-    ]
+    selected = [entry for entry in indexed if str(entry[0]) in wanted or entry[1] in wanted]
     if not selected:
         valid = ", ".join(f"{i}:{dest}" for i, dest, _, _ in indexed)
         raise SystemExit(f"ERROR: No stages matched {stage_filters!r}. Valid stages: {valid}")
@@ -312,7 +304,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 missing.append(item)
 
-        print(f"=== Stage {stage_num}: {dest_name}/ ({len(movable)}/{len(items)} items to move) ===")
+        print(
+            f"=== Stage {stage_num}: {dest_name}/ ({len(movable)}/{len(items)} items to move) ==="
+        )
         for item in already_moved:
             print(f"  INFO already at destination: {dest_name}/{Path(item).name}")
         for item in missing:

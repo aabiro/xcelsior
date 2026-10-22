@@ -11,7 +11,7 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_preempt_cap_")
 _tmpdir = _tmp_ctx.name
 
-os.environ["XCELSIOR_API_TOKEN"] = ""
+os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 
@@ -65,7 +65,7 @@ def clean_data():
 
 
 class TestCapacityPreemption:
-    def test_on_demand_preempts_running_spot_on_single_gpu(self):
+    def test_on_demand_waits_for_confirmed_capacity(self):
         _host("h1", gpu_count=1, spot_gpu_slots=1)
         spot = scheduler.submit_job("spot-runner", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.update_job_status(spot["job_id"], "running", host_id="h1")
@@ -73,13 +73,12 @@ class TestCapacityPreemption:
         od = scheduler.submit_job("od-waiter", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
         assigned = scheduler.process_queue()
 
-        assert len(assigned) == 1
-        assert assigned[0][0]["job_id"] == od["job_id"]
-        assert assigned[0][1]["host_id"] == "h1"
+        assert assigned == []
+        assert scheduler.get_job(od["job_id"])["status"] == "queued"
 
         spot_refreshed = scheduler.get_job(spot["job_id"])
-        assert spot_refreshed["status"] == "queued"
-        assert spot_refreshed.get("preemption_count") == 1
+        assert spot_refreshed["status"] == "running"
+        assert spot_refreshed.get("preemption_count", 0) == 0
 
     def test_spot_never_preempts_on_demand(self):
         _host("h1", gpu_count=1, spot_gpu_slots=1)
@@ -87,13 +86,12 @@ class TestCapacityPreemption:
         scheduler.update_job_status(od["job_id"], "running", host_id="h1")
 
         spot = scheduler.submit_job("spot-waiter", 8, pricing_mode="spot", gpu_model="RTX 4090")
-        host, preempted = scheduler.allocate_with_preemption(spot, scheduler.list_hosts())
+        host = scheduler.allocate(spot, scheduler.list_hosts())
 
         assert host is None
-        assert preempted == []
         assert scheduler.get_job(od["job_id"])["status"] == "running"
 
-    def test_lowest_priority_spot_preempted_first(self):
+    def test_preview_orders_victims_without_releasing_capacity(self):
         _host("h1", gpu_count=2, spot_gpu_slots=2)
         low = scheduler.submit_job("spot-low", 8, pricing_mode="spot", gpu_model="RTX 4090")
         high = scheduler.submit_job("spot-high", 8, pricing_mode="spot", gpu_model="RTX 4090")
@@ -103,12 +101,13 @@ class TestCapacityPreemption:
         scheduler.update_job_status(high["job_id"], "running", host_id="h1")
 
         od = scheduler.submit_job("od-need", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
-        host, preempted = scheduler.allocate_with_preemption(od, scheduler.list_hosts())
+        host = scheduler.allocate(od, scheduler.list_hosts())
+        _, candidates = scheduler.preemption_cycle(dry_run=True)
 
-        assert host is not None
-        assert host["host_id"] == "h1"
-        assert len(preempted) == 1
-        assert preempted[0]["job_id"] == low["job_id"]
+        assert host is None
+        assert len(candidates) == 1
+        assert candidates[0]["job_id"] == low["job_id"]
+        assert scheduler.get_job(low["job_id"])["status"] == "running"
         assert scheduler.get_job(high["job_id"])["status"] == "running"
 
     def test_identify_preemption_candidates_respects_shortfall(self):

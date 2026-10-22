@@ -1588,26 +1588,6 @@ def poll_for_work():
         return []
 
 
-def check_preemption():
-    """Check if any jobs on this host are being preempted.
-
-    GET /agent/preempt/{host_id}
-    Returns list of job_ids to preempt.
-    """
-    try:
-        resp = _api_request(
-            "get",
-            _api_url(f"/agent/preempt/{HOST_ID}"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("preempt_jobs", [])
-        return []
-    except requests.RequestException:
-        return []
-
-
 #: Sibling modules that were split out of worker_agent.py (image cache, NFS,
 #: NVMe cache, LUKS volumes). worker_agent.py imports these at load time, so
 #: any host still running a pre-split agent needs them fetched + verified
@@ -7004,83 +6984,6 @@ def _remove_container(container_name):
         log.warning("_remove_container(%s) error: %s", container_name, e)
 
 
-def handle_preemptions(preempt_job_ids):
-    """Handle preemption — checkpoint on CRIU-capable hosts, else graceful stop."""
-    grace_sec = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
-    checkpoint_class = ""
-    try:
-        from criu_hosts import docker_checkpoint_local, probe_checkpoint_stack
-
-        checkpoint_class = str(probe_checkpoint_stack().get("checkpoint_class") or "")
-    except Exception:
-        pass
-
-    for job_id in preempt_job_ids:
-        with _active_lock:
-            container_name = _active_containers.get(job_id)
-
-        if not container_name:
-            log.debug("Preemption for %s but no active container found", job_id)
-            continue
-
-        log.warning(
-            "PREEMPTING job %s (container %s, grace=%ss, checkpoint=%s)",
-            job_id,
-            container_name,
-            grace_sec,
-            checkpoint_class or "none",
-        )
-
-        ckpt_meta = None
-        if checkpoint_class:
-            try:
-                from criu_hosts import docker_checkpoint_local
-
-                ckpt_meta = docker_checkpoint_local(
-                    container_name,
-                    job_id,
-                    checkpoint_class=checkpoint_class,
-                )
-            except Exception as exc:
-                log.warning("checkpoint preemption failed job=%s: %s", job_id, exc)
-
-        if not ckpt_meta:
-            try:
-                subprocess.run(
-                    ["docker", "kill", "--signal=SIGTERM", container_name],
-                    capture_output=True,
-                    timeout=10,
-                )
-            except Exception as e:
-                log.debug("SIGTERM during preemption for %s: %s", job_id, e)
-
-            try:
-                subprocess.run(
-                    ["docker", "stop", "-t", str(grace_sec), container_name],
-                    capture_output=True,
-                    timeout=grace_sec + 15,
-                )
-            except Exception as e:
-                log.warning("docker stop failed during preemption: %s", e)
-                _kill_container(container_name)
-
-        report_job_status(
-            job_id,
-            "preempted",
-            resume_from=ckpt_meta,
-            host_id=HOST_ID,
-        )
-
-        with _active_lock:
-            _active_containers.pop(job_id, None)
-
-        log.info(
-            "Job %s preempted (%s)",
-            job_id,
-            "checkpointed" if ckpt_meta else "stopped",
-        )
-
-
 # ── Telemetry Push Thread ─────────────────────────────────────────────
 # Per REPORT_FEATURE_2.md §3: "Enhance agent to report GPU metrics every 5s."
 # Reuses security.py's get_gpu_telemetry() which delegates to NVML when available.
@@ -8134,11 +8037,6 @@ def main():
     while not _shutdown.is_set():
         try:
             _ensure_work_protocol()
-            # Check for preemptions
-            preempt_jobs = check_preemption() if not _v2_enabled else []
-            if preempt_jobs:
-                handle_preemptions(preempt_jobs)
-
             # Renew this host's own credential well before it expires
             # (§19.2). No-op unless a per-host token has been issued.
             try:

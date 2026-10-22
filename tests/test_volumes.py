@@ -833,22 +833,6 @@ class TestTerminalStateVolumeDetach:
         source = inspect.getsource(update_job_status)
         assert "terminated" in source
 
-    def test_detach_in_cancel_route_source(self):
-        """The cancel endpoint must call detach_all_for_instance."""
-        import inspect
-        from routes.instances import api_cancel_instance
-
-        source = inspect.getsource(api_cancel_instance)
-        assert "detach_all_for_instance" in source
-
-    def test_detach_in_preempt_job_source(self):
-        """preempt_job must detach volumes when job leaves host."""
-        import inspect
-        from scheduler import preempt_job
-
-        source = inspect.getsource(preempt_job)
-        assert "detach_all_for_instance" in source
-
 
 # ── Billing correctness ──────────────────────────────────────────────
 
@@ -972,16 +956,6 @@ class TestGetVolumeMetrics:
 
 class TestRequiredVolumeMountFailure:
     """Required volume_ids must fail the job when NFS mount fails (no silent skip)."""
-
-    def test_scheduler_aborts_on_mount_fail(self):
-        import inspect
-        from scheduler import run_job
-
-        source = inspect.getsource(run_job)
-        assert "MANAGED VOLUME MOUNT FAILED" in source
-        assert "update_job_status" in source
-        assert '"failed"' in source
-        assert "required volume mount failed on host" in source
 
     def test_worker_aborts_on_mount_fail(self):
         import inspect

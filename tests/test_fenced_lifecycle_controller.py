@@ -13,6 +13,7 @@ import time
 import uuid
 
 import pytest
+from fastapi import HTTPException, Request
 
 try:
     from db import _get_pg_pool
@@ -190,6 +191,100 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
     assert cmd[1] == fence
     assert cmd[2]["preserve"] is False
     assert cmd[2]["intent"] == "cancel"
+
+
+@pytest.fixture
+def cancel_route(monkeypatch):
+    import routes.instances as routes
+
+    monkeypatch.setattr(routes, "_require_auth", lambda request: {"is_admin": True})
+    monkeypatch.setattr(routes, "_require_scope", lambda *args: None)
+    monkeypatch.setattr(routes, "_check_job_write_access", lambda *args: None)
+    request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
+    return lambda job_id: routes.api_cancel_instance(job_id, request)
+
+
+@pytest.mark.parametrize("status", ["running", "assigned", "stopped", "queued"])
+def test_cancel_refuses_unfenced_history_without_changing_it(cleanup_ids, cancel_route, status):
+    host_id = f"h-cancel-history-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id, status=status)
+    with _pool.connection() as conn:
+        before = conn.execute(
+            "SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+    with pytest.raises(HTTPException) as exc:
+        cancel_route(job_id)
+    assert exc.value.status_code == 409
+    with _pool.connection() as conn:
+        assert (
+            conn.execute("SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)).fetchone()[0]
+            == before
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE job_id=%s", (job_id,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_cancel_can_settle_an_unplaced_queued_job(cleanup_ids, cancel_route):
+    job_id, _ = _mkjob(cleanup_ids, host_id=None, status="queued")
+    assert cancel_route(job_id)["status"] == "cancelled"
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status,active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone() == ("cancelled", None)
+
+
+def test_cancel_route_uses_fenced_stop_for_active_attempt(cleanup_ids, cancel_route, monkeypatch):
+    from unittest.mock import Mock
+
+    detach = Mock(side_effect=AssertionError("volume detached before worker stop confirmation"))
+    monkeypatch.setattr("volumes.get_volume_engine", detach)
+    host_id = f"h-cancel-active-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
+    attempt_id, fence = _mk_active_attempt(job_id, host_id)
+    assert cancel_route(job_id)["status"] == "stopping"
+    detach.assert_not_called()
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT command,attempt_id::text,fencing_token FROM agent_commands WHERE job_id=%s",
+            (job_id,),
+        ).fetchone() == ("stop_attempt", attempt_id, fence)
+
+
+@pytest.mark.parametrize("race", ["assigned", "fenced", "host_only"])
+def test_cancel_rechecks_authority_after_initial_read(cleanup_ids, cancel_route, monkeypatch, race):
+    import routes.instances as routes
+
+    host_id = f"h-cancel-race-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=None, status="queued")
+    update = routes.update_job_status
+
+    def advance_before_cancel(*args, **kwargs):
+        if race == "fenced":
+            _mk_active_attempt(job_id, host_id)
+        elif race == "host_only":
+            from scheduler import _set_job_fields
+
+            _set_job_fields(job_id, host_id=host_id)
+        else:
+            update(job_id, "assigned", host_id=host_id)
+        return update(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "update_job_status", advance_before_cancel)
+    with pytest.raises(HTTPException) as exc:
+        cancel_route(job_id)
+    assert exc.value.status_code == 409
+    with _pool.connection() as conn:
+        assert (
+            conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
+            != "cancelled"
+        )
 
 
 def test_stopped_report_projects_terminated_from_intent(cleanup_ids):

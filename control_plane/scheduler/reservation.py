@@ -173,6 +173,12 @@ def reserve_and_bind(
             desired_state=desired,
         )
 
+    # Recheck the pin under the job lock; a stale candidate snapshot never
+    # authorizes starting a paid marketplace launch on a different host.
+    preferred_host_id = (_one(job, "payload", 5) or {}).get("preferred_host_id")
+    if preferred_host_id and str(preferred_host_id) != host_id:
+        raise HostNotEligible("job is pinned to another host", host_id=host_id)
+
     # ── Step 4-5: lock host, verify state + inventory generation ────
     host = conn.execute(
         """

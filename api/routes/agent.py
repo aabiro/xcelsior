@@ -471,39 +471,34 @@ def api_agent_work(host_id: str, request: Request):
 
 @router.get("/agent/preempt/{host_id}", tags=["Agent"])
 def api_agent_preempt(host_id: str, request: Request):
-    """Check if any jobs on this host should be preempted."""
+    """Permanent tombstone for the removed process-memory preemption queue."""
     _require_agent_auth(request, host_id=host_id)
-    require_legacy_route_enabled()
-    from agent_preempt import pop_host_preemptions
-
-    preempt_list = pop_host_preemptions(host_id)
-    checkpoint_mode = ""
-    try:
-        hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
-        host = hosts.get(host_id) or {}
-        checkpoint_mode = str(host.get("checkpoint_class") or "")
-    except Exception:
-        pass
-    return {
-        "ok": True,
-        "preempt_jobs": preempt_list,
-        "checkpoint_mode": checkpoint_mode,
-        "checkpoint_resumable": bool(checkpoint_mode),
-    }
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use durable fenced worker commands",
+            }
+        },
+    )
 
 
 @router.post("/agent/preempt/{host_id}/{job_id}", tags=["Agent"])
 def api_schedule_preemption(host_id: str, job_id: str, request: Request):
-    """Schedule a job for preemption on a host. Admin-only."""
+    """Permanent tombstone for the removed process-memory preemption queue."""
     user = _require_user_grant(request, allow_api_key=True)
     if not user.get("is_admin"):
         raise HTTPException(403, "Admin role required")
-    require_legacy_route_enabled()
-    from agent_preempt import schedule_host_preemptions
-
-    schedule_host_preemptions(host_id, [job_id])
-    broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
-    return {"ok": True, "host_id": host_id, "job_id": job_id}
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use durable fenced worker commands",
+            }
+        },
+    )
 
 
 # ── Agent command queue (admin control plane → worker) ────────────────

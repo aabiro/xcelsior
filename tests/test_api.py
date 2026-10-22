@@ -16,7 +16,7 @@ import pytest
 # Use a TemporaryDirectory (auto-cleaned) for all scheduler data files
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_api_test_")
 _tmpdir = _tmp_ctx.name
-os.environ["XCELSIOR_API_TOKEN"] = ""
+os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_AUTH_DB_PATH"] = os.path.join(_tmpdir, "auth.db")
 os.environ["XCELSIOR_ENV"] = "test"
@@ -1464,16 +1464,11 @@ class TestAgentEndpoints:
         assert r.json()["xcu"] == 8.5
 
     def test_agent_preemption_schedule(self):
-        """POST /agent/preempt/{host_id}/{job_id} schedules preemption."""
+        """Retired preemption routes cannot enqueue or consume state."""
         admin_token, _ = _register_user("preempt-admin@xcelsior.ca", is_admin=True)
-        r = client.post(
-            "/agent/preempt/h1/job-abc",
-            headers=_bearer(admin_token),
-        )
-        assert r.status_code == 200
-        # Check it's retrievable
-        r2 = client.get("/agent/preempt/h1")
-        assert "job-abc" in r2.json()["preempt_jobs"]
+        r = client.post("/agent/preempt/h1/job-abc", headers=_bearer(admin_token))
+        assert r.status_code == 410
+        assert client.get("/agent/preempt/h1").status_code == 410
 
     def test_agent_popular_images(self):
         """GET /agent/popular-images returns image list."""
@@ -1513,9 +1508,9 @@ class TestSpotPricingEndpoints:
         assert inst.get("pricing_mode") == "spot" or inst.get("spot") is True
 
     def test_preemption_cycle(self):
-        """POST /spot/preemption-cycle runs without error."""
-        r = client.post("/spot/preemption-cycle")
-        assert r.status_code == 200
+        """Only the non-mutating capacity preview is available."""
+        assert client.post("/spot/preemption-cycle").status_code == 501
+        assert client.post("/spot/preemption-cycle?dry_run=true").status_code == 200
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1750,13 +1745,27 @@ class TestOAuthDeviceFlow:
 
 class TestOAuthServer:
     def test_authorize_redirects_browser_to_login_when_unauthenticated(self):
+        token, _ = _register_user("browser-redirect-test@xcelsior.ca")
+        created = client.post(
+            "/api/oauth/clients",
+            headers=_bearer(token),
+            json={
+                "client_name": "Login Redirect Test",
+                "client_type": "public",
+                "redirect_uris": ["https://app.example/callback"],
+                "grant_types": ["authorization_code"],
+                "scopes": ["profile"],
+            },
+        )
+        assert created.status_code == 200, created.text
+        client.cookies.clear()
         r = client.get(
             "/oauth/authorize",
             params={
                 "response_type": "code",
-                "client_id": "xcelsior-web",
-                "redirect_uri": "https://xcelsior.ca/oauth/callback",
-                "code_challenge": "challenge",
+                "client_id": created.json()["client"]["client_id"],
+                "redirect_uri": "https://app.example/callback",
+                "code_challenge": "a" * 43,
                 "code_challenge_method": "S256",
             },
             headers={"Accept": "text/html"},

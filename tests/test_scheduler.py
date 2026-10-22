@@ -11,7 +11,7 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_test_")
 _tmpdir = _tmp_ctx.name
 
-os.environ["XCELSIOR_API_TOKEN"] = ""
+os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 
@@ -769,32 +769,39 @@ class TestDockerBuilder:
 # ── Concurrency and Locking ─────────────────────────────────────────
 
 
-class TestSaveJsonLocking:
-    def test_save_json_creates_file(self):
-        """_save_json should create the file if it doesn't exist."""
-        path = os.path.join(_tmpdir, "lock_test.json")
-        if os.path.exists(path):
-            os.remove(path)
-        scheduler._save_json(path, [{"a": 1}])
-        assert os.path.exists(path)
-        data = scheduler._load_json(path)
-        assert data == [{"a": 1}]
+class TestDatabaseStateWithoutFiles:
+    def test_database_roundtrip_creates_no_file(self, tmp_path):
+        path = tmp_path / "state.json"
+        scheduler._save_state_list(str(path), [{"a": 1}])
+        assert scheduler._load_state_list(str(path)) == [{"a": 1}]
+        assert not path.exists()
 
-    def test_save_json_overwrites(self):
-        """_save_json should fully replace the file contents."""
-        path = os.path.join(_tmpdir, "lock_test2.json")
-        scheduler._save_json(path, [{"a": 1}])
-        scheduler._save_json(path, [{"b": 2}])
-        data = scheduler._load_json(path)
-        assert data == [{"b": 2}]
+    def test_existing_file_is_neither_imported_nor_overwritten(self, tmp_path):
+        path = tmp_path / "state.json"
+        original = '[{"historical": true}]'
+        path.write_text(original)
+        assert scheduler._load_state_list(str(path)) == []
+        scheduler._save_state_list(str(path), [{"current": True}])
+        assert scheduler._load_state_list(str(path)) == [{"current": True}]
+        assert path.read_text() == original
 
-    def test_save_json_no_leftover_bytes(self):
-        """Writing shorter data should not leave old bytes behind."""
-        path = os.path.join(_tmpdir, "lock_test3.json")
-        scheduler._save_json(path, list(range(1000)))
-        scheduler._save_json(path, [1])
-        data = scheduler._load_json(path)
-        assert data == [1]
+    def test_empty_runtime_tables_do_not_adopt_files_or_legacy_state(self, tmp_path, monkeypatch):
+        from db import DatabaseOps
+
+        for attr, loader, rows in [
+            ("JOBS_FILE", scheduler.load_jobs, [{"job_id": "stale", "status": "running"}]),
+            ("HOSTS_FILE", scheduler.load_hosts, [{"host_id": "stale", "status": "active"}]),
+        ]:
+            path = tmp_path / attr.lower()
+            original = __import__("json").dumps(rows)
+            path.write_text(original)
+            monkeypatch.setattr(scheduler, attr, str(path))
+            with scheduler._atomic_mutation() as conn:
+                DatabaseOps.upsert_state(
+                    conn, scheduler._namespace_key(str(path)), rows, backend="postgres"
+                )
+            assert loader() == []
+            assert path.read_text() == original
 
 
 class TestBillJobAtomic:
@@ -927,7 +934,7 @@ class TestSpotPricing:
 
 
 class TestPreemption:
-    """Verify preempt_job requeue and retired bid-based eviction."""
+    """Preview never requeues victims or changes pricing history."""
 
     def test_identify_preemptible_jobs_capacity_model(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
@@ -941,28 +948,21 @@ class TestPreemption:
         assert len(preemptible) == 1
         assert preemptible[0][0]["job_id"] == spot["job_id"]
 
-    def test_preempt_job_requeues(self):
-        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
-        job = scheduler.submit_job("test-preempt", 8)
+    def test_execution_is_unavailable_without_mutation(self):
+        job = scheduler.submit_job("unchanged", 8, pricing_mode="spot")
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        before = scheduler.get_job(job["job_id"])
+        with pytest.raises(NotImplementedError, match="Durable preemption"):
+            scheduler.preemption_cycle()
+        assert scheduler.get_job(job["job_id"]) == before
 
-        result = scheduler.preempt_job(job["job_id"])
-        assert result is not None
-        assert result["status"] == "queued"
-        assert result["host_id"] is None
-        assert result.get("preempted_at") is not None
-        assert result.get("preemption_count") == 1
-
-    def test_preempt_non_running_returns_none(self):
-        job = scheduler.submit_job("test-queued", 8)
-        result = scheduler.preempt_job(job["job_id"])
-        assert result is None
-
-    def test_preemption_cycle_runs(self):
+    def test_preemption_preview_does_not_update_prices(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
-        prices, preempted = scheduler.preemption_cycle()
+        before = scheduler.load_spot_prices()
+        prices, candidates = scheduler.preemption_cycle(dry_run=True)
         assert isinstance(prices, dict)
-        assert isinstance(preempted, list)
+        assert isinstance(candidates, list)
+        assert scheduler.load_spot_prices() == before
 
 
 # ── Compute Scores (XCU) ─────────────────────────────────────────────

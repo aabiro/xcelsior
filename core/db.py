@@ -175,7 +175,9 @@ def _get_pg_pool() -> Any:
     scoped = scoped_service() is not None
     pool_key = (service, resolve_postgres_dsn(), roles_required())
     if not scoped and _pg_pool is not None and pool_key[2] and _pg_pool_identity != pool_key:
-        raise RuntimeError("database identity configuration changed; restart required before pool reuse")
+        raise RuntimeError(
+            "database identity configuration changed; restart required before pool reuse"
+        )
     if scoped and pool_key in _scoped_pg_pools:
         return _scoped_pg_pools[pool_key]
     if not scoped and _pg_pool is not None:
@@ -537,11 +539,11 @@ class DatabaseOps:
     """Unified database operations that work across SQLite and PostgreSQL."""
 
     @staticmethod
-    def decode_payload(payload):
+    def decode_payload(payload) -> Any:
         """Decode a JSON payload from either backend."""
         if payload is None:
             return None
-        if isinstance(payload, dict):
+        if isinstance(payload, (dict, list)):
             return payload  # Already decoded (psycopg3 JSONB auto-decodes)
         try:
             return json.loads(payload)

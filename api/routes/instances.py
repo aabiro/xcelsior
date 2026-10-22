@@ -57,9 +57,6 @@ from scheduler import (
     get_job,
     get_job,
     host_accepts_spot_job,
-    host_uses_worker_agent,
-    kill_job,
-    legacy_inline_placement_allowed,
     list_hosts,
     list_jobs,
     list_tiers,
@@ -67,7 +64,6 @@ from scheduler import (
     process_queue,
     process_queue_binpack,
     requeue_job,
-    run_job,
     submit_job,
     update_job_status,
 )
@@ -313,8 +309,6 @@ def _count_active_instances(customer_id: str) -> int:
             if j.get("owner") == customer_id and j.get("status") in _ACTIVE_STATUSES
         )
 
-
-from agent_preempt import schedule_host_preemptions
 
 router = APIRouter()
 
@@ -676,151 +670,9 @@ def _refresh_job(job_id: str):
     return None
 
 
-def _direct_host_launch_or_defer(
-    job: dict,
-    *,
-    target_host_id: str,
-    target_host: dict | None,
-    image: str | None,
-    pricing_mode: str,
-    num_gpus: int = 1,
-) -> dict:
-    """Host-pin placement path used by ``api_submit_instance``.
-
-    P4.4b: when the transactional scheduler owns this job (canary partition
-    or active), refuse inline ``assigned`` + SSH ``run_job``. Leave the job
-    queued with a preferred-host pin so the claim→reserve path is the sole
-    writer (attempt + lease + durable start command).
-
-    Legacy assignments on enrolled worker hosts are polled by that worker.
-    Only hosts without an agent may use the synchronous SSH runner.
-    """
-    if not legacy_inline_placement_allowed(job):
-        try:
-            from scheduler import _set_job_fields
-
-            _set_job_fields(job["job_id"], preferred_host_id=target_host_id)
-        except Exception as exc:
-            log.debug(
-                "preferred_host_id pin failed job=%s host=%s: %s",
-                job.get("job_id"),
-                target_host_id,
-                exc,
-            )
-        log.info(
-            "Direct launch deferred for control-plane-owned job %s "
-            "(host pin=%s) — transactional scheduler owns placement/start",
-            job.get("job_id"),
-            target_host_id,
-        )
-        # Wake authoritative tick when running (no-op unless canary/active).
-        try:
-            from scheduler import _control_plane_tick
-
-            _control_plane_tick()
-        except Exception as exc:
-            log.debug("control-plane tick after deferred pin: %s", exc)
-        return _refresh_job(job["job_id"]) or job
-
-    try:
-        if pricing_mode == "spot":
-            try:
-                from marketplace import get_marketplace_engine
-
-                me = get_marketplace_engine()
-                offer = me.get_offer_for_host(
-                    target_host_id,
-                    target_host.get("gpu_model", "") if target_host else "",
-                )
-                if offer:
-                    alloc = me.allocate_gpu(
-                        offer["offer_id"],
-                        job["job_id"],
-                        num_gpus,
-                        allocation_type="spot",
-                    )
-                    if alloc and alloc.get("price_cents_per_hour"):
-                        from scheduler import _set_job_fields
-
-                        job["spot_rate_cad"] = alloc["price_cents_per_hour"] / 100.0
-                        _set_job_fields(
-                            job["job_id"],
-                            spot_rate_cad=job["spot_rate_cad"],
-                        )
-            except Exception as exc:
-                log.debug("Marketplace spot allocation skipped: %s", exc)
-
-        assign_kwargs: dict = {}
-        if pricing_mode == "spot" and not job.get("spot_rate_cad"):
-            from spot_pricing import lock_spot_rate_for_job
-
-            lock_spot_rate_for_job(
-                job,
-                host_gpu_model=target_host.get("gpu_model", "") if target_host else "",
-            )
-            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-            assign_kwargs["pricing_mode"] = "spot"
-        elif pricing_mode == "spot":
-            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-            assign_kwargs["pricing_mode"] = "spot"
-
-        updated = update_job_status(
-            job["job_id"],
-            "assigned",
-            host_id=target_host_id,
-            **assign_kwargs,
-        )
-        if updated and updated.get("status") == "assigned":
-            hosts = list_hosts()
-            hmap = {h["host_id"]: h for h in hosts}
-            host = hmap.get(target_host_id)
-            if host:
-                if host_uses_worker_agent(host):
-                    log.info(
-                        "Direct launch assigned to worker job=%s host=%s",
-                        job["job_id"],
-                        target_host_id,
-                    )
-                    return _refresh_job(job["job_id"]) or updated
-                container_id = run_job(updated, host, docker_image=image)
-                if container_id:
-                    job = _refresh_job(job["job_id"]) or job
-                    log.info(
-                        "Direct launch: job %s running on host %s",
-                        job["job_id"],
-                        target_host_id,
-                    )
-                else:
-                    job = _refresh_job(job["job_id"]) or job
-                    log.warning(
-                        "Direct launch: container start failed for job %s on host %s",
-                        job["job_id"],
-                        target_host_id,
-                    )
-            else:
-                log.warning(
-                    "Direct launch: host %s not found, job %s stays queued",
-                    target_host_id,
-                    job["job_id"],
-                )
-                update_job_status(job["job_id"], "queued")
-                job = _refresh_job(job["job_id"]) or job
-    except Exception as e:
-        log.error("Direct launch failed for job %s: %s", job["job_id"], e)
-        job = _refresh_job(job["job_id"]) or job
-    return job
-
-
 @router.post("/instance", tags=["Instances"])
 def api_submit_instance(j: JobIn, request: Request):
-    """Submit a job to the queue or directly assign to a host.
-
-    If host_id is provided (marketplace launch), the job is assigned directly
-    to that host for its worker to start (SSH only without an agent). When the
-    transactional scheduler owns the job (canary/active partition),
-    case the pin is recorded and placement/start stay with the claim→reserve
-    path. Otherwise the job is queued and process_queue runs to find a host.
-    """
+    """Queue a job, optionally pinned to a host, for transactional placement."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
@@ -1035,6 +887,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 exposed_ports=j.exposed_ports,
                 source_template_id=source_template_id,
                 pricing_mode=j.pricing_mode,
+                preferred_host_id=target_host_id,
                 placement_preference=(
                     j.placement_preference.model_dump() if j.placement_preference else None
                 ),
@@ -1084,23 +937,9 @@ def api_submit_instance(j: JobIn, request: Request):
         except Exception:
             pass
 
-        # Direct host assignment: assign + start immediately — unless the
-        # transactional scheduler owns this job (P4.4b exclusive partition).
-        if target_host_id:
-            job = _direct_host_launch_or_defer(
-                job,
-                target_host_id=target_host_id,
-                target_host=target_host,
-                image=j.image or None,
-                pricing_mode=j.pricing_mode,
-                num_gpus=j.num_gpus,
-            )
-        else:
-            # §10.1 / B2.6: the job is enqueued durably and the scheduler claims
-            # and places it. A request handler never runs the queue walker inline
-            # (Track A P4.4b deferred the host-pin path; this completes the
-            # general path). Reflect the just-submitted queued state in the reply.
-            job = _refresh_job(job["job_id"]) or job
+        # The pin is persisted in the submission transaction, before a scheduler
+        # can claim the row. Request handlers never assign or start containers.
+        job = _refresh_job(job["job_id"]) or job
 
         append_user_audit_event(
             "user.instance.launched",
@@ -1682,8 +1521,7 @@ def api_cancel_instance(job_id: str, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _check_job_write_access(user, job_id)
-    jobs = list_jobs()
-    job = next((j for j in jobs if j["job_id"] == job_id), None)
+    job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
@@ -1758,34 +1596,25 @@ def api_cancel_instance(job_id: str, request: Request):
             "command_id": fenced.command_id,
         }
 
-    # Legacy (non-attempt-owned): direct kill + immediate cancel + detach.
-    if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
-        hosts = list_hosts()
-        hmap = {h["host_id"]: h for h in hosts}
-        host = hmap.get(job["host_id"])
-        if host:
-            try:
-                kill_job(job, host)
-            except Exception as e:
-                log.warning("Container kill failed for %s: %s", job_id, e)
-        schedule_host_preemptions(job["host_id"], [job_id])
-
-    update_job_status(job_id, "cancelled")
+    # Only an unplaced queued job can settle without worker acknowledgement.
+    # Historical rows without fenced authority must not be killed or rewritten.
+    if job.get("status") != "queued" or job.get("host_id"):
+        raise HTTPException(409, "Instance has no active fenced authority")
+    try:
+        cancelled = update_job_status(
+            job_id, "cancelled", expected_status="queued", expected_host_id=None
+        )
+    except RuntimeError as exc:
+        raise HTTPException(409, "Instance acquired fenced authority; retry cancellation") from exc
+    if cancelled is None:
+        raise HTTPException(409, "Instance changed; retry cancellation")
     _broadcast_instance_lifecycle_sse(
         "job_cancelled",
         {"job_id": job_id},
         event_type="job.v1.cancelled",
         job_id=job_id,
-        idempotency_key=f"job_cancelled:{job_id}:legacy:{time.time()}",
+        idempotency_key=f"job_cancelled:{job_id}:queued:{time.time()}",
     )
-
-    # Detach any volumes still attached to this instance (legacy only).
-    try:
-        from volumes import get_volume_engine
-
-        get_volume_engine().detach_all_for_instance(job_id)
-    except Exception as e:
-        log.warning("Volume detach on cancel failed for %s: %s", job_id, e)
 
     return {"ok": True, "job_id": job_id, "status": "cancelled"}
 
