@@ -1,4 +1,4 @@
-"""Tests for Xcelsior event store — hash chain, state machine, leases."""
+"""Tests for Xcelsior event store — hash chain and state machine."""
 
 import json
 import os
@@ -18,7 +18,6 @@ from events import (
     EventType,
     JobState,
     JobStateMachine,
-    Lease,
     TERMINAL_STATES,
     VALID_TRANSITIONS,
 )
@@ -205,53 +204,3 @@ class TestTerminalStates:
 
 
 # ── Leases ───────────────────────────────────────────────────────────
-
-
-class TestLeases:
-    """Lease grant, renewal, expiry."""
-
-    def test_grant_lease(self):
-        es = _store()
-        lease = es.grant_lease("j-lease-1", "h1")
-        assert lease.job_id == "j-lease-1"
-        assert lease.host_id == "h1"
-        assert lease.status == "active"
-        assert lease.expires_at > time.time()
-
-    def test_renew_lease(self):
-        es = _store()
-        lease = es.grant_lease("j-renew", "h1")
-        old_expiry = lease.expires_at
-        time.sleep(0.05)
-        renewed = es.renew_lease("j-renew", "h1")
-        assert renewed is not None
-        assert renewed.expires_at >= old_expiry
-
-    def test_get_active_lease(self):
-        es = _store()
-        es.grant_lease("j-active", "h1")
-        active = es.get_active_lease("j-active")
-        assert active is not None
-        assert active.status == "active"
-
-    def test_release_lease(self):
-        es = _store()
-        es.grant_lease("j-release", "h1")
-        released = es.release_lease("j-release")
-        assert released is True
-        assert es.get_active_lease("j-release") is None
-
-    def test_no_active_lease_returns_none(self):
-        es = _store()
-        assert es.get_active_lease("nonexistent") is None
-
-    def test_lease_dataclass_is_expired(self):
-        lease = Lease(expires_at=time.time() - 1000)
-        assert lease.is_expired is True
-
-    def test_lease_dataclass_renew(self):
-        lease = Lease()
-        old = lease.expires_at
-        time.sleep(0.01)
-        new_exp = lease.renew()
-        assert new_exp > old

@@ -2535,7 +2535,6 @@ def scheduler_main():
         except Exception as e:
             log.error("Outbox dispatcher failed to start: %s", e)
 
-    event_store = get_event_store()
     tick_count = 0
     from control_plane.operational_metrics import ServiceHeartbeat
 
@@ -2548,24 +2547,8 @@ def scheduler_main():
             log.error("Scheduler heartbeat failed: %s", e)
         scheduler_tick()
 
-        # Expire stale leases every 5th tick (10s)
+        # Fenced lease expiry is owned by SchedulerService's transactional sweep.
         tick_count += 1
-        if tick_count % 5 == 0:
-            try:
-                expired = event_store.expire_stale_leases()
-                if expired:
-                    log.warning(
-                        "LEASE EXPIRY: %d jobs expired — requeueing: %s",
-                        len(expired),
-                        expired,
-                    )
-                    for job_id in expired:
-                        try:
-                            requeue_job(job_id)
-                        except Exception as e:
-                            log.error("Failed to requeue expired lease job %s: %s", job_id, e)
-            except Exception as e:
-                log.error("Lease expiry check failed: %s", e)
 
         # Reconcile VRAM every 30th tick (60s) to catch drift
         if tick_count % 30 == 0:

@@ -2435,6 +2435,14 @@ data disposition remain separately scoped below.
   recovery remains covered; the expanded gate passed 1,387 tests. This is
   still a source candidate, with no worker rollout or historical deletion.
   [Receipt](review/2026-10-22-legacy-startup-removal.md).
+  **Lease authority follow-up, 2026-10-22:** the old `Lease` model,
+  `EventStore` lease grant/renew/release/read/expiry methods and scheduler
+  expiry/requeue loop are removed. V1 lease mutations are permanent 410
+  tombstones in every scheduler mode. Both diagnostics read only the current
+  fenced placement lease with host redaction and tenant/scope checks. The
+  302 historical lease records remain intact; the table is not dropped.
+  Worker compatibility and other legacy execution paths remain open.
+  [Receipt](review/2026-10-22-legacy-lease-removal.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

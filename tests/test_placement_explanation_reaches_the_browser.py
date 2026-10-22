@@ -154,24 +154,6 @@ def test_the_attempt_type_does_not_carry_the_explanation_blob():
     )
 
 
-def test_the_lease_route_aliases_the_host_rather_than_naming_it():
-    """The component renders `host_alias` as-is, so the route must redact it."""
-    source = (ROOT / "api/routes/control_plane_v1.py").read_text(encoding="utf-8")
-    # The whole function, not up to the first `return` — the handler returns
-    # early for "no lease", and matching that stops before the aliasing code.
-    # The first draft did exactly that and failed against a correct route.
-    match = re.search(
-        r"def api_v1_instance_active_lease\(.*?(?=\n@router\.|\ndef )", source, re.DOTALL
-    )
-    assert match, "the active-lease handler moved; re-point this guard"
-    body = match.group(0)
-    assert "host_alias" in body, "the lease no longer carries an alias"
-    assert 'lease.pop("host_id")' in body, (
-        "the raw `host_id` is no longer popped from the lease payload, so the "
-        "component — which renders what it is given — would print it"
-    )
-
-
 def test_the_agent_and_the_browser_read_the_same_route():
     """Parity: one route, so the two surfaces cannot describe different attempts."""
     tool = MCP_TOOL.read_text(encoding="utf-8")

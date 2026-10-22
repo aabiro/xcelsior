@@ -37,3 +37,7 @@ B16.2/B16.3 remain open under the
 [schema and historical-data prerequisites](2026-10-21-legacy-control-plane-removal.md).
 The [machine-readable receipt](2026-10-22-legacy-startup-removal.json) pins the
 tested sources and the updated worker signature.
+
+The subsequent [legacy lease authority removal](2026-10-22-legacy-lease-removal.md)
+removes the old lease store and scheduler expiry loop. This startup receipt
+continues to pin the preceding source snapshot.

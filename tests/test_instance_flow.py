@@ -185,8 +185,8 @@ class TestHappyPathLifecycle:
                 == 0
             )
 
-    def test_full_lifecycle_register_through_cancel(self):
-        """Register host, submit job, walk through every status, bill, cancel."""
+    def test_register_assign_logs_and_billing(self):
+        """Register, queue, project status, stream logs, and bill without a v1 lease."""
         _reset_state()
 
         # 1. Register & admit host
@@ -209,24 +209,12 @@ class TestHappyPathLifecycle:
             inst = _get_instance(job_id)
             assert inst["status"] == "assigned"
 
-        # 4. Claim lease (assigned → leased)
-        if inst["status"] == "assigned":
-            lease_resp = client.post(
-                "/agent/lease/claim",
-                json={
-                    "host_id": "hp-host-1",
-                    "job_id": job_id,
-                },
-            )
-            assert lease_resp.status_code == 200
-            lease = lease_resp.json()
-            assert lease.get("ok") is True
-            assert "lease_id" in lease
-            assert "expires_at" in lease
-
-            # Verify job is now leased
-            inst = _get_instance(job_id)
-            assert inst["status"] == "leased"
+        # The old lease protocol is permanently retired, even outside active mode.
+        lease_resp = client.post(
+            "/agent/lease/claim", json={"host_id": "hp-host-1", "job_id": job_id}
+        )
+        assert lease_resp.status_code == 410
+        assert _get_instance(job_id)["status"] == "assigned"
 
         # 5. Transition to running
         _set_status(job_id, "running", host_id="hp-host-1")
@@ -384,113 +372,6 @@ class TestHappyPathLifecycle:
 # ══════════════════════════════════════════════════════════════════════
 # 8.2 — Failure scenarios
 # ══════════════════════════════════════════════════════════════════════
-
-
-class TestWorkerDeathLeaseExpiry:
-    """Worker death → lease expiry → requeue."""
-
-    def test_lease_grant_and_expiry(self):
-        """Grant a short lease, expire it, verify job is requeued."""
-        _reset_state()
-        _register_host("ld-h1", vram=24)
-        _admit_host("ld-h1")
-
-        _, inst = _submit_job("lease-test", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-            inst = _get_instance(job_id)
-
-        assert inst["status"] in ("assigned", "running")
-
-        # Claim lease with very short duration
-        from events import get_event_store
-
-        es = get_event_store()
-        lease = es.grant_lease(job_id, "ld-h1", duration_sec=1)
-        _set_status(job_id, "leased", host_id="ld-h1")
-
-        # Verify lease is active
-        active = es.get_active_lease(job_id)
-        assert active is not None
-        assert active.lease_id == lease.lease_id
-
-        # Wait for it to expire (1s duration + 60s grace in prod — but we
-        # can manually expire by backdating)
-        from db import _get_pg_pool
-
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.execute(
-                "UPDATE leases SET expires_at = %s WHERE lease_id = %s",
-                (time.time() - 120, lease.lease_id),
-            )
-            conn.commit()
-
-        expired = es.expire_stale_leases()
-        assert job_id in expired
-
-        # Requeue the expired job
-        result = scheduler.requeue_job(job_id)
-        assert result is not None
-        assert result["status"] == "queued"
-
-        # Verify it can be re-assigned
-        client.post("/queue/process")
-        inst = _get_instance(job_id)
-        assert inst["status"] in ("queued", "assigned", "running")
-
-    def test_lease_renew(self):
-        """Renewing a lease extends its expiry."""
-        _reset_state()
-        _register_host("lr-h1", vram=24)
-        _admit_host("lr-h1")
-
-        _, inst = _submit_job("renew-test", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        # Claim lease
-        from events import get_event_store
-
-        es = get_event_store()
-        lease = es.grant_lease(job_id, "lr-h1", duration_sec=300)
-        original_expiry = lease.expires_at
-
-        # Renew
-        renewed = es.renew_lease(job_id, "lr-h1")
-        assert renewed is not None
-        assert renewed.expires_at > original_expiry
-
-    def test_lease_release_on_completion(self):
-        """Completing a job releases its lease."""
-        _reset_state()
-        _register_host("lc-h1", vram=24)
-        _admit_host("lc-h1")
-
-        _, inst = _submit_job("complete-lease", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        from events import get_event_store
-
-        es = get_event_store()
-        es.grant_lease(job_id, "lc-h1", duration_sec=300)
-
-        # Complete the job
-        _set_status(job_id, "running", host_id="lc-h1")
-        _set_status(job_id, "completed", host_id="lc-h1")
-
-        # Lease should be released
-        released = es.release_lease(job_id)
-        # release_lease returns True if found and released, False if already gone
-        active = es.get_active_lease(job_id)
-        assert active is None
 
 
 class TestHostOfflineFailover:
@@ -929,11 +810,7 @@ class TestStateTransitions:
         if inst["status"] == "queued":
             client.post("/queue/process")
 
-        # Claim lease → leased
-        from events import get_event_store
-
-        es = get_event_store()
-        es.grant_lease(job_id, "stl-h1", duration_sec=300)
+        # Compatibility status projection does not acquire a legacy lease.
         _set_status(job_id, "leased", host_id="stl-h1")
         inst = _get_instance(job_id)
         assert inst["status"] == "leased"
@@ -1048,7 +925,6 @@ class TestEventStoreIntegrity:
         from events import get_event_store
 
         es = get_event_store()
-        es.grant_lease(job_id, "ev-h1", duration_sec=300)
         _set_status(job_id, "leased", host_id="ev-h1")
         _set_status(job_id, "running", host_id="ev-h1")
         _set_status(job_id, "completed", host_id="ev-h1")
@@ -1188,102 +1064,6 @@ class TestAgentWorkPull:
             assert isinstance(jobs_list, list)
             job_ids = [j.get("job_id", "") for j in jobs_list]
             assert job_id in job_ids, f"Expected {job_id} in work pull results {job_ids}"
-
-    def test_agent_lease_claim_via_api(self):
-        """Agent claims a lease via the API endpoint."""
-        _reset_state()
-        _register_host("lc-api-h1", vram=24)
-        _admit_host("lc-api-h1")
-
-        _, inst = _submit_job("api-lease", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        inst = _get_instance(job_id)
-        if inst["status"] != "assigned":
-            # Already running; skip lease test
-            pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
-
-        resp = client.post(
-            "/agent/lease/claim",
-            json={
-                "host_id": "lc-api-h1",
-                "job_id": job_id,
-            },
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data.get("ok") is True
-        assert "lease_id" in data
-
-    def test_agent_lease_renew_via_api(self):
-        """Agent renews a lease via the API endpoint."""
-        _reset_state()
-        _register_host("lr-api-h1", vram=24)
-        _admit_host("lr-api-h1")
-
-        _, inst = _submit_job("api-renew", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        inst = _get_instance(job_id)
-        if inst["status"] != "assigned":
-            pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
-
-        # Claim first
-        client.post(
-            "/agent/lease/claim",
-            json={
-                "host_id": "lr-api-h1",
-                "job_id": job_id,
-            },
-        )
-
-        # Renew
-        renew_resp = client.post(
-            "/agent/lease/renew",
-            json={
-                "host_id": "lr-api-h1",
-                "job_id": job_id,
-            },
-        )
-        assert renew_resp.status_code == 200
-
-    def test_agent_lease_release_via_api(self):
-        """Agent releases a lease via the API endpoint."""
-        _reset_state()
-        _register_host("rl-api-h1", vram=24)
-        _admit_host("rl-api-h1")
-
-        _, inst = _submit_job("api-release", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        inst = _get_instance(job_id)
-        if inst["status"] != "assigned":
-            pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
-
-        client.post(
-            "/agent/lease/claim",
-            json={
-                "host_id": "rl-api-h1",
-                "job_id": job_id,
-            },
-        )
-
-        release_resp = client.post(
-            "/agent/lease/release",
-            json={
-                "job_id": job_id,
-            },
-        )
-        assert release_resp.status_code == 200
 
 
 class TestCancelRequeueAuth:
