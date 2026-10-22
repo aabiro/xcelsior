@@ -614,9 +614,11 @@ class DatabaseOps:
                     job_id, status, priority, submitted_at, host_id,
                     pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
                     placement_min_uptime_bps, placement_min_tier,
-                    placement_require_verified, placement_max_premium_bps
+                    placement_require_verified, placement_max_premium_bps,
+                    owner_id, tenant_id, team_id, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, clock_timestamp())
                 ON CONFLICT(job_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
@@ -632,6 +634,10 @@ class DatabaseOps:
                     -- (which skips `_clear_job_output`) is covered for free.
                     host_key_fingerprint = EXCLUDED.host_key_fingerprint,
                     payload = EXCLUDED.payload,
+                    owner_id = COALESCE(EXCLUDED.owner_id, jobs.owner_id),
+                    tenant_id = COALESCE(EXCLUDED.tenant_id, jobs.tenant_id),
+                    team_id = COALESCE(EXCLUDED.team_id, jobs.team_id),
+                    updated_at = clock_timestamp(),
                     -- Same statement as the rest of the row. A resubmit that
                     -- drops the preference must clear it, not leave the old
                     -- constraint attached to a job nobody asked to constrain.
@@ -654,6 +660,9 @@ class DatabaseOps:
                     _min_tier,
                     _require_verified,
                     _max_premium_bps,
+                    job.get("owner_id") or job.get("owner") or None,
+                    job.get("tenant_id") or job.get("owner_id") or job.get("owner") or None,
+                    job.get("team_id") or None,
                 ),
             )
         else:
@@ -686,14 +695,37 @@ class DatabaseOps:
 
             conn.execute(
                 """
-                INSERT INTO hosts(host_id, status, registered_at, payload)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO hosts(host_id, status, registered_at, payload,
+                                  owner_id, tenant_id, region, country, province, capabilities)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb))
                 ON CONFLICT(host_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     registered_at = EXCLUDED.registered_at,
-                    payload = EXCLUDED.payload
+                    payload = EXCLUDED.payload,
+                    owner_id = COALESCE(EXCLUDED.owner_id, hosts.owner_id),
+                    tenant_id = COALESCE(EXCLUDED.tenant_id, hosts.tenant_id),
+                    region = COALESCE(EXCLUDED.region, hosts.region),
+                    country = COALESCE(EXCLUDED.country, hosts.country),
+                    province = COALESCE(EXCLUDED.province, hosts.province),
+                    capabilities = CASE WHEN %s THEN EXCLUDED.capabilities ELSE hosts.capabilities END
                 """,
-                (host_id, status, registered_at, Jsonb(host)),
+                (
+                    host_id,
+                    status,
+                    registered_at,
+                    Jsonb(host),
+                    host.get("owner_id") or host.get("owner") or None,
+                    host.get("tenant_id") or host.get("owner_id") or host.get("owner") or None,
+                    host.get("region") or None,
+                    host.get("country") or None,
+                    host.get("province") or None,
+                    (
+                        Jsonb(host["capabilities"])
+                        if isinstance(host.get("capabilities"), dict)
+                        else None
+                    ),
+                    isinstance(host.get("capabilities"), dict),
+                ),
             )
         else:
             conn.execute(

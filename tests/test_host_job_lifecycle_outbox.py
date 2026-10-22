@@ -1,7 +1,8 @@
 """Host/job lifecycle SSE via durable outbox (multi-replica).
 
 Drives shipped scheduler producers that previously only process-local
-``emit_event``'d: host register/drain/remove, job submit, job preempt.
+``emit_event``'d: host register/drain/remove and job submit. The retired
+unfenced preemption writer must not emit or mutate anything.
 Asserts outbox rows + projection shape + real LISTEN delivery for at
 least one type. Process-local dual fan-out is not required when outbox
 succeeds.
@@ -324,7 +325,7 @@ def test_submit_job_appends_submitted_outbox(cleanup, monkeypatch):
     assert [c for c in emit_calls if c[0] == "job_submitted"] == []
 
 
-def test_preempt_job_appends_preempted_outbox(cleanup, monkeypatch):
+def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
     import scheduler as sched
 
     host_id = f"h-pre-{uuid.uuid4().hex[:8]}"
@@ -363,14 +364,13 @@ def test_preempt_job_appends_preempted_outbox(cleanup, monkeypatch):
     emit_calls: list = []
     monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
-    result = sched.preempt_job(job_id)
-    assert result is not None
-
-    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.preempted"]
-    assert len(rows) >= 1, f"no preempt outbox: {_outbox_for(job_id)}"
-    payload = _payload(rows[-1])
-    assert payload.get("previous_host_id") == host_id
-    assert [c for c in emit_calls if c[0] == "job_preempted"] == []
+    before = _outbox_for(job_id)
+    assert not hasattr(sched, "preempt_job")
+    with pytest.raises(NotImplementedError, match="Durable preemption"):
+        sched.preemption_cycle(dry_run=False)
+    assert _outbox_for(job_id) == before
+    assert sched.get_job(job_id)["status"] == "running"
+    assert emit_calls == []
 
 
 def test_submit_job_outbox_dispatches_to_notify(cleanup):
@@ -456,7 +456,6 @@ def test_inventory_process_local_emit_sites_classified():
         'event_type="host.v1.status_changed"',
         'event_type="host.v1.removed"',
         'event_type="job.v1.submitted"',
-        'event_type="job.v1.preempted"',
     ):
         assert marker in sched_src, f"missing wired producer: {marker}"
 

@@ -580,12 +580,13 @@ def heartbeat_once(
         conn.execute(
             """
             INSERT INTO service_heartbeats (
-                service, replica_id, service_version, details
+                service, replica_id, service_version, schema_revision, details
             )
-            VALUES (%s, %s, %s, %s::jsonb)
+            VALUES (%s, %s, %s, (SELECT version_num FROM alembic_version LIMIT 1), %s::jsonb)
             ON CONFLICT (service, replica_id) DO UPDATE
             SET last_heartbeat_at = clock_timestamp(),
                 service_version = EXCLUDED.service_version,
+                schema_revision = EXCLUDED.schema_revision,
                 details = EXCLUDED.details
             """,
             (service, resolved_replica, service_version, payload),
