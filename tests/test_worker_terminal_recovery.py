@@ -328,3 +328,57 @@ def test_pending_serverless_readiness_survives_journal_recovery(execution, monke
         worker.v2_adopt_attempts()
     assert worker._v2_attempts[auth["job_id"]]["running_report_pending"]
     cleanup.assert_not_called()
+
+
+def test_aborted_claim_retries_in_process_until_native_settlement(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    post = mock.Mock(side_effect=[(503, {}), (200, {})])
+    monkeypatch.setattr(worker, "_v2_post", post)
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        worker._v2_abort_claimed_start(auth, "callback_credential_missing")
+    assert (
+        json.loads(journal.read_text())[auth["job_id"]]["pending_start_failure"]
+        == "callback_credential_missing"
+    )
+    invocation = thread.call_args
+    invocation.kwargs["target"](*invocation.kwargs["args"])
+    assert [c.args[1]["status"] for c in post.call_args_list] == ["failed", "failed"]
+    assert all(
+        c.args[1]["failure_code"] == "callback_credential_missing" for c in post.call_args_list
+    )
+    assert auth["job_id"] not in json.loads(journal.read_text())
+    cleanup.assert_not_called()
+
+
+@pytest.mark.parametrize("response", [200, 409, 503])
+def test_aborted_claim_response_cannot_erase_a_replacement(execution, monkeypatch, response):
+    auth, journal, cleanup = execution
+    replacement = dict(auth, attempt_id="replacement", fencing_token=8, stop=threading.Event())
+
+    def post(path, body):
+        assert body["attempt_id"] == auth["attempt_id"]
+        worker._v2_attempts[auth["job_id"]] = replacement
+        worker._v2_journal_save()
+        return response, {}
+
+    monkeypatch.setattr(worker, "_v2_post", post)
+    with mock.patch.object(worker.threading, "Thread"):
+        worker._v2_abort_claimed_start(auth, "callback_credential_missing")
+    assert worker._v2_attempts[auth["job_id"]] is replacement
+    assert json.loads(journal.read_text())[auth["job_id"]]["attempt_id"] == "replacement"
+    assert not replacement["stop"].is_set()
+    cleanup.assert_not_called()
+
+
+def test_shutdown_cannot_decommission_a_host_with_unsettled_work(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    monkeypatch.setattr(worker, "_DEREGISTER_ON_EXIT", True)
+    mounts = mock.Mock()
+    monkeypatch.setattr(worker, "cleanup_orphaned_volume_mounts", mounts)
+    docker = mock.Mock()
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    worker.graceful_shutdown()
+    worker._api_request.assert_not_called()
+    docker.assert_not_called()
+    mounts.assert_not_called()
+    assert auth["job_id"] in json.loads(journal.read_text())
