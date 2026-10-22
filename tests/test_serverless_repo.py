@@ -16,6 +16,7 @@ from serverless.repo import (
     JOB_STATUS_QUEUED,
     EndpointCreate,
     ServerlessRepo,
+    WORKER_STATE_READY,
 )
 
 
@@ -81,7 +82,8 @@ class TestMigration037:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "migrations",
+            "api",
+            "migrations",
             "versions",
             "037_serverless_endpoints_workers_jobs_keys.py",
         )
@@ -95,7 +97,13 @@ class TestMigration037:
         import pathlib
 
         def _load(name: str):
-            path = pathlib.Path(__file__).resolve().parent.parent / "api" / "migrations" / "versions" / name
+            path = (
+                pathlib.Path(__file__).resolve().parent.parent
+                / "api"
+                / "migrations"
+                / "versions"
+                / name
+            )
             spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -119,7 +127,8 @@ class TestMigration038:
 
         path = (
             pathlib.Path(__file__).resolve().parent.parent
-            / "api" / "migrations"
+            / "api"
+            / "migrations"
             / "versions"
             / "038_serverless_limits_webhooks.py"
         )
@@ -135,7 +144,8 @@ class TestMigration038:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "migrations",
+            "api",
+            "migrations",
             "versions",
             "038_serverless_limits_webhooks.py",
         )
@@ -219,6 +229,7 @@ class TestServerlessRepoQueue:
         assert repo.queue_depth(ep_id) == 1
 
         worker = repo.create_worker(ep_id, scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}")
+        repo.update_worker(worker["worker_id"], state=WORKER_STATE_READY)
         claimed = repo.claim_next_job(ep_id, worker["worker_id"])
         assert claimed is not None
         assert claimed["job_id"] == job["job_id"]
