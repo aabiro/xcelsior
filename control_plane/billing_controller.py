@@ -322,6 +322,29 @@ def reconcile_billing_meters(conn: Connection, *, limit: int = 500) -> BillingRe
                               AND (m.completed_at IS NULL OR m.completed_at=0))))""",
         (FINDING_ACTIVE_METER, list(_TERMINAL)),
     )
+    # This controller owns its findings' resolution (the host reconciler no
+    # longer clears them): resolve each once its invariant holds again.
+    conn.execute(
+        """UPDATE reconciliation_findings f SET resolved_at=clock_timestamp()
+            WHERE f.resource_type='attempt' AND f.finding_type=%s AND f.resolved_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM job_attempts a
+                               WHERE a.attempt_id::text=f.resource_id
+                                 AND a.status=ANY(%s)
+                                 AND a.started_at IS NOT NULL AND a.ended_at IS NOT NULL
+                                 AND NOT EXISTS (SELECT 1 FROM usage_meters m
+                                                  WHERE m.attempt_id=a.attempt_id::text))""",
+        (FINDING_MISSING_METER, list(_BILLABLE_TERMINAL)),
+    )
+    conn.execute(
+        """UPDATE reconciliation_findings f SET resolved_at=clock_timestamp()
+            WHERE f.resource_type='attempt' AND f.finding_type=%s AND f.resolved_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM usage_meters m
+                                JOIN job_attempts a ON a.attempt_id::text=m.attempt_id
+                               WHERE m.attempt_id=f.resource_id
+                                 AND (m.completed_at IS NULL OR m.completed_at=0)
+                                 AND a.status=ANY(%s))""",
+        (FINDING_ORPHANED_METER, list(_TERMINAL)),
+    )
 
     return result
 

@@ -327,18 +327,31 @@ def _record_action(
     )
 
 
+# The finding types `reconcile_host` evaluates. It may only resolve these:
+# billing/job controllers also file findings on this host's attempts, and a
+# host pass that did not evaluate them must not clear them (it did, every
+# pass, so billing_missing_meter reopened and resolved every five minutes).
+_HOST_FINDING_TYPES: tuple[str, ...] = (
+    "attempt_container_missing",
+    "stale_fence_container",
+    "unmanaged_workload",
+    "orphaned_allocation",
+)
+
+
 def _resolve_findings_not_in(
     conn: Connection,
     *,
     host_id: str,
     still_open: set[tuple[str, str, str]],
 ) -> int:
-    """Resolve open findings for this host's resources that no longer hold."""
+    """Resolve open host-owned findings for this host's resources that no longer hold."""
     rows = conn.execute(
         """
         SELECT finding_id, resource_type, resource_id, finding_type
           FROM reconciliation_findings
          WHERE resolved_at IS NULL
+           AND finding_type = ANY(%(types)s)
            AND (
                 (resource_type = 'host' AND resource_id = %(host)s)
              OR (resource_type = 'attempt' AND resource_id IN (
@@ -346,7 +359,7 @@ def _resolve_findings_not_in(
                       WHERE host_id = %(host)s))
            )
         """,
-        {"host": host_id},
+        {"host": host_id, "types": list(_HOST_FINDING_TYPES)},
     ).fetchall()
     resolved = 0
     for row in rows:
