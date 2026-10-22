@@ -153,7 +153,7 @@
   },
   "GET /agent/preempt/{host_id}": {
     "class": "internal",
-    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+    "notes": "Authenticated permanent HTTP 410 tombstone; the process-memory preemption queue and its worker poll were removed. Use durable fenced commands."
   },
   "GET /agent/ssh-keys/{job_id}": {
     "class": "internal",
@@ -169,7 +169,7 @@
   },
   "GET /agent/v2/preempt/{host_id}": {
     "class": "redundant",
-    "notes": "Alias of GET /agent/preempt/{host_id} — the same function object mounted under the fenced /agent/v2 prefix, which will supersede the v1 path once the worker has migrated. Counted once, on the v1 row (classed 'internal'): the tool surface asks whether a *capability* is exposed, and inheriting the label here would double-count it — for the three v1 rows classed 'gap' that would invent three missing tools that do not exist."
+    "notes": "Alias of the permanent authenticated GET /agent/preempt/{host_id} HTTP 410 tombstone; no preemption capability is available through this alias."
   },
   "GET /agent/v2/promotions/{promotion_id}/manifest": {
     "class": "redundant",
@@ -1217,7 +1217,7 @@
   },
   "POST /agent/preempt/{host_id}/{job_id}": {
     "class": "internal",
-    "notes": "worker-agent callbacks, authenticated by the fleet secret"
+    "notes": "Authenticated permanent HTTP 410 tombstone; the process-memory preemption queue and its worker poll were removed. Use durable fenced commands."
   },
   "POST /agent/ssh-status/{job_id}": {
     "class": "internal",
@@ -1797,11 +1797,11 @@
   },
   "POST /api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute": {
     "class": "covered",
-    "notes": "evict_host_workloads calls this path, through the approval flow"
+    "notes": "The MCP approval flow calls this path. Execution returns HTTP 501 until durable preemption can confirm worker stop; approved plans remain retryable."
   },
   "POST /api/v1/hosts/{host_id}/evictions": {
     "class": "internal",
-    "notes": "direct eviction without a plan. The tool deliberately goes through eviction-plans instead, so this is the operator's unapproved path"
+    "notes": "Operator-only endpoint; execution returns HTTP 501 until the durable preemption controller is available."
   },
   "POST /api/v1/hosts/{host_id}/undrain": {
     "class": "covered",
@@ -2185,7 +2185,7 @@
   },
   "POST /spot/preemption-cycle": {
     "class": "gap",
-    "notes": "P5 placement and migration need spot data as tools"
+    "notes": "Read-only capacity preview with dry_run=true; execution returns HTTP 501 until durable preemption is available. Preview tool coverage remains a P5 gap."
   },
   "POST /ssh/keygen": {
     "class": "internal",

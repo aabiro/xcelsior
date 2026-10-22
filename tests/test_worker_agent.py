@@ -410,30 +410,6 @@ class TestPollForWork:
         assert worker_agent.poll_for_work() == []
 
 
-# ── Preemption Check ─────────────────────────────────────────────────
-
-
-class TestCheckPreemption:
-    def test_returns_job_ids(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            return _FakeResp(200, {"preempt_jobs": ["j-1", "j-2"]})
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        ids = worker_agent.check_preemption()
-        assert ids == ["j-1", "j-2"]
-
-    def test_returns_empty_on_failure(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            return _FakeResp(500)
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        assert worker_agent.check_preemption() == []
-
-
 # ── Lease Management ─────────────────────────────────────────────────
 
 

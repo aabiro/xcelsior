@@ -4,6 +4,7 @@
 Usage: python scripts/split_api.py          # dry-run (print summary)
        python scripts/split_api.py --write  # generate route files
 """
+
 import re
 import sys
 from pathlib import Path
@@ -15,44 +16,81 @@ ROUTES_DIR = ROOT / "routes"
 
 # ── Tag → module mapping ──────────────────────────────────────────────
 TAG_TO_MODULE = {
-    "Hosts": "hosts", "Instances": "instances", "Billing": "billing",
-    "Infrastructure": "infra", "SSH Keys": "ssh", "Auth": "auth",
-    "Auth – MFA": "mfa", "Teams": "teams", "Marketplace": "marketplace",
+    "Hosts": "hosts",
+    "Instances": "instances",
+    "Billing": "billing",
+    "Infrastructure": "infra",
+    "SSH Keys": "ssh",
+    "Auth": "auth",
+    "Auth – MFA": "mfa",
+    "Teams": "teams",
+    "Marketplace": "marketplace",
     "Marketplace v2": "marketplace",
-    "Autoscale": "autoscale", "Agent": "agent", "Spot Pricing": "spot",
-    "Events": "events", "Verification": "verification",
-    "Reputation": "reputation", "Compliance": "compliance",
-    "Privacy": "privacy", "Transparency": "transparency", "SLA": "sla",
-    "Providers": "providers", "Notifications": "notifications",
-    "Admin": "admin", "Chat": "chat", "AI Assistant": "chat",
-    "Inference": "inference", "Inference v2": "inference",
-    "Telemetry": "agent", "Volumes": "volumes", "Cloud Burst": "cloudburst",
-    "GPU": "gpu", "Jobs": "scheduler_routes",
+    "Autoscale": "autoscale",
+    "Agent": "agent",
+    "Spot Pricing": "spot",
+    "Events": "events",
+    "Verification": "verification",
+    "Reputation": "reputation",
+    "Compliance": "compliance",
+    "Privacy": "privacy",
+    "Transparency": "transparency",
+    "SLA": "sla",
+    "Providers": "providers",
+    "Notifications": "notifications",
+    "Admin": "admin",
+    "Chat": "chat",
+    "AI Assistant": "chat",
+    "Inference": "inference",
+    "Inference v2": "inference",
+    "Telemetry": "agent",
+    "Volumes": "volumes",
+    "Cloud Burst": "cloudburst",
+    "GPU": "gpu",
+    "Jobs": "scheduler_routes",
 }
 
 PATH_OVERRIDES = {
-    "/api/slurm/": "slurm", "/api/nfs/": "slurm",
-    "/api/pricing/": "pricing", "/api/analytics/": "billing",
+    "/api/slurm/": "slurm",
+    "/api/nfs/": "slurm",
+    "/api/pricing/": "pricing",
+    "/api/analytics/": "billing",
     "/api/billing/gst-threshold": "compliance",
-    "/token/generate": "auth", "/api/auth/device": "auth",
-    "/api/auth/token": "auth", "/api/auth/verify": "auth",
-    "/api/users/me/preferences": "auth", "/api/auth/me/data-export": "auth",
+    "/token/generate": "auth",
+    "/api/auth/device": "auth",
+    "/api/auth/token": "auth",
+    "/api/auth/verify": "auth",
+    "/api/users/me/preferences": "auth",
+    "/api/auth/me/data-export": "auth",
     "/api/artifacts": "artifacts",
     "/api/audit/": "events",
-    "/build": "infra", "/builds": "infra",
-    "/alerts/": "infra", "/api/alerts/": "infra",
-    "/healthz": "health", "/readyz": "health", "/metrics": "health",
-    "/dashboard": "health", "/legacy": "health", "/llms.txt": "health",
+    "/build": "infra",
+    "/builds": "infra",
+    "/alerts/": "infra",
+    "/api/alerts/": "infra",
+    "/healthz": "health",
+    "/readyz": "health",
+    "/metrics": "health",
+    "/dashboard": "health",
+    "/legacy": "health",
+    "/llms.txt": "health",
     "/api/stream": "health",
-    "/compute-score": "hosts", "/compute-scores": "hosts",
-    "/v1/chat/completions": "inference", "/v1/inference": "inference",
+    "/compute-score": "hosts",
+    "/compute-scores": "hosts",
+    "/v1/chat/completions": "inference",
+    "/v1/inference": "inference",
     "/api/v2/inference/complete/": "inference",
     "/api/v2/scheduler/": "scheduler_routes",
-    "/api/v2/billing/": "billing", "/api/v2/burst/": "cloudburst",
-    "/api/v2/privacy/": "privacy", "/api/v2/marketplace/": "marketplace",
-    "/api/v2/gpu/": "gpu", "/api/v2/volumes/": "volumes",
-    "/ssh/": "ssh", "/api/ssh/": "ssh",
-    "/tiers": "instances", "/ws/": "instances",
+    "/api/v2/billing/": "billing",
+    "/api/v2/burst/": "cloudburst",
+    "/api/v2/privacy/": "privacy",
+    "/api/v2/marketplace/": "marketplace",
+    "/api/v2/gpu/": "gpu",
+    "/api/v2/volumes/": "volumes",
+    "/ssh/": "ssh",
+    "/api/ssh/": "ssh",
+    "/tiers": "instances",
+    "/ws/": "instances",
 }
 
 
@@ -70,20 +108,23 @@ def classify_route(path: str, tag: str) -> str:
 
 # ── Per-module helper patterns (state/functions to move) ──────────────
 MODULE_HELPERS = {
-    "teams": [r'^(?:async\s+)?def _send_team_email\('],
+    "teams": [r"^(?:async\s+)?def _send_team_email\("],
     "instances": [
-        r'^_TERMINAL_STATES\s*=', r'^_job_log_buffers\s*[=:{]',
-        r'^_ws_connections\s*[=:{]', r'^(?:async\s+)?def _validate_ws_auth\(',
+        r"^_TERMINAL_STATES\s*=",
+        r"^_job_log_buffers\s*[=:{]",
+        r"^_ws_connections\s*[=:{]",
+        r"^(?:async\s+)?def _validate_ws_auth\(",
     ],
     "agent": [
-        r'^_host_telemetry\s*[=:{]',
+        r"^_host_telemetry\s*[=:{]",
     ],
     "auth": [
-        r'^_OAUTH_PROVIDERS\s*=', r'^_pending_device_codes\s*[=:{]',
-        r'^_pending_verifications\s*[=:{]',
+        r"^_OAUTH_PROVIDERS\s*=",
+        r"^_pending_device_codes\s*[=:{]",
+        r"^_pending_verifications\s*[=:{]",
     ],
     "chat": [
-        r'^(?:async\s+)?def _require_ai_enabled\(',
+        r"^(?:async\s+)?def _require_ai_enabled\(",
     ],
 }
 
@@ -125,7 +166,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from scheduler import (
     submit_job, list_jobs, update_job_status, process_queue, cancel_job,
-    failover_and_reassign, requeue_job, list_tiers, run_job, kill_job,
+    failover_and_reassign, requeue_job, list_tiers, kill_job,
     PRIORITY_TIERS, API_TOKEN, list_hosts,
 )
 from events import get_event_store, get_state_machine, JobState, EventType
@@ -373,30 +414,47 @@ from routes._deps import _get_current_user
 
 # Tags for each module's APIRouter
 MODULE_TAGS = {
-    "hosts": ["Hosts"], "instances": ["Instances"], "billing": ["Billing"],
-    "health": ["Infrastructure"], "ssh": ["SSH Keys"], "auth": ["Auth"],
-    "mfa": ["Auth – MFA"], "teams": ["Teams"], "marketplace": ["Marketplace"],
+    "hosts": ["Hosts"],
+    "instances": ["Instances"],
+    "billing": ["Billing"],
+    "health": ["Infrastructure"],
+    "ssh": ["SSH Keys"],
+    "auth": ["Auth"],
+    "mfa": ["Auth – MFA"],
+    "teams": ["Teams"],
+    "marketplace": ["Marketplace"],
     "slurm": ["Agent"],
-    "autoscale": ["Autoscale"], "agent": ["Agent"], "spot": ["Spot Pricing"],
-    "events": ["Events"], "verification": ["Verification"],
-    "reputation": ["Reputation"], "compliance": ["Compliance"],
-    "privacy": ["Privacy"], "transparency": ["Transparency"],
-    "sla": ["SLA"], "providers": ["Providers"],
-    "notifications": ["Notifications"], "admin": ["Admin"],
-    "chat": ["Chat"], "inference": ["Inference"], "volumes": ["Volumes"],
-    "cloudburst": ["Cloud Burst"], "gpu": ["GPU"],
-    "scheduler_routes": ["Jobs"], "artifacts": ["Artifacts"],
-    "pricing": ["Billing"], "infra": ["Infrastructure"],
+    "autoscale": ["Autoscale"],
+    "agent": ["Agent"],
+    "spot": ["Spot Pricing"],
+    "events": ["Events"],
+    "verification": ["Verification"],
+    "reputation": ["Reputation"],
+    "compliance": ["Compliance"],
+    "privacy": ["Privacy"],
+    "transparency": ["Transparency"],
+    "sla": ["SLA"],
+    "providers": ["Providers"],
+    "notifications": ["Notifications"],
+    "admin": ["Admin"],
+    "chat": ["Chat"],
+    "inference": ["Inference"],
+    "volumes": ["Volumes"],
+    "cloudburst": ["Cloud Burst"],
+    "gpu": ["GPU"],
+    "scheduler_routes": ["Jobs"],
+    "artifacts": ["Artifacts"],
+    "pricing": ["Billing"],
+    "infra": ["Infrastructure"],
 }
 
 
 # ── Parsing ───────────────────────────────────────────────────────────
 
+
 def extract_routes(lines):
     """Parse api.py and extract route function line ranges + metadata."""
-    route_pat = re.compile(
-        r'^@app\.(get|post|put|patch|delete|websocket)\(\s*["\']([^"\']+)["\']'
-    )
+    route_pat = re.compile(r'^@app\.(get|post|put|patch|delete|websocket)\(\s*["\']([^"\']+)["\']')
     tag_pat = re.compile(r'tags=\["([^"]+)"\]')
     routes = []
     i = 0
@@ -419,7 +477,7 @@ def extract_routes(lines):
         if func_start >= len(lines):
             break
 
-        func_name_m = re.match(r'(?:async\s+)?def\s+(\w+)', lines[func_start])
+        func_name_m = re.match(r"(?:async\s+)?def\s+(\w+)", lines[func_start])
         func_name = func_name_m.group(1) if func_name_m else "unknown"
 
         # Find end of function
@@ -429,19 +487,24 @@ def extract_routes(lines):
             if l.strip() == "" or l.startswith("#"):
                 func_end += 1
                 continue
-            if l[0] in (' ', '\t'):
+            if l[0] in (" ", "\t"):
                 func_end += 1
                 continue
             break
         while func_end > func_start and lines[func_end - 1].strip() == "":
             func_end -= 1
 
-        routes.append({
-            "start": dec_start, "end": func_end,
-            "method": method, "path": path, "tag": tag,
-            "func_name": func_name,
-            "module": classify_route(path, tag),
-        })
+        routes.append(
+            {
+                "start": dec_start,
+                "end": func_end,
+                "method": method,
+                "path": path,
+                "tag": tag,
+                "func_name": func_name,
+                "module": classify_route(path, tag),
+            }
+        )
         i = func_end
     return routes
 
@@ -449,7 +512,7 @@ def extract_routes(lines):
 def find_pydantic_models(lines):
     """Find all Pydantic model class definitions and their line ranges."""
     models = []
-    pat = re.compile(r'^class\s+(\w+)\(BaseModel\):')
+    pat = re.compile(r"^class\s+(\w+)\(BaseModel\):")
     i = 0
     while i < len(lines):
         m = pat.match(lines[i])
@@ -461,9 +524,11 @@ def find_pydantic_models(lines):
         while ce < len(lines):
             l = lines[ce]
             if l.strip() == "" or l.startswith("#"):
-                ce += 1; continue
-            if l[0] in (' ', '\t'):
-                ce += 1; continue
+                ce += 1
+                continue
+            if l[0] in (" ", "\t"):
+                ce += 1
+                continue
             break
         while ce > cs and lines[ce - 1].strip() == "":
             ce -= 1
@@ -485,9 +550,11 @@ def find_helpers(lines, module):
             while end < len(lines):
                 l = lines[end]
                 if l.strip() == "" or l.startswith("#"):
-                    end += 1; continue
-                if l[0] in (' ', '\t'):
-                    end += 1; continue
+                    end += 1
+                    continue
+                if l[0] in (" ", "\t"):
+                    end += 1
+                    continue
                 break
             while end > i and lines[end - 1].strip() == "":
                 end -= 1
@@ -503,7 +570,7 @@ def associate_models(models, routes, lines):
         name = model["name"]
         using = set()
         for route in routes:
-            code = "\n".join(lines[route["start"]:route["end"]])
+            code = "\n".join(lines[route["start"] : route["end"]])
             if name in code:
                 using.add(route["module"])
         if len(using) == 1:
@@ -543,21 +610,26 @@ def generate_module_file(module, mod_routes, mod_models, mod_helpers, lines):
     # Models
     for model in sorted(mod_models, key=lambda m: m["start"]):
         parts.append("")
-        parts.append("\n".join(lines[model["start"]:model["end"]]))
+        parts.append("\n".join(lines[model["start"] : model["end"]]))
 
     # Helpers
     for helper in sorted(mod_helpers, key=lambda h: h["start"]):
         parts.append("")
         parts.append("")
-        parts.append("\n".join(lines[helper["start"]:helper["end"]]))
+        parts.append("\n".join(lines[helper["start"] : helper["end"]]))
 
     # Routes
     for route in sorted(mod_routes, key=lambda r: r["start"]):
         parts.append("")
         parts.append("")
-        code = "\n".join(lines[route["start"]:route["end"]])
+        code = "\n".join(lines[route["start"] : route["end"]])
         # Replace @app.X with @router.X
-        code = re.sub(r'^@app\.(get|post|put|patch|delete|websocket)\(', r'@router.\1(', code, flags=re.MULTILINE)
+        code = re.sub(
+            r"^@app\.(get|post|put|patch|delete|websocket)\(",
+            r"@router.\1(",
+            code,
+            flags=re.MULTILINE,
+        )
         parts.append(code)
 
     parts.append("")
@@ -588,7 +660,9 @@ def main():
     print(f"\nFound {len(routes)} routes across {len(modules)} modules:")
     for mod, mod_routes in sorted(modules.items()):
         mm = module_models.get(mod, [])
-        total = sum(r["end"] - r["start"] for r in mod_routes) + sum(m["end"] - m["start"] for m in mm)
+        total = sum(r["end"] - r["start"] for r in mod_routes) + sum(
+            m["end"] - m["start"] for m in mm
+        )
         print(f"  {mod:20s}: {len(mod_routes):3d} routes, {len(mm):2d} models, ~{total:4d} lines")
 
     if not write:

@@ -1,0 +1,345 @@
+{
+  "candidate_base": "ac1852ad420ad2aa535418abdafa989ac2ad1bb6",
+  "status": "review candidate; no application, worker or schema deployment",
+  "validation": {
+    "results": {
+      "tests": 1259,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "named_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
+    "tests": [
+      "tests/test_cutover_audit_regressions.py",
+      "tests/test_alert_webhook.py",
+      "tests/test_restore_migration_isolation.py",
+      "tests/test_backup_workflow.py",
+      "tests/test_attempt_billing_snapshot.py",
+      "tests/test_attempt_scoped_usage_meters.py",
+      "tests/test_active_meter_repair.py",
+      "tests/test_billing_controller.py",
+      "tests/test_billing_spot_metering.py",
+      "tests/test_provider_settlement.py",
+      "tests/test_wallet_holds.py",
+      "tests/test_db_service_roles.py",
+      "tests/test_job_reconcile_queue.py",
+      "tests/test_complete_worker_cutover.py",
+      "tests/test_agent_v2.py",
+      "tests/test_worker_agent_v2.py",
+      "tests/test_worker_terminal_recovery.py",
+      "tests/test_worker_execution_boundary.py",
+      "tests/test_legacy_observation_gates.py",
+      "tests/test_agent_commands_lifecycle.py",
+      "tests/test_scheduler_placement_partition.py",
+      "tests/test_observability_stack.py",
+      "tests/test_prometheus_worker_aggregation.py",
+      "tests/test_control_plane_leases.py",
+      "tests/test_worker_agent.py",
+      "tests/test_worker_startup_regressions.py",
+      "tests/test_legacy_lifecycle_boundary.py",
+      "tests/test_instance_flow.py",
+      "tests/test_worker_api_calls_go_through_one_seam.py",
+      "tests/test_host_agent_tokens.py",
+      "tests/test_static_endpoints.py",
+      "--deselect=tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_restore_tools_cluster.py",
+      "tests/test_generated_artifacts_are_current.py",
+      "tests/test_public_openapi.py",
+      "tests/test_gate_truth_table_tally.py",
+      "tests/test_migration_ledger.py",
+      "tests/test_no_runtime_ddl.py",
+      "tests/test_startup_env_is_wired.py",
+      "tests/test_source_tree_is_shared.py",
+      "tests/test_companion_schema_discipline.py",
+      "tests/test_sql_injection_guard.py",
+      "tests/test_migration_lock_discipline.py",
+      "tests/test_gt0_classification_ratchet.py",
+      "tests/test_requirements_export_matches_lock.py",
+      "tests/test_sandboxed_gates_are_db_free.py",
+      "tests/test_instance_connect_scope.py",
+      "tests/test_customer_billing_reads_require_scope.py",
+      "tests/test_log_scrubbing_stays_linear.py",
+      "tests/test_no_payment_secrets_in_logs.py",
+      "--deselect=tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "--deselect=tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database",
+      "tests/test_api.py",
+      "tests/test_volumes.py",
+      "tests/test_scheduler.py",
+      "tests/test_preemption_capacity.py",
+      "tests/test_spot_capacity.py",
+      "tests/test_control_plane_v1_drain_evict.py",
+      "tests/test_fenced_lifecycle_controller.py",
+      "tests/test_control_plane_filters_scoring.py",
+      "tests/test_control_plane_reservation.py",
+      "tests/test_shared_state_contract.py",
+      "tests/test_bg_worker.py",
+      "tests/test_request_path_instance_lifecycle_sse.py",
+      "tests/test_identity_admission_fails_closed.py"
+    ],
+    "gate_exit_code": 0,
+    "all_changed_python_matches_test_manifest": true,
+    "manifest_sha256": "58eb580f5f63765ab86d0ea7979de7e15abe6b627037d8172398fb94897980a4",
+    "pyright": {
+      "filesAnalyzed": 240,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 22.643
+    },
+    "ruff": "passed repository check",
+    "black": "24 changed Python files passed; whole-tree formatting backlog not included",
+    "worker_distribution_signatures_verified": 12,
+    "endpoint_operations": 568,
+    "endpoint_classifications": 568,
+    "generated_inventory_and_public_openapi": "regenerated and verified"
+  },
+  "source_sha256": {
+    "api/routes/agent.py": "02472c0848ddaffedf614ceeee4e1455dc194dd2cc118f32cfa27879e581e3b8",
+    "api/routes/control_plane_v1.py": "33605ff77ca138fdfbbcd08b760b63d4409aa713318decb8e70f9a94a9bb8968",
+    "api/routes/hosts.py": "428c60a5e0da247c2e0b0930b5793fcbab8a9760c4b479a1d32bc19ee7bcd075",
+    "api/routes/instances.py": "cf9e96c1423e0c2f462c13450b8c3f13669e472ce45a1a9981fb8d036d1ad129",
+    "api/routes/spot.py": "8b40025392cb79cfbf59fd0de9450cebad5825340a5255823ac2d5998b63789c",
+    "api/scripts/split_api.py": "2c6397f05ff3d800cfe09e608a7ff41044dad378bb1db8f344ea0d90fe9c9ec7",
+    "control_plane/scheduler/filters.py": "d0c582a05f454695c1cb13bf892aaca09ad8032a44eabe682993e498a923487e",
+    "control_plane/scheduler/reservation.py": "a2c18459ff193896c7db558861c2f64b2e1410a778c2b29558dbc5212364d808",
+    "core/db.py": "a5bfe03d4065913a0b8aa851953bbf7e9cb19f8cb20a926c0c761afedabdf70a",
+    "reorganize.py": "f767223101ddc2fcaef465ca79f896680b0db017f6f519381c73b95c6313c22b",
+    "tests/test_agent_v2.py": "55c405337f91fa86836c52aeb39ef7f2b7aa306f36a52d9155db8f2e92611ecd",
+    "tests/test_api.py": "d84909b0072e45deee068a62bbd64a66733461114eb1639bc644866a7c6d7033",
+    "tests/test_control_plane_reservation.py": "d3ebbe52a478cd09e2e5cd2ccd91abcaca3b27f6956a4d5bab2f9cb78209160d",
+    "tests/test_control_plane_v1_drain_evict.py": "f556496b39b57a62ed0e04904d4de2e2104b1f63122f914f81ec11a841b09874",
+    "tests/test_fenced_lifecycle_controller.py": "6a657d531de537f87ec01e889b65dc1bfb15670ca86db66563791486b7e0d911",
+    "tests/test_instance_flow.py": "53287dd8cef21e13e13dab2659d9282901a0387386096a0745c1fa2a7247bace",
+    "tests/test_preemption_capacity.py": "f19cc0299aaeb27e3d50dd101cdec7f687add69d3f78205e6dfa5ac1c5ae2754",
+    "tests/test_scheduler.py": "1755ac0c2eb69f29a6f919c2431722267641d3ef1ab83b74d9887eece3cd16cf",
+    "tests/test_scheduler_placement_partition.py": "1d755d5cf1c6c2b98c4ab1e10918994bbe894e01f3484a991799e9cb3850ff12",
+    "tests/test_spot_capacity.py": "7a4451fc61efab81a4dc30f7c01ebd717409564d64f829e8fbc405bad8a17e72",
+    "tests/test_volumes.py": "c1f364f1688efc7e049d158eb805159ad7319a7a6223fdcea8d4af0e81a0f297",
+    "tests/test_worker_agent.py": "0f85933d2381903bc7bb2b649ff6dceba6b5cacff845a68d14b1a3a5caeeae1b",
+    "workers/scheduler.py": "c77f10004c091d4e573a1c1768ff2b5a9af19278d3ded7f15ca2bb20ea479e3c",
+    "workers/worker_agent.py": "5dab0d6e2c36a0d0f8d397f7a4d3064a1cefa556ef83751ec55c3ef80c120db2",
+    "api/scripts/worker_agent.py.sig": "7deb5be37440ee491e33f489c26cf1b8ca8f7ba3f5b8a223ab8f82ace86f7818",
+    "api/docs/endpoint-classification.json": "281964aaa694f4f0a59d2a43515c6ac772937171d5ffba28e7ecf28ce0538e53",
+    "api/docs/generated/endpoint-inventory.md": "851861c357bcc29b7781372270e12d7f5fef40ed70f877eaf42e7bcb0442adc7",
+    "api/fern/openapi.json": "d6f6edb153d5253dd2713e57aa36754f790907d10ff3a7ec5bab0c48556fc325",
+    "api/public/openapi.json": "d6f6edb153d5253dd2713e57aa36754f790907d10ff3a7ec5bab0c48556fc325"
+  },
+  "physically_removed": [
+    "core/agent_preempt.py",
+    "scheduler.process_assigned",
+    "scheduler.run_job",
+    "scheduler.preempt_job",
+    "scheduler.allocate_with_preemption",
+    "scheduler.run_drain_preemptions",
+    "scheduler._read_legacy_json_file",
+    "scheduler._load_legacy_namespace",
+    "scheduler._migrate_jobs_if_needed",
+    "scheduler._migrate_hosts_if_needed",
+    "worker.check_preemption",
+    "worker.handle_preemptions"
+  ],
+  "schema_audit": {
+    "collected_at": "2026-10-22T02:21:45.915047+00:00",
+    "database": "xcelsior",
+    "port": 5434,
+    "revision": "125",
+    "read_only": true,
+    "job_states": [
+      [
+        "cancelled",
+        "stopped",
+        "stopped",
+        77
+      ],
+      [
+        "completed",
+        "succeeded",
+        "running",
+        4
+      ],
+      [
+        "failed",
+        "failed",
+        "running",
+        249
+      ],
+      [
+        "stopped",
+        "stopped",
+        "stopped",
+        12
+      ],
+      [
+        "terminated",
+        "stopped",
+        "stopped",
+        22
+      ]
+    ],
+    "columns": {
+      "hosts": {
+        "administrative_state": {
+          "nullable": false,
+          "nulls": 0,
+          "rows": 6
+        },
+        "availability_state": {
+          "nullable": false,
+          "nulls": 0,
+          "rows": 6
+        },
+        "owner_id": {
+          "nullable": true,
+          "nulls": 4,
+          "rows": 6
+        },
+        "provider_id": {
+          "nullable": true,
+          "nulls": 4,
+          "rows": 6
+        },
+        "tenant_id": {
+          "nullable": true,
+          "nulls": 6,
+          "rows": 6
+        }
+      },
+      "jobs": {
+        "desired_state": {
+          "nullable": true,
+          "nulls": 0,
+          "rows": 364
+        },
+        "effective_priority": {
+          "nullable": false,
+          "nulls": 0,
+          "rows": 364
+        },
+        "generation": {
+          "nullable": false,
+          "nulls": 0,
+          "rows": 364
+        },
+        "owner_id": {
+          "nullable": true,
+          "nulls": 72,
+          "rows": 364
+        },
+        "phase": {
+          "nullable": true,
+          "nulls": 0,
+          "rows": 364
+        },
+        "queued_at": {
+          "nullable": true,
+          "nulls": 0,
+          "rows": 364
+        },
+        "spec": {
+          "nullable": true,
+          "nulls": 364,
+          "rows": 364
+        },
+        "spec_hash": {
+          "nullable": true,
+          "nulls": 360,
+          "rows": 364
+        },
+        "tenant_id": {
+          "nullable": true,
+          "nulls": 72,
+          "rows": 364
+        },
+        "version": {
+          "nullable": false,
+          "nulls": 0,
+          "rows": 364
+        }
+      }
+    },
+    "legacy_tables": {
+      "events": {
+        "rows": 9216
+      },
+      "leases": {
+        "rows": 302,
+        "states": [
+          [
+            "expired",
+            225
+          ],
+          [
+            "released",
+            77
+          ]
+        ]
+      },
+      "state": {
+        "rows": 26
+      }
+    },
+    "triggers": [
+      {
+        "table": "hosts",
+        "name": "trg_hosts_control_plane_projection",
+        "function_sha256": "8dc8bb392f1ae479b086fa47508768d4f18339ae04d07fe305b5b5da07f9f2ad"
+      },
+      {
+        "table": "jobs",
+        "name": "jobs_request_reconciliation",
+        "function_sha256": "65a23b47ff0c359f15caadd64b5dc5d780e7991d97a8c08299f4f4bfcf5c1db0"
+      },
+      {
+        "table": "jobs",
+        "name": "trg_jobs_control_plane_projection",
+        "function_sha256": "30bf9a3bb5d9ad9320f7d7fb692af7e8212ff89554570e16983f91ba99de006d"
+      }
+    ],
+    "raw_inventory_sha256": "98d48a9a79ed06aba179d11d0790cd7f7e5b22fca9dea8898b535869fe9e13a7"
+  },
+  "production_boundary": {
+    "checked_at": "2026-10-22T02:31:26.868404+00:00",
+    "revision": [
+      [
+        "125"
+      ]
+    ],
+    "application_image": "xcelsior-api:cutover-audit-cb71106b",
+    "application_services": "healthy; same running image",
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "active_jobs": [],
+    "protected_historical_rows": 12,
+    "protected_historical_rows_unchanged": true,
+    "grafana_dashboard_sha256": "c8e356472d0ee5fdbcf275db232d5f1892be5228051bf2204603144034806884",
+    "grafana_pid": 182240,
+    "runtime_probe_sha256": "e844f3286201cf3863bbfe3246773a3ff638025f2abc5f4f5339c2b5d3b870e6",
+    "application_mutations": false,
+    "schema_mutations": false,
+    "historical_deletion": false,
+    "worker_restart": false
+  },
+  "remaining": [
+    "B16.2 native normalized writers and trigger contraction",
+    "canonical historical specs and identities",
+    "retention/export/restore qualification before historical deletion",
+    "legacy lease protocol/store and queue walkers",
+    "remaining SSH lifecycle/serverless and checkpoint/migration helpers",
+    "legacy resume/control and SQL JSONB compatibility",
+    "scheduler and worker decomposition",
+    "B16.4 durable fairness and preemption"
+  ]
+}

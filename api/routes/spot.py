@@ -1,6 +1,6 @@
 """Routes: spot pricing (admin + public price feeds)."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from routes._deps import (
     _require_admin,
@@ -54,7 +54,7 @@ def api_spot_enabled():
 def api_preemption_cycle(request: Request, dry_run: bool = False):
     """Capacity preemption cycle for ops (set ``dry_run=true`` to preview only)."""
     _require_admin(request)
-    prices, result = preemption_cycle(dry_run=dry_run)
-    if dry_run:
-        return {"ok": True, "dry_run": True, "candidates": result, "prices": prices}
-    return {"ok": True, "preempted": result, "prices": prices}
+    if not dry_run:
+        raise HTTPException(501, "Durable preemption is not available; use dry_run=true to preview")
+    prices, result = preemption_cycle(dry_run=True)
+    return {"ok": True, "dry_run": True, "candidates": result, "prices": prices}

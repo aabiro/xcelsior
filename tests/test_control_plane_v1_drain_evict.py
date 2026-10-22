@@ -127,16 +127,17 @@ def _running_job_on(host_id: str, headers: dict) -> str:
 # ── The core §3.3 property ──────────────────────────────────────────────
 
 
-def test_v1_drain_leaves_running_workloads_running():
+@pytest.mark.parametrize("prefix", ["/api/v1/hosts", "/host"])
+def test_drain_leaves_running_workloads_running(prefix):
     admin = _admin_headers(f"drain-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
     host_id = f"cpv1-drain-{uuid.uuid4().hex[:6]}"
     _register_host(host_id)
     job_id = _running_job_on(host_id, admin)
 
-    resp = client.post(f"/api/v1/hosts/{host_id}/drain", headers=admin, json={})
+    resp = client.post(f"{prefix}/{host_id}/drain", headers=admin, json={})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["evicted"] == []  # drain never evicts
+    assert body.get("evicted", body.get("preempted")) == []
     assert body["host"]["status"] == "draining"
 
     # The running workload is untouched.
@@ -145,7 +146,7 @@ def test_v1_drain_leaves_running_workloads_running():
     assert still["host_id"] == host_id
 
 
-def test_v1_evictions_removes_running_workloads():
+def test_v1_evictions_refuses_unconfirmed_requeue():
     admin = _admin_headers(f"evict-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
     host_id = f"cpv1-evict-{uuid.uuid4().hex[:6]}"
     _register_host(host_id)
@@ -158,15 +159,14 @@ def test_v1_evictions_removes_running_workloads():
 
     assert client.post(f"/api/v1/hosts/{host_id}/drain", headers=admin, json={}).status_code == 200
     resp = client.post(f"/api/v1/hosts/{host_id}/evictions", headers=admin, json={})
-    assert resp.status_code == 200, resp.text
-    assert job_id in resp.json()["evicted"]
-
-    # Evicted workload is no longer running on the host (preempted → requeued).
+    assert resp.status_code == 501, resp.text
+    assert resp.json()["code"] == "durable_preemption_unavailable"
     after = client.get(f"/instance/{job_id}").json()["instance"]
-    assert after["status"] != "running"
+    assert after["status"] == "running"
+    assert after["host_id"] == host_id
 
 
-def test_eviction_plan_preview_does_nothing_and_execute_is_idempotent():
+def test_eviction_execution_leaves_approved_plan_retryable():
     from db import _get_pg_pool
 
     admin = _admin_headers(f"evict-plan-{uuid.uuid4().hex[:6]}@xcelsior.ca")
@@ -196,11 +196,18 @@ def test_eviction_plan_preview_does_nothing_and_execute_is_idempotent():
     )
     assert approved.status_code == 200, approved.text
     first = client.post(f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin)
-    assert first.status_code == 200, first.text
-    assert job_id in first.json()["evicted"]
+    assert first.status_code == 501, first.text
+    assert first.json()["code"] == "durable_preemption_unavailable"
+    with _get_pg_pool().connection() as conn:
+        assert (
+            conn.execute("SELECT status FROM action_plans WHERE plan_id=%s", (plan_id,)).fetchone()[
+                0
+            ]
+            == "approved"
+        )
+    assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "running"
     second = client.post(f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin)
-    assert second.status_code == 200
-    assert second.json()["idempotent"] is True
+    assert second.status_code == 501
 
 
 # ── Separation of authority (§3.3 "separately authorized") ──────────────

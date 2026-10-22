@@ -146,6 +146,22 @@ def _counts(job_id):
         }
 
 
+def test_host_pin_is_rechecked_after_claim(fleet):
+    job_id = _mkjob(fleet)
+    host_id = _mkhost(fleet)
+    claimed = _claim(job_id)
+    before = _counts(job_id)
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET payload=jsonb_set(payload, '{preferred_host_id}', "
+            "to_jsonb(%s::text)) WHERE job_id=%s",
+            ("another-host", job_id),
+        )
+    with pytest.raises(HostNotEligible, match="pinned to another host"):
+        _reserve(claimed, host_id)
+    assert _counts(job_id) == before
+
+
 class TestHappyPath:
     def test_reservation_binds_everything_atomically(self, fleet):
         job_id = _mkjob(fleet)

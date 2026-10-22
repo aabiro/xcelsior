@@ -11,7 +11,7 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_spot_cap_")
 _tmpdir = _tmp_ctx.name
 
-os.environ["XCELSIOR_API_TOKEN"] = ""
+os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 
@@ -108,20 +108,6 @@ class TestSpotCapacityGating:
         refreshed = scheduler.get_job(job["job_id"])
         assert refreshed.get("spot_rate_cad") is not None
         assert refreshed.get("pricing_mode") == "spot"
-
-
-class TestPreemptionLifecycle:
-    def test_preempt_increments_count_and_requeues(self):
-        _host("pre-h")
-        job = scheduler.submit_job("preempt-me", 8, pricing_mode="spot")
-        scheduler.update_job_status(job["job_id"], "running", host_id="pre-h")
-        result = scheduler.preempt_job(job["job_id"])
-        assert result is not None
-        assert result["status"] == "queued"
-        assert result.get("preempted_at") is not None
-        assert result.get("preemption_count") == 1
-        assert result.get("pricing_mode") == "spot"
-        assert result.get("preemptible") is True
 
 
 class TestHostSpotSettings:

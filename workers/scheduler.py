@@ -2,7 +2,6 @@
 # Pull-based architecture. PostgreSQL + JSONB. Defense in depth. SSE dashboards.
 # 20 phases + production hardening. No shortcuts. Ever upward.
 
-import fcntl
 import json
 import logging
 import math
@@ -112,26 +111,6 @@ def _coerce_list(value):
     return value if isinstance(value, list) else []
 
 
-def _read_legacy_json_file(path):
-    """Best-effort read from legacy JSON files."""
-    if not os.path.exists(path):
-        return []
-    try:
-        with open(path, "r") as f:
-            fcntl.flock(f, fcntl.LOCK_SH)
-            try:
-                return _coerce_list(json.load(f))
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-
-def _ensure_storage_tables(conn):
-    """No-op: tables created by Alembic migrations."""
-    pass
-
-
 def _active_backend() -> str:
     """Runtime backend for scheduler persistence (honours CI/test env overrides)."""
     return (os.environ.get("XCELSIOR_DB_BACKEND") or DB_BACKEND or "postgres").lower()
@@ -190,15 +169,6 @@ def _pg_conn(conn):
 
 def _namespace_key(path):
     return os.path.realpath(path)
-
-
-def _load_legacy_namespace(conn, path):
-    """Read namespace data from state table first, then fallback JSON."""
-    backend = _active_backend()
-    stored = DatabaseOps.get_state(conn, _namespace_key(path), backend=backend)
-    if stored is not None:
-        return _coerce_list(stored)
-    return _read_legacy_json_file(path)
 
 
 def _decode_payload(payload) -> Any:
@@ -317,28 +287,9 @@ def _load_hosts_from_conn(conn, active_only=False):
     return hosts
 
 
-def _migrate_jobs_if_needed(conn):
-    row = conn.execute("SELECT 1 FROM jobs LIMIT 1").fetchone()
-    if row:
-        return
-    for job in _load_legacy_namespace(conn, JOBS_FILE):
-        if isinstance(job, dict):
-            _upsert_job_row(conn, job)
-
-
-def _migrate_hosts_if_needed(conn):
-    row = conn.execute("SELECT 1 FROM hosts LIMIT 1").fetchone()
-    if row:
-        return
-    for host in _load_legacy_namespace(conn, HOSTS_FILE):
-        if isinstance(host, dict):
-            _upsert_host_row(conn, host)
-
-
 def _set_job_fields(job_id, **updates):
     """Patch fields for one job atomically."""
     with _atomic_mutation() as conn:
-        _migrate_jobs_if_needed(conn)
         job = _get_job_by_id_conn(conn, job_id)
         if not job:
             return None
@@ -350,7 +301,6 @@ def _set_job_fields(job_id, **updates):
 def _set_host_fields(host_id, **updates):
     """Patch fields for one host atomically."""
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         host = _get_host_by_id_conn(conn, host_id)
         if not host:
             return None
@@ -362,7 +312,6 @@ def _set_host_fields(host_id, **updates):
 def set_host_draining(host_id, draining=True):
     """Mark a host as draining or restore it to its schedulable state."""
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         host = _get_host_by_id_conn(conn, host_id)
         if not host:
             return None
@@ -398,8 +347,8 @@ def set_host_draining(host_id, draining=True):
     return host
 
 
-def _load_json(path):
-    """Load persisted list data from SQLite, with one-time migration from JSON files."""
+def _load_state_list(path):
+    """Read the database namespace; a path identifies a key, never a file."""
     namespace = _namespace_key(path)
     backend = _active_backend()
     with _db_connection() as conn:
@@ -407,27 +356,15 @@ def _load_json(path):
         if stored is not None:
             return _coerce_list(stored)
 
-    payload = _read_legacy_json_file(path)
-    if not payload:
-        return []
-
-    _save_json(path, payload)
-    return payload
+    return []
 
 
-def _save_json(path, data):
-    """Persist list data while preserving JSON-compatible interfaces."""
+def _save_state_list(path, data):
+    """Replace the authoritative database value without creating a file mirror."""
     namespace = _namespace_key(path)
     backend = _active_backend()
     with _atomic_mutation() as conn:
         DatabaseOps.upsert_state(conn, namespace, data, backend=backend)
-
-    # Keep a legacy JSON mirror for backward compatibility/tests.
-    dirpath = os.path.dirname(path)
-    if dirpath:
-        os.makedirs(dirpath, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
 
 
 # ── Phase 1: Allocate ────────────────────────────────────────────────
@@ -774,59 +711,6 @@ def identify_preemption_candidates(
     return selected
 
 
-def allocate_with_preemption(job, hosts, jobs: list[dict] | None = None):
-    """Allocate a host, preempting spot jobs when on-demand contention requires it."""
-    jobs = jobs or list_jobs()
-    host = allocate(job, hosts, jobs=jobs)
-    if host:
-        return host, []
-
-    if not _job_may_trigger_preemption(job):
-        return None, []
-
-    candidates = _allocate_candidates(job, hosts, jobs)
-    if not candidates:
-        return None, []
-
-    volume_ids = job.get("volume_ids", [])
-    volume_host_ids = set()
-    if volume_ids:
-        try:
-            from volumes import get_volume_engine
-
-            ve = get_volume_engine()
-            volume_host_ids = ve.get_volume_host_ids(volume_ids)
-        except Exception:
-            pass
-
-    blocked = [h for h in candidates if not host_accepts_job(h, job, jobs)]
-    blocked.sort(
-        key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids),
-        reverse=True,
-    )
-
-    needed = max(1, int(job.get("num_gpus", 1) or 1))
-    for candidate in blocked:
-        victims = identify_preemption_candidates(candidate["host_id"], needed, jobs)
-        if not victims:
-            continue
-        preempted = []
-        for victim in victims:
-            result = preempt_job(victim["job_id"])
-            if result:
-                preempted.append(result)
-        jobs = list_jobs()
-        if host_accepts_job(candidate, job, jobs):
-            log.info(
-                "ALLOCATE+PREEMPT job=%s -> host=%s (preempted %s)",
-                job.get("job_id"),
-                candidate["host_id"],
-                [p["job_id"] for p in preempted],
-            )
-            return candidate, preempted
-    return None, []
-
-
 def identify_drain_preemption_candidates(
     host_id: str, jobs: list[dict] | None = None
 ) -> list[dict]:
@@ -847,17 +731,6 @@ def identify_drain_preemption_candidates(
         key=lambda j: (int(j.get("priority", 0) or 0), float(j.get("started_at") or 0)),
     )
     return spot_jobs + other_jobs
-
-
-def run_drain_preemptions(host_id: str) -> list[dict]:
-    """Preempt all workloads on a draining host (spot first, then on-demand)."""
-    victims = identify_drain_preemption_candidates(host_id)
-    preempted = []
-    for victim in victims:
-        result = preempt_job(victim["job_id"])
-        if result:
-            preempted.append(result)
-    return preempted
 
 
 # ── Best-Fit Bin-Packing Allocator ───────────────────────────────────
@@ -1274,7 +1147,6 @@ def _notify_renter_queue_block(job_id: str, job: dict | None, reason: str, detai
 def load_hosts(active_only=False):
     """Load hosts from SQLite-backed storage."""
     with _db_connection() as conn:
-        _migrate_hosts_if_needed(conn)
         return _load_hosts_from_conn(conn, active_only=active_only)
 
 
@@ -1306,7 +1178,6 @@ def register_host(
     You store it.
     """
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         existing = _get_host_by_id_conn(conn, host_id)
         gpu_count = max(1, int(existing.get("gpu_count", 1) or 1)) if existing else 1
         admitted_before_update = bool(existing and existing.get("admitted") is True)
@@ -1426,7 +1297,6 @@ def update_host_spot_settings(
 ) -> dict | None:
     """Update provider spot controls on a host and sync marketplace offer."""
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         host = _get_host_by_id_conn(conn, host_id)
         if not host:
             return None
@@ -1502,7 +1372,6 @@ def remove_host(host_id):
     """Host is dead. Remove it. No funeral."""
     outbox_enqueued = False
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         DatabaseOps.delete_host(conn, host_id, backend=_active_backend())
         if _active_backend() == "postgres":
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
@@ -1577,7 +1446,6 @@ def check_hosts():
         results[h["host_id"]] = "alive" if alive else "dead"
 
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
         for host_id, ip, alive in updates:
             current = _get_host_by_id_conn(conn, host_id)
             if not current:
@@ -1758,7 +1626,6 @@ VALID_STATUSES = (
 def load_jobs():
     """Load jobs from SQLite-backed storage."""
     with _db_connection() as conn:
-        _migrate_jobs_if_needed(conn)
         return _load_jobs_from_conn(conn)
 
 
@@ -1801,6 +1668,7 @@ def submit_job(
     job_id=None,
     trace_id=None,
     exclusive_gpu=False,
+    preferred_host_id=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1923,6 +1791,7 @@ def submit_job(
         "placement_preference": placement_preference or None,
         "region": normalized_region,
         "trace_id": trace_id,
+        "preferred_host_id": preferred_host_id,
     }
 
     # Spot jobs are preemptible interruptible instances (no bidding).
@@ -1933,7 +1802,6 @@ def submit_job(
 
     outbox_enqueued = False
     with _atomic_mutation() as conn:
-        _migrate_jobs_if_needed(conn)
         _upsert_job_row(conn, job)
         if _active_backend() == "postgres":
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
@@ -1974,7 +1842,6 @@ def get_next_job():
     Highest priority first. Within same priority: FIFO. No mercy.
     """
     with _db_connection() as conn:
-        _migrate_jobs_if_needed(conn)
         row = conn.execute("""
             SELECT payload
             FROM jobs
@@ -2042,8 +1909,6 @@ def reconcile_host_vram():
     corrections = {}
 
     with _atomic_mutation() as conn:
-        _migrate_hosts_if_needed(conn)
-        _migrate_jobs_if_needed(conn)
 
         hosts = _load_hosts_from_conn(conn, active_only=False)
         jobs = _load_jobs_from_conn(conn)
@@ -2096,8 +1961,6 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
     validated_host_id = kwargs.pop("_authority_host_id", None)
 
     with _atomic_mutation() as conn:
-        _migrate_jobs_if_needed(conn)
-        _migrate_hosts_if_needed(conn)
 
         # Postgres: lock the job row first, then load status under that lock.
         # CAS (expected_status) must not use a pre-lock snapshot — concurrent
@@ -2179,6 +2042,8 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         # do not force-fail a job that already left the stuck state.
         expected_status = kwargs.pop("expected_status", None)
         if expected_status is not None and old_status != expected_status:
+            return None
+        if "expected_host_id" in kwargs and assigned_host != kwargs.pop("expected_host_id"):
             return None
 
         # Validate state transition against the state machine
@@ -2438,14 +2303,12 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
 def list_jobs(status=None):
     """List jobs. Filter by status or get everything."""
     with _db_connection() as conn:
-        _migrate_jobs_if_needed(conn)
         return _load_jobs_from_conn(conn, status=status)
 
 
 def get_job(job_id: str):
     """Get a single job by ID. Returns full JSONB payload dict or None."""
     with _db_connection() as conn:
-        _migrate_jobs_if_needed(conn)
         return _get_job_by_id_conn(conn, job_id)
 
 
@@ -2472,9 +2335,7 @@ def process_queue():
         if not hosts:
             break
 
-        host, preempted = allocate_with_preemption(job, hosts, jobs=jobs_snapshot)
-        if preempted:
-            jobs_snapshot = list_jobs()
+        host = allocate(job, hosts, jobs=jobs_snapshot)
         if not host:
             log.info(
                 "QUEUE: no host for job=%s gpu=%s vram=%sGB",
@@ -2534,87 +2395,6 @@ def process_queue():
     return assigned
 
 
-def host_uses_worker_agent(host: dict) -> bool:
-    """An enrolled pull worker owns container startup, even for legacy jobs.
-
-    Protocol-v2 enrollment does not imply that every job has a fenced attempt:
-    shadow/canary schedulers still assign legacy work for the agent to poll.
-    Never switch such a host to SSH startup because its heartbeat is old.
-    """
-    return bool(str(host.get("agent_version") or "").strip())
-
-
-def process_assigned():
-    """Pick up 'assigned' jobs and start their containers.
-
-    Queue processing moves jobs from queued to assigned.
-    The optional legacy SSH runner starts only hosts without an enrolled
-    agent. Workers poll assignments and own their container startup.
-    """
-    assigned_jobs = list_jobs(status="assigned")
-    if not assigned_jobs:
-        return []
-
-    # Jobs bound by the transactional scheduler start via the durable
-    # agent start command (claim → lease → container); the legacy SSH
-    # path starting them too would double-start the workload.
-    attempt_owned = _attempt_owned_job_ids()
-    if attempt_owned is None:
-        # Fail-closed: never SSH-start when we cannot prove a job is
-        # not attempt-owned (agent-v2 fence).
-        log.error(
-            "RUNNER: attempt-owned lookup failed — skipping all assigned "
-            "starts (fail-closed; durable command path remains authority)"
-        )
-        return []
-
-    hosts = list_hosts(active_only=False)
-    host_map = {h["host_id"]: h for h in hosts}
-    started = []
-
-    for job in assigned_jobs:
-        if job.get("job_id") in attempt_owned:
-            continue
-        host_id = job.get("host_id")
-        if not host_id:
-            log.warning("RUNNER: assigned job %s has no host_id, requeueing", job.get("job_id"))
-            update_job_status(job["job_id"], "queued")
-            continue
-
-        host = host_map.get(host_id)
-        if not host:
-            log.warning(
-                "RUNNER: host %s not found for job %s, requeueing", host_id, job.get("job_id")
-            )
-            update_job_status(job["job_id"], "queued")
-            continue
-
-        if host_uses_worker_agent(host):
-            continue
-
-        try:
-            docker_image = job.get("image") or None
-            container_id = run_job(job, host, docker_image=docker_image)
-            if container_id:
-                log.info(
-                    "RUNNER: job %s started on host %s (container=%s)",
-                    job["job_id"],
-                    host_id,
-                    container_id,
-                )
-                started.append((job, host))
-            else:
-                log.warning(
-                    "RUNNER: container start failed for job %s on host %s", job["job_id"], host_id
-                )
-                # run_job already sets status to "failed"
-        except Exception as e:
-            log.error("RUNNER: exception starting job %s on host %s: %s", job["job_id"], host_id, e)
-            update_job_status(job["job_id"], "failed")
-
-    return started
-
-
 def scheduler_tick():
     """Single scheduler iteration: assign queued jobs to hosts.
 
@@ -2664,17 +2444,6 @@ def _control_plane_owns_job(job: dict) -> bool:
     return cfg.owns_job(job)
 
 
-def legacy_inline_placement_allowed(job: dict) -> bool:
-    """May API/serverless paths assign + SSH-start this job inline?
-
-    When the transactional scheduler owns the job (canary partition
-    or active), only the claim→reserve path may create assigned state and
-    the durable start command. Host-pin / marketplace direct launch and
-    legacy queue walkers must refuse placement side effects for owned work.
-    """
-    return not _control_plane_owns_job(job)
-
-
 def _control_plane_tick():
     """Track A Phase 4: one transactional-scheduler tick (canary/active).
 
@@ -2693,32 +2462,6 @@ def _control_plane_tick():
 
         _cp_service = SchedulerService(cfg)
     return _cp_service.tick()
-
-
-def _attempt_owned_job_ids():
-    """Assigned jobs bound by the transactional scheduler (have an active
-    attempt). Their containers start via the durable agent start command,
-    never via the legacy SSH path — process_assigned must skip them.
-
-    Returns:
-      set[str]: job_ids that are attempt-owned.
-      None: lookup failed — callers MUST fail-closed (do not start anything
-        via SSH) rather than race the fenced /agent/v2 path.
-    """
-    if _active_backend() != "postgres":
-        return set()
-    try:
-        from db import _get_pg_pool
-
-        with _get_pg_pool().connection() as conn:
-            rows = conn.execute(
-                "SELECT job_id FROM jobs "
-                "WHERE status = 'assigned' AND active_attempt_id IS NOT NULL"
-            ).fetchall()
-        return {str(r["job_id"] if isinstance(r, dict) else r[0]) for r in rows}
-    except Exception as e:
-        log.error("attempt-owned job lookup failed (fail-closed): %s", e)
-        return None
 
 
 def start_shadow_runner():
@@ -2914,296 +2657,6 @@ def get_public_key(path=None):
         return f.read().strip()
 
 
-def run_job(job, host, docker_image=None):
-    """
-    SSH into the host. docker run the model. Log the container ID.
-    Returns the container ID or None on failure.
-
-    If the job has checkpoint metadata (resume_from), attempts to resume
-    from the checkpoint first. Falls through to fresh docker run on failure.
-
-    Constructs a hardened docker run command with:
-    - NFS volume mounts (if specified in job)
-    - Interactive mode with SSH port mapping
-    - Security flags (no-new-privileges, pids-limit)
-    - Memory limits based on host capacity
-    - Per-GPU selection when available
-    """
-    # Defense for callers outside the normal placement paths. Starting via
-    # SSH while the agent polls the same assignment creates two containers
-    # with one name; the losing runner then marks the working job failed.
-    if host_uses_worker_agent(host):
-        log.info("SSH start deferred to worker job=%s host=%s", job["job_id"], host["host_id"])
-        return None
-
-    # ── Checkpoint Resume Path ────────────────────────────────────────
-    checkpoint_meta = job.get("resume_from")
-    if checkpoint_meta and checkpoint_meta.get("success"):
-        log.info(
-            "RUN_JOB attempting checkpoint resume for job=%s on host=%s",
-            job["job_id"],
-            host["host_id"],
-        )
-        resumed = resume_from_checkpoint(job["job_id"], host["host_id"], checkpoint_meta)
-        if resumed:
-            # Clear resume_from metadata now that we've successfully resumed
-            _set_job_fields(job["job_id"], resume_from=None)
-            return checkpoint_meta.get("container", f"xcelsior-job-{job['job_id']}")
-        log.warning(
-            "RUN_JOB checkpoint resume failed for job=%s — falling through to fresh start",
-            job["job_id"],
-        )
-        # Clear stale checkpoint metadata so we don't retry forever
-        _set_job_fields(job["job_id"], resume_from=None)
-
-    # ── Fresh Start Path ──────────────────────────────────────────────
-    image = docker_image or job.get("image") or f"xcelsior/{job['name']}:latest"
-    container_name = f"xcl-{job['job_id']}"
-
-    # Validate names to prevent shell injection
-    _validate_name(image, "docker image")
-    _validate_name(container_name, "container name")
-
-    # Validate image against allowlist
-    from security import validate_docker_image
-
-    image = validate_docker_image(image)
-
-    # Build docker run command parts
-    parts = ["docker run -d"]
-
-    # GPU passthrough
-    num_gpus = job.get("num_gpus", 1)
-    if num_gpus > 0:
-        parts.append(f"--gpus all")
-
-    # Container name
-    parts.append(f"--name {shlex.quote(container_name)}")
-    for label in (
-        "xcelsior.managed=true",
-        f"xcelsior.job_id={job['job_id']}",
-        f"xcelsior.container_name={container_name}",
-    ):
-        parts.append(f"--label {shlex.quote(label)}")
-
-    # Security hardening (parity with build_secure_docker_args in security.py)
-    parts.append("--security-opt=no-new-privileges")
-    parts.append("--pids-limit=4096")
-    parts.append("--no-healthcheck")
-
-    # Non-root execution — skip for interactive containers because GPU images
-    # (e.g. nvcr.io/nvidia/pytorch) require root for CUDA/cuDNN libraries.
-    is_interactive = job.get("interactive", False)
-    if not is_interactive:
-        parts.append("--cap-drop=ALL")
-        parts.append("--user=1000:1000")
-
-    # Read-only root filesystem for batch jobs; tmpfs for temp dirs
-    is_interactive = job.get("interactive", False)
-    if not is_interactive:
-        parts.append("--read-only")
-    parts.append("--tmpfs=/tmp:rw,noexec,nosuid,size=1g")
-    parts.append("--tmpfs=/var/tmp:rw,noexec,nosuid,size=512m")
-
-    # Memory limit: use host's total VRAM as a rough proxy for container memory
-    # (containers typically need system RAM proportional to VRAM)
-    host_vram = host.get("total_vram_gb", 0)
-    if host_vram > 0:
-        mem_limit = max(8, int(host_vram * 2))  # 2x VRAM as system RAM, min 8GB
-        parts.append(f"--memory={mem_limit}g")
-        parts.append(f"--memory-swap={mem_limit}g")
-    else:
-        parts.append("--memory=32g")
-        parts.append("--memory-swap=32g")
-
-    # CPU, ulimit, and shared memory limits (cap to host logical CPUs)
-    from security import container_cpu_limit
-
-    host_cpus = int(host.get("cpu_count") or 0)
-    parts.append(f"--cpus={container_cpu_limit(host_cpus if host_cpus > 0 else None)}")
-    parts.append("--ulimit=nofile=65535:65535")
-    parts.append("--ulimit=nproc=4096:4096")
-    parts.append("--shm-size=1g")
-
-    # Sandboxed runtime (gVisor) — use if available on the host
-    host_runtime = host.get("runtime", "")
-    if host_runtime and host_runtime != "runc":
-        parts.append(f"--runtime={shlex.quote(host_runtime)}")
-
-    # NFS volume mount — mount on host via SSH, then bind-mount into container
-    nfs_server = job.get("nfs_server", "")
-    nfs_path = job.get("nfs_path", "")
-    nfs_mount = job.get("nfs_mount_point", "/mnt/xcelsior-nfs")
-    from volumes import NFS_MOUNT_OPTS, nfs_mount_fstype
-
-    nfs_opts = NFS_MOUNT_OPTS
-    nfs_fstype = nfs_mount_fstype()
-    if nfs_server and nfs_path:
-        nfs_mount = nfs_mount or "/mnt/xcelsior-nfs"
-        mount_cmd = (
-            f"mkdir -p {shlex.quote(nfs_mount)} && "
-            f"mountpoint -q {shlex.quote(nfs_mount)} || "
-            f"mount -t {nfs_fstype} -o {nfs_opts} "
-            f"{shlex.quote(nfs_server)}:{shlex.quote(nfs_path)} "
-            f"{shlex.quote(nfs_mount)}"
-        )
-        mrc, _, merr = ssh_exec(host["ip"], mount_cmd, timeout=30)
-        if mrc == 0:
-            parts.append(f"-v {shlex.quote(nfs_mount)}:/data/nfs:rw")
-            log.info("NFS mounted on host: %s:%s → %s", nfs_server, nfs_path, nfs_mount)
-        else:
-            log.warning(
-                "NFS mount failed on host %s: %s — continuing without", host["host_id"], merr
-            )
-
-    # Managed volumes — mount NFS for each volume_id, bind-mount into container
-    from volumes import NFS_EXPORT_BASE, NFS_SERVER as VOL_NFS_SERVER
-
-    vol_nfs_server = VOL_NFS_SERVER or nfs_server
-    vol_export_base = NFS_EXPORT_BASE
-    managed_vol_host_mounts = []
-    # Look up per-volume mount paths from volume_attachments
-    vol_mount_paths: dict[str, str] = {}
-    try:
-        from volumes import get_volume_engine
-
-        ve = get_volume_engine()
-        for att in ve.get_instance_volumes(job["job_id"]):
-            vol_mount_paths[att["volume_id"]] = att.get("mount_path", "/workspace")
-    except Exception:
-        pass
-    _vol_idx = 0
-    for vid in job.get("volume_ids", []):
-        # Determine container mount path — from attachment or auto-assign
-        container_path = vol_mount_paths.get(vid)
-        if not container_path:
-            container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
-        vol_host_mount = f"/mnt/xcelsior-volumes/{vid}"
-        vol_nfs_path = f"{vol_export_base}/{vid}"
-        if vol_nfs_server:
-            vol_mount_cmd = (
-                f"mkdir -p {shlex.quote(vol_host_mount)} && "
-                f"mountpoint -q {shlex.quote(vol_host_mount)} || "
-                f"mount -t {nfs_fstype} -o {nfs_opts} "
-                f"{shlex.quote(vol_nfs_server)}:{shlex.quote(vol_nfs_path)} "
-                f"{shlex.quote(vol_host_mount)}"
-            )
-            vrc, _, verr = ssh_exec(host["ip"], vol_mount_cmd, timeout=30)
-            if vrc == 0:
-                parts.append(f"-v {shlex.quote(vol_host_mount)}:{shlex.quote(container_path)}:rw")
-                managed_vol_host_mounts.append(vol_host_mount)
-                log.info(
-                    "Managed volume %s mounted on host %s: %s → %s",
-                    vid,
-                    host["host_id"],
-                    vol_host_mount,
-                    container_path,
-                )
-            else:
-                log.warning(
-                    "Managed volume %s mount failed on host %s: %s", vid, host["host_id"], verr
-                )
-        else:
-            log.warning("Managed volume %s: NFS server not configured — skipping", vid)
-        _vol_idx += 1
-
-    required_vols = list(job.get("volume_ids") or [])
-    if required_vols and len(managed_vol_host_mounts) < len(required_vols):
-        log.error(
-            "MANAGED VOLUME MOUNT FAILED job=%s host=%s mounted=%d required=%d",
-            job["job_id"],
-            host["host_id"],
-            len(managed_vol_host_mounts),
-            len(required_vols),
-        )
-        update_job_status(
-            job["job_id"],
-            "failed",
-            error_message="required volume mount failed on host",
-        )
-        return None
-
-    # Interactive mode: keep stdin open, map SSH port
-    if job.get("interactive"):
-        ssh_port = int(job.get("ssh_port", 22))
-        # Avoid port 22 — it's used by the host SSH daemon
-        if ssh_port == 22:
-            # Deterministic high port from job_id to avoid collisions
-            ssh_port = 2222 + (int(job["job_id"][:4], 16) % 10000)
-        parts.append(f"-p {ssh_port}:22")
-        # Don't auto-remove interactive containers
-    else:
-        parts.append("--restart=no")
-
-    # Environment variables: pass job ID and API token so the container
-    # can report status back if needed
-    parts.append(f"-e XCELSIOR_JOB_ID={shlex.quote(job['job_id'])}")
-    job_type = str(job.get("job_type") or "").strip()
-    if job_type:
-        parts.append(f"-e XCELSIOR_JOB_TYPE={shlex.quote(job_type)}")
-
-    # Image
-    parts.append(shlex.quote(image))
-
-    # Append the job command if specified (quote each token to prevent injection)
-    job_command = job.get("command", "").strip()
-    if job_command:
-        tokens = shlex.split(job_command)
-        parts.append(" ".join(shlex.quote(t) for t in tokens))
-    elif is_interactive:
-        # Interactive containers need a long-running process to stay alive
-        # (default image entrypoints like bash exit immediately in detached mode)
-        parts.append("sleep infinity")
-
-    cmd = " ".join(parts)
-
-    # Pre-pull the image (may take minutes for large images like pytorch)
-    log.info("PULLING IMAGE job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
-    pull_rc, _, pull_err = ssh_exec(host["ip"], f"docker pull {shlex.quote(image)}", timeout=600)
-    if pull_rc != 0:
-        log.error(
-            "IMAGE PULL FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], pull_err
-        )
-        update_job_status(job["job_id"], "failed")
-        return None
-    log.info("IMAGE READY job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
-
-    rc, stdout, stderr = ssh_exec(host["ip"], cmd)
-    if rc != 0:
-        log.error("RUN FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], stderr)
-        update_job_status(job["job_id"], "failed")
-        return None
-
-    container_id = stdout[:12]
-    log.info(
-        "CONTAINER STARTED job=%s host=%s container=%s image=%s",
-        job["job_id"],
-        host["host_id"],
-        container_id,
-        image,
-    )
-
-    # Apply egress filtering (mining port blocks + default-deny for batch jobs)
-    try:
-        from security import build_egress_iptables_rules
-
-        is_interactive = job.get("interactive", False)
-        egress_rules = build_egress_iptables_rules(
-            container_name,
-            strict=not is_interactive,
-        )
-        for rule in egress_rules:
-            ssh_exec(host["ip"], rule)
-    except Exception as e:
-        log.warning("EGRESS RULES FAILED job=%s: %s", job["job_id"], e)
-
-    # Store container info on the job atomically.
-    _set_job_fields(job["job_id"], container_id=container_id, container_name=container_name)
-
-    update_job_status(job["job_id"], "running", host_id=host["host_id"])
-    return container_id
-
-
 def check_job_running(job, host):
     """Check if a job's container is still running. Returns True/False."""
     container_name = job.get("container_name", f"xcl-{job['job_id']}")
@@ -3389,12 +2842,12 @@ DEFAULT_RATE = 0.20  # $/hr
 
 def load_billing():
     """Load billing records."""
-    return _load_json(BILLING_FILE)
+    return _load_state_list(BILLING_FILE)
 
 
 def save_billing(records):
     """Write billing records."""
-    _save_json(BILLING_FILE, records)
+    _save_state_list(BILLING_FILE, records)
 
 
 def bill_job(job_id):
@@ -3682,8 +3135,6 @@ def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int |
     requeued = None
 
     with _atomic_mutation() as conn:
-        _migrate_jobs_if_needed(conn)
-        _migrate_hosts_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
         if not j:
             return None
@@ -3915,7 +3366,7 @@ def checkpoint_container(host_id: str, job_id: str, container_name: str = "") ->
     Returns checkpoint metadata or None on failure.
     """
     if not container_name:
-        # Match run_job() naming convention: xcl-{job_id}
+        # Match the worker container naming convention: xcl-{job_id}
         container_name = f"xcl-{job_id}"
 
     # Validate inputs to prevent path traversal / injection
@@ -4431,12 +3882,12 @@ PROVIDER_INTRO_FEE_DAYS = int(os.environ.get("XCELSIOR_PROVIDER_INTRO_FEE_DAYS",
 
 def load_marketplace():
     """Load marketplace listings."""
-    return _load_json(MARKETPLACE_FILE)
+    return _load_state_list(MARKETPLACE_FILE)
 
 
 def save_marketplace(listings):
     """Write marketplace listings."""
-    _save_json(MARKETPLACE_FILE, listings)
+    _save_state_list(MARKETPLACE_FILE, listings)
 
 
 def _infer_platform_fees_from_payout(payout: float, cut: float) -> float:
@@ -4849,12 +4300,12 @@ AUTOSCALE_POOL_FILE = os.environ.get(
 
 def load_autoscale_pool():
     """Load the pool of available-on-demand hosts."""
-    return _load_json(AUTOSCALE_POOL_FILE)
+    return _load_state_list(AUTOSCALE_POOL_FILE)
 
 
 def save_autoscale_pool(pool):
     """Write the autoscale pool."""
-    _save_json(AUTOSCALE_POOL_FILE, pool)
+    _save_state_list(AUTOSCALE_POOL_FILE, pool)
 
 
 def add_to_pool(host_id, ip, gpu_model, vram_gb, cost_per_hour=0.20, country="CA"):
@@ -5182,13 +4633,6 @@ def get_metrics_snapshot():
 SPOT_SENSITIVITY = float(os.environ.get("XCELSIOR_SPOT_SENSITIVITY", "0.5"))
 SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
-PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
-SPOT_REQUEUE_BACKOFF = os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF", "").lower() in (
-    "1",
-    "true",
-    "yes",
-)
-SPOT_REQUEUE_BACKOFF_BASE_SEC = float(os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF_BASE", "30"))
 
 
 def load_spot_prices():
@@ -5298,171 +4742,42 @@ def identify_preemptible_jobs(spot_prices=None):
     return victims
 
 
-def preempt_job(job_id):
-    """Preempt a running spot job.
-
-    Lifecycle: running → preempted → queued (auto-requeue, preserve pricing_mode).
-
-    Returns the updated job or None.
-    """
-    preempted_job = None
-    worker_host_id = None
-    outbox_enqueued = False
-    with _atomic_mutation() as conn:
-        _migrate_jobs_if_needed(conn)
-        j = _get_job_by_id_conn(conn, job_id)
-        if not j or j["status"] != "running":
-            return None
-
-        worker_host_id = j.get("host_id")
-
-        try:
-            from billing import get_billing_engine
-
-            get_billing_engine().bill_running_period(job_id, period_end=time.time(), min_seconds=0)
-        except Exception as exc:
-            log.warning("Preempt billing close failed for %s: %s", job_id, exc)
-
-        j["status"] = "preempted"
-        j["preempted_at"] = time.time()
-        j["preemption_count"] = int(j.get("preemption_count", 0) or 0) + 1
-        j["host_id"] = None
-        j["started_at"] = None
-        j["retries"] = j.get("retries", 0)  # Don't count preemption as retry
-        _upsert_job_row(conn, j)
-        preempted_job = dict(j)
-        if _active_backend() == "postgres":
-            from control_plane.outbox_runtime import try_append_lifecycle_outbox
-
-            outbox_enqueued = try_append_lifecycle_outbox(
-                _pg_conn(conn),
-                aggregate_type="job",
-                aggregate_id=str(job_id),
-                event_type="job.v1.preempted",
-                payload={
-                    "name": preempted_job.get("name"),
-                    "preemption_count": preempted_job.get("preemption_count"),
-                    "previous_host_id": worker_host_id,
-                },
-                idempotency_key=(
-                    f"job_preempted:{job_id}:" f"{preempted_job.get('preemption_count')}"
-                ),
-            )
-
-    if worker_host_id:
-        try:
-            from agent_preempt import schedule_host_preemptions
-
-            schedule_host_preemptions(worker_host_id, [job_id])
-        except Exception as exc:
-            log.debug("Agent preemption schedule skipped for %s: %s", job_id, exc)
-
-    if not outbox_enqueued:
-        emit_event(
-            "job_preempted",
-            {"job_id": job_id, "name": preempted_job.get("name")},
-        )
-    log.warning(
-        "spot.preempted job_id=%s name=%s host_id=%s preemption_count=%s",
-        job_id,
-        preempted_job.get("name"),
-        worker_host_id,
-        preempted_job.get("preemption_count"),
-    )
-    try:
-        from spot_metrics import record_spot_preemption
-
-        record_spot_preemption()
-    except Exception as exc:
-        log.debug("Spot preemption metric skipped: %s", exc)
-
-    with _atomic_mutation() as conn:
-        _migrate_jobs_if_needed(conn)
-        j = _get_job_by_id_conn(conn, job_id)
-        if j and j["status"] == "preempted":
-            j["status"] = "queued"
-            if SPOT_REQUEUE_BACKOFF and _is_spot_job(j):
-                count = max(1, int(j.get("preemption_count", 1) or 1))
-                delay = SPOT_REQUEUE_BACKOFF_BASE_SEC * (2 ** (count - 1))
-                j["submitted_at"] = time.time() + delay
-            _upsert_job_row(conn, j)
-            preempted_job = dict(j)
-            log.info(
-                "spot.requeued job_id=%s preemption_count=%s pricing_mode=%s",
-                job_id,
-                preempted_job.get("preemption_count"),
-                preempted_job.get("pricing_mode"),
-            )
-
-    # Detach volumes — job is leaving this host
-    try:
-        from volumes import get_volume_engine
-
-        get_volume_engine().detach_all_for_instance(job_id)
-    except Exception as e:
-        log.warning("Volume detach on preempt failed for %s: %s", job_id, e)
-
-    return preempted_job
-
-
 def preemption_cycle(*, dry_run: bool = False):
-    """Run a capacity preemption cycle (or dry-run preview for ops).
+    """Preview capacity victims without changing prices, jobs or allocations.
 
-    1. Update spot prices
-    2. Find preemptible jobs blocking on-demand capacity
-    3. Preempt them (+ drain hosts) unless ``dry_run``
-    Returns (spot_prices, preempted_jobs_or_candidates).
+    Execution requires the durable preemption controller (Track B B16.4).
+    The former immediate requeue path has been removed.
     """
-    prices = update_spot_prices()
-    preemptible = identify_preemptible_jobs(prices)
-
-    if dry_run:
-        candidates = [
-            {
-                "job_id": job["job_id"],
-                "host_id": job.get("host_id"),
-                "reason": reason,
-            }
-            for job, reason in preemptible
-        ]
-        for host in list_hosts(active_only=False):
-            if host.get("status") == "draining":
-                for victim in identify_drain_preemption_candidates(host["host_id"]):
-                    candidates.append(
-                        {
-                            "job_id": victim["job_id"],
-                            "host_id": victim.get("host_id"),
-                            "reason": f"host drain ({host['host_id']})",
-                        }
-                    )
-        return prices, candidates
-
-    preempted = []
-    for job, reason in preemptible:
-        result = preempt_job(job["job_id"])
-        if result:
-            preempted.append(result)
-            log.info("PREEMPTION: %s — %s", job["job_id"], reason)
-
+    if not dry_run:
+        raise NotImplementedError("Durable preemption is not available")
+    prices = get_current_spot_prices()
+    candidates = [
+        {"job_id": job["job_id"], "host_id": job.get("host_id"), "reason": reason}
+        for job, reason in identify_preemptible_jobs(prices)
+    ]
     for host in list_hosts(active_only=False):
         if host.get("status") == "draining":
-            for result in run_drain_preemptions(host["host_id"]):
-                if result not in preempted:
-                    preempted.append(result)
-
-    return prices, preempted
+            for victim in identify_drain_preemption_candidates(host["host_id"]):
+                candidates.append(
+                    {
+                        "job_id": victim["job_id"],
+                        "host_id": victim.get("host_id"),
+                        "reason": f"host drain ({host['host_id']})",
+                    }
+                )
+    return prices, candidates
 
 
 def start_spot_price_monitor(interval=None, callback=None):
-    """Run spot price updates and preemption in a background thread."""
+    """Refresh spot prices; workload eviction belongs to the durable controller."""
     interval = interval or SPOT_UPDATE_INTERVAL
 
     def loop():
         while True:
             try:
-                prices, preempted = preemption_cycle()
-                if callback and (prices or preempted):
-                    callback(prices, preempted)
+                prices = update_spot_prices()
+                if callback and prices:
+                    callback(prices, [])
             except Exception as e:
                 log.error("Spot price monitor error: %s", e)
             time.sleep(interval)
@@ -5516,12 +4831,12 @@ GPU_REFERENCE_TFLOPS = {
 
 def load_compute_scores():
     """Load compute score records."""
-    return _load_json(COMPUTE_SCORES_FILE)
+    return _load_state_list(COMPUTE_SCORES_FILE)
 
 
 def save_compute_scores(scores):
     """Write compute score records."""
-    _save_json(COMPUTE_SCORES_FILE, scores)
+    _save_state_list(COMPUTE_SCORES_FILE, scores)
 
 
 def estimate_compute_score(gpu_model, benchmark_result=None):

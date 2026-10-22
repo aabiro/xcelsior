@@ -2418,6 +2418,17 @@ data disposition remain separately scoped below.
   `worker_agent.py` compatibility shells into the §11.8 `agent/` module
   layout, preserving signature generation and rollout compatibility through
   `scripts/deploy_worker_agent.sh` at every step.
+  **Removal candidate, 2026-10-21:** the process-memory preemption module,
+  scheduler SSH startup functions, worker preemption poll/handler, scheduler
+  JSON-file adoption and mirrors are physically removed in a separate review
+  candidate. Host pins enter through transactional placement; cancellation
+  without an active attempt is limited to unplaced queued jobs. Both drain
+  routes leave running work intact. Eviction execution returns 501 pending
+  durable preemption; approved plans stay retryable. This is repository proof,
+  not deployment or completion of B16.2/B16.3. The live schema inventory found
+  both projection triggers, 302 historical leases, null canonical specs on all
+  364 historical jobs, and unresolved identity/tenancy. See the
+  [removal candidate and contraction prerequisites](review/2026-10-21-legacy-control-plane-removal.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
