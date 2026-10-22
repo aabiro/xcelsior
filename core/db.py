@@ -558,8 +558,12 @@ class DatabaseOps:
         return json.dumps(data)
 
     @staticmethod
-    def upsert_job(conn, job, backend="sqlite"):
-        """Upsert a job record."""
+    def upsert_job(conn, job, backend="sqlite", *, admission_spec=None):
+        """Persist observations; freeze execution authority on insertion.
+
+        ``admission_spec`` marks a submission, whose retry must leave an
+        existing job untouched. Ordinary status writers preserve its spec.
+        """
         job_id = str(job.get("job_id", "")).strip()
         if not job_id:
             log.error(
@@ -607,44 +611,49 @@ class DatabaseOps:
 
         if backend == "postgres":
             from psycopg.types.json import Jsonb
+            from control_plane.job_specs import (
+                canonical_spec_hash,
+                make_execution_spec,
+                validate_execution_spec,
+            )
 
-            conn.execute(
-                """
-                INSERT INTO jobs(
-                    job_id, status, priority, submitted_at, host_id,
-                    pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
-                    placement_min_uptime_bps, placement_min_tier,
-                    placement_require_verified, placement_max_premium_bps,
-                    owner_id, tenant_id, team_id, updated_at
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, clock_timestamp())
-                ON CONFLICT(job_id) DO UPDATE SET
+            execution_spec = make_execution_spec(job, launch_spec=admission_spec)
+            execution_hash = canonical_spec_hash(execution_spec)
+            conflict = (
+                "DO NOTHING"
+                if admission_spec is not None
+                else """DO UPDATE SET
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
                     submitted_at = EXCLUDED.submitted_at,
                     host_id = EXCLUDED.host_id,
                     pricing_mode = EXCLUDED.pricing_mode,
                     spot_rate_micros = EXCLUDED.spot_rate_micros,
-                    -- Moves in the *same* statement as host_id. A2 of
-                    -- docs/host-key-fingerprint-plan.md: the fingerprint
-                    -- describes the container, so it cannot be allowed to
-                    -- outlive the host field that defines it. Structural, not
-                    -- procedural — no hook to forget, and automatic failover
-                    -- (which skips `_clear_job_output`) is covered for free.
+                    -- Fingerprint and host assignment always move together.
                     host_key_fingerprint = EXCLUDED.host_key_fingerprint,
                     payload = EXCLUDED.payload,
                     owner_id = COALESCE(EXCLUDED.owner_id, jobs.owner_id),
                     tenant_id = COALESCE(EXCLUDED.tenant_id, jobs.tenant_id),
                     team_id = COALESCE(EXCLUDED.team_id, jobs.team_id),
                     updated_at = clock_timestamp(),
-                    -- Same statement as the rest of the row. A resubmit that
-                    -- drops the preference must clear it, not leave the old
-                    -- constraint attached to a job nobody asked to constrain.
                     placement_min_uptime_bps = EXCLUDED.placement_min_uptime_bps,
                     placement_min_tier = EXCLUDED.placement_min_tier,
                     placement_require_verified = EXCLUDED.placement_require_verified,
                     placement_max_premium_bps = EXCLUDED.placement_max_premium_bps
+            """
+            )
+            result = conn.execute(
+                f"""
+                INSERT INTO jobs(
+                    job_id, status, priority, submitted_at, host_id,
+                    pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
+                    placement_min_uptime_bps, placement_min_tier,
+                    placement_require_verified, placement_max_premium_bps,
+                    owner_id, tenant_id, team_id, updated_at, spec, spec_hash
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, clock_timestamp(), %s, %s)
+                ON CONFLICT(job_id) {conflict}
                 """,
                 (
                     job_id,
@@ -663,8 +672,25 @@ class DatabaseOps:
                     job.get("owner_id") or job.get("owner") or None,
                     job.get("tenant_id") or job.get("owner_id") or job.get("owner") or None,
                     job.get("team_id") or None,
+                    Jsonb(execution_spec),
+                    execution_hash,
                 ),
             )
+            if admission_spec is not None:
+                if result.rowcount == 0:
+                    row = conn.execute(
+                        "SELECT spec,spec_hash FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)
+                    ).fetchone()
+                    if row is None:
+                        raise ValueError("existing job admission is no longer present")
+                    existing_spec, existing_hash = (
+                        (row["spec"], row["spec_hash"]) if isinstance(row, dict) else row
+                    )
+                    validate_execution_spec(existing_spec, existing_hash)
+                    if existing_hash != execution_hash:
+                        raise ValueError("job id already admitted with a different execution spec")
+                    return DatabaseOps.get_job(conn, job_id, backend=backend)
+                return job
         else:
             conn.execute(
                 """

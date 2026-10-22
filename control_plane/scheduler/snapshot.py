@@ -80,8 +80,7 @@ def take_snapshot(
     """
     conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
     now_row = conn.execute(
-        "SELECT clock_timestamp() AS now_ts, "
-        "EXTRACT(EPOCH FROM clock_timestamp()) AS now_epoch"
+        "SELECT clock_timestamp() AS now_ts, " "EXTRACT(EPOCH FROM clock_timestamp()) AS now_epoch"
     ).fetchone()
     if now_row is None:  # pragma: no cover - SELECT always returns a row
         raise RuntimeError("clock_timestamp returned no row")
@@ -89,15 +88,13 @@ def take_snapshot(
     now_epoch = float(_get(now_row, "now_epoch", 1))
 
     # ── Queued jobs, in legacy queue order (see module docstring) ─────
-    job_rows = conn.execute(
-        """
-        SELECT job_id, status, host_id, priority, submitted_at, payload
+    job_rows = conn.execute("""
+        SELECT job_id, status, host_id, priority, submitted_at, COALESCE(spec,payload) AS payload
           FROM jobs
          WHERE status = 'queued'
          ORDER BY COALESCE(priority, 0) DESC,
                   submitted_at ASC NULLS LAST
-        """
-    ).fetchall()
+        """).fetchall()
     jobs: list[dict[str, Any]] = []
     for row in job_rows:
         job = _decode(_get(row, "payload", 5))
@@ -110,7 +107,7 @@ def take_snapshot(
     # ── Active-job GPU usage per host (capacity truth) ────────────────
     usage_rows = conn.execute(
         """
-        SELECT host_id, payload
+        SELECT host_id, COALESCE(spec,payload) AS payload
           FROM jobs
          WHERE status = ANY(%s)
            AND host_id IS NOT NULL
@@ -128,13 +125,11 @@ def take_snapshot(
         gpus_used[host_id] = gpus_used.get(host_id, 0) + needed
 
     # ── Host fleet: payload merged with control-plane columns ─────────
-    host_rows = conn.execute(
-        """
+    host_rows = conn.execute("""
         SELECT host_id, status, payload,
                administrative_state, availability_state, inventory_generation
           FROM hosts
-        """
-    ).fetchall()
+        """).fetchall()
     hosts: list[dict[str, Any]] = []
     stale: set[str] = set()
     for row in host_rows:

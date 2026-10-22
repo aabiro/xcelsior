@@ -39,9 +39,9 @@ def mint_callback_credential(conn, *, job_id, attempt_id, host_id, fencing_token
                   AND j.active_attempt_id=a.attempt_id AND j.host_id=a.host_id
                   AND w.host_id=a.host_id AND w.released_at IS NULL
                   AND e.owner_id<>''
-                  AND j.payload->>'job_type'='serverless_worker'
-                  AND j.payload->>'serverless_worker_id'=w.worker_id
-                  AND j.payload->>'serverless_endpoint_id'=w.endpoint_id
+                  AND COALESCE(j.spec,j.payload)->>'job_type'='serverless_worker'
+                  AND COALESCE(j.spec,j.payload)->>'serverless_worker_id'=w.worker_id
+                  AND COALESCE(j.spec,j.payload)->>'serverless_endpoint_id'=w.endpoint_id
                   AND l.status='active' AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token""",
             (job_id, attempt_id, host_id, fencing_token),
         ).fetchone()
@@ -76,9 +76,9 @@ def authenticate_callback(conn, token: str, worker_id: str) -> bool:
               AND c.expires_at>clock_timestamp() AND w.released_at IS NULL
               AND w.scheduler_job_id=j.job_id AND j.host_id=a.host_id
               AND a.status IN ('lease_claimed','starting','running')
-              AND j.payload->>'job_type'='serverless_worker'
-              AND j.payload->>'serverless_worker_id'=w.worker_id
-              AND j.payload->>'serverless_endpoint_id'=w.endpoint_id
+              AND COALESCE(j.spec,j.payload)->>'job_type'='serverless_worker'
+              AND COALESCE(j.spec,j.payload)->>'serverless_worker_id'=w.worker_id
+              AND COALESCE(j.spec,j.payload)->>'serverless_endpoint_id'=w.endpoint_id
               AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token
               AND l.status='active' AND l.expires_at>clock_timestamp()""",
         (hashlib.sha256(token.encode()).hexdigest(), worker_id),
