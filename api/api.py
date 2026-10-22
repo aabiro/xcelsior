@@ -811,6 +811,16 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in PUBLIC_PATHS or request.url.path.startswith(PUBLIC_PATH_PREFIXES):
             return await call_next(request)
 
+        from control_plane.serverless_credentials import PREFIX, callback_path
+
+        callback_auth = request.headers.get("authorization", "")
+        if callback_auth.startswith(f"Bearer {PREFIX}") and callback_path(
+            request.url.path, request.method
+        ):
+            # Recognition only: the route checks the hash and current native
+            # binding. This grants no general API or host principal.
+            return await call_next(request)
+
         user = _get_current_user(request)
         if user:
             request.state.user_id = user.get("user_id", "")

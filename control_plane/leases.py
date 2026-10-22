@@ -212,7 +212,13 @@ def renew_lease(
             attempt_id=attempt_id,
             fencing_token=fencing_token,
         )
-    return _get(row, "expires_at", 0)
+    expires_at = _get(row, "expires_at", 0)
+    conn.execute(
+        "UPDATE serverless_attempt_credentials SET expires_at=%s "
+        "WHERE attempt_id=%s AND revoked_at IS NULL",
+        (expires_at, attempt_id),
+    )
+    return expires_at
 
 
 def release_lease(

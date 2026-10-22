@@ -230,8 +230,11 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
     """THE hard gate: no 200 here → no container start, ever."""
     _require_agent_auth(request, host_id=req.host_id)
     try:
-        grant = run_transaction(
-            lambda c: claim_lease(
+
+        def claim_with_credential(c):
+            from control_plane.serverless_credentials import mint_callback_credential
+
+            grant = claim_lease(
                 c,
                 lease_id=req.lease_id,
                 job_id=req.job_id,
@@ -239,7 +242,18 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
                 host_id=req.host_id,
                 fencing_token=req.fencing_token,
                 worker_session_id=req.worker_session_id,
-            ),
+            )
+            token = mint_callback_credential(
+                c,
+                job_id=req.job_id,
+                attempt_id=req.attempt_id,
+                host_id=req.host_id,
+                fencing_token=req.fencing_token,
+            )
+            return grant, token
+
+        grant, callback_token = run_transaction(
+            claim_with_credential,
             what="v2_lease_claim",
         )
     except LeaseClaimRejected as exc:
@@ -252,6 +266,7 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
         "fencing_token": grant.fencing_token,
         "expires_at": str(grant.expires_at),
         "renewal_ttl_sec": grant.renewal_ttl_sec,
+        **({"callback_token": callback_token} if callback_token else {}),
     }
 
 

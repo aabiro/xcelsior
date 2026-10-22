@@ -111,10 +111,13 @@ CONTROL_TABLES = frozenset(
         "host_gpu_devices",
         "gpu_device_allocations",
         "placement_leases",
+        # Recognize the old relation during the supported 126 handoff. The
+        # provisioner filters missing relations after 127 drops it.
         "leases",
         "agent_commands",
         "agent_rollouts",
         "host_agent_tokens",
+        "serverless_attempt_credentials",
         "node_versions",
         "host_observations",
         "observed_workloads",
@@ -215,6 +218,7 @@ AUDIT_TABLES = frozenset(
     {
         "events",
         "events_archive",
+        "legacy_lease_archive",
         "event_snapshots",
         "outbox_events",
         "alembic_version",
@@ -395,9 +399,7 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
     "ssh_gateway": ServiceRole(
         name="xcelsior_ssh_gateway",
         description="SSH route inventory only; no credential, billing, or command access.",
-        read_tables=frozenset(
-            {"public.jobs", "public.hosts", "public.ssh_account_suspensions"}
-        ),
+        read_tables=frozenset({"public.jobs", "public.hosts", "public.ssh_account_suspensions"}),
     ),
 }
 
@@ -421,6 +423,9 @@ DENIAL_CONTRACT: tuple[tuple[str, str, str], ...] = (
     # read-only means read-only
     ("readonly", "jobs", "UPDATE"),
     ("readonly", "events", "INSERT"),
+    ("api", "legacy_lease_archive", "UPDATE"),
+    ("api", "legacy_lease_archive", "INSERT"),
+    ("api", "legacy_lease_archive", "DELETE"),
     ("readonly", "wallets", "UPDATE"),
     # retrieval never touches the control plane
     ("retrieval", "jobs", "UPDATE"),
@@ -447,8 +452,15 @@ def sequence_domains(conn) -> list[tuple[str, str, str | None]]:
          WHERE seq.relkind='S' AND ns.nspname IN ('public','storage')
     """).fetchall()
     return [
-        (schema, seq, domain_of(f"{ts}.{table}") if table else
-         {"public.placement_fencing_token_seq": "control"}.get(f"{schema}.{seq}"))
+        (
+            schema,
+            seq,
+            (
+                domain_of(f"{ts}.{table}")
+                if table
+                else {"public.placement_fencing_token_seq": "control"}.get(f"{schema}.{seq}")
+            ),
+        )
         for schema, seq, ts, table in rows
     ]
 
@@ -521,11 +533,12 @@ def grant_statements(
             if not exists(domain, table):
                 continue
             # Runtime audit writers must not rewrite the migration stamp.
-            verbs = "SELECT" if table == "alembic_version" and role.runtime else "SELECT, INSERT, UPDATE, DELETE"
-            stmts.append(
-                f"GRANT {verbs} ON {_qualified(domain, table)} "
-                f'TO "{role.name}"'
+            verbs = (
+                "SELECT"
+                if table in {"alembic_version", "legacy_lease_archive"} and role.runtime
+                else "SELECT, INSERT, UPDATE, DELETE"
             )
+            stmts.append(f"GRANT {verbs} ON {_qualified(domain, table)} " f'TO "{role.name}"')
     for domain in sorted(role.read - role.write):
         tables = set(_domain_tables(domain, storage_tables))
         if present is not None:
@@ -663,7 +676,9 @@ def resolve_service_dsn(service: str | None = None, *, fallback: str | None = No
     if specific:
         return specific
     if roles_required():
-        raise RuntimeError(f"{service_dsn_env_var(svc)} is required; shared database fallback refused")
+        raise RuntimeError(
+            f"{service_dsn_env_var(svc)} is required; shared database fallback refused"
+        )
     if fallback is not None:
         return fallback
     # The *shared* DSN, never the service-aware one — resolving another

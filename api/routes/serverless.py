@@ -1806,7 +1806,17 @@ class WorkerReadyBody(BaseModel):
     host_id: str = ""
 
 
-def _require_worker_callback(request: Request) -> None:
+def _require_worker_callback(request: Request, worker_id: str | None = None) -> None:
+    if worker_id is not None:
+        from control_plane.serverless_credentials import authenticate_callback
+
+        header = request.headers.get("authorization", "")
+        token = header[7:] if header.startswith("Bearer ") else ""
+        with _repo()._conn() as conn:
+            valid = authenticate_callback(conn, token, worker_id)
+        if not valid:
+            raise HTTPException(401, "Current attempt callback credential required")
+        return
     from routes.instances import _require_worker_status_update
 
     _require_worker_status_update(request)
@@ -1836,7 +1846,7 @@ class JobEventBody(BaseModel):
 
 @router.post("/api/v2/serverless/workers/{worker_id}/heartbeat", tags=["Serverless"])
 def api_serverless_worker_heartbeat(worker_id: str, request: Request):
-    _require_worker_callback(request)
+    _require_worker_callback(request, worker_id)
     w = _svc().worker_heartbeat(worker_id)
     if not w:
         raise HTTPException(404, "Worker not found")
@@ -1860,14 +1870,14 @@ def api_serverless_worker_exited(
 
 @router.post("/api/v2/serverless/workers/{worker_id}/jobs/claim", tags=["Serverless"])
 def api_serverless_worker_claim_job(worker_id: str, request: Request):
-    _require_worker_callback(request)
+    _require_worker_callback(request, worker_id)
     job = _svc().worker_claim_job(worker_id)
     return {"ok": True, "job": job}
 
 
 @router.get("/api/v2/serverless/workers/{worker_id}/jobs/{job_id}", tags=["Serverless"])
 def api_serverless_worker_get_job(worker_id: str, job_id: str, request: Request):
-    _require_worker_callback(request)
+    _require_worker_callback(request, worker_id)
     job = _svc().worker_get_job(worker_id, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1881,7 +1891,7 @@ def api_serverless_worker_complete_job(
     request: Request,
     body: JobCompleteBody,
 ):
-    _require_worker_callback(request)
+    _require_worker_callback(request, worker_id)
     job = _svc().worker_complete_job(
         worker_id,
         job_id,
@@ -1904,7 +1914,7 @@ def api_serverless_worker_job_event(
     request: Request,
     body: JobEventBody,
 ):
-    _require_worker_callback(request)
+    _require_worker_callback(request, worker_id)
     ev = _svc().worker_append_event(worker_id, job_id, body.event_type, body.payload)
     if not ev:
         raise HTTPException(404, "Job not found")

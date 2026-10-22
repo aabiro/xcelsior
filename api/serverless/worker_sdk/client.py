@@ -41,7 +41,7 @@ class WorkerClient:
             base_url or os.environ.get("XCELSIOR_API_URL", "http://127.0.0.1:9500")
         ).rstrip("/")
         self.worker_id = worker_id or os.environ.get("XCELSIOR_WORKER_ID", "")
-        self.token = token or os.environ.get("XCELSIOR_API_TOKEN", "")
+        self.token = token or os.environ.get("XCELSIOR_WORKER_CALLBACK_TOKEN", "")
         self.timeout_sec = timeout_sec
         if not self.worker_id:
             raise ValueError("worker_id is required")

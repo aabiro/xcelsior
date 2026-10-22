@@ -2472,6 +2472,16 @@ data disposition remain separately scoped below.
   writes are removed. This does not assert physical exit or complete the broad
   callback-credential handoff, gateway/SDK rollout or live GPU acceptance.
   [Receipt](review/2026-10-22-serverless-authority-loss.md).
+  **Credential/schema follow-up, 2026-10-22:** migration 126 introduces
+  attempt-bound, hash-only callback credentials and bounded stale-digest
+  pruning. Serverless containers no longer receive the broad host credential.
+  Migration 127 verifies and archives inactive v1 lease rows before dropping
+  the obsolete table/eight columns; a real 302-row production export passes
+  up/down/up restoration and guarded-refusal drills. The runtime can operate
+  at 126 for the old-writer handoff before applying 127. This is a source/drill
+  candidate, not production pruning or completion of the remaining canonical
+  columns, projection-trigger cleanup or historical event/state disposition.
+  [Receipt](review/2026-10-22-scoped-callbacks-lease-contraction.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

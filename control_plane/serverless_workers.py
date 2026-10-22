@@ -167,6 +167,11 @@ def sync_serverless_attempt(conn, *, job_id: str, attempt_id: str) -> None:
             if worker["ended_at"] is None:
                 raise ValueError("terminal serverless attempt has no release evidence")
             cur.execute(
+                "UPDATE serverless_attempt_credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) "
+                "WHERE attempt_id=%s",
+                (attempt_id,),
+            )
+            cur.execute(
                 """UPDATE serverless_workers
                       SET state=%s, released_at=COALESCE(released_at,%s),
                           current_concurrency=0,

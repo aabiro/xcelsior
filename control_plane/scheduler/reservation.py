@@ -346,7 +346,7 @@ def reserve_and_bind(
                    allocated_at = EXTRACT(EPOCH FROM clock_timestamp()),
                    updated_at = EXTRACT(EPOCH FROM clock_timestamp())
              WHERE worker_id = %s AND scheduler_job_id=%s AND endpoint_id=%s
-               AND released_at IS NULL AND state IN ('booting','ready','idle')
+               AND released_at IS NULL AND attempt_id IS NULL AND state IN ('booting','ready','idle')
             RETURNING worker_id
             """,
             (
