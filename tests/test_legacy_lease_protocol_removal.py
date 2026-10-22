@@ -26,28 +26,32 @@ def reservation(fleet):
 def old_lease(reservation):
     lease_id = str(uuid.uuid4())
     with _get_pg_pool().connection() as conn:
+        from psycopg.types.json import Jsonb
+
+        record = {
+            "lease_id": lease_id,
+            "job_id": reservation.job_id,
+            "host_id": reservation.host_id,
+            "granted_at": time.time(),
+            "expires_at": time.time(),
+            "last_renewed": time.time(),
+            "duration_sec": 300,
+            "status": "released",
+        }
         conn.execute(
-            "INSERT INTO leases(lease_id,job_id,host_id,granted_at,expires_at,"
-            "last_renewed,duration_sec,status) VALUES(%s,%s,%s,%s,%s,%s,300,'active')",
-            (
-                lease_id,
-                reservation.job_id,
-                reservation.host_id,
-                time.time(),
-                time.time() + 300,
-                time.time(),
-            ),
+            "INSERT INTO legacy_lease_archive(lease_id,tenant_id,tenant_attributed,record,record_sha256) VALUES(%s,'system:unattributed-legacy-lease-archive',false,%s,encode(sha256(convert_to(%s::jsonb::text,'UTF8')),'hex'))",
+            (lease_id, Jsonb(record), Jsonb(record)),
         )
     yield lease_id
     with _get_pg_pool().connection() as conn:
-        conn.execute("DELETE FROM leases WHERE lease_id=%s", (lease_id,))
+        conn.execute("DELETE FROM legacy_lease_archive WHERE lease_id=%s", (lease_id,))
 
 
 def _snapshot(job_id, lease_id):
     with _get_pg_pool().connection() as conn:
         return (
             conn.execute(
-                "SELECT to_jsonb(l) FROM leases l WHERE lease_id=%s", (lease_id,)
+                "SELECT to_jsonb(l) FROM legacy_lease_archive l WHERE lease_id=%s", (lease_id,)
             ).fetchone()[0],
             conn.execute("SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)).fetchone()[0],
             conn.execute("SELECT count(*) FROM events WHERE entity_id=%s", (job_id,)).fetchone()[0],

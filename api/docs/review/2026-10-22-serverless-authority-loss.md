@@ -1,5 +1,9 @@
 # Serverless authority-loss and request transactions — 2026-10-22
 
+The subsequent [credential/schema follow-up](2026-10-22-scoped-callbacks-lease-contraction.md)
+adds scoped callback credentials and validates retired lease row/column removal.
+The evidence below remains the snapshot for the preceding authority-loss wave.
+
 This source candidate closes the serverless side of native lease expiry. An
 unclaimed offer fails; an expired claimed lease records a lost attempt. In the
 same transaction, the matching worker becomes unavailable, its routing/billing

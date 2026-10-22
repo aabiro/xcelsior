@@ -27,6 +27,8 @@ from serverless.worker_sdk import (
 from serverless.worker_sdk.fitness import FitnessConfig
 from serverless.worker_sdk.handler import invoke_handler, normalize_handler_result
 
+from tests.test_serverless_native_lifecycle import native  # noqa: F401
+
 client = TestClient(app)
 
 
@@ -153,31 +155,40 @@ class TestWorkerServiceCallbacks:
 
 
 class TestWorkerRoutes:
-    def test_worker_callback_roundtrip(self):
-        ep_id, _auth = _fund_and_create_endpoint()
-        worker_id = _create_worker(ep_id)
-        repo = ServerlessRepo()
-        owner_row = repo.get_endpoint(ep_id)
-        job = repo.enqueue_job(ep_id, str(owner_row["owner_id"]), {"prompt": "route"})
+    def test_worker_callback_roundtrip(self, native):
+        from tests.test_serverless_callback_credentials import claim_callback
+        from tests.test_serverless_native_lifecycle import report
 
-        ready = client.post(f"/api/v2/serverless/workers/{worker_id}/ready", json={"host_id": "h1"})
+        token = claim_callback(native, client)
+        report(native, "running")
+        ep_id, worker_id, repo = native.ep["endpoint_id"], native.wid, native.repo
+        headers = {"Authorization": f"Bearer {token}"}
+        job = repo.enqueue_job(ep_id, native.owner, {"prompt": "route"})
+
+        ready = client.post(
+            f"/api/v2/serverless/workers/{worker_id}/ready",
+            json={"host_id": "h1"},
+            headers={"Authorization": f"Bearer {os.environ['XCELSIOR_API_TOKEN']}"},
+        )
         assert ready.status_code == 410
 
-        hb = client.post(f"/api/v2/serverless/workers/{worker_id}/heartbeat")
+        hb = client.post(f"/api/v2/serverless/workers/{worker_id}/heartbeat", headers=headers)
         assert hb.status_code == 200
 
-        claim = client.post(f"/api/v2/serverless/workers/{worker_id}/jobs/claim")
+        claim = client.post(f"/api/v2/serverless/workers/{worker_id}/jobs/claim", headers=headers)
         assert claim.status_code == 200
         assert claim.json()["job"]["job_id"] == job["job_id"]
 
         ev = client.post(
             f"/api/v2/serverless/workers/{worker_id}/jobs/{job['job_id']}/events",
+            headers=headers,
             json={"event_type": "progress", "payload": {"pct": 10}},
         )
         assert ev.status_code == 200
 
         done = client.post(
             f"/api/v2/serverless/workers/{worker_id}/jobs/{job['job_id']}/complete",
+            headers=headers,
             json={"output": {"echo": "route"}},
         )
         assert done.status_code == 200

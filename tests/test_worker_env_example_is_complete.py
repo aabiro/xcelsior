@@ -71,6 +71,9 @@ NOT_WORKER_CONFIG = frozenset(
         # passed in; an operator never sets it, and documenting it in the
         # template would invite someone to.
         "XCELSIOR_IMAGE_DIGEST",
+        # Issued for one claimed attempt and injected into its container.
+        # Operators must never configure a reusable host-wide callback token.
+        "XCELSIOR_WORKER_CALLBACK_TOKEN",
         # Set only by the test suite's conftest, so that importing the agent
         # does not load the developer's own `.env`. An operator setting it on a
         # rented machine would switch off the worker's env loading entirely.

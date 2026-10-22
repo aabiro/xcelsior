@@ -70,6 +70,43 @@ def _stop_cmd():
 
 
 class TestHardLeaseGate:
+    def test_serverless_grant_secret_reaches_container_but_not_recovery_journal(self, tmp_path):
+        command = _start_cmd()
+        command["args"]["spec"]["job_type"] = "serverless_worker"
+        command["spec_hash"] = worker_agent.compute_spec_hash(command["args"]["spec"])
+        journal = tmp_path / "attempts.json"
+        with (
+            mock.patch.object(
+                worker_agent,
+                "v2_claim_lease_fenced",
+                return_value={"renewal_ttl_sec": 300, "callback_token": "xsw_scoped-proof"},
+            ),
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(journal)),
+            mock.patch.object(worker_agent, "_v2_attempts", {}),
+            mock.patch.object(worker_agent, "v2_report_attempt_status", return_value="ok"),
+            mock.patch.object(worker_agent, "_v2_record_and_ack", return_value=True),
+            mock.patch.object(worker_agent.threading, "Thread"),
+            mock.patch.object(worker_agent, "run_job") as run,
+        ):
+            worker_agent.handle_start_attempt(command)
+        assert run.call_args.args[0]["_serverless_callback_token"] == "xsw_scoped-proof"
+        assert "xsw_scoped-proof" not in journal.read_text()
+
+    def test_serverless_start_refuses_a_grant_without_callback_credential(self):
+        command = _start_cmd()
+        command["args"]["spec"]["job_type"] = "serverless_worker"
+        command["spec_hash"] = worker_agent.compute_spec_hash(command["args"]["spec"])
+        with (
+            mock.patch.object(
+                worker_agent, "v2_claim_lease_fenced", return_value={"renewal_ttl_sec": 300}
+            ),
+            mock.patch.object(worker_agent, "v2_nack_command") as nack,
+            mock.patch.object(worker_agent, "run_job") as run,
+        ):
+            worker_agent.handle_start_attempt(command)
+        run.assert_not_called()
+        nack.assert_called_once_with("cmd-1", "callback_credential_missing", retryable=False)
+
     def test_rejected_lease_aborts_start(self):
         """§11.2: lease claim 409 → NACK non-retryable, run_job NEVER called."""
         posts = []
