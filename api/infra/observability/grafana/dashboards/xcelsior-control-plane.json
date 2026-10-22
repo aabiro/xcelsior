@@ -2,10 +2,10 @@
   "id": null,
   "uid": "xcelsior-control-plane",
   "title": "Xcelsior Control Plane",
-  "description": "Live scheduler, worker delivery, GPU allocation, billing and reconciliation health. Zero workload is valid; unavailable observations remain NO DATA.",
+  "description": "Current workload, worker health, billing evidence, durable delivery, database freshness, recovery proof and GPU/host capacity. Idle workload is valid; missing observations remain NO DATA.",
   "editable": false,
   "schemaVersion": 41,
-  "version": 1,
+  "version": 4,
   "refresh": "30s",
   "timezone": "browser",
   "time": {
@@ -25,72 +25,25 @@
   "panels": [
     {
       "id": 1,
-      "type": "stat",
-      "title": "API up",
-      "description": "Live scrape reachability. No-data is not a healthy zero.",
+      "type": "row",
+      "title": "Live operations",
+      "collapsed": false,
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 4,
-        "h": 5
+        "w": 24,
+        "h": 1
       },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "up{job=\"xcelsior-api\"}",
-          "legendFormat": "{{instance}}",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "NO DATA",
-          "unit": "short",
-          "custom": {
-            "spanNulls": false
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "red"
-              },
-              {
-                "value": 1,
-                "color": "green"
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      }
+      "panels": []
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Durable metrics available",
-      "description": "1 means database-backed control-plane metrics were read successfully.",
+      "title": "API reachable",
+      "description": "API metrics endpoint reachability. Database freshness is shown separately below.",
       "gridPos": {
-        "x": 4,
-        "y": 0,
+        "x": 0,
+        "y": 1,
         "w": 4,
         "h": 5
       },
@@ -101,8 +54,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "xcelsior_control_plane_metrics_available{job=\"xcelsior-api\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "max(up{job=\"xcelsior-api\"})",
+          "legendFormat": "API reachable",
           "instant": true,
           "range": false
         }
@@ -111,8 +64,18 @@
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
           "custom": {
-            "spanNulls": false
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           },
           "thresholds": {
             "mode": "absolute",
@@ -126,13 +89,29 @@
                 "color": "green"
               }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -140,17 +119,17 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "V2 scheduling active",
-      "description": "1 means all standard placements use the authoritative scheduler.",
+      "title": "Services",
+      "description": "Fresh scheduler, reconciler, outbox and maintenance identities. Inspect heartbeat age for a missing service.",
       "gridPos": {
-        "x": 8,
-        "y": 0,
+        "x": 4,
+        "y": 1,
         "w": 4,
         "h": 5
       },
@@ -161,8 +140,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "1 - xcelsior_legacy_execution_enabled{job=\"xcelsior-api\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "sum(xcelsior_service_heartbeat_fresh_replicas{job=\"xcelsior-api\"})",
+          "legendFormat": "Services fresh",
           "instant": true,
           "range": false
         }
@@ -171,8 +150,18 @@
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
           "custom": {
-            "spanNulls": false
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           },
           "thresholds": {
             "mode": "absolute",
@@ -182,7 +171,7 @@
                 "color": "red"
               },
               {
-                "value": 1,
+                "value": 4,
                 "color": "green"
               }
             ]
@@ -193,6 +182,7 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -200,17 +190,17 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Ready GPU hosts",
-      "description": "Admitted, ready hosts with a fresh v2 observation; raw registrations do not count.",
+      "title": "Ready hosts",
+      "description": "Admitted hosts with current observations that can accept a placement.",
       "gridPos": {
-        "x": 12,
-        "y": 0,
+        "x": 8,
+        "y": 1,
         "w": 4,
         "h": 5
       },
@@ -221,8 +211,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "xcelsior_ready_hosts{job=\"xcelsior-api\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "max(xcelsior_ready_hosts{job=\"xcelsior-api\"})",
+          "legendFormat": "Ready hosts",
           "instant": true,
           "range": false
         }
@@ -231,21 +221,18 @@
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
-          "custom": {
-            "spanNulls": false
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "red"
-              },
-              {
-                "value": 1,
-                "color": "green"
-              }
-            ]
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           }
         },
         "overrides": []
@@ -253,6 +240,7 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -260,17 +248,17 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "Active attempts",
-      "description": "Nonterminal fenced placement attempts, including work being prepared.",
+      "title": "Attempts",
+      "description": "Durable active execution attempts; zero is normal when the site is idle.",
       "gridPos": {
-        "x": 16,
-        "y": 0,
+        "x": 12,
+        "y": 1,
         "w": 4,
         "h": 5
       },
@@ -281,8 +269,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "xcelsior_active_attempts{job=\"xcelsior-api\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "max(xcelsior_active_attempts{job=\"xcelsior-api\"})",
+          "legendFormat": "Attempts",
           "instant": true,
           "range": false
         }
@@ -291,21 +279,18 @@
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
-          "custom": {
-            "spanNulls": false
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 1,
-                "color": "orange"
-              }
-            ]
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           }
         },
         "overrides": []
@@ -313,6 +298,7 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -320,17 +306,17 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
       "id": 6,
       "type": "stat",
       "title": "Queued jobs",
-      "description": "A real zero means no queued site work; collection availability is separate.",
+      "description": "",
       "gridPos": {
-        "x": 20,
-        "y": 0,
+        "x": 16,
+        "y": 1,
         "w": 4,
         "h": 5
       },
@@ -341,8 +327,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "xcelsior_queue_depth{job=\"xcelsior-api\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "max(xcelsior_queue_depth{job=\"xcelsior-api\"})",
+          "legendFormat": "Queued jobs",
           "instant": true,
           "range": false
         }
@@ -351,8 +337,93 @@
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
           "custom": {
-            "spanNulls": false
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "blue"
+              },
+              {
+                "value": 10,
+                "color": "orange"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Warnings",
+      "description": "Native Prometheus warning instances. Healthy Prometheus supplies an idle zero when no alert instances exist; missing scrape data remains unknown.",
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ALERTS{alertstate=\"firing\",platform=\"xcelsior\",severity=\"warning\"}) or on() (0 * max(up{job=\"prometheus\"} == 1))",
+          "legendFormat": "Warnings",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           },
           "thresholds": {
             "mode": "absolute",
@@ -373,6 +444,7 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -380,19 +452,32 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       }
     },
     {
-      "id": 7,
+      "id": 8,
+      "type": "row",
+      "title": "Workload and capacity",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
       "type": "timeseries",
-      "title": "Queue depth",
+      "title": "Waiting jobs",
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 5,
-        "w": 12,
-        "h": 7
+        "y": 7,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -402,16 +487,29 @@
         {
           "refId": "A",
           "expr": "xcelsior_queue_depth{job=\"xcelsior-api\"}",
-          "legendFormat": "Queued jobs"
+          "legendFormat": "Queued",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -424,20 +522,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
-      "id": 8,
+      "id": 10,
       "type": "timeseries",
-      "title": "Oldest queued job",
+      "title": "Oldest waiting job",
       "description": "",
       "gridPos": {
-        "x": 12,
-        "y": 5,
-        "w": 12,
-        "h": 7
+        "x": 8,
+        "y": 7,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -447,15 +546,26 @@
         {
           "refId": "A",
           "expr": "xcelsior_queue_oldest_age_seconds{job=\"xcelsior-api\"}",
-          "legendFormat": "Queue wait"
+          "legendFormat": "Queue age",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           }
         },
         "overrides": []
@@ -469,20 +579,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
-      "id": 9,
+      "id": 11,
       "type": "timeseries",
-      "title": "Fenced attempts and reserved GPU devices",
+      "title": "Attempts and reserved GPUs",
       "description": "",
       "gridPos": {
-        "x": 0,
-        "y": 12,
-        "w": 12,
-        "h": 7
+        "x": 16,
+        "y": 7,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -492,21 +603,35 @@
         {
           "refId": "A",
           "expr": "xcelsior_active_attempts{job=\"xcelsior-api\"}",
-          "legendFormat": "Active attempts"
+          "legendFormat": "Active attempts",
+          "range": true
         },
         {
           "refId": "B",
           "expr": "xcelsior_active_gpu_allocations{job=\"xcelsior-api\"}",
-          "legendFormat": "Reserved GPU devices"
+          "legendFormat": "Reserved GPU devices",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -519,75 +644,34 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Worker command delivery",
-      "description": "Counts come from the durable command table, not process-local delivery counters.",
+      "id": 12,
+      "type": "row",
+      "title": "Workers and service health",
+      "collapsed": false,
       "gridPos": {
-        "x": 12,
-        "y": 12,
-        "w": 12,
-        "h": 7
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
       },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "xcelsior_commands_pending{job=\"xcelsior-api\"}",
-          "legendFormat": "Pending"
-        },
-        {
-          "refId": "B",
-          "expr": "xcelsior_commands_claimed{job=\"xcelsior-api\"}",
-          "legendFormat": "Claimed, awaiting ACK"
-        },
-        {
-          "refId": "C",
-          "expr": "xcelsior_commands_dead_lettered{job=\"xcelsior-api\"}",
-          "legendFormat": "Failed permanently"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "NO DATA",
-          "unit": "short",
-          "custom": {
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
+      "panels": []
     },
     {
-      "id": 11,
+      "id": 13,
       "type": "timeseries",
       "title": "Service heartbeat age",
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 19,
-        "w": 12,
-        "h": 7
+        "y": 16,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -597,15 +681,26 @@
         {
           "refId": "A",
           "expr": "xcelsior_service_heartbeat_latest_age_seconds{job=\"xcelsior-api\"}",
-          "legendFormat": "{{service}}"
+          "legendFormat": "{{service}}",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           }
         },
         "overrides": []
@@ -619,120 +714,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "Fresh service replicas",
-      "description": "Scheduler, reconciler, outbox and maintenance executors should all report fresh heartbeats.",
-      "gridPos": {
-        "x": 12,
-        "y": 19,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "xcelsior_service_heartbeat_fresh_replicas{job=\"xcelsior-api\"}",
-          "legendFormat": "{{service}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "NO DATA",
-          "unit": "short",
-          "custom": {
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 13,
-      "type": "timeseries",
-      "title": "Reconciliation backlog and errors",
-      "description": "",
-      "gridPos": {
-        "x": 0,
-        "y": 26,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "xcelsior_reconciliation_queue_depth{job=\"xcelsior-api\"}",
-          "legendFormat": "Due work"
-        },
-        {
-          "refId": "B",
-          "expr": "xcelsior_reconciliation_queue_errors{job=\"xcelsior-api\"}",
-          "legendFormat": "Work with errors"
-        },
-        {
-          "refId": "C",
-          "expr": "xcelsior_reconciliation_critical_findings{job=\"xcelsior-api\"}",
-          "legendFormat": "Critical/error findings"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "NO DATA",
-          "unit": "short",
-          "custom": {
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
       "id": 14,
       "type": "timeseries",
-      "title": "Reconciliation delay",
+      "title": "Worker command delivery",
       "description": "",
       "gridPos": {
-        "x": 12,
-        "y": 26,
-        "w": 12,
-        "h": 7
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -741,17 +737,42 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "xcelsior_reconciliation_oldest_due_age_seconds{job=\"xcelsior-api\"}",
-          "legendFormat": "Oldest due item"
+          "expr": "xcelsior_commands_pending{job=\"xcelsior-api\"}",
+          "legendFormat": "Pending",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "xcelsior_commands_claimed{job=\"xcelsior-api\"}",
+          "legendFormat": "Claimed",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "xcelsior_commands_dead_lettered{job=\"xcelsior-api\"}",
+          "legendFormat": "Failed permanently",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
-          "unit": "s",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -764,20 +785,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
       "id": 15,
       "type": "timeseries",
-      "title": "Lease and worker-observation problems",
+      "title": "Lease and host observation problems",
       "description": "",
       "gridPos": {
-        "x": 0,
-        "y": 33,
-        "w": 12,
-        "h": 7
+        "x": 16,
+        "y": 16,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -787,26 +809,41 @@
         {
           "refId": "A",
           "expr": "xcelsior_stale_active_leases{job=\"xcelsior-api\"}",
-          "legendFormat": "Expired active leases"
+          "legendFormat": "Stale active leases",
+          "range": true
         },
         {
           "refId": "B",
           "expr": "xcelsior_stale_offered_leases{job=\"xcelsior-api\"}",
-          "legendFormat": "Expired offers"
+          "legendFormat": "Stale offers",
+          "range": true
         },
         {
           "refId": "C",
           "expr": "xcelsior_stale_host_observations{job=\"xcelsior-api\"}",
-          "legendFormat": "Stale host observations"
+          "legendFormat": "Stale hosts",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -819,20 +856,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
       "id": 16,
       "type": "timeseries",
-      "title": "Oldest host observation",
-      "description": "",
+      "title": "Platform dependency reachability",
+      "description": "One means the scrape/probe succeeds, zero means it fails, and missing data remains NO DATA. Scrape reachability does not prove inference quality.",
       "gridPos": {
-        "x": 12,
-        "y": 33,
-        "w": 12,
-        "h": 7
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -841,17 +879,43 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "xcelsior_oldest_host_observation_age_seconds{job=\"xcelsior-api\"}",
-          "legendFormat": "Observation age"
+          "expr": "up{job=~\"tower-gpu|tower-host|tower-serverless|tower-storage|laptop-host|prod-hetzner-host\"}",
+          "legendFormat": "{{job}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "xcelsior_nfs_reachable{job=\"xcelsior-api\"}",
+          "legendFormat": "Volume storage",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "xcelsior_registry_reachable{job=\"xcelsior-api\"}",
+          "legendFormat": "Container registry",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
-          "unit": "s",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -864,20 +928,34 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
       "id": 17,
-      "type": "timeseries",
-      "title": "Billing invariants",
-      "description": "These should stay zero. No wallet or billing policy is changed by this view.",
+      "type": "row",
+      "title": "Billing evidence and durable delivery",
+      "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 40,
-        "w": 12,
-        "h": 7
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Billing exceptions",
+      "description": "Repairs remain report_only. Historical evidence gaps stay visible; do not invent charges to clear a warning.",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -887,21 +965,35 @@
         {
           "refId": "A",
           "expr": "xcelsior_billing_missing_meters{job=\"xcelsior-api\"}",
-          "legendFormat": "Unmetered terminal attempts"
+          "legendFormat": "Started attempts without meter evidence",
+          "range": true
         },
         {
           "refId": "B",
           "expr": "xcelsior_billing_open_terminal_meters{job=\"xcelsior-api\"}",
-          "legendFormat": "Meters still open after terminal"
+          "legendFormat": "Open meters on terminal attempts",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -914,20 +1006,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "timeseries",
-      "title": "Event and projection delivery",
+      "title": "Event and projection backlog",
       "description": "",
       "gridPos": {
-        "x": 12,
-        "y": 40,
-        "w": 12,
-        "h": 7
+        "x": 8,
+        "y": 31,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -937,31 +1030,47 @@
         {
           "refId": "A",
           "expr": "xcelsior_outbox_backlog{job=\"xcelsior-api\"}",
-          "legendFormat": "Outbox backlog"
+          "legendFormat": "Event backlog",
+          "range": true
         },
         {
           "refId": "B",
           "expr": "xcelsior_outbox_dead_letters{job=\"xcelsior-api\"}",
-          "legendFormat": "Outbox dead letters"
+          "legendFormat": "Event dead letters",
+          "range": true
         },
         {
           "refId": "C",
           "expr": "xcelsior_projection_outbox_unprepared{job=\"xcelsior-api\"}",
-          "legendFormat": "Awaiting fan-out"
+          "legendFormat": "Unprepared projection intents",
+          "range": true
         },
         {
           "refId": "D",
           "expr": "xcelsior_projection_orphaned_deliveries{job=\"xcelsior-api\"}",
-          "legendFormat": "Orphaned receipts"
+          "legendFormat": "Orphaned projection deliveries",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
-          }
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -974,65 +1083,21 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 19,
-      "type": "timeseries",
-      "title": "Background task failures",
-      "description": "",
-      "gridPos": {
-        "x": 0,
-        "y": 47,
-        "w": 12,
-        "h": 7
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "xcelsior_scheduled_task_failures{job=\"xcelsior-api\"}",
-          "legendFormat": "Tasks whose latest run failed"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "NO DATA",
-          "unit": "short",
-          "custom": {
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     },
     {
       "id": 20,
       "type": "timeseries",
-      "title": "Metrics freshness",
+      "title": "Reconciliation backlog",
       "description": "",
       "gridPos": {
-        "x": 12,
-        "y": 47,
-        "w": 12,
-        "h": 7
+        "x": 16,
+        "y": 31,
+        "w": 8,
+        "h": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -1041,21 +1106,110 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - xcelsior_control_plane_metrics_last_success_timestamp_seconds{job=\"xcelsior-api\"}",
-          "legendFormat": "Durable metrics age"
+          "expr": "xcelsior_reconciliation_queue_depth{job=\"xcelsior-api\"}",
+          "legendFormat": "Queued reconciliation work",
+          "range": true
         },
         {
           "refId": "B",
-          "expr": "time() - xcelsior_projection_metrics_last_success_timestamp_seconds{job=\"xcelsior-api\"}",
-          "legendFormat": "Projection metrics age"
+          "expr": "xcelsior_reconciliation_queue_errors{job=\"xcelsior-api\"}",
+          "legendFormat": "Queue errors",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "xcelsior_reconciliation_critical_findings{job=\"xcelsior-api\"}",
+          "legendFormat": "Critical findings",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Oldest pending durable work",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 16,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xcelsior_reconciliation_oldest_due_age_seconds{job=\"xcelsior-api\"}",
+          "legendFormat": "Reconciliation",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "xcelsior_outbox_oldest_pending_age_seconds{job=\"xcelsior-api\"}",
+          "legendFormat": "Event delivery",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "max(xcelsior_projection_oldest_pending_seconds{job=\"xcelsior-api\"})",
+          "legendFormat": "Projection delivery",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "noValue": "NO DATA",
           "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
-            "spanNulls": false
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
           }
         },
         "overrides": []
@@ -1069,9 +1223,916 @@
           ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
       }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Billing meters and background failures",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 39,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xcelsior_billing_active_meters{job=\"xcelsior-api\"}",
+          "legendFormat": "Active billing meters",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "xcelsior_scheduled_task_failures{job=\"xcelsior-api\"}",
+          "legendFormat": "Failed background tasks",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "row",
+      "title": "Database signals and recovery proof",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Database signals age",
+      "description": "Age of the last successful database snapshot. Check signal availability below if fresh data stops.",
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(xcelsior_control_plane_metrics_last_success_timestamp_seconds{job=\"xcelsior-api\"})",
+          "legendFormat": "Database signals age",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 60,
+                "color": "orange"
+              },
+              {
+                "value": 120,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Last successful backup",
+      "description": "Age of the most recent verified native backup on the application cluster.",
+      "gridPos": {
+        "x": 6,
+        "y": 48,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(xcelsior_backup_last_success_timestamp_seconds{job=\"prod-hetzner-host\"})",
+          "legendFormat": "Last successful backup",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 93600,
+                "color": "orange"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Last successful restore drill",
+      "description": "Age of the last successful disposable restore and invariant drill; distinct from creating a backup.",
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(xcelsior_restore_last_success_timestamp_seconds{job=\"prod-hetzner-host\"})",
+          "legendFormat": "Last successful restore drill",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 3024000,
+                "color": "orange"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Critical alerts",
+      "description": "",
+      "gridPos": {
+        "x": 18,
+        "y": 48,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ALERTS{alertstate=\"firing\",platform=\"xcelsior\",severity=\"critical\"}) or on() (0 * max(up{job=\"prometheus\"} == 1))",
+          "legendFormat": "Critical alerts",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Database-backed signal availability",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xcelsior_control_plane_metrics_available{job=\"xcelsior-api\"}",
+          "legendFormat": "Control plane",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "xcelsior_projection_metrics_available{job=\"xcelsior-api\"}",
+          "legendFormat": "Projection delivery",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "xcelsior_security_available{job=\"xcelsior-api\"}",
+          "legendFormat": "Security observations",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false,
+            "axisSoftMax": 5
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Backup and restore completion time",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 53,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xcelsior_backup_duration_seconds{job=\"prod-hetzner-host\"}",
+          "legendFormat": "Backup",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "xcelsior_restore_duration_seconds{job=\"prod-hetzner-host\"}",
+          "legendFormat": "Restore drill",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Host and GPU capacity",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Host CPU used",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (1 - avg by(job) (rate(node_cpu_seconds_total{mode=\"idle\",job=~\"prod-hetzner-host|tower-host|laptop-host\"}[5m])))",
+          "legendFormat": "{{job}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Host memory used",
+      "description": "",
+      "gridPos": {
+        "x": 8,
+        "y": 60,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=~\"prod-hetzner-host|tower-host|laptop-host\"} / node_memory_MemTotal_bytes{job=~\"prod-hetzner-host|tower-host|laptop-host\"})",
+          "legendFormat": "{{job}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Tower GPU and VRAM used",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 60,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * nvidia_smi_utilization_gpu_ratio{job=\"tower-gpu\"}",
+          "legendFormat": "GPU busy",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "100 * nvidia_smi_memory_used_bytes{job=\"tower-gpu\"} / nvidia_smi_memory_total_bytes{job=\"tower-gpu\"}",
+          "legendFormat": "VRAM used",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "Available disk space",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{job=~\"prod-hetzner-host|tower-host|laptop-host\",mountpoint=~\"/|/mnt/storage\",fstype!~\"tmpfs|overlay|squashfs\"}",
+          "legendFormat": "{{job}} {{mountpoint}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "bytes",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "Tower GPU temperature",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 68,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nvidia_smi_temperature_gpu{job=\"tower-gpu\"}",
+          "legendFormat": "GPU temperature",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "celsius",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 36,
+      "type": "row",
+      "title": "Active Xcelsior alerts",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 76,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 37,
+      "type": "table",
+      "title": "Current native alerts",
+      "description": "Current native Prometheus alerts. An empty list is expected when no alerts are firing. Inspect warnings before taking action; repairs remain report_only.",
+      "gridPos": {
+        "x": 0,
+        "y": 77,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(alertname,severity) (ALERTS{alertstate=\"firing\",platform=\"xcelsior\"})",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": false,
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "axisCenteredZero": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "md",
+        "footer": {
+          "show": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true
+            },
+            "indexByName": {
+              "alertname": 0,
+              "severity": 1
+            },
+            "renameByName": {
+              "alertname": "Alert",
+              "severity": "Severity"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "graphTooltip": 1,
+  "links": [
+    {
+      "type": "link",
+      "title": "Operations runbook",
+      "url": "https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md",
+      "targetBlank": true,
+      "icon": "book"
     }
   ]
 }
