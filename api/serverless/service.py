@@ -581,7 +581,6 @@ class ServerlessService:
         if claimed:
             job_id = str(claimed["job_id"])
             first_job_on_worker = int(w.get("current_concurrency") or 0) == 0
-            self.repo.increment_worker_concurrency(worker_id)
             if first_job_on_worker:
                 alloc = float(w.get("allocated_at") or 0)
                 if alloc:
@@ -611,80 +610,81 @@ class ServerlessService:
         cached_tokens: int = 0,
         ttft_ms: int = 0,
     ) -> dict | None:
-        w = self.repo.get_worker(worker_id)
-        if not w:
-            return None
-        job = self.repo.get_job(job_id)
-        if not job or str(job.get("worker_id")) != worker_id:
-            return None
-        status = str(job.get("status") or "")
-        if status in (JOB_STATUS_CANCELLED, JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
-            return job
-        ep = self.repo.get_endpoint(str(w["endpoint_id"]))
-        now = time.time()
-        started = float(job.get("started_at") or now)
-        execution_seconds = max(0, int(math.ceil(now - started)))
-        cold_start_seconds = int(job.get("cold_start_seconds") or 0)
-        from serverless.openai_proxy import endpoint_accrues_tokens
+        with self.repo.worker_request(worker_id, job_id) as (conn, w, job):
+            if not w or not job:
+                return None
+            status = str(job.get("status") or "")
+            if status in (JOB_STATUS_CANCELLED, JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+                return dict(job)
+            if status != JOB_STATUS_IN_PROGRESS:
+                return None
+            ep = self.repo.get_endpoint(str(w["endpoint_id"]))
+            now = time.time()
+            started = float(job.get("started_at") or now)
+            execution_seconds = max(0, int(math.ceil(now - started)))
+            cold_start_seconds = int(job.get("cold_start_seconds") or 0)
+            from serverless.openai_proxy import endpoint_accrues_tokens
 
-        if ep and not endpoint_accrues_tokens(ep):
-            input_tokens = 0
-            output_tokens = 0
-            cached_tokens = 0
-            ttft_ms = 0
+            if ep and not endpoint_accrues_tokens(ep):
+                input_tokens = 0
+                output_tokens = 0
+                cached_tokens = 0
+                ttft_ms = 0
 
-        idem_key = f"job:{job_id}:attempt:{int(job.get('attempt') or 1)}"
-        token_meta: dict[str, Any] = {}
-        if ep and endpoint_accrues_tokens(ep) and not bool(job.get("billing_exempt")):
-            token_meta = token_cost_metadata(
-                input_tokens,
-                output_tokens,
-                model_ref=str(ep.get("model_ref") or ""),
-                cached_tokens=cached_tokens,
-            )
-            # Accrue this request's token cost so the blended meter can later charge the
-            # higher of GPU-seconds vs. token cost. Idempotent by job+attempt.
-            try:
-                if not self.repo.token_usage_already_recorded(str(w["endpoint_id"]), idem_key):
+            idem_key = f"job:{job_id}:attempt:{int(job.get('attempt') or 1)}"
+            token_meta: dict[str, Any] = {}
+            if ep and endpoint_accrues_tokens(ep) and not bool(job.get("billing_exempt")):
+                token_meta = token_cost_metadata(
+                    input_tokens,
+                    output_tokens,
+                    model_ref=str(ep.get("model_ref") or ""),
+                    cached_tokens=cached_tokens,
+                )
+                # Accrue this request's token cost so the blended meter can later charge the
+                # higher of GPU-seconds vs. token cost. Idempotent by job+attempt.
+                if not self.repo.token_usage_already_recorded(
+                    str(w["endpoint_id"]), idem_key, conn=conn
+                ):
                     self.repo.accrue_endpoint_token_cost(
                         str(w["endpoint_id"]),
                         float(token_meta.get("total_token_cost_cad") or 0.0),
+                        conn=conn,
                     )
                     self.repo.record_token_usage_idempotency(
-                        str(w["endpoint_id"]), idem_key, token_meta
+                        str(w["endpoint_id"]), idem_key, token_meta, conn=conn
                     )
-            except Exception:
-                log.debug("token cost accrual skipped for endpoint %s", w.get("endpoint_id"))
 
-        completed = self.repo.complete_job(
-            job_id,
-            output=output,
-            error=error,
-            gpu_seconds=execution_seconds,
-            cold_start_seconds=cold_start_seconds,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cached_tokens=cached_tokens,
-            ttft_ms=ttft_ms,
-            cost_cad=0.0,
-        )
-        self.dispatcher.release_job(job_id, worker_id)
-        if ep:
-            self.repo.increment_endpoint_totals(
-                str(ep["endpoint_id"]),
-                requests=1,
+            completed = self.repo.complete_job(
+                job_id,
+                output=output,
+                error=error,
                 gpu_seconds=execution_seconds,
+                cold_start_seconds=cold_start_seconds,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+                ttft_ms=ttft_ms,
+                cost_cad=0.0,
+                conn=conn,
             )
-            if token_meta.get("total_token_cost_cad"):
-                log.debug(
-                    "Job %s token metadata (not billed): %s",
-                    job_id,
-                    token_meta,
+            self.repo.decrement_worker_concurrency(worker_id, conn=conn)
+            if ep:
+                self.repo.increment_endpoint_totals(
+                    str(ep["endpoint_id"]),
+                    requests=1,
+                    gpu_seconds=execution_seconds,
+                    conn=conn,
                 )
-        if error:
-            self.repo.append_stream_event(job_id, "error", {"message": error})
-        else:
-            self.repo.append_stream_event(job_id, "result", output or {})
+                if token_meta.get("total_token_cost_cad"):
+                    log.debug(
+                        "Job %s token metadata (not billed): %s",
+                        job_id,
+                        token_meta,
+                    )
+            if error:
+                self.repo.append_stream_event(job_id, "error", {"message": error}, conn=conn)
+            else:
+                self.repo.append_stream_event(job_id, "result", output or {}, conn=conn)
         if completed and ep:
             from serverless.observability import (
                 log_job_event,
@@ -720,9 +720,9 @@ class ServerlessService:
         enqueue_job_webhook(self.repo, job)
 
     def fail_job_without_worker(self, job_id: str, *, error: str) -> dict | None:
-        """Mark a queued/in-flight job failed (no worker callback) and notify webhook."""
-        completed = self.repo.complete_job(job_id, error=error)
-        if completed:
+        """Fail an unassigned queued request and notify its webhook after commit."""
+        completed, changed = self.repo.fail_unassigned_job(job_id, error)
+        if completed and changed:
             from serverless.observability import (
                 log_job_event,
                 record_job_terminal,
@@ -730,11 +730,6 @@ class ServerlessService:
             )
 
             eid = str(completed.get("endpoint_id") or "")
-            self.repo.append_stream_event(
-                job_id,
-                "error",
-                {"code": "job_failed", "message": error},
-            )
             if eid:
                 record_job_terminal(eid, failed=True)
                 log_job_event(
@@ -760,28 +755,12 @@ class ServerlessService:
         reason: str = "cancelled",
     ) -> dict | None:
         """Cancel a queued or in-flight job and release worker concurrency."""
-        job = self.repo.get_job(job_id, endpoint_id=endpoint_id)
-        if not job:
-            return None
-        status = str(job.get("status") or "")
-        if status not in (JOB_STATUS_QUEUED, JOB_STATUS_IN_PROGRESS):
-            return job
-
-        worker_id = str(job.get("worker_id") or "")
-        cancelled = self.repo.cancel_job(job_id, endpoint_id)
-        if not cancelled:
-            return None
-
-        if worker_id and status == JOB_STATUS_IN_PROGRESS:
-            self.dispatcher.release_job(job_id, worker_id)
+        cancelled, changed = self.repo.cancel_request(job_id, endpoint_id, reason=reason)
+        if not changed:
+            return cancelled
 
         from serverless.observability import log_job_event, refresh_endpoint_gauges
 
-        self.repo.append_stream_event(
-            job_id,
-            "error",
-            {"code": "job_cancelled", "message": reason},
-        )
         log_job_event(
             "cancelled",
             correlation_id=job_id,
@@ -794,13 +773,8 @@ class ServerlessService:
         return cancelled
 
     def worker_get_job(self, worker_id: str, job_id: str) -> dict | None:
-        w = self.repo.get_worker(worker_id)
-        if not w:
-            return None
-        job = self.repo.get_job(job_id, endpoint_id=str(w["endpoint_id"]))
-        if not job or str(job.get("worker_id")) != worker_id:
-            return None
-        return job
+        with self.repo.worker_request(worker_id, job_id) as (_, worker, job):
+            return dict(job) if worker and job else None
 
     @staticmethod
     def normalize_runsync_output(job: dict) -> dict:
@@ -819,13 +793,10 @@ class ServerlessService:
         event_type: str,
         payload: dict,
     ) -> dict | None:
-        w = self.repo.get_worker(worker_id)
-        if not w:
-            return None
-        job = self.repo.get_job(job_id)
-        if not job or str(job.get("worker_id")) != worker_id:
-            return None
-        return self.repo.append_stream_event(job_id, event_type, payload)
+        with self.repo.worker_request(worker_id, job_id) as (conn, worker, job):
+            if not worker or not job or job["status"] != JOB_STATUS_IN_PROGRESS:
+                return None
+            return self.repo.append_stream_event(job_id, event_type, payload, conn=conn)
 
     def deprovision_worker(self, worker_id: str, *, charge: bool = True) -> dict:
         """Persist stop intent; native terminal evidence releases and bills work.

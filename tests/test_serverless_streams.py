@@ -129,10 +129,10 @@ class TestCancelInflight:
         ep_id = ep["endpoint_id"]
         worker = repo.create_worker(ep_id, scheduler_job_id="sched-1")
         worker_id = str(worker["worker_id"])
+        repo.update_worker(worker_id, state="ready")
         job = repo.enqueue_job(ep_id, owner, {"x": 1})
         claimed = repo.claim_next_job(ep_id, worker_id)
         assert claimed is not None
-        repo.increment_worker_concurrency(worker_id)
 
         cancelled = svc.cancel_inflight_job(
             str(job["job_id"]),
@@ -193,9 +193,9 @@ class TestStreamRoute:
         owner_row = repo.get_endpoint(ep_id)
         worker = repo.create_worker(ep_id, scheduler_job_id="sched-dc")
         worker_id = str(worker["worker_id"])
+        repo.update_worker(worker_id, state="ready")
         job = repo.enqueue_job(ep_id, str(owner_row["owner_id"]), {"x": 1})
         repo.claim_next_job(ep_id, worker_id)
-        repo.increment_worker_concurrency(worker_id)
 
         import routes.serverless as sl_routes
 

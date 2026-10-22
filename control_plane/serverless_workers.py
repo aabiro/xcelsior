@@ -105,9 +105,11 @@ def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
 
 
 def sync_serverless_attempt(conn, *, job_id: str, attempt_id: str) -> None:
-    """Close routing and requeue work atomically with confirmed attempt exit.
+    """Close routing and requeue work atomically with native attempt settlement.
 
-    This runs only after the caller's fence gate. All persisted bindings must
+    Callers hold the current job authority lock or have passed the fence gate.
+    Lease expiry revokes authority without asserting a physical container exit.
+    All persisted bindings must
     still agree; historical or partly bound workers are never adopted here.
     Billing uses the stored release timestamp on its normal periodic retry.
     """
@@ -152,7 +154,14 @@ def sync_serverless_attempt(conn, *, job_id: str, attempt_id: str) -> None:
                             AND w.released_at IS NULL)""",
                 (worker["endpoint_id"], wid),
             )
-        elif worker["status"] in ("succeeded", "failed", "cancelled"):
+        elif worker["status"] in (
+            "succeeded",
+            "failed",
+            "cancelled",
+            "lost",
+            "fenced",
+            "preempted",
+        ):
             # No wall-clock fallback: only the native terminal transaction is
             # proof of release. Replays retain exactly the same billing bound.
             if worker["ended_at"] is None:
@@ -161,11 +170,16 @@ def sync_serverless_attempt(conn, *, job_id: str, attempt_id: str) -> None:
                 """UPDATE serverless_workers
                       SET state=%s, released_at=COALESCE(released_at,%s),
                           current_concurrency=0,
-                          error_message=CASE WHEN %s='failed' THEN %s ELSE error_message END,
+                          error_message=CASE WHEN %s IN ('failed','lost','fenced','preempted')
+                            THEN %s ELSE error_message END,
                           updated_at=EXTRACT(EPOCH FROM clock_timestamp())
                     WHERE worker_id=%s""",
                 (
-                    "error" if worker["status"] == "failed" else "terminated",
+                    (
+                        "error"
+                        if worker["status"] in ("failed", "lost", "fenced", "preempted")
+                        else "terminated"
+                    ),
                     worker["ended_at"],
                     worker["status"],
                     worker["failure_code"],

@@ -313,13 +313,31 @@ class ServerlessRepo:
         assert row is not None
         return row
 
-    def get_worker(self, worker_id: str) -> dict | None:
-        with self._conn() as conn:
+    def get_worker(self, worker_id: str, *, conn=None) -> dict | None:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             row = conn.execute(
                 "SELECT * FROM serverless_workers WHERE worker_id = %s",
                 (worker_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    @contextmanager
+    def worker_request(self, worker_id: str, job_id: str):
+        """Serialize callbacks against expiry, drain and request reassignment."""
+        with self._conn() as conn:
+            worker = conn.execute(
+                "SELECT * FROM serverless_workers WHERE worker_id=%s AND released_at IS NULL "
+                "AND state IN ('ready','idle','draining') FOR UPDATE",
+                (worker_id,),
+            ).fetchone()
+            job = None
+            if worker:
+                job = conn.execute(
+                    "SELECT * FROM serverless_jobs WHERE job_id=%s AND worker_id=%s "
+                    "AND endpoint_id=%s FOR UPDATE",
+                    (job_id, worker_id, worker["endpoint_id"]),
+                ).fetchone()
+            yield conn, worker, job
 
     def get_worker_by_scheduler_job_id(self, scheduler_job_id: str) -> dict | None:
         with self._conn() as conn:
@@ -479,8 +497,8 @@ class ServerlessRepo:
         cause = getattr(exc, "__cause__", None)
         return cause is not None and type(cause).__name__ == "UniqueViolation"
 
-    def get_job(self, job_id: str, *, endpoint_id: str | None = None) -> dict | None:
-        with self._conn() as conn:
+    def get_job(self, job_id: str, *, endpoint_id: str | None = None, conn=None) -> dict | None:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             if endpoint_id:
                 row = conn.execute(
                     """
@@ -523,9 +541,26 @@ class ServerlessRepo:
         return dict(row) if row else None
 
     def claim_next_job(self, endpoint_id: str, worker_id: str) -> dict | None:
-        """Atomically claim the oldest queued job for an endpoint (SKIP LOCKED)."""
+        """Claim a request and its worker slot in the same transaction.
+
+        The worker lock serializes claims against drain, native terminal
+        projection and lease expiry. A stale selection cannot revive capacity.
+        """
         now = time.time()
         with self._conn() as conn:
+            worker = conn.execute(
+                """SELECT w.current_concurrency, e.max_concurrency
+                     FROM serverless_workers w
+                     JOIN serverless_endpoints e ON e.endpoint_id=w.endpoint_id
+                    WHERE w.worker_id=%s AND w.endpoint_id=%s AND w.released_at IS NULL
+                      AND w.state IN ('ready','idle') AND e.deleted_at=0
+                    FOR UPDATE OF w""",
+                (worker_id, endpoint_id),
+            ).fetchone()
+            if not worker or worker["current_concurrency"] >= max(
+                1, worker["max_concurrency"] or 1
+            ):
+                return None
             row = conn.execute(
                 """
                 UPDATE serverless_jobs
@@ -551,6 +586,12 @@ class ServerlessRepo:
                     JOB_STATUS_QUEUED,
                 ),
             ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE serverless_workers SET current_concurrency=current_concurrency+1,"
+                    "state='ready',updated_at=%s WHERE worker_id=%s",
+                    (now, worker_id),
+                )
         return dict(row) if row else None
 
     def complete_job(
@@ -566,10 +607,11 @@ class ServerlessRepo:
         cached_tokens: int = 0,
         ttft_ms: int = 0,
         cost_cad: float = 0.0,
+        conn=None,
     ) -> dict | None:
         now = time.time()
         status = JOB_STATUS_FAILED if error else JOB_STATUS_COMPLETED
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             conn.execute(
                 """
                 UPDATE serverless_jobs
@@ -603,7 +645,7 @@ class ServerlessRepo:
                     job_id,
                 ),
             )
-        return self.get_job(job_id)
+            return self.get_job(job_id, conn=conn)
 
     def set_job_cold_start_seconds(self, job_id: str, cold_start_seconds: int) -> None:
         with self._conn() as conn:
@@ -617,26 +659,60 @@ class ServerlessRepo:
             )
 
     def cancel_job(self, job_id: str, endpoint_id: str) -> dict | None:
-        now = time.time()
+        return self.cancel_request(job_id, endpoint_id)[0]
+
+    def cancel_request(self, job_id: str, endpoint_id: str, *, reason: str = "cancelled"):
+        """Cancel once, with slot release and event in the same transaction."""
+        for _ in range(3):
+            with self._conn() as conn:
+                snapshot = self.get_job(job_id, endpoint_id=endpoint_id, conn=conn)
+                if not snapshot:
+                    return None, False
+                worker_id = snapshot.get("worker_id")
+                if worker_id:
+                    conn.execute(
+                        "SELECT worker_id FROM serverless_workers WHERE worker_id=%s FOR UPDATE",
+                        (worker_id,),
+                    ).fetchone()
+                job = conn.execute(
+                    "SELECT * FROM serverless_jobs WHERE job_id=%s AND endpoint_id=%s FOR UPDATE",
+                    (job_id, endpoint_id),
+                ).fetchone()
+                if not job:
+                    return None, False
+                if job["worker_id"] != worker_id:
+                    # Release both locks before learning the new assignment.
+                    continue
+                if job["status"] not in (JOB_STATUS_QUEUED, JOB_STATUS_IN_PROGRESS):
+                    return dict(job), False
+                now = time.time()
+                conn.execute(
+                    "UPDATE serverless_jobs SET status=%s,finished_at=%s,updated_at=%s WHERE job_id=%s",
+                    (JOB_STATUS_CANCELLED, now, now, job_id),
+                )
+                if worker_id and job["status"] == JOB_STATUS_IN_PROGRESS:
+                    self.decrement_worker_concurrency(worker_id, conn=conn)
+                self.append_stream_event(
+                    job_id, "error", {"code": "job_cancelled", "message": reason}, conn=conn
+                )
+                return self.get_job(job_id, conn=conn), True
+        return None, False
+
+    def fail_unassigned_job(self, job_id: str, error: str):
+        """A queued timeout cannot overwrite a concurrent claim or completion."""
         with self._conn() as conn:
-            conn.execute(
-                """
-                UPDATE serverless_jobs
-                SET status = %s, finished_at = %s, updated_at = %s
-                WHERE job_id = %s AND endpoint_id = %s
-                  AND status IN (%s, %s)
-                """,
-                (
-                    JOB_STATUS_CANCELLED,
-                    now,
-                    now,
-                    job_id,
-                    endpoint_id,
-                    JOB_STATUS_QUEUED,
-                    JOB_STATUS_IN_PROGRESS,
-                ),
+            job = conn.execute(
+                "SELECT * FROM serverless_jobs WHERE job_id=%s FOR UPDATE", (job_id,)
+            ).fetchone()
+            if not job:
+                return None, False
+            if job["status"] != JOB_STATUS_QUEUED or job["worker_id"] is not None:
+                return dict(job), False
+            completed = self.complete_job(job_id, error=error, conn=conn)
+            self.append_stream_event(
+                job_id, "error", {"code": "job_failed", "message": error}, conn=conn
             )
-        return self.get_job(job_id, endpoint_id=endpoint_id)
+            return completed, True
 
     def update_job_webhook_status(
         self,
@@ -752,9 +828,11 @@ class ServerlessRepo:
         payload: dict[str, Any],
         *,
         seq_no: int | None = None,
+        conn=None,
     ) -> dict:
         now = time.time()
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
+            conn.execute("SELECT job_id FROM serverless_jobs WHERE job_id=%s FOR UPDATE", (job_id,))
             if seq_no is None:
                 row = conn.execute(
                     """
@@ -931,8 +1009,10 @@ class ServerlessRepo:
             )
         return self.get_worker(worker_id)
 
-    def decrement_worker_concurrency(self, worker_id: str, delta: int = 1) -> dict | None:
-        with self._conn() as conn:
+    def decrement_worker_concurrency(
+        self, worker_id: str, delta: int = 1, *, conn=None
+    ) -> dict | None:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             conn.execute(
                 """
                 UPDATE serverless_workers
@@ -952,7 +1032,7 @@ class ServerlessRepo:
                     worker_id,
                 ),
             )
-        return self.get_worker(worker_id)
+            return self.get_worker(worker_id, conn=conn)
 
     def requeue_job(self, job_id: str) -> dict | None:
         now = time.time()
@@ -1127,11 +1207,11 @@ class ServerlessRepo:
                 ),
             )
 
-    def accrue_endpoint_token_cost(self, endpoint_id: str, cost_cad: float) -> None:
+    def accrue_endpoint_token_cost(self, endpoint_id: str, cost_cad: float, *, conn=None) -> None:
         """Add request token cost to the endpoint's unbilled accrual (blended meter)."""
         if not endpoint_id or cost_cad <= 0:
             return
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             conn.execute(
                 """
                 UPDATE serverless_endpoints
@@ -1147,10 +1227,12 @@ class ServerlessRepo:
                 (round(float(cost_cad) * 1_000_000), time.time(), endpoint_id),
             )
 
-    def token_usage_already_recorded(self, endpoint_id: str, idempotency_key: str) -> bool:
+    def token_usage_already_recorded(
+        self, endpoint_id: str, idempotency_key: str, *, conn=None
+    ) -> bool:
         if not endpoint_id or not idempotency_key:
             return False
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             row = conn.execute(
                 """
                 SELECT 1 FROM serverless_token_ledger
@@ -1201,6 +1283,7 @@ class ServerlessRepo:
         *,
         ttft_ms: int = 0,
         latency_ms: int = 0,
+        conn=None,
     ) -> None:
         if not endpoint_id or not idempotency_key:
             return
@@ -1208,7 +1291,7 @@ class ServerlessRepo:
 
         now = time.time()
         ledger_id = f"stl-{uuid.uuid4().hex[:12]}"
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             conn.execute(
                 """
                 INSERT INTO serverless_token_ledger

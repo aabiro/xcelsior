@@ -20,6 +20,7 @@ from serverless.repo import (
     JOB_STATUS_IN_PROGRESS,
     JOB_STATUS_QUEUED,
     ServerlessRepo,
+    WORKER_STATE_READY,
 )
 from serverless.service import ServerlessService
 
@@ -62,6 +63,7 @@ class TestWorkerDeathMidInference:
         ep_id = preset_endpoint["endpoint_id"]
         worker = repo.create_worker(ep_id, scheduler_job_id=f"sched-{uuid.uuid4().hex[:8]}")
         worker_id = str(worker["worker_id"])
+        repo.update_worker(worker_id, state=WORKER_STATE_READY)
         job = repo.enqueue_job(ep_id, owner_id, {"messages": [{"role": "user", "content": "hi"}]})
         claimed = repo.claim_next_job(ep_id, worker_id)
         assert claimed is not None
@@ -162,6 +164,7 @@ class TestWorkerDeathMidInference:
         sched_job = f"sched-{uuid.uuid4().hex[:8]}"
         worker1 = repo.create_worker(ep_id, scheduler_job_id=sched_job)
         w1 = str(worker1["worker_id"])
+        repo.update_worker(w1, state=WORKER_STATE_READY)
         idem_key = f"chaos-{uuid.uuid4().hex[:12]}"
 
         job = repo.enqueue_job(
@@ -183,6 +186,7 @@ class TestWorkerDeathMidInference:
         # Retry on fresh worker — same client idempotency key.
         worker2 = repo.create_worker(ep_id, scheduler_job_id=sched_job)
         w2 = str(worker2["worker_id"])
+        repo.update_worker(w2, state=WORKER_STATE_READY)
         retry_claim = repo.claim_next_job(ep_id, w2)
         assert retry_claim is not None
         assert retry_claim["job_id"] == job["job_id"]

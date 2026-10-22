@@ -57,10 +57,10 @@ class TestCrashRecovery:
         ep_id = endpoint["endpoint_id"]
         worker = repo.create_worker(ep_id, scheduler_job_id="sched-crash")
         worker_id = str(worker["worker_id"])
+        repo.update_worker(worker_id, state=WORKER_STATE_READY)
         job = repo.enqueue_job(ep_id, owner_id, {"task": 1})
         claimed = repo.claim_next_job(ep_id, worker_id)
         assert claimed is not None
-        repo.increment_worker_concurrency(worker_id)
 
         dispatcher = ServerlessDispatcher(repo)
         requeued = repo.requeue_worker_jobs(worker_id)
@@ -74,7 +74,7 @@ class TestCrashRecovery:
 
         w = repo.get_worker(worker_id)
         assert w is not None
-        assert w["state"] == "booting"
+        assert w["state"] == WORKER_STATE_READY
 
 
 class TestRequestTimeoutReaper:
@@ -84,6 +84,7 @@ class TestRequestTimeoutReaper:
         ep_id = endpoint["endpoint_id"]
         worker = repo.create_worker(ep_id, scheduler_job_id="sched-timeout")
         worker_id = str(worker["worker_id"])
+        repo.update_worker(worker_id, state=WORKER_STATE_READY)
         job = repo.enqueue_job(ep_id, owner_id, {"slow": True})
         claimed = repo.claim_next_job(ep_id, worker_id)
         assert claimed is not None

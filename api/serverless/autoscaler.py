@@ -58,6 +58,8 @@ def should_scale_up(inp: AutoscalerInput) -> bool:
     """True when policy says we need more workers."""
     if inp.queue_depth <= 0:
         return False
+    if count_active_workers(inp.workers) == 0:
+        return True
     free = free_concurrency_slots(inp.workers, inp.max_concurrency)
     if free > 0:
         return False

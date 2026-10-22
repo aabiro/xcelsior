@@ -1,5 +1,9 @@
 # Native serverless lifecycle candidate — 2026-10-22
 
+The subsequent [authority-loss follow-up](2026-10-22-serverless-authority-loss.md)
+qualifies expiry/replacement and request transactions. The results below remain
+the evidence snapshot for the preceding lifecycle candidate.
+
 The candidate removes serverless service/reaper SSH kills and the premature
 release/charge writers. Deprovision persists stop intent and requests an exact
 native `stop_attempt`. Running capacity, release timestamps and in-flight

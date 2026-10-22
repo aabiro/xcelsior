@@ -2464,6 +2464,14 @@ data disposition remain separately scoped below.
   Registry image pinning, callback/claim fencing, lease-expiry handoff and
   coordinated rollout remain open.
   [Receipt](review/2026-10-22-serverless-native-lifecycle.md).
+  **Authority-loss follow-up, 2026-10-22:** native lease expiry closes serverless
+  routing and request ownership atomically; replacement uses fresh worker/job
+  IDs and a higher fence. Claims reserve slots transactionally, and completion,
+  cancellation, token accounting and result events share locked request state.
+  A queued timeout cannot overwrite claimed work. Old dispatcher slot-release
+  writes are removed. This does not assert physical exit or complete the broad
+  callback-credential handoff, gateway/SDK rollout or live GPU acceptance.
+  [Receipt](review/2026-10-22-serverless-authority-loss.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

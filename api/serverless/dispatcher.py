@@ -5,10 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from serverless.repo import (
-    JOB_STATUS_IN_PROGRESS,
-)
-
 if TYPE_CHECKING:
     from serverless.repo import ServerlessRepo
 
@@ -66,7 +62,6 @@ class ServerlessDispatcher:
         if not claimed:
             return None
 
-        self.repo.increment_worker_concurrency(str(worker["worker_id"]))
         log.info(
             "Dispatched job %s → worker %s (endpoint %s)",
             claimed["job_id"],
@@ -74,9 +69,3 @@ class ServerlessDispatcher:
             endpoint_id,
         )
         return claimed
-
-    def release_job(self, job_id: str, worker_id: str) -> None:
-        """Job finished — decrement worker concurrency."""
-        job = self.repo.get_job(job_id)
-        if job and str(job.get("worker_id")) == worker_id:
-            self.repo.decrement_worker_concurrency(worker_id)
