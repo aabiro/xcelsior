@@ -201,7 +201,7 @@ class TestHardLeaseGate:
         assert nack.call_args.args[1] == "lease_authority_lost_before_start"
         assert nack.call_args.kwargs["retryable"] is False
 
-    def test_run_job_never_reenters_legacy_lease_path_for_v2(self):
+    def test_run_job_requires_confirmed_starting_before_setup(self):
         job = {
             "job_id": "job-1",
             "name": "job-1",
@@ -214,14 +214,12 @@ class TestHardLeaseGate:
             mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
-            mock.patch.object(worker_agent, "claim_lease") as legacy_claim,
             mock.patch.object(worker_agent, "_kill_container") as kill,
             mock.patch.object(worker_agent, "_remove_container"),
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=False) as report,
         ):
             worker_agent.run_job(job)
-        legacy_claim.assert_not_called()
         kill.assert_called_once_with("xcl-job-1-att-1")
         report.assert_called_once_with("job-1", "starting", host_id=worker_agent.HOST_ID)
 
