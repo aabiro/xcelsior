@@ -37,8 +37,8 @@ WITH candidate AS (
        AND (schedule_claim_expires_at IS NULL
             OR schedule_claim_expires_at < clock_timestamp())
        AND (%(scope_all)s
-            OR lower(COALESCE(payload->>'gpu_model', '')) = ANY(%(scope_models)s)
-            OR lower(COALESCE(payload->>'scheduler', '')) = 'v2')
+            OR lower(COALESCE(COALESCE(spec,payload)->>'gpu_model', '')) = ANY(%(scope_models)s)
+            OR lower(COALESCE(COALESCE(spec,payload)->>'scheduler', '')) = 'v2')
      ORDER BY effective_priority DESC,
               fair_share_finish ASC,
               queued_at ASC NULLS LAST

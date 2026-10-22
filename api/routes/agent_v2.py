@@ -254,7 +254,7 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
                 token is None
                 and c.execute(
                     "SELECT 1 FROM jobs j WHERE j.job_id=%s AND "
-                    "(j.payload->>'job_type'='serverless_worker' OR EXISTS "
+                    "(COALESCE(j.spec,j.payload)->>'job_type'='serverless_worker' OR EXISTS "
                     "(SELECT 1 FROM serverless_workers w WHERE w.scheduler_job_id=j.job_id))",
                     (req.job_id,),
                 ).fetchone()

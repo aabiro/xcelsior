@@ -173,8 +173,9 @@ def test_stop_refuses_mismatched_execution_metadata(native, phase, field):
     before = native.repo.get_worker(native.wid)
     with native.pool.connection() as conn:
         conn.execute(
-            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
-            (Jsonb({field: "mismatched"}), native.jid),
+            "UPDATE jobs SET payload=payload||%s,"
+            "spec=CASE WHEN spec IS NULL THEN NULL ELSE spec||%s END WHERE job_id=%s",
+            (Jsonb({field: "mismatched"}), Jsonb({field: "mismatched"}), native.jid),
         )
         commands = conn.execute(
             "SELECT count(*) FROM agent_commands WHERE job_id=%s", (native.jid,)

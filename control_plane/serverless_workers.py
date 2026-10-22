@@ -21,7 +21,7 @@ def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
 
         with conn.cursor(row_factory=dict_row) as cur:
             job = cur.execute(
-                "SELECT job_id,status,host_id,active_attempt_id,payload FROM jobs "
+                "SELECT job_id,status,host_id,active_attempt_id,COALESCE(spec,payload) AS payload FROM jobs "
                 "WHERE job_id=%s FOR UPDATE",
                 (job_id,),
             ).fetchone()
@@ -152,9 +152,9 @@ def sync_serverless_attempt(conn, *, job_id: str, attempt_id: str) -> None:
                  JOIN jobs j ON j.job_id=a.job_id
                 WHERE a.attempt_id=%s AND a.job_id=%s
                   AND w.scheduler_job_id=j.job_id AND w.host_id=a.host_id
-                  AND j.payload->>'job_type'='serverless_worker'
-                  AND j.payload->>'serverless_worker_id'=w.worker_id
-                  AND j.payload->>'serverless_endpoint_id'=w.endpoint_id
+                  AND COALESCE(j.spec,j.payload)->>'job_type'='serverless_worker'
+                  AND COALESCE(j.spec,j.payload)->>'serverless_worker_id'=w.worker_id
+                  AND COALESCE(j.spec,j.payload)->>'serverless_endpoint_id'=w.endpoint_id
                 FOR UPDATE OF w""",
             (attempt_id, job_id),
         ).fetchone()

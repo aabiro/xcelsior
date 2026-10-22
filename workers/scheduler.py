@@ -184,8 +184,10 @@ def _decode_payload(payload) -> Any:
         return None
 
 
-def _upsert_job_row(conn, job):
-    DatabaseOps.upsert_job(conn, job, backend=_active_backend())
+def _upsert_job_row(conn, job, *, admission_spec=None):
+    return DatabaseOps.upsert_job(
+        conn, job, backend=_active_backend(), admission_spec=admission_spec
+    )
 
 
 def _upsert_host_row(conn, host):
@@ -221,7 +223,7 @@ def _load_jobs_from_conn(conn, status=None):
     if status:
         rows = conn.execute(
             """
-            SELECT status, payload
+            SELECT status, payload, spec
             FROM jobs
             WHERE status = %s
             ORDER BY submitted_at ASC, job_id ASC
@@ -230,7 +232,7 @@ def _load_jobs_from_conn(conn, status=None):
         ).fetchall()
     else:
         rows = conn.execute("""
-            SELECT status, payload
+            SELECT status, payload, spec
             FROM jobs
             ORDER BY submitted_at ASC, job_id ASC
             """).fetchall()
@@ -238,6 +240,19 @@ def _load_jobs_from_conn(conn, status=None):
     for row in rows:
         item = _decode_payload(row["payload"])
         if isinstance(item, dict):
+            from control_plane.job_specs import EXECUTION_FIELDS
+
+            spec = _decode_payload(row["spec"])
+            if isinstance(spec, dict):
+                # Placement ownership must match native claim scope even when
+                # observations drift. Name remains a mutable display label.
+                item.update(
+                    {
+                        key: value
+                        for key, value in spec.items()
+                        if key in EXECUTION_FIELDS and key != "name"
+                    }
+                )
             # The indexed `status` column is authoritative; legacy reaper SQL
             # could update the column without syncing payload.status.
             col_status = row["status"] if isinstance(row, dict) else row[0]
@@ -1677,6 +1692,7 @@ def submit_job(
     preferred_host_id=None,
     serverless_config=None,
     conn=None,
+    admitted_launch_spec=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1692,6 +1708,36 @@ def submit_job(
     NFS: Optionally specify NFS server/path for shared storage.
     Interactive: If True, container stays running with SSH access until stopped.
     """
+    from control_plane.launch.canonicalize import canonicalize
+
+    launch_spec = canonicalize(
+        {
+            "name": name,
+            "vram_needed_gb": vram_needed_gb,
+            "tier": tier,
+            "num_gpus": num_gpus,
+            "gpu_model": gpu_model,
+            "nfs_server": nfs_server,
+            "nfs_path": nfs_path,
+            "nfs_mount_point": nfs_mount_point,
+            "image": image,
+            "interactive": interactive,
+            "command": command,
+            "ssh_port": ssh_port,
+            "volume_ids": volume_ids,
+            "encrypted_workspace": encrypted_workspace,
+            "init_script": init_script,
+            "git_repo": git_repo,
+            "auto_launch": auto_launch,
+            "exposed_ports": exposed_ports,
+            "template_image_id": source_template_id,
+            "pricing_mode": pricing_mode,
+            "region": region,
+        }
+    )
+    if admitted_launch_spec is not None and launch_spec != admitted_launch_spec:
+        raise ValueError("submission does not match its approved launch spec")
+
     # Validate Docker image if provided
     if image:
         from security import validate_docker_image
@@ -1825,7 +1871,9 @@ def submit_job(
     if conn is not None and (serverless_config is None or _active_backend() != "postgres"):
         raise ValueError("caller-owned submission requires native serverless provisioning")
     with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
-        _upsert_job_row(write_conn, job)
+        admitted = _upsert_job_row(write_conn, job, admission_spec=launch_spec)
+        if admitted is not None:
+            job = admitted
         if _active_backend() == "postgres":
             from control_plane.outbox_runtime import try_append_lifecycle_outbox
 

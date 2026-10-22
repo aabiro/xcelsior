@@ -30,6 +30,7 @@ from control_plane.commands import redeliver_expired_claims
 from control_plane.inventory import sync_host_gpu_inventory
 from control_plane.leases import expire_stale_leases
 from control_plane.operational_metrics import ServiceHeartbeat
+from control_plane.job_specs import validate_execution_spec
 from control_plane.scheduler.claim import (
     ClaimedJob,
     claim_next_job,
@@ -79,12 +80,8 @@ class SchedulerService:
     # ── maintenance ──────────────────────────────────────────────────
 
     def _run_sweeps(self) -> tuple[int, int, int]:
-        claims = run_transaction(
-            lambda c: clear_expired_claims(c), what="sched_claim_sweep"
-        )
-        leases = run_transaction(
-            lambda c: expire_stale_leases(c), what="sched_lease_sweep"
-        )
+        claims = run_transaction(lambda c: clear_expired_claims(c), what="sched_claim_sweep")
+        leases = run_transaction(lambda c: expire_stale_leases(c), what="sched_lease_sweep")
         commands = run_transaction(
             lambda c: redeliver_expired_claims(c), what="sched_command_sweep"
         )
@@ -136,19 +133,20 @@ class SchedulerService:
     def _place_one(self, claimed: ClaimedJob) -> Reservation | tuple[str, str]:
         """Place a claimed job or release it with a durable reason."""
         cfg = self.config
-        job = dict(claimed.payload)
+        if claimed.spec is not None:
+            try:
+                validate_execution_spec(claimed.spec, claimed.spec_hash)
+            except ValueError:
+                self._release(claimed, "execution_spec_unqualified", _NO_CAPACITY_BACKOFF_SEC)
+                return (claimed.job_id, "execution_spec_unqualified")
+        job = dict(claimed.spec if claimed.spec is not None else claimed.payload)
         job["job_id"] = claimed.job_id
 
         snapshot = run_transaction(
-            lambda c: take_snapshot(
-                c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec
-            ),
+            lambda c: take_snapshot(c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec),
             what="sched_fleet_snapshot",
         )
-        hosts = [
-            h for h in snapshot.hosts
-            if cfg.host_in_scope(str(h.get("host_id") or ""))
-        ]
+        hosts = [h for h in snapshot.hosts if cfg.host_in_scope(str(h.get("host_id") or ""))]
         ctx = FilterContext(stale_host_ids=snapshot.stale_host_ids)
         eligible, rejections = filter_hosts(job, hosts, ctx)
         ranked = rank_candidates(job, eligible) if eligible else []
@@ -183,28 +181,30 @@ class SchedulerService:
                         host_id=cand.host_id,
                         num_gpus=num_gpus,
                         requested_vram_mb=vram_mb,
-                        expected_inventory_generation=int(
-                            h.get("inventory_generation") or 0
-                        ),
+                        expected_inventory_generation=int(h.get("inventory_generation") or 0),
                         placement_score=cand.total,
                         placement_explanation=expl,
                         lease_claim_ttl_sec=cfg.lease_claim_ttl_sec,
                         lease_renewal_ttl_sec=cfg.lease_renewal_ttl_sec,
-                        trace_id=str(job.get("trace_id") or "") or None,
+                        trace_id=str(claimed.payload.get("trace_id") or "") or None,
+                        expected_spec_hash=claimed.spec_hash,
                     ),
                     what="sched_reserve",
                 )
             except ReservationConflict as exc:
+                if exc.code == "execution_spec_unqualified":
+                    self._release(claimed, exc.code, _NO_CAPACITY_BACKOFF_SEC)
+                    return (claimed.job_id, exc.code)
                 if exc.code in ("claim_lost", "job_not_schedulable"):
                     # The job itself is gone from under us — no point in
                     # trying more hosts, and nothing to release.
-                    log.info(
-                        "reservation abandoned for %s: %s", claimed.job_id, exc.code
-                    )
+                    log.info("reservation abandoned for %s: %s", claimed.job_id, exc.code)
                     return (claimed.job_id, exc.code)
                 log.info(
                     "candidate %s rejected for %s (%s); trying next",
-                    candidate.host_id, claimed.job_id, exc.code,
+                    candidate.host_id,
+                    claimed.job_id,
+                    exc.code,
                 )
                 continue
             except RetryBudgetExceeded:
@@ -214,8 +214,10 @@ class SchedulerService:
                 return (claimed.job_id, "placement_conflict")
             log.info(
                 "PLACED job=%s host=%s attempt=%s fence=%d gpus=%s",
-                reservation.job_id, reservation.host_id,
-                reservation.attempt_id, reservation.fencing_token,
+                reservation.job_id,
+                reservation.host_id,
+                reservation.attempt_id,
+                reservation.fencing_token,
                 reservation.gpu_device_ids,
             )
             return reservation
@@ -257,9 +259,7 @@ class SchedulerService:
         # Inventory before placement so filters and reservations see the
         # same device truth this tick.
         fleet = run_transaction(
-            lambda c: take_snapshot(
-                c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec
-            ),
+            lambda c: take_snapshot(c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec),
             what="sched_inventory_snapshot",
         )
         report_kwargs["inventory_synced"] = self._sync_inventory(fleet.hosts)
@@ -269,9 +269,7 @@ class SchedulerService:
         scope = self._claim_scope()
         for _ in range(cfg.tick_max_placements):
             claimed = run_transaction(
-                lambda c: claim_next_job(
-                    c, replica_id=cfg.replica_id, scope_gpu_models=scope
-                ),
+                lambda c: claim_next_job(c, replica_id=cfg.replica_id, scope_gpu_models=scope),
                 what="sched_claim",
             )
             if claimed is None:
