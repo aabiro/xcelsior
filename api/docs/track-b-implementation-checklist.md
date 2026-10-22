@@ -154,6 +154,13 @@ command delivery identity and normal fenced billing; see the
 [verified follow-up](review/2026-10-20-control-plane-cutover-audit.md).
 Dedicated runtime-role DSNs remain absent; these cutovers do not close that item.
 
+**2026-10-21 dedicated-role candidate:** restricted workflow qualification
+found and fixed the scheduler's missing three-column serverless binding grant.
+The candidate also supplies strict migration credentials, scoped ownership
+transfer, native partition maintenance, strict Compose wiring and restore
+qualification. [Candidate and production gates](review/2026-10-21-db-role-cutover.md).
+Production logins/ownership have not changed; this residual remains open.
+
 ---
 
 ## B1 — Migration ledger reconciliation (blocking prerequisite)
