@@ -25,13 +25,13 @@ def _recorded(key):
     )
 
 
-JOB_OWNER = _recorded("owner")
+JOB_OWNER = f"COALESCE({_recorded('owner_id')},{_recorded('owner')})"
 JOB_TENANT = f"COALESCE({_recorded('tenant_id')},tenant_id,owner_id,{JOB_OWNER})"
 JOB_TEAM = _recorded("team_id")
 JOBS_WHERE = f"""(owner_id IS NULL AND {JOB_OWNER} IS NOT NULL)
  OR (tenant_id IS NULL AND {JOB_TENANT} IS NOT NULL)
  OR (team_id IS NULL AND {JOB_TEAM} IS NOT NULL)"""
-HOST_OWNER = _recorded("owner")
+HOST_OWNER = f"COALESCE({_recorded('owner_id')},{_recorded('owner')})"
 HOST_TENANT = f"COALESCE({_recorded('tenant_id')},tenant_id,owner_id,{HOST_OWNER})"
 HOSTS_WHERE = f"""(owner_id IS NULL AND {HOST_OWNER} IS NOT NULL)
  OR (tenant_id IS NULL AND {HOST_TENANT} IS NOT NULL)

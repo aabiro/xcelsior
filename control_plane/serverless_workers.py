@@ -25,6 +25,34 @@ def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
                 "WHERE job_id=%s FOR UPDATE",
                 (job_id,),
             ).fetchone()
+            if job is None:
+                # New provisioning commits worker and job together. Old orphans
+                # may be released only with no evidence of execution authority.
+                worker = cur.execute(
+                    """SELECT worker_id FROM serverless_workers w
+                        WHERE worker_id=%s AND scheduler_job_id=%s
+                          AND released_at IS NULL AND attempt_id IS NULL
+                          AND state IN ('booting','error')
+                          AND COALESCE(host_id,'')='' AND COALESCE(allocated_at,0)=0
+                          AND COALESCE(last_heartbeat_at,0)=0 AND current_concurrency=0
+                          AND NOT EXISTS (SELECT 1 FROM jobs WHERE job_id=%s)
+                          AND NOT EXISTS (SELECT 1 FROM job_attempts WHERE job_id=%s)
+                          AND NOT EXISTS (SELECT 1 FROM placement_leases WHERE job_id=%s)
+                          AND NOT EXISTS (SELECT 1 FROM agent_commands WHERE job_id=%s)
+                        FOR UPDATE OF w""",
+                    (worker_id, job_id, job_id, job_id, job_id, job_id),
+                ).fetchone()
+                if worker is None:
+                    return False
+                cur.execute(
+                    """UPDATE serverless_workers SET state='terminated',
+                              released_at=EXTRACT(EPOCH FROM clock_timestamp()),
+                              updated_at=EXTRACT(EPOCH FROM clock_timestamp()),
+                              error_message='scheduler submission missing'
+                        WHERE worker_id=%s""",
+                    (worker_id,),
+                )
+                return True
             payload = (job or {}).get("payload") or {}
             endpoint_id = payload.get("serverless_endpoint_id")
             if (

@@ -1851,14 +1851,17 @@ class NotificationStore:
         entity_type: str = "",
         entity_id: str = "",
         priority: int = 0,
+        conn=None,
     ) -> str:
         from psycopg.types.json import Jsonb
         import uuid as _uuid
 
         nid = f"notif-{_uuid.uuid4().hex[:12]}"
         payload = dict(data or {})
-        with auth_connection() as conn:
-            conn.execute(
+        from contextlib import nullcontext
+
+        with nullcontext(conn) if conn is not None else auth_connection() as write_conn:
+            write_conn.execute(
                 """
                 INSERT INTO notifications (
                     id,
@@ -1891,27 +1894,41 @@ class NotificationStore:
                 ),
             )
 
+        if conn is None:
+            NotificationStore.deliver(nid)
+        return nid
+
+    @staticmethod
+    def deliver(notification_id: str) -> None:
+        """Send the optional push projection of an already committed notice."""
         try:
+            with auth_connection() as conn:
+                row = conn.execute(
+                    "SELECT * FROM notifications WHERE id=%s", (notification_id,)
+                ).fetchone()
+            if row is None:
+                return
             from web_push import deliver_web_push_notification
 
             deliver_web_push_notification(
-                user_email,
+                row["user_email"],
                 {
-                    "id": nid,
-                    "type": notif_type,
-                    "title": title,
-                    "body": body,
-                    "data": payload,
-                    "action_url": action_url,
-                    "entity_type": entity_type,
-                    "entity_id": entity_id,
-                    "priority": priority,
+                    key: row[key]
+                    for key in (
+                        "id",
+                        "type",
+                        "title",
+                        "body",
+                        "data",
+                        "action_url",
+                        "entity_type",
+                        "entity_id",
+                        "priority",
+                    )
                 },
             )
         except Exception as exc:
-            log.debug("Web push delivery error for %s: %s", user_email, exc)
-
-        return nid
+            log.debug("Web push delivery error: %s", exc)
 
     @staticmethod
     def list_for_user(user_email: str, unread_only: bool = False, limit: int = 50) -> list[dict]:
