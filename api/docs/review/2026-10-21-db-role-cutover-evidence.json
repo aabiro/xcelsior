@@ -1,0 +1,137 @@
+{
+  "base_commit": "ac1852ad420ad2aa535418abdafa989ac2ad1bb6",
+  "captured_at_utc": "2026-10-22T01:21:22.346055+00:00",
+  "checks": {
+    "changed_python_black": "11 files passed",
+    "pyright": {
+      "errorCount": 0,
+      "filesAnalyzed": 241,
+      "informationCount": 0,
+      "timeInSec": 33.357,
+      "warningCount": 0
+    },
+    "ruff": "passed",
+    "shell_syntax": "passed",
+    "unit_syntax": "passed with local harmless ExecStart/WorkingDirectory substitutions"
+  },
+  "gates": {
+    "native-monitoring": {
+      "artifacts": "/mnt/storage/projects/xcelsior/artifacts/runtime-db-role-cutover-20261021/native-monitoring",
+      "errors": 0,
+      "exit_code": 0,
+      "failures": 0,
+      "manifest_sha256": "62f1588a729872019aadfdc02fdce42b7962bbc39d971cf1d6099f4b919595ff",
+      "skipped": 0,
+      "tests": 1
+    },
+    "release-qualification": {
+      "artifacts": "/mnt/storage/projects/xcelsior/artifacts/runtime-db-role-cutover-20261021/release-qualification",
+      "errors": 0,
+      "exit_code": 0,
+      "failures": 0,
+      "manifest_sha256": "a09ba188e35ce9e0b40cfec9e335b6428c0af2555378d3822e31047f30aae2d4",
+      "skipped": 0,
+      "tests": 110
+    },
+    "static-gates": {
+      "artifacts": "/mnt/storage/projects/xcelsior/artifacts/runtime-db-role-cutover-20261021/static-gates",
+      "errors": 0,
+      "exit_code": 0,
+      "failures": 0,
+      "manifest_sha256": "9cfaad7bd05cb4d242ecaff8da4f2c1f0bf01415673dd853f7aa126d2628a63f",
+      "skipped": 0,
+      "tests": 107
+    }
+  },
+  "native_alerts": {
+    "fixture_scenarios": 4,
+    "log_sha256": "f3f76b72f6bfa523ea478599a48f2c2e628b83aa54b7551ade460a756096ceb0",
+    "promtool_pass": true,
+    "rules": 3
+  },
+  "production": {
+    "database": "xcelsior",
+    "dedicated_roles_all_nologin": true,
+    "owner": "xcelsior",
+    "ownership_applied": false,
+    "ownership_preview_statements": 179,
+    "port": "5434",
+    "protected_stopped_job_rows_unchanged": 12,
+    "read_only_preview": true,
+    "relations_by_owner": {
+      "xcelsior": 191
+    },
+    "repair_policies": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "routines_by_owner": {
+      "xcelsior": 10
+    },
+    "schema": "125",
+    "wrong_expected_port_rejected": true
+  },
+  "reasons": [
+    "B16.2 contract migration remains unimplemented",
+    "referenced companion prose is absent from the tracked checkout"
+  ],
+  "remaining": [
+    "PR merge and production dedicated-role handoff",
+    "schema contraction and physical legacy-code removal",
+    "durable fairness/preemption after contraction",
+    "repair qualification; repairs remain report_only",
+    "historical recovery/disposition and HA/PITR/object recovery"
+  ],
+  "source_sha256": {
+    ".env.example": "2be4b9c9ebe9325538e7876e8e237cdd6d4f0e65feb70cf5e6185b1adc41fca7",
+    "api/docs/review/2026-10-21-db-role-cutover.md": "b8a08cde3f9dbdfa5d2e011bf0fdfbde8f3aefcbe396b12ba4eeb49363340f10",
+    "api/docs/track-b-implementation-checklist.md": "6e85597c7a7266b937a9d59eb46dc8d62745a85195f9b781a229c74b1e227e90",
+    "api/infra/observability/prometheus/native-db-role-rules.yml": "3adb14337db4a8d7f819fb9fd16498bcf5ce002af93af91739b4990198e4a480",
+    "api/infra/systemd/xcelsior-db-partition-maintenance.service": "5f82f4139777ce4fc5d2a3798fd24d1955221af7889236fe83e624071bae480f",
+    "api/infra/systemd/xcelsior-db-partition-maintenance.timer": "8b1db120e801e3dffdc62a0d77e18cd509ccdb412e1972cd1ca3ad63cbfa4007",
+    "api/infra/systemd/xcelsior-db-restore-drill.service": "a5af4e8b8e76de7d617ef40ba55cc84eea8cee9cb454b167b0fe3dc1335169c7",
+    "api/migrations/connection.py": "2c8d24f2346e78d1df27a0689cc02a2c2f68bf3df46494fa353f8a1f1703cff7",
+    "api/migrations/env.py": "8bc3bccf992324da35f359c30ef2b8870eb4a238427b9ea890e902c69b8b1280",
+    "api/scripts/deploy.sh": "df202476d6ba50761690a69ef461a859b1e9e73ca474bacb63fb79e2406ced74",
+    "api/scripts/migrate_restore_database.py": "826ac5116de8546600b4ca3e0c2e0127cf960f0885f9da2b42fd69a018fd90f8",
+    "api/scripts/restore-db-drill.sh": "91a8e44a421a4e520e6f3f4fcbc9929de2fe3f8b7a6dafcdcc2e6d0c3ce2e97a",
+    "api/scripts/run-db-partition-maintenance.sh": "0d513e441f466237f0c35265a6cf045f3053f41e72e87f41158ec621b172e543",
+    "api/scripts/run_db_migrations.py": "7f0ecfd60d3cf9ef1eb9dd35329cfeb9d5d090360377614788f979940f92e7c7",
+    "api/scripts/transfer_db_ownership.py": "9dbed0d3ddd044944c421bebae411ff543a392de447323452f90c40f0ea52325",
+    "control_plane/db_role_audit.py": "c3c498ecf95d557e006047d8947414968211b0a35547c57bbcbafd62ad69ebc2",
+    "control_plane/db_roles.py": "9a945d8cc880027a4ea54bd13018848aa33199784e84d5f89ab832946a91425f",
+    "docker-compose.db-roles.yml": "4b929b835707f444581171faebddac33f4fc9aef507c859f8fac148dd53feb29",
+    "docker-compose.yml": "9598ea1a8f1773250fd1c13d63c0c95df23513ce5dc5d57534dcbf59ce26095e",
+    "tests/fixtures/native_db_role_alerts.yml": "c132f1791182139455bde969ec2e3f42afd974501e7562c5166b0593e69c55e7",
+    "tests/test_db_migration_entrypoint.py": "e182830d389fd0e5ccbd9feace4d831f6c6bb74fd237251c43c68dc48c7869c0",
+    "tests/test_db_role_cutover.py": "5d79808cd38c43431a1119e46dc7d4e4c841bcc214ce818486418821377278b7",
+    "tests/test_db_role_restore_drill.py": "1ed1be04d7e4c17204ad909113300a12b9499d5d5b2034ea43572a0e9b4b0ba0",
+    "tests/test_db_role_workflows.py": "e17dd5d3d57041b32cdd4b07760b1c1ede2f47033dfa844f3ca532e7d8438d0a"
+  },
+  "state": "qualified candidate; not deployed; production ownership and logins unchanged",
+  "static_deselections": [
+    "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+    "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+  ],
+  "unrelated_work": {
+    "additional_excluded_files": [
+      "api/routes/auth.py",
+      "auth/oauth_service.py",
+      "tests/test_mcp_connector_flow.py"
+    ],
+    "original_six_files_unchanged": [
+      "api/routes/billing.py",
+      "billing/stripe_connect.py",
+      "core/gitguardian.py",
+      "core/meta_capi.py",
+      "tests/test_meta_capi.py",
+      "text.md"
+    ]
+  }
+}
