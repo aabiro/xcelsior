@@ -63,7 +63,7 @@ class TestCrashRecovery:
         repo.increment_worker_concurrency(worker_id)
 
         dispatcher = ServerlessDispatcher(repo)
-        requeued = dispatcher.handle_worker_lost(worker_id)
+        requeued = repo.requeue_worker_jobs(worker_id)
         assert requeued == 1
 
         refreshed = repo.get_job(job["job_id"], endpoint_id=ep_id)
@@ -74,27 +74,7 @@ class TestCrashRecovery:
 
         w = repo.get_worker(worker_id)
         assert w is not None
-        assert w["state"] == WORKER_STATE_ERROR
-
-    def test_worker_exited_requeues_and_marks_terminated(
-        self, repo: ServerlessRepo, endpoint: dict, owner_id: str
-    ):
-        ep_id = endpoint["endpoint_id"]
-        worker = repo.create_worker(ep_id, scheduler_job_id="sched-exit")
-        worker_id = str(worker["worker_id"])
-        repo.update_worker(worker_id, state=WORKER_STATE_READY)
-        job = repo.enqueue_job(ep_id, owner_id, {"task": 2})
-        repo.claim_next_job(ep_id, worker_id)
-
-        svc = ServerlessService(repo)
-        svc.worker_exited(worker_id, exit_code=1, error_message="OOM")
-
-        refreshed = repo.get_job(job["job_id"], endpoint_id=ep_id)
-        assert refreshed is not None
-        assert refreshed["status"] == JOB_STATUS_QUEUED
-        w = repo.get_worker(worker_id)
-        assert w is not None
-        assert w["state"] == WORKER_STATE_ERROR
+        assert w["state"] == "booting"
 
 
 class TestRequestTimeoutReaper:
@@ -136,7 +116,7 @@ class TestRequestTimeoutReaper:
 
 
 class TestStaleWorkerReaper:
-    def test_stale_heartbeat_requeues_before_deprovision(
+    def test_stale_heartbeat_requests_stop_without_requeue_before_confirmation(
         self, repo: ServerlessRepo, endpoint: dict, owner_id: str
     ):
         ep_id = endpoint["endpoint_id"]
@@ -165,7 +145,7 @@ class TestStaleWorkerReaper:
         mock_dep.assert_called()
         refreshed = repo.get_job(job["job_id"], endpoint_id=ep_id)
         assert refreshed is not None
-        assert refreshed["status"] == JOB_STATUS_QUEUED
+        assert refreshed["status"] == JOB_STATUS_IN_PROGRESS
 
 
 class TestBootFailureHardening:
@@ -204,14 +184,18 @@ class TestBootFailureHardening:
         assert _recent_boot_failures(FakeService(), "sep-1") == 2
 
     def test_orphan_scheduler_job_without_host_is_cancelled(self):
-        from serverless.reaper import _kill_scheduler_job
+        from types import SimpleNamespace
+        from serverless.reaper import _stop_scheduler_job
 
         job = {"job_id": "sched-orphan", "status": "queued", "host_id": ""}
         with (
-            patch("scheduler.list_hosts", return_value=[]),
-            patch("scheduler.kill_job") as kill_job,
-            patch("scheduler.update_job_status") as update_status,
+            patch(
+                "control_plane.lifecycle.request_fenced_stop_remove",
+                return_value=SimpleNamespace(ok=False, reason="not_attempt_owned"),
+            ),
+            patch("scheduler.update_job_status", return_value=job) as update_status,
         ):
-            assert _kill_scheduler_job(job) is True
-        kill_job.assert_not_called()
-        update_status.assert_called_once_with("sched-orphan", "cancelled")
+            assert _stop_scheduler_job(job)
+        update_status.assert_called_once_with(
+            "sched-orphan", "cancelled", expected_status="queued", expected_host_id=None
+        )

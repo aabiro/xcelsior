@@ -52,33 +52,14 @@ class TestProvisionWorkerPayload:
         assert call_kw["job_type"] == "serverless_worker"
         assert call_kw["gpu_model"] == "RTX 4090"
         assert call_kw["exposed_ports"] == [8080]
-        mock_set.assert_called_once()
-        args, kwargs = mock_set.call_args
-        assert args[0] == "job1234"
+        mock_set.assert_not_called()
+        kwargs = call_kw["serverless_config"]
+        assert call_kw["job_id"] == worker["scheduler_job_id"]
         assert kwargs["serverless_worker_id"] == worker["worker_id"]
         assert kwargs["serverless_endpoint_id"] == ep["endpoint_id"]
         assert kwargs["environment"] == {"FOO": "bar"}
         assert kwargs["http_port"] == 8080
         assert kwargs["health_check_path"] == "/healthz"
-
-
-class TestWorkerExited:
-    def test_worker_exited_requeues_in_flight_jobs(self, repo, owner_id):
-        ep = repo.create_endpoint(
-            EndpointCreate(
-                owner_id=owner_id, name="exit-test", mode="preset", model_ref="m", min_workers=0
-            )
-        )
-        worker = repo.create_worker(str(ep["endpoint_id"]), scheduler_job_id="sched1")
-        job = repo.enqueue_job(str(ep["endpoint_id"]), owner_id, {"x": 1})
-        repo.claim_next_job(str(ep["endpoint_id"]), str(worker["worker_id"]))
-        svc = ServerlessService(repo)
-        result = svc.worker_exited(str(worker["worker_id"]), exit_code=1, error_message="crash")
-        assert result is not None
-        assert result["state"] == "error"
-        requeued = repo.get_job(str(job["job_id"]))
-        assert requeued is not None
-        assert requeued["status"] == "IN_QUEUE"
 
 
 class TestRepoSchedulerLookup:

@@ -68,7 +68,7 @@ class TestWorkerDeathMidInference:
         assert claimed["status"] == JOB_STATUS_IN_PROGRESS
 
         dispatcher = ServerlessDispatcher(repo)
-        requeued = dispatcher.handle_worker_lost(worker_id)
+        requeued = repo.requeue_worker_jobs(worker_id)
         assert requeued == 1
 
         refreshed = repo.get_job(job["job_id"], endpoint_id=ep_id)
@@ -178,7 +178,7 @@ class TestWorkerDeathMidInference:
         )
 
         dispatcher = ServerlessDispatcher(repo)
-        assert dispatcher.handle_worker_lost(w1) == 1
+        assert repo.requeue_worker_jobs(w1) == 1
 
         # Retry on fresh worker — same client idempotency key.
         worker2 = repo.create_worker(ep_id, scheduler_job_id=sched_job)

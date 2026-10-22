@@ -182,7 +182,8 @@ class TestBlendedMeter:
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         repo.peek_endpoint_token_cost.assert_called_with("ep1")
-        repo.consume_endpoint_token_cost.assert_called_once_with("ep1")
+        repo.consume_endpoint_token_cost.assert_called_once()
+        assert repo.consume_endpoint_token_cost.call_args.args == ("ep1",)
         assert result["token_cost_cad"] == 5.00
         assert result["blended_amount_cad"] == 5.00
         assert result["amount_cad"] == 5.00

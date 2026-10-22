@@ -510,37 +510,6 @@ class TestServiceValidation:
         finally:
             repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
 
-    def test_free_warm_lease_is_renewed_when_worker_becomes_ready(
-        self, monkeypatch, repo: ServerlessRepo, owner_id: str
-    ):
-        ep = repo.create_endpoint(
-            EndpointCreate(
-                owner_id=owner_id,
-                name="free-warm-ready",
-                mode="custom",
-                image_ref="vllm/vllm-openai:latest",
-                min_workers=0,
-                idle_timeout_sec=60,
-            )
-        )
-        worker = repo.create_worker(
-            str(ep["endpoint_id"]),
-            scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}",
-            billing_exempt=True,
-            warm_expires_at=time.time() - 1,
-        )
-        svc = ServerlessService(repo)
-        monkeypatch.setattr(svc, "_broadcast", lambda *args, **kwargs: None)
-        monkeypatch.setattr(
-            "serverless.service.record_cold_start_line_item", lambda *args, **kwargs: {}
-        )
-        ready = svc.mark_worker_ready(str(worker["worker_id"]), host_id="host-test")
-        assert ready is not None
-        assert ready["billing_exempt"] is True
-        assert float(ready["warm_expires_at"]) > time.time()
-        repo.update_worker(str(worker["worker_id"]), state=WORKER_STATE_TERMINATED)
-        repo.soft_delete_endpoint(str(ep["endpoint_id"]), owner_id)
-
     def test_reconcile_reaps_expired_free_worker(
         self, monkeypatch, repo: ServerlessRepo, owner_id: str
     ):

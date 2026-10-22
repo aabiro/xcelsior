@@ -7,7 +7,7 @@ import json
 import logging
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -102,9 +102,7 @@ class ServerlessRepo:
         now = time.time()
         endpoint_id = f"sep-{uuid.uuid4().hex[:12]}"
         status = (
-            ENDPOINT_STATUS_PROVISIONING
-            if spec.min_workers >= 1
-            else ENDPOINT_STATUS_SCALED_DOWN
+            ENDPOINT_STATUS_PROVISIONING if spec.min_workers >= 1 else ENDPOINT_STATUS_SCALED_DOWN
         )
         with self._conn() as conn:
             if spec.action_plan_id:
@@ -177,7 +175,8 @@ class ServerlessRepo:
                     status,
                     now,
                     now,
-                    self._jsonb(spec.lora_adapters), spec.action_plan_id,
+                    self._jsonb(spec.lora_adapters),
+                    spec.action_plan_id,
                 ),
             )
         row = self.get_endpoint(endpoint_id)
@@ -216,7 +215,9 @@ class ServerlessRepo:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def patch_endpoint(self, endpoint_id: str, owner_id: str, fields: dict[str, Any]) -> dict | None:
+    def patch_endpoint(
+        self, endpoint_id: str, owner_id: str, fields: dict[str, Any]
+    ) -> dict | None:
         allowed = {
             "name",
             "min_workers",
@@ -396,9 +397,7 @@ class ServerlessRepo:
         values = list(fields.values()) + [worker_id]
         with self._conn() as conn:
             conn.execute(
-                sql.SQL("UPDATE serverless_workers SET {} WHERE worker_id = %s").format(
-                    set_clause
-                ),
+                sql.SQL("UPDATE serverless_workers SET {} WHERE worker_id = %s").format(set_clause),
                 values,
             )
         return self.get_worker(worker_id)
@@ -895,7 +894,9 @@ class ServerlessRepo:
 
     # ── Dispatcher / reconcile helpers ────────────────────────────────
 
-    def find_ready_worker_with_capacity(self, endpoint_id: str, max_concurrency: int) -> dict | None:
+    def find_ready_worker_with_capacity(
+        self, endpoint_id: str, max_concurrency: int
+    ) -> dict | None:
         """Return a ready/idle worker with a free concurrency slot."""
         with self._conn() as conn:
             row = conn.execute(
@@ -924,7 +925,7 @@ class ServerlessRepo:
                 SET current_concurrency = current_concurrency + %s,
                     state = CASE WHEN state = %s THEN %s ELSE state END,
                     updated_at = %s
-                WHERE worker_id = %s
+                WHERE worker_id = %s AND released_at IS NULL
                 """,
                 (delta, WORKER_STATE_IDLE, WORKER_STATE_READY, time.time(), worker_id),
             )
@@ -937,11 +938,11 @@ class ServerlessRepo:
                 UPDATE serverless_workers
                 SET current_concurrency = GREATEST(0, current_concurrency - %s),
                     state = CASE
-                        WHEN current_concurrency - %s <= 0 THEN %s
+                        WHEN current_concurrency - %s <= 0 AND state IN ('ready','idle') THEN %s
                         ELSE state
                     END,
                     updated_at = %s
-                WHERE worker_id = %s
+                WHERE worker_id = %s AND released_at IS NULL
                 """,
                 (
                     delta,
@@ -1021,6 +1022,15 @@ class ServerlessRepo:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def list_requested_stops(self) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT w.* FROM serverless_workers w JOIN jobs j ON j.job_id=w.scheduler_job_id "
+                "WHERE w.released_at IS NULL AND w.state='draining' "
+                "AND j.payload->>'serverless_stop_requested'='true'"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_stuck_booting_workers(self, *, booting_before: float) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -1096,8 +1106,9 @@ class ServerlessRepo:
         requests: int = 0,
         gpu_seconds: int = 0,
         cost_cad: float = 0.0,
+        conn=None,
     ) -> None:
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             conn.execute(
                 """
                 UPDATE serverless_endpoints
@@ -1107,7 +1118,13 @@ class ServerlessRepo:
                     updated_at = %s
                 WHERE endpoint_id = %s
                 """,
-                (requests, gpu_seconds, round(float(cost_cad) * 1_000_000), time.time(), endpoint_id),
+                (
+                    requests,
+                    gpu_seconds,
+                    round(float(cost_cad) * 1_000_000),
+                    time.time(),
+                    endpoint_id,
+                ),
             )
 
     def accrue_endpoint_token_cost(self, endpoint_id: str, cost_cad: float) -> None:
@@ -1232,12 +1249,12 @@ class ServerlessRepo:
             return 0.0
         return float(row["v"] or 0.0)
 
-    def consume_endpoint_token_cost(self, endpoint_id: str) -> float:
+    def consume_endpoint_token_cost(self, endpoint_id: str, *, conn=None) -> float:
         """Atomically read and zero the endpoint's accrued unbilled token cost,
         returning the amount consumed (for the blended meter's billing slice)."""
         if not endpoint_id:
             return 0.0
-        with self._conn() as conn:
+        with nullcontext(conn) if conn is not None else self._conn() as conn:
             row = conn.execute(
                 """
                 WITH old AS (
@@ -1374,9 +1391,7 @@ class ServerlessRepo:
 
     # ── Prefix affinity (row 6) ─────────────────────────────────────
 
-    def record_prefix_affinity(
-        self, endpoint_id: str, prefix_hash: str, worker_id: str
-    ) -> None:
+    def record_prefix_affinity(self, endpoint_id: str, prefix_hash: str, worker_id: str) -> None:
         with self._conn() as conn:
             conn.execute(
                 """

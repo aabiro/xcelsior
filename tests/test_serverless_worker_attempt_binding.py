@@ -98,6 +98,13 @@ def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1):
         "serverless_worker_id": worker_id,
         "gpu_model": job_id,  # unique claim scope so we never claim foreign residue
     }
+    worker = ServerlessRepo().get_worker(worker_id)
+    payload["serverless_endpoint_id"] = worker["endpoint_id"]
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE serverless_workers SET scheduler_job_id=%s WHERE worker_id=%s",
+            (job_id, worker_id),
+        )
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,

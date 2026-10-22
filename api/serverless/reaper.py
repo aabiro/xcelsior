@@ -33,31 +33,34 @@ def _scheduler_worker_id(job: dict) -> str:
     )
 
 
-def _kill_scheduler_job(job: dict) -> bool:
-    try:
-        from scheduler import kill_job, list_hosts, update_job_status
+def _stop_scheduler_job(job: dict) -> bool:
+    """Request a fenced stop, or CAS-cancel an unplaced queued orphan."""
+    from control_plane.lifecycle import request_fenced_stop_remove
+    from scheduler import update_job_status
 
-        job_id = str(job.get("job_id") or "")
-        # Fence gate first. update_job_status locks and rejects an
-        # attempt-owned job without a current authority tuple, so no direct
-        # host-side kill can happen before that decision.
-        update_job_status(job_id, "cancelled")
-        host_id = str(job.get("host_id") or "")
-        hosts = {str(h.get("host_id") or ""): h for h in list_hosts()}
-        host = hosts.get(host_id) if host_id else None
-        if host:
-            kill_job(job, host)
-        else:
-            log.warning(
-                "Orphan serverless scheduler job %s has no reachable host %s; "
-                "cancelled record",
-                job_id,
-                host_id or "(none)",
+    job_id = str(job.get("job_id") or "")
+    try:
+        result = request_fenced_stop_remove(
+            job_id=job_id,
+            intent="terminate",
+            created_by="serverless_orphan_reaper",
+            reason_tag="serverless_orphan",
+        )
+        if result.ok:
+            return True
+        if (
+            result.reason == "not_attempt_owned"
+            and job.get("status") == "queued"
+            and not job.get("host_id")
+        ):
+            return bool(
+                update_job_status(
+                    job_id, "cancelled", expected_status="queued", expected_host_id=None
+                )
             )
-        return True
     except Exception as exc:
-        log.warning("Failed to kill orphan serverless scheduler job %s: %s", job.get("job_id"), exc)
-        return False
+        log.warning("Orphan serverless stop pending job=%s: %s", job_id, exc)
+    return False
 
 
 def _recent_boot_failures(svc: ServerlessService, endpoint_id: str) -> int:
@@ -65,7 +68,7 @@ def _recent_boot_failures(svc: ServerlessService, endpoint_id: str) -> int:
     workers = sorted(
         svc.repo.list_workers(endpoint_id),
         key=lambda w: float(w.get("created_at") or 0),
-        reverse=True
+        reverse=True,
     )
     consecutive_failures = 0
     for w in workers:
@@ -85,11 +88,15 @@ def reap_all(svc: ServerlessService) -> dict:
     heartbeat_cutoff = now - JOB_HEARTBEAT_TTL_SEC
     booting_cutoff = now - BOOTING_TTL_SEC
 
+    # Retry persisted stop intent, including a crash before durable enqueue.
+    # Autoscaler draining alone is not a forced-stop request.
+    for worker in svc.repo.list_requested_stops():
+        svc.deprovision_worker(str(worker["worker_id"]))
+
     stale_workers = 0
     for w in svc.repo.list_workers_stale_heartbeat(heartbeat_before=heartbeat_cutoff):
         wid = str(w["worker_id"])
         log.warning("Reaping stale heartbeat worker %s (state=%s)", wid, w.get("state"))
-        svc.dispatcher.handle_worker_lost(wid)
         svc.deprovision_worker(wid, charge=True)
         stale_workers += 1
 
@@ -128,9 +135,15 @@ def reap_all(svc: ServerlessService) -> dict:
         log.warning("Reaping stuck booting worker %s", wid)
         svc.repo.update_worker(wid, error_message="stuck booting (TTL exceeded)")
         svc.deprovision_worker(wid, charge=False)
+        if (svc.repo.get_worker(wid) or {}).get("released_at") is None:
+            continue
         stuck_booting += 1
         ep = svc.repo.get_endpoint(endpoint_id)
-        if ep and svc._endpoint_needs_workers(ep) and _recent_boot_failures(svc, endpoint_id) < BOOT_RETRY_LIMIT:
+        if (
+            ep
+            and svc._endpoint_needs_workers(ep)
+            and _recent_boot_failures(svc, endpoint_id) < BOOT_RETRY_LIMIT
+        ):
             svc.provision_worker(endpoint_id)
             reprovisioned += 1
         elif ep and svc._endpoint_needs_workers(ep):
@@ -161,12 +174,20 @@ def reap_all(svc: ServerlessService) -> dict:
             sched_id,
             sched_job.get("status"),
         )
-        err_msg = str(sched_job.get("error_message") or f"scheduler job status is {sched_job.get('status')}")
+        err_msg = str(
+            sched_job.get("error_message") or f"scheduler job status is {sched_job.get('status')}"
+        )
         svc.repo.update_worker(wid, error_message=err_msg[:500])
         svc.deprovision_worker(wid, charge=False)
+        if (svc.repo.get_worker(wid) or {}).get("released_at") is None:
+            continue
         dead_scheduler += 1
         ep = svc.repo.get_endpoint(endpoint_id)
-        if ep and svc._endpoint_needs_workers(ep) and _recent_boot_failures(svc, endpoint_id) < BOOT_RETRY_LIMIT:
+        if (
+            ep
+            and svc._endpoint_needs_workers(ep)
+            and _recent_boot_failures(svc, endpoint_id) < BOOT_RETRY_LIMIT
+        ):
             svc.provision_worker(endpoint_id)
             reprovisioned += 1
         elif ep and svc._endpoint_needs_workers(ep):
@@ -182,19 +203,18 @@ def reap_all(svc: ServerlessService) -> dict:
                 continue
             worker_id = _scheduler_worker_id(sched_job)
             worker = svc.repo.get_worker(worker_id) if worker_id else None
-            endpoint_id = str((worker or {}).get("endpoint_id") or sched_job.get("serverless_endpoint_id") or "")
+            endpoint_id = str(
+                (worker or {}).get("endpoint_id") or sched_job.get("serverless_endpoint_id") or ""
+            )
             endpoint = svc.repo.get_endpoint(endpoint_id) if endpoint_id else None
             if worker and endpoint and str(worker.get("state") or "") in ACTIVE_WORKER_STATES:
                 continue
-            if _kill_scheduler_job(sched_job):
-                orphan_scheduler += 1
             if worker:
-                svc.repo.update_worker(
-                    str(worker["worker_id"]),
-                    state="terminated",
-                    released_at=now,
-                    error_message="orphan serverless scheduler job cleaned up",
-                )
+                result = svc.deprovision_worker(str(worker["worker_id"]))
+                if result.get("requested"):
+                    orphan_scheduler += 1
+            elif _stop_scheduler_job(sched_job):
+                orphan_scheduler += 1
     except Exception as exc:
         log.warning("serverless orphan scheduler cleanup skipped: %s", exc)
 
