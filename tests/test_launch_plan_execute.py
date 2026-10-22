@@ -127,6 +127,20 @@ def test_execute_creates_one_job_and_one_hold(scratch):
 
     assert out["plan"]["status"] == "succeeded"
     assert _count_jobs(job_id) == 1
+    # The customer-approved logical hash survives admission alongside the
+    # execution hash that also binds server-selected identity and policy.
+    from control_plane.job_specs import canonical_spec_hash
+
+    with _pool.connection() as conn:
+        spec, digest, approved, approved_hash = conn.execute(
+            "SELECT j.spec,j.spec_hash,p.canonical_args,p.spec_hash FROM jobs j "
+            "JOIN action_plans p ON p.job_id=j.job_id WHERE p.plan_id=%s",
+            (pid,),
+        ).fetchone()
+    assert spec["launch_spec"] == approved
+    assert spec["launch_spec_hash"] == approved_hash
+    assert digest == canonical_spec_hash(spec)
+    assert spec["owner"] == p.tenant_id
 
 
 def test_execute_carries_plan_trace_into_queued_job(scratch):

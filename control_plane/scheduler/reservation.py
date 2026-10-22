@@ -20,8 +20,6 @@ takes locks in this exact order, which makes lock cycles impossible.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -29,6 +27,7 @@ from psycopg import Connection
 from psycopg.types.json import Jsonb
 
 from control_plane.scheduler.filters import FILTER_POLICY_VERSION
+from control_plane.job_specs import canonical_spec_hash, validate_execution_spec
 
 # v1 agents GC pending commands past expires_at (routes/agent.py). Bound
 # start commands must outlive shadow/canary windows until the v2 claim/ACK
@@ -59,6 +58,12 @@ class JobNotSchedulable(ReservationConflict):
     """Job left the pending/running-desired state since it was claimed."""
 
     code = "job_not_schedulable"
+
+
+class JobSpecUnqualified(JobNotSchedulable):
+    """Admission evidence cannot safely authorize execution."""
+
+    code = "execution_spec_unqualified"
 
 
 class HostNotEligible(ReservationConflict):
@@ -92,12 +97,6 @@ class Reservation:
     spec_hash: str = ""
 
 
-def canonical_spec_hash(spec: dict[str, Any]) -> str:
-    """sha256 over canonical JSON — stable across replicas and reruns."""
-    canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
-
-
 def _one(row: Any, key: str, index: int) -> Any:
     if isinstance(row, dict):
         return cast("dict[str, Any]", row)[key]
@@ -126,6 +125,7 @@ def reserve_and_bind(
     lease_claim_ttl_sec: int = 60,
     lease_renewal_ttl_sec: int = 300,
     trace_id: str | None = None,
+    expected_spec_hash: str | None = None,
 ) -> Reservation:
     """Execute §10.5 steps 2–14 inside the caller's open transaction.
 
@@ -175,7 +175,26 @@ def reserve_and_bind(
 
     # Recheck the pin under the job lock; a stale candidate snapshot never
     # authorizes starting a paid marketplace launch on a different host.
-    preferred_host_id = (_one(job, "payload", 5) or {}).get("preferred_host_id")
+    # Native admissions use the immutable snapshot. The explicit historical
+    # bridge freezes a pre-cutover row once, never re-hashing later status.
+    spec = _one(job, "spec", 6)
+    spec_hash = _one(job, "spec_hash", 7)
+    if expected_spec_hash is not None and spec_hash != expected_spec_hash:
+        raise JobSpecUnqualified("job execution spec changed after its scheduling claim")
+    if spec is None:
+        spec = _one(job, "payload", 5) or {}
+        spec_hash = spec_hash or canonical_spec_hash(spec)
+    try:
+        spec = validate_execution_spec(spec, spec_hash)
+    except ValueError as exc:
+        raise JobSpecUnqualified("job execution spec is unqualified", reason=str(exc)) from exc
+    if "execution_spec_version" in spec:
+        try:
+            num_gpus = max(1, int(spec.get("num_gpus") or 1))
+            requested_vram_mb = int(float(spec.get("vram_needed_gb") or 0) * 1024)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise JobSpecUnqualified("job resource requirements are unqualified") from exc
+    preferred_host_id = spec.get("preferred_host_id")
     if preferred_host_id and str(preferred_host_id) != host_id:
         raise HostNotEligible("job is pinned to another host", host_id=host_id)
 
@@ -264,15 +283,12 @@ def reserve_and_bind(
     )
 
     # ── Step 7/9: attempt row (unique active-attempt index backstops) ─
-    payload = _one(job, "payload", 5) or {}
-    spec = _one(job, "spec", 6) or payload
-    spec_hash = _one(job, "spec_hash", 7) or canonical_spec_hash(dict(spec))
     from control_plane.attempt_billing import capture_billing_snapshot
 
     host_payload = {**(_one(host, "payload", 3) or {}), "host_id": host_id}
     try:
         billing_snapshot = capture_billing_snapshot(
-            dict(payload), _one(job, "owner_id", 10), host_payload
+            dict(spec), _one(job, "owner_id", 10), host_payload
         )
     except (ValueError, TypeError, OverflowError) as exc:
         raise HostNotEligible("billable placement evidence is invalid", reason=str(exc)) from exc
@@ -332,9 +348,7 @@ def reserve_and_bind(
     # here — in the same transaction that created the attempt and its
     # allocations — makes serverless capacity attempt-scoped: one worker, one
     # fenced attempt, one allocation set, closed once when the attempt is fenced.
-    serverless_worker_id = (
-        payload.get("serverless_worker_id") if isinstance(payload, dict) else None
-    )
+    serverless_worker_id = spec.get("serverless_worker_id")
     if serverless_worker_id:
         # serverless_workers keeps epoch-float timestamps (not timestamptz), so
         # updated_at takes EXTRACT(EPOCH …), matching that table's convention.
@@ -354,7 +368,7 @@ def reserve_and_bind(
                 host_id,
                 str(serverless_worker_id),
                 job_id,
-                payload.get("serverless_endpoint_id"),
+                spec.get("serverless_endpoint_id"),
             ),
         ).fetchone()
         if bound_worker is None:
@@ -426,6 +440,7 @@ def reserve_and_bind(
                status = 'assigned',
                host_id = %s,
                active_attempt_id = %s,
+               spec = %s,
                spec_hash = %s,
                reason_code = NULL,
                reason_details = NULL,
@@ -438,7 +453,7 @@ def reserve_and_bind(
          WHERE job_id = %s
            AND schedule_claim_token = %s
         """,
-        (host_id, attempt_id, spec_hash, job_id, claim_token),
+        (host_id, attempt_id, Jsonb(spec), spec_hash, job_id, claim_token),
     )
     if updated.rowcount != 1:  # pragma: no cover - job row is locked by us
         raise ClaimLost(f"claim token for {job_id} vanished inside reservation", job_id=job_id)

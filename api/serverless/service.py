@@ -820,9 +820,9 @@ class ServerlessService:
                       AND w.attempt_id=j.active_attempt_id AND w.host_id=j.host_id
                     WHERE j.job_id=%s AND w.worker_id=%s
                       AND w.released_at IS NULL
-                      AND j.payload->>'job_type'='serverless_worker'
-                      AND j.payload->>'serverless_worker_id'=w.worker_id
-                      AND j.payload->>'serverless_endpoint_id'=w.endpoint_id
+                      AND COALESCE(j.spec,j.payload)->>'job_type'='serverless_worker'
+                      AND COALESCE(j.spec,j.payload)->>'serverless_worker_id'=w.worker_id
+                      AND COALESCE(j.spec,j.payload)->>'serverless_endpoint_id'=w.endpoint_id
                     FOR UPDATE OF j,w""",
                 (job_id, worker_id),
             ).fetchone()

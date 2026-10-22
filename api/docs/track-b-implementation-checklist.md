@@ -2518,6 +2518,17 @@ data disposition remain separately scoped below.
   isolated Docker tests cover these paths. This is not a production handoff
   or live GPU acceptance.
   [Worker recovery receipt](review/2026-10-22-worker-shutdown-claim-handoff.md).
+  **Canonical admission follow-up, 2026-10-22:** new PostgreSQL submissions
+  populate immutable execution specs in their admission transaction and retain
+  the approved logical launch spec/hash separately inside that snapshot.
+  Submission retries preserve existing state; observation upserts cannot
+  replace the workload. Native filtering, capacity accounting, reservation and
+  start commands use the stored snapshot; corrupt evidence cannot authorize a
+  lease. Real PostgreSQL/API tests cover admission and worker handoff. The
+  explicit pre-cutover payload bridge still needs historical qualification and
+  removal before column/trigger contraction. This is a source candidate with
+  no production backfill or deployment; B16 remains open.
+  [Canonical admission receipt](review/2026-10-22-canonical-admission.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

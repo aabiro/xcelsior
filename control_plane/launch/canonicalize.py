@@ -4,9 +4,11 @@ The output of :func:`canonicalize` is *the* canonical spec: the same input,
 however its keys are ordered or its strings are padded, produces the same
 dict, and an omitted optional field is indistinguishable from one passed at
 its default. That determinism is what makes :func:`spec_hash` a stable
-binding — the scheduler stamps it on the attempt and the worker recomputes
-it before it starts a container (Track A P5.5). The hash function itself is
-reused from the scheduler (:func:`control_plane.scheduler.reservation.
+binding. Admission retains this logical hash inside an execution snapshot
+that also binds server-selected execution constraints. The scheduler stamps
+the execution hash on the attempt and the worker recomputes it before starting
+a container (Track A P5.5). The hash function itself is
+reused from :mod:`control_plane.job_specs` (:func:`control_plane.job_specs.
 canonical_spec_hash`) so there is exactly one control-plane implementation;
 the worker keeps an independent copy that a drift guard pins to this one.
 
@@ -21,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from control_plane.scheduler.reservation import canonical_spec_hash
+from control_plane.job_specs import canonical_spec_hash
 
 # Bump when the canonical field set or normalization changes in a way that
 # alters the hash. Stored on the action plan so a spec quoted under one
