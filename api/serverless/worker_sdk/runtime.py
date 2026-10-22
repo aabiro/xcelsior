@@ -128,7 +128,7 @@ def run_worker(
     Boot a queue-mode worker:
     1. Fitness checks
     2. /healthz server
-    3. Signal ready to control plane
+    3. Host verifies health and reports native readiness
     4. Poll loop: claim up to free slots → execute concurrently → complete
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -150,8 +150,7 @@ def run_worker(
     port = health_port or int(os.environ.get("XCELSIOR_HTTP_PORT", "8080"))
     start_health_server(port, checker=lambda: {"ok": not _draining, "draining": _draining})
 
-    host_id = os.environ.get("XCELSIOR_HOST_ID", "")
-    worker_client.signal_ready(host_id=host_id)
+    # The host reports native running only after this health server is ready.
     log.info("Worker %s ready", worker_client.worker_id)
 
     concurrency = max(1, max_concurrency or int(os.environ.get("XCELSIOR_MAX_CONCURRENCY", "1")))
@@ -181,7 +180,10 @@ def run_worker(
                         job_id = str(job.get("job_id") or "")
                         if not job_id:
                             continue
-                        cancelled = bool(job.get("cancelled")) or str(job.get("status") or "") == "CANCELLED"
+                        cancelled = (
+                            bool(job.get("cancelled"))
+                            or str(job.get("status") or "") == "CANCELLED"
+                        )
                         cancel = CancelToken(cancelled=cancelled)
                         fut = pool.submit(
                             _execute_job_sync,

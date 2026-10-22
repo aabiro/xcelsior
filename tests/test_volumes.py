@@ -957,13 +957,53 @@ class TestGetVolumeMetrics:
 class TestRequiredVolumeMountFailure:
     """Required volume_ids must fail the job when NFS mount fails (no silent skip)."""
 
-    def test_worker_aborts_on_mount_fail(self):
-        import inspect
-        from worker_agent import run_job
+    def test_worker_aborts_on_mount_fail(self, monkeypatch):
+        from unittest.mock import Mock
+        import worker_agent as worker
 
-        source = inspect.getsource(run_job)
-        assert "required volume mount failed" in source
-        assert 'report_job_status(job_id, "failed"' in source
+        job_id = "required-volume-failure"
+        authority = {
+            "job_id": job_id,
+            "attempt_id": "volume-attempt",
+            "fencing_token": 7,
+            "container_name": "xcl-required-volume-failure-attempt",
+        }
+        monkeypatch.setattr(worker, "_v2_attempts", {job_id: authority})
+        monkeypatch.setattr(worker, "_active_containers", {})
+        for name in ("get_gpu_info", "build_platform_env"):
+            monkeypatch.setattr(worker, name, Mock(return_value={}))
+        for name in ("_kill_container", "_remove_container"):
+            monkeypatch.setattr(worker, name, Mock())
+        monkeypatch.setattr(worker.time, "sleep", Mock())
+        mount = Mock(return_value=False)
+        monkeypatch.setattr(worker, "_mount_nfs", mount)
+        launch = Mock()
+        monkeypatch.setattr(worker.subprocess, "Popen", launch)
+        report = Mock(return_value=True)
+        monkeypatch.setattr(worker, "report_job_status", report)
+
+        worker.run_job(
+            {
+                "job_id": job_id,
+                "image": "test/image:1",
+                "volume_ids": ["vol-required"],
+                "nfs_server": "192.0.2.1",
+                "_v2_attempt_id": authority["attempt_id"],
+                "_v2_fencing_token": authority["fencing_token"],
+                "_v2_container_name": authority["container_name"],
+            }
+        )
+
+        mount.assert_called_once()
+        launch.assert_not_called()
+        report.assert_any_call(
+            job_id,
+            "failed",
+            error_message="required volume mount failed: vol-required",
+            expected_v2_auth=authority,
+        )
+        assert [call.args[1] for call in report.call_args_list] == ["starting", "failed"]
+        assert job_id not in worker._active_containers
 
 
 class TestWorkerVolumeMountPaths:

@@ -1,6 +1,6 @@
 """Startup failures observed in production, with machine/network IO isolated."""
 
-from unittest.mock import Mock
+from unittest.mock import Mock, ANY
 import itertools
 import subprocess
 
@@ -82,6 +82,7 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
         "mount-failure-regression",
         "failed",
         error_message="required volume mount failed: vol-missing",
+        expected_v2_auth=ANY,
     )
     unmount.assert_called_once_with("/mnt/xcelsior-volumes/vol-present")
     worker.destroy_encrypted_volume.assert_not_called()
@@ -143,5 +144,34 @@ def test_exclusive_gpu_refusal_clears_worker_bookkeeping(monkeypatch):
     worker.run_job(_fenced_job("gpu-busy-regression", image="test/image:1", exclusive_gpu=True))
     assert "gpu-busy-regression" not in worker._active_containers
     worker.report_job_status.assert_any_call(
-        "gpu-busy-regression", "failed", error_message="exclusive_gpu acquire failed: busy"
+        "gpu-busy-regression",
+        "failed",
+        error_message="exclusive_gpu acquire failed: busy",
+        expected_v2_auth=ANY,
     )
+
+
+@pytest.mark.parametrize(
+    "status,ready",
+    [
+        (200, True),
+        (204, True),
+        (401, False),
+        (403, False),
+        (404, False),
+        (429, False),
+        (503, False),
+    ],
+)
+def test_serverless_health_requires_a_success_response(monkeypatch, status, ready):
+    import threading
+    from types import SimpleNamespace
+
+    clock = itertools.count()
+    monkeypatch.setattr(worker, "_shutdown", threading.Event())
+    monkeypatch.setattr(worker.time, "time", lambda: next(clock) / 10)
+    monkeypatch.setattr(worker.time, "sleep", lambda _: None)
+    get = Mock(return_value=SimpleNamespace(status_code=status))
+    monkeypatch.setattr(worker.requests, "get", get)
+    assert worker._wait_serverless_health(8080, "health", timeout_sec=0.15) is ready
+    get.assert_called_once_with("http://127.0.0.1:8080/health", timeout=5)

@@ -176,3 +176,45 @@ def test_startup_with_no_fenced_journal_never_discovers_named_containers(
     assert worker._protocol_negotiated
     assert worker._v2_attempts == {}
     worker.subprocess.run.assert_not_called()
+
+
+def test_replaced_runner_cannot_borrow_new_attempt_for_startup_report(monkeypatch):
+    old = {
+        "job_id": "runner-race",
+        "attempt_id": "old",
+        "lease_id": "old-lease",
+        "fencing_token": 7,
+        "container_name": "xcl-runner-old",
+    }
+    replacement = dict(
+        old,
+        attempt_id="new",
+        lease_id="new-lease",
+        fencing_token=8,
+        container_name="xcl-runner-new",
+    )
+    monkeypatch.setattr(worker, "_v2_attempts", {old["job_id"]: old})
+    monkeypatch.setattr(worker, "_active_containers", {})
+
+    def replace_authority():
+        worker._v2_attempts[old["job_id"]] = replacement
+        return {}
+
+    monkeypatch.setattr(worker, "get_gpu_info", replace_authority)
+    monkeypatch.setattr(worker, "build_platform_env", lambda *args: {})
+    monkeypatch.setattr(worker.time, "sleep", lambda _: None)
+    monkeypatch.setattr(worker, "_kill_container", mock.Mock())
+    monkeypatch.setattr(worker, "_remove_container", mock.Mock())
+    post = mock.Mock(side_effect=AssertionError("old runner borrowed replacement authority"))
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker.run_job(
+        {
+            "job_id": old["job_id"],
+            "image": "test/image:1",
+            "_v2_attempt_id": "old",
+            "_v2_fencing_token": 7,
+            "_v2_container_name": old["container_name"],
+        }
+    )
+    post.assert_not_called()
+    assert worker._v2_attempts[old["job_id"]] is replacement

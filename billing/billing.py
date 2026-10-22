@@ -1876,12 +1876,18 @@ class BillingEngine:
         amount_cad: float,
         job_id: str = "",
         description: str = "Compute charge",
+        *,
+        conn=None,
     ) -> dict:
         """Charge a customer wallet from prepaid credits.
 
         Hard stop: never debit more than available balance (no free-ride grace).
         Low-balance warnings fire before zero so customers can top up.
         """
+        if conn is not None:
+            return self._charge_on_connection(
+                conn, customer_id, amount_cad, job_id=job_id, description=description
+            )
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
         balance = float(wallet["balance_cad"] or 0)
@@ -2073,6 +2079,58 @@ class BillingEngine:
             "balance_cad": new_balance,
             "hard_stop": new_balance <= 0,
             "low_balance": new_balance <= self.low_balance_threshold_cad(customer_id),
+        }
+
+    def _charge_on_connection(self, conn, customer_id, amount_cad, *, job_id, description):
+        """Debit and journal inside the caller's billing-cycle transaction.
+
+        Notifications and external projections must run after that transaction
+        commits. A failed cycle insert must roll the wallet debit back too.
+        """
+        if not customer_id:
+            return {"charged": False, "reason": "missing_customer"}
+        self.get_wallet(customer_id)  # Ensure the ordinary zero-funded row exists.
+        amount_micros = cad_to_micros(round(float(amount_cad), 4))
+        wallet = conn.execute(
+            "SELECT balance_micros,status FROM wallets WHERE customer_id=%s FOR UPDATE",
+            (customer_id,),
+        ).fetchone()
+        balance = int(wallet["balance_micros"] or 0)
+        if wallet["status"] == "suspended" or amount_micros <= 0 or balance < amount_micros:
+            if balance <= 0 and amount_micros > 0:
+                conn.execute(
+                    "UPDATE wallets SET status='suspended',updated_at=%s WHERE customer_id=%s",
+                    (time.time(), customer_id),
+                )
+            return {
+                "charged": False,
+                "balance_cad": micros_to_cad(balance),
+                "reason": (
+                    "wallet_suspended"
+                    if wallet["status"] == "suspended"
+                    else "invalid_amount" if amount_micros <= 0 else "insufficient_balance"
+                ),
+            }
+        now = time.time()
+        remaining = balance - amount_micros
+        conn.execute(
+            "UPDATE wallets SET balance_micros=%s,total_spent_micros=total_spent_micros+%s,"
+            "grace_until=0,updated_at=%s,status=CASE WHEN %s=0 THEN 'suspended' ELSE status END "
+            "WHERE customer_id=%s",
+            (remaining, amount_micros, now, remaining, customer_id),
+        )
+        tx_id = f"TX-{int(now)}-{os.urandom(6).hex()}"
+        conn.execute(
+            "INSERT INTO wallet_transactions(tx_id,customer_id,tx_type,amount_micros,"
+            "balance_after_micros,description,job_id,created_at) "
+            "VALUES(%s,%s,'charge',%s,%s,%s,%s,%s)",
+            (tx_id, customer_id, -amount_micros, remaining, description, job_id, now),
+        )
+        return {
+            "charged": True,
+            "balance_cad": micros_to_cad(remaining),
+            "tx_id": tx_id,
+            "hard_stop": remaining == 0,
         }
 
     def _credit_wallet(
@@ -3544,6 +3602,7 @@ class BillingEngine:
                           COALESCE(j.payload->>'tier', 'free') AS tier
                    FROM jobs j
                    WHERE j.status = 'running'
+                     AND COALESCE(j.payload->>'job_type','') <> 'serverless_worker'
                      AND (j.payload->>'started_at')::double precision > 0""",
             ).fetchall()
 

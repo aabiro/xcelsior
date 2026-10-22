@@ -199,22 +199,15 @@ class TestWebhookBodyCap:
         )
         posted: list[bytes] = []
 
-        import urllib.request
+        from types import SimpleNamespace
+        import serverless.webhooks as webhooks
 
-        class _FakeResp:
-            status = 200
+        def capture(url, **kwargs):
+            assert url == "https://example.com/h"
+            posted.append(kwargs["body"])
+            return SimpleNamespace(status=200)
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                return False
-
-        def _capture_urlopen(req, timeout=10):
-            posted.append(req.data)
-            return _FakeResp()
-
-        monkeypatch.setattr(urllib.request, "urlopen", _capture_urlopen)
+        monkeypatch.setattr(webhooks, "public_request", capture)
         job = repo.enqueue_job(
             ep["endpoint_id"], owner, {"x": 1}, webhook_url="https://example.com/h"
         )

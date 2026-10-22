@@ -48,7 +48,13 @@ def start_health_server(
     *,
     checker: HealthCheck | None = None,
 ) -> ThreadingHTTPServer:
-    handler = type("BoundHealthHandler", (_HealthHandler,), {"checker": checker})
+    # A plain function on the handler class would bind an unexpected ``self``
+    # argument, turning every queue worker's zero-argument readiness check 503.
+    handler = type(
+        "BoundHealthHandler",
+        (_HealthHandler,),
+        {"checker": staticmethod(checker) if checker else None},
+    )
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="healthz")
     thread.start()

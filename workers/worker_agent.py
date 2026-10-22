@@ -2821,6 +2821,7 @@ def _v2_journal_save() -> bool:
                 or _v2_container_name(a["job_id"], a["attempt_id"]),
                 "spec_hash": a.get("spec_hash"),
                 "interactive": bool(a.get("interactive", False)),
+                "running_report_pending": bool(a.get("running_report_pending", False)),
                 **(
                     {"pending_command": dict(a["pending_command"])}
                     if isinstance(a.get("pending_command"), dict)
@@ -3062,6 +3063,7 @@ def v2_adopt_attempts() -> int:
                 ),
                 "spec_hash": rec.get("spec_hash"),
                 "interactive": bool(rec.get("interactive", False)),
+                "running_report_pending": bool(rec.get("running_report_pending", False)),
                 "stop": threading.Event(),
             }
             if isinstance(rec.get("pending_command"), dict):
@@ -3350,7 +3352,7 @@ def handle_start_attempt(cmd: dict) -> None:
         return
     lease_report = v2_report_attempt_status(auth, "lease_claimed")
     if lease_report == "fenced":
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
         v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
         return
     start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
@@ -3375,7 +3377,7 @@ def handle_start_attempt(cmd: dict) -> None:
     except Exception as e:
         log.exception("start_attempt run_job crashed for job %s", job_id)
         v2_report_attempt_status(auth, "failed", "agent_exception", {"error": str(e)[:300]})
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
 
 
 def handle_stop_attempt(cmd: dict) -> None:
@@ -3422,7 +3424,7 @@ def handle_stop_attempt(cmd: dict) -> None:
         )
         if code == 409:
             container_name = auth.get("container_name")
-            _v2_forget_attempt(job_id)
+            _v2_forget_attempt(job_id, auth)
             _v2_stop_container(
                 job_id,
                 "stop command authority rejected",
@@ -3527,10 +3529,10 @@ def handle_stop_attempt(cmd: dict) -> None:
     outcome = v2_report_attempt_status(auth, "stopped")
     if outcome == "ok":
         _v2_record_and_ack(command_id, result)
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
     elif outcome == "fenced":
         v2_nack_command(command_id, "stop_status_fenced", retryable=False)
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
     else:
         v2_nack_command(command_id, "stop_status_error", retryable=True)
 
@@ -4170,7 +4172,7 @@ def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: in
     while time.time() < deadline and not _shutdown.is_set():
         try:
             resp = requests.get(url, timeout=5)
-            if resp.status_code < 500:
+            if 200 <= resp.status_code < 300:
                 log.info("Serverless health OK: %s → %d", url, resp.status_code)
                 return True
         except requests.RequestException:
@@ -4178,80 +4180,6 @@ def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: in
         time.sleep(3)
     log.error("Serverless health check timed out: %s", url)
     return False
-
-
-def _serverless_callback(worker_id: str, suffix: str, body: dict | None = None) -> bool:
-    if not worker_id:
-        return False
-    try:
-        resp = _api_request(
-            "post",
-            _api_url(f"/api/v2/serverless/workers/{worker_id}/{suffix}"),
-            json=body or {},
-            headers=_api_headers(),
-            timeout=30,
-        )
-        return resp.status_code == 200
-    except requests.RequestException as e:
-        log.warning("Serverless callback %s failed for %s: %s", suffix, worker_id, e)
-        return False
-
-
-def _monitor_serverless_worker(job_id, container_name, worker_id, log_forwarder=None):
-    """Monitor a serverless worker container until exit; notify control plane."""
-    check_interval = 5
-    while not _shutdown.is_set():
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            status = result.stdout.strip()
-            if status == "exited":
-                exit_result = subprocess.run(
-                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
-                err_msg = "" if exit_code == 0 else f"container exited with code {exit_code}"
-                _serverless_callback(
-                    worker_id,
-                    "exited",
-                    {"exit_code": exit_code, "error_message": err_msg},
-                )
-                if exit_code == 0:
-                    log.info("Serverless worker %s completed (job %s)", worker_id, job_id)
-                    report_job_status(job_id, "completed")
-                else:
-                    log.warning(
-                        "Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id
-                    )
-                    report_job_status(job_id, "failed", error_message=err_msg)
-                _remove_container(container_name)
-                return
-            if status not in ("running", "created"):
-                _serverless_callback(
-                    worker_id,
-                    "exited",
-                    {"exit_code": 1, "error_message": f"unexpected state: {status}"},
-                )
-                report_job_status(job_id, "failed", error_message=f"unexpected state: {status}")
-                _remove_container(container_name)
-                return
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            report_job_status(job_id, "failed")
-            return
-        for _ in range(check_interval):
-            if _shutdown.is_set():
-                return
-            with _active_lock:
-                if job_id not in _active_containers:
-                    return
-            time.sleep(1)
 
 
 # ── Container Lifecycle ──────────────────────────────────────────────
@@ -4287,6 +4215,10 @@ def run_job(job):
     ):
         log.error("Job %s: no matching local fenced authority; refusing execution", job_id)
         return
+
+    def report_status(*args, **kwargs):
+        return report_job_status(*args, expected_v2_auth=authority, **kwargs)
+
     job_name = job.get("name", "unnamed")
     image = job.get("image", job.get("docker_image", ""))
     command = job.get("command")
@@ -4315,7 +4247,7 @@ def run_job(job):
 
     if not image:
         log.error("Job %s has no image specified — skipping", job_id)
-        report_job_status(job_id, "failed")
+        report_status(job_id, "failed")
         return
 
     # ── Requeue guard: stop old container if this job was already running ──
@@ -4331,7 +4263,7 @@ def run_job(job):
 
     # The start handler already claimed this attempt's lease and armed its
     # native renewal loop. Confirm the starting transition before setup.
-    starting_reported = report_job_status(job_id, "starting", host_id=HOST_ID)
+    starting_reported = report_status(job_id, "starting", host_id=HOST_ID)
     if not starting_reported:
         log.error("Job %s: fenced starting report failed — refusing container setup", job_id)
         return
@@ -4357,7 +4289,7 @@ def run_job(job):
             if not _excl_state.get("ok"):
                 err = _excl_state.get("error", "unknown")
                 log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
-                report_job_status(
+                report_status(
                     job_id,
                     "failed",
                     error_message=f"exclusive_gpu acquire failed: {err}",
@@ -4375,7 +4307,7 @@ def run_job(job):
         if job_requires_nfs and not has_managed_volumes and not (nfs_server and nfs_path):
             err = "required NFS configuration incomplete"
             log.error("Job %s aborting — %s", job_id, err)
-            report_job_status(job_id, "failed", error_message=err)
+            report_status(job_id, "failed", error_message=err)
 
             return
         if (
@@ -4392,7 +4324,7 @@ def run_job(job):
                 if job_requires_nfs:
                     err = "required NFS mount failed"
                     log.error("Job %s aborting — %s", job_id, err)
-                    report_job_status(job_id, "failed", error_message=err)
+                    report_status(job_id, "failed", error_message=err)
 
                     return
                 log.warning("NFS mount failed — optional shared storage unavailable")
@@ -4416,7 +4348,7 @@ def run_job(job):
         if failed_encrypted_vol_ids:
             err = "required encrypted volume attach failed: " + ", ".join(failed_encrypted_vol_ids)
             log.error("Job %s aborting — %s", job_id, err)
-            report_job_status(job_id, "failed", error_message=err)
+            report_status(job_id, "failed", error_message=err)
 
             return
 
@@ -4454,7 +4386,7 @@ def run_job(job):
         if required_volume_ids and failed_volume_ids:
             err = f"required volume mount failed: {', '.join(failed_volume_ids)}"
             log.error("Job %s aborting — %s", job_id, err)
-            report_job_status(job_id, "failed", error_message=err)
+            report_status(job_id, "failed", error_message=err)
 
             return
 
@@ -4485,7 +4417,7 @@ def run_job(job):
                 )
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
-                report_job_status(
+                report_status(
                     job_id, "failed", error_message="encrypted workspace provisioning failed"
                 )
 
@@ -4501,7 +4433,7 @@ def run_job(job):
             ).strip()
             if not cosign or not public_key:
                 err = "required image signature verifier/key is unavailable"
-                report_job_status(job_id, "failed", error_message=err)
+                report_status(job_id, "failed", error_message=err)
 
                 return
             verified = subprocess.run(
@@ -4513,7 +4445,7 @@ def run_job(job):
             if verified.returncode != 0:
                 err = "required image signature verification failed"
                 log.error("Job %s: %s: %s", job_id, err, verified.stderr[:300])
-                report_job_status(job_id, "failed", error_message=err)
+                report_status(job_id, "failed", error_message=err)
 
                 return
 
@@ -4583,7 +4515,7 @@ def run_job(job):
                         }
                     ],
                 )
-                report_job_status(job_id, "failed", error_message=err)
+                report_status(job_id, "failed", error_message=err)
                 return
 
             # Track in LRU cache index
@@ -4601,19 +4533,19 @@ def run_job(job):
                     "required gVisor runtime is incompatible with this "
                     "interactive/managed-volume workload"
                 )
-                report_job_status(job_id, "failed", error_message=err)
+                report_status(job_id, "failed", error_message=err)
 
                 return
             if not is_gvisor_available():
                 err = "required gVisor runtime is unavailable"
-                report_job_status(job_id, "failed", error_message=err)
+                report_status(job_id, "failed", error_message=err)
 
                 return
             runtime_name = "runsc"
             log.info("Runtime: runsc (hard requirement)")
         elif required_runtime and required_runtime != "runc":
             err = f"unsupported required runtime: {required_runtime}"
-            report_job_status(job_id, "failed", error_message=err)
+            report_status(job_id, "failed", error_message=err)
 
             return
         elif has_managed_volumes:
@@ -4787,7 +4719,7 @@ def run_job(job):
             egress_args, env_vars = launch_args(job, env_vars)
         except (ImportError, EgressUnavailable) as exc:
             log.error("Job %s not started: egress isolation unavailable: %s", job_id, exc)
-            report_job_status(
+            report_status(
                 job_id,
                 "failed",
                 error_message=(
@@ -4846,7 +4778,7 @@ def run_job(job):
                     }
                 ],
             )
-            report_job_status(job_id, "failed", error_message=err[:500])
+            report_status(job_id, "failed", error_message=err[:500])
             return
 
         container_id = start.stdout.strip()[:12]
@@ -4866,7 +4798,7 @@ def run_job(job):
         #     so the web terminal backend can resolve container_name before we
         #     flip to "running". Keeping the UI badge on "starting" until SSH
         #     injection actually finishes means "Running" is a truthful signal.
-        report_job_status(
+        report_status(
             job_id,
             "starting",
             host_id=HOST_ID,
@@ -4875,7 +4807,6 @@ def run_job(job):
         )
 
         if is_serverless:
-            worker_id = str(job.get("serverless_worker_id") or "")
             http_port = int(job.get("http_port") or 8080)
             health_path = str(job.get("health_check_path") or "/health")
             host_http_port = int(port_map.get(str(http_port)) or http_port)
@@ -4893,17 +4824,13 @@ def run_job(job):
             )
             if not _wait_serverless_health(host_http_port, health_path):
                 err = f"health check failed on :{host_http_port}{health_path}"
-                _serverless_callback(
-                    worker_id,
-                    "exited",
-                    {"exit_code": 1, "error_message": err},
-                )
-                report_job_status(job_id, "failed", error_message=err)
-
                 _kill_container(container_name)
+                # Keep exact labels and journal until native exit is confirmed.
+                _monitor_container(job_id, container_name)
                 return
-            _serverless_callback(worker_id, "ready", {"host_id": str(HOST_ID or "")})
-            report_job_status(
+            authority["running_report_pending"] = True
+            _v2_journal_save()
+            report_status(
                 job_id,
                 "running",
                 host_id=HOST_ID,
@@ -4914,7 +4841,7 @@ def run_job(job):
                 job_id,
                 [
                     {
-                        "message": f"Serverless worker {worker_id} ready",
+                        "message": f"Serverless worker {job.get('serverless_worker_id', job_id)} ready",
                         "level": "info",
                         "timestamp": time.time(),
                     }
@@ -4929,7 +4856,7 @@ def run_job(job):
             _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
             # 4c. SSH is either ready or has emitted a reason — flip to "running".
-            report_job_status(
+            report_status(
                 job_id,
                 "running",
                 host_id=HOST_ID,
@@ -4947,7 +4874,7 @@ def run_job(job):
 
             # For interactive jobs, report SSH connection info
             if is_interactive:
-                report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
+                report_status(job_id, "running", ssh_port=host_port, interactive=True)
                 log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
                 _push_log_lines(
                     job_id,
@@ -4993,14 +4920,7 @@ def run_job(job):
 
         # 7. Monitor container until completion
         current_stage = "monitoring container"
-        if is_serverless:
-            _monitor_serverless_worker(
-                job_id,
-                container_name,
-                str(job.get("serverless_worker_id") or ""),
-                log_forwarder=log_fwd,
-            )
-        elif is_interactive:
+        if is_interactive:
             _monitor_interactive(
                 job_id,
                 container_name,
@@ -5027,7 +4947,7 @@ def run_job(job):
             ],
         )
         _kill_container(container_name)
-        report_job_status(job_id, "failed", error_message=timeout_msg)
+        report_status(job_id, "failed", error_message=timeout_msg)
 
     except Exception as e:
         stage_msg = f"{current_stage}: {e}"
@@ -5043,7 +4963,7 @@ def run_job(job):
             ],
         )
         _kill_container(container_name)
-        report_job_status(job_id, "failed", error_message=stage_msg)
+        report_status(job_id, "failed", error_message=stage_msg)
 
     finally:
         # Stop log forwarding (final flush)
@@ -5307,6 +5227,16 @@ def _v2_monitor_container(auth: dict) -> None:
             if _v2_attempts.get(job_id) is not auth:
                 return
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        if (
+            state == "running"
+            and label == auth["attempt_id"]
+            and auth.get("running_report_pending")
+        ):
+            if report_job_status(
+                job_id, "running", container_name=auth["container_name"], expected_v2_auth=auth
+            ):
+                auth["running_report_pending"] = False
+                _v2_journal_save()
         if state == "exited" and label == auth["attempt_id"]:
             # Do not let a renewal's post-completion 409 erase the journal
             # while an uncertain terminal report is still being retried.

@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING
 
 from serverless.repo import (
     JOB_STATUS_IN_PROGRESS,
-    WORKER_STATE_ERROR,
-    WORKER_STATE_TERMINATED,
 )
 
 if TYPE_CHECKING:
@@ -37,7 +34,9 @@ class ServerlessDispatcher:
         from serverless.prefix_routing import prefix_routing_enabled, select_worker_with_prefix
 
         worker = None
-        next_job = self.repo.peek_next_job(endpoint_id) if hasattr(self.repo, "peek_next_job") else None
+        next_job = (
+            self.repo.peek_next_job(endpoint_id) if hasattr(self.repo, "peek_next_job") else None
+        )
         workers = self.repo.list_workers(endpoint_id)
         ready = [
             w
@@ -81,20 +80,3 @@ class ServerlessDispatcher:
         job = self.repo.get_job(job_id)
         if job and str(job.get("worker_id")) == worker_id:
             self.repo.decrement_worker_concurrency(worker_id)
-
-    def handle_worker_lost(self, worker_id: str) -> int:
-        """Requeue in-flight jobs when a worker crashes or is reaped."""
-        requeued = self.repo.requeue_worker_jobs(worker_id)
-        self.repo.update_worker(
-            worker_id,
-            state=WORKER_STATE_ERROR,
-            released_at=time.time(),
-        )
-        if requeued:
-            log.warning("Requeued %d jobs from lost worker %s", requeued, worker_id)
-        return requeued
-
-    def terminate_worker(self, worker_id: str) -> int:
-        requeued = self.handle_worker_lost(worker_id)
-        self.repo.update_worker(worker_id, state=WORKER_STATE_TERMINATED)
-        return requeued

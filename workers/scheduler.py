@@ -1669,6 +1669,7 @@ def submit_job(
     trace_id=None,
     exclusive_gpu=False,
     preferred_host_id=None,
+    serverless_config=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1793,6 +1794,19 @@ def submit_job(
         "trace_id": trace_id,
         "preferred_host_id": preferred_host_id,
     }
+
+    if serverless_config is not None:
+        allowed = {
+            "serverless_worker_id",
+            "serverless_endpoint_id",
+            "environment",
+            "volume_mounts",
+            "http_port",
+            "health_check_path",
+        }
+        if job["job_type"] != "serverless_worker" or set(serverless_config) != allowed:
+            raise ValueError("serverless execution requires a complete server-selected binding")
+        job.update(serverless_config)
 
     # Spot jobs are preemptible interruptible instances (no bidding).
     if is_spot:

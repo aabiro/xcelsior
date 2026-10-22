@@ -4,6 +4,8 @@
 By default no Docker, sudo, existing database, .env, or real credentials are used.
 The explicit --worker-billing-acceptance mode uses a local cached CUDA image
 and GPU for a bounded, network-disabled container against the disposable DB.
+--test-redis-socket explicitly enables real Redis cases on a caller-owned
+disposable Unix socket; inherited Redis URLs and credentials remain excluded.
 Logs, JUnit results, and a provenance manifest remain in the output directory;
 the disposable database is stopped and removed even when a gate fails.
 """
@@ -21,6 +23,7 @@ import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TESTS = [
@@ -75,11 +78,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--postgres-bin", type=Path)
+    parser.add_argument("--test-redis-socket", type=Path)
     parser.add_argument("--worker-billing-acceptance", action="store_true")
     parser.add_argument("--cuda-image", default="pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime")
     parser.add_argument("--gpu-device", default="0")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if args.test_redis_socket:
+        args.test_redis_socket = args.test_redis_socket.resolve()
+        if not args.test_redis_socket.is_socket():
+            parser.error("--test-redis-socket must name a disposable local Redis Unix socket")
     if args.worker_billing_acceptance and args.tests:
         parser.error("choose worker acceptance or pytest suites, not both")
     if not args.tests and not args.worker_billing_acceptance:
@@ -124,6 +132,10 @@ def main() -> int:
             "XCELSIOR_RATE_LIMIT_REQUESTS": "5000",
         }
     )
+    if args.test_redis_socket:
+        env["XCELSIOR_TEST_REDIS_URL"] = (
+            f"unix://{quote(str(args.test_redis_socket), safe='/')}?db=15"
+        )
     for name in (
         "HOSTS",
         "JOBS",
@@ -153,6 +165,7 @@ def main() -> int:
         ).splitlines(),
         "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
         "tower_access": "none",
+        "test_redis_socket": str(args.test_redis_socket) if args.test_redis_socket else None,
         "phases": {},
     }
     files = subprocess.check_output(

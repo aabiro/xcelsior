@@ -200,7 +200,7 @@ class TestBillingPeriodicHarness:
         )
         repo.soft_delete_endpoint(ep_id, owner)
 
-    def test_deprovision_worker_uses_full_billing_context(self, monkeypatch):
+    def test_deprovision_without_runtime_evidence_cannot_charge(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "1")
 
         repo = ServerlessRepo()
@@ -233,10 +233,10 @@ class TestBillingPeriodicHarness:
 
         svc = ServerlessService(repo)
         wallet_before = float(billing.get_wallet(owner)["balance_cad"])
-        with patch.object(svc.dispatcher, "terminate_worker"):
-            svc.deprovision_worker(worker_id, charge=True)
+        result = svc.deprovision_worker(worker_id, charge=True)
+        assert result["reason"] == "scheduler_job_missing"
         wallet_after = float(billing.get_wallet(owner)["balance_cad"])
 
-        assert wallet_before - wallet_after >= 1.25
-        assert repo.peek_endpoint_token_cost(ep_id) == pytest.approx(0.0)
+        assert wallet_after == wallet_before
+        assert repo.peek_endpoint_token_cost(ep_id) == pytest.approx(1.25)
         repo.soft_delete_endpoint(ep_id, owner)

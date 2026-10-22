@@ -291,3 +291,40 @@ def test_incomplete_execution_is_not_reported_as_terminal(execution, monkeypatch
     worker._monitor_container(auth["job_id"], auth["container_name"])
     post.assert_not_called()
     cleanup.assert_not_called()
+
+
+def test_serverless_running_confirmation_retries_with_bound_authority(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    auth["running_report_pending"] = True
+    worker._v2_journal_save()
+    states = iter(
+        [
+            ("running", 0, auth["attempt_id"]),
+            ("running", 0, auth["attempt_id"]),
+            ("exited", 0, auth["attempt_id"]),
+            ("exited", 0, auth["attempt_id"]),
+        ]
+    )
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: next(states))
+    post = mock.Mock(side_effect=[(503, {}), (200, {}), (200, {})])
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
+    assert [c.args[1]["status"] for c in post.call_args_list] == ["running", "running", "succeeded"]
+    assert all(c.args[1]["attempt_id"] == auth["attempt_id"] for c in post.call_args_list)
+    assert not auth["running_report_pending"]
+    cleanup.assert_called_once_with(auth["container_name"])
+
+
+def test_pending_serverless_readiness_survives_journal_recovery(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    auth["running_report_pending"] = True
+    worker._v2_journal_save()
+    worker._v2_attempts.clear()
+    monkeypatch.setattr(
+        worker, "_v2_container_state", lambda *args: ("running", 0, auth["attempt_id"])
+    )
+    monkeypatch.setattr(worker, "_v2_post", mock.Mock(return_value=(200, {})))
+    with mock.patch.object(worker.threading, "Thread"):
+        worker.v2_adopt_attempts()
+    assert worker._v2_attempts[auth["job_id"]]["running_report_pending"]
+    cleanup.assert_not_called()

@@ -77,6 +77,10 @@ def endpoint(funded):
             "gpu_type": "RTX4090",
             "min_workers": 0,
             "max_workers": 1,
+            # These routes exercise an empty queue; use supported short limits
+            # so a real no-worker timeout does not stall the regression suite.
+            "queue_timeout_sec": 1,
+            "request_timeout_sec": 10,
         },
         headers=funded,
     )

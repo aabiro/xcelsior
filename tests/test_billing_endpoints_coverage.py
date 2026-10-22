@@ -30,6 +30,22 @@ client = TestClient(app)
 OK_OR_HANDLED = {200, 400, 401, 402, 404, 409, 422, 503}
 
 
+@pytest.fixture(autouse=True)
+def stripe_payment_intents_are_isolated(monkeypatch):
+    from unittest.mock import Mock
+    from routes.billing import get_stripe_manager
+
+    manager = get_stripe_manager()
+    create = Mock(
+        side_effect=lambda customer, amount, description, **kwargs: {
+            "stripe_intent_id": "pi_test_fixture",
+            "client_secret": "fixture_only",
+            "amount_cad": amount,
+        }
+    )
+    monkeypatch.setattr(manager, "create_credit_deposit", create)
+
+
 @pytest.fixture(scope="module")
 def auth():
     email = f"billcov-{uuid.uuid4().hex[:10]}@xcelsior.ca"

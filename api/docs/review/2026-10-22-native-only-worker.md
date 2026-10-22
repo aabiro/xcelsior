@@ -68,3 +68,7 @@ Pyright (241 files, zero errors) passed. Two existing duplicate operation-ID
 warnings and the whole-tree formatting backlog remain. All changed Python
 hashes match the final passing manifest. Six protected unrelated workspace
 file hashes are unchanged.
+
+The later [serverless lifecycle follow-up](2026-10-22-serverless-native-lifecycle.md)
+removes the separate serverless exit monitor and callback/SSH settlement writers.
+This receipt remains the source evidence snapshot for its own commit.

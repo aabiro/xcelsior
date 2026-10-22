@@ -338,16 +338,27 @@ def reserve_and_bind(
     if serverless_worker_id:
         # serverless_workers keeps epoch-float timestamps (not timestamptz), so
         # updated_at takes EXTRACT(EPOCH …), matching that table's convention.
-        conn.execute(
+        bound_worker = conn.execute(
             """
             UPDATE serverless_workers
                SET attempt_id = %s,
                    host_id = %s,
+                   allocated_at = EXTRACT(EPOCH FROM clock_timestamp()),
                    updated_at = EXTRACT(EPOCH FROM clock_timestamp())
-             WHERE worker_id = %s
+             WHERE worker_id = %s AND scheduler_job_id=%s AND endpoint_id=%s
+               AND released_at IS NULL AND state IN ('booting','ready','idle')
+            RETURNING worker_id
             """,
-            (attempt_id, host_id, str(serverless_worker_id)),
-        )
+            (
+                attempt_id,
+                host_id,
+                str(serverless_worker_id),
+                job_id,
+                payload.get("serverless_endpoint_id"),
+            ),
+        ).fetchone()
+        if bound_worker is None:
+            raise CapacityConflict("serverless worker binding is missing or closed")
 
     # ── Step 11: lease offer bound to attempt/host/fence ─────────────
     lease_id_row = conn.execute(
