@@ -28,7 +28,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 _BILLING_SRC = (_ROOT / "billing" / "billing.py").read_text()
 _SCHEDULER_SRC = (_ROOT / "workers" / "scheduler.py").read_text()
 _ROUTES_SRC = (_ROOT / "api" / "routes" / "instances.py").read_text()
-_MIGRATION_SRC = (_ROOT / "api" / "migrations" / "versions" / "019_instance_lifecycle.py").read_text()
+_MIGRATION_SRC = (
+    _ROOT / "api" / "migrations" / "versions" / "019_instance_lifecycle.py"
+).read_text()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -311,54 +313,6 @@ class TestLifecycleStateMachine:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestSchedulerLifecycleHelpers:
-    """Verify scheduler lifecycle helper functions are defined."""
-
-    def test_stop_container_graceful_exists(self):
-        import scheduler
-
-        assert hasattr(scheduler, "stop_container_graceful")
-        assert callable(scheduler.stop_container_graceful)
-
-    def test_start_stopped_container_exists(self):
-        import scheduler
-
-        assert hasattr(scheduler, "start_stopped_container")
-        assert callable(scheduler.start_stopped_container)
-
-    def test_terminate_job_exists(self):
-        import scheduler
-
-        assert hasattr(scheduler, "terminate_job")
-        assert callable(scheduler.terminate_job)
-
-    def test_stop_container_graceful_uses_docker_stop(self):
-        """docker stop -t 10 should appear in source."""
-        assert "docker stop" in _SCHEDULER_SRC
-        assert (
-            "-t 10" in _SCHEDULER_SRC or "t=10" in _SCHEDULER_SRC or '"-t", "10"' in _SCHEDULER_SRC
-        )
-
-    def test_start_stopped_container_uses_docker_start(self):
-        assert "docker start" in _SCHEDULER_SRC
-
-    def test_terminate_job_uses_docker_kill_and_rm(self):
-        assert "docker kill" in _SCHEDULER_SRC
-        assert "docker rm" in _SCHEDULER_SRC
-
-    def test_stop_container_graceful_returns_bool(self):
-        """Source declares a bool return — just verifies no import error."""
-        import scheduler
-
-        # Function should be callable without error (won't actually run docker)
-        assert callable(scheduler.stop_container_graceful)
-
-    def test_start_stopped_container_returns_bool(self):
-        import scheduler
-
-        assert callable(scheduler.start_stopped_container)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 6. billing.py — Structure & Constants
 # ═══════════════════════════════════════════════════════════════════════
@@ -469,35 +423,11 @@ class TestBillingStopInstance:
             )
         )
 
-    def test_stop_calls_stop_container_graceful(self):
-        """stop_instance calls scheduler.stop_container_graceful on a running job."""
-        from billing import BillingEngine
-
-        be = BillingEngine.__new__(BillingEngine)
-
-        job_row = {
-            "job_id": "j1",
-            "status": "running",
-            "host_id": "h1",
-            "owner": "user@test.com",
-            "name": "test-instance",
-            "container_name": "xcl-j1",
-        }
-
-        pool = _mock_pool(job_row=job_row)
-        with patch("db._get_pg_pool", return_value=pool):
-            with patch("scheduler.stop_container_graceful", return_value=True) as mock_stop:
-                # We just check the function is referenced; full mock is complex
-                pass
-
-        # Structural check: stop enqueues pause_container (preserves container for restart)
-        assert "pause_container" in _BILLING_SRC
-
 
 class TestBillingStartInstance:
     """Unit tests for BillingEngine.start_instance."""
 
-    def test_start_calls_start_stopped_container(self):
+    def test_legacy_start_enqueues_an_agent_command(self):
         assert "start_container" in _BILLING_SRC
 
     def test_start_checks_wallet_balance(self):

@@ -82,3 +82,8 @@ own OAuth client and clears its session before checking anonymous behavior.
 No production authentication behavior changed. Six previously protected
 unrelated workspace file hashes still match; all unrelated main-worktree
 edits were left outside this branch.
+
+The source identities in this receipt describe commit `94ee669c`. The
+[2026-10-22 follow-up](2026-10-22-legacy-startup-removal.md) additionally removes
+legacy startup adoption and unused lifecycle helpers and supplies the latest
+combined gate and worker signature.

@@ -340,7 +340,7 @@ _agent_commands_rejected_total = _register_counter_once(
 _shutdown = threading.Event()
 _active_containers = {}  # job_id -> container_name
 _missing_stop_container_log_at = {}  # container_name -> last absent-stop log time
-_adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
+_adopted_containers = set()  # recovered fenced attempts preserved across agent restarts
 _active_lock = threading.Lock()
 _image_pull_lock = threading.Lock()  # serialize job pulls vs idle/startup warmers
 _oauth_lock = threading.Lock()
@@ -2862,7 +2862,6 @@ def _ensure_work_protocol() -> None:
     negotiate_protocol_v2()
     if _protocol_negotiated:
         v2_adopt_attempts()
-        adopt_running_containers()
 
 
 def _v2_post(path: str, payload: dict, timeout: int = 10):
@@ -7383,10 +7382,9 @@ def heartbeat_loop(host_ip, compute_score=None):
 
 
 def graceful_shutdown():
-    """Stop agent-started containers and deregister from scheduler.
+    """Stop locally started containers; preserve recovered fenced workloads.
 
-    Adopted containers (started by the scheduler via SSH) are left running
-    so they survive agent restarts.
+    Host registration remains unless explicit decommissioning is configured.
     """
     log.info("Graceful shutdown — stopping %d active containers", len(_active_containers))
 
@@ -7498,137 +7496,6 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     log.info("  Admitted:       %s", "YES" if admitted else "NO (limited to heartbeats)")
     log.info("  Headscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
     log.info("=" * 64)
-
-
-def adopt_running_containers():
-    """Discover containers started by the scheduler (via SSH) and adopt them.
-
-    The scheduler starts containers named 'xcl-{job_id}' via SSH.
-    If the worker agent wasn't running at the time, it needs to discover
-    and adopt these containers to provide log forwarding and monitoring.
-    """
-    if not _protocol_negotiated or not _legacy_execution_allowed:
-        return
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return
-
-        containers = [name.strip() for name in result.stdout.strip().split("\n") if name.strip()]
-        if not containers:
-            return
-
-        for container_name in containers:
-            # Extract job_id from container name (xcl-{job_id})
-            if not container_name.startswith("xcl-"):
-                continue
-            try:
-                inspected = subprocess.run(
-                    ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if inspected.returncode != 0:
-                    continue
-                labels = json.loads(inspected.stdout) or {}
-                if not isinstance(labels, dict) or "ai.xcelsior.attempt_id" in labels:
-                    continue  # Fenced containers belong exclusively to v2 adoption.
-            except (OSError, subprocess.TimeoutExpired, ValueError):
-                continue
-            job_id = container_name[4:]  # Remove "xcl-" prefix
-
-            with _active_lock:
-                if job_id in _active_containers:
-                    continue  # Already tracking this container
-
-            # Reclaim the lease for this running job. The server now accepts
-            # claim requests for jobs in leased/starting/running state if the
-            # host matches, so adopted containers can keep their lease fresh
-            # across worker restarts.
-            try:
-                lease_info = claim_lease(job_id)
-            except Exception as e:
-                log.debug("Lease reclaim on adoption failed for %s: %s", job_id, e)
-                lease_info = None
-            if not lease_info:
-                log.warning("Legacy adoption refused without a lease: %s", container_name)
-                continue
-            with _active_lock:
-                _active_containers[job_id] = container_name
-                _adopted_containers.add(job_id)
-            log.info("Adopting authorized legacy container %s (job %s)", container_name, job_id)
-
-            # Start log forwarding
-            log_fwd = LogForwarder(job_id, container_name)
-            log_fwd.start()
-
-            # Start lease renewal loop if we have a live lease
-            if lease_info:
-                lease_interval = int(lease_info.get("duration_sec", 300)) // 2
-                lease_stop = threading.Event()
-
-                def _adopt_renew(jid=job_id, interval=lease_interval, stop=lease_stop):
-                    fails = 0
-                    while not stop.is_set() and not _shutdown.is_set():
-                        stop.wait(interval)
-                        if stop.is_set() or _shutdown.is_set():
-                            return
-                        with _active_lock:
-                            if jid not in _active_containers:
-                                return  # Container gone
-                        res = renew_lease(jid)
-                        if not res:
-                            fails += 1
-                            log.warning(
-                                "Adopted-lease renewal failed for job %s — attempt %d",
-                                jid,
-                                fails,
-                            )
-                            if fails >= 3:
-                                new = claim_lease(jid)
-                                if new:
-                                    fails = 0
-                                    log.info("Adopted-lease reclaimed for job %s", jid)
-                                else:
-                                    log.error(
-                                        "Adopted-lease reclaim failed for job %s — stopping",
-                                        jid,
-                                    )
-                                    return
-                        else:
-                            fails = 0
-
-                renew_thread = threading.Thread(
-                    target=_adopt_renew,
-                    name=f"adopt-lease-{job_id[:8]}",
-                    daemon=True,
-                )
-                renew_thread.start()
-            else:
-                log.warning(
-                    "Adopted container %s has no active lease — running unmonitored",
-                    job_id,
-                )
-
-            # Start monitoring in a separate thread
-            monitor_thread = threading.Thread(
-                target=_monitor_interactive,
-                args=(job_id, container_name),
-                kwargs={"log_forwarder": log_fwd},
-                name=f"adopt-{job_id[:8]}",
-                daemon=True,
-            )
-            monitor_thread.start()
-
-        log.info("Adopted %d running container(s)", len(containers))
-    except Exception as e:
-        log.warning("Container adoption failed: %s", e)
 
 
 def reinject_shells_for_running():

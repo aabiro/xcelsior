@@ -341,5 +341,7 @@
     "legacy resume/control and SQL JSONB compatibility",
     "scheduler and worker decomposition",
     "B16.4 durable fairness and preemption"
-  ]
+  ],
+  "candidate_commit": "94ee669cc8d508ed4e34f26f2c17cef4ce83e533",
+  "subsequent_source_receipt": "2026-10-22-legacy-startup-removal.json"
 }

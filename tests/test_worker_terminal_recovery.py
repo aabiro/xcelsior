@@ -249,40 +249,6 @@ def test_inspect_uncertainty_cannot_fabricate_terminal_failure(execution, monkey
 
 
 @pytest.mark.parametrize(
-    "labels,expected_claims",
-    [
-        ('{"ai.xcelsior.attempt_id":"attempt-recovery"}', 0),
-        ("{}", 1),
-        ("not valid JSON", 0),
-    ],
-)
-def test_legacy_adoption_respects_fenced_ownership(execution, monkeypatch, labels, expected_claims):
-    auth, _, _ = execution
-    monkeypatch.setattr(worker, "_active_containers", {})
-    monkeypatch.setattr(worker, "_adopted_containers", set())
-    monkeypatch.setattr(
-        worker.subprocess,
-        "run",
-        mock.Mock(
-            side_effect=[
-                SimpleNamespace(returncode=0, stdout=auth["container_name"], stderr=""),
-                SimpleNamespace(returncode=0, stdout=labels, stderr=""),
-            ]
-        ),
-    )
-    claim = mock.Mock(return_value={"duration_sec": 300})
-    monkeypatch.setattr(worker, "claim_lease", claim)
-    with (
-        mock.patch.object(worker, "LogForwarder") as forwarder,
-        mock.patch.object(worker.threading, "Thread") as thread,
-    ):
-        worker.adopt_running_containers()
-    assert claim.call_count == expected_claims
-    assert forwarder.call_count == expected_claims
-    assert thread.call_count == 2 * expected_claims
-
-
-@pytest.mark.parametrize(
     "exit_code,status",
     [(0, "stopped"), (130, "stopped"), (137, "stopped"), (143, "stopped"), (7, "failed")],
 )

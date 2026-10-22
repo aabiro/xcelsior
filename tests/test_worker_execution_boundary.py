@@ -69,27 +69,6 @@ def test_legacy_job_cannot_reenter_an_existing_fenced_attempt(isolated_worker):
     worker.report_job_status.assert_not_called()
 
 
-def test_adoption_requires_lease_before_tracking_or_monitoring(isolated_worker, monkeypatch):
-    monkeypatch.setattr(
-        worker.subprocess,
-        "run",
-        mock.Mock(
-            side_effect=[
-                SimpleNamespace(returncode=0, stdout="xcl-boundary-job", stderr=""),
-                SimpleNamespace(returncode=0, stdout="{}", stderr=""),
-            ]
-        ),
-    )
-    with (
-        mock.patch.object(worker, "LogForwarder") as logs,
-        mock.patch.object(worker.threading, "Thread") as thread,
-    ):
-        worker.adopt_running_containers()
-    assert worker._active_containers == {} and worker._adopted_containers == set()
-    logs.assert_not_called()
-    thread.assert_not_called()
-
-
 @pytest.mark.parametrize(
     "response",
     [
@@ -135,14 +114,6 @@ def test_negotiation_requires_explicit_boolean_permission(
     assert api.call_count == (1 if legacy_allowed is True else 0)
 
 
-def test_disabled_legacy_adoption_never_inspects_or_claims(isolated_worker, monkeypatch):
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", False, raising=False)
-    with mock.patch.object(worker.subprocess, "run") as docker:
-        worker.adopt_running_containers()
-    docker.assert_not_called()
-    worker.claim_lease.assert_not_called()
-
-
 def test_disabled_legacy_execution_cannot_start_work(isolated_worker, monkeypatch):
     monkeypatch.setattr(worker, "_legacy_execution_allowed", False, raising=False)
     worker.run_job(isolated_worker)
@@ -171,14 +142,39 @@ def test_uncertain_startup_retries_then_adopts_once(isolated_worker, monkeypatch
     ]
     api = mock.Mock(side_effect=bodies)
     monkeypatch.setattr(worker, "_api_request", api)
-    with (
-        mock.patch.object(worker, "v2_adopt_attempts") as fenced,
-        mock.patch.object(worker, "adopt_running_containers") as legacy,
-    ):
+    with (mock.patch.object(worker, "v2_adopt_attempts") as fenced,):
         worker._ensure_work_protocol()
         fenced.assert_not_called()
         worker._ensure_work_protocol()
         worker._ensure_work_protocol()
         fenced.assert_called_once()
-        legacy.assert_called_once()
     assert api.call_count == 2
+
+
+@pytest.mark.parametrize("legacy_allowed", [True, False])
+def test_startup_with_no_fenced_journal_never_discovers_named_containers(
+    isolated_worker, monkeypatch, legacy_allowed
+):
+    monkeypatch.setattr(worker, "_protocol_negotiated", False)
+    body = {
+        "protocol": 2,
+        "v2": True,
+        "legacy_execution_allowed": legacy_allowed,
+        "features": [
+            "commands.host_claim_ack",
+            "commands.session_fencing",
+            "attempts.runtime_metadata",
+        ],
+    }
+    monkeypatch.setattr(
+        worker,
+        "_api_request",
+        mock.Mock(return_value=SimpleNamespace(status_code=200, json=lambda: body)),
+    )
+    docker = mock.Mock(side_effect=AssertionError("name-based legacy discovery ran"))
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    worker._ensure_work_protocol()
+    assert worker._protocol_negotiated
+    assert worker._v2_attempts == {}
+    docker.assert_not_called()
+    worker.claim_lease.assert_not_called()
