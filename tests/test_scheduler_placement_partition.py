@@ -319,3 +319,32 @@ def test_unavailable_pinned_host_does_not_fall_back(fleet, reset_cp_config):
     SchedulerService(_cfg_canary(marker, [other])).tick()
     assert _job_row(jid)["status"] == "queued"
     assert _job_row(jid)["active_attempt_id"] is None
+
+
+@pytest.mark.parametrize("mode", ["paused", "canary"])
+@pytest.mark.parametrize("pin_available", [True, False])
+def test_non_native_queue_respects_host_pin_without_fallback(
+    fleet, reset_cp_config, monkeypatch, mode, pin_available
+):
+    import scheduler as sched
+    from psycopg.types.json import Jsonb
+
+    marker = uuid.uuid4().hex[:10]
+    model = f"pin-model-{marker}"
+    pin, other, jid = f"pin-{marker}", f"other-{marker}", f"job-{marker}"
+    _mk_host(fleet, other, gpu_model=model)
+    if pin_available:
+        _mk_host(fleet, pin, gpu_model=model)
+    _mk_job(fleet, jid, gpu_model=model)
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
+            (Jsonb({"preferred_host_id": pin}), jid),
+        )
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", "different-model")
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_HOSTS", "different-host")
+    sched.process_queue()
+    row = _job_row(jid)
+    assert row["host_id"] == (pin if pin_available else None)
+    assert row["status"] == ("assigned" if pin_available else "queued")

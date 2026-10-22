@@ -250,6 +250,16 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
                 host_id=req.host_id,
                 fencing_token=req.fencing_token,
             )
+            if (
+                token is None
+                and c.execute(
+                    "SELECT 1 FROM jobs j WHERE j.job_id=%s AND "
+                    "(j.payload->>'job_type'='serverless_worker' OR EXISTS "
+                    "(SELECT 1 FROM serverless_workers w WHERE w.scheduler_job_id=j.job_id))",
+                    (req.job_id,),
+                ).fetchone()
+            ):
+                raise LeaseClaimRejected("callback_credential_missing")
             return grant, token
 
         grant, callback_token = run_transaction(
