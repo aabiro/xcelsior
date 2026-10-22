@@ -150,6 +150,12 @@ def test_effective_public_grants_and_membership_are_detected(provisioned_roles):
             "wallets" in issue for issue in role_violations(conn, "readonly", check_session=False)
         )
         conn.rollback()
+        for table in ("job_spec_backfill_evidence", "legacy_lease_archive"):
+            conn.execute(f"GRANT UPDATE ON {table} TO PUBLIC")
+            assert any(
+                table in issue for issue in role_violations(conn, "api", check_session=False)
+            )
+            conn.rollback()
         conn.execute("GRANT xcelsior_api TO xcelsior_billing")
         assert any(
             "member" in issue for issue in role_violations(conn, "billing", check_session=False)
