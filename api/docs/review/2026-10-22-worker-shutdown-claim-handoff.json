@@ -1,0 +1,107 @@
+{
+  "recorded_at": "2026-10-22T18:42:18.110968+00:00",
+  "base_commit": "668fb537340f5011def56b5896249dc75bf6f42e",
+  "scope": "native worker SIGTERM recovery and claimed starts that abort before container execution",
+  "behavior": {
+    "shutdown": "checkpoint journal and preserve native containers for API-verified restart adoption; no queued status or speculative terminal settlement",
+    "runner_cleanup": "preserve mounts, encrypted volumes/workspaces and bookkeeping while the same authority is retained for shutdown handoff; normal cleanup otherwise",
+    "decommission": "do not deregister a host with tracked containers or unsettled native attempts",
+    "tokenless_claim": "persist no-execution abort, report failed with exact authority, then NACK; no container start or lease renewal",
+    "outage": "retry settlement in process and directly from the recovery journal after restart; current replacement authority is preserved",
+    "other_unstarted_aborts": "pre-start journal and command-result persistence failures share the settlement path",
+    "server_guard": "existing API credential-mint miss still rolls back claim transaction"
+  },
+  "validation": {
+    "expanded": {
+      "tests": 2398,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "tests": 113,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "full_manifest_sha256": "8db0d1ac0de0253cf5e64e598dccefd2261b540cfbe4b85ecd524aa298bb3a69",
+    "focused_manifest_sha256": "c4a64edfa189562c7a48ed555365af31b3a4d1a508e3f7c67b8b7ee5df57b033",
+    "pyright": {
+      "filesAnalyzed": 244,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 32.027
+    },
+    "black_changed_python_files": 4,
+    "ruff": "repository check passed",
+    "distribution_signatures_verified": 12,
+    "baseline_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "postgres_api": "real isolated PostgreSQL and FastAPI status/renew routes",
+    "old_api_handoff": "claim transaction is committed without callback token to simulate the older API response",
+    "docker": "isolated; no real GPU/container restart journey performed",
+    "scratch_postgres": "both final gates stopped their disposable clusters",
+    "scratch_redis_removed": true
+  },
+  "source_sha256": {
+    "tests/test_worker_agent_v2.py": "b2b5fdea26314fd907d49ce126320d580a374008b03797bc0b5f3c47a3029c4f",
+    "tests/test_worker_claim_handoff.py": "e25e433773cdf7095557936d9e07381ff496c58767541eab40e2a9292b212622",
+    "tests/test_worker_terminal_recovery.py": "0c417b97bea3ffd802c65c8e592072d36b19c5ad77b18d461d493cdcd4bb1f9d",
+    "workers/worker_agent.py": "a82555a310c94d851e4257869292422c3cf553ee18c3a3aabe87a5ef7ccd799e"
+  },
+  "worker_signature_sha256": "18a1908a2be18e9884d13fd460cfd01404486126f95e6c58b323ec5490593629",
+  "production": {
+    "deployed": false,
+    "migrations_applied": false,
+    "worker_restarts_performed": false,
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "repair_modes": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    }
+  },
+  "production_boundary": {
+    "same_schema_protected_jobs_and_modes": true,
+    "no_active_jobs": true,
+    "same_service_images_and_processes": true,
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "repair_modes": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "legacy_lease_rows_unchanged": true
+  },
+  "unrelated_root_work_preserved": true,
+  "remaining": [
+    "canonical specs and remaining JSONB paths",
+    "canonical column and transitional trigger contraction",
+    "historical disposition and all-table semantic review",
+    "durable fairness and preemption",
+    "coordinated rollout and live GPU acceptance; repairs stay report_only"
+  ],
+  "local_evidence": "/mnt/storage/projects/xcelsior/artifacts/worker-shutdown-claim-handoff-20261022"
+}

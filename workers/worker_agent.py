@@ -2824,6 +2824,11 @@ def _v2_journal_save() -> bool:
                 "interactive": bool(a.get("interactive", False)),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
                 **(
+                    {"pending_start_failure": a["pending_start_failure"]}
+                    if a.get("pending_start_failure")
+                    else {}
+                ),
+                **(
                     {"pending_command": dict(a["pending_command"])}
                     if isinstance(a.get("pending_command"), dict)
                     else {}
@@ -3036,6 +3041,51 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
         stop.wait(min(10.0, max(0.1, deadline - time.monotonic())))
 
 
+def _v2_settle_aborted_start(auth: dict) -> str:
+    """Release an exact claimed attempt that this agent never started."""
+    with _v2_attempts_lock:
+        if _v2_attempts.get(auth["job_id"]) is not auth:
+            return "fenced"
+    outcome = v2_report_attempt_status(
+        auth,
+        "failed",
+        auth["pending_start_failure"],
+        {"note": "lease claimed; container execution never started"},
+    )
+    if outcome != "error":
+        _v2_forget_attempt(auth["job_id"], auth)
+    return outcome
+
+
+def _v2_retry_aborted_start(auth: dict) -> None:
+    while not _shutdown.is_set():
+        if _v2_settle_aborted_start(auth) != "error":
+            return
+        # A temporarily unwritable journal may become available again.
+        _v2_journal_save()
+        _shutdown.wait(5)
+
+
+def _v2_abort_claimed_start(auth: dict, reason: str) -> None:
+    """Persist no-execution evidence before NACK; retry settlement after outages."""
+    auth["pending_start_failure"] = reason
+    auth["stop"].set()
+    with _v2_attempts_lock:
+        current = _v2_attempts.get(auth["job_id"])
+        if current is not None and not _v2_same_authority(current, auth):
+            return
+        _v2_attempts[auth["job_id"]] = auth
+    if not _v2_journal_save():
+        log.error("Could not persist aborted start for job %s", auth["job_id"])
+    if _v2_settle_aborted_start(auth) == "error":
+        threading.Thread(
+            target=_v2_retry_aborted_start,
+            args=(auth,),
+            name=f"v2-abort-{auth['job_id'][:8]}",
+            daemon=True,
+        ).start()
+
+
 def v2_adopt_attempts() -> int:
     """§11.6 restart adoption: re-arm authority for surviving containers.
 
@@ -3069,7 +3119,14 @@ def v2_adopt_attempts() -> int:
             }
             if isinstance(rec.get("pending_command"), dict):
                 auth["pending_command"] = dict(rec["pending_command"])
+            if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
+                auth["pending_start_failure"] = rec["pending_start_failure"]
         except (KeyError, TypeError, ValueError):
+            continue
+        if auth.get("pending_start_failure"):
+            # No container was launched. Retry the journaled failure directly;
+            # neither Docker discovery nor a renewed execution grant is needed.
+            _v2_abort_claimed_start(auth, auth["pending_start_failure"])
             continue
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
         if state == "unknown":
@@ -3341,17 +3398,19 @@ def handle_start_attempt(cmd: dict) -> None:
     if grant is None:
         v2_nack_command(command_id, "lease_claim_rejected", retryable=False)
         return
-    if spec.get("job_type") == "serverless_worker" and not grant.get("callback_token"):
-        v2_nack_command(command_id, "callback_credential_missing", retryable=False)
-        return
     auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
     auth["interactive"] = bool(spec.get("interactive", False))
 
+    if spec.get("job_type") == "serverless_worker" and not grant.get("callback_token"):
+        _v2_abort_claimed_start(auth, "callback_credential_missing")
+        v2_nack_command(command_id, "callback_credential_missing", retryable=False)
+        return
+
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
     if not _v2_journal_save():
-        _v2_forget_attempt(job_id, auth)
+        _v2_abort_claimed_start(auth, "journal_unavailable")
         v2_nack_command(command_id, "journal_unavailable", retryable=True)
         return
     lease_report = v2_report_attempt_status(auth, "lease_claimed")
@@ -3361,6 +3420,7 @@ def handle_start_attempt(cmd: dict) -> None:
         return
     start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
     if not _v2_record_and_ack(command_id, start_result):
+        _v2_abort_claimed_start(auth, "journal_unavailable")
         return
 
     threading.Thread(
@@ -4978,33 +5038,42 @@ def run_job(job):
             except Exception:
                 pass
 
-        with _active_lock:
-            _active_containers.pop(job_id, None)
+        with _v2_attempts_lock:
+            handoff = _shutdown.is_set() and _v2_same_authority(
+                _v2_attempts.get(job_id) or {}, authority
+            )
+        if handoff:
+            # The workload still owns its fenced lease. Preserve its mounts,
+            # encrypted workspace and bookkeeping for restart adoption.
+            log.info("Preserving resources for journaled job %s during shutdown", job_id)
+        else:
+            with _active_lock:
+                _active_containers.pop(job_id, None)
 
-        # Release exclusive GPU lock (Phase 7 / §3) — must run last so any
-        # checkpoint/cleanup work above completes while we still own the GPU.
-        if exclusive_gpu and _excl_state.get("ok"):
-            _release_exclusive_gpu(job_id, _excl_state)
+            # Release exclusive GPU lock (Phase 7 / §3) — must run last so any
+            # checkpoint/cleanup work above completes while we still own the GPU.
+            if exclusive_gpu and _excl_state.get("ok"):
+                _release_exclusive_gpu(job_id, _excl_state)
 
-        # Unmount NFS if we mounted it
-        if nfs_mounted:
-            _unmount_nfs(nfs_mount_point)
+            # Unmount NFS if we mounted it
+            if nfs_mounted:
+                _unmount_nfs(nfs_mount_point)
 
-        # Unmount managed volumes
-        for vol_mount in managed_vol_mounts:
-            try:
-                _unmount_nfs(vol_mount)
-            except Exception as e:
-                log.warning("Failed to unmount managed volume %s: %s", vol_mount, e)
+            # Unmount managed volumes
+            for vol_mount in managed_vol_mounts:
+                try:
+                    _unmount_nfs(vol_mount)
+                except Exception as e:
+                    log.warning("Failed to unmount managed volume %s: %s", vol_mount, e)
 
-        # Detach encrypted volumes
-        for vol_id in encrypted_vol_ids:
-            detach_encrypted_volume(vol_id)
+            # Detach encrypted volumes
+            for vol_id in encrypted_vol_ids:
+                detach_encrypted_volume(vol_id)
 
-        # Destroy ephemeral encrypted workspace (cryptographic erasure)
-        if encrypted_ws_vid:
-            destroy_encrypted_volume(encrypted_ws_vid)
-            log.info("Encrypted workspace destroyed for job %s (cryptographic erasure)", job_id)
+            # Destroy ephemeral encrypted workspace (cryptographic erasure)
+            if encrypted_ws_vid:
+                destroy_encrypted_volume(encrypted_ws_vid)
+                log.info("Encrypted workspace destroyed for job %s (cryptographic erasure)", job_id)
 
 
 # ── Log Forwarding ───────────────────────────────────────────────────
@@ -6749,37 +6818,25 @@ def heartbeat_loop(host_ip, compute_score=None):
 
 
 def graceful_shutdown():
-    """Stop locally started containers; preserve recovered fenced workloads.
-
-    Host registration remains unless explicit decommissioning is configured.
-    """
-    log.info("Graceful shutdown — stopping %d active containers", len(_active_containers))
-
+    """Checkpoint fenced workloads for restart without stopping their containers."""
+    _shutdown.set()
+    with _v2_attempts_lock:
+        pending_attempts = len(_v2_attempts)
+        if not _v2_journal_save():
+            log.error("Shutdown journal checkpoint failed; retaining existing recovery evidence")
     with _active_lock:
-        for job_id, container_name in list(_active_containers.items()):
-            if job_id in _adopted_containers:
-                log.info("Leaving adopted container %s (job %s) running", container_name, job_id)
-                continue
-            log.info("Stopping container %s (job %s)", container_name, job_id)
-            try:
-                subprocess.run(
-                    ["docker", "stop", "-t", "15", container_name],
-                    capture_output=True,
-                    timeout=25,
-                )
-            except Exception as e:
-                log.warning("docker stop failed during shutdown: %s", e)
-                _kill_container(container_name)
-
-            # Mark job as queued so it can be rescheduled
-            report_job_status(job_id, "queued")
-        _active_containers.clear()
-
-    # Clean up orphaned volume mounts after containers are stopped
-    try:
-        cleanup_orphaned_volume_mounts()
-    except Exception as e:
-        log.warning("Volume cleanup during shutdown failed: %s", e)
+        active = dict(_active_containers)
+    log.info(
+        "Graceful shutdown — preserving %d native attempts and %d tracked containers",
+        pending_attempts,
+        len(active),
+    )
+    # Cleanup must not detach mounts or destroy workspaces of surviving work.
+    if not pending_attempts and not active:
+        try:
+            cleanup_orphaned_volume_mounts()
+        except Exception as e:
+            log.warning("Volume cleanup during shutdown failed: %s", e)
 
     # Deregister from the scheduler — only when this host is genuinely being
     # decommissioned, never on an ordinary restart.
@@ -6801,7 +6858,7 @@ def graceful_shutdown():
     # Absence needs no announcement: `check_hosts()` marks a host dead after a
     # grace period, which is how the four existing dead hosts got there. So the
     # default is now to say nothing and let staleness speak.
-    if _DEREGISTER_ON_EXIT:
+    if _DEREGISTER_ON_EXIT and not pending_attempts and not active:
         try:
             _api_request(
                 "delete",
@@ -6813,7 +6870,7 @@ def graceful_shutdown():
         except requests.RequestException:
             log.warning("Failed to deregister from scheduler")
     else:
-        log.info("Shutdown without deregistering — admission and evidence preserved")
+        log.info("Shutdown without deregistering — drain work before decommissioning")
 
 
 # ── Main Loop ─────────────────────────────────────────────────────────
