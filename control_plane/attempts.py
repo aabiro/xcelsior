@@ -101,8 +101,7 @@ def report_attempt_status(
     if status not in _REPORT_ORDER:
         raise AttemptStatusRejected(
             "unsupported_status",
-            f"status {status!r} is not reportable "
-            f"(expected one of {sorted(_REPORT_ORDER)})",
+            f"status {status!r} is not reportable " f"(expected one of {sorted(_REPORT_ORDER)})",
         )
 
     # Serialize metadata and lifecycle with placement on the job row.
@@ -133,9 +132,19 @@ def report_attempt_status(
         )
 
     if runtime_metadata:
-        allowed = {"container_id", "container_name", "public_ssh_port", "interactive", "error_message", "resume_from", "resumable"}
+        allowed = {
+            "container_id",
+            "container_name",
+            "public_ssh_port",
+            "interactive",
+            "error_message",
+            "resume_from",
+            "resumable",
+        }
         if set(runtime_metadata).difference(allowed):
-            raise AttemptStatusRejected("invalid_runtime_metadata", "Unknown runtime metadata field")
+            raise AttemptStatusRejected(
+                "invalid_runtime_metadata", "Unknown runtime metadata field"
+            )
         port = runtime_metadata.get("public_ssh_port")
         if port is not None and (type(port) is not int or not 10000 <= port <= 65000):
             raise AttemptStatusRejected("invalid_runtime_metadata", "Invalid public SSH port")
@@ -192,6 +201,7 @@ def report_attempt_status(
     job_status = _JOB_PROJECTION[status]
     if status == "failed" and failure_code == "mining_detected":
         from abuse_policy import record_mining_violation
+
         row = conn.execute("SELECT payload FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
         job = dict(_get(row, "payload", 0) or {})
         job["job_id"] = job_id
@@ -382,13 +392,20 @@ def report_attempt_status(
         ON CONFLICT (destination_class, idempotency_key) DO NOTHING
         """,
         (
-            job_id, attempt_id, host_id, status, fencing_token,
+            job_id,
+            attempt_id,
+            host_id,
+            status,
+            fencing_token,
             f"attempt_status:{attempt_id}:{status}",
         ),
     )
     log.info(
         "attempt %s (job %s): %s -> %s%s",
-        attempt_id[:8], job_id, current, status,
+        attempt_id[:8],
+        job_id,
+        current,
+        status,
         " [terminal]" if terminal else "",
     )
     return AttemptStatusResult(job_id, attempt_id, status, True, terminal)

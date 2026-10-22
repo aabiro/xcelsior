@@ -242,8 +242,7 @@ def test_gunicorn_refuses_missing_or_late_metric_initialization(
 def test_real_gunicorn_replacement_keeps_unscraped_worker_requests(tmp_path):
     """The actual master/preload/exit hooks and API scrape, not just fork math."""
     module = tmp_path / "aggregation_fixture.py"
-    module.write_text(
-        textwrap.dedent("""
+    module.write_text(textwrap.dedent("""
         import os
         from api import app
         from control_plane.legacy_execution import record_use
@@ -252,8 +251,7 @@ def test_real_gunicorn_replacement_keeps_unscraped_worker_requests(tmp_path):
             if increment:
                 record_use('status_patch','requested')
             return {'pid':os.getpid(), 'generation':os.environ['XCELSIOR_METRICS_GENERATION_STARTED']}
-    """)
-    )
+    """))
     env = child_env()
     env.update(
         {

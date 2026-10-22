@@ -278,7 +278,11 @@ def test_start_container_failure_reports_stopped(monkeypatch):
     monkeypatch.setattr(
         worker_agent.subprocess,
         "run",
-        lambda argv, **kw: _ok("{}") if "inspect" in argv else _ok(stderr="Error: no such container: xcl-eee", rc=1),
+        lambda argv, **kw: (
+            _ok("{}")
+            if "inspect" in argv
+            else _ok(stderr="Error: no such container: xcl-eee", rc=1)
+        ),
     )
 
     reports: list[tuple] = []

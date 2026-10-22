@@ -1,0 +1,44 @@
+{
+  "recorded_at": "2026-10-22T00:39:45.073985+00:00",
+  "base_commit": "9fc32479",
+  "scope": "push readiness for the control-plane cutover; existing unrelated workspace work excluded",
+  "checks": {
+    "isolated_postgresql_tests": {
+      "tests": 816,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "explicitly_deselected": {
+      "tests/test_instance_flow.py::TestDockerComposeSmoke": "optional real Compose smoke outside the isolated runner",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement": "future B16.2 migration not implemented; not counted as passed",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database": "source companion document absent from tracked checkout; database conformance tests still run"
+    },
+    "manifest_sha256": "015ac29a5508979981d2019477f2b1e96745d012fe4380ba261e9c45fa57fc14",
+    "ruff_repository": "passed",
+    "black_changed_python_files": "passed",
+    "pyright_tracked_findings": 0,
+    "endpoint_inventory": {
+      "operations": 568,
+      "classified": 568,
+      "fresh_generation": "passed"
+    },
+    "worker_signatures_verified": 12,
+    "formatting_ast_equivalence": true
+  },
+  "worker_source_sha256": "5349fe469192b7598233d4c3e6f3b36a9d0742d90f57a23164d2796fe35d5ccb",
+  "whole_tree_black_baseline": {
+    "unformatted_files_unchanged_from_origin": 252,
+    "candidate_introduced_unformatted_files": 0,
+    "qualification": "The pre-existing whole-tree formatting gate is not claimed green."
+  },
+  "production_boundary": "These push-preparation changes have not been rolled out. Production retains verified runtime cb71106b and report_only repairs.",
+  "local_artifact_root": "/mnt/storage/projects/xcelsior/artifacts/push-readiness-20261021",
+  "remaining_work": [
+    "dedicated runtime database identities",
+    "schema contraction and physical legacy-code removal",
+    "durable fairness and preemption",
+    "repair enforcement qualification",
+    "historical data recovery and disposition"
+  ]
+}
