@@ -61,7 +61,6 @@ def _reset_state():
         conn.execute("DELETE FROM state")
         conn.execute("DELETE FROM billing_cycles")
         conn.execute("DELETE FROM job_logs")
-        conn.execute("DELETE FROM leases")
     for f in (
         scheduler.HOSTS_FILE,
         scheduler.JOBS_FILE,

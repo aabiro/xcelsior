@@ -226,6 +226,7 @@ SERVERLESS_PLATFORM_ENV_KEYS = (
     "XCELSIOR_HTTP_PORT",
     "XCELSIOR_HEALTH_CHECK_PATH",
     "XCELSIOR_API_TOKEN",
+    "XCELSIOR_WORKER_CALLBACK_TOKEN",
 )
 
 
@@ -283,8 +284,8 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
                 "XCELSIOR_HEALTH_CHECK_PATH": str(job.get("health_check_path") or "/health"),
             }
         )
-        if API_TOKEN:
-            env["XCELSIOR_API_TOKEN"] = str(API_TOKEN)
+        env["XCELSIOR_API_TOKEN"] = ""
+        env["XCELSIOR_WORKER_CALLBACK_TOKEN"] = str(job.get("_serverless_callback_token") or "")
     return env
 
 
@@ -3340,6 +3341,9 @@ def handle_start_attempt(cmd: dict) -> None:
     if grant is None:
         v2_nack_command(command_id, "lease_claim_rejected", retryable=False)
         return
+    if spec.get("job_type") == "serverless_worker" and not grant.get("callback_token"):
+        v2_nack_command(command_id, "callback_credential_missing", retryable=False)
+        return
     auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
     auth["interactive"] = bool(spec.get("interactive", False))
@@ -3368,6 +3372,7 @@ def handle_start_attempt(cmd: dict) -> None:
 
     job = dict(spec)
     job.setdefault("job_id", job_id)
+    job["_serverless_callback_token"] = str(grant.get("callback_token") or "")
     job["_v2_attempt_id"] = auth["attempt_id"]
     job["_v2_fencing_token"] = auth["fencing_token"]
     job["_v2_spec_hash"] = auth.get("spec_hash") or ""

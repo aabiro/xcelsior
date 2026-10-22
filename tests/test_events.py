@@ -31,7 +31,6 @@ def _clean_events():
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute("DELETE FROM events")
-        conn.execute("DELETE FROM leases")
         conn.commit()
     yield
 

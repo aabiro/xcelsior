@@ -468,6 +468,16 @@ def main():
 
     register_task("event_snapshots", _event_snapshots, 900)
 
+    def _callback_credential_retention():
+        from control_plane.db import run_transaction
+        from control_plane.serverless_credentials import prune_callback_credentials
+
+        run_transaction(prune_callback_credentials, what="callback_credential_retention")
+
+    register_task(
+        "serverless_callback_credential_retention", _callback_credential_retention, 86_400
+    )
+
     # 7b. Event archive / retention (DA§2.2 / §16.1, Track B B4.2): move events
     # older than the retention window to cold storage, preserving chain hashes.
     # Previously dead (queried columns the live `events` table lacks) and never

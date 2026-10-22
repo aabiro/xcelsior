@@ -79,11 +79,14 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--postgres-bin", type=Path)
     parser.add_argument("--test-redis-socket", type=Path)
+    parser.add_argument("--test-lease-snapshot", type=Path)
     parser.add_argument("--worker-billing-acceptance", action="store_true")
     parser.add_argument("--cuda-image", default="pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime")
     parser.add_argument("--gpu-device", default="0")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if args.test_lease_snapshot and not args.test_lease_snapshot.is_file():
+        parser.error("--test-lease-snapshot must name a local exported lease snapshot")
     if args.test_redis_socket:
         args.test_redis_socket = args.test_redis_socket.resolve()
         if not args.test_redis_socket.is_socket():
@@ -136,6 +139,8 @@ def main() -> int:
         env["XCELSIOR_TEST_REDIS_URL"] = (
             f"unix://{quote(str(args.test_redis_socket), safe='/')}?db=15"
         )
+    if args.test_lease_snapshot:
+        env["XCELSIOR_TEST_LEASE_SNAPSHOT"] = str(args.test_lease_snapshot.resolve())
     for name in (
         "HOSTS",
         "JOBS",
@@ -166,6 +171,11 @@ def main() -> int:
         "isolation": "fresh local Unix-socket-only PostgreSQL; no dotenv or inherited credentials",
         "tower_access": "none",
         "test_redis_socket": str(args.test_redis_socket) if args.test_redis_socket else None,
+        "test_lease_snapshot_sha256": (
+            hashlib.sha256(args.test_lease_snapshot.read_bytes()).hexdigest()
+            if args.test_lease_snapshot
+            else None
+        ),
         "phases": {},
     }
     files = subprocess.check_output(

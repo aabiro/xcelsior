@@ -281,11 +281,22 @@ def seeded_snapshot_db(snapshot_db):
 # ───────────────────────── the rehearsal ─────────────────────────
 
 
+def _upgrade_after_native_cutover(dsn):
+    _alembic(dsn, "upgrade", "126")
+    refused = _alembic(dsn, "upgrade", "127", check=False)
+    assert refused.returncode != 0 and "native cutover required" in refused.stderr
+    # Simulate the explicit handoff only after 055 has backfilled native
+    # authority. This closes the v1 record without inventing a new attempt.
+    with _connect(dsn) as conn:
+        conn.execute("UPDATE leases SET status='released' WHERE status='active'")
+    _alembic(dsn, "upgrade", "head")
+
+
 def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
     """053 + representative rows → head, with every §16.1 property checked."""
     dsn, seeded = seeded_snapshot_db
 
-    _alembic(dsn, "upgrade", "head")
+    _upgrade_after_native_cutover(dsn)
 
     with _connect(dsn) as conn:
         # ── head reached ──
@@ -296,7 +307,8 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
 
         # ── no data loss or duplication ──
         for table, expected in seeded.items():
-            actual = conn.execute(f"SELECT count(*) FROM {table}").fetchone()
+            relation = "legacy_lease_archive" if table == "leases" else table
+            actual = conn.execute(f"SELECT count(*) FROM {relation}").fetchone()
             assert actual is not None and actual[0] == expected, (
                 f"{table}: seeded {expected} rows, found {actual[0]} after "
                 f"upgrade. A migration lost or duplicated production rows."
@@ -429,7 +441,7 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
     """
     dsn, seeded = seeded_snapshot_db
 
-    _alembic(dsn, "upgrade", "head")
+    _upgrade_after_native_cutover(dsn)
     _alembic(dsn, "downgrade", BASELINE_REVISION)
 
     with _connect(dsn) as conn:

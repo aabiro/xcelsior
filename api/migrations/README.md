@@ -90,7 +90,15 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `125_oauth_revoked_jtis.py`.**
+**Repository head: `127_archive_retired_lease_table.py`.**
+
+126 adds hash-only attempt callback credentials. 127 verifies and archives inactive
+v1 lease history, then drops the obsolete table and its eight columns. Apply 127
+only after the native-only runtime handoff; active/unknown leases or unreviewed
+columns/dependencies abort it. Its downgrade restores the exact archived rows.
+The new runtime requires at least 126 and can run there during that handoff;
+127 is the later contraction step. Do not run a one-shot upgrade to 127 while
+old API/background/scheduler processes can still query the v1 lease table.
 
 (`125` stores one revoked client-credentials JWT id until that token's own
 expiry. Downgrade drops the table.)

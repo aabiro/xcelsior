@@ -256,7 +256,10 @@ class TestCommandDeliveryPartition:
         assert response.status_code == 410
         with _pool.connection() as conn:
             assert (
-                conn.execute("SELECT count(*) FROM leases WHERE job_id=%s", (job_id,)).fetchone()[0]
+                conn.execute(
+                    "SELECT count(*) FROM legacy_lease_archive WHERE record->>'job_id'=%s",
+                    (job_id,),
+                ).fetchone()[0]
                 == 0
             )
             assert (
