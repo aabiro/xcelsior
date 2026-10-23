@@ -2666,6 +2666,20 @@ data disposition remain separately scoped below.
   [host eviction receipt](review/2026-10-23-native-host-eviction.md),
   [clean baseline receipt](review/2026-10-23-final-control-plane-checks.md) and
   [staged handoff](review/2026-10-23-staged-control-plane-handoff.md).
+  **Review and complete restore qualification, 2026-10-23:** `23158934`
+  serializes approved eviction snapshots, evaluates net same-team replacement
+  quotas, requeues failed preemption settlement without overriding user intent
+  or mining policy, and preserves wallet warnings when burn estimates are incomplete.
+  The affected selection passes 154 tests; all three frozen handoff images
+  pass actual Gunicorn readiness, signature and metrics checks on PostgreSQL 16.
+  A fresh complete read-only production snapshot restores with matching hashes
+  for all 138 tables, then passes every target 126–137 with 30 financial/
+  marketplace and four execution/storage tables unchanged at each step.
+  All 364 jobs are retained (four exact specs, 360 unavailable); disposable
+  database and cluster cleanup pass. This qualifies the full restore, beyond
+  the earlier scoped fixture. Production remains 125 with eight `report_only`
+  repairs; role/schema/worker handoffs and deployed acceptance remain open.
+  See the [review and restore receipt](review/2026-10-23-native-review-and-full-restore.md).
 - **Exit gate:** one authoritative path exists for launch, placement,
   execution, transition, billing, command, and audit; legacy-path metrics
   are zero for the agreed retention period; repository architecture docs
