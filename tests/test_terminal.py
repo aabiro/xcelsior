@@ -1498,6 +1498,18 @@ class TestResizeClamp:
         monkeypatch.setattr(term_mod, "_MAX_RESIZE_ROWS", 50)
         monkeypatch.setattr(term_mod, "_MAX_INPUT_FRAME_BYTES", 64)
 
+        import threading
+
+        released = threading.Event()
+        release = term_mod._release_terminal_session_slot
+
+        def finished(*args):
+            try:
+                return release(*args)
+            finally:
+                released.set()
+
+        monkeypatch.setattr(term_mod, "_release_terminal_session_slot", finished)
         fake_client = _FakeDockerClient(job_id="j-resize")
         monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
 
@@ -1516,6 +1528,10 @@ class TestResizeClamp:
             msg = ws.receive_json()
             assert msg["type"] == "error"
             assert msg["code"] == 1009
+
+            assert ws.receive()["type"] == "websocket.close"
+            assert released.wait(5), "terminal handler must finish cleanup before client teardown"
+            assert fake_client.closed
 
 
 class TestSessionLifetime:
