@@ -575,12 +575,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "the host resumes accepting billable work.",
 
   evict_host_workloads:
-    "Prepare or execute the removal of every running workload from a platform host. Operator " +
-    "tool, and the destructive counterpart to drain_host. Use when workloads must leave the host " +
-    "— hardware failure or an emergency — and only then. Without confirm:true and a plan_id it " +
-    "only prepares an eviction plan and changes nothing. Executing preempts each workload, so " +
-    "uncheckpointed work on this host is lost; jobs are requeued and reattempted elsewhere, " +
-    "which restarts their billing on a new host.",
+    "Prepare or execute eviction from a drained platform host. Operator tool, separately scoped " +
+    "from drain_host. Use when workloads must leave for maintenance or an emergency. Without " +
+    "confirm:true and a human-approved plan_id it only previews exact fenced attempts. Execution " +
+    "issues graceful TERM without force escalation and returns pending until terminal attempt, " +
+    "lease and allocation settlement; repeat the same plan to read progress. Uncheckpointed work " +
+    "is lost when its container exits. Compute jobs requeue for a new placement and billing period; " +
+    "serverless worker identities terminate for pool replacement. Drain alone never stops work.",
 
   retry_agent_command:
     "Retry a failed or dead-lettered worker command, preserving its identity and audit history. " +

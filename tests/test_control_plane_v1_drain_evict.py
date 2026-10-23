@@ -159,14 +159,14 @@ def test_v1_evictions_refuses_unconfirmed_requeue():
 
     assert client.post(f"/api/v1/hosts/{host_id}/drain", headers=admin, json={}).status_code == 200
     resp = client.post(f"/api/v1/hosts/{host_id}/evictions", headers=admin, json={})
-    assert resp.status_code == 501, resp.text
-    assert resp.json()["code"] == "durable_preemption_unavailable"
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["code"] == "approval_required"
     after = client.get(f"/instance/{job_id}").json()["instance"]
     assert after["status"] == "running"
     assert after["host_id"] == host_id
 
 
-def test_eviction_execution_leaves_approved_plan_retryable():
+def test_eviction_plan_refuses_workload_without_native_authority():
     from db import _get_pg_pool
 
     admin = _admin_headers(f"evict-plan-{uuid.uuid4().hex[:6]}@xcelsior.ca")
@@ -179,35 +179,16 @@ def test_eviction_execution_leaves_approved_plan_retryable():
             conn.execute("SELECT version FROM hosts WHERE host_id=%s", (host_id,)).fetchone()[0]
         )
 
+    # This old observation fixture has no native attempt/lease. Never invent
+    # an execution target from its running status or container metadata.
     preview = client.post(
         f"/api/v1/hosts/{host_id}/eviction-plans",
         headers=admin,
         json={"expected_version": version, "reason": "planned maintenance"},
     )
-    assert preview.status_code == 200, preview.text
-    plan_id = preview.json()["plan_id"]
-    _OWNED["plans"].add(plan_id)
+    assert preview.status_code == 409, preview.text
+    assert preview.json()["code"] == "eviction_authority_unavailable"
     assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "running"
-
-    approved = client.post(
-        f"/api/v1/launch-plans/{plan_id}/approve",
-        headers=admin,
-        json={"confirm": True},
-    )
-    assert approved.status_code == 200, approved.text
-    first = client.post(f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin)
-    assert first.status_code == 501, first.text
-    assert first.json()["code"] == "durable_preemption_unavailable"
-    with _get_pg_pool().connection() as conn:
-        assert (
-            conn.execute("SELECT status FROM action_plans WHERE plan_id=%s", (plan_id,)).fetchone()[
-                0
-            ]
-            == "approved"
-        )
-    assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "running"
-    second = client.post(f"/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute", headers=admin)
-    assert second.status_code == 501
 
 
 # ── Separation of authority (§3.3 "separately authorized") ──────────────

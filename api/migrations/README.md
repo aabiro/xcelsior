@@ -90,11 +90,12 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `136_retire_unfenced_stop_task.py`.**
+**Repository head: `137_allow_native_host_eviction_results.py`.**
 
 133 expands durable weighted scheduling policy, virtual service credit and
 preemption plan records. Default policy enables no evictions. This runtime
-now requires schema 134 for native lifecycle intent, after the staged handoffs.
+now requires schema 137 for native lifecycle intent and completed host eviction
+results, after the staged handoffs.
 
 132 records explicit historical disposition after qualified recovery. Jobs
 with a recovered execution record or unavailable launch evidence retain their
@@ -549,3 +550,14 @@ Deploy maintenance workers without that handler first. A live task claim or
 archive mismatch refuses retirement. A database constraint prevents older
 workers from registering it again. Downgrade restores the recorded row and
 retains its archive; it does not execute the retired handler.
+
+
+137 permits a succeeded `evict_host_workloads` action to retain a host resource
+result without inventing a launch job ID. Every prior approval, consumption,
+response and failure constraint remains required. Other action types still need
+a job ID. No job, financial row, column or history is deleted. The unit locks
+only `action_plans` with the migration lock budget. Up/down/up is qualified on
+an isolated database with existing plan rows; downgrade explicitly refuses if
+completed native host actions would violate the older constraint, preserving
+their evidence. Apply 137 before serving the new runtime (floor 137). The frozen
+7757bdc3 image remains the schema-134-compatible intermediate for 134–136.

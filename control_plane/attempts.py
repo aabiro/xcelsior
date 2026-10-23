@@ -242,6 +242,30 @@ def report_attempt_status(
                 WHERE job_id=%s AND attempt_id=%s AND fencing_token=%s""",
                 (job_id, attempt_id, fencing_token),
             ).fetchone()
+            if not victim:
+                # The human-approved host action has no nominee/device hold.
+                # Its executing canonical snapshot binds this exact authority;
+                # user stop/cancel/restart intent above always takes precedence.
+                victim = conn.execute(
+                    """SELECT plan_id FROM action_plans
+                    WHERE action_type='evict_host_workloads' AND status='executing'
+                      AND canonical_args @> %s::jsonb LIMIT 1""",
+                    (
+                        Jsonb(
+                            {
+                                "host_id": host_id,
+                                "policy": "host-eviction/v1",
+                                "victims": [
+                                    {
+                                        "job_id": job_id,
+                                        "attempt_id": attempt_id,
+                                        "fencing_token": fencing_token,
+                                    }
+                                ],
+                            }
+                        ),
+                    ),
+                ).fetchone()
             if victim:
                 preemption_plan_id = str(_get(victim, "plan_id", 0))
                 job_status = (

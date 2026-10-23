@@ -457,6 +457,10 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
 
     with control_plane_transaction() as conn:
         plan = _load_owned_for_update(conn, plan_id, principal)
+        if plan["action_type"] != "create_instance":
+            raise PlanConflict(
+                "wrong_action_type", "this plan does not authorize an instance launch"
+            )
         status = str(plan["status"])
 
         # Exactly-once replay.

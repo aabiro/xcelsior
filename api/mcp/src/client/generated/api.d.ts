@@ -379,6 +379,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{host_id}/eviction-plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Read Eviction Plan
+         * @description Read the approved targets and current release proof without side effects.
+         */
+        get: operations["api_v1_read_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{host_id}/drain": {
         parameters: {
             query?: never;
@@ -392,8 +412,7 @@ export interface paths {
          * Api V1 Drain Host
          * @description §3.3 drain — stop **new** placements only. Running workloads keep running.
          *
-         *     Unlike the legacy endpoint, this does NOT preempt. To remove workloads, call
-         *     `/evictions` (a separate scope + audit trail).
+         *     Eviction requires a separate scope and the durable preemption controller.
          */
         post: operations["api_v1_drain_host_api_v1_hosts__host_id__drain_post"];
         delete?: never;
@@ -433,12 +452,7 @@ export interface paths {
         put?: never;
         /**
          * Api V1 Evict Host Workloads
-         * @description §3.3 evict — remove running workloads from a host, distinct from drain.
-         *
-         *     Requires the `hosts:evict` scope (a principal cleared only to drain cannot
-         *     evict). Each workload is preempted (running → preempted → requeued), which
-         *     abandons its placement so a fresh, fenced attempt is scheduled elsewhere.
-         *     Records a separate `host.workloads_evicted` audit event.
+         * @description Require an approved plan; this route never bypasses human approval.
          */
         post: operations["api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post"];
         delete?: never;
@@ -1190,6 +1204,7 @@ export interface components {
             detail?: {
                 [key: string]: unknown;
             } | null;
+            runtime_metadata?: components["schemas"]["RuntimeMetadata"] | null;
         };
         /** AuthoritativeEvidenceRequest */
         AuthoritativeEvidenceRequest: {
@@ -1356,6 +1371,10 @@ export interface components {
         CommandAckRequest: {
             /** Host Id */
             host_id: string;
+            /** Worker Session Id */
+            worker_session_id?: string | null;
+            /** Claim Attempt */
+            claim_attempt?: number | null;
             /** Result */
             result?: {
                 [key: string]: unknown;
@@ -1372,11 +1391,20 @@ export interface components {
              * @default 10
              */
             limit: number;
+            /**
+             * Host Commands
+             * @default false
+             */
+            host_commands: boolean;
         };
         /** CommandNackRequest */
         CommandNackRequest: {
             /** Host Id */
             host_id: string;
+            /** Worker Session Id */
+            worker_session_id?: string | null;
+            /** Claim Attempt */
+            claim_attempt?: number | null;
             /** Error Code */
             error_code: string;
             /** Error Details */
@@ -1852,6 +1880,11 @@ export interface components {
              * @default false
              */
             encrypted_workspace: boolean;
+            /**
+             * Exclusive Gpu
+             * @default false
+             */
+            exclusive_gpu: boolean;
             /** Init Script */
             init_script?: string | null;
             /** Git Repo */
@@ -2663,6 +2696,25 @@ export interface components {
             /** Webhook */
             webhook?: string | null;
         };
+        /** RuntimeMetadata */
+        RuntimeMetadata: {
+            /** Container Id */
+            container_id?: string | null;
+            /** Container Name */
+            container_name?: string | null;
+            /** Public Ssh Port */
+            public_ssh_port?: number | null;
+            /** Interactive */
+            interactive?: boolean | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Resume From */
+            resume_from?: {
+                [key: string]: unknown;
+            } | null;
+            /** Resumable */
+            resumable?: boolean | null;
+        };
         /** SLAEnforceRequest */
         SLAEnforceRequest: {
             /** Host Id */
@@ -3262,6 +3314,11 @@ export interface components {
             expected_version: number;
             /** Reason */
             reason: string;
+            /**
+             * Grace Seconds
+             * @default 60
+             */
+            grace_seconds: number;
         };
         /** _ExecuteIn */
         _ExecuteIn: {
@@ -3896,6 +3953,38 @@ export interface operations {
         };
     };
     api_v1_execute_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: string;
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_read_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__get: {
         parameters: {
             query?: never;
             header?: never;
