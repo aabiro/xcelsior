@@ -2643,14 +2643,28 @@ data disposition remain separately scoped below.
   no preemption. The staged production handoff, broad regression and acceptance
   remain open; repairs stay `report_only`. See the
   [durable scheduling receipt](review/2026-10-23-durable-scheduling.md).
-  **Final candidate checks, 2026-10-23:** the combined selection passed 3,332
-  tests and found four stale test contracts/fixture shapes. All four current
-  replacements pass in the 115-test flow/volume gate and focused historical
-  refusal check; no single clean full rerun is claimed. Five real isolated CUDA
-  journeys and both frozen image schema/readiness/signature/metrics checks pass.
-  Production remains 125 with repairs `report_only`; manual operator eviction
-  execution still returns 501. B16 stays open. See the
-  [final check receipt](review/2026-10-23-final-control-plane-checks.md) and
+  **Clean candidate repeat, 2026-10-23:** the frozen `5b51d90e` selection
+  passes 3,336 tests with zero failures/errors/skips and the same three explicit
+  baseline exclusions. PostgreSQL and Redis cleanup both pass. Five earlier
+  isolated CUDA journeys and both intermediate image checks remain qualified.
+  **Manual operator eviction, 2026-10-23:** `821d1a07` replaces the 501 executor
+  with human-approved exact attempt/lease/fence/spec snapshots, atomic durable
+  TERM-only stops, terminal release proof, idempotent progress and scheduler
+  restart completion. Compute requeues only after settlement; serverless worker
+  identities close, and user stop/cancel/terminate wins. Drain now changes native
+  host identity/state under a locked version check, without a JSONB identity
+  duplicate. Migration 137 preserves non-launch host results without fake jobs;
+  runtime floor is 137, using 7757bdc3 as the 134-compatible intermediate.
+  Native/worker/migration/role/inventory gates pass 178 checks; the later launch
+  action guard and regenerated MCP contract pass 69 checks. MCP units pass 268
+  with one existing skip. The scoped production-derived replay preserves all
+  364 jobs and execution history through 137 and rollback/replay (four exact
+  specs, 360 unavailable retained; financial rows are outside this fixture).
+  The read-only production probe at 16:04 UTC remains schema 125, no live native
+  authority and all eight repairs `report_only`. No production mutation or final
+  deployed acceptance is claimed. B16 stays open. See the
+  [host eviction receipt](review/2026-10-23-native-host-eviction.md),
+  [clean baseline receipt](review/2026-10-23-final-control-plane-checks.md) and
   [staged handoff](review/2026-10-23-staged-control-plane-handoff.md).
 - **Exit gate:** one authoritative path exists for launch, placement,
   execution, transition, billing, command, and audit; legacy-path metrics

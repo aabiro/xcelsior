@@ -1,10 +1,13 @@
 # Final control-plane candidate checks
 
-The 3,336-test combined selection finished with **3,332 passed, four failures,
-zero errors and zero skips**; three baseline checks were deselected. All four
-failures were obsolete test contracts or fixture shapes. Their current
-replacements passed. The full selection was not repeated after these test-only
-corrections, so this receipt does not claim a single clean 3,336-test run.
+The clean repeat at `5b51d90e` finished with **3,336 passed, zero failures,
+errors or skips**; three explicit baseline checks remain deselected. Its owned
+PostgreSQL and Redis both cleaned up successfully. The earlier 3,332-pass run
+found four obsolete test contracts/fixture shapes, corrected as recorded below.
+
+This receipt describes the pre-operator candidate. The later native host
+eviction source, schema 137, regenerated MCP contract and current handoff are
+recorded in [the host eviction receipt](2026-10-23-native-host-eviction.md).
 
 | Original failure | Correction and passing evidence |
 |---|---|
@@ -13,13 +16,14 @@ corrections, so this receipt does not claim a single clean 3,336-test run.
 | Volume test required detach during the termination request | The regression now prohibits pre-settlement detach and requires the fenced/unplaced domain paths. Same 115-test gate. |
 | Historical refusal mock returned seven columns for a nine-column query | The mock now includes the selected spec/hash fields; the original actionable refusal assertion passes. `historical-refusal-fixture-final`: one passed. |
 
-No runtime source changed after frozen image commit `7757bdc3`. Earlier
+Before the later operator candidate, no runtime source changed after frozen
+image commit `7757bdc3`. Earlier
 qualification includes the schema-135 candidate's clean 3,299-test selection,
 the later 309-test native lifecycle/wallet gate, 24 corrected wallet/reset
 fixture checks, and 22 inventory/classification/isolation checks. These
 selections overlap; their counts must not be added as unique coverage.
 
-The combined run passed fresh bootstrap to 136, production-shaped migration
+The clean combined run passed fresh bootstrap to 136, production-shaped migration
 and rollback, history/disposition, native intent, archive permissions,
 serializable placement, fairness, preemption and worker deadline/journal tests.
 The production-derived scoped rehearsal preserved all 364 jobs and execution
@@ -46,8 +50,8 @@ The final read-only production probe at 2026-10-23 12:32 UTC still found schema
 125, zero active attempt pointers/leases/device allocations, dedicated roles
 without login, and all eight repairs `report_only`. No production mutation
 occurred. B16 is not marked complete. The staged production role/schema/worker
-handoff, manual eviction API integration, remaining observation adapters/module
-decomposition and three excluded baseline gates remain explicit in the
+handoff, remaining observation adapters/module decomposition and three excluded
+baseline gates remain explicit in the
 [handoff procedure](2026-10-23-staged-control-plane-handoff.md).
 
 The adjacent JSON retains exact arguments, original/focused manifests,
