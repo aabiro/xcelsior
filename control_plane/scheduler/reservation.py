@@ -138,6 +138,8 @@ def reserve_and_bind(
     lease_renewal_ttl_sec: int = 300,
     trace_id: str | None = None,
     expected_spec_hash: str | None = None,
+    scope_host_ids: frozenset[str] | None = None,
+    host_freshness_timeout_sec: int = 300,
 ) -> Reservation:
     """Execute §10.5 steps 2–14 inside the caller's open transaction.
 
@@ -337,6 +339,16 @@ def reserve_and_bind(
             "UPDATE preemption_plan_devices SET held=FALSE WHERE plan_id=%s", (nomination,)
         )
 
+    from control_plane.scheduler.native_preference import require_preferred_host
+
+    preference_evidence = require_preferred_host(
+        conn,
+        spec=spec,
+        host_id=host_id,
+        scope_host_ids=scope_host_ids,
+        freshness_sec=host_freshness_timeout_sec,
+    )
+
     # ── Step 8: fencing token ────────────────────────────────────────
     fencing_token = int(
         _require(conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone())[0]
@@ -356,6 +368,8 @@ def reserve_and_bind(
     # This field is generated only from the locked server rows, never from
     # a client explanation or from a later host-price observation.
     explanation["billing_snapshot"] = billing_snapshot
+    if preference_evidence:
+        explanation["placement_preference"] = preference_evidence
     attempt_number = int(
         _require(
             conn.execute(

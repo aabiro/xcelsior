@@ -162,6 +162,24 @@ class SchedulerService:
             hosts = [h for h in hosts if h.get("host_id") == nomination_host[0]]
         ctx = FilterContext(stale_host_ids=snapshot.stale_host_ids)
         eligible, rejections = filter_hosts(job, hosts, ctx)
+        if eligible:
+            from control_plane.scheduler.native_preference import choose_preferred
+            from control_plane.scheduler.preference import PlacementRefused
+
+            try:
+                decision = run_transaction(
+                    lambda c: choose_preferred(c, job, eligible, now=snapshot.taken_at.timestamp()),
+                    what="sched_preference",
+                )
+            except ValueError:
+                self._release(claimed, "placement_preference_invalid", _NO_CAPACITY_BACKOFF_SEC)
+                return (claimed.job_id, "placement_preference_invalid")
+            if isinstance(decision, PlacementRefused):
+                reason = "placement_preference_" + decision.code
+                self._release(claimed, reason, _NO_CAPACITY_BACKOFF_SEC, details=decision.as_dict())
+                return (claimed.job_id, reason)
+            if decision is not None:
+                eligible = [decision.host]
         ranked = rank_candidates(job, eligible) if eligible else []
 
         if not ranked:
@@ -204,8 +222,15 @@ class SchedulerService:
                         lease_renewal_ttl_sec=cfg.lease_renewal_ttl_sec,
                         trace_id=str(claimed.payload.get("trace_id") or "") or None,
                         expected_spec_hash=claimed.spec_hash,
+                        scope_host_ids=(
+                            None
+                            if cfg.mode is SchedulerMode.ACTIVE or not cfg.canary_host_ids
+                            else cfg.canary_host_ids
+                        ),
+                        host_freshness_timeout_sec=cfg.host_freshness_timeout_sec,
                     ),
                     what="sched_reserve",
+                    isolation_level="SERIALIZABLE",
                 )
             except ReservationConflict as exc:
                 if exc.code == "execution_spec_unqualified":
@@ -269,16 +294,30 @@ class SchedulerService:
                         claim_token=claimed.claim_token,
                         host_id=host_id,
                         replica_id=self.config.replica_id,
+                        scope_host_ids=(
+                            None
+                            if self.config.mode is SchedulerMode.ACTIVE
+                            or not self.config.canary_host_ids
+                            else self.config.canary_host_ids
+                        ),
                     ),
                     what="sched_preemption_plan",
+                    isolation_level="SERIALIZABLE",
                 )
-            except (LockNotAvailable, RetryBudgetExceeded, CommandProtocolError):
+            except (
+                LockNotAvailable,
+                RetryBudgetExceeded,
+                CommandProtocolError,
+                ReservationConflict,
+            ):
                 continue
             if plan:
                 return True
         return False
 
-    def _release(self, claimed: ClaimedJob, reason: str, backoff_sec: float) -> None:
+    def _release(
+        self, claimed: ClaimedJob, reason: str, backoff_sec: float, *, details=None
+    ) -> None:
         run_transaction(
             lambda c: release_claim(
                 c,
@@ -286,6 +325,7 @@ class SchedulerService:
                 claimed.claim_token,
                 reason_code=reason,
                 requeue_delay_sec=backoff_sec,
+                reason_details=details,
             ),
             what="sched_release_claim",
         )

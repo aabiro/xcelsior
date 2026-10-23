@@ -2604,6 +2604,13 @@ data disposition remain separately scoped below.
   All lifecycle writers must be quiesced for the migration/runtime handoff;
   production remains 125. See the
   [native intent receipt](review/2026-10-23-native-lifecycle-intent.md).
+  **Physical column candidate, 2026-10-23:** migration 135 archives/drops four
+  unused placement projections and removes obsolete payload intent keys.
+  Native placement/preemption/reservation enforce admitted constraints and
+  record evidence; serializable commit aborts retry without duplicate writes.
+  Gates pass 213, 98, 51 and 23 overlapping checks. Runtime floor 134 permits
+  writer deployment before 135. No production contraction has run. See the
+  [placement column receipt](review/2026-10-23-placement-column-contraction.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

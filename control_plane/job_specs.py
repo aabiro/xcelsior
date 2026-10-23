@@ -56,6 +56,10 @@ def make_execution_spec(
     if canonicalize(launch_spec) != launch_spec:
         raise ValueError("admission requires a supported canonical launch spec")
     spec = {key: value for key, value in job.items() if key in EXECUTION_FIELDS}
+    if spec.get("placement_preference"):
+        from control_plane.scheduler.native_preference import normalize_preference
+
+        spec["placement_preference"] = normalize_preference(spec["placement_preference"])
     spec.update(
         execution_spec_version=EXECUTION_SPEC_VERSION,
         launch_spec=launch_spec,

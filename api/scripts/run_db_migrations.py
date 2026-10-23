@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,7 +12,9 @@ MAINTENANCE_ENV = Path("/etc/xcelsior/db-maintenance.env")
 MIGRATOR_KEY = "XCELSIOR_POSTGRES_DSN_MIGRATOR"
 
 
-def run(project=ROOT, credential_file=MAINTENANCE_ENV) -> int:
+def run(project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head") -> int:
+    if target != "head" and not re.fullmatch(r"[0-9]{3}", target):
+        raise RuntimeError("migration target must be head or an absolute three-digit revision")
     env = os.environ.copy()
     if credential_file.exists():
         if credential_file.stat().st_mode & 0o077:
@@ -49,12 +52,19 @@ def run(project=ROOT, credential_file=MAINTENANCE_ENV) -> int:
     if credential:
         # Key-only argv: the value stays in the child's one-shot environment.
         command.extend(["-e", MIGRATOR_KEY, "-e", "XCELSIOR_DB_ROLES_REQUIRED=1"])
-    command.extend(["api", "python", "-m", "alembic", "upgrade", "head"])
+    command.extend(["api", "python", "-m", "alembic", "upgrade", target])
     return subprocess.run(command, cwd=project, env=env, check=False).returncode
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--target", default="head", help="absolute revision for staged writer handoffs"
+    )
+    args = parser.parse_args()
     try:
-        raise SystemExit(run())
+        raise SystemExit(run(target=args.target))
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from None

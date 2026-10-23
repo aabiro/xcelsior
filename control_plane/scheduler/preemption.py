@@ -35,7 +35,7 @@ class PreemptionWaiting(CapacityConflict):
 
 
 def create_plan(
-    conn, *, job_id: str, claim_token: str, host_id: str, replica_id: str
+    conn, *, job_id: str, claim_token: str, host_id: str, replica_id: str, scope_host_ids=None
 ) -> str | None:
     """Lock jobs before host/devices, then persist plan, nomination and stops.
 
@@ -126,6 +126,15 @@ def create_plan(
         )
         if evaluate_host(spec, host_view):
             return None
+        from control_plane.scheduler.native_preference import require_preferred_host
+
+        require_preferred_host(
+            conn,
+            spec=spec,
+            host_id=host_id,
+            scope_host_ids=scope_host_ids,
+            hypothetical_host=host_view,
+        )
         held = {
             str(r["gpu_device_id"])
             for r in cur.execute(
