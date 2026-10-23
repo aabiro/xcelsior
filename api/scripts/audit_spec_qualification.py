@@ -22,13 +22,20 @@ def main():
     parser.add_argument("--expected-database", required=True)
     parser.add_argument("--expected-port", type=int, required=True)
     parser.add_argument("--require-complete-specs", action="store_true")
+    parser.add_argument("--require-history-disposition", action="store_true")
     args = parser.parse_args()
     with _get_pg_pool().connection() as conn:
         result = audit_spec_qualification(
             conn, expected_database=args.expected_database, expected_port=args.expected_port
         )
     print(json.dumps(result, sort_keys=True))
-    return 2 if args.require_complete_specs and not result["all_job_specs_qualified"] else 0
+    if args.require_complete_specs and not result["all_job_specs_qualified"]:
+        return 2
+    if args.require_history_disposition and not (result["historical_disposition"] or {}).get(
+        "complete"
+    ):
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

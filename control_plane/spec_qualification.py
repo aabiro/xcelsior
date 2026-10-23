@@ -79,6 +79,31 @@ def audit_spec_qualification(conn, *, expected_database: str, expected_port: int
                 """SELECT EXISTS (SELECT 1 FROM pg_constraint
                 WHERE conrelid='jobs'::regclass AND conname='ck_jobs_pending_queued_at' AND convalidated)"""
             ).fetchone()[0]
+            disposition = None
+            if cur.execute("SELECT to_regclass('public.job_history_dispositions')").fetchone()[0]:
+                recorded = dict(
+                    cur.execute(
+                        "SELECT disposition,count(*) FROM job_history_dispositions GROUP BY disposition"
+                    ).fetchall()
+                )
+                unresolved = cur.execute(
+                    """SELECT count(*) FROM jobs j
+                    WHERE (j.spec IS NULL OR NOT (j.spec ? 'execution_spec_version'))
+                      AND NOT EXISTS (SELECT 1 FROM job_history_dispositions h
+                          WHERE h.job_id=j.job_id AND h.disposition=j.history_disposition)"""
+                ).fetchone()[0]
+                blocked = cur.execute("""SELECT EXISTS (SELECT 1 FROM pg_constraint
+                    WHERE conrelid='jobs'::regclass AND conname='ck_jobs_history_disposition'
+                      AND convalidated)""").fetchone()[0]
+                disposition = dict(
+                    recorded=recorded,
+                    undisposed=unresolved,
+                    terminal_exclusion_validated=blocked,
+                    complete=unresolved == 0
+                    and blocked
+                    and counts["invalid"] == 0
+                    and counts["recorded_without_provenance"] == 0,
+                )
     return {
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "complete": True,
@@ -87,6 +112,7 @@ def audit_spec_qualification(conn, *, expected_database: str, expected_port: int
         "port": port,
         "specs": counts,
         "backfill_evidence": evidence,
+        "historical_disposition": disposition,
         "normalized_column_gaps": dict(
             zip(("phase", "desired_state", "pending_queued_at"), projection)
         ),

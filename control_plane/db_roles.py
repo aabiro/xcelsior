@@ -220,6 +220,7 @@ AUDIT_TABLES = frozenset(
         "events_archive",
         "legacy_lease_archive",
         "job_spec_backfill_evidence",
+        "job_history_dispositions",
         "event_snapshots",
         "outbox_events",
         "alembic_version",
@@ -289,7 +290,12 @@ ALL_DOMAINS = tuple(TABLE_DOMAINS) + ("storage",)
 
 # Runtime readers may inspect migration-owned evidence, never rewrite it.
 RUNTIME_READ_ONLY_TABLES = frozenset(
-    {"alembic_version", "legacy_lease_archive", "job_spec_backfill_evidence"}
+    {
+        "alembic_version",
+        "legacy_lease_archive",
+        "job_spec_backfill_evidence",
+        "job_history_dispositions",
+    }
 )
 
 
@@ -442,6 +448,9 @@ DENIAL_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("api", "job_spec_backfill_evidence", "INSERT"),
     ("api", "job_spec_backfill_evidence", "UPDATE"),
     ("api", "job_spec_backfill_evidence", "DELETE"),
+    ("api", "job_history_dispositions", "INSERT"),
+    ("api", "job_history_dispositions", "UPDATE"),
+    ("api", "job_history_dispositions", "DELETE"),
     ("readonly", "wallets", "UPDATE"),
     # retrieval never touches the control plane
     ("retrieval", "jobs", "UPDATE"),

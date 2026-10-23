@@ -51,7 +51,10 @@ from psycopg import Connection
 # 123 also wakes jobs for command outcomes and lease-only authority changes.
 # 126 stores attempt callback digests. The new runtime can serve at 126 while
 # operators retire the old writers, before 127 removes the obsolete lease table.
-REQUIRED_MIN_REVISION = "126"
+# 132 makes historical disposition explicit. Deploy the qualified 126-compatible
+# native writers at dfacc879 before 131/132, then deploy this runtime. Historical
+# jobs cannot be resumed as a substitute for a new customer admission.
+REQUIRED_MIN_REVISION = "132"
 REQUIRED_MAX_REVISION: str | None = None
 
 
