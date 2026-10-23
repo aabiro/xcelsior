@@ -314,3 +314,114 @@ def test_serverless_victim_is_closed_instead_of_requeued(scratch, policies):
             (worker["worker_id"],),
         ).fetchone()
     assert state == "terminated" and released is not None
+
+
+@pytest.mark.parametrize(
+    "limit,allowed",
+    [
+        (dict(max_concurrent_jobs=1), True),
+        (dict(max_allocated_gpus=2), True),
+        (dict(max_allocated_gpus=1), False),
+    ],
+)
+def test_same_team_replacement_checks_net_quota_without_early_release(
+    fleet, policies, limit, allowed
+):
+    owner = "replacement-team-" + __import__("uuid").uuid4().hex
+    host = _mkhost(fleet, gpus=2)
+    victim = _mkjob(fleet, owner=owner, admission_fields=dict(preemptible=True, spot_rate_cad=0))
+    nominee = _mkjob(fleet, owner=owner, num_gpus=2)
+    policy(policies, owner, preemption_enabled=True, **limit)
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE hosts SET last_observed_at=statement_timestamp(),payload=payload||%s WHERE host_id=%s",
+            (
+                Jsonb(
+                    dict(
+                        gpu_model=" ".join([victim, nominee]),
+                        gpu_count=2,
+                        capabilities=dict(egress_isolation=True),
+                    )
+                ),
+                host,
+            ),
+        )
+        conn.execute("UPDATE jobs SET priority=10 WHERE job_id=%s", (nominee,))
+    active = running(_claim(victim), host)
+    selected = _claim(nominee)
+    pid = plan(selected, host)
+    if not allowed:
+        assert pid is None
+        with _pool.connection() as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE attempt_id=%s AND command='stop_attempt'",
+                (active.attempt_id,),
+            ).fetchone() == (0,)
+        return
+    assert pid
+    with pytest.raises(CapacityConflict):
+        _reserve(selected, host)
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND released_at IS NULL",
+            (active.attempt_id,),
+        ).fetchone() == (1,)
+    settle(active)
+    assert run_transaction(lambda c: reconcile_plan(c, pid)) == "ready"
+    placed = _reserve(selected, host)
+    assert placed.fencing_token > active.fencing_token
+
+
+@pytest.mark.parametrize("failure", ["container_exit", "forced_exit"])
+def test_preemption_failure_still_readmits_compute_under_a_new_generation(fleet, policies, failure):
+    host, active, nominee, _ = setup(fleet, policies, force=True)
+    pid = plan(nominee, host)
+    with _pool.connection() as conn:
+        generation = conn.execute(
+            "SELECT generation FROM jobs WHERE job_id=%s", (active.job_id,)
+        ).fetchone()[0]
+    run_transaction(
+        lambda c: report_attempt_status(
+            c,
+            job_id=active.job_id,
+            attempt_id=active.attempt_id,
+            host_id=host,
+            fencing_token=active.fencing_token,
+            status="failed",
+            failure_code=failure,
+        )
+    )
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status,phase,generation,active_attempt_id FROM jobs WHERE job_id=%s",
+            (active.job_id,),
+        ).fetchone() == ("queued", "pending", generation + 1, None)
+        assert conn.execute(
+            "SELECT status FROM job_attempts WHERE attempt_id=%s", (active.attempt_id,)
+        ).fetchone() == ("failed",)
+    assert run_transaction(lambda c: reconcile_plan(c, pid)) == "ready"
+
+
+def test_failed_user_cancel_does_not_inherit_preemption_requeue(fleet, policies):
+    host, active, nominee, _ = setup(fleet, policies)
+    assert plan(nominee, host)
+
+    def fail(conn):
+        conn.execute(
+            "UPDATE jobs SET desired_state='stopped',lifecycle_intent='cancel' WHERE job_id=%s",
+            (active.job_id,),
+        )
+        return report_attempt_status(
+            conn,
+            job_id=active.job_id,
+            attempt_id=active.attempt_id,
+            host_id=host,
+            fencing_token=active.fencing_token,
+            status="failed",
+        )
+
+    run_transaction(fail)
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status,active_attempt_id FROM jobs WHERE job_id=%s", (active.job_id,)
+        ).fetchone() == ("failed", None)

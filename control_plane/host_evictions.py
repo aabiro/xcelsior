@@ -13,6 +13,7 @@ import hashlib
 import json
 
 from psycopg.rows import dict_row
+from psycopg.errors import LockNotAvailable
 from psycopg.types.json import Jsonb
 
 from control_plane.commands import CommandProtocolError, enqueue_current_attempt_command
@@ -53,9 +54,14 @@ def snapshot(conn, *, host_id, expected_version):
         ]
         if len(ids) > 256:
             raise PlanConflict("eviction_too_large", "evict at most 256 workloads per plan")
-        jobs = cur.execute(
-            "SELECT * FROM jobs WHERE job_id=ANY(%s) ORDER BY job_id FOR UPDATE NOWAIT", (ids,)
-        ).fetchall()
+        try:
+            jobs = cur.execute(
+                "SELECT * FROM jobs WHERE job_id=ANY(%s) ORDER BY job_id FOR UPDATE NOWAIT", (ids,)
+            ).fetchall()
+        except LockNotAvailable as exc:
+            conflict = PlanConflict("eviction_busy", "workloads are changing; retry this plan")
+            conflict.retryable = True
+            raise conflict from exc
         host = cur.execute(
             "SELECT status,version FROM hosts WHERE host_id=%s FOR UPDATE", (host_id,)
         ).fetchone()
@@ -63,6 +69,14 @@ def snapshot(conn, *, host_id, expected_version):
             raise PlanConflict("host_not_draining", "drain the host before planning eviction")
         if host["version"] != expected_version:
             raise PlanConflict("version_conflict", "host changed; create a new eviction preview")
+        if cur.execute(
+            """SELECT 1 FROM action_plans WHERE action_type=%s AND status='executing'
+            AND canonical_args->>'host_id'=%s LIMIT 1""",
+            (ACTION, host_id),
+        ).fetchone():
+            raise PlanConflict(
+                "eviction_in_progress", "wait for the current host eviction to settle"
+            )
         if len(jobs) != len(ids):
             raise PlanConflict("eviction_authority_unavailable", "host has orphaned authority")
         victims = []
@@ -258,6 +272,9 @@ def execute(conn, plan, *, host_id, created_by):
         raise PlanConflict(
             "eviction_snapshot_changed", "workloads changed; create and approve a new preview"
         )
+    # Consume the host snapshot as well as the plan. Concurrent approved plans
+    # cannot share one unchanged host version, even if their victims match.
+    conn.execute("UPDATE hosts SET version=version+1 WHERE host_id=%s", (host_id,))
     deadline = datetime.now(timezone.utc) + timedelta(seconds=canonical["grace_seconds"])
     commands = []
     for victim in canonical["victims"]:

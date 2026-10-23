@@ -4284,9 +4284,11 @@ class BillingEngine:
         seconds_to_zero = balance / burn_per_second if burn_per_second > 0 else float("inf")
 
         # Alert thresholds
-        alert_30min = seconds_to_zero <= 1800
-        alert_5min = seconds_to_zero <= 300
-        alert_depleted = seconds_to_zero <= 0
+        # A partial burn gives only an upper bound on remaining time. It
+        # cannot clear a warning. Zero balance is known independently of rates.
+        alert_30min = balance <= 0 or unpriced > 0 or seconds_to_zero <= 1800
+        alert_5min = balance <= 0 or unpriced > 0 or seconds_to_zero <= 300
+        alert_depleted = balance <= 0
 
         return {
             "customer_id": customer_id,
@@ -4302,6 +4304,7 @@ class BillingEngine:
             "estimate_complete": unpriced == 0,
             "unpriced_running_instances": unpriced,
             "instance_burns": instance_burns,
+            "alert_estimate_unavailable": unpriced > 0,
             "alert_30min": alert_30min,
             "alert_5min": alert_5min,
             "alert_depleted": alert_depleted,

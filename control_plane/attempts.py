@@ -212,7 +212,7 @@ def report_attempt_status(
         record_mining_violation(conn, job)
         job_status = "terminated"
     preemption_plan_id = None
-    if terminal and status == "stopped":
+    if terminal and status in ("stopped", "failed"):
         intent_row = conn.execute(
             """
             SELECT lifecycle_intent, desired_state, spec->>'job_type' AS job_type
@@ -225,15 +225,16 @@ def report_attempt_status(
         intent = None
         if intent_row is not None:
             intent = _get(intent_row, "lifecycle_intent", 0)
-        if intent == "terminate":
+        if intent == "terminate" and status == "stopped":
             job_status = "terminated"
-        elif intent == "cancel":
+        elif intent == "cancel" and status == "stopped":
             job_status = "cancelled"
-        elif intent == "restart":
+        elif intent == "restart" and status == "stopped":
             # Tear-down complete → re-admit for a new placement attempt.
             job_status = "queued"
         elif (
             intent is None
+            and failure_code != "mining_detected"
             and intent_row is not None
             and _get(intent_row, "desired_state", 1) == "running"
         ):

@@ -54,6 +54,14 @@ def test_depletion_reports_missing_quote_instead_of_fabricating_rate(running):
     result = engine.time_to_zero(x.owner)
     assert not result["estimate_complete"] and result["unpriced_running_instances"] == 1
     assert result["seconds_to_zero"] is None and result["instance_burns"] == []
+    assert result["alert_estimate_unavailable"]
+    assert result["alert_30min"] and result["alert_5min"]
+    assert not result["alert_depleted"]
+    with x.pool.connection() as conn:
+        conn.execute("UPDATE wallets SET balance_micros=0 WHERE customer_id=%s", (x.owner,))
+    depleted = engine.time_to_zero(x.owner)
+    assert depleted["seconds_to_zero"] is None
+    assert depleted["alert_30min"] and depleted["alert_5min"] and depleted["alert_depleted"]
 
 
 def test_unadmitted_storage_observations_cannot_debit_wallet(native):
