@@ -96,7 +96,9 @@ def test_notification_failure_rolls_back_job_and_hold(waiting_job, monkeypatch):
     assert snapshot(jid, hold) == before
 
 
-@pytest.mark.parametrize("authority", ["attempt_pointer", "orphaned_lease", "orphaned_attempt"])
+@pytest.mark.parametrize(
+    "authority", ["attempt_pointer", "orphaned_lease", "orphaned_attempt", "orphaned_allocation"]
+)
 def test_live_authority_is_never_optimistically_terminated(waiting_job, authority):
     jid, _, host, hold = waiting_job
     aid, _ = _mk_active_attempt(jid, host)
@@ -113,6 +115,20 @@ def test_live_authority_is_never_optimistically_terminated(waiting_job, authorit
                     "UPDATE placement_leases SET status='released',released_at=clock_timestamp() WHERE attempt_id=%s",
                     (aid,),
                 )
+    if authority == "orphaned_allocation":
+        with _pool.connection() as conn:
+            conn.execute(
+                "UPDATE job_attempts SET status='cancelled',ended_at=clock_timestamp() WHERE attempt_id=%s",
+                (aid,),
+            )
+            device = conn.execute(
+                "INSERT INTO host_gpu_devices(host_id,gpu_uuid) VALUES(%s,%s) RETURNING gpu_device_id",
+                (host, str(uuid.uuid4())),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO gpu_device_allocations(attempt_id,job_id,host_id,gpu_device_id) VALUES(%s,%s,%s,%s)",
+                (aid, jid, host, device),
+            )
     before = snapshot(jid, hold)
     result = request_unplaced_termination(job_id=jid, created_by="test")
     assert not result.ok
