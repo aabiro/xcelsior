@@ -1,7 +1,7 @@
 # Staged control-plane production handoff
 
 This is a prepared release procedure, not a deployment receipt. The read-only
-production baseline at 2026-10-23 16:04 UTC remains schema 125, no live attempt pointers/leases/device
+production baseline at 2026-10-23 20:04 UTC remains schema 125, no live attempt pointers/leases/device
 allocations, and eight `report_only` repair policies. Dedicated service roles
 are still `NOLOGIN`. B16 remains open until the deployment evidence below passes.
 
@@ -11,20 +11,26 @@ are still `NOLOGIN`. B16 remains open until the deployment evidence below passes
 |---|---|---|---|
 | Native writers compatible with schema 126, before removing legacy triggers | `1af572b6` | `xcelsior-api:cutover-transition-1af572b6` | `sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6` |
 | Intermediate native lifecycle, admitted preferences, schema contraction and retired task | `7757bdc3` | `xcelsior-api:cutover-native-7757bdc3` | `sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6` |
-| Approved native host eviction and schema-137 results | `821d1a07` | `xcelsior-api:cutover-operator-821d1a07` | `sha256:8fbee511098c660770ae8980de49bb7bc02ace99f4269eb67cfeb11b172d7752` |
+| Native host eviction, serialized snapshots, net replacement quotas and schema-137 results | `23158934` | `xcelsior-api:cutover-review-23158934` | `sha256:788f6b8084caa223fd4a3a8d4b2e4f4444822041e6048ac8f2948f187ce71ec3` |
 
 All three builds use tracked-file archives, exclude runtime environment files and
 private signing keys, and retain build logs/context hashes outside Git.
 Later `c0f4af05` and `5b51d90e` change only fixtures/review evidence.
-`821d1a07` is the newer runtime; do not substitute the intermediate for it.
+`23158934` supersedes the `821d1a07` operator runtime; do not substitute the
+intermediate or the older operator image for it.
 Do not rebuild or substitute a moving tag when transferring these artifacts.
 Retain archive/image checksums and compare imported Config/RootFS/platform with
 the frozen local image. A matching tag alone is insufficient.
 
-The local transfer archive is `operator-handoff-images.tar.gz`
-(966512920 bytes, SHA-256 `b739a99ece8a9cce69f790bef4365b00973e8271b51d67eaa57281d2d7830b33`).
+The local transfer archive is `review-handoff-images.tar.gz`
+(966587391 bytes, SHA-256 `5ed3be54e4f272a390b75dca4084c28adad16d8249861958de7d6925fefb5a4b`).
 Its saved tags, Config payload hashes and RootFS layers independently match all
 three frozen local images. It has not been transferred to production.
+All three images passed real Gunicorn readiness, metrics and signature checks
+on an isolated PostgreSQL 16 cluster: transition at 126, intermediate at 136,
+and final at 137. The final image runs as UID 10001 with a read-only root,
+no network and no capabilities. See the
+[review follow-up receipt](2026-10-23-native-review-and-full-restore.md).
 
 The final image's runtime floor is 137. It cannot serve earlier schemas.
 The intermediate `7757bdc3` image has floor 134 and is needed for 134–136.
@@ -44,6 +50,10 @@ absolute targets and keeps migration credentials in the one-shot process.
    port **5434**. Pass an isolated restore/migration drill and retain its
    cleanup/invariant receipt. Port 5432 belongs to other services. Do not treat
    the scoped historical fixture as a full financial backup/restore proof.
+   The complete 19:20 UTC snapshot has now passed a PostgreSQL 16 restore of
+   all 138 source tables and ordered migrations 126–137, preserving 34 protected
+   tables at every target. Retain that receipt and recheck freshness before the
+   actual production change; it does not capture writes after its snapshot.
 3. Stage the frozen images and source under a private release directory. Keep
    saved credentials/configuration private; never print rendered Compose
    environments or place real DSNs in release logs, argv, Git or image layers.
@@ -128,7 +138,7 @@ before advancing.
    A live task claim or archive mismatch refuses 136. The new maintenance
    writer must already be installed. 137 allows completed host eviction results
    without a fabricated launch job. Converge grants for the archive tables, then
-   replace all writers with the final `821d1a07` image and verify floor 137.
+   replace all writers with the final `23158934` image and verify floor 137.
    Deploy the MCP source/types at the same commit and verify that pending
    eviction remains pending in tool output until fenced settlement.
 
