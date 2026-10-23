@@ -2825,7 +2825,11 @@ def _v2_restore_resource_lock(auth: dict) -> bool:
     """Reacquire the process-local flock before adopting an exclusive survivor."""
     import fcntl
 
-    exclusive = (auth.get("resources") or {}).get("exclusive")
+    resources = auth.get("resources") or {}
+    if resources and resources.get("host_id") != HOST_ID:
+        log.error("Resource adoption refused a journal from another host")
+        return False
+    exclusive = resources.get("exclusive")
     if not exclusive or auth.get("_exclusive_state", {}).get("lock_fd") is not None:
         return True
     fd = None
@@ -3652,8 +3656,13 @@ def handle_start_attempt(cmd: dict) -> None:
         run_job(job)
     except Exception as e:
         log.exception("start_attempt run_job crashed for job %s", job_id)
-        v2_report_attempt_status(auth, "failed", "agent_exception", {"error": str(e)[:300]})
-        _v2_forget_attempt(job_id, auth)
+        _v2_on_job_status(
+            job_id,
+            "failed",
+            error_message=str(e),
+            policy_reason="agent_exception",
+            expected_auth=auth,
+        )
 
 
 def handle_stop_attempt(cmd: dict) -> None:
