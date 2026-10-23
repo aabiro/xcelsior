@@ -28,9 +28,12 @@ was running when this receipt was prepared; this receipt does not assert its
 result. Source hashes and exact evidence paths are in the
 [JSON receipt](2026-10-23-admission-worker-recovery.json).
 
-Two additional edges remain for the next change: retaining terminal intent
-when the outer runner raises unexpectedly, and refusing resource adoption
-from another host's copied journal. Historical disposition, strict admitted
+The follow-up resolves both additional edges: an outer runner exception now
+retains terminal retry authority through an API outage, and resource adoption
+refuses another host's copied journal. The separate 58-test database/restart
+gate passes without failures, errors or skips, with thread warnings treated
+as errors; the JSON receipt retains both the original and follow-up hashes.
+Historical disposition, strict admitted
 specs, remaining JSONB/column contraction, durable fairness/preemption and
 production acceptance also remain open. The independent history/fairness
 prototypes are not part of this commit or its acceptance claim.
