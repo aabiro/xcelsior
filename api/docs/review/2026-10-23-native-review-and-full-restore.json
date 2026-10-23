@@ -1,0 +1,563 @@
+{
+  "baseline_exclusions": [
+    "tests/test_instance_flow.py::TestDockerComposeSmoke",
+    "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+    "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+  ],
+  "black_exit": 0,
+  "built_images": [
+    {
+      "cleanup_exit": 0,
+      "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "126",
+          "maximum": null,
+          "minimum": "126"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "126",
+      "tag": "xcelsior-api:cutover-transition-1af572b6",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    },
+    {
+      "cleanup_exit": 0,
+      "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "136",
+          "maximum": null,
+          "minimum": "134"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "136",
+      "tag": "xcelsior-api:cutover-native-7757bdc3",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    },
+    {
+      "cleanup_exit": 0,
+      "image_id": "sha256:788f6b8084caa223fd4a3a8d4b2e4f4444822041e6048ac8f2948f187ce71ec3",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "137",
+          "maximum": null,
+          "minimum": "137"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "137",
+      "tag": "xcelsior-api:cutover-review-23158934",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    }
+  ],
+  "deployed_acceptance": false,
+  "existing_mcp_unit_skips": 1,
+  "full_3336_selection_repeated_after_operator_changes": false,
+  "full_production_restore": {
+    "all_restored_table_fingerprints_match": 138,
+    "collected_at": "2026-10-23T20:05:22.528697+00:00",
+    "database_lc_collate": "C.UTF-8",
+    "database_lc_ctype": "C.UTF-8",
+    "deployed_acceptance": false,
+    "dump_bytes": 52421073,
+    "dump_sha256": "0da31acb43195c568e4c224fe9c50d253512cd07f748b9eb679eeb6dc7dcde1d",
+    "financial_fingerprints": {
+      "billing_cycles": {
+        "rows": 192290,
+        "sha256": "939f23e730d05c2c6654eb98f5864f61c96bcc7f91598d44f8c32f5d61f22085"
+      },
+      "connect_accounts": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "connect_products": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "crypto_deposits": {
+        "rows": 25,
+        "sha256": "0da3e10e84d3c5581f00b2623e361acb82dc9322883728bb175375f8296fe1ca"
+      },
+      "gpu_allocations": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "gpu_offers": {
+        "rows": 5,
+        "sha256": "56790d42bc5ea6616ea3665e38b55e2749bddb75254e5577732455227ca70aa0"
+      },
+      "gpu_pricing": {
+        "rows": 945,
+        "sha256": "787dd31a89cdaaf56bd50e9b3411c81b5a82c00b24b0e8d68f1755a7d8ed2bfb"
+      },
+      "invoices": {
+        "rows": 201386,
+        "sha256": "dc033d084bd45d8fb006fb43f8ad7a7494bbf1d856002768bcbf01e3f71d9bff"
+      },
+      "ln_deposits": {
+        "rows": 2,
+        "sha256": "d310521201b6b51f18a143487ff3b8fd33211f0df492bd66456b05bc4c290d32"
+      },
+      "marketplace_sales": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "payment_intents": {
+        "rows": 30,
+        "sha256": "068eaeb51a2e7ddf0fb452070a744efb5e47d80ac39c304a0766eb08e213c384"
+      },
+      "payout_ledger": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "payout_splits": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "provider_accounts": {
+        "rows": 1,
+        "sha256": "4013f827d28001965126497dd5b6b94ffd94b06282adede5fdb3e66356f5f7eb"
+      },
+      "reputation_events": {
+        "rows": 876,
+        "sha256": "514a3a26b2bc0260f996504a9d84924bffbd73a3d0c824971ff792b3e8e75f2e"
+      },
+      "reputation_scores": {
+        "rows": 16,
+        "sha256": "d35b6fd7a7b0d1d8cbfdec56b54806595484b64c0f1088642ab5021fa1cbff2a"
+      },
+      "reservations": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "reserved_commitments": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sla_downtime": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sla_monthly": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "sla_violations": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "spot_price_history": {
+        "rows": 841700,
+        "sha256": "7f5817b7b838bce6526c70515815b32b489c00ee819bdd83fba2b58628983f7f"
+      },
+      "spot_prices": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "storage_billing_rates": {
+        "rows": 3,
+        "sha256": "a91c417854358360a3ff3d244386da18784ccab548c0774eacd35b81d569597f"
+      },
+      "stripe_event_inbox": {
+        "rows": 62,
+        "sha256": "fee2daf1b21ed9d460c0144cbed6ea931bf3be1d845e6b0a34e0f2405bd3552f"
+      },
+      "stripe_meter_event_outbox": {
+        "rows": 19019,
+        "sha256": "63f65e7fb1396c142db2d8c32a0164157c131421c89774e3a610b6e28f1387c2"
+      },
+      "usage_meters": {
+        "rows": 5,
+        "sha256": "1312d824064ad48c8d54eba684e8dc812a7d4d2d20bdd8a3795ee46ff5176ffc"
+      },
+      "wallet_holds": {
+        "rows": 34,
+        "sha256": "2a8cdf9717e0b129bb64bff502fe41cd25b5f6a3ef3d80a3e51a90e6332d1604"
+      },
+      "wallet_transactions": {
+        "rows": 35529,
+        "sha256": "45bf257b44ed8f47bb6098f545bcc92827a5d213b011a56518d36a40c9f74b7b"
+      },
+      "wallets": {
+        "rows": 149,
+        "sha256": "6b32af86d7d8adcfc7af1c283ea31fa1f31af0bd483a57ab0915577c8574920c"
+      }
+    },
+    "financial_tables_unchanged": 30,
+    "jobs": 364,
+    "postgres_major": 16,
+    "production_mutation": false,
+    "protected_tables_unchanged": 34,
+    "recovered_exact_specs": 4,
+    "restoration": "fresh local Unix-socket-only PostgreSQL, no outbound application services",
+    "restored_schema": "137",
+    "source_access": "read-only exported snapshot shared with pg_dump",
+    "source_port": "5434",
+    "source_schema": "125",
+    "stages": [
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "126"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "127"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "128"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "129"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "130"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "131"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "132"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "133"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "134"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "135"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "136"
+      },
+      {
+        "protected_tables_unchanged": 34,
+        "revision": "137"
+      }
+    ],
+    "unavailable_specs_retained": 360
+  },
+  "full_restore_gate_script": {
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/test_full_production_restore_final.py",
+    "sha256": "353adcfadad75e24745ca22ee8b766bdd70c5441eee0073eb7562bf51f7b61ff"
+  },
+  "gates": {
+    "full-production-restore-accepted": {
+      "arguments": [
+        "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/test_full_production_restore_final.py",
+        "--rootdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "--confcutdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "-vv",
+        "--timeout=600"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/full-production-restore-accepted/manifest.json",
+      "manifest_sha256": "c0f56a29700a2b9613061550e0b1a3c480a4390432901cf54157612e409d955a",
+      "pytest_seconds": 276.9,
+      "recorded_commit": "342bf7e6fca0ef36e146cd2fe9d880d1a500ae1d",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 1
+      }
+    },
+    "native-review-final": {
+      "arguments": [
+        "tests/test_host_eviction_settlement.py",
+        "tests/test_durable_preemption.py",
+        "tests/test_durable_fairness.py",
+        "tests/test_native_wallet_authority.py",
+        "tests/test_worker_preemption_protocol.py",
+        "tests/test_attempt_billing_snapshot.py",
+        "tests/test_serverless_native_lifecycle.py",
+        "tests/test_billing_controller.py",
+        "tests/test_agent_v2.py",
+        "tests/test_control_plane_service.py",
+        "-vv"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-review-final/manifest.json",
+      "manifest_sha256": "9f509ff1a979f56c34508de5ed0b97feecfd221e2178c1a53db66dd73b20c5d6",
+      "recorded_commit": "342bf7e6fca0ef36e146cd2fe9d880d1a500ae1d",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 154
+      }
+    },
+    "review-images-pg16": {
+      "arguments": [
+        "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/test_built_review_handoff.py",
+        "--rootdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/native-eviction-review-20261023",
+        "--confcutdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/native-eviction-review-20261023",
+        "-vv"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-images-pg16/manifest.json",
+      "manifest_sha256": "4f4cd53c85cd4c4cdb5a4234f2e370994ae886fbfa18ff4facc7a4a517546e6f",
+      "recorded_commit": "231589345eb7f6bdfa9bce2c73e5ccc3283685c1",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 3
+      }
+    }
+  },
+  "handoff_archive": {
+    "archive": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-handoff-images.tar.gz",
+    "archive_bytes": 966587391,
+    "archive_sha256": "5ed3be54e4f272a390b75dca4084c28adad16d8249861958de7d6925fefb5a4b",
+    "images": [
+      {
+        "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+        "tag": "xcelsior-api:cutover-transition-1af572b6"
+      },
+      {
+        "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+        "tag": "xcelsior-api:cutover-native-7757bdc3"
+      },
+      {
+        "image_id": "sha256:788f6b8084caa223fd4a3a8d4b2e4f4444822041e6048ac8f2948f187ce71ec3",
+        "tag": "xcelsior-api:cutover-review-23158934"
+      }
+    ],
+    "verified_configs_and_rootfs": true
+  },
+  "image_build_context": {
+    "archive_sha256": "c9a5d6844c521fe4640551f18dc2b7ea96c3257181c0f2261d97ca9d6fff743e",
+    "commit": "231589345eb7f6bdfa9bce2c73e5ccc3283685c1",
+    "contains_private_signing_key": false,
+    "contains_runtime_env_files": false,
+    "files": 3407,
+    "tag": "xcelsior-api:cutover-review-23158934",
+    "tracked_files_only": true
+  },
+  "migration_head": "137",
+  "migration_source_comparison": {
+    "all_match": true,
+    "files": 140,
+    "inventory_path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-migration-source-inventory.json",
+    "inventory_sha256": "320769b5cd6535b01dfca6c4d6422d6d6df5d41950a74cfa379ab67099cc3977"
+  },
+  "production_backup_custody": {
+    "captured_at": "2026-10-23T19:20:22.770695+00:00",
+    "dump_bytes": 52421073,
+    "dump_sha256": "0da31acb43195c568e4c224fe9c50d253512cd07f748b9eb679eeb6dc7dcde1d",
+    "port": "5434",
+    "private_file_modes": "0600",
+    "raw_data_committed": false,
+    "read_only": true,
+    "schema": "125",
+    "snapshot_metadata_sha256": "1180e32f6b9345dd0b662dcdb5cfea295f980c8cbf655b116ea5ba0b8aa36d60",
+    "snapshot_shared_with_dump": true,
+    "table_count": 138
+  },
+  "production_baseline": {
+    "active_allocations": 0,
+    "collected_at": "2026-10-23T20:04:13.558741+00:00",
+    "dedicated_role_logins": [
+      [
+        "xcelsior_api",
+        false
+      ],
+      [
+        "xcelsior_billing",
+        false
+      ],
+      [
+        "xcelsior_migrator",
+        false
+      ],
+      [
+        "xcelsior_projector",
+        false
+      ],
+      [
+        "xcelsior_readonly",
+        false
+      ],
+      [
+        "xcelsior_reconciler",
+        false
+      ],
+      [
+        "xcelsior_retrieval",
+        false
+      ],
+      [
+        "xcelsior_scheduler",
+        false
+      ],
+      [
+        "xcelsior_ssh_gateway",
+        false
+      ]
+    ],
+    "heartbeats": [
+      [
+        "outbox",
+        1
+      ],
+      [
+        "reconciler",
+        1
+      ],
+      [
+        "scheduler",
+        1
+      ]
+    ],
+    "job_counts": [
+      364,
+      0,
+      0,
+      4
+    ],
+    "live_leases": [],
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "schema": "125",
+    "unfenced_stop_task": [
+      [
+        true,
+        false
+      ]
+    ]
+  },
+  "production_mutation": false,
+  "qualified_source_sha256": {
+    "billing/billing.py": "e595f702d85bfc2bbf566fc1c2f08cee5368dc74a46fa3cc02d2484748150269",
+    "control_plane/attempts.py": "1022a6d2e47ba77b78ca9db5a613a6cc506c34a2caf7090a2c71b6f1c4072d6e",
+    "control_plane/host_evictions.py": "e43942985fd5e2bb75b88d16b25d485a701ddf9e66ca5859cb048e2f76743de7",
+    "control_plane/scheduler/fairness.py": "ef871a081f458cdb5be9ba0d3edc8652876025e94eed7ea6e6ad9b34fef2b70c",
+    "control_plane/scheduler/preemption.py": "898dd03a4d756bf21af6c56007a38b1d685ff5785f4961bdcf76b5298c7d342c",
+    "tests/test_durable_preemption.py": "288d5515f47672bba5cad5d7987a11026c439329709892395daa10bc510255b0",
+    "tests/test_host_eviction_settlement.py": "2fa924e8be884f58b08f4a2105d083becb20decee960dd3cc22be7d8e512b832",
+    "tests/test_native_wallet_authority.py": "ebe74e599ceef94fedf5aabef338ba5e13c8b34c320ae2a7a33660ca6aa80d4e"
+  },
+  "remaining": [
+    "staged production schema 126-137, dedicated-role and signed-worker handoffs",
+    "deployed native launch/stop/restart and financial/provider settlement acceptance",
+    "remaining observation adapters and planned scheduler/worker module decomposition",
+    "disabled old spot-cycle execution surface",
+    "three explicit baseline exclusions and one existing MCP unit skip"
+  ],
+  "repairs": "report_only",
+  "restore_source_commit": "342bf7e6fca0ef36e146cd2fe9d880d1a500ae1d",
+  "root_protected_files_unchanged": 9,
+  "ruff_exit": 0,
+  "runtime_commit": "231589345eb7f6bdfa9bce2c73e5ccc3283685c1",
+  "runtime_floor": "137",
+  "serving_image_read_only_observation": "xcelsior-api:cutover-audit-cb71106b",
+  "targeted_pyright": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "worker_distribution_signatures": 12
+}

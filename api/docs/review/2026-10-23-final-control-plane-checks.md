@@ -8,6 +8,8 @@ found four obsolete test contracts/fixture shapes, corrected as recorded below.
 This receipt describes the pre-operator candidate. The later native host
 eviction source, schema 137, regenerated MCP contract and current handoff are
 recorded in [the host eviction receipt](2026-10-23-native-host-eviction.md).
+The current image and subsequent review/restore evidence are in the
+[follow-up receipt](2026-10-23-native-review-and-full-restore.md).
 
 | Original failure | Correction and passing evidence |
 |---|---|

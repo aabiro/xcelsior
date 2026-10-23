@@ -1,5 +1,10 @@
 # Native host eviction and clean candidate checks
 
+This records the `821d1a07` qualification. The current `23158934` image,
+subsequent concurrency/quota/settlement fixes and full restore qualification
+are recorded in the [follow-up receipt](2026-10-23-native-review-and-full-restore.md).
+The image and restore limitations below describe this earlier qualification.
+
 Runtime commit `821d1a07` replaces the manual eviction executor's 501 with a
 human-approved native action. Preview binds the exact job generation, attempt,
 lease, fence, spec hash and device set on a drained host. Execution rechecks
