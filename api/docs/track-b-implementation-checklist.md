@@ -2597,6 +2597,13 @@ data disposition remain separately scoped below.
   and real Redis gates pass 199 and 103 overlapping checks; the full candidate
   rerun and production acceptance remain open. See the
   [native billing repair receipt](review/2026-10-23-native-billing-repair.md).
+  **Native intent candidate, 2026-10-23:** migration 134 moves controller
+  lifecycle intent out of payload JSONB authority. Fenced writers, settlement,
+  expiry, reconciliation and preemption use the native column; rollback retains
+  the latest intent and consumed NULL. Gates pass 132 and 57 overlapping checks.
+  All lifecycle writers must be quiesced for the migration/runtime handoff;
+  production remains 125. See the
+  [native intent receipt](review/2026-10-23-native-lifecycle-intent.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

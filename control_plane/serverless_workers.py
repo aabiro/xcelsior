@@ -77,8 +77,8 @@ def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
                 if offer is None:
                     return False
                 cur.execute(
-                    "UPDATE jobs SET payload=COALESCE(payload,'{}'::jsonb)||%s " "WHERE job_id=%s",
-                    (Jsonb({"lifecycle_intent": "terminate"}), job_id),
+                    "UPDATE jobs SET lifecycle_intent='terminate' WHERE job_id=%s",
+                    (job_id,),
                 )
                 report_attempt_status(
                     conn,

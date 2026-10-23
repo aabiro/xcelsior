@@ -75,7 +75,7 @@ def reconcile_job(
                EXTRACT(EPOCH FROM (clock_timestamp() -
                    COALESCE(a.lease_claimed_at, a.reserved_at))) AS attempt_age,
                EXTRACT(EPOCH FROM clock_timestamp()) AS checked_at,
-               j.payload->>'lifecycle_intent' AS lifecycle_intent
+               j.lifecycle_intent
           FROM jobs j
           LEFT JOIN job_attempts a ON a.attempt_id = j.active_attempt_id
          WHERE j.job_id = %s
@@ -191,20 +191,27 @@ def reconcile_job(
                     evidence = conn.execute(
                         "SELECT finding_id FROM reconciliation_findings WHERE resource_type='job' "
                         "AND resource_id=%s AND finding_type='job_lease_authority_missing' "
-                        "AND resolved_at IS NULL", (job_id,),
+                        "AND resolved_at IS NULL",
+                        (job_id,),
                     ).fetchone()
                     if evidence is not None:
                         _record_action(
-                            conn, str(_get(evidence, "finding_id", 0)),
+                            conn,
+                            str(_get(evidence, "finding_id", 0)),
                             "expire_current_lease" if settled else "lease_expiry_refused",
-                            {"settled": settled, "reason": None if settled else "no_expired_matching_authority"},
+                            {
+                                "settled": settled,
+                                "reason": None if settled else "no_expired_matching_authority",
+                            },
                         )
                     if settled:
                         # Settlement clears current authority. Re-read before
                         # resolving findings; never evaluate the stale snapshot
                         # below or infer that the physical container has stopped.
                         after = reconcile_job(
-                            conn, job_id, missing_grace_sec=missing_grace_sec,
+                            conn,
+                            job_id,
+                            missing_grace_sec=missing_grace_sec,
                             observation_max_age_sec=observation_max_age_sec,
                         )
                         return JobReconcileReport(

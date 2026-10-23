@@ -140,7 +140,7 @@ def _job_row(job_id):
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, active_attempt_id,
-                      payload->>'lifecycle_intent' AS intent,
+                      lifecycle_intent AS intent,
                       payload->>'status' AS pstatus
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
