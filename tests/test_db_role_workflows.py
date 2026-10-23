@@ -78,13 +78,8 @@ def test_scheduler_login_reserves_real_work_and_preserves_serverless_authority(
     scratch["endpoints"].append(endpoint["endpoint_id"])
     worker = repo.create_worker(endpoint["endpoint_id"], gpu_count=1)
     scratch["workers"].append(worker["worker_id"])
-    job_id = _mk_serverless_job(scratch, worker["worker_id"])
+    job_id = _mk_serverless_job(scratch, worker["worker_id"], serverless=serverless)
     host_id = _mkhost(scratch)
-    if not serverless:
-        with psycopg.connect(os.environ["XCELSIOR_POSTGRES_DSN"]) as admin:
-            admin.execute(
-                "UPDATE jobs SET payload=payload-'serverless_worker_id' WHERE job_id=%s", (job_id,)
-            )
     with service_scope("scheduler"):
         with db.pg_transaction() as conn:
             assert conn.execute("SELECT current_user,session_user").fetchone() == (

@@ -20,6 +20,7 @@ from db import _get_pg_pool
 from serverless.metering import bill_active_serverless_workers, charge_serverless_worker
 from serverless.repo import EndpointCreate, ServerlessRepo
 from serverless.service import ServerlessService
+from tests.native_jobs import admit_fixture_job
 
 
 @pytest.fixture
@@ -53,6 +54,7 @@ def native():
             """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,desired_state,queued_at, effective_priority) VALUES(%s,'queued',0,%s,%s,'pending','running',clock_timestamp(), 0)""",
             (jid, time.time(), Jsonb(payload)),
         )
+        admit_fixture_job(conn, jid)
         conn.execute(
             "INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state) VALUES(%s,'active',%s,%s,'admitted','ready','admitted')",
             (hid, time.time(), Jsonb({"admitted": True, "cost_per_hour": 3.6})),

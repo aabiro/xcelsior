@@ -109,6 +109,14 @@ def claim_lease(
            AND fencing_token = %(fence)s
            AND status = 'offered'
            AND claim_deadline >= clock_timestamp()
+           AND EXISTS (
+               SELECT 1 FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+               WHERE j.job_id=placement_leases.job_id
+                 AND j.active_attempt_id=placement_leases.attempt_id
+                 AND j.host_id=placement_leases.host_id
+                 AND j.spec->>'execution_spec_version'='v1'
+                 AND j.spec_hash=a.spec_hash AND j.generation=a.job_generation
+                 AND a.fencing_token=placement_leases.fencing_token)
         RETURNING expires_at, renewal_ttl_sec
         """,
         {
@@ -321,7 +329,7 @@ def expire_stale_leases(
         SELECT l.lease_id, l.job_id, l.attempt_id, l.host_id, l.fencing_token, l.status,
                j.status AS job_status, j.desired_state,
                j.payload->>'lifecycle_intent' AS lifecycle_intent,
-               COALESCE(j.spec,j.payload)->>'job_type' AS job_type,
+               j.spec->>'job_type' AS job_type,
                (j.active_attempt_id=l.attempt_id AND j.host_id=l.host_id) AS current_authority
           FROM placement_leases l JOIN jobs j ON j.job_id = l.job_id
          WHERE ((l.status = 'offered' AND l.claim_deadline < clock_timestamp())

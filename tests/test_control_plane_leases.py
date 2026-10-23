@@ -4,6 +4,8 @@ Builds real reservations through the Stage B/E pipeline, then drives the
 worker-side lease protocol against them.
 """
 
+from tests.native_jobs import admit_fixture_job
+
 import json
 import time
 import uuid
@@ -79,6 +81,7 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
                VALUES (%s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
             (host_id, f"GPU-{host_id}"),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     fleet["hosts"].append(host_id)

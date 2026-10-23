@@ -70,7 +70,9 @@ def make_execution_spec(
     return json.loads(json.dumps(spec, allow_nan=False))
 
 
-def validate_execution_spec(spec: Any, expected_hash: str | None) -> dict[str, Any]:
+def validate_execution_spec(
+    spec: Any, expected_hash: str | None, *, require_admission: bool = False
+) -> dict[str, Any]:
     """Refuse corrupt stored authority instead of falling back to payload."""
     if (
         not isinstance(spec, dict)
@@ -78,6 +80,8 @@ def validate_execution_spec(spec: Any, expected_hash: str | None) -> dict[str, A
         or canonical_spec_hash(spec) != expected_hash
     ):
         raise ValueError("stored execution spec failed its hash check")
+    if require_admission and spec.get("execution_spec_version") != EXECUTION_SPEC_VERSION:
+        raise ValueError("execution requires a native admission snapshot")
     if "execution_spec_version" in spec:
         if spec["execution_spec_version"] != EXECUTION_SPEC_VERSION:
             raise ValueError("unsupported execution spec version")

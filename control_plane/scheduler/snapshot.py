@@ -1,31 +1,9 @@
-"""Consistent queue/fleet snapshot for the shadow scheduler (Phase 3).
+"""Consistent native queue and fleet snapshot for scheduling diagnostics.
 
-One REPEATABLE READ transaction reads queued jobs, the host fleet, and
-the active-job capacity picture as of a single MVCC snapshot, then maps
-them into the dict shapes the pure Stage C/D modules
-(:mod:`control_plane.scheduler.filters` / ``scoring``) consume.
-
-Runtime writers do not yet maintain the 054 projection columns
-(``phase`` / ``queued_at`` / ``administrative_state`` were backfilled
-once by the migration; ``DatabaseOps.upsert_job`` still writes only the
-legacy columns + payload). Until A2.5 routes writers through the new
-core, the *legacy* columns are the operational truth — so this snapshot
-reads legacy truth and computes the new pipeline's projections itself:
-
-- schedulable job   = ``status = 'queued'``
-- claim order       = ``priority DESC, submitted_at ASC`` — the legacy
-  scheduler's exact queue order. ``effective_priority`` / ``queued_at``
-  cannot be used yet: 054 declared them ``NOT NULL DEFAULT 0`` / NULL and
-  only the one-time backfill populated them, so for every job created
-  since, ``effective_priority`` is 0 regardless of ``priority``. The
-  §10.2 claim order takes over at the A2.5 cutover, when writers
-  maintain the projection.
-- administrative_state = column when set, else projected from the
-  payload's legacy ``admitted`` flag
-- free GPU capacity = host ``gpu_count`` minus GPUs of active jobs
-  (mirrors ``scheduler._gpus_active_on_host``)
-- staleness         = payload ``last_seen`` older than the configured
-  freshness timeout (measured against DB time, not the Python clock)
+Immutable admission specs supply workload constraints. Native phase, desired
+state and persisted queue keys supply eligibility/order; only unreleased GPU
+allocations consume capacity. Host telemetry is observation data, while the
+normalized administrative state supplies admission authority.
 """
 
 from __future__ import annotations
@@ -35,9 +13,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from psycopg import Connection
-
-# Mirrors scheduler._ACTIVE_GPU_STATUSES — job statuses that consume GPUs.
-ACTIVE_GPU_STATUSES = ("running", "starting", "assigned", "leased")
 
 
 def _decode(payload: Any) -> dict[str, Any]:
@@ -87,13 +62,14 @@ def take_snapshot(
     taken_at = _get(now_row, "now_ts", 0)
     now_epoch = float(_get(now_row, "now_epoch", 1))
 
-    # ── Queued jobs, in legacy queue order (see module docstring) ─────
+    # ── Admitted jobs, in the same persisted order as the claimer ─────
     job_rows = conn.execute("""
-        SELECT job_id, status, host_id, priority, submitted_at, COALESCE(spec,payload) AS payload
+        SELECT job_id, status, host_id, priority, submitted_at, spec AS payload
           FROM jobs
-         WHERE status = 'queued'
-         ORDER BY COALESCE(priority, 0) DESC,
-                  submitted_at ASC NULLS LAST
+         WHERE phase='pending' AND desired_state='running'
+           AND spec->>'execution_spec_version'='v1'
+         ORDER BY effective_priority DESC, fair_share_finish ASC,
+                  queued_at ASC NULLS LAST, job_id ASC
         """).fetchall()
     jobs: list[dict[str, Any]] = []
     for row in job_rows:
@@ -104,25 +80,12 @@ def take_snapshot(
         job.setdefault("priority", _get(row, "priority", 3))
         jobs.append(job)
 
-    # ── Active-job GPU usage per host (capacity truth) ────────────────
-    usage_rows = conn.execute(
-        """
-        SELECT host_id, COALESCE(spec,payload) AS payload
-          FROM jobs
-         WHERE status = ANY(%s)
-           AND host_id IS NOT NULL
-        """,
-        (list(ACTIVE_GPU_STATUSES),),
-    ).fetchall()
-    gpus_used: dict[str, int] = {}
-    for row in usage_rows:
-        host_id = str(_get(row, "host_id", 0))
-        payload = _decode(_get(row, "payload", 1))
-        try:
-            needed = max(1, int(payload.get("num_gpus", 1) or 1))
-        except (TypeError, ValueError):
-            needed = 1
-        gpus_used[host_id] = gpus_used.get(host_id, 0) + needed
+    # ── Active device allocations, independent of compatibility status ──
+    usage_rows = conn.execute("""SELECT host_id,count(DISTINCT gpu_device_id) AS allocated_gpus
+        FROM gpu_device_allocations WHERE released_at IS NULL GROUP BY host_id""").fetchall()
+    gpus_used = {
+        str(_get(row, "host_id", 0)): int(_get(row, "allocated_gpus", 1)) for row in usage_rows
+    }
 
     # ── Host fleet: payload merged with control-plane columns ─────────
     host_rows = conn.execute("""
@@ -140,8 +103,7 @@ def take_snapshot(
 
         admin_state = _get(row, "administrative_state", 3)
         if not admin_state:
-            # Projection of the legacy admission flag (054 backfill rule).
-            admin_state = "admitted" if host.get("admitted") else "pending"
+            admin_state = "pending"
         host["administrative_state"] = admin_state
         availability = _get(row, "availability_state", 4)
         if availability:

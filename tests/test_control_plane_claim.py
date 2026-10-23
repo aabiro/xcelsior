@@ -11,6 +11,8 @@ writers. Every test claims within its own scope (``gpu_model`` carries a
 per-test marker) so shared-DB residue can never leak into assertions.
 """
 
+from tests.native_jobs import admit_fixture_job
+
 from control_plane.state import initial_desired_state, job_phase
 
 import json
@@ -94,6 +96,7 @@ def _mkjob(
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup.append(job_id)
     return job_id
@@ -171,6 +174,7 @@ class TestClaimEligibility:
                     fixture_submitted_at,
                 ),
             )
+            admit_fixture_job(conn, job_id)
             conn.commit()
         cleanup_jobs.append(job_id)
         got = _claim(scope)  # scope doesn't match, but v2 opt-in does

@@ -33,15 +33,16 @@ WITH candidate AS (
       FROM jobs
      WHERE phase = 'pending'
        AND desired_state = 'running'
+       AND spec->>'execution_spec_version' = 'v1'
        AND (next_schedule_at IS NULL OR next_schedule_at <= clock_timestamp())
        AND (schedule_claim_expires_at IS NULL
             OR schedule_claim_expires_at < clock_timestamp())
        AND (%(scope_all)s
-            OR lower(COALESCE(COALESCE(spec,payload)->>'gpu_model', '')) = ANY(%(scope_models)s)
-            OR lower(COALESCE(COALESCE(spec,payload)->>'scheduler', '')) = 'v2')
+            OR lower(COALESCE(spec->>'gpu_model', '')) = ANY(%(scope_models)s)
+            OR lower(COALESCE(spec->>'scheduler', '')) = 'v2')
      ORDER BY effective_priority DESC,
               fair_share_finish ASC,
-              queued_at ASC NULLS LAST
+              queued_at ASC NULLS LAST, job_id ASC
        FOR UPDATE SKIP LOCKED
      LIMIT 1
 )

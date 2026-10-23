@@ -7,6 +7,8 @@ outbox + job projection, all present) or a clean conflict with zero
 residue — never anything in between.
 """
 
+from tests.native_jobs import admit_fixture_job
+
 import json
 import time
 import uuid
@@ -56,7 +58,7 @@ def fleet():
         conn.commit()
 
 
-def _mkjob(fleet, *, num_gpus=1):
+def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None):
     job_id = f"job-resv-{uuid.uuid4().hex[:10]}"
     # gpu_model doubles as a unique claim scope so these tests never
     # claim residue jobs left behind by other suites (and vice versa).
@@ -66,6 +68,8 @@ def _mkjob(fleet, *, num_gpus=1):
         "image": "pytorch:latest",
         "gpu_model": job_id,
     }
+    if preferred_host_id:
+        payload["preferred_host_id"] = preferred_host_id
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
@@ -73,6 +77,7 @@ def _mkjob(fleet, *, num_gpus=1):
                VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (job_id, time.time(), json.dumps(payload)),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     return job_id
@@ -147,7 +152,7 @@ def _counts(job_id):
 
 
 def test_host_pin_is_rechecked_after_claim(fleet):
-    job_id = _mkjob(fleet)
+    job_id = _mkjob(fleet, preferred_host_id="another-host")
     host_id = _mkhost(fleet)
     claimed = _claim(job_id)
     before = _counts(job_id)
@@ -155,7 +160,7 @@ def test_host_pin_is_rechecked_after_claim(fleet):
         conn.execute(
             "UPDATE jobs SET payload=jsonb_set(payload, '{preferred_host_id}', "
             "to_jsonb(%s::text)) WHERE job_id=%s",
-            ("another-host", job_id),
+            (host_id, job_id),
         )
     with pytest.raises(HostNotEligible, match="pinned to another host"):
         _reserve(claimed, host_id)

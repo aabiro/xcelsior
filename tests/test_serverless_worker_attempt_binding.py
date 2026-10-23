@@ -8,6 +8,8 @@ set. This drives the real reservation authority (`reserve_and_bind`) end to end.
 
 from __future__ import annotations
 
+from tests.native_jobs import admit_fixture_job
+
 import json
 import time
 import uuid
@@ -87,7 +89,7 @@ def _mkhost(scratch, *, gpus=1):
     return host_id
 
 
-def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1):
+def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1, serverless=True):
     """A serverless_worker job that carries its worker id in the payload, as
     provision_worker's _set_job_fields does."""
     job_id = f"job-swk-{uuid.uuid4().hex[:10]}"
@@ -100,6 +102,9 @@ def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1):
     }
     worker = ServerlessRepo().get_worker(worker_id)
     payload["serverless_endpoint_id"] = worker["endpoint_id"]
+    if not serverless:
+        for key in ("job_type", "serverless_worker_id", "serverless_endpoint_id"):
+            payload.pop(key, None)
     with _pool.connection() as conn:
         conn.execute(
             "UPDATE serverless_workers SET scheduler_job_id=%s WHERE worker_id=%s",
@@ -112,6 +117,7 @@ def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1):
                VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (job_id, time.time(), json.dumps(payload)),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     scratch["jobs"].append(job_id)
     return job_id
@@ -200,6 +206,7 @@ def test_non_serverless_job_leaves_workers_untouched(scratch):
                VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (plain, time.time(), json.dumps(payload)),
         )
+        admit_fixture_job(conn, plain)
         conn.commit()
     scratch["jobs"].append(plain)
     host_id = _mkhost(scratch, gpus=1)

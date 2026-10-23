@@ -2582,6 +2582,14 @@ data disposition remain separately scoped below.
   qualification; production remains at 125. Runtime floor 132 requires the
   previously qualified 126-compatible native writer handoff first.
   [Historical disposition receipt](review/2026-10-23-historical-disposition.md).
+  **Strict native specs, 2026-10-23:** queue, reservation and new lease claims
+  require stored native admission; historical evidence and mutable payload
+  cannot authorize a new attempt. Billing/serverless execution readers no
+  longer fall back to payload. Snapshot capacity comes from unreleased device
+  allocations. Main run: 205 passes plus two stale floor assertions; corrected
+  floor/inventory/negative gate: 24 passes; final native billing boundary: 28
+  passes. Broader regression and production acceptance remain open.
+  [Strict admission receipt](review/2026-10-23-strict-native-specs.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

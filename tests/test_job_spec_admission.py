@@ -2,6 +2,7 @@
 
 import json
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
@@ -243,19 +244,54 @@ def test_corrupt_admission_never_falls_back_to_payload_or_creates_authority(nati
             )
 
 
-def test_pre_cutover_bridge_freezes_the_original_execution_once(native):
-    assert row(native)[0] is None
-    reservation = native.reserve()
-    stored = row(native)
-    assert stored[0] is not None and stored[1] == reservation.spec_hash
-    assert canonical_spec_hash(stored[0]) == reservation.spec_hash
+@pytest.mark.parametrize("evidence", ["missing", "recorded_execution"])
+def test_unadmitted_execution_evidence_never_authorizes_a_new_attempt(native, evidence):
+    spec = None if evidence == "missing" else {"image": "historical-image", "gpu_model": native.jid}
+    digest = None if spec is None else canonical_spec_hash(spec)
+    token = uuid.uuid4()
+    with native.pool.connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET spec=%s,spec_hash=%s WHERE job_id=%s",
+            (Jsonb(spec) if spec is not None else None, digest, native.jid),
+        )
+        assert claim_next_job(conn, replica_id="strict-spec", scope_gpu_models=[native.jid]) is None
+        # A stale or manually injected claim cannot bypass the reservation
+        # transaction's independent admission check.
+        conn.execute(
+            """UPDATE jobs SET schedule_claim_token=%s,
+            schedule_claim_expires_at=clock_timestamp()+interval '1 minute'
+            WHERE job_id=%s""",
+            (token, native.jid),
+        )
+    with pytest.raises(JobNotSchedulable, match="unqualified"):
+        run_transaction(
+            lambda conn: reserve_and_bind(
+                conn,
+                job_id=native.jid,
+                claim_token=str(token),
+                replica_id="strict-spec",
+                host_id=native.hid,
+            )
+        )
+    assert row(native)[:2] == (spec, digest)
+    with native.pool.connection() as conn:
+        for table in (
+            "job_attempts",
+            "placement_leases",
+            "gpu_device_allocations",
+            "agent_commands",
+        ):
+            assert conn.execute(
+                f"SELECT count(*) FROM {table} WHERE job_id=%s", (native.jid,)
+            ).fetchone() == (0,)
 
 
 def test_historical_hash_is_never_replaced_to_hide_unqualified_evidence(native):
     with native.pool.connection() as conn:
-        conn.execute("UPDATE jobs SET spec_hash='sha256:original' WHERE job_id=%s", (native.jid,))
-    with pytest.raises(JobNotSchedulable, match="unqualified"):
-        native.reserve()
+        conn.execute(
+            "UPDATE jobs SET spec=NULL,spec_hash='sha256:original' WHERE job_id=%s", (native.jid,)
+        )
+        assert claim_next_job(conn, replica_id="strict-spec", scope_gpu_models=[native.jid]) is None
     assert row(native)[:2] == (None, "sha256:original")
 
 

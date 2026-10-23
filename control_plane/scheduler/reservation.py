@@ -27,7 +27,7 @@ from psycopg import Connection
 from psycopg.types.json import Jsonb
 
 from control_plane.scheduler.filters import FILTER_POLICY_VERSION
-from control_plane.job_specs import canonical_spec_hash, validate_execution_spec
+from control_plane.job_specs import validate_execution_spec
 
 # v1 agents GC pending commands past expires_at (routes/agent.py). Bound
 # start commands must outlive shadow/canary windows until the v2 claim/ACK
@@ -175,17 +175,14 @@ def reserve_and_bind(
 
     # Recheck the pin under the job lock; a stale candidate snapshot never
     # authorizes starting a paid marketplace launch on a different host.
-    # Native admissions use the immutable snapshot. The explicit historical
-    # bridge freezes a pre-cutover row once, never re-hashing later status.
+    # Only a native admission can authorize placement. A recovered historical
+    # execution record cannot substitute for a customer's approved launch.
     spec = _one(job, "spec", 6)
     spec_hash = _one(job, "spec_hash", 7)
     if expected_spec_hash is not None and spec_hash != expected_spec_hash:
         raise JobSpecUnqualified("job execution spec changed after its scheduling claim")
-    if spec is None:
-        spec = _one(job, "payload", 5) or {}
-        spec_hash = spec_hash or canonical_spec_hash(spec)
     try:
-        spec = validate_execution_spec(spec, spec_hash)
+        spec = validate_execution_spec(spec, spec_hash, require_admission=True)
     except ValueError as exc:
         raise JobSpecUnqualified("job execution spec is unqualified", reason=str(exc)) from exc
     if "execution_spec_version" in spec:
