@@ -1192,6 +1192,9 @@ def decide_admission(
                 "status": new_status,
             }
         )
+        from control_plane.state import host_states
+
+        administrative, availability = host_states(new_status, resulting_state)
         if action == "admit":
             compatibility = latest.get("compatibility", {})
             runtime = (
@@ -1236,6 +1239,8 @@ def decide_admission(
                    END,
                    admission_decision_id = %s,
                    status = %s,
+                   administrative_state = %s,
+                   availability_state = %s,
                    payload = %s,
                    version = version + 1
              WHERE host_id = %s
@@ -1246,6 +1251,8 @@ def decide_admission(
                 resulting_state,
                 decision_id,
                 new_status,
+                administrative,
+                availability,
                 Jsonb(payload),
                 host_id,
             ),

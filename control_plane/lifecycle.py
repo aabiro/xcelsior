@@ -72,6 +72,8 @@ def _mark_stopping_with_intent(
         """
         UPDATE jobs
            SET status = 'stopping',
+               phase = 'running',
+               desired_state = 'stopped',
                payload = jsonb_set(
                    jsonb_set(
                        jsonb_set(
@@ -414,7 +416,7 @@ def request_fresh_attempt_resume(
     """Re-admit a stopped fenced-history job for a **new** placement attempt.
 
     Does not enqueue ``start_container`` / revive the old fence labels.
-    Sets ``status=queued`` (trigger → phase=pending, desired_state=running),
+    Sets ``status=queued, phase=pending, desired_state=running``,
     clears host assignment and schedule-claim residue, records
     ``lifecycle_intent``. Scheduler claim/reserve creates the next attempt.
     """
@@ -501,6 +503,9 @@ def request_fresh_attempt_resume(
             """
             UPDATE jobs
                SET status = 'queued',
+                   phase = 'pending',
+                   desired_state = 'running',
+                   queued_at = to_timestamp(%s),
                    host_id = NULL,
                    active_attempt_id = NULL,
                    schedule_claim_owner = NULL,
@@ -519,13 +524,14 @@ def request_fresh_attempt_resume(
                        true
                    ) || jsonb_build_object(
                        'resumed_at', %s::float,
+                       'submitted_at', %s::float,
                        'resume_kind', %s::text
                    ),
                    version = version + 1,
                    updated_at = clock_timestamp()
              WHERE job_id = %s
             """,
-            (now, now, intent, job_id),
+            (now, now, now, now, intent, job_id),
         )
         log.info(
             "fresh-attempt resume job=%s intent=%s by=%s",

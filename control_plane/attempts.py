@@ -26,6 +26,7 @@ from psycopg.types.json import Jsonb
 from control_plane.leases import require_current_fence
 from control_plane.attempt_billing import sync_attempt_billing
 from control_plane.serverless_workers import sync_serverless_attempt
+from control_plane.state import job_phase
 
 log = logging.getLogger("xcelsior.control_plane.attempts")
 
@@ -45,8 +46,7 @@ _REPORT_ORDER: dict[str, int] = {
 
 _TERMINAL = ("succeeded", "failed", "stopped")
 
-# Attempt status → legacy jobs.status projection (the 059 trigger derives
-# phase/desired_state from this, so one write keeps everything coherent).
+# Attempt status → compatibility jobs.status; phase is written alongside it.
 _JOB_PROJECTION = {
     "lease_claimed": "leased",
     "starting": "starting",
@@ -196,8 +196,8 @@ def report_attempt_status(
         },
     )
 
-    # Job projection: one legacy-status write; the 059 trigger keeps
-    # phase/desired_state coherent with it. P5.5: when the controller
+    # Reports change observed phase, preserving controller desired state.
+    # P5.5: when the controller
     # recorded lifecycle_intent=terminate|cancel, a worker ``stopped``
     # report settles to that terminal status (not plain ``stopped``).
     job_status = _JOB_PROJECTION[status]
@@ -236,6 +236,13 @@ def report_attempt_status(
             """
             UPDATE jobs
                SET status = %(job_status)s,
+                   phase = %(phase)s,
+                   desired_state = CASE
+                       WHEN %(job_status)s = 'queued' THEN 'running'
+                       WHEN %(phase)s = 'stopped' THEN 'stopped'
+                       ELSE desired_state END,
+                   queued_at = CASE WHEN %(job_status)s = 'queued'
+                       THEN statement_timestamp() ELSE queued_at END,
                    active_attempt_id = NULL,
                    host_id = CASE
                        WHEN %(job_status)s = 'queued' THEN NULL
@@ -254,7 +261,7 @@ def report_attempt_status(
                        ELSE generation END,
                    submitted_at = CASE
                        WHEN %(job_status)s = 'queued'
-                           THEN EXTRACT(EPOCH FROM clock_timestamp())
+                           THEN EXTRACT(EPOCH FROM statement_timestamp())
                        ELSE submitted_at END,
                    payload = CASE
                        WHEN %(job_status)s = 'stopped' THEN
@@ -321,7 +328,10 @@ def report_attempt_status(
                            to_jsonb(%(job_status)s::text),
                            true
                        )
-                   END,
+                   END || CASE WHEN %(job_status)s = 'queued'
+                       THEN jsonb_build_object('submitted_at',
+                           EXTRACT(EPOCH FROM statement_timestamp()))
+                       ELSE '{}'::jsonb END,
                    reason_code = CASE
                        WHEN %(job_status)s IN ('failed', 'terminated') THEN %(failure_code)s
                        ELSE NULL END,
@@ -332,6 +342,7 @@ def report_attempt_status(
             """,
             {
                 "job_status": job_status,
+                "phase": job_phase(job_status),
                 "failure_code": failure_code or "error",
                 "job_id": job_id,
                 "attempt_id": attempt_id,
@@ -364,6 +375,7 @@ def report_attempt_status(
             """
             UPDATE jobs
                SET status = %(job_status)s,
+                   phase = %(phase)s,
                    payload = jsonb_set(
                        COALESCE(payload, '{}'::jsonb),
                        '{status}',
@@ -375,7 +387,12 @@ def report_attempt_status(
              WHERE job_id = %(job_id)s
                AND active_attempt_id = %(attempt_id)s
             """,
-            {"job_status": job_status, "job_id": job_id, "attempt_id": attempt_id},
+            {
+                "job_status": job_status,
+                "phase": job_phase(job_status),
+                "job_id": job_id,
+                "attempt_id": attempt_id,
+            },
         )
 
     sync_attempt_billing(conn, attempt_id)

@@ -616,13 +616,30 @@ class DatabaseOps:
                 make_execution_spec,
                 validate_execution_spec,
             )
+            from control_plane.state import initial_desired_state, job_phase
 
             execution_spec = make_execution_spec(job, launch_spec=admission_spec)
             execution_hash = canonical_spec_hash(execution_spec)
+            phase = job_phase(status)
             conflict = (
                 "DO NOTHING"
                 if admission_spec is not None
                 else """DO UPDATE SET
+                    phase = CASE WHEN jobs.status IS DISTINCT FROM EXCLUDED.status
+                        THEN EXCLUDED.phase ELSE jobs.phase END,
+                    desired_state = CASE
+                        WHEN jobs.status IS NOT DISTINCT FROM EXCLUDED.status
+                            THEN jobs.desired_state
+                        WHEN EXCLUDED.status IN ('stopping','stopped','paused','cancelled','terminated')
+                            THEN 'stopped'
+                        WHEN EXCLUDED.phase='pending' THEN 'running'
+                        ELSE jobs.desired_state END,
+                    effective_priority = CASE WHEN jobs.priority IS DISTINCT FROM EXCLUDED.priority
+                        THEN EXCLUDED.priority ELSE jobs.effective_priority END,
+                    queued_at = CASE WHEN EXCLUDED.phase='pending'
+                        AND (jobs.status IS DISTINCT FROM EXCLUDED.status
+                             OR jobs.submitted_at IS DISTINCT FROM EXCLUDED.submitted_at)
+                        THEN EXCLUDED.queued_at ELSE jobs.queued_at END,
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
                     submitted_at = EXCLUDED.submitted_at,
@@ -649,10 +666,12 @@ class DatabaseOps:
                     pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
                     placement_min_uptime_bps, placement_min_tier,
                     placement_require_verified, placement_max_premium_bps,
-                    owner_id, tenant_id, team_id, updated_at, spec, spec_hash
+                    owner_id, tenant_id, team_id, updated_at, spec, spec_hash,
+                    phase, desired_state, effective_priority, queued_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, clock_timestamp(), %s, %s)
+                        %s, %s, %s, clock_timestamp(), %s, %s,
+                        %s, %s, %s, CASE WHEN %s THEN to_timestamp(%s) ELSE NULL END)
                 ON CONFLICT(job_id) {conflict}
                 """,
                 (
@@ -674,6 +693,11 @@ class DatabaseOps:
                     job.get("team_id") or None,
                     Jsonb(execution_spec),
                     execution_hash,
+                    phase,
+                    initial_desired_state(status),
+                    priority,
+                    phase == "pending",
+                    submitted_at,
                 ),
             )
             if admission_spec is not None:
@@ -718,16 +742,44 @@ class DatabaseOps:
 
         if backend == "postgres":
             from psycopg.types.json import Jsonb
+            from control_plane.state import host_states
+
+            # Registration and inventory cannot confer operator admission.
+            # The conflict arm uses the locked row's current authority, never
+            # the caller's (possibly stale or forged) compatibility payload.
+            administrative, availability = host_states(status, "pending")
+            payload = dict(host)
+            payload.update(
+                admitted=False,
+                admission_state="pending",
+                admission_version=0,
+                admission_decision_id=None,
+            )
 
             conn.execute(
                 """
                 INSERT INTO hosts(host_id, status, registered_at, payload,
-                                  owner_id, tenant_id, region, country, province, capabilities)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb))
+                                  owner_id, tenant_id, region, country, province, capabilities,
+                                  administrative_state, availability_state)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb),
+                        %s, %s)
                 ON CONFLICT(host_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     registered_at = EXCLUDED.registered_at,
-                    payload = EXCLUDED.payload,
+                    payload = EXCLUDED.payload || jsonb_build_object(
+                        'admitted', hosts.admission_state='admitted',
+                        'admission_state', hosts.admission_state,
+                        'admission_version', hosts.admission_version,
+                        'admission_decision_id', hosts.admission_decision_id),
+                    administrative_state = CASE
+                        WHEN EXCLUDED.status='disabled' THEN 'disabled'
+                        WHEN hosts.admission_state='admitted' AND EXCLUDED.status='draining'
+                            THEN 'draining'
+                        WHEN hosts.admission_state='admitted' THEN 'admitted'
+                        ELSE 'pending' END,
+                    availability_state = CASE EXCLUDED.status
+                        WHEN 'active' THEN 'ready' WHEN 'dead' THEN 'not_ready'
+                        ELSE 'unknown' END,
                     owner_id = COALESCE(EXCLUDED.owner_id, hosts.owner_id),
                     tenant_id = COALESCE(EXCLUDED.tenant_id, hosts.tenant_id),
                     region = COALESCE(EXCLUDED.region, hosts.region),
@@ -739,7 +791,7 @@ class DatabaseOps:
                     host_id,
                     status,
                     registered_at,
-                    Jsonb(host),
+                    Jsonb(payload),
                     host.get("owner_id") or host.get("owner") or None,
                     host.get("tenant_id") or host.get("owner_id") or host.get("owner") or None,
                     host.get("region") or None,
@@ -750,6 +802,8 @@ class DatabaseOps:
                         if isinstance(host.get("capabilities"), dict)
                         else None
                     ),
+                    administrative,
+                    availability,
                     isinstance(host.get("capabilities"), dict),
                 ),
             )

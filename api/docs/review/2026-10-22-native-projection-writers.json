@@ -1,0 +1,109 @@
+{
+  "recorded_at": "2026-10-23T00:05:29.254864+00:00",
+  "base_commit": "5dee2a883277085381e7f56d269ea8b6d3feae8b",
+  "scope": "native lifecycle writers, trigger-free transition rehearsal and admitted-spec wallet billing",
+  "schema": {
+    "shipped_head": "130",
+    "permanent_trigger_removal": false,
+    "new_migration": false,
+    "native_stop_intent_guarantee_requires_trigger_removal": true
+  },
+  "validation": {
+    "focused-final": {
+      "tests": 186,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "expanded-final": {
+      "tests": 2664,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "trigger_free_transition_cases": 22,
+    "inventory_guard_cases": 2,
+    "baseline_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "pyright": {
+      "filesAnalyzed": 247,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 226.689
+    },
+    "black_python_files": 16,
+    "ruff": "repository passed",
+    "worker_signatures": 12,
+    "scratch_postgres_stopped_and_removed": true,
+    "scratch_redis_removed": true
+  },
+  "live_acceptance": {
+    "gpu": false,
+    "service_handoff": false,
+    "production_migration": false
+  },
+  "source_sha256": {
+    "api/scripts/mcp_e2e_fixture.py": "b2d5c4d30b31cc8d144f67d50b87fd1c091626bd3126625fea1e9c5b8a079254",
+    "api/scripts/worker_billing_acceptance.py": "22ac74567e693184d2f61975de4164e31bb56729513c87a32a5116aee8dd0804",
+    "billing/billing.py": "4733533d585f1a0c1e9d3666698fba70f905e56be078bb1103b980c67156f24b",
+    "control_plane/attempt_billing.py": "7ddc271b1f83bee941a52d4ac1b609f204e636c10f42c11bbac0f3b0c7b90c65",
+    "control_plane/attempts.py": "ab14fdb59e2114c9059e1d0e081c9e0838a7e9997098f060febc3d1f49b0d2bc",
+    "control_plane/leases.py": "587c8d12284d0d74e16ae3133992e48985f41178bc9af673e306b61d46909ceb",
+    "control_plane/lifecycle.py": "b8d4d367758a6f1cc5012d345e65f6fc9503a9ccc33635466e5d4d1e2bc29c33",
+    "control_plane/serverless_workers.py": "1551fa90e4945934b80761aecf02cf1044dfee2f6fe905a95be764f3e3608ade",
+    "control_plane/state.py": "8d66a562e36df395d4b462ad42356fa993d066dce1e378d3ee818558360632dd",
+    "core/db.py": "3823b9fd11a70bd104b06add726697f0246932813f0fdd917fabd1231019540f",
+    "hosts/host_admission.py": "2a7d8768bddce706046ceb4b254dc1e9c3601f8a66c4045deaffca7824eaacb8",
+    "privacy/privacy_sinks.py": "450e225760364ff407206adc5aff49b3fb10eb904bed1f25c53d04eec7ad495a",
+    "tests/test_every_job_status_maps_to_a_phase.py": "2bf90bd6d989fe7430126ae05e0f1ac3ebb1d5bde88cb4741230d9ea950d27fd",
+    "tests/test_native_projection_writer_inventory.py": "c23578176c8fcc5e7335e765d37f05a49ea8397aaf54879d2a4e7a39a18cbc20",
+    "tests/test_native_projection_writers.py": "7847f1acfe07fcca29d89bb070cb49435a1709e9757fa3d2685c5907cc65359a",
+    "tests/test_serverless_native_lifecycle.py": "7b7f0d2c4e1d825875c7e08a01a550a88c5e4199492bfe0ab300a8d58e814a6b"
+  },
+  "gate_manifest_sha256": {
+    "focused-final": "e2866c671066e7291920b76c9142552c4d0501ea3d323abce13963c0ffbbb5d7",
+    "expanded-final": "83be944676aa568f152b6f8cfcd1f49ce4abcb6d85787c61dc0f9d241351f826"
+  },
+  "production": {
+    "unchanged_since_previous_receipt": {
+      "schema": true,
+      "protected_jobs": true,
+      "repairs": true,
+      "active_jobs": true,
+      "flags": true
+    },
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "active_job_count": 0,
+    "protected_job_count": 12,
+    "deployed": false,
+    "migrations_applied": false
+  },
+  "protected_root_dirty_paths_unchanged": 9,
+  "remaining": [
+    "Permanent trigger contract migration, safe host defaults and admission constraints, raw SQL fixture conversions and native service handoff gate",
+    "Observation-only writes must not construct new admission specs",
+    "Idempotent submission replay after server-selected policy changes",
+    "Worker restart resource cleanup, log forwarding and terminal-abort NACK review repairs",
+    "360 unavailable historical specs require recovery or reviewed disposition",
+    "Remaining payload paths, column contraction, durable fairness and preemption"
+  ],
+  "fixture_review_inventory_sha256": "b6aed4aced31ee27a692d41fc89cb53daefccbcd3a981a5bcc0f5d031afb7809"
+}

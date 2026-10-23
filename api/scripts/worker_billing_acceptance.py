@@ -173,8 +173,9 @@ def run(args, evidence: dict) -> None:
             "acceptance needs an empty job ledger",
         )
         conn.execute(
-            "INSERT INTO hosts (host_id,status,registered_at,payload,admission_state) "
-            "VALUES (%s,'active',%s,%s,'admitted')",
+            "INSERT INTO hosts (host_id,status,registered_at,payload,admission_state,"
+            "administrative_state,availability_state) "
+            "VALUES (%s,'active',%s,%s,'admitted','admitted','ready')",
             (
                 host_id,
                 time.time(),
@@ -243,10 +244,10 @@ def run(args, evidence: dict) -> None:
                 "command": ["python", "-u", "-c", program],
             }
             with pool.connection() as conn:
-                conn.execute(
-                    "INSERT INTO jobs (job_id,status,priority,submitted_at,payload) "
-                    "VALUES (%s,'queued',0,%s,%s)",
-                    (job_id, time.time(), Jsonb(spec)),
+                from db import DatabaseOps
+
+                DatabaseOps.upsert_job(
+                    conn, {**spec, "submitted_at": time.time()}, backend="postgres"
                 )
             report = SchedulerService(
                 SchedulerConfig(
