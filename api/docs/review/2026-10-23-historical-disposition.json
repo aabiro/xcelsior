@@ -1,0 +1,185 @@
+{
+  "base_commit": "1af572b6e271a47661e63c4b2f47a7c971efba28",
+  "final_partial_guard_and_production_replay": {
+    "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/history-partial-guard-final/manifest.json",
+    "manifest_sha256": "90de3a4d20f4249ffb8c4ebc86a1fc14362f18d20f49cb18c1c36fbf15aa4202",
+    "phases": {
+      "createdb": {
+        "exit_code": 0,
+        "seconds": 0.06
+      },
+      "initdb": {
+        "exit_code": 0,
+        "seconds": 0.78
+      },
+      "migrate": {
+        "exit_code": 0,
+        "seconds": 3.38
+      },
+      "pytest": {
+        "exit_code": 0,
+        "seconds": 109.03
+      },
+      "start": {
+        "exit_code": 0,
+        "seconds": 0.11
+      },
+      "stop": {
+        "exit_code": 0,
+        "seconds": 0.12
+      }
+    },
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 36
+    }
+  },
+  "initial_integration": {
+    "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/history-integration-final/manifest.json",
+    "manifest_sha256": "a8e72fddeb0dfb72fa9c4a632909612487bb470f3e368d9a83aaa8cb3945ff66",
+    "phases": {
+      "createdb": {
+        "exit_code": 0,
+        "seconds": 0.57
+      },
+      "initdb": {
+        "exit_code": 0,
+        "seconds": 4.38
+      },
+      "migrate": {
+        "exit_code": 0,
+        "seconds": 28.72
+      },
+      "pytest": {
+        "exit_code": 0,
+        "seconds": 255.52
+      },
+      "start": {
+        "exit_code": 0,
+        "seconds": 1.31
+      },
+      "stop": {
+        "exit_code": 0,
+        "seconds": 0.12
+      }
+    },
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 145
+    }
+  },
+  "migration": "132",
+  "native_handoff_runtime": "dfacc879 (minimum 126)",
+  "production_deployed": false,
+  "production_derived_replay": {
+    "audit": {
+      "all_job_specs_qualified": false,
+      "backfill_evidence": {
+        "recovered_execution": 4,
+        "unavailable": 360
+      },
+      "collected_at": "2026-10-23T04:24:19.932136+00:00",
+      "complete": true,
+      "database": "bootstrap_empty_e18dbef3af",
+      "historical_disposition": {
+        "complete": true,
+        "recorded": {
+          "retained_recovered": 4,
+          "retained_unavailable": 360
+        },
+        "terminal_exclusion_validated": true,
+        "undisposed": 0
+      },
+      "normalized_column_gaps": {
+        "desired_state": 0,
+        "pending_queued_at": 0,
+        "phase": 0
+      },
+      "pending_queue_check_validated": true,
+      "port": 5432,
+      "projection_triggers_retired": true,
+      "read_only": true,
+      "required_columns_not_null": {
+        "desired_state": true,
+        "phase": true
+      },
+      "specs": {
+        "invalid": 0,
+        "missing": 360,
+        "recorded_without_provenance": 0,
+        "total": 364,
+        "valid_admission": 0,
+        "valid_recorded": 4
+      },
+      "transitional_triggers": [],
+      "trigger_removal_requires_native_writer_gate": false
+    },
+    "complete_spec_guard_exit": 2,
+    "fixture_sha256": "5aad5d1fd39653175d883c54c3eb0519a0101055e9898f71b5915f69926a5336",
+    "history_guard_exit": 0,
+    "host_and_execution_history_preserved": true,
+    "jobs": 364,
+    "minimization": "Only the four hashed jobs and their execution commands retain complete payloads; other payloads contain identity/admission facts only. Wallet-hold references and financial rows are outside this fixture. Missing identity evidence is not inferred. No financial restore or production mutation is claimed.",
+    "original_job_fields_preserved": true,
+    "recovered_exact_specs": 4,
+    "roundtrip_preserved": true,
+    "unavailable_specs_retained": 360
+  },
+  "production_schema_observed": "125",
+  "protected_root_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  },
+  "remaining": [
+    "Strict stored admission-spec execution and remaining payload authority readers",
+    "Remaining physical column contraction",
+    "Durable fairness and preemption integration",
+    "Full candidate production acceptance"
+  ],
+  "repair_mode": "report_only",
+  "runtime_floor": "132",
+  "scope": "Explicit terminal historical job retention and execution exclusion",
+  "source_sha256": {
+    "api/migrations/README.md": "28f81508e815152d3372765a3516e0230a689ec15cf87c0d7f31eb3da116f69c",
+    "api/migrations/versions/132_dispose_historical_jobs.py": "29c4d7f5db755539b89767e54f261405de4089b5661668722b25f7556da43b51",
+    "api/scripts/audit_spec_qualification.py": "79cbcc8fdc7d403e70cab289df221dd284b1729711e784eb847787f0958eb8df",
+    "control_plane/db_roles.py": "cc62c960af77d1584aa2b1e7688985b955b9c8e23e62c74e274ed2f2850d1a62",
+    "control_plane/lifecycle.py": "eb3f6a7e02773bd8bd4d40987dbafcca23b3c3e96912c0497b787d2298908b1a",
+    "control_plane/schema_compat.py": "589d3365b6bfd86e58c4729f2b464e8ea6fc940649cbbc4b275c8f9f4d904469",
+    "control_plane/spec_qualification.py": "2c4f922adb8df945380fd1e2c4361ef4e1c99d98fd52a18ef7103b0e4c3c2919",
+    "tests/test_from_empty_bootstrap.py": "6d04e014a999c42fec9008da48f2c1e15d2383b55675c356b75b22900d841a03",
+    "tests/test_historical_job_disposition.py": "7b4aa528fd89ea3acacdd353c8cd7417ee8541fc0e38d8f0568efbd1c8c3d5b1",
+    "tests/test_migration_from_production_snapshot.py": "38e9ce54148f160f9bf9f1c1fa3227baaa9c011b5c7e2eba82371f3c87b2b829",
+    "tests/test_migration_ledger.py": "2470e854f484259dc9fa30dc8563b9c07fa2f83e605c3c9bbc23c6f4d0f4f820"
+  },
+  "static": {
+    "black_changed_python_files": 10,
+    "pyright_final_changed_runtime": {
+      "errorCount": 0,
+      "filesAnalyzed": 4,
+      "informationCount": 0,
+      "timeInSec": 2.953,
+      "warningCount": 0
+    },
+    "pyright_prior_full": {
+      "errorCount": 0,
+      "filesAnalyzed": 247,
+      "informationCount": 0,
+      "timeInSec": 53.892,
+      "warningCount": 0
+    },
+    "ruff": "repository passed",
+    "worker_signatures": 12
+  }
+}

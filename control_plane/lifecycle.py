@@ -444,7 +444,8 @@ def request_fresh_attempt_resume(
                    payload->>'lifecycle_intent' AS lifecycle_intent,
                    EXISTS (
                        SELECT 1 FROM job_attempts a WHERE a.job_id = jobs.job_id
-                   ) AS has_fenced_history
+                   ) AS has_fenced_history,
+                   history_disposition
               FROM jobs
              WHERE job_id = %s
              FOR UPDATE
@@ -459,10 +460,21 @@ def request_fresh_attempt_resume(
             status = str(job.get("status") or "")
             active_attempt_id = job.get("active_attempt_id")
             has_fenced = bool(job.get("has_fenced_history"))
+            historical = job.get("history_disposition")
         else:
             status = str(job[1] or "")
             active_attempt_id = job[3]
             has_fenced = bool(job[5])
+            historical = job[6]
+
+        if historical:
+            return FreshAttemptResult(
+                ok=False,
+                job_id=job_id,
+                status=status,
+                reason="historical_job_requires_new_admission",
+                intent=intent,
+            )
 
         # Idempotent: already waiting for placement.
         if status == "queued" and not active_attempt_id:

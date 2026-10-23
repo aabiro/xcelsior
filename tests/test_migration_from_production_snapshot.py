@@ -289,11 +289,14 @@ def _upgrade_after_native_cutover(dsn):
     # authority. This closes the v1 record without inventing a new attempt.
     with _connect(dsn) as conn:
         conn.execute("UPDATE leases SET status='released' WHERE status='active'")
-    _alembic(dsn, "upgrade", "head")
+    # This fixture includes unqualified live legacy jobs. Qualification through
+    # the native writer handoff is meaningful; historical disposition must
+    # refuse these live rows rather than invent their approved execution spec.
+    _alembic(dsn, "upgrade", "131")
 
 
-def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
-    """053 + representative rows → head, with every §16.1 property checked."""
+def test_production_shaped_upgrade_to_native_writer_handoff(seeded_snapshot_db):
+    """053 + live legacy rows → 131, before explicit historical disposition."""
     dsn, seeded = seeded_snapshot_db
 
     _upgrade_after_native_cutover(dsn)
@@ -302,8 +305,8 @@ def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
         # ── head reached ──
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert (
-            rev is not None and rev[0] == EXPECTED_HEAD
-        ), f"expected head {EXPECTED_HEAD}, database is at {rev}"
+            rev is not None and rev[0] == "131"
+        ), f"expected native handoff 131, database is at {rev}"
 
         # ── no data loss or duplication ──
         for table, expected in seeded.items():
@@ -454,11 +457,11 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
                 actual is not None and actual[0] == expected
             ), f"{table} lost rows during downgrade to {BASELINE_REVISION}"
 
-    _alembic(dsn, "upgrade", "head")
+    _alembic(dsn, "upgrade", "131")
 
     with _connect(dsn) as conn:
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert rev is not None and rev[0] == EXPECTED_HEAD
+        assert rev is not None and rev[0] == "131"
         # The backfill re-derives cleanly the second time.
         unmapped = conn.execute(
             "SELECT count(*) FROM jobs WHERE phase IS NULL OR desired_state IS NULL"
