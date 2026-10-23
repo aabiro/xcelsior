@@ -122,7 +122,10 @@ projection bridge now fires only for legacy status/priority/submission writes
 and changes priority only when the raw priority changes. Claims, observations
 and billing metadata no longer erase priority boosts or native intent.
 Both projection triggers still exist: full removal remains dependent on native
-status-writer conversion and its runnable gate. This is not the final B16.2
+writer qualification and a contract migration with converted acceptance fixtures.
+The [native writer rehearsal](../docs/review/2026-10-22-native-projection-writers.md)
+exercises the converted runtime writers with both actual projection functions
+removed from disposable PostgreSQL. This is not the final B16.2
 contract-cleanup migration. Runtime floor remains 126; staged rollout still
 requires the native handoff before 127, then the later data/column migrations.
 

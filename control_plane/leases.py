@@ -25,6 +25,8 @@ from typing import Any, cast
 
 from psycopg import Connection, sql
 
+from control_plane.state import job_phase
+
 DEFAULT_EXPIRY_GRACE_SEC = 30.0
 
 
@@ -444,6 +446,15 @@ def expire_stale_leases(
             """
             UPDATE jobs
                SET status = %(status)s,
+                   phase = %(phase)s,
+                   desired_state = CASE
+                       WHEN %(status)s = 'queued' THEN 'running'
+                       WHEN %(phase)s = 'stopped' THEN 'stopped'
+                       ELSE desired_state END,
+                   queued_at = CASE WHEN %(status)s = 'queued'
+                       THEN statement_timestamp() ELSE queued_at END,
+                   submitted_at = CASE WHEN %(status)s = 'queued'
+                       THEN EXTRACT(EPOCH FROM statement_timestamp()) ELSE submitted_at END,
                    host_id = NULL,
                    active_attempt_id = NULL,
                    reason_code = %(reason)s,
@@ -458,13 +469,23 @@ def expire_stale_leases(
                             - 'stopped_at' - 'stop_reason' - 'stopping_at'
                        ELSE COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent' END)
                        || jsonb_build_object('status', %(status)s::text,
-                           'lease_expired_at', EXTRACT(EPOCH FROM clock_timestamp())),
+                           'lease_expired_at', EXTRACT(EPOCH FROM clock_timestamp()))
+                       || CASE WHEN %(status)s = 'queued'
+                           THEN jsonb_build_object('submitted_at',
+                               EXTRACT(EPOCH FROM statement_timestamp()))
+                           ELSE '{}'::jsonb END,
                    version = version + 1,
                    updated_at = clock_timestamp()
              WHERE job_id = %(job)s
                AND active_attempt_id = %(attempt)s
             """,
-            {"reason": failure_code, "job": job_id, "attempt": attempt_id, "status": job_status},
+            {
+                "reason": failure_code,
+                "job": job_id,
+                "attempt": attempt_id,
+                "status": job_status,
+                "phase": job_phase(job_status),
+            },
         )
         from control_plane.outbox import append_event
 

@@ -104,7 +104,7 @@ def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
             if worker is None:
                 return False
             cur.execute(
-                """UPDATE jobs SET status='cancelled',
+                """UPDATE jobs SET status='cancelled',phase='stopped',desired_state='stopped',
                           payload=COALESCE(payload,'{}'::jsonb)||jsonb_build_object(
                             'status','cancelled','completed_at',EXTRACT(EPOCH FROM clock_timestamp())),
                           version=version+1,updated_at=clock_timestamp()

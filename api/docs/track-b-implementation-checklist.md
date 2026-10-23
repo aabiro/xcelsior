@@ -2540,6 +2540,17 @@ data disposition remain separately scoped below.
   the historical spec gaps and full contraction remain open. These migrations
   are locally qualified source candidates, not production mutations.
   [Backfill and column contract receipt](review/2026-10-22-historical-spec-contract.md).
+  **Native writer follow-up, 2026-10-22:** persistence, fenced reports,
+  lifecycle stop/readmission, lease expiry, serverless cancellation, host
+  admission and privacy deletion now maintain their native lifecycle fields.
+  A real PostgreSQL gate drops both projection functions/triggers and exercises
+  these transitions, including late reports preserving stop intent. Periodic
+  and preemption billing use admitted identity/capacity and exclude serverless
+  workers despite conflicting observations. The shipped head remains 130;
+  permanent trigger contraction, raw-fixture conversion, remaining admission
+  and worker handoff review repairs, historical disposition and broader JSONB
+  removal remain open. This is source qualification, not production deployment.
+  [Native writer receipt](review/2026-10-22-native-projection-writers.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   B16.2 removes the trigger: weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
