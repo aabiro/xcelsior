@@ -200,7 +200,7 @@ def create_plan(
                 str(victim["active_attempt_id"]) != str(allocation["attempt_id"])
                 or victim["spec_hash"] != allocation["attempt_spec_hash"]
                 or victim["generation"] != allocation["job_generation"]
-                or (victim["payload"] or {}).get("lifecycle_intent")
+                or victim["lifecycle_intent"]
                 or allocation["status"] != "running"
                 or allocation["lease_status"] != "active"
                 or not allocation["lease_fresh"]

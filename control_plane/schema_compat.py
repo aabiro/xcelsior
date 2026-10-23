@@ -54,8 +54,8 @@ from psycopg import Connection
 # 132 makes historical disposition explicit. Deploy the qualified 126-compatible
 # native writers at dfacc879 before 131/132, then deploy this runtime. Historical
 # jobs cannot be resumed as a substitute for a new customer admission.
-# 133 owns the durable queue policy and service accounting used by placement.
-REQUIRED_MIN_REVISION = "133"
+# 134 moves lifecycle authority to the controller-owned native column.
+REQUIRED_MIN_REVISION = "134"
 REQUIRED_MAX_REVISION: str | None = None
 
 

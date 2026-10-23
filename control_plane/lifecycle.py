@@ -12,7 +12,6 @@ Volume detach stays deferred until observation/ACK settles the attempt
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass
@@ -74,32 +73,14 @@ def _mark_stopping_with_intent(
            SET status = 'stopping',
                phase = 'running',
                desired_state = 'stopped',
-               payload = jsonb_set(
-                   jsonb_set(
-                       jsonb_set(
-                           jsonb_set(
-                               COALESCE(payload, '{}'::jsonb),
-                               '{stopping_at}',
-                               to_jsonb(%s::float),
-                               true
-                           ),
-                           '{status}',
-                           '"stopping"'::jsonb,
-                           true
-                       ),
-                       '{stop_reason}',
-                       %s::jsonb,
-                       true
-                   ),
-                   '{lifecycle_intent}',
-                   %s::jsonb,
-                   true
-               ),
+               lifecycle_intent = %s,
+               payload = (COALESCE(payload,'{}'::jsonb)-'lifecycle_intent') ||
+                   jsonb_build_object('stopping_at',%s::float,'status','stopping','stop_reason',%s::text),
                version = version + 1,
                updated_at = clock_timestamp()
          WHERE job_id = %s
         """,
-        (now, json.dumps(reason_tag), json.dumps(intent), job_id),
+        (intent, now, reason_tag, job_id),
     )
 
 
@@ -140,7 +121,7 @@ def _request_fenced_stop_attempt(
             """
             SELECT job_id, status, host_id, active_attempt_id,
                    payload->>'container_name' AS container_name,
-                   payload->>'lifecycle_intent' AS lifecycle_intent
+                   lifecycle_intent
               FROM jobs
              WHERE job_id = %s
                AND status NOT IN (
@@ -284,7 +265,7 @@ def reconcile_fenced_stop(conn: Any, *, job_id: str, created_by: str) -> FencedL
     row = conn.execute(
         """
         SELECT status, desired_state, active_attempt_id, host_id,
-               payload->>'lifecycle_intent' AS lifecycle_intent,
+               lifecycle_intent,
                payload->>'container_name' AS container_name
           FROM jobs WHERE job_id = %s FOR UPDATE
         """,
@@ -334,12 +315,11 @@ def reconcile_fenced_stop(conn: Any, *, job_id: str, created_by: str) -> FencedL
         return refused("no_active_fenced_authority")
     conn.execute(
         """
-        UPDATE jobs SET payload = jsonb_set(
-                   COALESCE(payload, '{}'::jsonb), '{lifecycle_intent}', %s::jsonb, true),
+        UPDATE jobs SET lifecycle_intent=%s, payload=payload-'lifecycle_intent',
                version = version + 1, updated_at = clock_timestamp()
-         WHERE job_id = %s AND payload->>'lifecycle_intent' IS DISTINCT FROM %s
+         WHERE job_id = %s AND lifecycle_intent IS DISTINCT FROM %s
         """,
-        (json.dumps(intent), job_id, intent),
+        (intent, job_id, intent),
     )
     return FencedLifecycleResult(
         True,
@@ -441,7 +421,7 @@ def request_fresh_attempt_resume(
         job = conn.execute(
             """
             SELECT job_id, status, host_id, active_attempt_id,
-                   payload->>'lifecycle_intent' AS lifecycle_intent,
+                   lifecycle_intent,
                    EXISTS (
                        SELECT 1 FROM job_attempts a WHERE a.job_id = jobs.job_id
                    ) AS has_fenced_history,
@@ -520,6 +500,7 @@ def request_fresh_attempt_resume(
                    queued_at = to_timestamp(%s),
                    host_id = NULL,
                    active_attempt_id = NULL,
+                   lifecycle_intent = NULL,
                    schedule_claim_owner = NULL,
                    schedule_claim_token = NULL,
                    schedule_claim_expires_at = NULL,

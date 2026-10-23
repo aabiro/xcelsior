@@ -328,7 +328,7 @@ def expire_stale_leases(
         """
         SELECT l.lease_id, l.job_id, l.attempt_id, l.host_id, l.fencing_token, l.status,
                j.status AS job_status, j.desired_state,
-               j.payload->>'lifecycle_intent' AS lifecycle_intent,
+               j.lifecycle_intent,
                j.spec->>'job_type' AS job_type,
                (j.active_attempt_id=l.attempt_id AND j.host_id=l.host_id) AS current_authority
           FROM placement_leases l JOIN jobs j ON j.job_id = l.job_id
@@ -465,6 +465,7 @@ def expire_stale_leases(
                        THEN EXTRACT(EPOCH FROM statement_timestamp()) ELSE submitted_at END,
                    host_id = NULL,
                    active_attempt_id = NULL,
+                   lifecycle_intent = NULL,
                    reason_code = %(reason)s,
                    next_schedule_at = CASE WHEN %(status)s = 'queued'
                        THEN clock_timestamp() ELSE NULL END,
