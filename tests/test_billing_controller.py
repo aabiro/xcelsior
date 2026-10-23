@@ -65,7 +65,7 @@ def _mk_host(scratch) -> str:
     host_id = f"host-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) VALUES (%s,'active',%s,%s, 'admitted')",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s,'active',%s,%s, 'admitted', 'admitted', 'ready')""",
             (
                 host_id,
                 time.time(),
@@ -83,8 +83,8 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
     job_id = f"job-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state)
-               VALUES (%s, 'completed', 0, %s, %s, 'terminal', 'stopped')""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'completed', 0, %s, %s, 'succeeded', 'running', 0, NULL)""",
             (
                 job_id,
                 time.time(),

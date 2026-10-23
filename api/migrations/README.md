@@ -90,7 +90,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `130_contract_job_projection_columns.py`.**
+**Repository head: `131_retire_projection_triggers.py`.**
 
 126 adds hash-only attempt callback credentials. 127 verifies and archives inactive
 v1 lease history, then drops the obsolete table and its eight columns. Apply 127
@@ -121,13 +121,23 @@ status/submission evidence; unknown history aborts the table unit. The job
 projection bridge now fires only for legacy status/priority/submission writes
 and changes priority only when the raw priority changes. Claims, observations
 and billing metadata no longer erase priority boosts or native intent.
-Both projection triggers still exist: full removal remains dependent on native
-writer qualification and a contract migration with converted acceptance fixtures.
-The [native writer rehearsal](../docs/review/2026-10-22-native-projection-writers.md)
-exercises the converted runtime writers with both actual projection functions
-removed from disposable PostgreSQL. This is not the final B16.2
-contract-cleanup migration. Runtime floor remains 126; staged rollout still
-requires the native handoff before 127, then the later data/column migrations.
+131 removes both projection triggers and functions. The native writers own
+job phase, intent, priority and queue state; host registration defaults to
+pending administration. A validated host constraint refuses admitted/draining
+administration without normalized operator admission. Existing inconsistent
+authority refuses the host unit rather than being rewritten. Independent host
+and job transactions are resumable; downgrade restores the exact 130/082
+definitions and prior default without rewriting rows. Current-schema fixtures
+now supply explicit native fields; older migration fixtures retain their
+historical shape. The [native writer rehearsal](../docs/review/2026-10-22-native-projection-writers.md)
+and the migration up/down/interrupted-unit gates cover the handoff mechanics.
+
+This is a scoped trigger contraction, not final B16.2 cleanup. Runtime floor
+remains 126. Production rollout requires 126, the native API/worker/service
+handoff, 127, then the later data/column migrations. Before 131, every API,
+scheduler and maintenance replica must run the qualified native writers
+(`c0f4e4f4` or a qualified descendant). An Alembic upgrade is not that handoff.
+The historical payload bridge and unqualified spec histories remain open.
 
 (`125` stores one revoked client-credentials JWT id until that token's own
 expiry. Downgrade drops the table.)

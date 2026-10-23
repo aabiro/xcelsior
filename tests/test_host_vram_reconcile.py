@@ -77,8 +77,8 @@ class TestReconcileHostVram:
         }
         with _pool.connection() as conn:
             conn.execute(
-                """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-                   VALUES (%s, 'active', %s, %s, 'admitted')""",
+                """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+                   VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
                 (host_id, time.time(), json.dumps(payload)),
             )
             conn.commit()
@@ -95,8 +95,8 @@ class TestReconcileHostVram:
         with _pool.connection() as conn:
             conn.execute(
                 """INSERT INTO jobs
-                       (job_id, status, priority, submitted_at, host_id, payload)
-                   VALUES (%s, 'running', 0, %s, %s, %s)""",
+                       (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+                   VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
                 (job_id, time.time(), host_id, json.dumps(payload)),
             )
             conn.commit()

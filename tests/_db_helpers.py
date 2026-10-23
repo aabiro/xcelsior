@@ -19,16 +19,14 @@ def admit_test_host(host_id: str, *, active: bool = False, egress_isolated: bool
             data["capabilities"] = {**(data.get("capabilities") or {}), "egress_isolation": True}
         if active:
             data["status"] = "active"
+        if backend == "postgres":
+            # Trusted fixture authority first; the real native persistence
+            # writer then sets scheduling state and the compatibility mirror.
+            conn.execute(
+                "UPDATE hosts SET admission_state='admitted' WHERE host_id=%s",
+                (host_id,),
+            )
         scheduler.DatabaseOps.upsert_host(conn, data, backend=backend)
-        # Since migration 082 the projection derives administrative_state from
-        # the admission_state column, not from payload.admitted — a payload
-        # write can no longer promote a host, which is the point. Set the
-        # authority column so fixtures produce a host the scheduler will place
-        # on, without reintroducing the path 082 closed.
-        conn.execute(
-            "UPDATE hosts SET admission_state = 'admitted' WHERE host_id = %s",
-            (host_id,),
-        )
 
 
 from contextlib import contextmanager

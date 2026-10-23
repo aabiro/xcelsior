@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -16,7 +18,8 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='jobs' AND column_name='phase'"
             ).fetchone()
             is not None
         )
@@ -83,8 +86,8 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0):
     }
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps(payload)),
         )
         conn.commit()
@@ -116,10 +119,22 @@ def _mk_job(
     if scheduler:
         payload["scheduler"] = scheduler
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (job_id, status, priority, time.time(), json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                priority,
+                fixture_submitted_at,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                priority,
+                status,
+                fixture_submitted_at,
+            ),
         )
         conn.commit()
     fleet["jobs"].append(job_id)

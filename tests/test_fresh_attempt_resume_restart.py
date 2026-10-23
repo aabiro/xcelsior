@@ -7,6 +7,8 @@ start_container / pause_container for fenced cases.
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -73,8 +75,8 @@ def captured_enqueue(monkeypatch):
 def _mkhost(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'online', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'online', %s, %s, 'admitted', 'admitted', 'unknown')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
@@ -104,16 +106,21 @@ def _mkjob(cleanup, *, owner, host_id, status, container_name=None):
     job_id = f"job-rr-{uuid.uuid4().hex[:10]}"
     cname = container_name or f"xcl-{job_id}"
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, %s, 0, %s, %s, %s)""",
+                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
             (
                 job_id,
                 status,
-                time.time(),
+                fixture_submitted_at,
                 host_id,
                 json.dumps({"owner": owner, "name": job_id, "container_name": cname}),
+                job_phase(status),
+                initial_desired_state(status),
+                status,
+                fixture_submitted_at,
             ),
         )
         conn.commit()
@@ -318,7 +325,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         ).fetchone()[0]
         conn.execute(
             """UPDATE jobs
-                  SET status = 'running',
+                  SET status = 'running', phase='running', desired_state='running',
                       host_id = %s,
                       active_attempt_id = %s
                 WHERE job_id = %s""",
@@ -337,7 +344,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         conn.commit()
         # Normal user-stop path: intermediate stopping without restart intent.
         conn.execute(
-            """UPDATE jobs SET status = 'stopping',
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped',
                    payload = jsonb_set(
                        COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent',
                        '{status}', '"stopping"'::jsonb, true

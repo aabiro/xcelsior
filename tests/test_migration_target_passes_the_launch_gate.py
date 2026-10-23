@@ -15,6 +15,8 @@ here and is not claimed. It needs two live instances that can share a volume.
 
 from __future__ import annotations
 
+from control_plane.state import host_states
+
 import json
 import os
 import time
@@ -54,8 +56,8 @@ def _insert_host(
     # the latter, so writing it directly is silently overwritten.
     conn.execute(
         """INSERT INTO hosts (host_id, status, registered_at, payload,
-                              admission_state, admitted_at)
-           VALUES (%s, %s, %s, %s, %s, clock_timestamp())""",
+                              admission_state, admitted_at, administrative_state, availability_state)
+           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s)""",
         (
             host_id,
             status,
@@ -76,6 +78,8 @@ def _insert_host(
                 }
             ),
             admission,
+            host_states(status, admission)[0],
+            host_states(status, admission)[1],
         ),
     )
 
@@ -136,7 +140,7 @@ def test_a_host_that_lost_admission_after_launch_is_refused(hosts):
         )
     with pg_transaction() as conn:
         conn.execute(
-            "UPDATE hosts SET admission_state = 'revoked' WHERE host_id = %s",
+            "UPDATE hosts SET admission_state='revoked',administrative_state='pending' WHERE host_id=%s",
             (hosts["target"],),
         )
     with pg_transaction() as conn:

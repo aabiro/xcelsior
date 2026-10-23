@@ -22,7 +22,8 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='jobs' AND column_name='phase'"
             ).fetchone()
             is not None
         )
@@ -99,14 +100,19 @@ def _place_one(fleet, marker, *, owner=None):
         job_payload["owner"] = owner
     with _pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, 'active', %s, %s, 'admitted')",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps(host_payload)),
         )
+        fixture_submitted_at = time.time()
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id) "
-            "VALUES (%s, 'queued', 0, %s, %s, %s)",
-            (job_id, time.time(), json.dumps(job_payload), owner),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'queued', 0, %s, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
+            (
+                job_id,
+                fixture_submitted_at,
+                json.dumps(job_payload),
+                owner,
+                fixture_submitted_at,
+            ),
         )
         conn.commit()
     fleet["hosts"].append(host_id)
@@ -678,8 +684,7 @@ class TestLegacyPatchFence:
         job_id = f"j-{marker}-legacy"
         with _pool.connection() as conn:
             conn.execute(
-                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-                "VALUES (%s, 'assigned', 0, %s, %s)",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'assigned', 0, %s, %s, 'scheduled', 'running', 0, NULL)""",
                 (job_id, time.time(), json.dumps({"job_id": job_id, "name": job_id})),
             )
             conn.commit()

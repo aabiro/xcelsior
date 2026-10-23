@@ -13,6 +13,7 @@ from control_plane.attempts import report_attempt_status
 from control_plane.job_reconcile import reconcile_job
 from control_plane.leases import claim_lease
 from control_plane.observations import ingest_observation
+from control_plane.state import job_phase
 from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
 from control_plane.scheduler.service import SchedulerService
 from db import _get_pg_pool
@@ -27,8 +28,7 @@ def placed():
     host_id, job_id, model = f"h-job-rec-{marker}", f"j-job-rec-{marker}", f"GPU-{marker}"
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, 'active', %s, %s, 'admitted')",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (
                 host_id,
                 time.time(),
@@ -47,12 +47,12 @@ def placed():
                 ),
             ),
         )
+        fixture_submitted_at = time.time()
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-            "VALUES (%s, 'queued', 0, %s, %s)",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
             (
                 job_id,
-                time.time(),
+                fixture_submitted_at,
                 Jsonb(
                     {
                         "job_id": job_id,
@@ -63,6 +63,7 @@ def placed():
                         "vram_needed_gb": 8,
                     }
                 ),
+                fixture_submitted_at,
             ),
         )
     try:
@@ -148,8 +149,8 @@ def _reconcile(placed, **kwargs):
 def _desire_stop(placed, *, status="stopping", intent=None):
     with placed["pool"].connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status = %s, payload = payload || %s WHERE job_id = %s",
-            (status, Jsonb({"lifecycle_intent": intent}), placed["job_id"]),
+            "UPDATE jobs SET status=%s,phase=%s,desired_state='stopped',payload=payload||%s WHERE job_id=%s",
+            (status, job_phase(status), Jsonb({"lifecycle_intent": intent}), placed["job_id"]),
         )
 
 
@@ -450,7 +451,10 @@ def test_exited_container_does_not_invent_success_or_release_authority(placed):
 
 def test_desired_stopped_requires_an_actual_fenced_stop_command(placed):
     with placed["pool"].connection() as conn:
-        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = %s", (placed["job_id"],))
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = %s""",
+            (placed["job_id"],),
+        )
     _observe(placed)
     report = _reconcile(placed)
     assert "job_stop_command_missing" in report.findings_opened

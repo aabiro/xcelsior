@@ -1,5 +1,7 @@
 """Durable enqueue, trusted observation routing, and recovery against PostgreSQL."""
 
+from control_plane.state import initial_desired_state, job_phase
+
 import time
 import uuid
 
@@ -17,10 +19,19 @@ pytestmark = pytest.mark.needs_db
 def _insert(conn, resources, status="queued"):
     jid = f"job-request-{uuid.uuid4().hex}"
     resources[1].append(jid)
+    fixture_submitted_at = time.time()
     conn.execute(
-        "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-        "VALUES (%s, %s, 0, %s, %s)",
-        (jid, status, time.time(), Jsonb({"job_id": jid, "status": status})),
+        """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, %s, 0, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+        (
+            jid,
+            status,
+            fixture_submitted_at,
+            Jsonb({"job_id": jid, "status": status}),
+            job_phase(status),
+            initial_desired_state(status),
+            status,
+            fixture_submitted_at,
+        ),
     )
     return jid
 
@@ -59,7 +70,10 @@ def test_coalescing_preserves_claim_and_ignores_observed_generation(resources):
             "due_at = clock_timestamp() + interval '1 hour' WHERE resource_id = %s",
             (jid,),
         )
-        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = %s", (jid,))
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = %s""",
+            (jid,),
+        )
         assert _queue(conn, jid) == ("job_changed", "replica")
         assert conn.execute(
             "SELECT due_at < clock_timestamp() FROM reconciliation_queue WHERE resource_id = %s",

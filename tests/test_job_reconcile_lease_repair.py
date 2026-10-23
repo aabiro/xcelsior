@@ -145,7 +145,10 @@ def test_lease_repair_does_not_wait_on_command_writer(placed, monkeypatch):
 def test_unclaimed_expired_offer_uses_failed_attempt_semantics(placed, monkeypatch):
     monkeypatch.setenv(FLAG, "enforce")
     with placed["pool"].connection() as conn:
-        conn.execute("UPDATE jobs SET status='leased' WHERE job_id=%s", (placed["job_id"],))
+        conn.execute(
+            """UPDATE jobs SET status='leased', phase='scheduled', desired_state='running' WHERE job_id=%s""",
+            (placed["job_id"],),
+        )
         conn.execute(
             "UPDATE job_attempts SET status='lease_offered' WHERE attempt_id=%s",
             (placed["attempt_id"],),
@@ -164,7 +167,7 @@ def test_job_repair_cannot_settle_another_jobs_earlier_expired_lease(placed, mon
     peer = placed["job_id"] + "-peer"
     with placed["pool"].connection() as conn:
         conn.execute(
-            "INSERT INTO jobs(job_id,status,host_id,payload,submitted_at,priority) VALUES (%s,'running',%s,'{}',0,0)",
+            """INSERT INTO jobs(job_id,status,host_id,payload,submitted_at,priority, phase, desired_state, effective_priority, queued_at) VALUES (%s,'running',%s,'{}',0,0, 'running', 'running', 0, NULL)""",
             (peer, placed["host_id"]),
         )
         aid, fence = conn.execute(

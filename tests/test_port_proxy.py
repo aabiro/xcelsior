@@ -11,6 +11,8 @@ Covers the three new endpoints introduced for subdomain routing:
 
 from __future__ import annotations
 
+from control_plane.state import host_states, initial_desired_state, job_phase
+
 import json
 import os
 import time
@@ -87,15 +89,29 @@ def seeded_job():
 
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, %s, %s, %s::jsonb, 'admitted') "
-            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
-            (host_id, "active", now, json.dumps(host_payload)),
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, %s, %s, %s::jsonb, 'admitted', %s, %s) ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload""",
+            (
+                host_id,
+                "active",
+                now,
+                json.dumps(host_payload),
+                host_states("active", "admitted")[0],
+                host_states("active", "admitted")[1],
+            ),
         )
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s, %s, 0, %s, %s, %s::jsonb)",
-            (job_id, "running", now, host_id, json.dumps(job_payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, %s, 0, %s, %s, %s::jsonb, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                "running",
+                now,
+                host_id,
+                json.dumps(job_payload),
+                job_phase("running"),
+                initial_desired_state("running"),
+                "running",
+                now,
+            ),
         )
         conn.commit()
 
@@ -228,9 +244,7 @@ def test_expose_400_when_not_running(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status='stopped', "
-            "payload = jsonb_set(payload, '{status}', '\"stopped\"') "
-            "WHERE job_id=%s",
+            """UPDATE jobs SET status='stopped', phase='stopped', desired_state='stopped', payload = jsonb_set(payload, '{status}', '"stopped"') WHERE job_id=%s""",
             (seeded_job["job_id"],),
         )
         conn.commit()
@@ -300,7 +314,7 @@ def test_internal_route_404_when_job_not_running(client, seeded_job):
     _set_http_ports(seeded_job["job_id"], {"8888": 55123})
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status='stopped' WHERE job_id=%s",
+            """UPDATE jobs SET status='stopped', phase='stopped', desired_state='stopped' WHERE job_id=%s""",
             (seeded_job["job_id"],),
         )
         conn.commit()
