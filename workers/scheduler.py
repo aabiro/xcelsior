@@ -184,9 +184,13 @@ def _decode_payload(payload) -> Any:
         return None
 
 
-def _upsert_job_row(conn, job, *, admission_spec=None):
+def _upsert_job_row(conn, job, *, admission_spec=None, admission_request=None):
     return DatabaseOps.upsert_job(
-        conn, job, backend=_active_backend(), admission_spec=admission_spec
+        conn,
+        job,
+        backend=_active_backend(),
+        admission_spec=admission_spec,
+        admission_request=admission_request,
     )
 
 
@@ -1710,6 +1714,13 @@ def submit_job(
     """
     from control_plane.launch.canonicalize import canonicalize
 
+    if job_id:
+        job_id = str(job_id).strip()
+        if not job_id:
+            raise ValueError("submission requires a nonempty job id")
+    if conn is not None and (serverless_config is None or _active_backend() != "postgres"):
+        raise ValueError("caller-owned submission requires native serverless provisioning")
+
     launch_spec = canonicalize(
         {
             "name": name,
@@ -1738,6 +1749,26 @@ def submit_job(
     if admitted_launch_spec is not None and launch_spec != admitted_launch_spec:
         raise ValueError("submission does not match its approved launch spec")
 
+    # Request intent is separate from server-selected defaults. Retrying a
+    # committed admission must not re-price or re-authorize its workload from
+    # a changed account balance, tier policy or configured NFS endpoint.
+    admission_request = json.loads(
+        json.dumps(
+            {
+                "version": 1,
+                "launch_spec": launch_spec,
+                "owner": str(owner or ""),
+                "priority": None if tier else int(priority or 0),
+                "exclusive_gpu": bool(exclusive_gpu),
+                "job_type": str(job_type or "").strip(),
+                "preferred_host_id": preferred_host_id or None,
+                "placement_preference": placement_preference or None,
+                "serverless_config": serverless_config,
+            },
+            allow_nan=False,
+        )
+    )
+
     # Validate Docker image if provided
     if image:
         from security import validate_docker_image
@@ -1756,6 +1787,14 @@ def submit_job(
         with get_engine().connection() as (policy_conn, backend):
             if job_blocked(policy_conn, job_id, backend=backend):
                 raise ValueError(f"Job '{job_id}' is blocked by security policy")
+
+        if _active_backend() == "postgres":
+            with nullcontext(conn) if conn is not None else _atomic_mutation() as replay_conn:
+                replay = DatabaseOps.replay_job_admission(
+                    replay_conn, str(job_id).strip(), admission_request
+                )
+                if replay is not None:
+                    return replay
 
     pricing_mode = (pricing_mode or "on_demand").strip().lower()
     if pricing_mode not in ("on_demand", "spot", "reserved"):
@@ -1868,10 +1907,10 @@ def submit_job(
         job["pricing_mode"] = "spot"
 
     outbox_enqueued = False
-    if conn is not None and (serverless_config is None or _active_backend() != "postgres"):
-        raise ValueError("caller-owned submission requires native serverless provisioning")
     with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
-        admitted = _upsert_job_row(write_conn, job, admission_spec=launch_spec)
+        admitted = _upsert_job_row(
+            write_conn, job, admission_spec=launch_spec, admission_request=admission_request
+        )
         if admitted is not None:
             job = admitted
         if _active_backend() == "postgres":

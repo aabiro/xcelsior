@@ -30,6 +30,7 @@ def execution(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "_protocol_negotiated", True)
     monkeypatch.setattr(worker, "_shutdown", threading.Event())
     monkeypatch.setattr(worker, "_active_containers", {auth["job_id"]: {}})
+    monkeypatch.setattr(worker, "LogForwarder", mock.Mock())
     monkeypatch.setattr(worker.time, "sleep", lambda _: None)
     worker._v2_journal_save()
 
@@ -70,6 +71,59 @@ def test_transient_terminal_failure_retries_before_removing_container(execution,
     assert posts[0] == posts[1]
     cleanup.assert_called_once_with(auth["container_name"])
     assert auth["job_id"] not in json.loads(journal.read_text())
+
+
+def test_pre_container_failure_survives_report_outage(execution, monkeypatch):
+    auth, journal, _ = execution
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("missing", -1, ""))
+    post = mock.Mock(side_effect=[(503, {}), (200, {})])
+    monkeypatch.setattr(worker, "_v2_post", post)
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        assert (
+            worker.report_job_status(auth["job_id"], "failed", error_message="not journaled")
+            is False
+        )
+    assert json.loads(journal.read_text())[auth["job_id"]]["pending_terminal_report"] == {
+        "status": "failed",
+        "failure_code": "container_failed",
+    }
+    assert "not journaled" not in journal.read_text()
+    thread.call_args.kwargs["target"](*thread.call_args.kwargs["args"])
+    assert post.call_args.args[1]["status"] == "failed"
+    assert auth["job_id"] not in worker._v2_attempts
+
+
+def test_pending_startup_failure_retries_after_restart(execution, monkeypatch):
+    auth, journal, _ = execution
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("missing", -1, ""))
+    monkeypatch.setattr(worker, "_v2_post", mock.Mock(return_value=(503, {})))
+    with mock.patch.object(worker.threading, "Thread"):
+        assert not worker.report_job_status(auth["job_id"], "failed")
+    worker._v2_attempts.clear()
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        assert worker.v2_adopt_attempts() == 0
+    monkeypatch.setattr(worker, "_v2_post", mock.Mock(return_value=(200, {})))
+    thread.call_args.kwargs["target"](*thread.call_args.kwargs["args"])
+    assert auth["job_id"] not in json.loads(journal.read_text())
+
+
+def test_pending_failure_stops_matching_container_before_retry(execution, monkeypatch):
+    auth, _, _ = execution
+    auth["pending_terminal_report"] = {"status": "failed", "failure_code": "setup_failed"}
+    state = mock.Mock(return_value=("running", 0, auth["attempt_id"]))
+    monkeypatch.setattr(worker, "_v2_container_state", state)
+
+    def stopped(*args):
+        state.return_value = ("exited", 137, auth["attempt_id"])
+
+    stop = mock.Mock(side_effect=stopped)
+    monkeypatch.setattr(worker, "_v2_stop_container", stop)
+    post = mock.Mock(return_value=(200, {}))
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker._v2_monitor_container(auth)
+    stop.assert_called_once()
+    assert post.call_count == 1
+    assert post.call_args.args[1]["failure_code"] == "setup_failed"
 
 
 def test_shutdown_retains_exit_and_restart_retries(execution, monkeypatch):

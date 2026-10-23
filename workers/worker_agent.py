@@ -2798,6 +2798,142 @@ _V2_JOURNAL_PATH = os.environ.get(
 _V2_COMPLETED_COMMANDS_KEY = "__completed_commands__"
 _V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
 _v2_completed_commands: dict[str, dict] = {}
+_V2_CLEANUP_KEY = "__pending_cleanup__"
+_v2_cleanup_pending: dict[str, dict] = {}
+_v2_resources_lock = threading.RLock()
+_v2_cleanup_sweep_lock = threading.Lock()
+
+
+def _v2_resource_intent(auth: dict, kind: str, value) -> None:
+    """Persist local cleanup ownership before a privileged resource operation."""
+    with _v2_resources_lock, _v2_attempts_lock:
+        if _v2_attempts.get(auth["job_id"]) is not auth:
+            raise RuntimeError("Resource setup lost its local fenced authority")
+        resources = auth.setdefault("resources", {})
+        resources["host_id"] = HOST_ID
+        if kind == "exclusive":
+            resources[kind] = value
+        else:
+            values = resources.setdefault(kind, [])
+            if value not in values:
+                values.append(value)
+        if not _v2_journal_save():
+            raise OSError("Cannot persist fenced resource ownership")
+
+
+def _v2_restore_resource_lock(auth: dict) -> bool:
+    """Reacquire the process-local flock before adopting an exclusive survivor."""
+    import fcntl
+
+    exclusive = (auth.get("resources") or {}).get("exclusive")
+    if not exclusive or auth.get("_exclusive_state", {}).get("lock_fd") is not None:
+        return True
+    fd = None
+    try:
+        fd = os.open(GPU_LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o664)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        auth["_exclusive_state"] = {
+            "ok": True,
+            "lock_fd": fd,
+            "ollama_pids": list(exclusive.get("ollama_pids") or []),
+            "drain_requested": bool(exclusive.get("drain_requested", True)),
+        }
+        return True
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+        return False
+
+
+def _v2_cancel_mount_intent(auth: dict, mount_point: str) -> None:
+    """A refused mount acquired no resource; retain only completed mounts."""
+    with _v2_resources_lock, _v2_attempts_lock:
+        mounts = (auth.get("resources") or {}).get("nfs_mounts") or []
+        if mount_point in mounts:
+            mounts.remove(mount_point)
+            if not _v2_journal_save():
+                raise OSError("Cannot persist refused mount cleanup")
+
+
+def _v2_cleanup_resources(auth: dict) -> bool:
+    """Release only quiescent, owned resources; retain failed cleanup for retry."""
+    resources = auth.get("resources") or {}
+    if not resources:
+        return True
+    if resources.get("host_id") != HOST_ID:
+        log.error("Resource cleanup refused a journal from another host")
+        return False
+    state, _, label = _v2_container_state(auth["job_id"], auth["container_name"])
+    if state != "missing" and not (state == "exited" and label == auth["attempt_id"]):
+        return False
+    if not _v2_restore_resource_lock(auth):
+        return False
+    with _v2_resources_lock:
+        with _v2_attempts_lock:
+            others = [
+                a.get("resources") or {}
+                for a in [*_v2_attempts.values(), *_v2_cleanup_pending.values()]
+                if not _v2_same_authority(a, auth)
+            ]
+        try:
+            for kind, operation in [
+                ("nfs_mounts", _unmount_nfs),
+                ("encrypted_volumes", detach_encrypted_volume),
+                ("workspaces", destroy_encrypted_volume),
+            ]:
+                for value in list(resources.get(kind) or []):
+                    shared = any(value in other.get(kind, []) for other in others)
+                    if shared or operation(value) is not False:
+                        with _v2_attempts_lock:
+                            resources[kind].remove(value)
+                            if not _v2_journal_save():
+                                return False
+            if any(resources.get(k) for k in ["nfs_mounts", "encrypted_volumes", "workspaces"]):
+                return False
+            if resources.get("exclusive"):
+                if any(other.get("exclusive") for other in others):
+                    return False
+                state = auth.get("_exclusive_state") or resources["exclusive"]
+                if _release_exclusive_gpu(auth["job_id"], state) is False:
+                    with _v2_attempts_lock:
+                        resources["exclusive"].update(
+                            ollama_pids=list(state.get("ollama_pids") or []),
+                            drain_requested=bool(state.get("drain_requested", True)),
+                        )
+                        _v2_journal_save()
+                    return False
+                with _v2_attempts_lock:
+                    resources.pop("exclusive", None)
+            with _v2_attempts_lock:
+                auth["resources"] = {}
+                _v2_cleanup_pending.pop(auth["attempt_id"], None)
+                return _v2_journal_save()
+        except Exception as exc:
+            log.warning("Resource cleanup retained for attempt %s: %s", auth["attempt_id"], exc)
+            return False
+
+
+def _v2_retry_resource_cleanup(*, background: bool = False) -> None:
+    with _v2_attempts_lock:
+        pending = list(_v2_cleanup_pending.values())
+    if background:
+        if not pending or not _v2_cleanup_sweep_lock.acquire(blocking=False):
+            return
+
+        def sweep():
+            try:
+                for auth in pending:
+                    _v2_cleanup_resources(auth)
+            finally:
+                _v2_cleanup_sweep_lock.release()
+
+        try:
+            threading.Thread(target=sweep, name="v2-resource-cleanup", daemon=True).start()
+        except RuntimeError:
+            _v2_cleanup_sweep_lock.release()
+        return
+    for auth in pending:
+        _v2_cleanup_resources(auth)
 
 
 def _v2_journal_save() -> bool:
@@ -2823,6 +2959,12 @@ def _v2_journal_save() -> bool:
                 "spec_hash": a.get("spec_hash"),
                 "interactive": bool(a.get("interactive", False)),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
+                **({"resources": a["resources"]} if a.get("resources") else {}),
+                **(
+                    {"pending_terminal_report": a["pending_terminal_report"]}
+                    if a.get("pending_terminal_report")
+                    else {}
+                ),
                 **(
                     {"pending_start_failure": a["pending_start_failure"]}
                     if a.get("pending_start_failure")
@@ -2839,6 +2981,21 @@ def _v2_journal_save() -> bool:
         snapshot[_V2_COMPLETED_COMMANDS_KEY] = {
             command_id: dict(record) for command_id, record in _v2_completed_commands.items()
         }
+        if _v2_cleanup_pending:
+            snapshot[_V2_CLEANUP_KEY] = {
+                attempt_id: {
+                    key: auth.get(key)
+                    for key in (
+                        "job_id",
+                        "attempt_id",
+                        "lease_id",
+                        "fencing_token",
+                        "container_name",
+                        "resources",
+                    )
+                }
+                for attempt_id, auth in _v2_cleanup_pending.items()
+            }
         temporary = None
         try:
             import tempfile
@@ -2868,14 +3025,20 @@ def _v2_journal_save() -> bool:
 
 
 def _v2_journal_load() -> dict:
-    global _v2_completed_commands
+    global _v2_completed_commands, _v2_cleanup_pending
     try:
         with open(_V2_JOURNAL_PATH) as fh:
             data = json.load(fh)
         if not isinstance(data, dict):
             return {}
         raw_completed = data.pop(_V2_COMPLETED_COMMANDS_KEY, {})
+        raw_cleanup = data.pop(_V2_CLEANUP_KEY, {})
         with _v2_attempts_lock:
+            _v2_cleanup_pending = (
+                {str(k): dict(v) for k, v in raw_cleanup.items() if isinstance(v, dict)}
+                if isinstance(raw_cleanup, dict)
+                else {}
+            )
             _v2_completed_commands = (
                 {
                     str(command_id): dict(record)
@@ -2909,11 +3072,13 @@ def _v2_mark_command_complete(command_id: str, result: dict, *, strict: bool = F
         return False
 
 
-def _v2_record_and_ack(command_id: str, result: dict) -> bool:
+def _v2_record_and_ack(
+    command_id: str, result: dict, *, retryable_on_journal_error: bool = True
+) -> bool:
     try:
         _v2_mark_command_complete(command_id, result, strict=True)
     except OSError:
-        v2_nack_command(command_id, "journal_unavailable", retryable=True)
+        v2_nack_command(command_id, "journal_unavailable", retryable=retryable_on_journal_error)
         return False
     v2_ack_command(command_id, result)
     return True
@@ -2941,8 +3106,14 @@ def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
         ):
             return
         auth = _v2_attempts.pop(job_id, None)
+        if auth is not None and auth.get("resources"):
+            _v2_cleanup_pending[auth["attempt_id"]] = auth
     if auth is not None:
         auth["stop"].set()
+        forwarder = auth.pop("_log_forwarder", None)
+        if forwarder is not None:
+            with suppress(Exception):
+                forwarder.stop()
         with _active_lock:
             if job_id in _adopted_containers and _active_containers.get(job_id) == auth.get(
                 "container_name"
@@ -2989,11 +3160,18 @@ def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple
     return ("running" if running else "exited", exit_code, label)
 
 
-def _v2_track_adopted(auth: dict) -> None:
+def _v2_track_adopted(auth: dict, *, confirmed: bool = True) -> None:
     """Keep restart survivors visible to heartbeat, warmers and benchmarks."""
     with _active_lock:
         _active_containers[auth["job_id"]] = auth["container_name"]
         _adopted_containers.add(auth["job_id"])
+    if confirmed and auth.get("_log_forwarder") is None:
+        try:
+            forwarder = LogForwarder(auth["job_id"], auth["container_name"])
+            forwarder.start()
+            auth["_log_forwarder"] = forwarder
+        except Exception as exc:
+            log.warning("Log forwarding could not resume for job %s: %s", auth["job_id"], exc)
 
 
 def _v2_pending_adoption_loop(auth: dict) -> None:
@@ -3006,7 +3184,7 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
         code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
         if stop.is_set():
             return
-        if code == 200:
+        if code == 200 and _v2_restore_resource_lock(auth):
             state, _exit_code, label = _v2_container_state(job_id, auth["container_name"])
             if state == "running" and label == auth["attempt_id"]:
                 _v2_track_adopted(auth)
@@ -3115,14 +3293,19 @@ def v2_adopt_attempts() -> int:
                 "spec_hash": rec.get("spec_hash"),
                 "interactive": bool(rec.get("interactive", False)),
                 "running_report_pending": bool(rec.get("running_report_pending", False)),
+                "resources": dict(rec.get("resources") or {}),
                 "stop": threading.Event(),
             }
             if isinstance(rec.get("pending_command"), dict):
                 auth["pending_command"] = dict(rec["pending_command"])
+            if isinstance(rec.get("pending_terminal_report"), dict):
+                auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
             if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
                 auth["pending_start_failure"] = rec["pending_start_failure"]
         except (KeyError, TypeError, ValueError):
             continue
+        with _v2_attempts_lock:
+            _v2_attempts[job_id] = auth
         if auth.get("pending_start_failure"):
             # No container was launched. Retry the journaled failure directly;
             # neither Docker discovery nor a renewed execution grant is needed.
@@ -3150,10 +3333,12 @@ def v2_adopt_attempts() -> int:
                 label[:8],
                 auth["attempt_id"][:8],
             )
+            _v2_forget_attempt(job_id, auth)
             continue
         if state == "running":
             code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
             if code == 409:
+                _v2_forget_attempt(job_id, auth)
                 _v2_stop_container(
                     job_id,
                     "adoption renewal rejected",
@@ -3163,8 +3348,9 @@ def v2_adopt_attempts() -> int:
                 continue
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
-            _v2_track_adopted(auth)
-            if code == 200:
+            ready = code == 200 and _v2_restore_resource_lock(auth)
+            _v2_track_adopted(auth, confirmed=ready)
+            if ready:
                 threading.Thread(
                     target=_v2_renewal_loop,
                     args=(auth,),
@@ -3193,15 +3379,17 @@ def v2_adopt_attempts() -> int:
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
             pending = auth.get("pending_command")
+            terminal = auth.get("pending_terminal_report") or {}
             outcome = (
                 str(pending.get("terminal_status"))
                 if isinstance(pending, dict) and pending.get("terminal_status")
-                else _V2_STATUS_MAP[_v2_exit_status(auth, exit_code)]
+                else terminal.get("status") or _V2_STATUS_MAP[_v2_exit_status(auth, exit_code)]
             )
             report_outcome = v2_report_attempt_status(
                 auth,
                 outcome,
-                None if outcome != "failed" else "container_exited",
+                terminal.get("failure_code")
+                or (None if outcome != "failed" else "container_exited"),
                 None if outcome != "failed" else {"exit_code": exit_code},
             )
             if report_outcome == "ok" and isinstance(pending, dict):
@@ -3226,15 +3414,21 @@ def v2_adopt_attempts() -> int:
                 outcome,
             )
         else:
+            terminal = auth.get("pending_terminal_report") or {}
             report_outcome = v2_report_attempt_status(
                 auth,
-                "failed",
-                "container_missing",
+                terminal.get("status") or "failed",
+                terminal.get("failure_code") if terminal else "container_missing",
                 {"note": "agent restarted; container not found"},
             )
             if report_outcome == "error":
                 with _v2_attempts_lock:
                     _v2_attempts[job_id] = auth
+                if terminal:
+                    _v2_start_exit_monitor(auth)
+            else:
+                _v2_forget_attempt(job_id, auth)
+    _v2_retry_resource_cleanup()
     _v2_journal_save()
     return adopted
 
@@ -3330,6 +3524,15 @@ def _v2_on_job_status(
         return outcome
     if outcome == "ok" and v2_status in ("succeeded", "failed", "stopped"):
         _v2_forget_attempt(job_id, auth)
+    elif outcome == "error" and v2_status in ("succeeded", "failed", "stopped"):
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is auth:
+                auth["pending_terminal_report"] = {
+                    "status": v2_status,
+                    "failure_code": failure_code,
+                }
+                _v2_journal_save()
+        _v2_start_exit_monitor(auth)
     return outcome
 
 
@@ -3392,6 +3595,14 @@ def handle_start_attempt(cmd: dict) -> None:
         )
         return
 
+    with _v2_attempts_lock:
+        previous = _v2_attempts.get(job_id)
+    if previous and _v2_same_authority(previous, auth) and previous.get("pending_start_failure"):
+        reason = previous["pending_start_failure"]
+        _v2_abort_claimed_start(previous, reason)
+        v2_nack_command(command_id, reason, retryable=False)
+        return
+
     # §11.2 hard gate — no grant, no container. Non-retryable: the offer
     # is single-shot; the lease-expiry sweep requeues with a new fence.
     grant = v2_claim_lease_fenced(auth)
@@ -3411,7 +3622,7 @@ def handle_start_attempt(cmd: dict) -> None:
         _v2_attempts[job_id] = auth
     if not _v2_journal_save():
         _v2_abort_claimed_start(auth, "journal_unavailable")
-        v2_nack_command(command_id, "journal_unavailable", retryable=True)
+        v2_nack_command(command_id, "journal_unavailable", retryable=False)
         return
     lease_report = v2_report_attempt_status(auth, "lease_claimed")
     if lease_report == "fenced":
@@ -3419,7 +3630,7 @@ def handle_start_attempt(cmd: dict) -> None:
         v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
         return
     start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
-    if not _v2_record_and_ack(command_id, start_result):
+    if not _v2_record_and_ack(command_id, start_result, retryable_on_journal_error=False):
         _v2_abort_claimed_start(auth, "journal_unavailable")
         return
 
@@ -3676,6 +3887,8 @@ def report_observations_v2(force: bool = False) -> bool:
     global _last_observation_at
     if not _v2_enabled:
         return False
+    _resume_pending_log_delivery()
+    _v2_retry_resource_cleanup(background=True)
     now = time.time()
     if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
         return False
@@ -4070,19 +4283,15 @@ TOWER_SERVERLESS_URL = os.environ.get("TOWER_SERVERLESS_URL", "http://127.0.0.1:
 EXCLUSIVE_GPU_LOCK_TIMEOUT_S = 60
 
 
-def _acquire_exclusive_gpu(job_id: str) -> dict:
-    """Acquire exclusive access to the local GPU. See module-level docstring.
-    Returns a state dict with keys: ok, lock_fd, ollama_pids, error.
-    """
+def _acquire_exclusive_gpu(job_id: str, *, checkpoint=None) -> dict:
+    """Record drain and planned process ownership before their side effects."""
     import fcntl
 
-    state: dict = {"ok": False, "lock_fd": None, "ollama_pids": []}
-
-    # 1. flock (blocking with timeout)
+    state: dict = {"ok": False, "lock_fd": None, "ollama_pids": [], "drain_requested": False}
     try:
         fd = os.open(GPU_LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o664)
-    except OSError as e:
-        state["error"] = f"open(gpu.lock): {e}"
+    except OSError as exc:
+        state["error"] = f"open(gpu.lock): {exc}"
         return state
     deadline = time.time() + EXCLUSIVE_GPU_LOCK_TIMEOUT_S
     while True:
@@ -4091,77 +4300,87 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
             break
         except BlockingIOError:
             if time.time() >= deadline:
-                with suppress(Exception):
-                    os.close(fd)
-                state["error"] = (
-                    f"flock timeout ({EXCLUSIVE_GPU_LOCK_TIMEOUT_S}s) — "
-                    "another tier-1 tenant holds the GPU"
-                )
+                os.close(fd)
+                state["error"] = f"flock timeout ({EXCLUSIVE_GPU_LOCK_TIMEOUT_S}s)"
                 return state
             time.sleep(0.5)
     state["lock_fd"] = fd
-    log.info("exclusive_gpu[%s]: flock acquired", job_id)
+    if checkpoint:
+        checkpoint(state)
 
-    # 2. drain serverless
+    state["drain_requested"] = True
+    if checkpoint:
+        checkpoint(state)
     try:
-        r = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
-        log.info(
-            "exclusive_gpu[%s]: drain rc=%s body=%s",
-            job_id,
-            r.status_code,
-            r.text[:120],
-        )
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: drain skipped (%s)", job_id, e)
-
-    # 3. ollama stop (graceful unload)
+        reply = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
+        if reply.status_code == 404:
+            state["drain_requested"] = False
+        log.info("exclusive_gpu[%s]: drain rc=%s", job_id, reply.status_code)
+    except Exception as exc:
+        log.warning("exclusive_gpu[%s]: drain response unavailable (%s)", job_id, exc)
+    if checkpoint:
+        checkpoint(state)
     try:
         subprocess.run(["ollama", "stop"], timeout=10, capture_output=True)
-        log.info("exclusive_gpu[%s]: ollama stop sent", job_id)
-    except FileNotFoundError:
-        log.info("exclusive_gpu[%s]: ollama not installed — skipping", job_id)
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: ollama stop failed (%s)", job_id, e)
+    except Exception as exc:
+        log.debug("exclusive_gpu[%s]: graceful unload unavailable (%s)", job_id, exc)
 
-    # 4-5. SIGSTOP ollama, SIGTERM tier3- jobs (root helper: other users' processes)
-    try:
-        reply = worker_privileged.call("gpu_tenants", action="pause")
-        if reply.get("ok"):
-            state["ollama_pids"] = list(reply.get("stopped") or [])
-            if state["ollama_pids"]:
-                log.info(
-                    "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s", job_id, state["ollama_pids"]
-                )
-        else:
-            log.warning(
-                "exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, reply.get("error")
-            )
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, e)
-
+    plan = worker_privileged.call("gpu_tenants", action="inspect")
+    pids = plan.get("stopped")
+    if (
+        not plan.get("ok")
+        or not isinstance(pids, list)
+        or not all(type(p) is int and p > 0 for p in pids)
+    ):
+        raise RuntimeError("GPU tenant helper cannot prepare a durable pause")
+    state["ollama_pids"] = list(pids)
+    if checkpoint:
+        checkpoint(state)
+    reply = worker_privileged.call("gpu_tenants", action="pause", pids=pids)
+    if not reply.get("ok"):
+        raise RuntimeError("GPU tenant pause was not confirmed")
     state["ok"] = True
+    if checkpoint:
+        checkpoint(state)
     return state
 
 
-def _release_exclusive_gpu(job_id: str, state: dict) -> None:
+def _release_exclusive_gpu(job_id: str, state: dict) -> bool:
     """Reverse of _acquire_exclusive_gpu. Idempotent and best-effort."""
     import fcntl
 
     if not state:
-        return
+        return True
+    released = True
 
     # 1. SIGCONT ollama runners
     if state.get("ollama_pids"):
         try:
-            worker_privileged.call("gpu_tenants", action="resume", pids=state["ollama_pids"])
+            reply = worker_privileged.call(
+                "gpu_tenants", action="resume", pids=state["ollama_pids"]
+            )
+            if reply.get("ok"):
+                state["ollama_pids"] = []
+            else:
+                released = False
         except Exception as e:
             log.warning("exclusive_gpu[%s]: resuming ollama failed (%s)", job_id, e)
+            released = False
 
-    # 2. resume serverless
-    try:
-        requests.post(f"{TOWER_SERVERLESS_URL}/admin/resume", timeout=5)
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: resume failed (%s)", job_id, e)
+    # 2. resume only a requested drain, including uncertain prior responses.
+    if state.get("drain_requested", True):
+        try:
+            response = requests.post(f"{TOWER_SERVERLESS_URL}/admin/resume", timeout=5)
+            if 200 <= response.status_code < 300:
+                state["drain_requested"] = False
+            else:
+                released = False
+        except Exception as e:
+            log.warning("exclusive_gpu[%s]: resume failed (%s)", job_id, e)
+            released = False
+
+    if not released:
+        return False
 
     # 3. release flock
     fd = state.get("lock_fd")
@@ -4170,8 +4389,10 @@ def _release_exclusive_gpu(job_id: str, state: dict) -> None:
             fcntl.flock(fd, fcntl.LOCK_UN)
         with suppress(Exception):
             os.close(fd)
+        state["lock_fd"] = None
 
     log.info("exclusive_gpu[%s]: released", job_id)
+    return True
 
 
 # ── Serverless worker helpers ────────────────────────────────────────
@@ -4336,9 +4557,7 @@ def run_job(job):
     with _active_lock:
         _active_containers[job_id] = container_name
 
-    encrypted_vol_ids = []
     encrypted_ws_vid = None
-    managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
     current_stage = "preparing instance"
 
     # ── Phase 7 / §3: acquire exclusive GPU before any container/IO setup ──
@@ -4350,8 +4569,34 @@ def run_job(job):
                 "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
                 job_id,
             )
-            _excl_state = _acquire_exclusive_gpu(job_id)
+            _v2_resource_intent(
+                authority, "exclusive", {"ollama_pids": [], "drain_requested": False}
+            )
+
+            def checkpoint_exclusive(state):
+                authority["_exclusive_state"] = state
+                _v2_resource_intent(
+                    authority,
+                    "exclusive",
+                    {
+                        "ollama_pids": list(state.get("ollama_pids") or []),
+                        "drain_requested": bool(state.get("drain_requested", False)),
+                    },
+                )
+
+            _excl_state = _acquire_exclusive_gpu(job_id, checkpoint=checkpoint_exclusive)
+            authority["_exclusive_state"] = _excl_state
+            _v2_resource_intent(
+                authority,
+                "exclusive",
+                {
+                    "ollama_pids": list(_excl_state.get("ollama_pids") or []),
+                    "drain_requested": bool(_excl_state.get("drain_requested", False)),
+                },
+            )
             if not _excl_state.get("ok"):
+                authority["resources"].pop("exclusive", None)
+                _v2_journal_save()
                 err = _excl_state.get("error", "unknown")
                 log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
                 report_status(
@@ -4381,11 +4626,13 @@ def run_job(job):
             and not has_managed_volumes
             and (not is_interactive or job_requires_nfs)
         ):
+            _v2_resource_intent(authority, "nfs_mounts", nfs_mount_point)
             nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
             if nfs_mounted:
                 log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
                 volumes = list(volumes) + [f"{nfs_mount_point}:/data/nfs:rw"]
             else:
+                _v2_cancel_mount_intent(authority, nfs_mount_point)
                 if job_requires_nfs:
                     err = "required NFS mount failed"
                     log.error("Job %s aborting — %s", job_id, err)
@@ -4401,10 +4648,10 @@ def run_job(job):
             vol_mount = vol.get("mount_path", f"/data/vol-{vol_id[:8]}")
             vol_mode = vol.get("mode", "rw")
             if vol_id:
+                _v2_resource_intent(authority, "encrypted_volumes", vol_id)
                 mount_path = attach_encrypted_volume(vol_id)
                 if mount_path:
                     volumes = list(volumes) + [f"{mount_path}:{vol_mount}:{vol_mode}"]
-                    encrypted_vol_ids.append(vol_id)
                     log.info("Encrypted volume %s attached at %s", vol_id, vol_mount)
                 else:
                     log.error("Encrypted volume %s attach failed", vol_id)
@@ -4433,14 +4680,15 @@ def run_job(job):
             if not container_path:
                 container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
             if nfs_vol_server:
+                _v2_resource_intent(authority, "nfs_mounts", vol_host_mount)
                 mounted = _mount_nfs(nfs_vol_server, vol_nfs_path, vol_host_mount)
                 if mounted:
                     volumes = list(volumes) + [f"{vol_host_mount}:{container_path}:rw"]
-                    managed_vol_mounts.append(vol_host_mount)
                     log.info(
                         "Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path
                     )
                 else:
+                    _v2_cancel_mount_intent(authority, vol_host_mount)
                     log.error("Managed volume %s mount failed", vid)
                     failed_volume_ids.append(vid)
             else:
@@ -4457,7 +4705,10 @@ def run_job(job):
 
         # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
         if job.get("encrypted_workspace"):
-            encrypted_ws_vid = f"ws-{job_id}"
+            encrypted_ws_vid = (
+                "ws-" + hashlib.sha256(f"{job_id}:{v2_attempt_id}".encode()).hexdigest()[:40]
+            )
+            _v2_resource_intent(authority, "workspaces", encrypted_ws_vid)
             ws_size_gb = 20  # Default ephemeral workspace size
             if provision_encrypted_volume(encrypted_ws_vid, ws_size_gb):
                 ws_mount = os.path.join(VOLUME_BASE_DIR, encrypted_ws_vid)
@@ -4980,8 +5231,12 @@ def run_job(job):
             log.debug("Egress rules failed (non-fatal): %s", e)
 
         # 6. Start log forwarding (container → API → SSE → frontend)
-        log_fwd = LogForwarder(job_id, container_name)
-        log_fwd.start()
+        try:
+            log_fwd = LogForwarder(job_id, container_name)
+            log_fwd.start()
+            authority["_log_forwarder"] = log_fwd
+        except Exception as exc:
+            log.warning("Log forwarding unavailable for job %s: %s", job_id, exc)
 
         # 7. Monitor container until completion
         current_stage = "monitoring container"
@@ -5049,31 +5304,7 @@ def run_job(job):
         else:
             with _active_lock:
                 _active_containers.pop(job_id, None)
-
-            # Release exclusive GPU lock (Phase 7 / §3) — must run last so any
-            # checkpoint/cleanup work above completes while we still own the GPU.
-            if exclusive_gpu and _excl_state.get("ok"):
-                _release_exclusive_gpu(job_id, _excl_state)
-
-            # Unmount NFS if we mounted it
-            if nfs_mounted:
-                _unmount_nfs(nfs_mount_point)
-
-            # Unmount managed volumes
-            for vol_mount in managed_vol_mounts:
-                try:
-                    _unmount_nfs(vol_mount)
-                except Exception as e:
-                    log.warning("Failed to unmount managed volume %s: %s", vol_mount, e)
-
-            # Detach encrypted volumes
-            for vol_id in encrypted_vol_ids:
-                detach_encrypted_volume(vol_id)
-
-            # Destroy ephemeral encrypted workspace (cryptographic erasure)
-            if encrypted_ws_vid:
-                destroy_encrypted_volume(encrypted_ws_vid)
-                log.info("Encrypted workspace destroyed for job %s (cryptographic erasure)", job_id)
+            _v2_cleanup_resources(authority)
 
 
 # ── Log Forwarding ───────────────────────────────────────────────────
@@ -5088,6 +5319,7 @@ _LOG_BATCH_SIZE = 50  # flush every N lines
 _LOG_FLUSH_INTERVAL = 1.0  # or every N seconds
 _LOG_BACKOFF_MAX = 60  # max retry delay (seconds)
 _LOG_SPOOL_MAX = 50_000  # max lines in disk spool before dropping oldest
+_LOG_SPOOL_MAX_BYTES = 10_000_000
 
 
 class LogForwarder:
@@ -5099,12 +5331,40 @@ class LogForwarder:
     """
 
     def __init__(self, job_id: str, container_name: str):
+        from math import isfinite
+
         self.job_id = job_id
         self.container_name = container_name
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._buffer: list[dict] = []
-        self._spool_path = os.path.join(_tempfile.gettempdir(), f"xcelsior-logs-{job_id}.jsonl")
+        self._delivery_lock = threading.Lock()
+        self._cursor = 0.0
+        scope = hashlib.sha256(f"{job_id}\0{container_name}".encode()).hexdigest()
+        directory = os.path.join(os.path.dirname(os.path.abspath(_V2_JOURNAL_PATH)), "logs")
+        self._spool_path = os.path.join(directory, f"{scope}.json")
+        try:
+            with open(self._spool_path) as source:
+                saved = json.load(source)
+            if saved.get("job_id") != job_id or saved.get("container_name") != container_name:
+                raise ValueError("log spool belongs to another execution")
+            if saved.get("version") != 1:
+                raise ValueError("unsupported log spool version")
+            self._cursor = float(saved.get("cursor") or 0)
+            self._buffer = list(saved.get("lines") or [])[-_LOG_SPOOL_MAX:]
+            if not isfinite(self._cursor) or not all(
+                isinstance(e, dict)
+                and isinstance(e.get("message"), str)
+                and isinstance(e.get("timestamp"), (int, float))
+                and isfinite(e["timestamp"])
+                for e in self._buffer
+            ):
+                raise ValueError("invalid saved log records")
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, TypeError, AttributeError):
+            log.warning("Could not restore log spool for job %s; retaining its file", job_id)
+            raise
         self._tail_proc = None
         self._tail_thread = None
         self._flush_thread = None
@@ -5135,16 +5395,17 @@ class LogForwarder:
             self._flush_thread.join(timeout=5)
         # Final flush of remaining lines after threads have stopped
         self._flush_batch()
-        # Clean up spool file
-        with suppress(FileNotFoundError):
-            os.remove(self._spool_path)
         log.debug("LogForwarder stopped for %s", self.job_id)
 
     def _tail_loop(self):
         """Run `docker logs --follow --timestamps` and buffer lines."""
         try:
+            command = ["docker", "logs", "--follow", "--timestamps"]
+            if self._cursor:
+                command.extend(["--since", str(self._cursor)])
+            command.append(self.container_name)
             self._tail_proc = subprocess.Popen(
-                ["docker", "logs", "--follow", "--timestamps", self.container_name],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -5165,7 +5426,7 @@ class LogForwarder:
                     space = line.find(" ")
                     if space > 0:
                         try:
-                            dt = datetime.fromisoformat(line[:space].rstrip("Z"))
+                            dt = datetime.fromisoformat(line[:space].replace("Z", "+00:00"))
                             ts = dt.timestamp()
                             msg = line[space + 1 :]
                         except (ValueError, IndexError):
@@ -5173,9 +5434,10 @@ class LogForwarder:
 
                 level = "stderr" if "ERROR" in msg[:50] or "FATAL" in msg[:50] else "info"
 
-                entry = {"message": msg, "level": level, "timestamp": ts}
+                entry = {"message": msg[:16_384], "level": level, "timestamp": ts}
                 with self._lock:
                     self._buffer.append(entry)
+                    self._buffer = self._buffer[-_LOG_SPOOL_MAX:]
 
                 # Flush if batch is full
                 if len(self._buffer) >= _LOG_BATCH_SIZE:
@@ -5198,73 +5460,148 @@ class LogForwarder:
 
     def _flush_batch(self):
         """Send buffered lines to the API. Retry with exponential backoff."""
-        with self._lock:
-            if not self._buffer:
-                return
-            batch = self._buffer[:_LOG_BATCH_SIZE]
-            self._buffer = self._buffer[_LOG_BATCH_SIZE:]
+        # Tail, periodic flush and shutdown can race. A delivery owns its batch
+        # until the API acknowledges it, and disk always retains pending lines.
+        with self._delivery_lock:
+            with self._lock:
+                if not self._buffer:
+                    return True
+                try:
+                    self._persist_spool()
+                except OSError:
+                    log.warning("Cannot persist pending logs for job %s", self.job_id)
+                    return False
+                batch = self._buffer[:_LOG_BATCH_SIZE]
 
-        # Spool to disk (WAL-style) so we don't lose lines if API is down
-        try:
-            spool_size = (
-                os.path.getsize(self._spool_path) if os.path.exists(self._spool_path) else 0
-            )
-        except OSError:
-            spool_size = 0
-        if spool_size < 10_000_000:  # 10MB cap
+            body = json.dumps({"lines": batch}).encode()
+            headers = {**_api_headers()}
+            if len(body) > 1024:
+                body = _gzip.compress(body)
+                headers["Content-Encoding"] = "gzip"
             try:
-                with open(self._spool_path, "a") as f:
-                    for entry in batch:
-                        f.write(json.dumps(entry) + "\n")
-            except OSError:
-                pass  # disk full — best-effort
-
-        body = json.dumps({"lines": batch}).encode()
-
-        # Gzip compress if > 1KB
-        headers = {**_api_headers()}
-        if len(body) > 1024:
-            body = _gzip.compress(body)
-            headers["Content-Encoding"] = "gzip"
-
-        try:
-            resp = _api_request(
-                "post",
-                _api_url(f"/agent/logs/{self.job_id}"),
-                data=body,
-                headers=headers,
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                self._backoff = 1.0  # reset on success
-                # Drain from disk spool what we successfully sent
-                self._drain_spool(len(batch))
-            else:
+                resp = _api_request(
+                    "post",
+                    _api_url(f"/agent/logs/{self.job_id}"),
+                    data=body,
+                    headers=headers,
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    with self._lock:
+                        old_buffer, old_cursor = list(self._buffer), self._cursor
+                        self._buffer = self._buffer[len(batch) :]
+                        self._cursor = max(self._cursor, *(float(e["timestamp"]) for e in batch))
+                        try:
+                            self._persist_spool()
+                        except OSError:
+                            # An acknowledged batch may replay after disk loss,
+                            # but an unacknowledged batch is never discarded.
+                            self._buffer, self._cursor = old_buffer, old_cursor
+                            return False
+                    self._backoff = 1.0
+                    return True
                 log.debug("Log POST returned %d for %s", resp.status_code, self.job_id)
                 self._backoff_wait()
-        except requests.RequestException:
-            self._backoff_wait()
+            except requests.RequestException:
+                self._backoff_wait()
+            return False
+
+    def _persist_spool(self):
+        """Write under _lock; replacing one state file binds cursor and backlog."""
+        while True:
+            data = json.dumps(
+                {
+                    "version": 1,
+                    "job_id": self.job_id,
+                    "container_name": self.container_name,
+                    "cursor": self._cursor,
+                    "lines": self._buffer,
+                },
+                allow_nan=False,
+            ).encode()
+            if len(data) <= _LOG_SPOOL_MAX_BYTES:
+                break
+            keep = max(1, int(len(self._buffer) * _LOG_SPOOL_MAX_BYTES / len(data)) - 1)
+            if keep >= len(self._buffer):
+                raise OSError("one log record exceeds spool capacity")
+            self._buffer = self._buffer[-keep:]
+        directory = os.path.dirname(self._spool_path)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        fd, temporary = _tempfile.mkstemp(prefix=".logs-", dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, self._spool_path)
+            directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary)
 
     def _backoff_wait(self):
         """Wait with exponential backoff, capped at _LOG_BACKOFF_MAX."""
         self._stop.wait(self._backoff)
         self._backoff = min(self._backoff * 2, _LOG_BACKOFF_MAX)
 
-    def _drain_spool(self, count: int):
-        """Remove successfully sent lines from disk spool."""
+
+_log_replay_running = threading.Lock()
+_log_replay_offset = 0
+
+
+def _resume_pending_log_delivery() -> None:
+    """Retry terminal-attempt output without blocking observations or renewals."""
+    directory = os.path.join(os.path.dirname(os.path.abspath(_V2_JOURNAL_PATH)), "logs")
+    if not os.path.isdir(directory) or not _log_replay_running.acquire(blocking=False):
+        return
+
+    def replay():
+        global _log_replay_offset
         try:
-            with open(self._spool_path, "r") as f:
-                remaining = f.readlines()[count:]
-            if remaining:
-                with open(self._spool_path, "w") as f:
-                    f.writelines(remaining[-_LOG_SPOOL_MAX:])
-            else:
-                os.remove(self._spool_path)
-        except (FileNotFoundError, OSError):
-            pass
+            files = sorted(Path(directory).glob("*.json"))
+            if not files:
+                return
+            start = _log_replay_offset % len(files)
+            selected = (files[start:] + files[:start])[:32]
+            _log_replay_offset = (start + len(selected)) % len(files)
+            with _v2_attempts_lock:
+                active = {a.get("container_name") for a in _v2_attempts.values()}
+            for path in selected:
+                if _shutdown.is_set():
+                    return
+                try:
+                    with path.open() as source:
+                        record = json.load(source)
+                    if record.get("container_name") in active:
+                        continue
+                    forwarder = LogForwarder(record["job_id"], record["container_name"])
+                    if os.path.abspath(forwarder._spool_path) != str(path):
+                        continue
+                    for _ in range(4):
+                        if not forwarder._buffer or not forwarder._flush_batch():
+                            break
+                    if not forwarder._buffer:
+                        path.unlink(missing_ok=True)
+                except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                    log.warning("Could not replay retained worker log spool %s", path.name)
+        finally:
+            _log_replay_running.release()
+
+    try:
+        threading.Thread(target=replay, name="v2-log-replay", daemon=True).start()
+    except RuntimeError:
+        _log_replay_running.release()
 
 
 def _v2_start_exit_monitor(auth: dict) -> None:
+    with _v2_attempts_lock:
+        if auth.get("_exit_monitor_started"):
+            return
+        auth["_exit_monitor_started"] = True
     threading.Thread(
         target=_v2_monitor_container,
         args=(auth,),
@@ -5274,6 +5611,7 @@ def _v2_start_exit_monitor(auth: dict) -> None:
 
 
 def _v2_cleanup_exited(auth: dict) -> None:
+    _v2_cleanup_resources(auth)
     pending = auth.get("pending_command") or {}
     if (pending.get("result") or {}).get("preserved"):
         return
@@ -5296,22 +5634,38 @@ def _v2_monitor_container(auth: dict) -> None:
     An old monitor never borrows a replacement attempt's authority.
     """
     job_id = auth["job_id"]
+    auth["_exit_monitor_started"] = True
     while not _shutdown.is_set():
         with _v2_attempts_lock:
             if _v2_attempts.get(job_id) is not auth:
                 return
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        terminal = auth.get("pending_terminal_report")
+        if terminal and state == "running" and label == auth["attempt_id"]:
+            _v2_stop_container(
+                job_id, "terminal report pending", auth["container_name"], auth["attempt_id"]
+            )
+        if terminal and (state == "missing" or (state == "exited" and label == auth["attempt_id"])):
+            auth["stop"].set()
+            outcome = v2_report_attempt_status(
+                auth, terminal["status"], terminal.get("failure_code")
+            )
+            if outcome != "error":
+                _v2_forget_attempt(job_id, auth)
+                _v2_cleanup_exited(auth)
+                return
         if (
             state == "running"
             and label == auth["attempt_id"]
             and auth.get("running_report_pending")
+            and not terminal
         ):
             if report_job_status(
                 job_id, "running", container_name=auth["container_name"], expected_v2_auth=auth
             ):
                 auth["running_report_pending"] = False
                 _v2_journal_save()
-        if state == "exited" and label == auth["attempt_id"]:
+        elif state == "exited" and label == auth["attempt_id"] and not terminal:
             # Do not let a renewal's post-completion 409 erase the journal
             # while an uncertain terminal report is still being retried.
             auth["stop"].set()

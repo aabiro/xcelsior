@@ -558,13 +558,35 @@ class DatabaseOps:
         return json.dumps(data)
 
     @staticmethod
-    def upsert_job(conn, job, backend="sqlite", *, admission_spec=None):
-        """Persist observations; freeze execution authority on insertion.
+    def replay_job_admission(conn, job_id, admission_request):
+        """Return an exact recorded request without recomputing server policy.
+
+        Locking serializes a retry with lifecycle writers. Missing request
+        evidence cannot be reconstructed from mutable observations.
+        """
+        from control_plane.job_specs import validate_execution_spec
+
+        row = conn.execute(
+            "SELECT spec,spec_hash FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        spec, digest = (row["spec"], row["spec_hash"]) if isinstance(row, dict) else row
+        validate_execution_spec(spec, digest)
+        if spec.get("admission_request") != admission_request:
+            raise ValueError("job id already admitted with a different execution spec or request")
+        return DatabaseOps.get_job(conn, job_id, backend="postgres")
+
+    @staticmethod
+    def upsert_job(conn, job, backend="sqlite", *, admission_spec=None, admission_request=None):
+        """Persist observations; only explicit admission may freeze authority.
 
         ``admission_spec`` marks a submission, whose retry must leave an
         existing job untouched. Ordinary status writers preserve its spec.
         """
         job_id = str(job.get("job_id", "")).strip()
+        if admission_request is not None and admission_spec is None:
+            raise ValueError("admission request requires an approved launch spec")
         if not job_id:
             log.error(
                 "upsert_job refused: missing job_id (status=%r) — "
@@ -618,8 +640,16 @@ class DatabaseOps:
             )
             from control_plane.state import initial_desired_state, job_phase
 
-            execution_spec = make_execution_spec(job, launch_spec=admission_spec)
-            execution_hash = canonical_spec_hash(execution_spec)
+            execution_spec = (
+                make_execution_spec(
+                    job, launch_spec=admission_spec, admission_request=admission_request
+                )
+                if admission_spec is not None
+                else None
+            )
+            execution_hash = (
+                canonical_spec_hash(execution_spec) if execution_spec is not None else None
+            )
             phase = job_phase(status)
             conflict = (
                 "DO NOTHING"
@@ -691,7 +721,7 @@ class DatabaseOps:
                     job.get("owner_id") or job.get("owner") or None,
                     job.get("tenant_id") or job.get("owner_id") or job.get("owner") or None,
                     job.get("team_id") or None,
-                    Jsonb(execution_spec),
+                    Jsonb(execution_spec) if execution_spec is not None else None,
                     execution_hash,
                     phase,
                     initial_desired_state(status),
@@ -702,6 +732,11 @@ class DatabaseOps:
             )
             if admission_spec is not None:
                 if result.rowcount == 0:
+                    if admission_request is not None:
+                        replay = DatabaseOps.replay_job_admission(conn, job_id, admission_request)
+                        if replay is None:
+                            raise ValueError("existing job admission is no longer present")
+                        return replay
                     row = conn.execute(
                         "SELECT spec,spec_hash FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)
                     ).fetchone()

@@ -3,6 +3,7 @@
 from unittest.mock import Mock, ANY
 import itertools
 import subprocess
+import threading
 
 import pytest
 import requests
@@ -11,11 +12,15 @@ import worker_agent as worker
 
 
 @pytest.fixture(autouse=True)
-def native_execution(monkeypatch):
+def native_execution(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "_protocol_negotiated", True)
     monkeypatch.setattr(worker, "_v2_enabled", True)
     monkeypatch.setattr(worker, "_v2_attempts", {})
     monkeypatch.setattr(worker, "_active_containers", {})
+    monkeypatch.setattr(worker, "_v2_cleanup_pending", {})
+    monkeypatch.setattr(worker, "_v2_completed_commands", {})
+    monkeypatch.setattr(worker, "_V2_JOURNAL_PATH", str(tmp_path / "journal.json"))
+    monkeypatch.setattr(worker, "_v2_container_state", Mock(return_value=("missing", -1, "")))
 
 
 def _fenced_job(job_id, **spec):
@@ -23,8 +28,10 @@ def _fenced_job(job_id, **spec):
     worker._v2_attempts[job_id] = {
         "job_id": job_id,
         "attempt_id": "attempt",
+        "lease_id": f"lease-{job_id}",
         "fencing_token": 7,
         "container_name": cname,
+        "stop": threading.Event(),
     }
     return dict(
         spec, job_id=job_id, _v2_attempt_id="attempt", _v2_fencing_token=7, _v2_container_name=cname
