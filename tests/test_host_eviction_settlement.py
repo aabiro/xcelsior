@@ -34,11 +34,12 @@ def setup(fleet, *, count=1, fields=None):
     return host, active, approved_plan(host)
 
 
-def approved_plan(host):
+def approved_plan(host, *, advance_version=True):
     with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE hosts SET status='draining',version=version+1 WHERE host_id=%s", (host,)
-        )
+        if advance_version:
+            conn.execute(
+                "UPDATE hosts SET status='draining',version=version+1 WHERE host_id=%s", (host,)
+            )
         version = conn.execute("SELECT version FROM hosts WHERE host_id=%s", (host,)).fetchone()[0]
         canonical = dict(
             host_id=host,
@@ -423,3 +424,41 @@ def test_native_drain_uses_column_identity_and_locked_version(fleet):
         lambda c: set_draining(c, host_id=host, draining=False, expected_version=drained["version"])
     )
     assert undrained["status"] == "active" and undrained["admitted"]
+
+
+def test_two_approved_plans_cannot_evict_the_same_host_snapshot(fleet):
+    host, active, first = setup(fleet)
+    second = approved_plan(host, advance_version=False)
+    assert first["canonical_args"] == second["canonical_args"]
+    assert execute(first, host)["pending"]
+    with pytest.raises(PlanConflict) as error:
+        execute(second, host)
+    assert error.value.code == "version_conflict"
+    with pytest.raises(PlanConflict) as error:
+        approved_plan(host, advance_version=False)
+    assert error.value.code == "eviction_in_progress"
+    assert len(commands(active[0])) == 1
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status,consumed_at FROM action_plans WHERE plan_id=%s", (second["plan_id"],)
+        ).fetchone() == ("approved", None)
+    settle(active[0])
+    assert not execute(first, host)["pending"]
+    with pytest.raises(PlanConflict):
+        execute(second, host)
+
+
+def test_concurrent_distinct_approved_plans_only_enqueue_one_stop_set(fleet):
+    host, active, first = setup(fleet)
+    second = approved_plan(host, advance_version=False)
+
+    def attempt(plan):
+        try:
+            return execute(plan, host)
+        except PlanConflict:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(attempt, [first, second]))
+    assert sum(r is not None for r in results) == 1
+    assert len(commands(active[0])) == 1
