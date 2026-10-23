@@ -194,6 +194,12 @@ def run(args, evidence: dict) -> None:
                 ),
             ),
         )
+        conn.execute(
+            """INSERT INTO host_gpu_devices(host_id,gpu_uuid,device_index,model,
+                      total_vram_mb,allocatable_vram_mb,health)
+               VALUES(%s,%s,0,%s,%s,%s,'healthy')""",
+            (host_id, gpu_uuid, gpu_model, int(float(gpu[2])), int(float(gpu[2]))),
+        )
         token = issue_token(conn, host_id, issued_by="isolated-acceptance")
     token_file = state / "agent-token.json"
     token_file.write_text(json.dumps({"token": token.secret, "host_id": host_id}))
@@ -245,9 +251,13 @@ def run(args, evidence: dict) -> None:
             }
             with pool.connection() as conn:
                 from db import DatabaseOps
+                from control_plane.launch.canonicalize import canonicalize
 
                 DatabaseOps.upsert_job(
-                    conn, {**spec, "submitted_at": time.time()}, backend="postgres"
+                    conn,
+                    {**spec, "submitted_at": time.time()},
+                    backend="postgres",
+                    admission_spec=canonicalize(spec),
                 )
             report = SchedulerService(
                 SchedulerConfig(
@@ -334,6 +344,23 @@ def run(args, evidence: dict) -> None:
                 "worker running report rejected",
             )
             require(worker.report_observations_v2(force=True), "real Docker observation rejected")
+            # Normal running settlement opens its own meter. Inject only the
+            # exact incident under test in this disposable database, retaining
+            # the original identity as evidence before qualifying repair.
+            with pool.connection() as conn:
+                normal = conn.execute(
+                    "SELECT meter_id,completed_at,total_cost_micros FROM usage_meters WHERE attempt_id=%s",
+                    (auth["attempt_id"],),
+                ).fetchall()
+                require(
+                    len(normal) == 1 and normal[0][1:] == (None, 0),
+                    "normal native running settlement did not open one uncharged meter",
+                )
+                journey["normal_meter_id"] = normal[0][0]
+                conn.execute(
+                    "DELETE FROM usage_meters WHERE meter_id=%s AND attempt_id=%s",
+                    (normal[0][0], auth["attempt_id"]),
+                )
             os.environ["XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING"] = "report_only"
             with pool.connection() as conn:
                 reconcile_billing_meters(conn)
@@ -409,7 +436,7 @@ if sys.argv[2] == "monitor":
     auth = records[sys.argv[3]]
     auth["stop"] = threading.Event()
     worker._v2_attempts[auth["job_id"]] = auth
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
 else:
     worker.v2_adopt_attempts()
     assert sys.argv[3] not in worker._v2_journal_load(), "restart did not complete terminal reporting"
@@ -435,7 +462,7 @@ else:
                 worker._v2_forget_attempt(job_id, auth)
                 journey["separate_worker_processes"] = True
             else:
-                worker._monitor_container(job_id, container, is_v2_attempt=True)
+                worker._monitor_container(job_id, container)
             if fault_mode != "none":
                 fault = faults[job_id]
                 require(

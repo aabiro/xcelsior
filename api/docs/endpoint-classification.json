@@ -2121,11 +2121,11 @@
   },
   "POST /instances/{job_id}/reset": {
     "class": "gap",
-    "notes": "Restarts the container in place — the middle option between 'do nothing' and cancel_instance, which ends the run and loses uncheckpointed work."
+    "notes": "Requests a fresh native attempt from the admitted workload, preserving persistent volumes. No MCP tool reaches this lifecycle operation."
   },
   "POST /instances/{job_id}/restart": {
     "class": "gap",
-    "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
+    "notes": "Requests a fresh native attempt from the admitted workload, preserving persistent volumes. No MCP tool reaches this lifecycle operation."
   },
   "POST /instances/{job_id}/snapshot": {
     "class": "covered",
@@ -2133,11 +2133,11 @@
   },
   "POST /instances/{job_id}/start": {
     "class": "gap",
-    "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
+    "notes": "Requests a fresh native attempt from the admitted workload, preserving persistent volumes. No MCP tool reaches this lifecycle operation."
   },
   "POST /instances/{job_id}/stop": {
     "class": "gap",
-    "notes": "stop/start/restart preserve the container, which is the lifecycle the platform chose over pause/resume; no tool reaches them, so an agent can only cancel or terminate"
+    "notes": "Requests fenced worker settlement without terminating the workload. No MCP tool exposes this reversible lifecycle intent."
   },
   "POST /instances/{job_id}/terminate": {
     "class": "covered",
