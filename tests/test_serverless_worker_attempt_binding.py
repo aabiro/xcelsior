@@ -89,13 +89,14 @@ def _mkhost(scratch, *, gpus=1):
     return host_id
 
 
-def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1, serverless=True):
+def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1, serverless=True, preemptible=False):
     """A serverless_worker job that carries its worker id in the payload, as
     provision_worker's _set_job_fields does."""
     job_id = f"job-swk-{uuid.uuid4().hex[:10]}"
     payload = {
         "name": job_id,
         "num_gpus": num_gpus,
+        "preemptible": preemptible,
         "job_type": "serverless_worker",
         "serverless_worker_id": worker_id,
         "gpu_model": job_id,  # unique claim scope so we never claim foreign residue

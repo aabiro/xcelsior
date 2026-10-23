@@ -3665,6 +3665,49 @@ def handle_start_attempt(cmd: dict) -> None:
         )
 
 
+def _v2_preemption_signal(
+    cmd: dict, container_name: str, state: str, *, validate_only=False
+) -> bool:
+    """A grace request never has Docker's implicit stop-timeout KILL."""
+    args = cmd.get("args") or {}
+    command_id = str(cmd.get("command_id") or "")
+    force = args.get("force") is True
+    try:
+        deadline = datetime.fromisoformat(str(args["grace_deadline"]).replace("Z", "+00:00"))
+        if deadline.tzinfo is None:
+            raise ValueError("deadline needs timezone")
+        elapsed = deadline.timestamp() <= time.time()
+    except (KeyError, ValueError, TypeError, OverflowError):
+        v2_nack_command(command_id, "preemption_policy_invalid", retryable=False)
+        return False
+    if (
+        not args.get("preemption_plan_id")
+        or args.get("checkpoint_policy") != "none"
+        or args.get("preserve") is not False
+        or (force and (args.get("allow_force") is not True or not elapsed))
+    ):
+        v2_nack_command(command_id, "preemption_policy_invalid", retryable=False)
+        return False
+    if validate_only:
+        return True
+    if state != "running":
+        return state in ("exited", "missing")
+    try:
+        result = subprocess.run(
+            ["docker", "kill", *([] if force else ["--signal", "TERM"]), container_name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        v2_nack_command(command_id, "preemption_signal_timeout", retryable=True)
+        return False
+    if result.returncode != 0:
+        v2_nack_command(command_id, "preemption_signal_failed", retryable=True)
+        return False
+    return True
+
+
 def handle_stop_attempt(cmd: dict) -> None:
     """Stop a container only while the command's attempt/fence is current.
 
@@ -3720,13 +3763,18 @@ def handle_stop_attempt(cmd: dict) -> None:
 
     container_name = str(auth.get("container_name") or _v2_container_name(job_id, attempt_id))
     state, _exit_code, label = _v2_container_state(job_id, container_name)
-    if label != attempt_id:
+    if label != attempt_id and state != "missing":
         v2_nack_command(
             command_id,
             "container_attempt_mismatch",
             {"expected": attempt_id, "observed": label},
             retryable=False,
         )
+        return
+
+    if args.get("preemption") is True and not _v2_preemption_signal(
+        cmd, container_name, state, validate_only=True
+    ):
         return
 
     # Persist the intended terminal interpretation before the Docker side
@@ -3737,6 +3785,7 @@ def handle_stop_attempt(cmd: dict) -> None:
         current = _v2_attempts.get(job_id)
         authority_changed = current is not auth
         if not authority_changed:
+            previous_pending = auth.get("pending_command")
             auth["pending_command"] = {
                 "command_id": command_id,
                 "terminal_status": "stopped",
@@ -3745,7 +3794,22 @@ def handle_stop_attempt(cmd: dict) -> None:
     if authority_changed:
         v2_nack_command(command_id, "authority_changed_before_stop", retryable=False)
         return
-    _v2_journal_save()
+    if not _v2_journal_save():
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is auth:
+                if previous_pending is None:
+                    auth.pop("pending_command", None)
+                else:
+                    auth["pending_command"] = previous_pending
+        v2_nack_command(command_id, "stop_journal_unavailable", retryable=True)
+        return
+    if args.get("preemption") is True:
+        if not _v2_preemption_signal(cmd, container_name, state):
+            return
+        state, _exit_code, label = _v2_container_state(job_id, container_name)
+        if state != "missing" and (state != "exited" or label != attempt_id):
+            v2_nack_command(command_id, "preemption_grace_pending", retryable=True)
+            return
     if state == "running":
         try:
             stopped = subprocess.run(

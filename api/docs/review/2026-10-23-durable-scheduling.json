@@ -1,0 +1,134 @@
+{
+  "base_commit": "fe1e09ac3bccfa9b8ec1ebda99dc0a50239e0a29",
+  "earlier_failures": {
+    "durable-integration-final": "216 passed; 1 unadmitted partition fixture failed",
+    "durable-queue-final": "138 passed; same fixture remained; queue-depth hypothesis did not fix it"
+  },
+  "full_base_regression": "running in frozen worktree; known native fixture and source-iterator failures remain",
+  "gates": {
+    "final_policy_race_and_inventory": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/durable-policy-race-final/manifest.json",
+      "manifest_sha256": "458aefe470935f29a5f510d5fb7637c59f21d52b133de2d4d27b48e7014dbd1e",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.74
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 8.84
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 26.94
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.14
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.22
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 46
+      }
+    },
+    "policy_and_migrations": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/durable-policy-schema-final/manifest.json",
+      "manifest_sha256": "c6ff12e85a1218098eea5fc5e0895137fc2cf7770e9e7b7be3afe8b8cb047636",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.09
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.41
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 7.08
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 55.86
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.14
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 60
+      }
+    },
+    "scheduling_and_worker": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/durable-qualification-final/manifest.json",
+      "manifest_sha256": "88d3233b8a23cc922769768f5c6fc5e837422101bcd826e9f60189024ecdc36b",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.12
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.7
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 28.91
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 169
+      }
+    }
+  },
+  "policy": "fairness/v1 and preemption/v1; operator revisions only; checkpoint policy none; force false by default",
+  "preemption_enabled_by_migration": false,
+  "production_migrated": false,
+  "protected_root_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  },
+  "repairs": "report_only",
+  "runtime_floor": "133"
+}

@@ -211,10 +211,11 @@ def report_attempt_status(
         job["job_id"] = job_id
         record_mining_violation(conn, job)
         job_status = "terminated"
+    preemption_plan_id = None
     if terminal and status == "stopped":
         intent_row = conn.execute(
             """
-            SELECT payload->>'lifecycle_intent' AS lifecycle_intent
+            SELECT payload->>'lifecycle_intent' AS lifecycle_intent, desired_state, spec->>'job_type' AS job_type
               FROM jobs
              WHERE job_id = %s
                AND active_attempt_id = %s
@@ -231,6 +232,23 @@ def report_attempt_status(
         elif intent == "restart":
             # Tear-down complete → re-admit for a new placement attempt.
             job_status = "queued"
+        elif (
+            intent is None
+            and intent_row is not None
+            and _get(intent_row, "desired_state", 1) == "running"
+        ):
+            victim = conn.execute(
+                """SELECT plan_id FROM preemption_plan_victims
+                WHERE job_id=%s AND attempt_id=%s AND fencing_token=%s""",
+                (job_id, attempt_id, fencing_token),
+            ).fetchone()
+            if victim:
+                preemption_plan_id = str(_get(victim, "plan_id", 0))
+                job_status = (
+                    "terminated"
+                    if _get(intent_row, "job_type", 2) == "serverless_worker"
+                    else "queued"
+                )
     if terminal:
         conn.execute(
             """
@@ -395,10 +413,26 @@ def report_attempt_status(
             },
         )
 
+    if preemption_plan_id:
+        conn.execute(
+            "UPDATE jobs SET reason_code='preempted',reason_details=%s WHERE job_id=%s",
+            (Jsonb(dict(plan_id=preemption_plan_id, attempt_id=attempt_id)), job_id),
+        )
+
     sync_attempt_billing(conn, attempt_id)
     sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
 
     from control_plane.outbox import append_event
+
+    if preemption_plan_id:
+        append_event(
+            conn,
+            aggregate_type="job",
+            aggregate_id=job_id,
+            event_type="job.v1.preempted",
+            payload=dict(plan_id=preemption_plan_id, attempt_id=attempt_id),
+            idempotency_key=f"preempted:{attempt_id}",
+        )
 
     append_event(
         conn,
