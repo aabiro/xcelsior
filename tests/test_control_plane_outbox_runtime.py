@@ -260,6 +260,9 @@ class TestDispatcherDelivery:
                     fixture_submitted_at,
                 ),
             )
+            from tests.native_jobs import admit_fixture_job
+
+            admit_fixture_job(conn, job_id)
             conn.commit()
         cleanup["hosts"].append(host_id)
         cleanup["jobs"].append(job_id)

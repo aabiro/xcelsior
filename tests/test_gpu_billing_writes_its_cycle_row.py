@@ -101,6 +101,9 @@ def running_job():
                VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
             (job_id, started_at, host_id, json.dumps(payload)),
         )
+        from tests.native_jobs import admit_fixture_job
+
+        admit_fixture_job(conn, job_id)
         conn.commit()
     yield job_id, owner, started_at
     with pool.connection() as conn:

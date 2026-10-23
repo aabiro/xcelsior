@@ -310,12 +310,8 @@ def test_reconcile_expiry_fails_fast_on_a_worker_callback_lock(native):
     assert native.repo.get_worker(native.wid)["released_at"] is None
 
 
+@pytest.mark.parametrize("native", [{"billable": True}], indirect=True)
 def test_expiry_settles_the_bound_usage_meter_at_the_native_authority_end(native):
-    with native.pool.connection() as conn:
-        conn.execute(
-            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
-            (Jsonb({"owner": native.owner}), native.jid),
-        )
     start(native)
     expire(native)
     with native.pool.connection() as conn:
