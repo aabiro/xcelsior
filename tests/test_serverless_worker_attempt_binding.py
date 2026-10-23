@@ -89,7 +89,9 @@ def _mkhost(scratch, *, gpus=1):
     return host_id
 
 
-def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1, serverless=True, preemptible=False):
+def _mk_serverless_job(
+    scratch, worker_id: str, *, num_gpus=1, serverless=True, preemptible=False, billable=False
+):
     """A serverless_worker job that carries its worker id in the payload, as
     provision_worker's _set_job_fields does."""
     job_id = f"job-swk-{uuid.uuid4().hex[:10]}"
@@ -103,6 +105,8 @@ def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1, serverless=True, 
     }
     worker = ServerlessRepo().get_worker(worker_id)
     payload["serverless_endpoint_id"] = worker["endpoint_id"]
+    if billable:
+        payload["owner"] = ServerlessRepo().get_endpoint(worker["endpoint_id"])["owner_id"]
     if not serverless:
         for key in ("job_type", "serverless_worker_id", "serverless_endpoint_id"):
             payload.pop(key, None)
@@ -251,8 +255,13 @@ def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
     scratch["endpoints"].append(ep["endpoint_id"])
     worker = repo.create_worker(ep["endpoint_id"], gpu_count=1)
     scratch["workers"].append(worker["worker_id"])
-    job_id = _mk_serverless_job(scratch, worker["worker_id"], num_gpus=1)
+    job_id = _mk_serverless_job(scratch, worker["worker_id"], num_gpus=1, billable=True)
     host_id = _mkhost(scratch, gpus=1)
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE hosts SET payload=payload||%s WHERE host_id=%s",
+            (json.dumps({"cost_per_hour": 0}), host_id),
+        )
 
     with _pool.connection() as conn:
         claimed = claim_next_job(conn, replica_id="b31m", scope_gpu_models=[job_id])
