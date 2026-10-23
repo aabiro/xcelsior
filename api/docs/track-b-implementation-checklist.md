@@ -2605,6 +2605,15 @@ data disposition remain separately scoped below.
   longer owns it**; a force-stop may follow the deadline under explicit
   policy; and the allocation transfers only in a new reservation
   transaction.
+  **Source candidate, 2026-10-23:** migration 133 persists operator policy,
+  weighted service and quota accounting, queue components and fenced preemption
+  plans/device nominations. TERM grace, explicitly permitted deadline force,
+  restart recovery, settlement proof and new-fence transfer are covered by
+  runnable database/worker gates (169 checks; policy/migration gate 60; final
+  policy-race/inventory gate 46, overlapping selections). Default policy enables
+  no preemption. The staged production handoff, broad regression and acceptance
+  remain open; repairs stay `report_only`. See the
+  [durable scheduling receipt](review/2026-10-23-durable-scheduling.md).
 - **Exit gate:** one authoritative path exists for launch, placement,
   execution, transition, billing, command, and audit; legacy-path metrics
   are zero for the agreed retention period; repository architecture docs

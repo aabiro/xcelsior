@@ -3,11 +3,9 @@
 Runs against the real test PostgreSQL; the two-connection tests exercise
 actual FOR UPDATE SKIP LOCKED semantics, not mocks.
 
-Since migration 059 the projection trigger derives ``phase`` /
-``desired_state`` / ``effective_priority`` / ``queued_at`` from the
-legacy columns on every write, so fixtures control eligibility via
-``status`` and ordering via ``submitted_at`` — exactly like production
-writers. Every test claims within its own scope (``gpu_model`` carries a
+Native fixtures explicitly initialize lifecycle columns and admission.
+Migration 131 retired the projection trigger; durable team credit and DB
+queue time now own ordering. Every test claims within its own scope (``gpu_model`` carries a
 per-test marker) so shared-DB residue can never leak into assertions.
 """
 
@@ -51,6 +49,7 @@ def cleanup_jobs():
     with _pool.connection() as conn:
         for jid in ids:
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
+            conn.execute("DELETE FROM scheduling_team_state WHERE team_key=%s", ("job:" + jid,))
         conn.commit()
 
 
@@ -123,6 +122,11 @@ class TestClaimOrdering:
     def test_fair_share_breaks_priority_ties(self, cleanup_jobs, scope):
         behind = _mkjob(cleanup_jobs, scope, priority=5, fair_share=100)
         ahead = _mkjob(cleanup_jobs, scope, priority=5, fair_share=1)
+        with _pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO scheduling_team_state(team_key,virtual_finish) VALUES(%s,100),(%s,1)",
+                ("job:" + behind, "job:" + ahead),
+            )
         got = _claim(scope)
         assert got is not None and got.job_id == ahead
         assert _claim(scope).job_id == behind

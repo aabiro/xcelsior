@@ -126,6 +126,11 @@ CONTROL_TABLES = frozenset(
         "scheduled_tasks",
         "scheduler_shadow_decisions",
         "service_heartbeats",
+        "scheduling_virtual_clock",
+        "scheduling_team_state",
+        "preemption_plans",
+        "preemption_plan_victims",
+        "preemption_plan_devices",
         "telemetry_latest",
         "telemetry_samples",
         "telemetry_snapshots",
@@ -221,6 +226,7 @@ AUDIT_TABLES = frozenset(
         "legacy_lease_archive",
         "job_spec_backfill_evidence",
         "job_history_dispositions",
+        "scheduling_team_policies",
         "event_snapshots",
         "outbox_events",
         "alembic_version",
@@ -295,6 +301,7 @@ RUNTIME_READ_ONLY_TABLES = frozenset(
         "legacy_lease_archive",
         "job_spec_backfill_evidence",
         "job_history_dispositions",
+        "scheduling_team_policies",
     }
 )
 

@@ -58,7 +58,7 @@ def fleet():
         conn.commit()
 
 
-def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None):
+def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None, owner=None, admission_fields=None):
     job_id = f"job-resv-{uuid.uuid4().hex[:10]}"
     # gpu_model doubles as a unique claim scope so these tests never
     # claim residue jobs left behind by other suites (and vice versa).
@@ -68,8 +68,11 @@ def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None):
         "image": "pytorch:latest",
         "gpu_model": job_id,
     }
+    payload.update(admission_fields or {})
     if preferred_host_id:
         payload["preferred_host_id"] = preferred_host_id
+    if owner:
+        payload["owner"] = owner
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
@@ -91,7 +94,12 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
                                   administrative_state, availability_state,
                                   inventory_generation, admission_state)
                VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted')""",
-            (host_id, time.time(), json.dumps({"admitted": True}), inventory_generation),
+            (
+                host_id,
+                time.time(),
+                json.dumps({"admitted": True, "cost_per_hour": 0}),
+                inventory_generation,
+            ),
         )
         for i in range(gpus):
             conn.execute(

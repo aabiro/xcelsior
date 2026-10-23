@@ -19,47 +19,11 @@ from psycopg import Connection
 
 DEFAULT_CLAIM_TTL_SEC = 15
 
-# Queue order is part of the replica contract (§10.7): every replica must
-# order work identically or two replicas fight over ordering fairness.
-#
-# The scope predicate implements the Phase 4 canary partition: in canary
-# mode only jobs the new scheduler owns (matching gpu_model, or explicit
-# payload {"scheduler": "v2"} opt-in) are claimable; the legacy queue
-# walker skips exactly the same set (SchedulerConfig.owns_job), so no job
-# is ever contested by both schedulers.
-_CLAIM_SQL = """
-WITH candidate AS (
-    SELECT job_id
-      FROM jobs
-     WHERE phase = 'pending'
-       AND desired_state = 'running'
-       AND spec->>'execution_spec_version' = 'v1'
-       AND (next_schedule_at IS NULL OR next_schedule_at <= clock_timestamp())
-       AND (schedule_claim_expires_at IS NULL
-            OR schedule_claim_expires_at < clock_timestamp())
-       AND (%(scope_all)s
-            OR lower(COALESCE(spec->>'gpu_model', '')) = ANY(%(scope_models)s)
-            OR lower(COALESCE(spec->>'scheduler', '')) = 'v2')
-     ORDER BY effective_priority DESC,
-              fair_share_finish ASC,
-              queued_at ASC NULLS LAST, job_id ASC
-       FOR UPDATE SKIP LOCKED
-     LIMIT 1
-)
-UPDATE jobs j
-   SET schedule_claim_owner = %(replica_id)s,
-       schedule_claim_token = gen_random_uuid(),
-       schedule_claim_expires_at =
-           clock_timestamp() + make_interval(secs => %(ttl_sec)s),
-       schedule_attempt_count = j.schedule_attempt_count + 1,
-       version = j.version + 1,
-       updated_at = clock_timestamp()
-  FROM candidate c
- WHERE j.job_id = c.job_id
-RETURNING j.job_id, j.schedule_claim_token, j.schedule_claim_expires_at,
-          j.schedule_attempt_count, j.version, j.generation, j.spec,
-          j.spec_hash, j.payload, j.priority, j.effective_priority
-"""
+# Each claim calculates current weighted ranks in its transaction and persists
+# the chosen components. Diagnostic refresh timing never supplies authority.
+from control_plane.scheduler.fairness import claim_sql
+
+_CLAIM_SQL = claim_sql()
 
 
 @dataclass(frozen=True)
