@@ -94,8 +94,8 @@ def settle(active, *, intent=None):
     def transaction(conn):
         if intent:
             conn.execute(
-                "UPDATE jobs SET desired_state='stopped',payload=payload||%s WHERE job_id=%s",
-                (Jsonb(dict(lifecycle_intent=intent)), active.job_id),
+                "UPDATE jobs SET desired_state='stopped',lifecycle_intent=%s WHERE job_id=%s",
+                (intent, active.job_id),
             )
         return report_attempt_status(
             conn,

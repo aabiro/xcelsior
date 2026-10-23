@@ -144,7 +144,7 @@ def test_terminate_entry_point_enqueues_fenced_remove(cleanup_ids):
 
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent',
+            """SELECT status, lifecycle_intent,
                       active_attempt_id::text
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -188,7 +188,7 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
 
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent'
+            """SELECT status, lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -324,7 +324,7 @@ def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
         conn.commit()
         row = conn.execute(
             """SELECT status, active_attempt_id,
-                      payload->>'lifecycle_intent'
+                      lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -427,7 +427,7 @@ def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
 
     with _pool.connection() as conn:
         row = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent'
+            """SELECT status, lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()

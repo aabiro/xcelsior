@@ -194,7 +194,7 @@ def test_start_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, host_id, phase, desired_state,
-                      payload->>'lifecycle_intent',
+                      lifecycle_intent,
                       payload->>'resume_kind'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -249,7 +249,7 @@ def test_restart_running_fenced_enqueues_stop_attempt(cleanup_ids, captured_enqu
             (job_id,),
         ).fetchone()
         intent = conn.execute(
-            "SELECT payload->>'lifecycle_intent' FROM jobs WHERE job_id=%s",
+            "SELECT lifecycle_intent FROM jobs WHERE job_id=%s",
             (job_id,),
         ).fetchone()[0]
     assert cmd[0] == "stop_attempt"
@@ -291,7 +291,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         conn.commit()
         row = conn.execute(
             """SELECT status, host_id, active_attempt_id, phase, desired_state,
-                      payload->>'lifecycle_intent'
+                      lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -362,7 +362,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         )
         conn.commit()
         after = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent'
+            """SELECT status, lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()

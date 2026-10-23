@@ -296,7 +296,7 @@ def test_start_fenced_history_requeues_without_start_container(cleanup_ids, capt
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, host_id, active_attempt_id,
-                      payload->>'lifecycle_intent',
+                      lifecycle_intent,
                       payload->>'resume_kind'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -333,7 +333,7 @@ def test_restart_active_fenced_attempt_enqueues_stop_with_restart_intent(
     assert captured_enqueue == []
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent'
+            """SELECT status, lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -450,7 +450,7 @@ def test_terminate_active_fenced_attempt_enqueues_stop_remove(cleanup_ids, captu
 
     with _pool.connection() as conn:
         row = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent' AS intent,
+            """SELECT status, lifecycle_intent AS intent,
                       active_attempt_id::text
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -541,7 +541,7 @@ def test_terminate_enqueue_refuse_leaves_job_running(cleanup_ids, captured_enque
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
         intent = conn.execute(
-            "SELECT payload->>'lifecycle_intent' FROM jobs WHERE job_id=%s",
+            "SELECT lifecycle_intent FROM jobs WHERE job_id=%s",
             (job_id,),
         ).fetchone()[0]
         n_bc = conn.execute(

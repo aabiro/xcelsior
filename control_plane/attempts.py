@@ -215,7 +215,7 @@ def report_attempt_status(
     if terminal and status == "stopped":
         intent_row = conn.execute(
             """
-            SELECT payload->>'lifecycle_intent' AS lifecycle_intent, desired_state, spec->>'job_type' AS job_type
+            SELECT lifecycle_intent, desired_state, spec->>'job_type' AS job_type
               FROM jobs
              WHERE job_id = %s
                AND active_attempt_id = %s
@@ -262,6 +262,7 @@ def report_attempt_status(
                    queued_at = CASE WHEN %(job_status)s = 'queued'
                        THEN statement_timestamp() ELSE queued_at END,
                    active_attempt_id = NULL,
+                   lifecycle_intent = NULL,
                    host_id = CASE
                        WHEN %(job_status)s = 'queued' THEN NULL
                        ELSE host_id END,

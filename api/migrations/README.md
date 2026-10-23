@@ -90,11 +90,11 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `133_durable_scheduling_policy.py`.**
+**Repository head: `134_native_lifecycle_intent.py`.**
 
 133 expands durable weighted scheduling policy, virtual service credit and
 preemption plan records. Default policy enables no evictions. This runtime
-requires schema 133 after the staged native handoff through 132.
+now requires schema 134 for native lifecycle intent, after the staged handoffs.
 
 132 records explicit historical disposition after qualified recovery. Jobs
 with a recovered execution record or unavailable launch evidence retain their
@@ -529,3 +529,10 @@ the declared range in `control_plane/schema_compat.py` if the minimum
 compatible revision moves, the domain assignment in
 `control_plane/db_roles.py` if a table was added, and the relevant Track B
 item.
+
+Migration 134 moves recorded lifecycle intent to a native column. Quiesce every
+API/scheduler/maintenance lifecycle writer for this handoff; apply 134, deploy
+all native intent writers, and reopen only after schema/runtime checks. Old
+JSONB intent writers cannot run concurrently after authority moves. Downgrade
+copies the latest native value (including consumed NULL) back before restoring
+old readers. No projection authority trigger is reintroduced.

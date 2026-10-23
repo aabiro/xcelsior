@@ -160,8 +160,8 @@ def _reconcile(placed, **kwargs):
 def _desire_stop(placed, *, status="stopping", intent=None):
     with placed["pool"].connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status=%s,phase=%s,desired_state='stopped',payload=payload||%s WHERE job_id=%s",
-            (status, job_phase(status), Jsonb({"lifecycle_intent": intent}), placed["job_id"]),
+            "UPDATE jobs SET status=%s,phase=%s,desired_state='stopped',lifecycle_intent=%s WHERE job_id=%s",
+            (status, job_phase(status), intent, placed["job_id"]),
         )
 
 
@@ -235,7 +235,14 @@ def test_stop_repair_refuses_invalid_authority_or_exhausted_command(placed, monk
     if defect in {"dead_letter", "expired_command"}:
         result = request_fenced_stop(job_id=placed["job_id"], created_by="test")
         assert result.ok
-    _desire_stop(placed, intent="resume" if defect == "invalid_intent" else "stop")
+    if defect == "invalid_intent":
+        from psycopg.errors import CheckViolation
+
+        with pytest.raises(CheckViolation, match="ck_jobs_lifecycle_intent"):
+            _desire_stop(placed, intent="resume")
+        assert _stop_commands(placed) == []
+        return
+    _desire_stop(placed, intent="stop")
     with placed["pool"].connection() as conn:
         if defect == "expired_lease":
             conn.execute(
@@ -305,7 +312,7 @@ def test_lease_expiry_cannot_undo_stop_or_terminal_state(placed, status, intent,
         expired = expire_stale_leases(conn, grace_sec=0)
         assert any(e["attempt_id"] == placed["attempt_id"] for e in expired)
         assert conn.execute(
-            "SELECT status, active_attempt_id, payload->>'status', payload->>'lifecycle_intent' "
+            "SELECT status, active_attempt_id, payload->>'status', lifecycle_intent "
             "FROM jobs WHERE job_id = %s",
             (placed["job_id"],),
         ).fetchone() == (expected, None, expected, None)
@@ -339,7 +346,7 @@ def test_repair_and_evidence_rollback_together_on_queue_failure(placed, monkeypa
         result = reconcile.process_due(conn, worker_id="test", limit=1)
         assert result["failed"] == 1
         assert conn.execute(
-            "SELECT payload->>'lifecycle_intent' FROM jobs WHERE job_id = %s", (placed["job_id"],)
+            "SELECT lifecycle_intent FROM jobs WHERE job_id = %s", (placed["job_id"],)
         ).fetchone() == (None,)
         assert (
             conn.execute(
