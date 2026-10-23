@@ -26,7 +26,7 @@ from control_plane.launch.canonicalize import CANON_SPEC_VERSION
 from control_plane.launch.quoting import price_moved_beyond_tolerance
 from control_plane.launch.spend_policy import evaluate
 from control_plane.launch.validation import validate_canonical_spec
-from control_plane.scheduler.reservation import canonical_spec_hash
+from control_plane.job_specs import canonical_spec_hash
 
 
 def _base_request() -> dict:
