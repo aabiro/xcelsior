@@ -16,6 +16,7 @@ import json as _json
 import os
 import tempfile
 import time
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -132,6 +133,50 @@ def _set_status(job_id, status, host_id=None):
     if host_id:
         body["host_id"] = host_id
     return client.patch(f"/instance/{job_id}", json=body, headers=_worker_auth_headers())
+
+
+def _start_native_attempt(job_id, host_id):
+    """Exercise real reservation, lease claim and settlement; no Docker is implied."""
+    from db import _get_pg_pool
+    from control_plane.db import run_transaction
+    from control_plane.scheduler.claim import claim_next_job
+    from control_plane.scheduler.reservation import reserve_and_bind
+    from control_plane.leases import claim_lease
+    from control_plane.attempts import report_attempt_status
+
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            """INSERT INTO host_gpu_devices(host_id,gpu_uuid,device_index,model,
+                      total_vram_mb,allocatable_vram_mb,health)
+               VALUES(%s,%s,0,'RTX 4090',24576,24576,'healthy')
+               ON CONFLICT(host_id,gpu_uuid) DO NOTHING""",
+            (host_id, f"GPU-{host_id}"),
+        )
+    replica = f"instance-flow-{uuid.uuid4().hex[:8]}"
+
+    def place(conn):
+        claim = claim_next_job(conn, replica_id=replica)
+        assert claim and claim.job_id == job_id
+        return reserve_and_bind(
+            conn,
+            job_id=job_id,
+            claim_token=claim.claim_token,
+            replica_id=replica,
+            host_id=host_id,
+            requested_vram_mb=8192,
+        )
+
+    reserved = run_transaction(place)
+    authority = {
+        key: getattr(reserved, key) for key in ("job_id", "attempt_id", "host_id", "fencing_token")
+    }
+    run_transaction(
+        lambda conn: claim_lease(
+            conn, **authority, lease_id=reserved.lease_id, worker_session_id=replica
+        )
+    )
+    run_transaction(lambda conn: report_attempt_status(conn, **authority, status="running"))
+    return authority
 
 
 def _get_instance(job_id):
@@ -487,8 +532,9 @@ class TestHostOfflineFailover:
 class TestWalletEmptyStopStart:
     """Wallet empty → stop → top-up → start (pause/resume routes were removed)."""
 
-    def test_stop_and_start(self):
+    def test_stop_and_start(self, monkeypatch):
         """Stop a running instance, then start it again."""
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
         _reset_state()
         _register_host("pr-h1", vram=24)
         _admit_host("pr-h1")
@@ -496,10 +542,7 @@ class TestWalletEmptyStopStart:
         _, inst = _submit_job("pause-test", vram=8)
         job_id = inst["job_id"]
 
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        _set_status(job_id, "running", host_id="pr-h1")
+        first = _start_native_attempt(job_id, "pr-h1")
         inst = _get_instance(job_id)
         assert inst["status"] == "running"
 
@@ -507,15 +550,22 @@ class TestWalletEmptyStopStart:
         assert stop_resp.status_code == 200
         assert stop_resp.json().get("ok") is True
 
-        inst = _get_instance(job_id)
-        assert inst["status"] == "stopped"
+        assert _get_instance(job_id)["status"] == "stopping"
+        from control_plane.db import run_transaction
+        from control_plane.attempts import report_attempt_status
+
+        run_transaction(lambda conn: report_attempt_status(conn, **first, status="stopped"))
+        assert _get_instance(job_id)["status"] == "stopped"
 
         start_resp = client.post(f"/instances/{job_id}/start")
         assert start_resp.status_code == 200
         assert start_resp.json().get("ok") is True
 
-        inst = _get_instance(job_id)
-        assert inst["status"] == "running"
+        assert _get_instance(job_id)["status"] == "queued"
+        second = _start_native_attempt(job_id, "pr-h1")
+        assert second["attempt_id"] != first["attempt_id"]
+        assert second["fencing_token"] > first["fencing_token"]
+        assert _get_instance(job_id)["status"] == "running"
 
     def test_empty_wallet_blocks_new_jobs(self):
         """A suspended wallet should block new job submissions with 402."""
@@ -580,8 +630,9 @@ class TestWalletEmptyStopStart:
         )
         assert resp.status_code == 402
 
-    def test_start_with_no_funds_rejected(self):
+    def test_start_with_no_funds_rejected(self, monkeypatch):
         """Start should fail if wallet is empty."""
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
         _reset_state()
         _register_host("rf-h1", vram=24)
         _admit_host("rf-h1")
@@ -589,12 +640,13 @@ class TestWalletEmptyStopStart:
         _, inst = _submit_job("resume-fail", vram=8)
         job_id = inst["job_id"]
 
-        if inst["status"] == "queued":
-            client.post("/queue/process")
+        authority = _start_native_attempt(job_id, "rf-h1")
+        stop = client.post(f"/instances/{job_id}/stop")
+        assert stop.status_code == 200, stop.text
+        from control_plane.db import run_transaction
+        from control_plane.attempts import report_attempt_status
 
-        _set_status(job_id, "running", host_id="rf-h1")
-
-        client.post(f"/instances/{job_id}/stop")
+        run_transaction(lambda conn: report_attempt_status(conn, **authority, status="stopped"))
 
         # Drain wallet
         from billing import get_billing_engine

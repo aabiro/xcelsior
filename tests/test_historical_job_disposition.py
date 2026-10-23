@@ -227,7 +227,17 @@ def test_historical_resume_returns_actionable_refusal(monkeypatch):
             return self
 
         def fetchone(self):
-            return ("historical", "stopped", None, None, None, True, "retained_recovered")
+            return (
+                "historical",
+                "stopped",
+                None,
+                None,
+                None,
+                True,
+                "retained_recovered",
+                None,
+                None,
+            )
 
     monkeypatch.setattr("abuse_policy.job_blocked", lambda *args: False)
     monkeypatch.setattr(

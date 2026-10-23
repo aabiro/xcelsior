@@ -2643,6 +2643,15 @@ data disposition remain separately scoped below.
   no preemption. The staged production handoff, broad regression and acceptance
   remain open; repairs stay `report_only`. See the
   [durable scheduling receipt](review/2026-10-23-durable-scheduling.md).
+  **Final candidate checks, 2026-10-23:** the combined selection passed 3,332
+  tests and found four stale test contracts/fixture shapes. All four current
+  replacements pass in the 115-test flow/volume gate and focused historical
+  refusal check; no single clean full rerun is claimed. Five real isolated CUDA
+  journeys and both frozen image schema/readiness/signature/metrics checks pass.
+  Production remains 125 with repairs `report_only`; manual operator eviction
+  execution still returns 501. B16 stays open. See the
+  [final check receipt](review/2026-10-23-final-control-plane-checks.md) and
+  [staged handoff](review/2026-10-23-staged-control-plane-handoff.md).
 - **Exit gate:** one authoritative path exists for launch, placement,
   execution, transition, billing, command, and audit; legacy-path metrics
   are zero for the agreed retention period; repository architecture docs
