@@ -156,7 +156,9 @@ def claim_sql():
         j.priority,j.effective_priority"""
 
 
-def lock_team_policy(conn, *, job_id: str, requested_gpus: int) -> TeamPolicy:
+def lock_team_policy(
+    conn, *, job_id: str, requested_gpus: int, check_quota: bool = True
+) -> TeamPolicy:
     """The caller already owns the job row; take this lock before its host.
 
     Policy publication takes the same state lock. A revision cannot change
@@ -191,12 +193,27 @@ def lock_team_policy(conn, *, job_id: str, requested_gpus: int) -> TeamPolicy:
             else {}
         )
         policy = TeamPolicy(key=group, **fields)
+    if check_quota:
+        require_team_quota(conn, policy, requested_gpus=requested_gpus)
+    return policy
+
+
+def require_team_quota(conn, policy, *, requested_gpus, replacing_attempts=()):
+    """Caller holds team policy/accounting locks and every replacement job.
+
+    Planning can credit only the exact eligible victims it will durably stop.
+    Reservation calls this without credits and still waits for physical release.
+    Other teams' allocations never contribute replacement credit.
+    """
+    key = team_key_sql()
+    with conn.cursor(row_factory=dict_row) as cur:
         usage = cur.execute(
             f"""SELECT count(DISTINCT a.attempt_id) AS jobs,
                 count(DISTINCT a.gpu_device_id) AS gpus
             FROM gpu_device_allocations a JOIN jobs j ON j.job_id=a.job_id
-            WHERE a.released_at IS NULL AND {key}=%s""",
-            (group,),
+            WHERE a.released_at IS NULL AND {key}=%s
+              AND NOT(a.attempt_id=ANY(%s::uuid[]))""",
+            (policy.key, list(replacing_attempts)),
         ).fetchone()
         if usage is None:
             raise RuntimeError("team capacity query returned no row")
@@ -210,7 +227,6 @@ def lock_team_policy(conn, *, job_id: str, requested_gpus: int) -> TeamPolicy:
             and usage["gpus"] + requested_gpus > policy.max_allocated_gpus
         ):
             raise QuotaExceeded("team GPU quota reached")
-        return policy
 
 
 def spend_service_credit(conn, policy: TeamPolicy, *, gpu_count: int) -> Decimal:

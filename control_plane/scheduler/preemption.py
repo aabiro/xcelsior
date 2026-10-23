@@ -14,7 +14,7 @@ from psycopg.types.json import Jsonb
 
 from control_plane.commands import enqueue_current_attempt_command
 from control_plane.job_specs import validate_execution_spec
-from control_plane.scheduler.fairness import lock_team_policy, QuotaExceeded
+from control_plane.scheduler.fairness import lock_team_policy, require_team_quota, QuotaExceeded
 from control_plane.scheduler.filters import evaluate_host
 from control_plane.scheduler.reservation import CapacityConflict
 
@@ -86,7 +86,7 @@ def create_plan(
         if existing:
             return str(existing["plan_id"])
         try:
-            policy = lock_team_policy(conn, job_id=job_id, requested_gpus=needed)
+            policy = lock_team_policy(conn, job_id=job_id, requested_gpus=needed, check_quota=False)
         except QuotaExceeded:
             return None
         if policy.version != nominee["queue_policy_version"]:
@@ -240,6 +240,15 @@ def create_plan(
             if len(selected) >= needed:
                 break
         if len(selected) < needed or not chosen:
+            return None
+        try:
+            require_team_quota(
+                conn,
+                policy,
+                requested_gpus=needed,
+                replacing_attempts=[str(v["attempt_id"]) for v in chosen],
+            )
+        except QuotaExceeded:
             return None
         plan = cur.execute(
             """INSERT INTO preemption_plans
