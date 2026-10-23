@@ -119,41 +119,30 @@ def _ensure_attempt_metered(conn: Connection, attempt_id: str) -> str | None:
     one) and calls it. ``meter_job`` collapses on the ``attempt_id`` unique
     index, so a concurrent or repeated enforce creates exactly one meter.
     """
-    row = conn.execute(
-        """
-        SELECT a.job_id, a.host_id,
-               EXTRACT(EPOCH FROM a.started_at)::float8,
-               EXTRACT(EPOCH FROM a.ended_at)::float8,
-               j.payload
-          FROM job_attempts a
-          JOIN jobs j ON j.job_id = a.job_id
-         WHERE a.attempt_id = %s
-        """,
-        (attempt_id,),
-    ).fetchone()
-    if row is None:
+    from psycopg.errors import LockNotAvailable
+    from control_plane.attempt_billing import sync_attempt_billing
+
+    try:
+        with conn.transaction():
+            # Same order as normal settlement; contention defers this repair.
+            row = conn.execute(
+                """SELECT j.job_id FROM jobs j JOIN job_attempts a USING(job_id)
+                WHERE a.attempt_id=%s FOR UPDATE OF j NOWAIT""",
+                (attempt_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "SELECT attempt_id FROM job_attempts WHERE attempt_id=%s FOR UPDATE NOWAIT",
+                (attempt_id,),
+            ).fetchone()
+            sync_attempt_billing(conn, attempt_id)
+            meter = conn.execute(
+                "SELECT meter_id FROM usage_meters WHERE attempt_id=%s", (attempt_id,)
+            ).fetchone()
+            return str(meter[0]) if meter else None
+    except LockNotAvailable:
         return None
-    job_id, host_id, started, ended, payload = row
-    payload = payload if isinstance(payload, dict) else {}
-    job = {
-        **payload,
-        "job_id": str(job_id),
-        "attempt_id": attempt_id,
-        "owner": payload.get("owner") or "",
-        "host_id": host_id,
-        "started_at": float(started or 0),
-        "completed_at": float(ended or 0),
-    }
-    host: dict[str, Any] = {"host_id": host_id or ""}
-    if host_id:
-        hrow = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
-        if hrow and isinstance(hrow[0], dict):
-            host = {**hrow[0], "host_id": host_id}
-
-    from billing import get_billing_engine
-
-    meter = get_billing_engine().meter_job(job, host, conn=conn)
-    return getattr(meter, "meter_id", None)
 
 
 def _close_orphaned_meter(conn: Connection, attempt_id: str, meter_id: str) -> str | None:

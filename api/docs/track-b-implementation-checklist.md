@@ -2590,6 +2590,13 @@ data disposition remain separately scoped below.
   floor/inventory/negative gate: 24 passes; final native billing boundary: 28
   passes. Broader regression and production acceptance remain open.
   [Strict admission receipt](review/2026-10-23-strict-native-specs.md).
+  **Billing repair follow-up, 2026-10-23:** missing active/terminal meters now
+  require the admitted spec and the exact attempt's captured billing quote.
+  Mutable observation metadata and current host prices cannot authorize or
+  reprice repair. Missing evidence remains a finding. Corrected native fixture
+  and real Redis gates pass 199 and 103 overlapping checks; the full candidate
+  rerun and production acceptance remain open. See the
+  [native billing repair receipt](review/2026-10-23-native-billing-repair.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

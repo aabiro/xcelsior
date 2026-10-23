@@ -18,10 +18,10 @@ def open_active_meter(conn, attempt_id: str) -> dict:
     """
     with conn.cursor(row_factory=dict_row) as cur:
         current = cur.execute(
-            """SELECT j.job_id, j.payload, j.owner_id, j.desired_state, j.phase,
+            """SELECT j.job_id, j.spec, j.spec_hash AS job_spec_hash, j.owner_id, j.desired_state, j.phase,
                       a.host_id, a.fencing_token, a.spec_hash, a.status,
                       EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
-                      a.ended_at, h.payload AS host_payload
+                      a.ended_at,a.placement_explanation
                  FROM job_attempts a
                  JOIN jobs j ON j.job_id=a.job_id AND j.active_attempt_id=a.attempt_id
                             AND j.host_id=a.host_id
@@ -73,9 +73,20 @@ def open_active_meter(conn, attempt_id: str) -> dict:
         ]
         if len(matches) != 1 or matches[0]["state"] != "running":
             return {**evidence, "reason": "observation_authority_mismatch"}
-        payload = current["payload"] or {}
-        owner = current["owner_id"] or payload.get("owner")
-        if not owner or (payload.get("owner") and payload["owner"] != owner):
+        from control_plane.attempt_billing import bound_billing_inputs
+
+        try:
+            payload, frozen_host = bound_billing_inputs(
+                current["spec"],
+                current["job_spec_hash"],
+                current["spec_hash"],
+                (current["placement_explanation"] or {}).get("billing_snapshot"),
+                current["host_id"],
+            )
+        except (ValueError, TypeError, OverflowError):
+            return {**evidence, "reason": "billing_admission_or_snapshot_unqualified"}
+        owner = payload["owner"]
+        if current["owner_id"] != owner:
             return {**evidence, "reason": "owner_authority_missing"}
         existing = cur.execute(
             "SELECT meter_id FROM usage_meters WHERE attempt_id=%s",
@@ -91,7 +102,7 @@ def open_active_meter(conn, attempt_id: str) -> dict:
             "owner": owner,
             "started_at": started,
         }
-        host = {**(current["host_payload"] or {}), "host_id": current["host_id"]}
+        host = frozen_host
         try:
             with conn.transaction():
                 meter = get_billing_engine().meter_job(job, host, conn=conn, active=True)

@@ -105,8 +105,11 @@ def test_runtime_has_no_execution_payload_fallback():
 def test_explicit_fixture_admission_is_never_automatic():
     root = Path(__file__).resolve().parents[1]
     assert "admit_fixture_job" not in (root / "tests/conftest.py").read_text()
-    for directory in ("control_plane", "workers", "api", "core", "billing"):
-        for path in (root / directory).rglob("*.py"):
-            if "migrations" in path.parts:
-                continue
+    from tests._source_tree import iter_source_files
+
+    for path, rel in iter_source_files():
+        if (
+            rel.startswith(("control_plane/", "workers/", "api/", "core/", "billing/"))
+            and "migrations" not in path.parts
+        ):
             assert "tests.native_jobs" not in path.read_text(), path

@@ -119,6 +119,9 @@ def _place(fleet, marker):
                 fixture_submitted_at,
             ),
         )
+        from tests.native_jobs import admit_fixture_job
+
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     cfg = SchedulerConfig(
