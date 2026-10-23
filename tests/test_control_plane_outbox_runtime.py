@@ -222,8 +222,7 @@ class TestDispatcherDelivery:
         job_id = f"j-{marker}-run"
         with _pool.connection() as conn:
             conn.execute(
-                "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-                "VALUES (%s, 'active', %s, %s, 'admitted')",
+                """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
                 (
                     host_id,
                     time.time(),
@@ -242,12 +241,12 @@ class TestDispatcherDelivery:
                     ),
                 ),
             )
+            fixture_submitted_at = time.time()
             conn.execute(
-                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-                "VALUES (%s, 'queued', 0, %s, %s)",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
                 (
                     job_id,
-                    time.time(),
+                    fixture_submitted_at,
                     json.dumps(
                         {
                             "job_id": job_id,
@@ -258,6 +257,7 @@ class TestDispatcherDelivery:
                             "status": "queued",
                         }
                     ),
+                    fixture_submitted_at,
                 ),
             )
             conn.commit()

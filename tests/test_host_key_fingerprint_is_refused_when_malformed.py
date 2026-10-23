@@ -20,6 +20,8 @@ nothing, and that is a normal state rather than an error.
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import os
 
 import pytest
@@ -121,8 +123,7 @@ def test_the_route_stores_a_valid_fingerprint(client):
     job_id = f"hk-{uuid.uuid4().hex[:10]}"
     with tx() as conn:
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-            "VALUES (%s, 'running', 0, EXTRACT(EPOCH FROM NOW()), '{}'::jsonb)",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'running', 0, EXTRACT(EPOCH FROM NOW()), '{}'::jsonb, 'running', 'running', 0, NULL)""",
             (job_id,),
         )
     try:
@@ -149,8 +150,7 @@ def test_the_route_stores_null_for_the_inputs_the_plan_names(client, bad):
     job_id = f"hk-{uuid.uuid4().hex[:10]}"
     with tx() as conn:
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-            "VALUES (%s, 'running', 0, EXTRACT(EPOCH FROM NOW()), '{}'::jsonb)",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'running', 0, EXTRACT(EPOCH FROM NOW()), '{}'::jsonb, 'running', 'running', 0, NULL)""",
             (job_id,),
         )
     try:
@@ -188,10 +188,17 @@ def _make_job(conn, job_id: str, host_id: str, fingerprint=None, status="running
     if fingerprint is not None:
         payload["host_key_fingerprint"] = fingerprint
     conn.execute(
-        "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, "
-        "                  host_key_fingerprint, payload) "
-        "VALUES (%s, %s, 0, EXTRACT(EPOCH FROM NOW()), %s, %s, %s::jsonb)",
-        (job_id, status, host_id, fingerprint, _j.dumps(payload)),
+        """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id,                   host_key_fingerprint, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, %s, 0, EXTRACT(EPOCH FROM NOW()), %s, %s, %s::jsonb, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(EXTRACT(EPOCH FROM NOW())) ELSE NULL END)""",
+        (
+            job_id,
+            status,
+            host_id,
+            fingerprint,
+            _j.dumps(payload),
+            job_phase(status),
+            initial_desired_state(status),
+            status,
+        ),
     )
 
 

@@ -2536,8 +2536,9 @@ data disposition remain separately scoped below.
   unavailable assessments. Migration 130 requires non-null job phase/desired
   state and a recorded queue time for pending jobs. It narrows the job trigger
   so unrelated writes preserve priority boosts and native queue/intent state.
-  Both triggers remain until native status/admission writers are converted;
-  the historical spec gaps and full contraction remain open. These migrations
+  At this stage both triggers remained pending native status/admission writer
+  conversion; migration 131 below supersedes that prerequisite. Historical
+  spec gaps and full contraction remain open. These migrations
   are locally qualified source candidates, not production mutations.
   [Backfill and column contract receipt](review/2026-10-22-historical-spec-contract.md).
   **Native writer follow-up, 2026-10-22:** persistence, fenced reports,
@@ -2546,13 +2547,26 @@ data disposition remain separately scoped below.
   A real PostgreSQL gate drops both projection functions/triggers and exercises
   these transitions, including late reports preserving stop intent. Periodic
   and preemption billing use admitted identity/capacity and exclude serverless
-  workers despite conflicting observations. The shipped head remains 130;
-  permanent trigger contraction, raw-fixture conversion, remaining admission
-  and worker handoff review repairs, historical disposition and broader JSONB
-  removal remain open. This is source qualification, not production deployment.
+  workers despite conflicting observations. This rehearsal used head 130;
+  migration 131 below supplies permanent trigger contraction and raw-fixture
+  conversion. Admission and worker handoff review repairs, historical
+  disposition and broader JSONB removal remain open. This is source
+  qualification, not production deployment.
   [Native writer receipt](review/2026-10-22-native-projection-writers.md).
+  **Projection trigger contract, 2026-10-22:** migration 131 removes both
+  lifecycle projection triggers/functions after the native writer handoff.
+  Hosts default to pending administration, with a validated constraint refusing
+  admitted/draining administration without normalized admission. Independent
+  table units and downgrade are resumable; refusal never repairs historical
+  authority. Current-schema fixtures supply native state explicitly; historical
+  migration fixtures retain their legacy shape. Production-derived replay
+  preserves jobs, hosts and execution history, with four qualified specs and
+  360 unavailable assessments unchanged. This is a locally qualified source
+  contraction, not production migration or final B16 completion.
+  [Trigger contract receipt](review/2026-10-22-projection-trigger-contract.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
-  B16.2 removes the trigger: weighted fair share from administrative
+  the staged native handoff and migration 131 remove the production triggers
+  (source prerequisite is implemented): weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
   capped age boost, explicit preemptibility, and quota and concurrency
   limits, with the calculated queue key persisted so every replica orders
@@ -2666,7 +2680,7 @@ Every section of both governing documents, and where it is owned.
 | §6, §7 (target architecture, ADRs) | Track A; binding on Track B via §B0 |
 | §8, §9 (invariants, state models) | Track A; §9.5 action-plan machine → **B2.1** |
 | §10.1–§10.6, §10.9 | Track A |
-| §10.7, §10.8 (fairness, preemption) | **B16.4** (blocked on trigger removal) |
+| §10.7, §10.8 (fairness, preemption) | **B16.4** (source trigger prerequisite: 131; production handoff remains) |
 | §11 (worker protocol) | Track A; §11.8 modularization → **B16.3** |
 | §12 (reconciler) | Track A; billing controller → **B3.3** |
 | §13.1–§13.4, §13.8 | Track A |

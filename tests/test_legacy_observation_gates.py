@@ -33,8 +33,7 @@ def job(monkeypatch):
     job_id, host_id = f"observed-{marker}", f"host-{marker}"
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload) "
-            "VALUES(%s,'assigned',%s,0,%s,%s)",
+            """INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload, phase, desired_state, effective_priority, queued_at) VALUES(%s,'assigned',%s,0,%s,%s, 'scheduled', 'running', 0, NULL)""",
             (job_id, host_id, time.time(), json.dumps({"name": job_id})),
         )
     yield job_id, host_id

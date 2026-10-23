@@ -184,9 +184,14 @@ def test_link_hold_to_job_and_release_for_job(cleanup):
     now = time.time()
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-               VALUES (%s, 'queued', 0, %s, %s)""",
-            (job_id, now, '{"owner":"%s"}' % cid),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
+            (
+                job_id,
+                now,
+                '{"owner":"%s"}' % cid,
+                now,
+            ),
         )
         conn.commit()
     cleanup["jobs"].append(job_id)

@@ -97,5 +97,6 @@ def audit_spec_qualification(conn, *, expected_database: str, expected_port: int
         == counts["invalid"]
         == counts["recorded_without_provenance"]
         == 0,
-        "trigger_removal_requires_native_writer_gate": True,
+        "projection_triggers_retired": not triggers,
+        "trigger_removal_requires_native_writer_gate": bool(triggers),
     }

@@ -222,8 +222,8 @@ def test_try_append_lifecycle_outbox_savepoint_isolates_failure(cleanup, monkeyp
 
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
         ok = try_append_lifecycle_outbox(
@@ -344,7 +344,7 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
     # Force running on host (spot preemption only acts on running jobs).
     with _pool.connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status='running', host_id=%s WHERE job_id=%s",
+            """UPDATE jobs SET status='running', phase='running', desired_state='running', host_id=%s WHERE job_id=%s""",
             (host_id, job_id),
         )
         conn.execute(

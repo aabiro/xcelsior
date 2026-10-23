@@ -42,8 +42,8 @@ def host_without_host_id_in_payload():
     def insert(conn):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  tenant_id, owner_id, admission_state)
-               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'pending')
+                                  tenant_id, owner_id, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'pending', 'pending', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (
                 host_id,

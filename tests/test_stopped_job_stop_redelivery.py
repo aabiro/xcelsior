@@ -62,8 +62,8 @@ def cleanup():
 def _mk_host(cleanup, host_id: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
@@ -86,8 +86,8 @@ def _mk_stopped_legacy(cleanup, *, host_id: str, age_sec: float = 300.0) -> str:
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, 'stopped', 0, %s, %s, %s)""",
+                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'stopped', 0, %s, %s, %s, 'stopped', 'stopped', 0, NULL)""",
             (job_id, stale, host_id, json.dumps(payload)),
         )
         conn.commit()
@@ -113,8 +113,8 @@ def _mk_stopped_fenced_history(cleanup, *, host_id: str, age_sec: float = 300.0)
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id,
-                    payload, active_attempt_id)
-               VALUES (%s, 'stopped', 0, %s, %s, %s, NULL)""",
+                    payload, active_attempt_id, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'stopped', 0, %s, %s, %s, NULL, 'stopped', 'stopped', 0, NULL)""",
             (job_id, stale, host_id, json.dumps(payload)),
         )
         conn.execute(
@@ -148,8 +148,8 @@ def _mk_stopped_attempt_owned(cleanup, *, host_id: str, age_sec: float = 300.0) 
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id,
-                    payload, active_attempt_id)
-               VALUES (%s, 'stopped', 0, %s, %s, %s, NULL)""",
+                    payload, active_attempt_id, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'stopped', 0, %s, %s, %s, NULL, 'stopped', 'stopped', 0, NULL)""",
             (job_id, stale, host_id, json.dumps(payload)),
         )
         conn.execute(

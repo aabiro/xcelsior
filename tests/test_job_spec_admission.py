@@ -334,7 +334,8 @@ def test_submission_retry_preserves_running_state_and_rejects_changed_spec(nativ
     initial = row(native)
     with native.pool.connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status='running',host_id=%s WHERE job_id=%s", (native.hid, native.jid)
+            """UPDATE jobs SET status='running', phase='running', desired_state='running',host_id=%s WHERE job_id=%s""",
+            (native.hid, native.jid),
         )
     retry = scheduler.submit_job(**args)
     assert retry["status"] == "running" and retry["host_id"] == native.hid

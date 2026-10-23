@@ -81,8 +81,8 @@ def settlement_authority():
             """
             INSERT INTO hosts (
                 host_id, status, registered_at, payload,
-                provider_id, owner_id, country, province, admission_state)
-            VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'CA', 'ON', 'admitted')
+                provider_id, owner_id, country, province, admission_state, administrative_state, availability_state)
+            VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'CA', 'ON', 'admitted', 'admitted', 'ready')
             """,
             (
                 host_id,
@@ -97,9 +97,9 @@ def settlement_authority():
             INSERT INTO jobs (
                 job_id, status, priority, submitted_at, host_id, payload,
                 tenant_id, owner_id, desired_state, phase
-            )
+            , effective_priority, queued_at)
             VALUES (%s, 'completed', 0, %s, %s, %s::jsonb,
-                    %s, %s, 'stopped', 'succeeded')
+                    %s, %s, 'stopped', 'succeeded', 0, NULL)
             """,
             (
                 job_id,
@@ -203,15 +203,25 @@ def test_prepare_derives_money_owner_currency_and_tax_from_postgres(
 
 
 @pytest.mark.parametrize("completion", [None, 0])
-def test_provider_settlement_refuses_open_usage_even_with_matching_charge(settlement_authority, completion):
+def test_provider_settlement_refuses_open_usage_even_with_matching_charge(
+    settlement_authority, completion
+):
     a = settlement_authority
     with _pool().connection() as conn:
         conn.row_factory = dict_row
-        conn.execute("UPDATE usage_meters SET completed_at=%s WHERE meter_id=%s",
-                     (completion, a["meter_id"]))
+        conn.execute(
+            "UPDATE usage_meters SET completed_at=%s WHERE meter_id=%s", (completion, a["meter_id"])
+        )
         with pytest.raises(SettlementNotEligible, match="All attempt usage must be terminal"):
-            prepare_settlement(conn, job_id=a["job_id"], provider_id=a["provider_id"], rail="stripe")
-        assert conn.execute("SELECT count(*) AS n FROM payout_splits WHERE job_id=%s", (a["job_id"],)).fetchone()["n"] == 0
+            prepare_settlement(
+                conn, job_id=a["job_id"], provider_id=a["provider_id"], rail="stripe"
+            )
+        assert (
+            conn.execute(
+                "SELECT count(*) AS n FROM payout_splits WHERE job_id=%s", (a["job_id"],)
+            ).fetchone()["n"]
+            == 0
+        )
 
 
 def test_customer_and_provider_authorization_are_checked_in_authority_query(
@@ -528,9 +538,9 @@ def test_the_payout_tool_publishes_the_idempotency_this_file_proves():
     import pathlib
 
     surface = json.loads(
-        (pathlib.Path(__file__).resolve().parent.parent / "api" / "mcp" / "tool-surface.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            pathlib.Path(__file__).resolve().parent.parent / "api" / "mcp" / "tool-surface.json"
+        ).read_text(encoding="utf-8")
     )
     tool = next(t for t in surface["tools"] if t["name"] == "request_provider_payout")
     assert tool["idempotency"] == "keyed", (

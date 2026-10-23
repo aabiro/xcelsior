@@ -50,8 +50,7 @@ def native():
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,desired_state,queued_at) "
-            "VALUES(%s,'queued',0,%s,%s,'pending','running',clock_timestamp())",
+            """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,desired_state,queued_at, effective_priority) VALUES(%s,'queued',0,%s,%s,'pending','running',clock_timestamp(), 0)""",
             (jid, time.time(), Jsonb(payload)),
         )
         conn.execute(

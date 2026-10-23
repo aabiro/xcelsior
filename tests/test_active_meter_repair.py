@@ -216,7 +216,10 @@ def test_repair_refuses_incomplete_or_conflicting_authority(running, monkeypatch
                 ),
             )
         elif defect == "stopped":
-            conn.execute("UPDATE jobs SET status='stopping' WHERE job_id=%s", (p["job_id"],))
+            conn.execute(
+                """UPDATE jobs SET status='stopping', phase='running', desired_state='stopped' WHERE job_id=%s""",
+                (p["job_id"],),
+            )
         elif defect == "missing_owner":
             conn.execute(
                 "UPDATE jobs SET owner_id=NULL, payload=payload-'owner' WHERE job_id=%s",

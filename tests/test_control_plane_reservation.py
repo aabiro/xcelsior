@@ -69,8 +69,8 @@ def _mkjob(fleet, *, num_gpus=1):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
+                                 phase, desired_state, queued_at, effective_priority)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (job_id, time.time(), json.dumps(payload)),
         )
         conn.commit()
@@ -239,7 +239,7 @@ class TestConflictsLeaveNoResidue:
             # ('stopped'/'stopped'), exactly how production writers stop
             # a job out from under a claim.
             conn.execute(
-                "UPDATE jobs SET status='cancelled' WHERE job_id=%s",
+                """UPDATE jobs SET status='cancelled', phase='stopped', desired_state='stopped' WHERE job_id=%s""",
                 (job_id,),
             )
             conn.commit()
@@ -252,14 +252,10 @@ class TestConflictsLeaveNoResidue:
         host_id = _mkhost(fleet)
         claimed = _claim(job_id)
         with _pool.connection() as conn:
-            # Drain the legacy way (payload flag): the 059 projection
-            # trigger derives administrative_state='draining' from it —
-            # writing the column directly would just be recomputed.
+            # Native fixture transition, matching the host controller writer.
             conn.execute(
-                # Since 082 the projection derives administrative_state from
-                # status and admission_state, not from the payload, so a
-                # payload write no longer drains a host.
-                """UPDATE hosts SET status = 'draining' WHERE host_id=%s""",
+                """UPDATE hosts SET status='draining',administrative_state='draining',
+                    availability_state='unknown' WHERE host_id=%s""",
                 (host_id,),
             )
             conn.commit()

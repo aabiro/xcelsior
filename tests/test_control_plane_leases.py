@@ -62,8 +62,8 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
+                                 phase, desired_state, queued_at, effective_priority)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (job_id, time.time(), json.dumps({"name": job_id, "gpu_model": job_id})),
         )
         conn.execute(

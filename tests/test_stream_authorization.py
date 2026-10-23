@@ -54,7 +54,7 @@ def principals():
         principal = _deps._get_current_user(request)
         with pg_transaction() as conn:
             conn.execute(
-                "INSERT INTO jobs(job_id,status,priority,submitted_at,payload) VALUES (%s,'running',0,0,%s)",
+                """INSERT INTO jobs(job_id,status,priority,submitted_at,payload, phase, desired_state, effective_priority, queued_at) VALUES (%s,'running',0,0,%s, 'running', 'running', 0, NULL)""",
                 (uid, json.dumps({"job_id": uid, "status": "running", "owner": uid})),
             )
         records.append((uid, token, request, principal))

@@ -7,6 +7,8 @@ Drives shipped BillingEngine stop/terminate against real Postgres:
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import inspect
 import json
 import time
@@ -49,8 +51,8 @@ def cleanup():
 def _mk_host(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
@@ -84,10 +86,21 @@ def _mk_job(cleanup, *, owner, host_id, status="running"):
         "status": status,
     }
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, %s, 0, %s, %s, %s)""",
-            (job_id, status, time.time(), host_id, json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                fixture_submitted_at,
+                host_id,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                status,
+                fixture_submitted_at,
+            ),
         )
         conn.commit()
     cleanup["jobs"].append(job_id)

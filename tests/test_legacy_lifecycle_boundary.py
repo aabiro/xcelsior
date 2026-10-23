@@ -21,8 +21,7 @@ def legacy_job():
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload) "
-            "VALUES(%s,'stopped',%s,0,%s,%s)",
+            """INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload, phase, desired_state, effective_priority, queued_at) VALUES(%s,'stopped',%s,0,%s,%s, 'stopped', 'stopped', 0, NULL)""",
             (job_id, host_id, time.time(), json.dumps({"container_name": cname})),
         )
     yield job_id, host_id, cname

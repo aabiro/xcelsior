@@ -11,6 +11,8 @@ writers. Every test claims within its own scope (``gpu_model`` carries a
 per-test marker) so shared-DB residue can never leak into assertions.
 """
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -68,22 +70,28 @@ def _mkjob(
 ):
     job_id = f"job-claim-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time() + queued_offset_sec
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 fair_share_finish, next_schedule_at)
+                                 fair_share_finish, next_schedule_at, phase, desired_state, effective_priority, queued_at)
                VALUES (%s, %s, %s, %s, %s, %s,
                        CASE WHEN %s::float8 IS NULL THEN NULL
-                            ELSE clock_timestamp() + make_interval(secs => %s) END)
+                            ELSE clock_timestamp() + make_interval(secs => %s) END, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)
             """,
             (
                 job_id,
                 status,
                 priority,
-                time.time() + queued_offset_sec,
+                fixture_submitted_at,
                 json.dumps({"name": job_id, "gpu_model": scope}),
                 fair_share,
                 next_schedule_delay_sec,
                 next_schedule_delay_sec or 0.0,
+                job_phase(status),
+                initial_desired_state(status),
+                priority,
+                status,
+                fixture_submitted_at,
             ),
         )
         conn.commit()
@@ -150,15 +158,17 @@ class TestClaimEligibility:
     def test_v2_optin_claimable_in_any_scope(self, cleanup_jobs, scope):
         job_id = f"job-claim-{uuid.uuid4().hex[:10]}"
         with _pool.connection() as conn:
+            fixture_submitted_at = time.time()
             conn.execute(
-                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-                   VALUES (%s, 'queued', 0, %s, %s)""",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+                   VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
                 (
                     job_id,
-                    time.time(),
+                    fixture_submitted_at,
                     json.dumps(
                         {"name": job_id, "scheduler": "v2", "gpu_model": f"unrelated-{scope}"}
                     ),
+                    fixture_submitted_at,
                 ),
             )
             conn.commit()
