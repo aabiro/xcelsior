@@ -88,6 +88,9 @@ class SchedulerService:
         from control_plane.scheduler.preemption import sweep_plans
 
         run_transaction(lambda c: sweep_plans(c), what="sched_preemption_sweep")
+        from control_plane.host_evictions import sweep as sweep_host_evictions
+
+        run_transaction(lambda c: sweep_host_evictions(c), what="sched_host_eviction_sweep")
         # Phase 6: desired-vs-observed reconciliation (report-only by default),
         # for job mutations, worker observations, and periodic recovery.
         try:

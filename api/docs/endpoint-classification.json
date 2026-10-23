@@ -711,6 +711,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v1/hosts/{host_id}/eviction-plans/{plan_id}": {
+    "class": "internal",
+    "notes": "Operator-only eviction progress and exact approved targets. Read-only; the MCP execute endpoint also returns durable pending or settled progress."
+  },
   "GET /api/v1/hosts/{host_id}/observations": {
     "class": "internal",
     "notes": "control-plane telemetry for a host; operator diagnostics"
@@ -1797,11 +1801,11 @@
   },
   "POST /api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute": {
     "class": "covered",
-    "notes": "The MCP approval flow calls this path. Execution returns HTTP 501 until durable preemption can confirm worker stop; approved plans remain retryable."
+    "notes": "The MCP human approval flow executes the exact native snapshot once. Durable TERM-only commands return pending until terminal attempt, lease and allocation closure; replays return progress."
   },
   "POST /api/v1/hosts/{host_id}/evictions": {
     "class": "internal",
-    "notes": "Operator-only endpoint; execution returns HTTP 501 until the durable preemption controller is available."
+    "notes": "Operator-only refusal without an approved plan: returns approval_required and the preview URL. Execution uses the distinct approved eviction-plan endpoint."
   },
   "POST /api/v1/hosts/{host_id}/undrain": {
     "class": "covered",

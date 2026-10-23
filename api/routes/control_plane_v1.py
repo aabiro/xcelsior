@@ -6,9 +6,8 @@ workload running. Removing running workloads is a **separate**, separately
 authorized, separately audited action (`/evictions`) that fences the workload
 before it can be reassigned.
 
-Both drain routes stop new placements without eviction. Eviction execution is
-unavailable until the durable preemption controller can wait for worker stop
-confirmation. Domain failures are RFC 9457
+Both drain routes stop new placements without eviction. Approved eviction
+commands wait for fenced terminal settlement before reporting completion. Domain failures are RFC 9457
 problem+json (B2.8); optimistic concurrency uses the host `version` so a stale
 operator request is refused rather than racing.
 """
@@ -18,8 +17,6 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from uuid import UUID
-import hashlib
-import json
 import base64
 
 from routes._deps import (
@@ -574,6 +571,7 @@ class _OpIn(BaseModel):
 class _EvictionPlanIn(BaseModel):
     expected_version: int
     reason: str = Field(min_length=1, max_length=500)
+    grace_seconds: int = Field(default=60, ge=1, le=300)
 
 
 def _operator_plan_principal(user: dict):
@@ -592,27 +590,31 @@ def _operator_plan_principal(user: dict):
 @router.post("/api/v1/hosts/{host_id}/eviction-plans")
 def api_v1_create_eviction_plan(host_id: str, request: Request, body: _EvictionPlanIn):
     """Create a human-approved plan; this never evicts workloads."""
-    from control_plane.db import control_plane_transaction
+    from control_plane.db import run_transaction
     from control_plane.launch import action_plans as plans_repo
     from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
     from routes.action_plans import _request_trace_id
 
     user = _require_host_operator(request, "hosts:evict")
-    resolved, host = _host_or_problem(host_id)
-    if host.get("status") != "draining":
-        raise ProblemException(status=409, code="host_not_draining", detail="drain the host first")
+    resolved, _host = _host_or_problem(host_id)
     _check_version(resolved, body.expected_version)
     principal = _operator_plan_principal(user)
-    canonical = {
-        "host_id": resolved,
-        "expected_version": body.expected_version,
-        "reason": body.reason,
-    }
-    digest = hashlib.sha256(
-        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    with control_plane_transaction() as conn:
-        plan = plans_repo.create_quoted_plan(
+    from control_plane import host_evictions
+
+    def transaction(conn):
+        canonical = {
+            "host_id": resolved,
+            "expected_version": body.expected_version,
+            "reason": body.reason,
+            "policy": host_evictions.POLICY,
+            "grace_seconds": body.grace_seconds,
+            "allow_force": False,
+            "victims": host_evictions.snapshot(
+                conn, host_id=resolved, expected_version=body.expected_version
+            ),
+        }
+        digest = host_evictions.canonical_hash(canonical)
+        return plans_repo.create_quoted_plan(
             conn,
             action_type="evict_host_workloads",
             principal_id=principal.principal_id,
@@ -632,13 +634,18 @@ def api_v1_create_eviction_plan(host_id: str, request: Request, body: _EvictionP
             ttl_sec=plan_ttl_sec(),
             trace_id=_request_trace_id(request),
         )
+
+    plan = run_transaction(
+        transaction, isolation_level="SERIALIZABLE", what="host_eviction_preview"
+    )
     pid = str(plan["plan_id"])
     return {
         "ok": True,
         "preview": True,
         "plan_id": pid,
         "approval_state": plan["status"],
-        "impact": "running workloads will be fenced and evicted",
+        "impact": "compute workloads requeue and serverless workers terminate after fenced settlement",
+        "canonical_spec": dict(plan["canonical_args"]),
         "approval_url": f"/dashboard/launch-plans/{pid}",
         "expires_at": _iso(plan["expires_at"]),
     }
@@ -646,31 +653,58 @@ def api_v1_create_eviction_plan(host_id: str, request: Request, body: _EvictionP
 
 @router.post("/api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute")
 def api_v1_execute_eviction_plan(host_id: str, plan_id: UUID, request: Request):
-    from control_plane.db import control_plane_transaction
+    from control_plane.db import run_transaction
     from control_plane.launch import action_plans as plans_repo
     from control_plane.launch.service import PlanConflict, PlanNotFound
+
+    from control_plane import host_evictions
+
+    user = _require_host_operator(request, "hosts:evict")
+    principal = _operator_plan_principal(user)
+
+    def transaction(conn):
+        plan = plans_repo.get_plan_for_update(conn, str(plan_id))
+        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+            raise PlanNotFound()
+        if plan["action_type"] != host_evictions.ACTION:
+            raise PlanConflict("wrong_action_type", "the plan is not an eviction")
+        return host_evictions.execute(
+            conn, plan, host_id=host_id, created_by=principal.principal_id
+        )
+
+    return run_transaction(
+        transaction, isolation_level="SERIALIZABLE", what="host_eviction_execute"
+    )
+
+
+@router.get("/api/v1/hosts/{host_id}/eviction-plans/{plan_id}")
+def api_v1_read_eviction_plan(host_id: str, plan_id: UUID, request: Request):
+    """Read the approved targets and current release proof without side effects."""
+    from control_plane import host_evictions
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanNotFound
 
     user = _require_host_operator(request, "hosts:evict")
     principal = _operator_plan_principal(user)
     with control_plane_transaction() as conn:
-        plan = plans_repo.get_plan_for_update(conn, str(plan_id))
-        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+        plan = plans_repo.get_plan(conn, str(plan_id))
+        if (
+            not plan
+            or str(plan["tenant_id"]) != principal.tenant_id
+            or plan["action_type"] != host_evictions.ACTION
+        ):
             raise PlanNotFound()
-        if plan["action_type"] != "evict_host_workloads":
-            raise PlanConflict("wrong_action_type", "the plan is not an eviction")
-        if plan["status"] == "succeeded":
-            return {**dict(plan["idempotent_response"]), "idempotent": True}
-        if plan["status"] != "approved":
-            raise PlanConflict("approval_required", "approve the eviction plan before execution")
-        canonical = dict(plan["canonical_args"])
-        if canonical["host_id"] != host_id:
-            raise PlanConflict("resource_mismatch", "plan belongs to a different host")
-        _check_version(host_id, int(canonical["expected_version"]))
-        raise ProblemException(
-            status=501,
-            code="durable_preemption_unavailable",
-            detail="durable preemption must confirm worker stop before reassignment",
-        )
+        canonical = host_evictions.approved_canonical(plan, host_id)
+        response = {
+            "ok": True,
+            "plan_id": str(plan_id),
+            "status": plan["status"],
+            "canonical_spec": canonical,
+        }
+        if plan["status"] in ("executing", "succeeded"):
+            response["execution"] = host_evictions.progress(conn, plan)
+        return response
 
 
 @router.post("/api/v1/hosts/{host_id}/drain")
@@ -687,7 +721,9 @@ def api_v1_drain_host(host_id: str, request: Request, body: _OpIn | None = None)
         raise ProblemException(status=409, code="host_dead", detail="cannot drain a dead host")
     _check_version(resolved, body.expected_version if body else None)
 
-    updated = set_host_draining(resolved, draining=True)
+    updated = set_host_draining(
+        resolved, draining=True, expected_version=body.expected_version if body else None
+    )
     append_user_audit_event("host.drained", "host", resolved, user, data={"evicted": False})
     return {
         "ok": True,
@@ -708,7 +744,9 @@ def api_v1_undrain_host(host_id: str, request: Request, body: _OpIn | None = Non
         raise ProblemException(status=409, code="host_dead", detail="cannot undrain a dead host")
     _check_version(resolved, body.expected_version if body else None)
 
-    updated = set_host_draining(resolved, draining=False)
+    updated = set_host_draining(
+        resolved, draining=False, expected_version=body.expected_version if body else None
+    )
     if not updated:
         raise ProblemException(
             status=404, code="host_not_found", detail=f"host {host_id} not found"
@@ -719,7 +757,7 @@ def api_v1_undrain_host(host_id: str, request: Request, body: _OpIn | None = Non
 
 @router.post("/api/v1/hosts/{host_id}/evictions")
 def api_v1_evict_host_workloads(host_id: str, request: Request, body: _OpIn | None = None):
-    """Validate eviction authority; execution awaits durable preemption."""
+    """Require an approved plan; this route never bypasses human approval."""
 
     user = _require_host_operator(request, "hosts:evict")
     resolved, host = _host_or_problem(host_id)
@@ -737,9 +775,10 @@ def api_v1_evict_host_workloads(host_id: str, request: Request, body: _OpIn | No
     _check_version(resolved, body.expected_version if body else None)
 
     raise ProblemException(
-        status=501,
-        code="durable_preemption_unavailable",
-        detail="durable preemption must confirm worker stop before reassignment",
+        status=409,
+        code="approval_required",
+        detail="create and approve an eviction plan, then execute that plan",
+        extra={"preview_url": f"/api/v1/hosts/{resolved}/eviction-plans"},
     )
 
 
