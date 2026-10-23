@@ -22,6 +22,7 @@ from control_plane.lifecycle import (
 from control_plane.serverless_workers import cancel_unstarted_worker
 from tests.test_serverless_native_lifecycle import native as native_base  # noqa: F401
 from tests.test_privacy_sinks import subject as privacy_subject_base  # noqa: F401
+from tests.native_jobs import admit_fixture_job
 
 
 @pytest.fixture
@@ -64,6 +65,7 @@ def native(without_projection_triggers, native_base):
         DatabaseOps.upsert_job(
             conn, {**payload, "status": "queued", "owner": native_base.owner}, backend="postgres"
         )
+        admit_fixture_job(conn, native_base.jid)
     return native_base
 
 
@@ -347,6 +349,7 @@ def test_wallet_billing_uses_admitted_identity_and_gpu_constraints(native, perio
             ),
             backend="postgres",
         )
+        admit_fixture_job(conn, native.jid)
         conn.execute(
             """INSERT INTO host_gpu_devices(host_id,gpu_uuid,model,total_vram_mb,
                 allocatable_vram_mb,health) VALUES(%s,%s,'RTX 4090',24576,24576,'healthy')""",
@@ -488,6 +491,7 @@ def test_non_serverless_expiry_preserves_intent_and_requeues_with_new_time(nativ
             ),
             backend="postgres",
         )
+        admit_fixture_job(conn, native.jid)
     native.reserve()
     if intent:
         run_transaction(

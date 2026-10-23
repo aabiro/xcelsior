@@ -5,6 +5,8 @@ Runs against the real test PostgreSQL. Everything is scoped by unique
 markers (gpu_model / host pool) so shared-DB residue can't interfere.
 """
 
+from tests.native_jobs import admit_fixture_job
+
 from control_plane.state import host_states, initial_desired_state, job_phase
 
 import json
@@ -134,6 +136,7 @@ def _mk_job(
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     return payload

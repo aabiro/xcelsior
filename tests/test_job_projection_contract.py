@@ -5,6 +5,7 @@ from psycopg.errors import CheckViolation, NotNullViolation
 from psycopg.types.json import Jsonb
 
 from db import DatabaseOps
+from tests.native_jobs import admit_fixture_job
 from control_plane.scheduler.claim import claim_next_job, release_claim
 from tests.test_from_empty_bootstrap import empty_db  # noqa: F401
 from tests.test_migration_from_production_snapshot import _alembic, _connect
@@ -22,6 +23,7 @@ def projected(empty_db):
                 "INSERT INTO jobs(job_id,status,priority,submitted_at,payload) VALUES(%s,'queued',2,100,%s)",
                 (jid, Jsonb(payload)),
             )
+            admit_fixture_job(conn, jid)
         conn.execute("ALTER TABLE jobs DISABLE TRIGGER trg_jobs_control_plane_projection")
         conn.execute("UPDATE jobs SET effective_priority=1000,fair_share_finish=9")
         conn.execute("UPDATE jobs SET desired_state='stopped' WHERE job_id='canonical-intent'")

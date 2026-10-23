@@ -7,6 +7,8 @@ fenced status reporting through terminal settlement, and definitive
 fence-loss signals.
 """
 
+from tests.native_jobs import admit_fixture_job
+
 import json
 import os
 import time
@@ -114,6 +116,7 @@ def _place_one(fleet, marker, *, owner=None):
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["hosts"].append(host_id)
     fleet["jobs"].append(job_id)
@@ -309,7 +312,9 @@ class TestCommandDeliveryPartition:
         assert got["command"] == "start_attempt"
         assert got["attempt_id"] == refs["attempt_id"]
         assert got["fencing_token"] == refs["fencing_token"]
-        assert got["args"]["spec"]["job_id"] == job_id
+        assert got["args"]["job_id"] == job_id
+        assert got["args"]["spec"]["execution_spec_version"] == "v1"
+        assert "job_id" not in got["args"]["spec"]
 
     def test_ack_is_once_only_and_replayed(self, fleet):
         marker = uuid.uuid4().hex[:8]
