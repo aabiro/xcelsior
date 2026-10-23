@@ -24,7 +24,8 @@ from tests.native_jobs import admit_fixture_job
 
 
 @pytest.fixture
-def native():
+def native(request):
+    billable = bool(getattr(request, "param", {}).get("billable"))
     repo = ServerlessRepo()
     jid, hid, owner = [f"native-slv-{uuid.uuid4().hex[:12]}" for _ in range(3)]
     ep = repo.create_endpoint(
@@ -40,6 +41,7 @@ def native():
     w = repo.create_worker(ep["endpoint_id"], scheduler_job_id=jid, allocated_at=0)
     payload = {
         "job_id": jid,
+        **({"owner": owner} if billable else {}),
         "name": jid,
         "image": "test/image:1",
         "gpu_model": jid,
@@ -54,6 +56,8 @@ def native():
             """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,desired_state,queued_at, effective_priority) VALUES(%s,'queued',0,%s,%s,'pending','running',clock_timestamp(), 0)""",
             (jid, time.time(), Jsonb(payload)),
         )
+        if billable:
+            conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (owner, jid))
         admit_fixture_job(conn, jid)
         conn.execute(
             "INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state) VALUES(%s,'active',%s,%s,'admitted','ready','admitted')",
@@ -63,6 +67,11 @@ def native():
             "INSERT INTO host_gpu_devices(host_id,gpu_uuid,model,total_vram_mb,allocatable_vram_mb,health) VALUES(%s,%s,'RTX 4090',24576,24576,'healthy')",
             (hid, f"GPU-{hid}"),
         )
+        if billable:
+            conn.execute(
+                "UPDATE hosts SET payload=payload||%s WHERE host_id=%s",
+                (Jsonb(dict(cost_per_hour=0)), hid),
+            )
     x = SimpleNamespace(
         repo=repo,
         svc=ServerlessService(repo),
@@ -92,6 +101,7 @@ def native():
         conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (jid,))
         conn.execute("DELETE FROM serverless_jobs WHERE endpoint_id=%s", (ep["endpoint_id"],))
         conn.execute("DELETE FROM serverless_workers WHERE worker_id=%s", (w["worker_id"],))
+        conn.execute("DELETE FROM usage_meters WHERE job_id=%s", (jid,))
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
         conn.execute("DELETE FROM serverless_endpoints WHERE endpoint_id=%s", (ep["endpoint_id"],))

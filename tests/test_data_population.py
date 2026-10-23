@@ -140,10 +140,11 @@ def test_runtime_heartbeat_records_actual_database_revision(monkeypatch):
     try:
         heartbeat_once("scheduler", replica_id=marker)
         with _get_pg_pool().connection() as conn:
+            revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
             assert conn.execute(
                 "SELECT schema_revision,service_version FROM service_heartbeats WHERE replica_id=%s",
                 (marker,),
-            ).fetchone() == ("131", "test-source-version")
+            ).fetchone() == (revision, "test-source-version")
     finally:
         with _get_pg_pool().connection() as conn:
             conn.execute("DELETE FROM service_heartbeats WHERE replica_id=%s", (marker,))

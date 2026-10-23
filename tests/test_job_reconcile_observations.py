@@ -22,8 +22,12 @@ pytestmark = pytest.mark.needs_db
 
 
 @pytest.fixture
-def placed():
+def placed(request):
     pool = _get_pg_pool()
+    inputs = dict(getattr(request, "param", {}))
+    if "native_admission_fields" in request.fixturenames:
+        inputs.update(request.getfixturevalue("native_admission_fields"))
+    billable = inputs.pop("billable", False)
     marker = uuid.uuid4().hex
     host_id, job_id, model = f"h-job-rec-{marker}", f"j-job-rec-{marker}", f"GPU-{marker}"
     with pool.connection() as conn:
@@ -36,10 +40,10 @@ def placed():
                     {
                         "host_id": host_id,
                         "gpu_model": model,
-                        "gpu_count": 1,
+                        "gpu_count": inputs.get("num_gpus", 1),
                         "free_vram_gb": 24,
                         "total_vram_gb": 24,
-                        "cost_per_hour": 1,
+                        "cost_per_hour": inputs.get("cost_per_hour", 1),
                         "admitted": True,
                         "last_seen": time.time(),
                         "capabilities": {"egress_isolation": True},
@@ -57,15 +61,22 @@ def placed():
                     {
                         "job_id": job_id,
                         "name": job_id,
+                        **({"owner": job_id} if billable else {}),
                         "status": "queued",
                         "gpu_model": model,
                         "num_gpus": 1,
                         "vram_needed_gb": 8,
+                        **{k: v for k, v in inputs.items() if k != "cost_per_hour"},
                     }
                 ),
                 fixture_submitted_at,
             ),
         )
+        if billable:
+            conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (job_id, job_id))
+        from tests.native_jobs import admit_fixture_job
+
+        admit_fixture_job(conn, job_id)
     try:
         report = SchedulerService(
             SchedulerConfig(

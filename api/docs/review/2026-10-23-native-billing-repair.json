@@ -1,0 +1,141 @@
+{
+  "base_commit": "49de77e093affbe61647a7a73f7f448fbbe64ff8",
+  "gates": {
+    "native-billing-ceiling-qualified": {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-billing-ceiling-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.06
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.12
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.68
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 6.0
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.1
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 5
+      },
+      "sha256": "e34c40aab93085539df384988abd62e63ba48bf557a240a13b918127139d3995"
+    },
+    "native-combined-final": {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-combined-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.18
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 2.26
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 7.25
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 81.39
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.23
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.12
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 199
+      },
+      "sha256": "40c2ea61b9e376a9890fd4dc88a8b60ff2b6622f1743433aac215affbf0ff3d8"
+    },
+    "native-reconcile-final": {
+      "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-reconcile-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.09
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.79
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 7.76
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 31.47
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 103
+      },
+      "sha256": "bec09828b500840eb6b07e4ba7906c6ec57edc2e5cb4db215ed62b5efe1e9332"
+    }
+  },
+  "old_expanded": {
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/strict-expanded-final/manifest.json",
+    "postgres_stop_exit": 0,
+    "redis_cleanup": {
+      "cleanup_exit": 0,
+      "container": "xcelsior-cutover-gate-dabb97cd46"
+    },
+    "results": {
+      "errors": 119,
+      "failures": 18,
+      "skipped": 0,
+      "tests": 3154
+    }
+  },
+  "production_mutation": false,
+  "protected_root_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  },
+  "remaining": "full candidate regression; lifecycle JSONB and redundant columns; production acceptance",
+  "repairs": "report_only"
+}

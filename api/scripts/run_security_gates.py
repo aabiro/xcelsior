@@ -89,6 +89,10 @@ def main() -> int:
         parser.error("--test-lease-snapshot must name a local exported lease snapshot")
     if args.test_redis_socket:
         args.test_redis_socket = args.test_redis_socket.resolve()
+        if len(os.fsencode(args.test_redis_socket)) > 103:
+            parser.error(
+                "--test-redis-socket path exceeds the portable Unix socket limit; use a short temporary directory"
+            )
         if not args.test_redis_socket.is_socket():
             parser.error("--test-redis-socket must name a disposable local Redis Unix socket")
     if args.worker_billing_acceptance and args.tests:
