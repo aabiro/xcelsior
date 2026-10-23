@@ -80,6 +80,20 @@ def take_snapshot(
         job.setdefault("priority", _get(row, "priority", 3))
         jobs.append(job)
 
+    fleet = read_fleet(conn, host_freshness_timeout_sec=host_freshness_timeout_sec)
+    return SchedulerSnapshot(
+        taken_at=taken_at, jobs=jobs, hosts=fleet.hosts, stale_host_ids=fleet.stale_host_ids
+    )
+
+
+def read_fleet(conn: Connection, *, host_freshness_timeout_sec: int = 300) -> SchedulerSnapshot:
+    """Read current native capacity within an existing transaction snapshot."""
+    now = conn.execute(
+        "SELECT statement_timestamp() AS now_ts,EXTRACT(EPOCH FROM statement_timestamp()) AS now_epoch"
+    ).fetchone()
+    if now is None:
+        raise RuntimeError("database time unavailable")
+    taken_at, now_epoch = _get(now, "now_ts", 0), float(_get(now, "now_epoch", 1))
     # ── Active device allocations, independent of compatibility status ──
     usage_rows = conn.execute("""SELECT host_id,count(DISTINCT gpu_device_id) AS allocated_gpus
         FROM gpu_device_allocations WHERE released_at IS NULL GROUP BY host_id""").fetchall()
@@ -121,7 +135,7 @@ def take_snapshot(
 
     return SchedulerSnapshot(
         taken_at=taken_at,
-        jobs=jobs,
+        jobs=[],
         hosts=hosts,
         stale_host_ids=frozenset(stale),
     )

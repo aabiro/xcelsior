@@ -42,9 +42,7 @@ T = TypeVar("T")
 # SQLSTATEs that are safe to retry with a fresh transaction (§2.4).
 TRANSIENT_SQLSTATES = frozenset({"40001", "40P01"})
 
-_DEFAULT_STATEMENT_TIMEOUT_MS = int(
-    os.environ.get("XCELSIOR_PG_STATEMENT_TIMEOUT_MS", "30000")
-)
+_DEFAULT_STATEMENT_TIMEOUT_MS = int(os.environ.get("XCELSIOR_PG_STATEMENT_TIMEOUT_MS", "30000"))
 _DEFAULT_LOCK_TIMEOUT_MS = int(os.environ.get("XCELSIOR_PG_LOCK_TIMEOUT_MS", "5000"))
 
 
@@ -96,6 +94,7 @@ def control_plane_transaction(
     *,
     statement_timeout_ms: int | None = None,
     lock_timeout_ms: int | None = None,
+    isolation_level: str | None = None,
 ) -> Iterator[Connection]:
     """One explicit transaction on a pooled connection, with local timeouts.
 
@@ -103,10 +102,16 @@ def control_plane_transaction(
     the COMMIT itself is re-raised as :class:`AmbiguousCommitError` —
     see the class docstring for why that must not be retried.
     """
-    stmt_ms = _DEFAULT_STATEMENT_TIMEOUT_MS if statement_timeout_ms is None else statement_timeout_ms
+    stmt_ms = (
+        _DEFAULT_STATEMENT_TIMEOUT_MS if statement_timeout_ms is None else statement_timeout_ms
+    )
     lock_ms = _DEFAULT_LOCK_TIMEOUT_MS if lock_timeout_ms is None else lock_timeout_ms
+    if isolation_level not in (None, "SERIALIZABLE"):
+        raise ValueError("unsupported transaction isolation")
     with _pool().connection() as conn:
         try:
+            if isolation_level:
+                conn.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             conn.execute(f"SET LOCAL statement_timeout = {int(stmt_ms)}")
             conn.execute(f"SET LOCAL lock_timeout = {int(lock_ms)}")
             yield conn
@@ -116,6 +121,11 @@ def control_plane_transaction(
         try:
             conn.commit()
         except psycopg.OperationalError as exc:
+            # PostgreSQL explicitly aborted these transactions. Serializable
+            # predicate conflicts can surface only at COMMIT; retrying them
+            # spends no placement/service credit twice.
+            if getattr(exc, "sqlstate", None) in TRANSIENT_SQLSTATES:
+                raise
             # The commit message may have reached the server before the
             # connection died — outcome unknown.
             raise AmbiguousCommitError(
@@ -131,6 +141,7 @@ def run_transaction(
     max_backoff_ms: float = 1000.0,
     statement_timeout_ms: int | None = None,
     lock_timeout_ms: int | None = None,
+    isolation_level: str | None = None,
     what: str = "control_plane_txn",
 ) -> T:
     """Run ``fn(conn)`` in a transaction, retrying transient conflicts.
@@ -149,6 +160,7 @@ def run_transaction(
             with control_plane_transaction(
                 statement_timeout_ms=statement_timeout_ms,
                 lock_timeout_ms=lock_timeout_ms,
+                isolation_level=isolation_level,
             ) as conn:
                 return fn(conn)
         except AmbiguousCommitError:
@@ -158,8 +170,7 @@ def run_transaction(
                 raise
             if attempt >= max_attempts:
                 raise RetryBudgetExceeded(
-                    f"{what}: transient conflict persisted through "
-                    f"{max_attempts} attempts"
+                    f"{what}: transient conflict persisted through " f"{max_attempts} attempts"
                 ) from exc
             # Full jitter: uniform over [0, min(cap, base * 2^(n-1))].
             ceiling_ms = min(max_backoff_ms, base_backoff_ms * (2 ** (attempt - 1)))

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from psycopg import Connection
+from psycopg.types.json import Jsonb
 
 DEFAULT_CLAIM_TTL_SEC = 15
 
@@ -98,6 +99,7 @@ def release_claim(
     *,
     reason_code: str,
     requeue_delay_sec: float = 0.0,
+    reason_details: dict[str, Any] | None = None,
 ) -> bool:
     """Give the claim back without placing (all candidates failed, §10.5).
 
@@ -116,6 +118,8 @@ def release_claim(
                next_schedule_at =
                    clock_timestamp() + make_interval(secs => %(delay)s),
                reason_code = %(reason)s,
+               reason_details = CASE WHEN %(details)s::jsonb IS NOT NULL THEN %(details)s::jsonb
+                   WHEN %(reason)s='preemption_waiting' THEN reason_details ELSE NULL END,
                last_schedule_conflict_at = CASE
                    WHEN %(reason)s = 'placement_conflict' THEN clock_timestamp()
                    ELSE last_schedule_conflict_at
@@ -130,6 +134,7 @@ def release_claim(
             "token": claim_token,
             "delay": max(0.0, requeue_delay_sec),
             "reason": reason_code,
+            "details": Jsonb(reason_details) if reason_details is not None else None,
         },
     )
     return result.rowcount == 1
