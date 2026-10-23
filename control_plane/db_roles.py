@@ -224,6 +224,7 @@ AUDIT_TABLES = frozenset(
         "events",
         "events_archive",
         "legacy_lease_archive",
+        "job_retired_projection_archive",
         "job_spec_backfill_evidence",
         "job_history_dispositions",
         "scheduling_team_policies",
@@ -299,6 +300,7 @@ RUNTIME_READ_ONLY_TABLES = frozenset(
     {
         "alembic_version",
         "legacy_lease_archive",
+        "job_retired_projection_archive",
         "job_spec_backfill_evidence",
         "job_history_dispositions",
         "scheduling_team_policies",

@@ -53,10 +53,10 @@ def running(claimed, host):
     return reservation
 
 
-def setup(fleet, policies, *, enabled=True, force=False, interruptible=True):
+def setup(fleet, policies, *, enabled=True, force=False, interruptible=True, nominee_fields=None):
     host = _mkhost(fleet, gpus=2)
     victim = _mkjob(fleet, admission_fields=dict(preemptible=interruptible))
-    nominee = _mkjob(fleet, num_gpus=2, owner="nominee-" + host)
+    nominee = _mkjob(fleet, num_gpus=2, owner="nominee-" + host, admission_fields=nominee_fields)
     third = _mkjob(fleet)
     policy(policies, "nominee-" + host, preemption_enabled=enabled, force_after_deadline=force)
     with _pool.connection() as conn:

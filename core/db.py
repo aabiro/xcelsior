@@ -609,28 +609,6 @@ class DatabaseOps:
         # here, because nothing else writes the key into the job dict.
         host_key_fingerprint = job.get("host_key_fingerprint") or None
 
-        # P5's placement preference, in the units the schema stores (115).
-        # Percent arrives at the API; basis points are what a price bound can be
-        # compared on exactly. `pct_to_bps` reads the number the caller wrote
-        # rather than the float it became — see
-        # `tests/test_placement_preference_is_exact.py`, where `int(8.7 * 100)`
-        # is 869.
-        #
-        # Clamped here as well as CHECKed in the database. The constraint is the
-        # backstop for every writer; this is so a caller that fat-fingers a
-        # bound gets it bounded rather than a failed insert on the launch path.
-        from control_plane.scheduler.preference import pct_to_bps
-
-        _pref = job.get("placement_preference") or {}
-        _min_uptime_bps = pct_to_bps(_pref.get("min_uptime_pct"))
-        if _min_uptime_bps is not None:
-            _min_uptime_bps = max(0, min(10_000, _min_uptime_bps))
-        _max_premium_bps = pct_to_bps(_pref.get("max_premium_pct"))
-        if _max_premium_bps is not None:
-            _max_premium_bps = max(0, min(100_000_000, _max_premium_bps))
-        _min_tier = str(_pref.get("min_tier") or "").strip().lower() or None
-        _require_verified = bool(_pref.get("require_verified") or False)
-
         if backend == "postgres":
             from psycopg.types.json import Jsonb
             from control_plane.job_specs import (
@@ -682,11 +660,7 @@ class DatabaseOps:
                     owner_id = COALESCE(EXCLUDED.owner_id, jobs.owner_id),
                     tenant_id = COALESCE(EXCLUDED.tenant_id, jobs.tenant_id),
                     team_id = COALESCE(EXCLUDED.team_id, jobs.team_id),
-                    updated_at = clock_timestamp(),
-                    placement_min_uptime_bps = EXCLUDED.placement_min_uptime_bps,
-                    placement_min_tier = EXCLUDED.placement_min_tier,
-                    placement_require_verified = EXCLUDED.placement_require_verified,
-                    placement_max_premium_bps = EXCLUDED.placement_max_premium_bps
+                    updated_at = clock_timestamp()
             """
             )
             result = conn.execute(
@@ -694,12 +668,10 @@ class DatabaseOps:
                 INSERT INTO jobs(
                     job_id, status, priority, submitted_at, host_id,
                     pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
-                    placement_min_uptime_bps, placement_min_tier,
-                    placement_require_verified, placement_max_premium_bps,
                     owner_id, tenant_id, team_id, updated_at, spec, spec_hash,
                     phase, desired_state, effective_priority, queued_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, clock_timestamp(), %s, %s,
                         %s, %s, %s, CASE WHEN %s THEN to_timestamp(%s) ELSE NULL END)
                 ON CONFLICT(job_id) {conflict}
@@ -714,10 +686,6 @@ class DatabaseOps:
                     None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
                     host_key_fingerprint,
                     Jsonb(job),
-                    _min_uptime_bps,
-                    _min_tier,
-                    _require_verified,
-                    _max_premium_bps,
                     job.get("owner_id") or job.get("owner") or None,
                     job.get("tenant_id") or job.get("owner_id") or job.get("owner") or None,
                     job.get("team_id") or None,

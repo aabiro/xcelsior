@@ -131,37 +131,28 @@ def test_a_preference_round_trips_through_the_database_exactly():
     pool = _pg()
     try:
         with pool.connection() as conn:
-            DatabaseOps.upsert_job(conn, job, backend="postgres")
+            from control_plane.launch.canonicalize import canonicalize
+
+            DatabaseOps.upsert_job(conn, job, backend="postgres", admission_spec=canonicalize(job))
             conn.commit()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             row = conn.execute(
-                """SELECT placement_min_uptime_bps, placement_min_tier,
-                          placement_require_verified, placement_max_premium_bps
-                   FROM jobs WHERE job_id = %s""",
+                "SELECT spec->'placement_preference' AS preference FROM jobs WHERE job_id=%s",
                 (job_id,),
-            ).fetchone()
-
-        assert row["placement_min_uptime_bps"] == 870, "the float trap reached the database"
-        assert row["placement_max_premium_bps"] == 115, "the float trap reached the database"
-        # Normalised before the CHECK sees it: `'  GOLD  '` would fail the shape
-        # constraint, and refusing a launch over whitespace is not the lesson.
-        assert row["placement_min_tier"] == "gold"
-        assert row["placement_require_verified"] is True
+            ).fetchone()["preference"]
+        assert pct_to_bps(row["min_uptime_pct"]) == 870, "the float trap reached stored admission"
+        assert pct_to_bps(row["max_premium_pct"]) == 115, "the float trap reached stored admission"
+        assert row["min_tier"] == "gold"
+        assert row["require_verified"] is True
     finally:
         with pool.connection() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
             conn.commit()
 
 
-def test_resubmitting_without_a_preference_clears_it():
-    """The stale-constraint hazard.
-
-    `upsert_job` is an upsert: a job resubmitted without a preference must come
-    back unconstrained. Leaving the previous values attached would apply a
-    constraint nobody asked for on this submission — and it would be invisible,
-    because the request that produced it said nothing about placement.
-    """
+def test_observations_without_a_preference_cannot_clear_admitted_constraints():
+    """Only a new admission can change an approved host constraint."""
     import time
     import uuid
 
@@ -173,13 +164,14 @@ def test_resubmitting_without_a_preference_clears_it():
     pool = _pg()
     try:
         with pool.connection() as conn:
+            from control_plane.launch.canonicalize import canonicalize
+
+            admitted = {
+                **base,
+                "placement_preference": {"min_uptime_pct": 99.5, "require_verified": True},
+            }
             DatabaseOps.upsert_job(
-                conn,
-                {
-                    **base,
-                    "placement_preference": {"min_uptime_pct": 99.5, "require_verified": True},
-                },
-                backend="postgres",
+                conn, admitted, backend="postgres", admission_spec=canonicalize(admitted)
             )
             conn.commit()
         with pool.connection() as conn:
@@ -188,15 +180,11 @@ def test_resubmitting_without_a_preference_clears_it():
         with pool.connection() as conn:
             conn.row_factory = dict_row
             row = conn.execute(
-                """SELECT placement_min_uptime_bps, placement_min_tier,
-                          placement_require_verified
-                   FROM jobs WHERE job_id = %s""",
+                "SELECT spec->'placement_preference' AS preference FROM jobs WHERE job_id=%s",
                 (job_id,),
-            ).fetchone()
-
-        assert row["placement_min_uptime_bps"] is None
-        assert row["placement_min_tier"] is None
-        assert row["placement_require_verified"] is False
+            ).fetchone()["preference"]
+        assert row["min_uptime_pct"] == 99.5
+        assert row["require_verified"] is True
     finally:
         with pool.connection() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
