@@ -3580,17 +3580,20 @@ class BillingEngine:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(COALESCE(spec,payload)->>'owner',
+                                   COALESCE(spec,payload)->>'owner_id',owner_id) AS owner,
                           (payload->>'started_at')::double precision AS started_at,
-                          payload->>'gpu_model' AS gpu_model,
+                          COALESCE(spec,payload)->>'gpu_model' AS gpu_model,
                           payload->>'host_gpu_model' AS host_gpu_model,
-                          COALESCE((payload->>'num_gpus')::int, 1) AS num_gpus,
-                          COALESCE(payload->>'pricing_mode', 'on_demand') AS pricing_mode,
-                          (payload->>'spot_rate_cad')::double precision AS spot_rate_cad,
-                          payload->>'preemptible' AS preemptible,
-                          payload->>'spot' AS spot,
-                          COALESCE(payload->>'tier', 'free') AS tier
-                   FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
+                          COALESCE((COALESCE(spec,payload)->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(COALESCE(spec,payload)->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (COALESCE(spec,payload)->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          COALESCE(spec,payload)->>'preemptible' AS preemptible,
+                          COALESCE(spec,payload)->>'spot' AS spot,
+                          COALESCE(COALESCE(spec,payload)->>'tier', 'free') AS tier
+                   FROM jobs WHERE job_id = %s AND status = 'running'
+                     AND COALESCE(COALESCE(spec,payload)->>'job_type','') <> 'serverless_worker'
+                   FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
@@ -3639,20 +3642,21 @@ class BillingEngine:
             # Find all running jobs
             running = conn.execute(
                 """SELECT j.job_id,
-                          j.payload->>'owner' AS owner,
+                          COALESCE(COALESCE(j.spec,j.payload)->>'owner',
+                                   COALESCE(j.spec,j.payload)->>'owner_id',j.owner_id) AS owner,
                           (j.payload->>'started_at')::double precision AS started_at,
                           j.host_id,
-                          j.payload->>'gpu_model' AS gpu_model,
+                          COALESCE(j.spec,j.payload)->>'gpu_model' AS gpu_model,
                           j.payload->>'host_gpu_model' AS host_gpu_model,
-                          COALESCE((j.payload->>'num_gpus')::int, 1) AS num_gpus,
-                          COALESCE(j.payload->>'pricing_mode', 'on_demand') AS pricing_mode,
-                          (j.payload->>'spot_rate_cad')::double precision AS spot_rate_cad,
-                          j.payload->>'preemptible' AS preemptible,
-                          j.payload->>'spot' AS spot,
-                          COALESCE(j.payload->>'tier', 'free') AS tier
+                          COALESCE((COALESCE(j.spec,j.payload)->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(COALESCE(j.spec,j.payload)->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (COALESCE(j.spec,j.payload)->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          COALESCE(j.spec,j.payload)->>'preemptible' AS preemptible,
+                          COALESCE(j.spec,j.payload)->>'spot' AS spot,
+                          COALESCE(COALESCE(j.spec,j.payload)->>'tier', 'free') AS tier
                    FROM jobs j
                    WHERE j.status = 'running'
-                     AND COALESCE(j.payload->>'job_type','') <> 'serverless_worker'
+                     AND COALESCE(COALESCE(j.spec,j.payload)->>'job_type','') <> 'serverless_worker'
                      AND (j.payload->>'started_at')::double precision > 0""",
             ).fetchall()
 

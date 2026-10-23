@@ -38,17 +38,12 @@ def place(job_id: str, gpu_model: str) -> None:
     }
     pool = _get_pg_pool()
     with pool.connection() as conn:
-        # `admission_state` is the authority, not the payload's `admitted` flag.
-        # Migration 082 replaced the projection trigger: it now derives
-        # `administrative_state` from this column and *overwrites*
-        # `payload->>'admitted'` from it. A fixture that only set the payload
-        # flag was silently un-admitted on insert, so every placement returned
-        # `no_eligible_host` — the host existed, looked admitted in its own
-        # payload, and could never be scheduled onto.
+        # Explicit fixture authority: provider registration cannot admit a host.
         conn.execute(
             """
-            INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-            VALUES (%s, 'active', %s, %s, 'admitted')
+            INSERT INTO hosts (host_id, status, registered_at, payload, admission_state,
+                               administrative_state,availability_state)
+            VALUES (%s, 'active', %s, %s, 'admitted','admitted','ready')
             """,
             (host_id, time.time(), json.dumps(host)),
         )
@@ -125,9 +120,7 @@ def expire(plan_id: str) -> None:
 
 def host_version(host_id: str) -> None:
     with _get_pg_pool().connection() as conn:
-        row = conn.execute(
-            "SELECT version FROM hosts WHERE host_id=%s", (host_id,)
-        ).fetchone()
+        row = conn.execute("SELECT version FROM hosts WHERE host_id=%s", (host_id,)).fetchone()
     if not row:
         raise RuntimeError(f"host not found: {host_id}")
     print(json.dumps({"host_id": host_id, "version": int(row[0])}))

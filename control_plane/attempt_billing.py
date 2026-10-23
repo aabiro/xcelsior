@@ -66,7 +66,8 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
 
     with conn.cursor(row_factory=dict_row) as cur:
         attempt = cur.execute(
-            """SELECT a.job_id,a.host_id,a.status,a.placement_explanation,j.payload,
+            """SELECT a.job_id,a.host_id,a.status,a.placement_explanation,
+                      COALESCE(j.spec,j.payload) AS payload,
                       EXTRACT(EPOCH FROM a.started_at)::float8 AS started,
                       EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended
                  FROM job_attempts a JOIN jobs j ON j.job_id=a.job_id
