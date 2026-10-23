@@ -176,10 +176,11 @@ def test_sdk_does_not_fall_back_to_a_host_or_platform_token(monkeypatch):
         client.close()
 
 
-@pytest.mark.parametrize("revision,compatible", [("125", False), ("126", True), ("127", True)])
-def test_runtime_requires_the_credential_expand_but_not_the_contract(
-    revision, compatible, monkeypatch
-):
+@pytest.mark.parametrize(
+    "revision,compatible",
+    [("125", False), ("126", False), ("127", False), ("131", False), ("132", True)],
+)
+def test_runtime_requires_the_current_native_history_floor(revision, compatible, monkeypatch):
     import control_plane.schema_compat as schema
 
     monkeypatch.delenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", raising=False)

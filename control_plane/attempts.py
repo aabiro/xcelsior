@@ -205,7 +205,7 @@ def report_attempt_status(
         from abuse_policy import record_mining_violation
 
         row = conn.execute(
-            "SELECT COALESCE(spec,payload) AS payload FROM jobs WHERE job_id = %s", (job_id,)
+            "SELECT spec AS payload FROM jobs WHERE job_id = %s", (job_id,)
         ).fetchone()
         job = dict(_get(row, "payload", 0) or {})
         job["job_id"] = job_id

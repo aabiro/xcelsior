@@ -133,13 +133,13 @@ class SchedulerService:
     def _place_one(self, claimed: ClaimedJob) -> Reservation | tuple[str, str]:
         """Place a claimed job or release it with a durable reason."""
         cfg = self.config
-        if claimed.spec is not None:
-            try:
-                validate_execution_spec(claimed.spec, claimed.spec_hash)
-            except ValueError:
-                self._release(claimed, "execution_spec_unqualified", _NO_CAPACITY_BACKOFF_SEC)
-                return (claimed.job_id, "execution_spec_unqualified")
-        job = dict(claimed.spec if claimed.spec is not None else claimed.payload)
+        try:
+            job = dict(
+                validate_execution_spec(claimed.spec, claimed.spec_hash, require_admission=True)
+            )
+        except ValueError:
+            self._release(claimed, "execution_spec_unqualified", _NO_CAPACITY_BACKOFF_SEC)
+            return (claimed.job_id, "execution_spec_unqualified")
         job["job_id"] = claimed.job_id
 
         snapshot = run_transaction(
