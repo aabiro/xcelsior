@@ -108,8 +108,8 @@ def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
+                                 phase, desired_state, queued_at, effective_priority)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (job_id, time.time(), json.dumps(payload)),
         )
         conn.commit()
@@ -196,8 +196,8 @@ def test_non_serverless_job_leaves_workers_untouched(scratch):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
+                                 phase, desired_state, queued_at, effective_priority)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
             (plain, time.time(), json.dumps(payload)),
         )
         conn.commit()

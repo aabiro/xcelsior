@@ -4,6 +4,8 @@ Tests run against the actual database (XCELSIOR_DATABASE_URL).
 Volume IDs use test-vol-* prefix and are cleaned up after each test.
 """
 
+from control_plane.state import initial_desired_state, job_phase
+
 import os
 import time
 import uuid
@@ -362,11 +364,23 @@ class TestOrphanReconciliationRealDB:
                 (vid, owner, "dead-att", "nfs", 1, "ca-east", "ON", False, "attached", time.time()),
             )
             # Create a completed job
+            fixture_submitted_at = time.time()
             conn.execute(
-                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-                   VALUES (%s, %s, %s, %s, %s::jsonb)
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+                   VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)
                    ON CONFLICT (job_id) DO NOTHING""",
-                (job_id, "completed", 50, time.time(), '{"owner": "' + owner + '"}'),
+                (
+                    job_id,
+                    "completed",
+                    50,
+                    fixture_submitted_at,
+                    '{"owner": "' + owner + '"}',
+                    job_phase("completed"),
+                    initial_desired_state("completed"),
+                    50,
+                    "completed",
+                    fixture_submitted_at,
+                ),
             )
             # Create active attachment
             conn.execute(

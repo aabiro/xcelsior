@@ -58,7 +58,7 @@ def test_security_metrics_detect_revived_job_without_exposing_identifiers():
     job = "security-signal-" + uuid.uuid4().hex
     with psycopg.connect(os.environ["XCELSIOR_POSTGRES_DSN"]) as conn:
         conn.execute(
-            "INSERT INTO jobs(job_id,status,payload,submitted_at,priority) VALUES (%s,'queued','{}',0,0)",
+            """INSERT INTO jobs(job_id,status,payload,submitted_at,priority, phase, desired_state, effective_priority, queued_at) VALUES (%s,'queued','{}',0,0, 'pending', 'running', 0, to_timestamp(0))""",
             (job,),
         )
         conn.execute(
@@ -66,7 +66,10 @@ def test_security_metrics_detect_revived_job_without_exposing_identifiers():
         )
         snapshot = security_metrics.collect(conn)
         assert snapshot["abuse_jobs_runnable"] >= 1
-        conn.execute("UPDATE jobs SET status='terminated' WHERE job_id=%s", (job,))
+        conn.execute(
+            """UPDATE jobs SET status='terminated', phase='stopped', desired_state='stopped' WHERE job_id=%s""",
+            (job,),
+        )
         after = security_metrics.collect(conn)
         assert after["abuse_jobs_runnable"] == snapshot["abuse_jobs_runnable"] - 1
         assert job not in "\n".join(security_metrics.render(snapshot))

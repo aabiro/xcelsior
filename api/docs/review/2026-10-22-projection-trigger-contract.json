@@ -1,0 +1,254 @@
+{
+  "recorded_at": "2026-10-23T02:02:50.592608+00:00",
+  "base_commit": "c0f4e4f47988f1056e6715a9e8938556535ed10a",
+  "scope": "scoped job/host projection-trigger contraction and explicit native acceptance fixtures",
+  "migration": {
+    "revision": "131",
+    "parent": "130",
+    "runtime_floor": "126",
+    "drops": [
+      "trg_jobs_control_plane_projection",
+      "trg_hosts_control_plane_projection",
+      "control_plane_project_job()",
+      "control_plane_project_host()"
+    ],
+    "host_default": "pending",
+    "validated_constraint": "ck_hosts_admission_authority",
+    "repairs_historical_rows": false,
+    "per_table_resumable_units": true,
+    "downgrade": "exact 130/082 functions, triggers and old host default; rows unchanged",
+    "production_precondition": "all API, scheduler and maintenance replicas running qualified native writers before 131"
+  },
+  "validation": {
+    "expanded-verified": {
+      "tests": 3096,
+      "failures": 5,
+      "errors": 0,
+      "skipped": 0
+    },
+    "final-focused": {
+      "tests": 49,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "production-drill-qualified": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "trigger_retirement_cases": 7,
+    "native_transition_cases": 22,
+    "baseline_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "black_python_files": 71,
+    "ruff": "repository passed",
+    "pyright": {
+      "filesAnalyzed": 247,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 51.518
+    },
+    "worker_signatures": 12,
+    "scratch_postgres_removed": true,
+    "scratch_redis_removed": true
+  },
+  "source_sha256": {
+    "api/migrations/versions/131_retire_projection_triggers.py": "c8ba5c42c9dbd73dd113e51c96460cb8d6514c6dee4404bd6472872de20a15c8",
+    "control_plane/spec_qualification.py": "a940150aeec78a2a01e8d86030d2b754767518a6892a511ae46f0588223a2ff8",
+    "tests/_db_helpers.py": "e942726953b8c74cbc1a3eec278f2d2e8cb96a462c92c9fb49312be5292b6617",
+    "tests/test_active_meter_repair.py": "d3b57ded29702996f4f3193f2dd5b30994509a4a219e000d595307d128346bc1",
+    "tests/test_admin_job_failure_rate_is_real.py": "0d2970b99c2b46371efbc10fe31401187e619fc6c57bf3f3b32225a35273fae5",
+    "tests/test_admission_routes_hold_the_trust_boundary.py": "c224d28b3f240eb24356d849d6b9becfda6000635810e82049dc363dc42ca341",
+    "tests/test_agent_v2.py": "d92ef84d68f0625f408a3bd79f10fe25b9b888fc5a0e5d7b7281192f61449b96",
+    "tests/test_artifacts_janitor.py": "12ad5f73c142f54103086e14471d3e8996ccf2467d41163c03cad595a940b93e",
+    "tests/test_artifacts_state_machine.py": "cf9eed32f06b9b4f2e003d1b9b4733b449e9fbdd34302965569b8e53ca6925ed",
+    "tests/test_attempt_scoped_usage_meters.py": "f8acdf3ed597acf62e0bb1342e28600b52a6adbfa00e5a7b1e29d9629a2284ba",
+    "tests/test_auto_launch.py": "39f2e4a93f6505659ef411a3e8e997b6829e8e47d59fa133f5bcc6b94847df66",
+    "tests/test_billing_controller.py": "e3af55977d34c1ea12bab514bd29530fb6d2999d8764acc807134be2b57dc2f8",
+    "tests/test_billing_lifecycle_domain.py": "709ecaabaff3eb7fd5dcc76cec6b8a88d79142c5657e0b318d851f0f26f96b3c",
+    "tests/test_billing_stop_enqueue_pg.py": "e0a2c49fd3eadf9ed0fee152d8bdcb253cc645db2c3de638d045bdcd378a6ea0",
+    "tests/test_control_plane_claim.py": "928a737533958a8d09f42543386b54f15921e1c453008e81f9220ef4dde4e77f",
+    "tests/test_control_plane_leases.py": "a45b11590dabccf602526920bdeeb4e83f3ea1e654b33f417692bf602bc11e03",
+    "tests/test_control_plane_outbox_runtime.py": "deb8c54b3a10b97795977eb7bd58a2a5d55cf3f4a57e99cb54e1e3702ebed903",
+    "tests/test_control_plane_reconcile.py": "aed36436247208bf585857f6d8772e02d41a2ecc539fa1132f7f3b819ccd3c46",
+    "tests/test_control_plane_reservation.py": "8c6f73a7fff449bfdd8f105fe027bf6c89f0104b8343a74d064fae85ef197195",
+    "tests/test_control_plane_schema.py": "f59b23d0a3974c6879b6f442417c852a6f1572fa03d50113faf96b255d38990b",
+    "tests/test_control_plane_service.py": "f78c042aa0174bac3ea507afd4541a1d8c9731c0e48c21a20656364989718b48",
+    "tests/test_control_plane_shadow.py": "813104d7c8d091e0e4b60bb9ba90a8f0901cefd4d1a3906c473e18ce59c9784b",
+    "tests/test_data_population.py": "9a8fff909de565c522d7e39067df6108d4c2d3c92fb97a0350f3fd8273488b5a",
+    "tests/test_fenced_lifecycle_controller.py": "34c1910aa8b08f1e658818fde51edb53beba4b5f6219f455dfd724162a6c7ece",
+    "tests/test_fresh_attempt_resume_restart.py": "0a2791a6f2ebf1ca6828f41d091a9042e297d07af9e2c5579ee7d59c27653d76",
+    "tests/test_from_empty_bootstrap.py": "1e4b22337b3253d1c51f2f90653e0bbc2dc5d5a30444e6563b7c2239729bd255",
+    "tests/test_gpu_billing_writes_its_cycle_row.py": "c9d57b67c1e9b0fa24fe55f665d5d9f62b6f16e8fe1304321e189fcb43e1b7da",
+    "tests/test_host_admission.py": "ef8014e20f37008b97cbcb42c918c268c63886fb381d2f5db908d11f3ca7a94a",
+    "tests/test_host_agent_tokens.py": "eeceecde7a784c970900624e83b8b2833c871f18dc72b600a0cf6b70a084739a",
+    "tests/test_host_fleet_disclosure_http.py": "a357cef8f2d6a888cebbe47a6bfed06d42601c9e38db955714d95e4088eb8b37",
+    "tests/test_host_id_comes_from_its_column.py": "520a6d5b9fa177de8e55f3f24a311ddf1c4b9d4593b8c4304835965b332d55bd",
+    "tests/test_host_job_lifecycle_outbox.py": "07b55deb66a29521ec48b166cc366d0a199758d2de0bc87f20e4b4f0d8faf7d0",
+    "tests/test_host_key_fingerprint_is_refused_when_malformed.py": "0330c9b339ed2207c0457166b5e45579c3071b0b7201ac9a0512ba5b150729bf",
+    "tests/test_host_token_survives_the_auth_middleware.py": "04ddc9bb32bde5c5296b49c3fbcfadaa98891e8d27db5b9f458a1edaffab9e14",
+    "tests/test_host_vram_reconcile.py": "495043bc7d5a7ea83e80e489d0e0734845085731435ca2b4c2b72c5f76597df2",
+    "tests/test_job_reconcile_lease_repair.py": "f2836791dfcaa947f35924b76c12905654c8b28ace37fa02363b8dc133ad7c3f",
+    "tests/test_job_reconcile_observations.py": "34e27e7948acdd36143327f30ebaba6552179f27dd267020ca7b93c2c5f592be",
+    "tests/test_job_reconcile_queue.py": "210f6afd9a8f2af2a6fb51c940e8d4285edff22c145346167757a7ff9a35640f",
+    "tests/test_job_reconcile_requests.py": "ca2a709fc4c6595fa3915c29319bd8c49da795cef41f515c9ed5a87b77a4f8f7",
+    "tests/test_job_spec_admission.py": "c12e302d3a41ea8d8e5b8f3bf0d4b842c5eee64ebc02920e31c9494881729ef4",
+    "tests/test_legacy_lifecycle_boundary.py": "a0677e4820e633f757461e5adfe88a7a25ea43e822cd0351112420f4ed73ffc5",
+    "tests/test_legacy_observation_gates.py": "312c2bfed50c5d887fb7393a91eb0af2f8e967dc5dd3372cc46db9d7b8e9ac6a",
+    "tests/test_legacy_status_outbox.py": "065e522c33c9c5238a17f15bb84532c92c9236afb0df663cb1fef3938d7b6c8a",
+    "tests/test_migration_from_production_snapshot.py": "e5a944705aa8b4d2f712c85dea79b97a0f192d8476dcd11f6381c48f9113a3e9",
+    "tests/test_migration_ledger.py": "df8947a18e2ae28cdd3ccb80a307fa6c5b33e9391663626f2226fa984d16e0aa",
+    "tests/test_migration_target_passes_the_launch_gate.py": "0a0a36f416a75fa1d8319a9ea42573b64a19084db163aa7d5de31a546c47e528",
+    "tests/test_native_projection_writers.py": "5d15fbcf11f01533cc8afa0601fdacfb56f4aeb8a84973dcb2874f8be7415d51",
+    "tests/test_placement_refuses_end_to_end.py": "2cd1f3a49f4093ba7db191989350ad14095d5de236f00b8bbb8a88c105e1594f",
+    "tests/test_port_proxy.py": "7f5c3b7215e2d8bf903a7b6f8faa91ed86eecd5bc1284ddd9291c55abc000f93",
+    "tests/test_privacy_deletion_actually_stops_workloads.py": "c75017772ad231c2fcc0811fdac556b4ffbd95699d76ce096508d9b2a58d0480",
+    "tests/test_projection_trigger_retirement.py": "351cfa5317508f542cc8dd8ecd901dfd05adb00a678d30169d55fdca6102258e",
+    "tests/test_promotion_host_placement.py": "b17856787a87623202f553a0fc1063448b8a7e3c697d08301013dc6fddb463d1",
+    "tests/test_promotion_is_idempotent.py": "885ef9ee97b8be7c6c814c663dde87422b142db711aacc188e3519fe451645c8",
+    "tests/test_promotion_manifest.py": "1c5c529eda40098d0bfc08b8f75e63e8c70c95ee81c2f3edbba688dc5a3fb9a0",
+    "tests/test_promotion_takes_the_hold.py": "bec731c8bbd49811a06a2fcf7f6cdaa8e07fa95e724dda524f6890b47b829330",
+    "tests/test_provider_settlement.py": "38a1442f7bbacebfdb27419c6a4a362b0c5a1c53f5799f6e38275fd110604981",
+    "tests/test_reconcile_runtime_events.py": "ec2ceb0c8cb5a44aeb7e4328d9968671f902d341463a6fc1e5728b3842f0caf1",
+    "tests/test_residual_host_command_sites.py": "242c9a61ae40b7f2dec387fd6efe41ffd583260cffca1579060c2ba7d294c141",
+    "tests/test_scheduler_placement_partition.py": "52a25d8b37ad7561ce90c4864fb3d06ea8c5a2385d5b9a8e0ed78e000bf2608c",
+    "tests/test_security_monitoring.py": "e35f2f1fdb7b364d8ace32f08ac1e09ce2f6b00f1fe00fb79520f7ee712504bb",
+    "tests/test_serverless_native_lifecycle.py": "abde7037e758bc1622568781605ec3a43514edbcb106105d23698bdcf38beda5",
+    "tests/test_serverless_worker_attempt_binding.py": "5012b6a57b5cc8eac9403a07714f65a2489b8709cc67081ea337149c71cb31ca",
+    "tests/test_stopped_job_stop_redelivery.py": "ad43dbf153e8f58181a05953a5391a9d13238b131e46b2a2073f00955a988acf",
+    "tests/test_storage_catalog_schema.py": "b0481e17388f170c94b12a28289786ad13451a75f364f8cc6a5ac6f920d5ad18",
+    "tests/test_stream_authorization.py": "c57278dbe2dbc3880d76ae575dd93ab8a374b1972095e81e3f20865925a52649",
+    "tests/test_stuck_job_reaper.py": "c699d1b3bafc661e92a47af44d5a23b886fcd1f147a6dbf0e52cf3215b5b43f1",
+    "tests/test_terminal.py": "5860314c312c8ca6c9bd641420c76841c12652aabef0bd531a23d092376d01d1",
+    "tests/test_user_images_integration.py": "f0ea2fa8530fdb610f885042c591a2126accb705d5c0207addbba6e43c51da6d",
+    "tests/test_volume_db.py": "44755b7b96ced296347a76906a2a22d453838b1fba6087b2c39e6d7fd60927a5",
+    "tests/test_wallet_hold_expiry_and_start_gate.py": "cbb0429363284358bf041648fadc4a3f3ac25c976a53b1ba6a7d85dcefc7ab7f",
+    "tests/test_wallet_holds.py": "a62ac0fdc004a2dcad6cfd5a4ce85ea503dc94f915052e3c4e2693107ffe2522"
+  },
+  "gate_manifest_sha256": {
+    "expanded-verified": "ee12a4af53edfa757595bb719b9b4f8e33d3680bcedd288625a39ca2aafa17bd",
+    "final-focused": "f6e19202e7d5d410468283245da277b3323a30768f63a5ef4dbea600d50d25b6",
+    "production-drill-qualified": "aa5a3cea5f4ae8e7fca7e3997e5efb15d62ac8333321f3494d71ea084e99357b"
+  },
+  "frozen_sql_spelling_equivalence": {
+    "path": "api/migrations/versions/131_retire_projection_triggers.py",
+    "tested_source_sha256": "d61386c5a7f38b06310fd03a6da937b26e5a2e099b8c8765f4828aeae883d71b",
+    "candidate_source_sha256": "c8ba5c42c9dbd73dd113e51c96460cb8d6514c6dee4404bd6472872de20a15c8",
+    "whole_module_ast_sha256": "929ee44959cfebd8df5d3f3fe556b149a170e64ee93548ffb0c3c97be77287d0",
+    "whole_module_ast_identical": true,
+    "changed_lines": [
+      77,
+      96,
+      106,
+      125
+    ],
+    "change": "Encode four frozen SQL trailing spaces as Python hex escapes. Entire parsed module, including SQL string bytes, is identical."
+  },
+  "billing_fixture_correction": {
+    "path": "tests/test_billing_controller.py",
+    "expanded_source_sha256": "7f6cf847c1b8697a22d45e80b420bd8f1b88ff27efa14629bacd0cab8c3753cb",
+    "candidate_source_sha256": "e3af55977d34c1ea12bab514bd29530fb6d2999d8764acc807134be2b57dc2f8",
+    "before": "VALUES (%s, 'completed', 0, %s, %s, 'terminal', 'stopped', 0, NULL)",
+    "after": "VALUES (%s, 'completed', 0, %s, %s, 'succeeded', 'running', 0, NULL)",
+    "reason": "Native completed-job fixture uses succeeded phase and the same running desired state previously supplied by the projection trigger. Runtime code and test assertions are unchanged."
+  },
+  "expanded_qualification": {
+    "selected": 3096,
+    "passed_initially": 3091,
+    "initial_failed_cases": [
+      "tests.test_billing_controller::test_duplicate_delivery_creates_no_second_charge",
+      "tests.test_billing_controller::test_enforce_auto_closes_orphaned_open_meter",
+      "tests.test_billing_controller::test_enforce_converges_to_exactly_one_meter",
+      "tests.test_billing_controller::test_missing_meter_opens_one_finding_report_only",
+      "tests.test_billing_controller::test_orphaned_open_meter_is_surfaced"
+    ],
+    "failed_cases_passed_in_final_focused": 5,
+    "basis": "Original expanded receipt retained with five failures. Only its billing fixture changes semantically; all five affected tests pass in final-focused. Frozen SQL spelling has an identical whole-module AST. Remaining changed Python source hashes match the expanded run."
+  },
+  "production_derived_rehearsal": {
+    "jobs": 364,
+    "recovered_exact_specs": 4,
+    "unavailable_assessments": 360,
+    "other_job_fields_unchanged": true,
+    "history_unchanged": true,
+    "roundtrip_preserved": true,
+    "spec_contract_guard_exit": 2,
+    "audit": {
+      "collected_at": "2026-10-23T01:58:12.853173+00:00",
+      "complete": true,
+      "read_only": true,
+      "database": "bootstrap_empty_3d47cf5d8a",
+      "port": 5432,
+      "specs": {
+        "total": 364,
+        "valid_admission": 0,
+        "valid_recorded": 4,
+        "invalid": 0,
+        "missing": 360,
+        "recorded_without_provenance": 0
+      },
+      "backfill_evidence": {
+        "unavailable": 360,
+        "recovered_execution": 4
+      },
+      "normalized_column_gaps": {
+        "phase": 0,
+        "desired_state": 0,
+        "pending_queued_at": 0
+      },
+      "transitional_triggers": [],
+      "required_columns_not_null": {
+        "desired_state": true,
+        "phase": true
+      },
+      "pending_queue_check_validated": true,
+      "all_job_specs_qualified": false,
+      "projection_triggers_retired": true,
+      "trigger_removal_requires_native_writer_gate": false
+    },
+    "minimization": "Only the four hashed jobs and their execution commands retain complete payloads; other payloads contain identity/admission facts only. Wallet-hold reference columns are omitted; no financial restore is claimed.",
+    "fixture_sha256": "5aad5d1fd39653175d883c54c3eb0519a0101055e9898f71b5915f69926a5336"
+  },
+  "private_drill_script_sha256": "89a4bc777a9f9443ca16f539d3deeee2a44a56670c8c5366d31c5992ffd7b35c",
+  "fixture_conversion_plan_sha256": "734d5283e9dfd544d1adb6f11851728435cce63dba66f9981a7d5fae2642634f",
+  "fixture_transition_conversion_plan_sha256": "ffad82ff1377d4840a73c31d69646a27a1c37fb69bbe92da4059a9f5aa673f16",
+  "production": {
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "active_jobs": 0,
+    "protected_job_hashes_unchanged": 12,
+    "repair_policies": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "deployed": false,
+    "migrations_applied": false,
+    "live_gpu_acceptance": false,
+    "candidate_service_handoff": false
+  },
+  "protected_root_dirty_paths_unchanged": 9,
+  "remaining": [
+    "historical spec recovery or reviewed disposition for 360 unavailable histories",
+    "remaining compatibility JSONB/status readers and column contraction",
+    "restriction/removal of direct legacy status-column writes",
+    "admission replay and observation-time spec construction review fixes",
+    "worker restart resource/log cleanup and aborted-start NACK review fixes",
+    "durable fairness and preemption",
+    "staged production handoff and acceptance"
+  ]
+}

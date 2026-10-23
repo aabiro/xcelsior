@@ -17,6 +17,8 @@ actually fork docker.
 
 from __future__ import annotations
 
+from control_plane.state import host_states, initial_desired_state, job_phase
+
 import subprocess
 from typing import Any, List
 
@@ -280,15 +282,29 @@ def api_seeded_job():
     }
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s,%s,%s,%s::jsonb, 'admitted') "
-            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
-            (host_id, "active", now, _ijson.dumps(host_payload)),
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s,%s,%s,%s::jsonb, 'admitted', %s, %s) ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload""",
+            (
+                host_id,
+                "active",
+                now,
+                _ijson.dumps(host_payload),
+                host_states("active", "admitted")[0],
+                host_states("active", "admitted")[1],
+            ),
         )
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s,%s,0,%s,%s,%s::jsonb)",
-            (job_id, "running", now, host_id, _ijson.dumps(job_payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s,%s,0,%s,%s,%s::jsonb, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                "running",
+                now,
+                host_id,
+                _ijson.dumps(job_payload),
+                job_phase("running"),
+                initial_desired_state("running"),
+                "running",
+                now,
+            ),
         )
         conn.commit()
 
@@ -443,15 +459,29 @@ def test_get_404_when_auto_launch_not_configured(api_client):
     }
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s,%s,%s,%s::jsonb, 'admitted') "
-            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
-            (host_id, "active", now, _ijson.dumps(host_payload)),
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s,%s,%s,%s::jsonb, 'admitted', %s, %s) ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload""",
+            (
+                host_id,
+                "active",
+                now,
+                _ijson.dumps(host_payload),
+                host_states("active", "admitted")[0],
+                host_states("active", "admitted")[1],
+            ),
         )
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s,%s,0,%s,%s,%s::jsonb)",
-            (job_id, "running", now, host_id, _ijson.dumps(job_payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s,%s,0,%s,%s,%s::jsonb, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                "running",
+                now,
+                host_id,
+                _ijson.dumps(job_payload),
+                job_phase("running"),
+                initial_desired_state("running"),
+                "running",
+                now,
+            ),
         )
         conn.commit()
     try:

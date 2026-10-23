@@ -5,6 +5,8 @@ rows, capacity charging across a cycle, the old-vs-new comparator's
 classification matrix, retention pruning, and the mismatch-rate rollup.
 """
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -128,10 +130,22 @@ def _mk_job(
         "priority": priority,
     }
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (job_id, status, priority, time.time(), json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                priority,
+                fixture_submitted_at,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                priority,
+                status,
+                fixture_submitted_at,
+            ),
         )
         conn.commit()
     fleet["jobs"].append(job_id)
@@ -298,11 +312,11 @@ class TestShadowRunner:
         # 'stuck' queued, and 'gone' disappears entirely.
         with _pool.connection() as conn:
             conn.execute(
-                "UPDATE jobs SET status='assigned', host_id=%s WHERE job_id=%s",
+                """UPDATE jobs SET status='assigned', phase='scheduled', desired_state='running', host_id=%s WHERE job_id=%s""",
                 (agree_host, f"j-{marker}-agree"),
             )
             conn.execute(
-                "UPDATE jobs SET status='assigned', host_id=%s WHERE job_id=%s",
+                """UPDATE jobs SET status='assigned', phase='scheduled', desired_state='running', host_id=%s WHERE job_id=%s""",
                 (other_host, f"j-{marker}-differ"),
             )
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (f"j-{marker}-gone",))

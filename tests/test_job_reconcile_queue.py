@@ -6,6 +6,8 @@ concurrent claims. No controller test may silently pass without a database.
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -37,10 +39,19 @@ def _enqueue(resources, resource_type="job", *, status=None, priority=0):
     ids.append(rid)
     with pool.connection() as conn:
         if status is not None:
+            fixture_submitted_at = time.time()
             conn.execute(
-                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-                "VALUES (%s, %s, 0, %s, %s)",
-                (rid, status, time.time(), json.dumps({"job_id": rid, "status": status})),
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, %s, 0, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+                (
+                    rid,
+                    status,
+                    fixture_submitted_at,
+                    json.dumps({"job_id": rid, "status": status}),
+                    job_phase(status),
+                    initial_desired_state(status),
+                    status,
+                    fixture_submitted_at,
+                ),
             )
         conn.execute(
             "INSERT INTO reconciliation_queue (resource_type, resource_id, reason, priority) "

@@ -253,7 +253,10 @@ def test_stale_attempt_and_unbound_admin_command_cannot_wake_current_job(placed)
 @pytest.mark.parametrize("locked_resource", ["lease", "command"])
 def test_stop_repair_never_waits_on_runtime_writer(placed, locked_resource):
     with placed["pool"].connection() as conn:
-        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = %s", (placed["job_id"],))
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = %s""",
+            (placed["job_id"],),
+        )
         if locked_resource == "command":
             repaired = reconcile_fenced_stop(
                 conn, job_id=placed["job_id"], created_by="events-test"
@@ -295,7 +298,10 @@ def test_lease_writer_and_claimed_reconcile_commit_without_deadlock_or_lost_wake
 ):
     monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING", "enforce")
     with placed["pool"].connection() as conn:
-        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = %s", (placed["job_id"],))
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = %s""",
+            (placed["job_id"],),
+        )
         conn.execute(
             "UPDATE reconciliation_queue SET priority = 9999 WHERE resource_id = %s",
             (placed["job_id"],),

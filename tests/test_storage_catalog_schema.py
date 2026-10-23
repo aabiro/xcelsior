@@ -55,8 +55,8 @@ def _mkjob(cleanup):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at, updated_at)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), now())""",
+                                 phase, desired_state, queued_at, updated_at, effective_priority)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), now(), 0)""",
             (job_id, time.time(), json.dumps({"name": job_id})),
         )
         conn.commit()

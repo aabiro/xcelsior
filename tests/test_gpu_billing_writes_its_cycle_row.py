@@ -97,8 +97,8 @@ def running_job():
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, 'running', 0, %s, %s, %s)""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
             (job_id, started_at, host_id, json.dumps(payload)),
         )
         conn.commit()

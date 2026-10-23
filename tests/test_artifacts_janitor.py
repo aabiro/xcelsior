@@ -19,8 +19,9 @@ def test_setup():
         conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
 
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, tenant_id)
-               VALUES (%s, 'submitted', 1, %s, '{}', %s)""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, tenant_id,
+                                 phase,desired_state,effective_priority,queued_at)
+               VALUES (%s, 'queued', 1, %s, '{}', %s,'pending','running',1,clock_timestamp())""",
             (job_id, time.time(), tenant_id),
         )
 

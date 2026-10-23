@@ -475,7 +475,9 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
     _alembic(dsn, "upgrade", "121")
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = 'job-running'")
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = 'job-running'"""
+        )
         assert conn.execute(
             "SELECT reason FROM reconciliation_queue WHERE resource_type = 'job' "
             "AND resource_id = 'job-running'"
@@ -491,7 +493,9 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
         ).fetchone() == ("job_changed",)
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        conn.execute("UPDATE jobs SET status = 'stopped' WHERE job_id = 'job-running'")
+        conn.execute(
+            """UPDATE jobs SET status = 'stopped', phase='stopped', desired_state='stopped' WHERE job_id = 'job-running'"""
+        )
         assert conn.execute(
             "SELECT count(*) FROM reconciliation_queue WHERE resource_type = 'job' "
             "AND resource_id = 'job-running'"

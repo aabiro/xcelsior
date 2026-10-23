@@ -10,6 +10,8 @@ conditions — expired sessions, replayed submissions, forged signatures,
 concurrent operators, and cross-tenant access.
 """
 
+from control_plane.state import host_states
+
 import os
 import time
 import uuid
@@ -52,8 +54,8 @@ def _make_host(host_id: str, *, tenant: str, admitted: bool = False) -> None:
     def txn(conn):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  tenant_id, owner_id, admission_state)
-               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, %s)
+                                  tenant_id, owner_id, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, %s, %s, %s)
                ON CONFLICT (host_id) DO NOTHING""",
             (
                 host_id,
@@ -61,9 +63,9 @@ def _make_host(host_id: str, *, tenant: str, admitted: bool = False) -> None:
                 payload,
                 tenant,
                 tenant,
-                # These tests drive the pending -> admitted transition, so the
-                # fixture must start where the caller asks, not pre-admitted.
                 "admitted" if admitted else "pending",
+                host_states("active", "admitted" if admitted else "pending")[0],
+                host_states("active", "admitted" if admitted else "pending")[1],
             ),
         )
 

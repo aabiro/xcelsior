@@ -300,8 +300,8 @@ def registered_host_token():
     with control_plane_transaction() as conn:
         for host in (host_a, host_b):
             conn.execute(
-                "INSERT INTO hosts (host_id, status, registered_at) "
-                "VALUES (%s, 'active', %s) ON CONFLICT (host_id) DO NOTHING",
+                """INSERT INTO hosts (host_id, status, registered_at,payload,administrative_state,availability_state)
+                    VALUES (%s,'active',%s,'{}','pending','ready') ON CONFLICT(host_id) DO NOTHING""",
                 (host, time.time()),
             )
         issued = issue_token(conn, host_a, issued_by="test", reason="cross-host guard")

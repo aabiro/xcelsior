@@ -73,8 +73,7 @@ def _insert_host(owner_user_id: str) -> str:
     }
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, 'active', %s, %s, 'admitted')",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps(payload)),
         )
         conn.commit()
