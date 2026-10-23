@@ -14,6 +14,24 @@
     },
     "thread_warnings_are_errors": true
   },
+  "follow_up": {
+    "gate": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/worker-outer-failure/manifest.json",
+    "resolved": [
+      "Unexpected outer worker exceptions retain terminal retry intent",
+      "Resource adoption rejects another host journal"
+    ],
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 58
+    },
+    "source_sha256": {
+      "tests/test_worker_claim_handoff.py": "d36c072dc5f716e5bfcfddbb6e93813693dc51d5572892ec0be60d08e1cb4e4a",
+      "tests/test_worker_resource_recovery.py": "449b3f1462d47f1d3ea51ef11b97246b14c676792183f7bc175f2b7c3f7a2afa",
+      "workers/worker_agent.py": "4dbb19345f9b90d9b426b5804780dfcde886308388b4117fb2cc955848024e5d"
+    }
+  },
   "production_deployed": false,
   "production_schema_observed": "125",
   "protected_root_paths_unchanged": {

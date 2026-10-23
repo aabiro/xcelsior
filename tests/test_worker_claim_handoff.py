@@ -220,6 +220,54 @@ def test_redelivered_aborted_start_never_reclaims_or_executes(agent, monkeypatch
     assert_settled(agent)
 
 
+@pytest.mark.parametrize("outage", [False, True])
+def test_unexpected_runner_crash_retains_terminal_authority_until_settled(
+    agent, monkeypatch, outage
+):
+    import api
+
+    cmd = command(agent)
+    monkeypatch.setattr(worker, "run_job", mock.Mock(side_effect=RuntimeError("private detail")))
+    monkeypatch.setattr(worker, "v2_ack_command", mock.Mock(return_value=True))
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("missing", -1, ""))
+    with TestClient(api.app) as client:
+
+        def post(path, body):
+            if path.endswith("/claim"):
+                code, grant = old_claim(body)
+                return code, {**grant, "callback_token": "isolated-opaque-credential"}
+            return (503, {}) if outage else client_post(client, path, body)
+
+        monkeypatch.setattr(worker, "_v2_post", post)
+        with mock.patch.object(worker.threading, "Thread"):
+            worker.handle_start_attempt(cmd)
+        if outage:
+            auth = worker._v2_attempts[agent.jid]
+            journal = json.loads(open(worker._V2_JOURNAL_PATH).read())
+            assert (
+                journal[agent.jid]["pending_terminal_report"]["failure_code"] == "agent_exception"
+            )
+            assert "private detail" not in json.dumps(journal)
+            monkeypatch.setattr(
+                worker, "_v2_post", lambda path, body: client_post(client, path, body)
+            )
+            worker._v2_monitor_container(auth)
+    assert agent.jid not in worker._v2_attempts
+    with agent.pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status,failure_code FROM job_attempts WHERE attempt_id=%s",
+            (agent.r.attempt_id,),
+        ).fetchone() == ("failed", "agent_exception")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND released_at IS NULL",
+                (agent.r.attempt_id,),
+            ).fetchone()[0]
+            == 0
+        )
+    assert agent.repo.get_worker(agent.wid)["released_at"] is not None
+
+
 @pytest.mark.parametrize("handoff", [False, True])
 @pytest.mark.parametrize("managed", [False, True])
 def test_runner_finally_preserves_mounts_and_workspace_only_for_shutdown_handoff(

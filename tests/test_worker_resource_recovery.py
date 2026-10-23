@@ -170,6 +170,7 @@ def test_another_host_cannot_cleanup_a_copied_journal(resources, monkeypatch):
     own(resources)
     worker._v2_forget_attempt("job", resources)
     monkeypatch.setattr(worker, "HOST_ID", "different")
+    assert worker._v2_restore_resource_lock(resources) is False
     worker._v2_retry_resource_cleanup()
     worker._unmount_nfs.assert_not_called()
     assert worker._v2_cleanup_pending
