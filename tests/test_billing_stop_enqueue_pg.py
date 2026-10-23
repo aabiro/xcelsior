@@ -10,6 +10,7 @@ Skips automatically if no PG pool is available (CI without postgres service).
 """
 
 from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
 
 import json
 import os
@@ -49,6 +50,9 @@ def cleanup_ids():
     with _pool.connection() as conn:
         for jid in ids["jobs"]:
             conn.execute("DELETE FROM billing_cycles WHERE job_id=%s", (jid,))
+            conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (jid,))
+            conn.execute("DELETE FROM placement_leases WHERE job_id=%s", (jid,))
+            conn.execute("DELETE FROM job_attempts WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["agent_commands_hosts"]:
             conn.execute("DELETE FROM agent_commands WHERE host_id=%s", (hid,))
@@ -106,6 +110,7 @@ def _mkjob(
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id
@@ -181,35 +186,24 @@ def captured_enqueue(monkeypatch):
 # ── Tests ────────────────────────────────────────────────────────────
 
 
-def test_stop_instance_enqueues_pause_container_with_billing_stop_tag(
-    cleanup_ids, captured_enqueue
-):
-    """BillingService.stop_instance MUST use pause_container (NOT stop_container)
-    so the state machine STOPPED → RESTARTING → RUNNING can resume the same
-    container. Tag must be billing_stop so it can be distinguished from pause/resume."""
+def test_billing_stop_enqueues_fenced_preserving_stop(cleanup_ids, captured_enqueue):
     _mkhost(cleanup_ids, "h-stop")
-    job_id = _mkjob(
-        cleanup_ids,
-        owner="dan@test",
-        host_id="h-stop",
-        status="running",
-        container_name="xcl-dan-1",
-    )
-
+    jid = _mkjob(cleanup_ids, owner="dan@test", host_id="h-stop", container_name="xcl-dan-1")
+    aid = _mk_attempt_history(jid, "h-stop", active=True)
+    fence = _mk_active_lease(jid, "h-stop", aid)
     from billing import BillingEngine
 
-    svc = BillingEngine()
-    result = svc.stop_instance(job_id, "user_stopped")
-
-    assert result.get("stopped") is True, f"expected stopped=True, got {result!r}"
-    assert len(captured_enqueue) == 1
-    call = captured_enqueue[0]
-    assert call["command"] == "pause_container", (
-        "STOP must use pause_container so RESTARTING→RUNNING can `docker start` "
-        "the preserved container; stop_container would `docker rm -f` and break restart"
-    )
-    assert call["created_by"] == "billing_stop"
-    assert call["args"]["job_id"] == job_id
+    result = BillingEngine().stop_instance(jid, "user_stopped")
+    assert result["stopped"] and result["status"] == "stopping", result
+    assert captured_enqueue == []
+    with _pool.connection() as conn:
+        command, args, attempt, token = conn.execute(
+            "SELECT command,args,attempt_id,fencing_token FROM agent_commands WHERE job_id=%s",
+            (jid,),
+        ).fetchone()
+    assert command == "stop_attempt" and str(attempt) == aid and token == fence
+    assert args["preserve"] and args["intent"] == "stop"
+    assert args["container_name"] == "xcl-dan-1" and args["job_id"] == jid
 
 
 def test_stop_instance_rejects_invalid_reason(cleanup_ids, captured_enqueue):
@@ -261,10 +255,15 @@ def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
     from billing import BillingEngine
 
     svc = BillingEngine()
-    svc.stop_instance(job_id, "user_stopped")
+    aid = _mk_attempt_history(job_id, "h-shape", active=True)
+    _mk_active_lease(job_id, "h-shape", aid)
+    assert svc.stop_instance(job_id, "user_stopped")["stopped"]
 
-    assert len(captured_enqueue) == 1
-    args = captured_enqueue[0]["args"]
+    assert captured_enqueue == []
+    with _pool.connection() as conn:
+        args = conn.execute(
+            "SELECT args FROM agent_commands WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
     assert (
         "container_name" in args and args["container_name"]
     ), "container_name is required by worker drain handler"
