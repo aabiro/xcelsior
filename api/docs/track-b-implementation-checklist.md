@@ -2564,6 +2564,14 @@ data disposition remain separately scoped below.
   360 unavailable assessments unchanged. This is a locally qualified source
   contraction, not production migration or final B16 completion.
   [Trigger contract receipt](review/2026-10-22-projection-trigger-contract.md).
+  **Admission and worker recovery, 2026-10-23:** exact caller intent now
+  authorizes replay independently of changing server defaults; observations
+  never create execution authority. Attempt-scoped logs, resource ownership,
+  cleanup retry and terminal-report recovery survive restart. The focused
+  isolated gate passes 232 checks with thread warnings treated as errors.
+  This is source qualification, not historical disposition, complete worker
+  acceptance or production deployment.
+  [Admission/worker receipt](review/2026-10-23-admission-worker-recovery.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

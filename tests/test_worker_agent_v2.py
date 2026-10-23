@@ -469,6 +469,7 @@ class TestStatusMirror:
             "lease_id": "lease-1",
             "job_id": job_id,
             "attempt_id": "att-1",
+            "container_name": "xcl-job-1",
             "fencing_token": 7,
             "renewal_ttl_sec": 300,
             "stop": threading.Event(),
@@ -579,9 +580,12 @@ class TestStatusMirror:
         with (
             mock.patch.object(worker_agent.requests, "post", fake_post),
             mock.patch.object(worker_agent.requests, "patch") as legacy_patch,
+            mock.patch.object(worker_agent.threading, "Thread") as monitor,
         ):
             assert worker_agent.report_job_status("job-1", "failed") is False
         legacy_patch.assert_not_called()
+        monitor.assert_called_once()
+        assert monitor.call_args.kwargs["target"] is worker_agent._v2_monitor_container
         with worker_agent._v2_attempts_lock:
             assert "job-1" in worker_agent._v2_attempts
 

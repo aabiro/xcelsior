@@ -445,8 +445,15 @@ def _is_tier3(pid: int) -> bool:
 def op_gpu_tenants(args: dict, conf: dict[str, str]) -> dict:
     """``pause``: SIGSTOP ollama, SIGTERM tier3 jobs (they checkpoint). ``resume``: SIGCONT."""
     action = args.get("action")
+    if action == "inspect":
+        return {"stopped": _pids(_is_ollama)}
     if action == "pause":
-        stopped = _pids(_is_ollama)
+        planned = args.get("pids")
+        if planned is not None and (
+            not isinstance(planned, list) or not all(type(p) is int and p > 0 for p in planned)
+        ):
+            raise Refused("pids must be a list of positive integers")
+        stopped = _pids(_is_ollama) if planned is None else [p for p in planned if _is_ollama(p)]
         for pid in stopped:
             with suppress(ProcessLookupError):
                 os.kill(pid, 19)  # SIGSTOP

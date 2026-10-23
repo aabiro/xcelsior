@@ -33,7 +33,14 @@ def admit(native, **extra):
             "DELETE FROM jobs WHERE job_id=%s RETURNING payload", (native.jid,)
         ).fetchone()[0]
         payload.update(extra)
-        DatabaseOps.upsert_job(conn, payload, backend="postgres")
+        approved = canonicalize(
+            {
+                **payload,
+                "interactive": bool(payload.get("interactive", False)),
+                "template_image_id": payload.get("source_template_id") or "",
+            }
+        )
+        DatabaseOps.upsert_job(conn, payload, backend="postgres", admission_spec=approved)
     return row(native)
 
 
@@ -82,6 +89,78 @@ def test_status_upserts_never_replace_admitted_workload(native):
     current = row(native)
     assert current[:2] == initial[:2]
     assert current[2:4] == ("running", native.hid)
+
+
+def test_observation_insert_and_update_never_construct_execution_authority(native):
+    with native.pool.connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
+        with mock.patch(
+            "control_plane.job_specs.make_execution_spec",
+            side_effect=AssertionError("observation attempted admission"),
+        ):
+            for status in ("queued", "running"):
+                DatabaseOps.upsert_job(
+                    conn,
+                    {
+                        "job_id": native.jid,
+                        "status": status,
+                        "owner": native.owner,
+                        "image": "untrusted/observation",
+                    },
+                    backend="postgres",
+                )
+    assert row(native)[:2] == (None, None)
+
+
+def test_submission_replay_does_not_recompute_changed_server_policy(native, monkeypatch):
+    import scheduler
+    import abuse_policy
+
+    with native.pool.connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
+    policy = mock.Mock(return_value="restricted")
+    monkeypatch.setattr(abuse_policy, "egress_for_owner", policy)
+    args = dict(name="request", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    scheduler.submit_job(**args)
+    original = row(native)
+    assert original[0]["egress"] == "restricted"
+    policy.side_effect = AssertionError("a replay recomputed server policy")
+    with native.pool.connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='running',phase='running',desired_state='stopped' WHERE job_id=%s",
+            (native.jid,),
+        )
+    retry = scheduler.submit_job(**args)
+    assert retry["status"] == "running"
+    assert row(native)[:2] == original[:2]
+    assert policy.call_count == 1
+    with native.pool.connection() as conn:
+        assert conn.execute(
+            "SELECT desired_state FROM jobs WHERE job_id=%s", (native.jid,)
+        ).fetchone() == ("stopped",)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"owner": "another-owner"},
+        {"preferred_host_id": "other-host"},
+        {"exclusive_gpu": True},
+        {"priority": 9},
+        {"placement_preference": {"require_verified": True}},
+    ],
+)
+def test_submission_replay_refuses_changed_request_context(native, change):
+    import scheduler
+
+    with native.pool.connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
+    args = dict(name="request", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    scheduler.submit_job(**args)
+    original = row(native)
+    with pytest.raises(ValueError, match="different execution spec or request"):
+        scheduler.submit_job(**{**args, **change})
+    assert row(native) == original
 
 
 def test_reservation_uses_admission_for_pin_worker_binding_and_command(native):
@@ -291,7 +370,7 @@ def test_native_worker_gets_admitted_context_and_real_fenced_callback_credential
         )
     run = mock.Mock()
     monkeypatch.setattr(worker, "run_job", run)
-    monkeypatch.setattr(worker, "_v2_record_and_ack", lambda *args: True)
+    monkeypatch.setattr(worker, "_v2_record_and_ack", lambda *args, **kwargs: True)
     with TestClient(api.app) as client:
         monkeypatch.setattr(worker, "_v2_post", lambda path, body: client_post(client, path, body))
         with mock.patch.object(worker.threading, "Thread"):
