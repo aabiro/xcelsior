@@ -328,8 +328,18 @@ def _set_host_fields(host_id, **updates):
         return host
 
 
-def set_host_draining(host_id, draining=True):
+def set_host_draining(host_id, draining=True, expected_version=None):
     """Mark a host as draining or restore it to its schedulable state."""
+    if _active_backend() == "postgres":
+        from control_plane.db import run_transaction
+        from control_plane.host_lifecycle import set_draining
+
+        return run_transaction(
+            lambda conn: set_draining(
+                conn, host_id=host_id, draining=draining, expected_version=expected_version
+            ),
+            what="host_drain",
+        )
     with _atomic_mutation() as conn:
         host = _get_host_by_id_conn(conn, host_id)
         if not host:

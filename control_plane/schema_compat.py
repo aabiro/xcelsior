@@ -55,7 +55,8 @@ from psycopg import Connection
 # native writers at dfacc879 before 131/132, then deploy this runtime. Historical
 # jobs cannot be resumed as a substitute for a new customer admission.
 # 134 moves lifecycle authority to the controller-owned native column.
-REQUIRED_MIN_REVISION = "134"
+# 137 permits native host action completion without a fabricated job identifier.
+REQUIRED_MIN_REVISION = "137"
 REQUIRED_MAX_REVISION: str | None = None
 
 
