@@ -34,3 +34,15 @@ file hashes are in the [JSON receipt](2026-10-23-native-billing-repair.json).
 This is source qualification, not production acceptance. The complete combined
 candidate still needs its full regression rerun, remaining lifecycle JSONB and
 redundant column contraction, and staged production acceptance. B16 remains open.
+
+The combined native/billing/durable-scheduling run subsequently selected 3,210
+cases: **3,207 passed**, three failed, with no errors/skips and the same three
+baseline deselections. One test at migration 130 called today's scheduler
+without its 133 tables; it now tests the frozen migration's column semantics,
+while current scheduler coverage remains at its runtime floor. A serverless
+meter fixture now supplies its owner and explicit rate before admission. The
+terminal resize test waits for the server's close and session-slot cleanup
+before client teardown, preserving its resize/oversized-frame assertions. All
+three corrections pass the final **13-case** selection. The full combined run
+was not repeated after these test-only corrections. Database/Redis cleanup
+completed and the original failure manifest remains available.
