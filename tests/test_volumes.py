@@ -957,18 +957,24 @@ class TestGetVolumeMetrics:
 class TestRequiredVolumeMountFailure:
     """Required volume_ids must fail the job when NFS mount fails (no silent skip)."""
 
-    def test_worker_aborts_on_mount_fail(self, monkeypatch):
+    def test_worker_aborts_on_mount_fail(self, monkeypatch, tmp_path):
         from unittest.mock import Mock
+        import threading
         import worker_agent as worker
 
         job_id = "required-volume-failure"
         authority = {
             "job_id": job_id,
             "attempt_id": "volume-attempt",
+            "lease_id": "volume-lease",
+            "stop": threading.Event(),
             "fencing_token": 7,
             "container_name": "xcl-required-volume-failure-attempt",
         }
         monkeypatch.setattr(worker, "_v2_attempts", {job_id: authority})
+        monkeypatch.setattr(worker, "_v2_cleanup_pending", {})
+        monkeypatch.setattr(worker, "_V2_JOURNAL_PATH", str(tmp_path / "attempts.json"))
+        monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("missing", -1, ""))
         monkeypatch.setattr(worker, "_active_containers", {})
         for name in ("get_gpu_info", "build_platform_env"):
             monkeypatch.setattr(worker, name, Mock(return_value={}))

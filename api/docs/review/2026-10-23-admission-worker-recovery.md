@@ -24,8 +24,15 @@ or unhandled thread warnings (warnings are errors). It uses the disposable
 PostgreSQL runner and isolates Docker/privileged side effects. Repository
 Ruff, Black on all 13 changed Python files, Pyright on 247 files with zero
 errors/warnings, and all 12 distribution signatures pass. The expanded suite
-was running when this receipt was prepared; this receipt does not assert its
-result. Source hashes and exact evidence paths are in the
+finished with **3,132 passed and two failed**, no errors or skips, with three
+baseline exclusions. The required-volume fixture omitted native lease/journal
+state; it now supplies those explicitly. The real Gunicorn replacement test
+timed out on a DB-backed scrape at two seconds; its scrape now uses the
+configured production ten-second budget while worker probes retain two
+seconds. All **13** aggregation/volume follow-up checks pass, preserving the
+exact counter and generation assertions. The full expanded suite has not yet
+been repeated after these corrections. Original failures, source hashes and
+exact evidence paths remain in the
 [JSON receipt](2026-10-23-admission-worker-recovery.json).
 
 The follow-up resolves both additional edges: an outer runner exception now

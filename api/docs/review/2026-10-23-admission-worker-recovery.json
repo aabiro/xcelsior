@@ -1,8 +1,33 @@
 {
   "base": "59ec4ae458c9ffd14f9d32dbf6b6131f627c6082",
+  "expanded_follow_up": {
+    "changes": [
+      "Required-volume fixture supplies complete native lease and durable journal",
+      "Cold metrics scrape uses the configured production 10-second budget; worker probes keep 2 seconds"
+    ],
+    "full_expanded_rerun": false,
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/expanded-failure-final/manifest.json",
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 13
+    },
+    "source_sha256": {
+      "tests/test_prometheus_worker_aggregation.py": "7b58b46db21fda09aef280e80d3d879dcb8c8a466c2fa4eb3d68efda546d5494",
+      "tests/test_volumes.py": "77216a8b384b695766cef859acc80978730dbc0752936d1f32307a1a084cc3c9"
+    }
+  },
   "expanded_gate": {
+    "exclusions": 3,
     "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-expanded/manifest.json",
-    "status": "running at commit preparation; result not asserted"
+    "production_mutation": false,
+    "results": {
+      "errors": 0,
+      "failures": 2,
+      "skipped": 0,
+      "tests": 3134
+    }
   },
   "focused_gate": {
     "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-fixes-final/manifest.json",

@@ -281,11 +281,11 @@ def test_real_gunicorn_replacement_keeps_unscraped_worker_requests(tmp_path):
     count, seen, generations = 0, set(), set()
     log_path = tmp_path / "gunicorn.log"
 
-    def request(path):
+    def request(path, *, timeout=2):
         req = urllib.request.Request(
             base + path, headers={"Authorization": "Bearer isolated-metric-test-token"}
         )
-        with urllib.request.urlopen(req, timeout=2) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.read().decode()
 
     with log_path.open("w") as log:
@@ -342,7 +342,11 @@ def test_real_gunicorn_replacement_keeps_unscraped_worker_requests(tmp_path):
         for _ in range(6):
             samples = [
                 s
-                for family in text_string_to_metric_families(request("/metrics/prometheus"))
+                # Use the production Prometheus scrape budget for this DB-backed
+                # cold scrape; startup/worker probes retain their short timeout.
+                for family in text_string_to_metric_families(
+                    request("/metrics/prometheus", timeout=10)
+                )
                 for s in family.samples
             ]
             values = [
