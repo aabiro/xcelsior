@@ -23,8 +23,10 @@ def agent(native, monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "_shutdown", threading.Event())
     monkeypatch.setattr(worker, "_v2_attempts", {})
     monkeypatch.setattr(worker, "_v2_completed_commands", {})
+    monkeypatch.setattr(worker, "_v2_cleanup_pending", {})
     monkeypatch.setattr(worker, "_active_containers", {})
     monkeypatch.setattr(worker, "_adopted_containers", set())
+    monkeypatch.setattr(worker, "LogForwarder", mock.Mock())
     monkeypatch.setattr(worker, "_DEREGISTER_ON_EXIT", False)
     monkeypatch.setattr(worker, "_V2_JOURNAL_PATH", str(tmp_path / "attempts.json"))
     return native
@@ -173,6 +175,7 @@ def test_sigterm_preserves_new_and_adopted_fenced_work_for_verified_restart(agen
     assert worker._v2_attempts[x.jid]["attempt_id"] == r.attempt_id
     assert worker._active_containers[x.jid] == auth["container_name"]
     assert x.jid in worker._adopted_containers
+
     worker.graceful_shutdown()  # Identical behavior for recovered work.
     docker.assert_not_called()
     with x.pool.connection() as conn:
@@ -188,6 +191,33 @@ def test_sigterm_preserves_new_and_adopted_fenced_work_for_verified_restart(agen
             ).fetchone()[0]
             == "running"
         )
+
+
+def test_redelivered_aborted_start_never_reclaims_or_executes(agent, monkeypatch):
+    import api
+
+    cmd = command(agent)
+    run = mock.Mock()
+    monkeypatch.setattr(worker, "run_job", run)
+    monkeypatch.setattr(worker, "v2_nack_command", mock.Mock())
+    with TestClient(api.app) as client:
+
+        def unavailable(path, body):
+            return old_claim(body) if path.endswith("/claim") else (503, {})
+
+        monkeypatch.setattr(worker, "_v2_post", unavailable)
+        with mock.patch.object(worker.threading, "Thread"):
+            worker.handle_start_attempt(cmd)
+        assert worker._v2_attempts[agent.jid]["pending_start_failure"]
+
+        def recovered(path, body):
+            assert not path.endswith("/claim"), "an aborted attempt was reclaimed"
+            return client_post(client, path, body)
+
+        monkeypatch.setattr(worker, "_v2_post", recovered)
+        worker.handle_start_attempt(cmd)
+    run.assert_not_called()
+    assert_settled(agent)
 
 
 @pytest.mark.parametrize("handoff", [False, True])
@@ -216,7 +246,10 @@ def test_runner_finally_preserves_mounts_and_workspace_only_for_shutdown_handoff
         monkeypatch.setattr(worker, name, mock.Mock())
     monkeypatch.setattr(worker.time, "sleep", mock.Mock())
     monkeypatch.setattr(worker, "report_job_status", mock.Mock(return_value=True))
-    monkeypatch.setattr(worker, "_acquire_exclusive_gpu", mock.Mock(return_value={"ok": True}))
+    monkeypatch.setattr(
+        worker, "_acquire_exclusive_gpu", mock.Mock(return_value={"ok": True, "lock_fd": 99999})
+    )
+    monkeypatch.setattr(worker, "_v2_container_state", mock.Mock(return_value=("missing", -1, "")))
     monkeypatch.setattr(worker, "_mount_nfs", mock.Mock(return_value=True))
     monkeypatch.setattr(
         worker, "attach_encrypted_volume", mock.Mock(return_value="/encrypted/source")

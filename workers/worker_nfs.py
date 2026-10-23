@@ -60,10 +60,13 @@ def _unmount_nfs(mount_point):
         reply = worker_privileged.call("umount", path=mount_point, lazy=True)
         if reply.get("ok"):
             log.info("NFS unmounted: %s", mount_point)
+            return True
         else:
             log.debug("NFS unmount failed (non-fatal): %s", reply.get("error"))
+            return False
     except Exception as e:
         log.debug("NFS unmount failed (non-fatal): %s", e)
+        return False
 
 
 def _container_bind(

@@ -38,7 +38,10 @@ def canonical_spec_hash(spec: dict[str, Any]) -> str:
 
 
 def make_execution_spec(
-    job: dict[str, Any], *, launch_spec: dict[str, Any] | None = None
+    job: dict[str, Any],
+    *,
+    launch_spec: dict[str, Any] | None = None,
+    admission_request: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from control_plane.launch.canonicalize import canonicalize
 
@@ -58,6 +61,10 @@ def make_execution_spec(
         launch_spec=launch_spec,
         launch_spec_hash=canonical_spec_hash(launch_spec),
     )
+    if admission_request is not None:
+        if admission_request.get("launch_spec") != launch_spec:
+            raise ValueError("admission request does not match its approved launch spec")
+        spec["admission_request"] = admission_request
     # Reject non-JSON/nonfinite execution inputs, and detach caller-owned
     # nested dictionaries so an environment update cannot mutate admission.
     return json.loads(json.dumps(spec, allow_nan=False))
@@ -79,4 +86,9 @@ def validate_execution_spec(spec: Any, expected_hash: str | None) -> dict[str, A
             "launch_spec_hash"
         ):
             raise ValueError("stored launch spec failed its hash check")
+        request = spec.get("admission_request")
+        if request is not None and (
+            not isinstance(request, dict) or request.get("launch_spec") != launch
+        ):
+            raise ValueError("stored admission request disagrees with its launch spec")
     return spec
