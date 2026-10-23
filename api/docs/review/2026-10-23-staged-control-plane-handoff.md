@@ -1,7 +1,7 @@
 # Staged control-plane production handoff
 
 This is a prepared release procedure, not a deployment receipt. The read-only
-production baseline remains schema 125, no live attempt pointers/leases/device
+production baseline at 2026-10-23 16:04 UTC remains schema 125, no live attempt pointers/leases/device
 allocations, and eight `report_only` repair policies. Dedicated service roles
 are still `NOLOGIN`. B16 remains open until the deployment evidence below passes.
 
@@ -10,16 +10,24 @@ are still `NOLOGIN`. B16 remains open until the deployment evidence below passes
 | Purpose | Source | Local image | Image ID |
 |---|---|---|---|
 | Native writers compatible with schema 126, before removing legacy triggers | `1af572b6` | `xcelsior-api:cutover-transition-1af572b6` | `sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6` |
-| Native lifecycle, admitted preferences, schema contraction and retired task | `7757bdc3` | `xcelsior-api:cutover-native-7757bdc3` | `sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6` |
+| Intermediate native lifecycle, admitted preferences, schema contraction and retired task | `7757bdc3` | `xcelsior-api:cutover-native-7757bdc3` | `sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6` |
+| Approved native host eviction and schema-137 results | `821d1a07` | `xcelsior-api:cutover-operator-821d1a07` | `sha256:8fbee511098c660770ae8980de49bb7bc02ace99f4269eb67cfeb11b172d7752` |
 
-Both builds use tracked-file archives, exclude runtime environment files and
-private signing keys, and retain build logs/context hashes outside Git. Later
-`c0f4af05` changes only two test fixtures; it does not change the runtime image.
+All three builds use tracked-file archives, exclude runtime environment files and
+private signing keys, and retain build logs/context hashes outside Git.
+Later `c0f4af05` and `5b51d90e` change only fixtures/review evidence.
+`821d1a07` is the newer runtime; do not substitute the intermediate for it.
 Do not rebuild or substitute a moving tag when transferring these artifacts.
 Retain archive/image checksums and compare imported Config/RootFS/platform with
 the frozen local image. A matching tag alone is insufficient.
 
-The final image's runtime floor is 134. It cannot serve schema 125 or 126.
+The local transfer archive is `operator-handoff-images.tar.gz`
+(966512920 bytes, SHA-256 `b739a99ece8a9cce69f790bef4365b00973e8271b51d67eaa57281d2d7830b33`).
+Its saved tags, Config payload hashes and RootFS layers independently match all
+three frozen local images. It has not been transferred to production.
+
+The final image's runtime floor is 137. It cannot serve earlier schemas.
+The intermediate `7757bdc3` image has floor 134 and is needed for 134–136.
 The transition image is not the final post-contraction runtime. Never use the
 normal automatic `deploy.sh` path to jump from 125 directly to repository head:
 it migrates before replacing the writers. The staged runner supports explicit
@@ -39,10 +47,11 @@ absolute targets and keeps migration credentials in the one-shot process.
 3. Stage the frozen images and source under a private release directory. Keep
    saved credentials/configuration private; never print rendered Compose
    environments or place real DSNs in release logs, argv, Git or image layers.
-4. Prepare two explicit image overlays naming `api`, `api-blue`,
-   `scheduler-worker` and `bg-worker`. One points to the frozen transition
-   image; one to the frozen native image. The one-shot migration job must use
-   the native image (which contains revisions 126–136), independently of which
+4. Prepare three explicit image overlays naming `api`, `api-blue`,
+   `scheduler-worker` and `bg-worker`. Use distinct transition, intermediate
+   native and final operator overlays. The one-shot migration job must use
+   the final operator image (which contains revisions 126–137), independently of
+   which
    application writer is serving. Pin `COMPOSE_PROJECT_NAME=xcelsior` and merge
    after the existing operational override so a later normal deploy preserves
    the reviewed service configuration.
@@ -55,7 +64,7 @@ not credentials. The examples show runner targets, not a single unattended
 script. Capture each stage's schema, image, role, readiness and row invariants
 before advancing.
 
-1. Select the native image **for the one-shot migration job** and run:
+1. Select the final operator image **for the one-shot migration job** and run:
 
    ```sh
    python3 api/scripts/run_db_migrations.py --target 126
@@ -68,7 +77,7 @@ before advancing.
    adoption. Preserve Tower/VTT serving containers and unrelated processes.
    Verify every writer is native before removing projection triggers.
 
-2. Use the native migration image for the ordered targets below. Stop on a
+2. Use the final operator migration image for the ordered targets below. Stop on a
    refusal and retain the evidence; do not raise lock waits or invent missing
    identities/specs to make a migration pass.
 
@@ -99,7 +108,8 @@ before advancing.
    python3 api/scripts/run_db_migrations.py --target 134
    ```
 
-   Replace every lifecycle writer with the frozen **native** image before
+   Replace every lifecycle writer with the frozen **intermediate native**
+   `7757bdc3` image before
    allowing traffic. Verify runtime floor 134, native intent and admitted
    preference enforcement. This is a quiesced handoff: do not mix older JSONB
    intent writers with native intent readers.
@@ -109,13 +119,18 @@ before advancing.
    ```sh
    python3 api/scripts/run_db_migrations.py --target 135
    python3 api/scripts/run_db_migrations.py --target 136
+   python3 api/scripts/run_db_migrations.py --target 137
    ```
 
    135 checks/archives four original placement columns and old payload intent
    keys before dropping them; no job or financial history is deleted. 136
    archives only the obsolete stop-redelivery task and prevents resurrection.
    A live task claim or archive mismatch refuses 136. The new maintenance
-   writer must already be installed. Converge grants for the new archive tables.
+   writer must already be installed. 137 allows completed host eviction results
+   without a fabricated launch job. Converge grants for the archive tables, then
+   replace all writers with the final `821d1a07` image and verify floor 137.
+   Deploy the MCP source/types at the same commit and verify that pending
+   eviction remains pending in tool output until fenced settlement.
 
 5. Complete the dedicated-role procedure in
    [the role cutover runbook](2026-10-21-db-role-cutover.md): privately generate
@@ -130,7 +145,7 @@ before advancing.
 
 ## Required production acceptance
 
-- Schema 136, final image/source identities, both signed workers, every service
+- Schema 137, final image/source identities, both signed workers, every service
   heartbeat and `/startupz`/`readyz`; verify the configured Prometheus target is
   actually ingesting `/metrics/prometheus` within its 10-second scrape budget.
 - Eight repairs remain `report_only`. Operator policy still enables no
@@ -153,24 +168,27 @@ Keep writers quiesced on schema/handoff failure. Restore only images compatible
 with the current schema; never restart the original 125 writer after dropping
 its columns. Review rollback in reverse writer/schema order. The 135 downgrade
 restores archived projections but does not resurrect stale JSONB intent; 134
-copies the latest native value (including consumed NULL) for old readers. 136
+copies the latest native value (including consumed NULL) for old readers. 137
+refuses downgrade once native host results would violate the older launch-only
+constraint; retain schema 137 and use a compatible runtime rollback. 136
 restores its recorded task row only after its anti-resurrection constraint is
 removed. Retain archive evidence and do not run the restored obsolete handler
 accidentally. Restore/inverse ownership and role changes require their retained
 plans. A financial backup restore is not a shortcut for undoing metadata/config
 changes while newer writes exist.
 
-The final deployment requires approval of this staged schema 126–136 and role/
+The final deployment requires approval of this staged schema 126–137 and role/
 worker handoff candidate. Earlier approval of migration 123 does not establish
 acceptance of these later contractions.
 
 
 ## Source residuals outside this handoff proof
 
-The scheduler's durable preemption controller exists, but manual operator
-host-eviction execution and the old spot-preemption execution surface still
-return 501. Their dedicated durable API integration is not implied by scheduler
-preemption tests. API observation/projection compatibility and the planned
+Manual operator eviction is now native and qualified: preview binds current
+attempt/lease/fence/spec snapshots, human approval gates commands, and progress
+requires terminal release proof. The old spot-preemption execution surface still
+returns 501; it must not bypass explicit policy/approval through legacy code.
+API observation/projection compatibility and the planned
 scheduler/worker module decomposition also remain. Do not describe every legacy
 adapter or every B16 exit requirement as removed.
 

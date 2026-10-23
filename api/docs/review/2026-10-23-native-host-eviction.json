@@ -1,0 +1,541 @@
+{
+  "baseline_clean_commit": "5b51d90ec9935da9cbdbfc33f1824faed501b8b2",
+  "baseline_exclusions": [
+    "tests/test_instance_flow.py::TestDockerComposeSmoke",
+    "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+    "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+  ],
+  "black_ruff_exit": 0,
+  "built_image": {
+    "cleanup_exit": 0,
+    "image_id": "sha256:8fbee511098c660770ae8980de49bb7bc02ace99f4269eb67cfeb11b172d7752",
+    "metrics_available_values": [
+      1
+    ],
+    "metrics_scraped": true,
+    "network": "none",
+    "passed": true,
+    "readiness": {
+      "auth_cache": {
+        "backend": "memory",
+        "ok": true
+      },
+      "identity": {
+        "agent_gateway": false
+      },
+      "nfs_volumes": {
+        "configured": false,
+        "export_base": "/exports/volumes",
+        "mode": "metadata-only",
+        "ok": true,
+        "reachable": false,
+        "server": "",
+        "ssh_host": ""
+      },
+      "ok": true,
+      "schema": {
+        "current": "137",
+        "maximum": null,
+        "minimum": "137"
+      },
+      "status": "ready",
+      "storage": {
+        "backend": "postgresql",
+        "ok": true
+      }
+    },
+    "schema": "137",
+    "tag": "xcelsior-api:cutover-operator-821d1a07",
+    "uid": "10001:10001",
+    "verified_signatures": 12
+  },
+  "gates": {
+    "built-operator-image": {
+      "arguments": [
+        "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/test_built_operator_image.py",
+        "--rootdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "--confcutdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "-vv"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/built-operator-image/manifest.json",
+      "manifest_sha256": "f5cef10d536e750fd4f3dd3dd773a91849f4cbaeacc99fe60e8b3aa9c9ea3ed7",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 1
+      }
+    },
+    "history-production-operator-final": {
+      "arguments": [
+        "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/test_history_production_operator_drill.py",
+        "--rootdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "--confcutdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "-vv"
+      ],
+      "checkout_asserted": "/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/history-production-operator-final/manifest.json",
+      "manifest_sha256": "501ba95af366732cbe15723917e5d7184f3240759661eca16f99ebba72df0005",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 1
+      }
+    },
+    "native-complete-clean": {
+      "arguments": [
+        "tests/test_wallet_hold_expiry_and_start_gate.py",
+        "tests/test_volume_db.py",
+        "tests/test_user_images_integration.py",
+        "tests/test_terminal.py",
+        "tests/test_stuck_job_reaper.py",
+        "tests/test_stream_authorization.py",
+        "tests/test_storage_catalog_schema.py",
+        "tests/test_stopped_job_stop_redelivery.py",
+        "tests/test_security_monitoring.py",
+        "tests/test_residual_host_command_sites.py",
+        "tests/test_promotion_takes_the_hold.py",
+        "tests/test_promotion_manifest.py",
+        "tests/test_promotion_is_idempotent.py",
+        "tests/test_promotion_host_placement.py",
+        "tests/test_port_proxy.py",
+        "tests/test_placement_refuses_end_to_end.py",
+        "tests/test_migration_target_passes_the_launch_gate.py",
+        "tests/test_legacy_status_outbox.py",
+        "tests/test_job_reconcile_requests.py",
+        "tests/test_host_vram_reconcile.py",
+        "tests/test_host_token_survives_the_auth_middleware.py",
+        "tests/test_host_key_fingerprint_is_refused_when_malformed.py",
+        "tests/test_host_id_comes_from_its_column.py",
+        "tests/test_host_fleet_disclosure_http.py",
+        "tests/test_gpu_billing_writes_its_cycle_row.py",
+        "tests/test_fresh_attempt_resume_restart.py",
+        "tests/test_control_plane_outbox_runtime.py",
+        "tests/test_auto_launch.py",
+        "tests/test_artifacts_state_machine.py",
+        "tests/test_artifacts_janitor.py",
+        "tests/test_admission_routes_hold_the_trust_boundary.py",
+        "tests/test_projection_trigger_retirement.py",
+        "tests/test_privacy_sinks.py",
+        "tests/test_host_admission.py",
+        "tests/test_native_projection_writer_inventory.py",
+        "tests/test_native_projection_writers.py",
+        "tests/test_historical_spec_qualification.py",
+        "tests/test_job_projection_contract.py",
+        "tests/test_every_job_status_maps_to_a_phase.py",
+        "tests/test_control_plane_schema.py",
+        "tests/test_control_plane_service.py",
+        "tests/test_privacy_deletion_actually_stops_workloads.py",
+        "tests/test_admin_job_failure_rate_is_real.py",
+        "tests/test_job_spec_admission.py",
+        "tests/test_launch_plan_execute.py",
+        "tests/test_launch_canonical_spec.py",
+        "tests/test_launch_instance_adapter.py",
+        "tests/test_launch_plan_approval.py",
+        "tests/test_launch_plans.py",
+        "tests/test_control_plane_claim.py",
+        "tests/test_control_plane_shadow.py",
+        "tests/test_placement_preference_is_exact.py",
+        "tests/test_worker_claim_handoff.py",
+        "tests/test_control_plane_review_regressions.py",
+        "tests/test_db_migration_entrypoint.py",
+        "tests/test_db_role_cutover.py",
+        "tests/test_db_role_restore_drill.py",
+        "tests/test_db_role_workflows.py",
+        "tests/test_cutover_audit_regressions.py",
+        "tests/test_alert_webhook.py",
+        "tests/test_restore_migration_isolation.py",
+        "tests/test_backup_workflow.py",
+        "tests/test_attempt_billing_snapshot.py",
+        "tests/test_attempt_scoped_usage_meters.py",
+        "tests/test_active_meter_repair.py",
+        "tests/test_billing_controller.py",
+        "tests/test_billing_spot_metering.py",
+        "tests/test_provider_settlement.py",
+        "tests/test_wallet_holds.py",
+        "tests/test_db_service_roles.py",
+        "tests/test_job_reconcile_queue.py",
+        "tests/test_complete_worker_cutover.py",
+        "tests/test_agent_v2.py",
+        "tests/test_worker_agent_v2.py",
+        "tests/test_worker_terminal_recovery.py",
+        "tests/test_worker_execution_boundary.py",
+        "tests/test_legacy_observation_gates.py",
+        "tests/test_agent_commands_lifecycle.py",
+        "tests/test_scheduler_placement_partition.py",
+        "tests/test_observability_stack.py",
+        "tests/test_prometheus_worker_aggregation.py",
+        "tests/test_control_plane_leases.py",
+        "tests/test_worker_agent.py",
+        "tests/test_worker_startup_regressions.py",
+        "tests/test_legacy_lifecycle_boundary.py",
+        "tests/test_instance_flow.py",
+        "tests/test_worker_api_calls_go_through_one_seam.py",
+        "tests/test_host_agent_tokens.py",
+        "tests/test_static_endpoints.py",
+        "--deselect=tests/test_instance_flow.py::TestDockerComposeSmoke",
+        "tests/test_restore_tools_cluster.py",
+        "tests/test_generated_artifacts_are_current.py",
+        "tests/test_public_openapi.py",
+        "tests/test_gate_truth_table_tally.py",
+        "tests/test_migration_ledger.py",
+        "tests/test_no_runtime_ddl.py",
+        "tests/test_startup_env_is_wired.py",
+        "tests/test_source_tree_is_shared.py",
+        "tests/test_companion_schema_discipline.py",
+        "tests/test_sql_injection_guard.py",
+        "tests/test_migration_lock_discipline.py",
+        "tests/test_gt0_classification_ratchet.py",
+        "tests/test_requirements_export_matches_lock.py",
+        "tests/test_sandboxed_gates_are_db_free.py",
+        "tests/test_instance_connect_scope.py",
+        "tests/test_customer_billing_reads_require_scope.py",
+        "tests/test_log_scrubbing_stays_linear.py",
+        "tests/test_no_payment_secrets_in_logs.py",
+        "--deselect=tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+        "--deselect=tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database",
+        "tests/test_api.py",
+        "tests/test_volumes.py",
+        "tests/test_scheduler.py",
+        "tests/test_preemption_capacity.py",
+        "tests/test_spot_capacity.py",
+        "tests/test_control_plane_v1_drain_evict.py",
+        "tests/test_fenced_lifecycle_controller.py",
+        "tests/test_control_plane_filters_scoring.py",
+        "tests/test_control_plane_reservation.py",
+        "tests/test_shared_state_contract.py",
+        "tests/test_bg_worker.py",
+        "tests/test_request_path_instance_lifecycle_sse.py",
+        "tests/test_identity_admission_fails_closed.py",
+        "tests/test_lifecycle.py",
+        "tests/test_legacy_lease_protocol_removal.py",
+        "tests/test_events.py",
+        "tests/test_audit_fixes.py",
+        "tests/test_placement_explanation_reaches_the_browser.py",
+        "tests/test_control_plane_reconcile.py",
+        "tests/test_job_reconcile_observations.py",
+        "tests/test_job_reconcile_lease_repair.py",
+        "tests/test_reconcile_runtime_events.py",
+        "tests/test_worker_agent_allowlist.py",
+        "tests/test_worker_benchmark.py",
+        "tests/test_worker_billing_acceptance_guard.py",
+        "tests/test_worker_clears_the_ingress_gate.py",
+        "tests/test_worker_env_example_is_complete.py",
+        "tests/test_worker_privileged.py",
+        "tests/test_worker_state_dir.py",
+        "tests/test_worker_surface_is_reachable_under_agent_v2.py",
+        "tests/test_worker_v2_paths_match_the_server.py",
+        "tests/test_promotion_copies_and_verifies.py",
+        "tests/test_user_images_callback_url.py",
+        "tests/test_serverless_agent_integration.py",
+        "tests/test_serverless_autoscaler.py",
+        "tests/test_serverless_billing.py",
+        "tests/test_serverless_chaos_billing.py",
+        "tests/test_serverless_endpoint_budget.py",
+        "tests/test_serverless_extended_features.py",
+        "tests/test_serverless_feature.py",
+        "tests/test_serverless_idempotency.py",
+        "tests/test_serverless_limits_webhooks.py",
+        "tests/test_serverless_managed_engines.py",
+        "tests/test_serverless_mutations_need_write_access.py",
+        "tests/test_serverless_native_lifecycle.py",
+        "tests/test_serverless_observability.py",
+        "tests/test_serverless_openai_compat.py",
+        "tests/test_serverless_predictive_scaling.py",
+        "tests/test_serverless_queue_recovery.py",
+        "tests/test_serverless_rate_limit_policy.py",
+        "tests/test_serverless_reconcile_lock.py",
+        "tests/test_serverless_redis_rate_limit_behavior.py",
+        "tests/test_serverless_refuses_narrowed_credentials.py",
+        "tests/test_serverless_repo.py",
+        "tests/test_serverless_routes.py",
+        "tests/test_serverless_routes_never_entered.py",
+        "tests/test_serverless_security.py",
+        "tests/test_serverless_service.py",
+        "tests/test_serverless_streams.py",
+        "tests/test_serverless_tenancy.py",
+        "tests/test_serverless_worker_attempt_binding.py",
+        "tests/test_serverless_worker_sdk.py",
+        "tests/test_serverless_writes_honour_scope.py",
+        "tests/test_billing.py",
+        "tests/test_billing_endpoints_coverage.py",
+        "tests/test_billing_lever_scopes.py",
+        "tests/test_billing_lifecycle_domain.py",
+        "tests/test_billing_math_properties.py",
+        "tests/test_billing_periodic_harness.py",
+        "tests/test_billing_routes_never_entered.py",
+        "tests/test_billing_security_sweep.py",
+        "tests/test_billing_stop_enqueue.py",
+        "tests/test_billing_stop_enqueue_pg.py",
+        "tests/test_billing_tick_integration.py",
+        "-vv",
+        "tests/test_serverless_sdk_package.py",
+        "tests/test_serverless_authority_loss.py",
+        "tests/test_anchor_workloads.py",
+        "tests/test_token_billing_closure.py",
+        "tests/test_serverless_callback_credentials.py",
+        "tests/test_lease_table_retirement.py",
+        "tests/test_from_empty_bootstrap.py",
+        "tests/test_migration_from_production_snapshot.py",
+        "tests/test_platform_env.py",
+        "tests/test_bg_worker_reconcile.py",
+        "tests/test_schema_floor_covers_what_the_code_uses.py",
+        "tests/test_data_population.py",
+        "tests/test_db.py",
+        "tests/test_control_plane_commands_outbox.py",
+        "tests/test_host_job_lifecycle_outbox.py",
+        "tests/test_projection_runtime.py",
+        "tests/test_job_writer_inventory.py",
+        "tests/test_worker_resource_recovery.py",
+        "tests/test_worker_log_recovery.py",
+        "-W",
+        "error::pytest.PytestUnhandledThreadExceptionWarning",
+        "tests/test_historical_job_disposition.py",
+        "tests/test_native_spec_boundary.py",
+        "tests/test_durable_fairness.py",
+        "tests/test_durable_preemption.py",
+        "tests/test_durable_scheduling_schema.py",
+        "tests/test_worker_preemption_protocol.py",
+        "tests/test_native_lifecycle_intent.py",
+        "tests/test_native_placement_preference.py",
+        "tests/test_retired_job_projection_columns.py",
+        "tests/test_control_plane_db.py",
+        "tests/test_placement_preference_is_exact.py",
+        "tests/test_placement_refuses_end_to_end.py",
+        "tests/test_placement_ranks_through_one_function.py",
+        "tests/test_native_unplaced_termination.py",
+        "tests/test_native_wallet_authority.py"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-complete-clean/manifest.json",
+      "manifest_sha256": "6d2075f78495f620facfe650f647240a286508e8ad75231b1de373184f4d3ec6",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 3336
+      }
+    },
+    "operator-eviction-final": {
+      "arguments": [
+        "tests/test_host_eviction_settlement.py",
+        "tests/test_host_eviction_migration.py",
+        "tests/test_control_plane_v1_drain_evict.py",
+        "tests/test_durable_preemption.py",
+        "tests/test_durable_fairness.py",
+        "tests/test_native_unplaced_termination.py",
+        "tests/test_serverless_native_lifecycle.py",
+        "tests/test_fresh_attempt_resume_restart.py",
+        "tests/test_db_role_workflows.py",
+        "tests/test_from_empty_bootstrap.py",
+        "tests/test_migration_ledger.py",
+        "tests/test_schema_floor_covers_what_the_code_uses.py",
+        "tests/test_native_projection_writer_inventory.py",
+        "tests/test_native_projection_writers.py",
+        "tests/test_job_writer_inventory.py",
+        "tests/test_worker_preemption_protocol.py",
+        "tests/test_generated_artifacts_are_current.py",
+        "tests/test_gt0_classification_ratchet.py",
+        "tests/test_public_openapi.py",
+        "-vv",
+        "--deselect",
+        "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/operator-eviction-final/manifest.json",
+      "manifest_sha256": "ded7f47efed16605ca07b7da7f0f30e5a6b9d31c67668ad8f1a12b88dcdc72b3",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 178
+      }
+    },
+    "operator-launch-final": {
+      "arguments": [
+        "tests/test_host_eviction_settlement.py",
+        "tests/test_launch_plan_execute.py",
+        "tests/test_launch_plan_approval.py",
+        "tests/test_launch_plans.py",
+        "tests/test_launch_instance_adapter.py",
+        "tests/test_mcp_openapi_contract.py",
+        "tests/test_generated_artifacts_are_current.py",
+        "tests/test_public_openapi.py",
+        "tests/test_gt0_classification_ratchet.py",
+        "-vv"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/operator-launch-final/manifest.json",
+      "manifest_sha256": "6f45c72eaae0db4dda8e29e9e855945aebb629dff21c69a4c1d9d4716f2f4682",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 69
+      }
+    },
+    "operator-mcp-contract-generated": {
+      "arguments": [
+        "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/test_regenerate_mcp_openapi.py",
+        "--rootdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "--confcutdir=/mnt/storage/projects/xcelsior/artifacts/worktrees/control-plane-handoff-20261023",
+        "-vv"
+      ],
+      "cleanup_exit": 0,
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/operator-mcp-contract-generated/manifest.json",
+      "manifest_sha256": "15acac81ced2659e658ea7c7b05e7a981857b0c47c366928516032d3af65030d",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 1
+      }
+    }
+  },
+  "handoff_archive": {
+    "archive": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/operator-handoff-images.tar.gz",
+    "archive_bytes": 966512920,
+    "archive_sha256": "b739a99ece8a9cce69f790bef4365b00973e8271b51d67eaa57281d2d7830b33",
+    "images": [
+      {
+        "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+        "tag": "xcelsior-api:cutover-transition-1af572b6"
+      },
+      {
+        "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+        "tag": "xcelsior-api:cutover-native-7757bdc3"
+      },
+      {
+        "image_id": "sha256:8fbee511098c660770ae8980de49bb7bc02ace99f4269eb67cfeb11b172d7752",
+        "tag": "xcelsior-api:cutover-operator-821d1a07"
+      }
+    ],
+    "verified_configs_and_rootfs": true
+  },
+  "image_build_context": {
+    "archive_sha256": "4672205da5f2a76a6d596d05cb952ae192db055223318f0b97bc9a551fadf35b",
+    "commit": "821d1a071dc5a2ba526a7dd3220a42ba8e831bd0",
+    "contains_private_signing_key": false,
+    "contains_runtime_env_files": false,
+    "files": 3405,
+    "tracked_files_only": true
+  },
+  "mcp_typecheck_exit": 0,
+  "mcp_unit": {
+    "failed": 0,
+    "log": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/operator-mcp-unit-final.log",
+    "passed": 268,
+    "skipped": 1
+  },
+  "migration_head": "137",
+  "production_baseline": {
+    "active_allocations": 0,
+    "collected_at": "2026-10-23T16:04:42.440216+00:00",
+    "dedicated_role_logins": [
+      [
+        "xcelsior_api",
+        false
+      ],
+      [
+        "xcelsior_billing",
+        false
+      ],
+      [
+        "xcelsior_migrator",
+        false
+      ],
+      [
+        "xcelsior_projector",
+        false
+      ],
+      [
+        "xcelsior_readonly",
+        false
+      ],
+      [
+        "xcelsior_reconciler",
+        false
+      ],
+      [
+        "xcelsior_retrieval",
+        false
+      ],
+      [
+        "xcelsior_scheduler",
+        false
+      ],
+      [
+        "xcelsior_ssh_gateway",
+        false
+      ]
+    ],
+    "heartbeats": [
+      [
+        "outbox",
+        1
+      ],
+      [
+        "reconciler",
+        1
+      ],
+      [
+        "scheduler",
+        1
+      ]
+    ],
+    "job_counts": [
+      364,
+      0,
+      0,
+      4
+    ],
+    "live_leases": [],
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "schema": "125",
+    "unfenced_stop_task": [
+      [
+        true,
+        false
+      ]
+    ]
+  },
+  "production_mutation": false,
+  "qualified_runtime_source_sha256": {
+    "api/migrations/versions/137_allow_native_host_eviction_results.py": "1991966c72c4b2756c66e366d04949d85bbdff8ebeae4d100dbe82ace2c1fc47",
+    "api/routes/control_plane_v1.py": "664cefbb15d1fdc5d6abdd6870ec2f2f0e0c0c1df8a824503684aa4a1052a464",
+    "control_plane/attempts.py": "2a64be6b80032cc49724ba1dcb192a331a3c61495622c2d691dfd0b798bf865f",
+    "control_plane/host_evictions.py": "ccd72d49b2b9f3afd025a8a516ae9710ddd88d8170849f4bb0047ea7add40280",
+    "control_plane/host_lifecycle.py": "c21238d8d5847b0c5698de207b2ddd8f7a61b2900b7776817d23436a8a5dbe90",
+    "control_plane/launch/service.py": "77bd9bcbba6dadee2a1e46abb526cb0e94b043b53eaf165c297893f62ecb217a",
+    "control_plane/scheduler/service.py": "d9186b87bd5e0d19adf9e4f6dbb59e727fd14af7f6dabf9f0710477d1778cfc6",
+    "control_plane/schema_compat.py": "e8188dff7985013d53e2a789ffc4ab357b3794e5acf0cf07e022bf2b0c01437f",
+    "workers/scheduler.py": "c169846b7c1069d5998ed6f1458f0382d81d5993dd69cc17a894a4780da90f0e"
+  },
+  "remaining": [
+    "staged production schema 126-137 and dedicated-role/signed-worker handoffs",
+    "fresh complete financial backup and isolated restore, deployed native public journey and financial/provider settlement acceptance",
+    "remaining observation adapters and planned scheduler/worker module decomposition",
+    "three explicit baseline exclusions; one existing MCP unit skip"
+  ],
+  "repairs": "report_only",
+  "root_protected_files_unchanged": 9,
+  "runtime_commit": "821d1a071dc5a2ba526a7dd3220a42ba8e831bd0",
+  "runtime_floor": "137",
+  "targeted_pyright": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "worker_distribution_signatures": 12
+}
