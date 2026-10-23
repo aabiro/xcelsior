@@ -2312,16 +2312,6 @@ class BillingEngine:
             "promo_available": True,
         }
 
-    # ── Instance Pause / Resume (REMOVED) ─────────────────────────────
-    #
-    # User-facing pause/resume was removed in favour of a RunPod-style
-    # stop/start lifecycle: stopped instances preserve their container
-    # (via the internal pause_container docker primitive) and can be
-    # started again by the owner at any time. Low-balance auto-stops now
-    # set ``payload.stop_reason = 'low_balance'`` instead of a distinct
-    # ``paused_low_balance`` status, so the UI has one consistent
-    # "stopped" surface. See alembic migration 031_drop_pause_resume_state.
-
     # ── Instance Lifecycle: Stop / Start / Restart / Terminate ───────
 
     _VALID_STOP_REASONS = frozenset(
@@ -2329,12 +2319,7 @@ class BillingEngine:
     )
 
     def stop_instance(self, job_id: str, reason: str = "user_stopped") -> dict:
-        """Gracefully stop a running instance. Container is preserved for restart.
-
-        Attempt-owned: atomic fenced lifecycle (``request_fenced_stop``) —
-        no pre-mark raw SQL dual-write. Worker ACK projects to ``stopped``.
-        Legacy: guarded ``update_job_status`` + pause_container agent queue.
-        """
+        """Request a fenced stop; only worker settlement projects stopped."""
         if reason not in self._VALID_STOP_REASONS:
             return {
                 "stopped": False,
@@ -2356,7 +2341,8 @@ class BillingEngine:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
                    FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
@@ -2365,11 +2351,17 @@ class BillingEngine:
             if not job:
                 return {"stopped": False, "reason": "not_running"}
 
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"stopped": False, "reason": admission_problem, "job_id": job_id}
+
             owner = job.get("owner") or ""
             host_id = job.get("host_id") or ""
             active_attempt_id = job.get("active_attempt_id")
             container_name = job.get("container_name") or f"xcl-{job_id}"
-            # Release lock before fenced controller / agent enqueue.
+            # Release lock before fenced controller.
             conn.commit()
 
         # ── Attempt-owned: single fenced domain path (no dual raw SQL) ──
@@ -2433,106 +2425,20 @@ class BillingEngine:
                 out["command_id"] = fenced.command_id
             return out
 
-        # ── Legacy (no active attempt): guarded status + pause_container ──
-        from scheduler import update_job_status
-
-        marked = update_job_status(
-            job_id,
-            "stopping",
-            expected_status="running",
-            stop_reason=stop_reason_tag,
-            stopping_at=now,
-        )
-        if marked is None:
-            return {"stopped": False, "reason": "not_running"}
-
-        stop_queued = False
-        if host_id:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "pause_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_stop",
-                )
-                log.info("STOP pause_container queued: %s on %s", container_name, host_id)
-                stop_queued = True
-            except Exception as e:
-                log.warning("STOP container stop enqueue failed for %s: %s", job_id, e)
-
-        # Legacy commands have no ACK path — optimistic projection to stopped.
-        final_status = "stopped" if stop_queued else "running"
-        if stop_queued:
-            update_job_status(
-                job_id,
-                "stopped",
-                expected_status="stopping",
-                stop_reason=stop_reason_tag,
-                stopped_at=now,
-            )
-            with pool.connection() as conn:
-                cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
-                conn.execute(
-                    """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, resource_type,
-                        period_start, period_end, duration_seconds, rate_per_hour,
-                        gpu_model, tier, tier_multiplier, amount_micros, status,
-                        created_at)
-                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
-                               0, 'stopped', %s)""",
-                    (cycle_id, job_id, owner, host_id, now, now, now),
-                )
-                conn.commit()
-        else:
-            # Roll intermediate projection back so UI is not stuck on stopping.
-            update_job_status(
-                job_id,
-                "running",
-                expected_status="stopping",
-            )
-            log.error("STOP failed for job=%s — could not enqueue pause_container", job_id)
-            return {"stopped": False, "reason": "enqueue_failed", "job_id": job_id}
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_stopped",
-                title=f"Instance stopped: {job.get('name', job_id)}",
-                body=(
-                    "Your instance has been stopped. Storage continues to be billed. "
-                    "Start it again anytime."
-                ),
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("STOP job=%s reason=%s owner=%s", job_id, reason, owner)
-        return {"stopped": True, "job_id": job_id, "status": final_status}
+        return {"stopped": False, "reason": "native_attempt_required", "job_id": job_id}
 
     def start_instance(self, job_id: str) -> dict:
-        """Start a stopped instance.
-
-        Legacy (no fenced history): docker start via agent queue.
-        Fenced history: re-admit for a **new** placement attempt (never
-        revive the old attempt/fence labels with start_container).
-        """
+        """Queue an admitted stopped workload for a fresh placement attempt."""
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
-        now = time.time()
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name,
                           EXISTS (
@@ -2547,6 +2453,12 @@ class BillingEngine:
             ).fetchone()
             if not job:
                 return {"started": False, "reason": "not_stopped"}
+
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"started": False, "reason": admission_problem, "job_id": job_id}
 
             owner = job.get("owner") or ""
             fund = self.wallet_has_available_funds(owner)
@@ -2587,109 +2499,20 @@ class BillingEngine:
                     "fresh_attempt": True,
                 }
 
-            if job.get("status") != "stopped":
-                return {"started": False, "reason": "not_stopped"}
-
-            host_id = job.get("host_id") or ""
-            container_name = job.get("container_name") or f"xcl-{job_id}"
-            conn.commit()
-
-        # Legacy: guarded status transitions (CAS + outbox) — no bare SQL.
-        from scheduler import update_job_status
-
-        marked = update_job_status(
-            job_id,
-            "restarting",
-            expected_status="stopped",
-            restarting_at=now,
-        )
-        if marked is None:
-            return {"started": False, "reason": "not_stopped"}
-
-        start_queued = False
-        if host_id:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "start_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_start",
-                )
-                start_queued = True
-                log.info("START start_container queued: %s on %s", container_name, host_id)
-            except Exception as e:
-                log.warning("START container start enqueue failed for %s: %s", job_id, e)
-
-        if not start_queued:
-            update_job_status(
-                job_id,
-                "stopped",
-                expected_status="restarting",
-            )
-            log.error("START failed for job=%s — could not enqueue start_container", job_id)
-            return {"started": False, "reason": "enqueue_failed", "job_id": job_id}
-
-        projected = update_job_status(
-            job_id,
-            "running",
-            expected_status="restarting",
-            started_at=now,
-            stopped_at=0,
-        )
-        if projected is None:
-            return {"started": False, "reason": "status_race", "job_id": job_id}
-
-        with pool.connection() as conn:
-            cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
-            conn.execute(
-                """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_micros, status, created_at)
-                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
-                (cycle_id, job_id, owner, host_id, now, now, now),
-            )
-            conn.commit()
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_started",
-                title=f"Instance started: {job.get('name', job_id)}",
-                body="Your instance is running again.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("START job=%s owner=%s", job_id, owner)
-        return {"started": True, "job_id": job_id, "status": "running"}
+        return {"started": False, "reason": "native_attempt_required", "job_id": job_id}
 
     def restart_instance(self, job_id: str) -> dict:
-        """Restart a running or stopped instance.
-
-        Legacy: pause_container + start_container via agent queue.
-        Fenced / attempt-owned: never unfenced docker start. Running jobs
-        get a fenced stop_attempt (intent=restart); worker ACK re-admits
-        the job as ``queued`` for a new attempt. Already-stopped fenced
-        jobs requeue immediately via fresh-attempt resume.
-        """
+        """Settle the current attempt, then queue a fresh fenced attempt."""
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
-        now = time.time()
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name,
                           EXISTS (
@@ -2704,6 +2527,12 @@ class BillingEngine:
             ).fetchone()
             if not job:
                 return {"restarted": False, "reason": "not_restartable"}
+
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"restarted": False, "reason": admission_problem, "job_id": job_id}
 
             owner = job.get("owner") or ""
             fund = self.wallet_has_available_funds(owner)
@@ -2778,118 +2607,10 @@ class BillingEngine:
                     "fresh_attempt": True,
                 }
 
-            if job["status"] not in ("running", "stopped"):
-                return {"restarted": False, "reason": "not_restartable"}
-
-            was_running = job["status"] == "running"
-            prior_status = job["status"]
-            host_id = job.get("host_id") or ""
-            container_name = job.get("container_name") or f"xcl-{job_id}"
-            conn.commit()
-
-        # Legacy: guarded status transitions (CAS + outbox) — no bare SQL.
-        from scheduler import update_job_status
-
-        marked = update_job_status(
-            job_id,
-            "restarting",
-            expected_status=prior_status,
-            restarting_at=now,
-        )
-        if marked is None:
-            return {"restarted": False, "reason": "not_restartable"}
-
-        restart_queued = False
-        enqueue_error: str | None = None
-        if not host_id:
-            enqueue_error = "no_host"
-            log.warning(
-                "RESTART failed for job=%s — no host_id on job (instance was never assigned?)",
-                job_id,
-            )
-        else:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                if was_running:
-                    enqueue_agent_command(
-                        host_id,
-                        "pause_container",
-                        {"container_name": container_name, "job_id": job_id},
-                        created_by="billing_restart_stop",
-                    )
-                enqueue_agent_command(
-                    host_id,
-                    "start_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_restart_start",
-                )
-                restart_queued = True
-                log.info(
-                    "RESTART queued (was_running=%s): %s on %s",
-                    was_running,
-                    container_name,
-                    host_id,
-                )
-            except Exception as e:
-                enqueue_error = type(e).__name__
-                log.warning("RESTART enqueue failed for %s: %s: %s", job_id, enqueue_error, e)
-
-        if not restart_queued:
-            # Project to stopped so UI is not stuck on restarting.
-            update_job_status(
-                job_id,
-                "stopped",
-                expected_status="restarting",
-            )
-            log.error(
-                "RESTART failed for job=%s — marking stopped (reason=%s)",
-                job_id,
-                enqueue_error or "unknown",
-            )
-            return {
-                "restarted": False,
-                "reason": enqueue_error or "enqueue_failed",
-                "job_id": job_id,
-            }
-
-        projected = update_job_status(
-            job_id,
-            "running",
-            expected_status="restarting",
-            restarted_at=now,
-        )
-        if projected is None:
-            return {
-                "restarted": False,
-                "reason": "status_race",
-                "job_id": job_id,
-            }
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_restarted",
-                title=f"Instance restarted: {job.get('name', job_id)}",
-                body="Your instance has been restarted successfully.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("RESTART job=%s owner=%s", job_id, owner)
-        return {"restarted": True, "job_id": job_id, "status": "running"}
+        return {"restarted": False, "reason": "native_attempt_required", "job_id": job_id}
 
     def terminate_instance(self, job_id: str) -> dict:
-        """Hard-kill and remove a container. This is irreversible.
-
-        The container and its anonymous volumes are permanently destroyed.
-        Named/NFS volumes are preserved. No restart is possible after termination.
-        """
+        """Request fenced removal, or terminate an admitted unplaced job."""
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
@@ -2899,7 +2620,8 @@ class BillingEngine:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
                    FROM jobs
@@ -2911,8 +2633,14 @@ class BillingEngine:
             if not job:
                 return {"terminated": False, "reason": "already_terminal_or_not_found"}
 
-            # Snapshot under lock, then release before fenced enqueue / legacy work.
+            # Snapshot under lock, then release before fenced enqueue.
             active_attempt_id = job.get("active_attempt_id")
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"terminated": False, "reason": admission_problem, "job_id": job_id}
+
             owner = job.get("owner") or ""
             host_id = job.get("host_id") or ""
             container_name = job.get("container_name") or f"xcl-{job_id}"
@@ -2972,67 +2700,15 @@ class BillingEngine:
                 "command_id": fenced.command_id,
             }
 
-        # Legacy (non-attempt-owned): guarded status path, detach, direct kill.
-        from scheduler import update_job_status
+        from control_plane.lifecycle import request_unplaced_termination
 
-        prior_status = job.get("status")
-        terminated = update_job_status(
-            job_id,
-            "terminated",
-            expected_status=prior_status,
-            terminated_at=now,
-        )
-        if terminated is None:
-            return {"terminated": False, "reason": "already_terminal_or_not_found"}
-        with pool.connection() as conn:
-            cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
-            conn.execute(
-                """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_micros, status, created_at)
-                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'terminated', %s)""",
-                (cycle_id, job_id, owner, host_id, now, now, now),
-            )
-            conn.commit()
-
-        try:
-            from volumes import get_volume_engine
-
-            get_volume_engine().detach_all_for_instance(job_id)
-        except Exception as e:
-            log.warning("Volume detach failed for %s: %s", job_id, e)
-
-        if host_id:
-            try:
-                from scheduler import terminate_job as _terminate_job, list_hosts, _validate_name
-
-                _validate_name(container_name, "container name")
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    _terminate_job({"job_id": job_id, "container_name": container_name}, host)
-            except Exception as e:
-                log.warning(
-                    "TERMINATE container removal failed for %s: %s — already gone?", job_id, e
-                )
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_terminated",
-                title=f"Instance terminated: {job.get('name', job_id)}",
-                body="Your instance has been permanently terminated.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("TERMINATE job=%s owner=%s", job_id, owner)
-        return {"terminated": True, "job_id": job_id, "status": "terminated"}
+        terminated = request_unplaced_termination(job_id=job_id, created_by="billing_terminate")
+        return {
+            "terminated": terminated.ok,
+            "job_id": job_id,
+            "status": terminated.status,
+            **({"reason": terminated.reason} if terminated.reason else {}),
+        }
 
     # ── Wallet Lifecycle ──────────────────────────────────────────────
 

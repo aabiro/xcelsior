@@ -30,6 +30,19 @@ log = logging.getLogger("xcelsior.control_plane.lifecycle")
 LifecycleIntent = Literal["stop", "cancel", "terminate", "restart", "resume"]
 
 
+def native_admission_problem(job: dict[str, Any]) -> str | None:
+    """Lifecycle requests cannot turn observations or retained history into authority."""
+    from control_plane.job_specs import validate_execution_spec
+
+    if job.get("history_disposition"):
+        return "historical_job_requires_new_admission"
+    try:
+        validate_execution_spec(job.get("spec"), job.get("spec_hash"), require_admission=True)
+    except (TypeError, ValueError):
+        return "native_admission_required"
+    return None
+
+
 @dataclass(frozen=True)
 class FencedLifecycleResult:
     ok: bool
@@ -121,7 +134,7 @@ def _request_fenced_stop_attempt(
             """
             SELECT job_id, status, host_id, active_attempt_id,
                    payload->>'container_name' AS container_name,
-                   lifecycle_intent
+                   lifecycle_intent, spec, spec_hash, history_disposition
               FROM jobs
              WHERE job_id = %s
                AND status NOT IN (
@@ -138,6 +151,16 @@ def _request_fenced_stop_attempt(
                 intent=intent,
                 status="",
                 reason="already_terminal_or_not_found",
+            )
+        problem = native_admission_problem(
+            {
+                key: _get(job, key, index)
+                for key, index in (("spec", 6), ("spec_hash", 7), ("history_disposition", 8))
+            }
+        )
+        if problem:
+            return FencedLifecycleResult(
+                False, job_id, intent, str(_get(job, "status", 1)), problem
             )
         if isinstance(job, dict):
             active_attempt_id = job.get("active_attempt_id")
@@ -425,7 +448,7 @@ def request_fresh_attempt_resume(
                    EXISTS (
                        SELECT 1 FROM job_attempts a WHERE a.job_id = jobs.job_id
                    ) AS has_fenced_history,
-                   history_disposition
+                   history_disposition, spec, spec_hash
               FROM jobs
              WHERE job_id = %s
              FOR UPDATE
@@ -436,6 +459,14 @@ def request_fresh_attempt_resume(
             return FreshAttemptResult(
                 ok=False, job_id=job_id, status="", reason="not_found", intent=intent
             )
+        problem = native_admission_problem(
+            {
+                key: _get(job, key, index)
+                for key, index in (("history_disposition", 6), ("spec", 7), ("spec_hash", 8))
+            }
+        )
+        if problem:
+            return FreshAttemptResult(False, job_id, str(_get(job, "status", 1)), problem, intent)
         if isinstance(job, dict):
             status = str(job.get("status") or "")
             active_attempt_id = job.get("active_attempt_id")
@@ -541,6 +572,91 @@ def request_fresh_attempt_resume(
         return FreshAttemptResult(
             ok=False, job_id=job_id, status="", reason="resume_failed", intent=intent
         )
+
+
+def request_unplaced_termination(*, job_id: str, created_by: str) -> FencedLifecycleResult:
+    """Terminate admitted idle work without claiming a physical worker stop.
+
+    Placement and cancellation serialize on the job lock. Any residual live
+    attempt, lease or allocation refuses this path, even if its job pointer
+    is missing. State, wallet-hold release and notification intent commit
+    together. Worker resources remain owned by the fenced journal.
+    """
+    from control_plane.outbox import append_event
+
+    def txn(conn: Any) -> FencedLifecycleResult:
+        from psycopg.rows import dict_row
+
+        with conn.cursor(row_factory=dict_row) as cursor:
+            job = cursor.execute(
+                """SELECT job_id,status,phase,active_attempt_id,spec,spec_hash,
+                          history_disposition,version,wallet_hold_id
+                     FROM jobs WHERE job_id=%s FOR UPDATE""",
+                (job_id,),
+            ).fetchone()
+        status = str(job["status"]) if job else ""
+
+        def refused(reason: str) -> FencedLifecycleResult:
+            return FencedLifecycleResult(False, job_id, "terminate", status, reason)
+
+        if job is None:
+            return refused("not_found")
+        problem = native_admission_problem(job)
+        if problem:
+            return refused(problem)
+        if job["active_attempt_id"]:
+            return refused("still_attempt_owned")
+        residual = conn.execute(
+            """SELECT EXISTS(SELECT 1 FROM job_attempts WHERE job_id=%s
+                           AND status IN ('reserved','command_pending','lease_offered',
+                                          'lease_claimed','starting','running'))
+                   OR EXISTS(SELECT 1 FROM placement_leases WHERE job_id=%s
+                             AND status IN ('offered','active'))
+                   OR EXISTS(SELECT 1 FROM gpu_allocations WHERE job_id=%s
+                             AND released_at IS NULL) AS live""",
+            (job_id, job_id, job_id),
+        ).fetchone()
+        if _get(residual, "live", 0):
+            return refused("execution_authority_remains")
+        if status == "terminated":
+            return FencedLifecycleResult(True, job_id, "terminate", status)
+        if job["phase"] not in {"pending", "stopped"} or status not in {"queued", "stopped"}:
+            return refused("native_attempt_required")
+        now = time.time()
+        conn.execute(
+            """UPDATE wallet_holds SET status='released',released_at=%s,updated_at=%s
+                 WHERE job_id=%s AND status='held'""",
+            (now, now, job_id),
+        )
+        if job["wallet_hold_id"]:
+            conn.execute(
+                """UPDATE wallet_holds SET status='released',released_at=%s,updated_at=%s
+                     WHERE hold_id=%s AND job_id=%s AND status='held'""",
+                (now, now, job["wallet_hold_id"], job_id),
+            )
+        conn.execute(
+            """UPDATE jobs SET status='terminated',phase='stopped',desired_state='stopped',
+                      lifecycle_intent=NULL,wallet_hold_id=NULL,
+                      schedule_claim_owner=NULL,schedule_claim_token=NULL,
+                      schedule_claim_expires_at=NULL,next_schedule_at=NULL,
+                      payload=(payload-'lifecycle_intent') || jsonb_build_object(
+                          'status','terminated','terminated_at',%s::float),
+                      version=version+1,updated_at=clock_timestamp()
+                 WHERE job_id=%s""",
+            (now, job_id),
+        )
+        append_event(
+            conn,
+            aggregate_type="job",
+            aggregate_id=job_id,
+            aggregate_version=int(job["version"]) + 1,
+            event_type="job.v1.terminated",
+            payload={"job_id": job_id, "status": "terminated", "created_by": created_by},
+            idempotency_key=f"unplaced_terminate:{job_id}",
+        )
+        return FencedLifecycleResult(True, job_id, "terminate", "terminated")
+
+    return run_transaction(txn, what="unplaced_termination")
 
 
 def terminal_job_status_for_stopped_report(

@@ -1,0 +1,127 @@
+{
+  "base_commit": "1b87bd3c8eaf8143852fa05cd285dcce05dac3e9",
+  "gates": {
+    "combined-base-qualified": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/combined-base-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.09
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.5
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 9.79
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 2071.46
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.32
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 3210
+      },
+      "sha256": "40e354828f2d71494f69579f9558a557a40aad7d811999d6702adf5b7f7f304d"
+    },
+    "history-production-contract-drill": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/history-production-contract-drill/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 1.28
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 4.88
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 10.99
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 54.39
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 1.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.24
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 1
+      },
+      "sha256": "3eb7b5b987ba9e5e19ca09027bf8fea720fac77b03d67e4fcab8f9e94dcacdee"
+    },
+    "native-only-lifecycle-qualified": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-only-lifecycle-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.21
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.92
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 7.31
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 150.74
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.14
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.25
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 69
+      },
+      "sha256": "7388b24aa398ce5f649b26a4a1cd38d40d41c8f997017f17f10cc3c2abd46417"
+    }
+  },
+  "production_mutation": false,
+  "remaining": "obsolete periodic unfenced stop redelivery and host start/pause/reset directives; final combined regression; staged production handoff and acceptance",
+  "repairs": "report_only",
+  "root_protected_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  }
+}

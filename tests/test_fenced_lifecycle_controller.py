@@ -9,6 +9,7 @@ and intermediate job projection — not a mocked "success" string.
 from __future__ import annotations
 
 from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
 
 import json
 import time
@@ -90,6 +91,7 @@ def _mkjob(cleanup, *, host_id, status="running", container_name=None):
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id, cname
@@ -364,23 +366,23 @@ def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
     assert status == "cancelled"
 
 
-def test_legacy_terminate_still_marks_terminal_without_attempt(cleanup_ids):
+def test_unfenced_running_termination_refuses_without_status_projection(cleanup_ids):
     host_id = f"h-life-leg-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
 
     from billing import BillingEngine
 
-    # No host SSH — terminate still marks terminal in PG; kill may warn.
+    # A missing attempt pointer is not evidence that running work has stopped.
     result = BillingEngine().terminate_instance(job_id)
-    assert result.get("terminated") is True
-    assert result.get("status") == "terminated"
+    assert result.get("terminated") is False
+    assert result.get("reason") == "native_attempt_required"
     with _pool.connection() as conn:
         status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
         cmds = conn.execute(
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
-    assert status == "terminated"
+    assert status == "running"
     assert cmds == 0
 
 

@@ -8,6 +8,7 @@ start_container / pause_container for fenced cases.
 from __future__ import annotations
 
 from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
 
 import json
 import time
@@ -123,6 +124,7 @@ def _mkjob(cleanup, *, owner, host_id, status, container_name=None):
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id
@@ -388,19 +390,20 @@ def test_restart_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     assert captured_enqueue == []
 
 
-def test_legacy_start_still_uses_start_container(cleanup_ids, captured_enqueue):
+def test_start_without_fenced_history_is_refused(cleanup_ids, captured_enqueue):
     owner = "rr-leg@test"
     host = f"h-rr-l-{uuid.uuid4().hex[:6]}"
     _mkwallet(cleanup_ids, owner)
     _mkhost(cleanup_ids, host)
     job_id = _mkjob(cleanup_ids, owner=owner, host_id=host, status="stopped")
-    # No job_attempts rows → legacy path.
+    # Native admission alone does not authorize revival of an old container.
 
     from billing import BillingEngine
 
     result = BillingEngine().start_instance(job_id)
-    assert result.get("started") is True, result
-    assert any(c["command"] == "start_container" for c in captured_enqueue)
+    assert result.get("started") is False, result
+    assert result["reason"] == "native_attempt_required"
+    assert captured_enqueue == []
 
 
 def test_static_controller_reachable():
