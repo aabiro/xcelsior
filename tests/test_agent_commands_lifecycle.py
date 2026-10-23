@@ -154,60 +154,17 @@ def test_stop_container_missing_container_name_is_skipped(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_pause_container_does_not_remove_container(monkeypatch):
-    """A3 regression: pause must preserve the container for later resume."""
-    cmds = [
-        {
-            "id": 201,
-            "command": "pause_container",
-            "args": {"job_id": "job-bbb", "container_name": "xcl-bbb"},
-            "created_by": "billing_pause",
-        }
-    ]
-    monkeypatch.setattr(
-        worker_agent,
-        "requests",
-        SimpleNamespace(RequestException=Exception),
+@pytest.mark.parametrize("command", ["pause_container", "reset_container"])
+def test_retired_host_lifecycle_never_touches_docker(monkeypatch, command):
+    docker = mock.Mock(side_effect=AssertionError("unfenced lifecycle IO"))
+    monkeypatch.setattr(worker_agent.subprocess, "run", docker)
+    assert (
+        worker_agent._dispatch_agent_commands(
+            [{"id": 201, "command": command, "args": {"job_id": "old", "container_name": "old"}}]
+        )
+        == 0
     )
-
-    calls: list[list[str]] = []
-
-    def _fake_run(argv, *a, **kw):
-        calls.append(list(argv))
-        return _ok("{}" if "inspect" in argv else "")
-
-    monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
-
-    n = worker_agent._dispatch_agent_commands(cmds)
-
-    assert n == 1
-    assert ["docker", "stop", "-t", "30", "xcl-bbb"] in calls
-    # Critical: pause MUST NOT `docker rm` — otherwise the container is
-    # destroyed and resume would need to re-run the image.
-    rm_calls = [c for c in calls if len(c) >= 2 and c[0] == "docker" and c[1] == "rm"]
-    assert rm_calls == [], f"pause_container unexpectedly issued docker rm: {rm_calls}"
-
-
-def test_pause_container_nonzero_rc_is_not_counted(monkeypatch):
-    cmds = [
-        {
-            "id": 202,
-            "command": "pause_container",
-            "args": {"job_id": "job-ccc", "container_name": "xcl-ccc"},
-            "created_by": "billing_pause",
-        }
-    ]
-    monkeypatch.setattr(
-        worker_agent,
-        "requests",
-        SimpleNamespace(RequestException=Exception),
-    )
-    monkeypatch.setattr(
-        worker_agent.subprocess, "run", lambda *a, **kw: _ok(stderr="no such container", rc=1)
-    )
-
-    n = worker_agent._dispatch_agent_commands(cmds)
-    assert n == 0  # failed rc → not counted dispatched
+    docker.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

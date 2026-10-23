@@ -3605,128 +3605,9 @@ class BillingEngine:
         except Exception as e:
             log.error("Serverless billing scan error: %s", e)
 
-        # ── Bill stopped instances for storage ───────────────────────
-        # Charges per GB per hour based on storage_type. Requires the
-        # storage_billing_rates table from migration 019. Gracefully
-        # skips if the table doesn't exist yet.
-        storage_billed = 0
-        try:
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                stopped_jobs = conn.execute(
-                    """SELECT j.job_id,
-                              j.host_id,
-                              j.payload->>'owner' AS owner,
-                              COALESCE((j.payload->>'storage_gb')::double precision, 0) AS storage_gb,
-                              COALESCE(j.payload->>'storage_type', 'hdd') AS storage_type,
-                              COALESCE((j.payload->>'storage_rate_cad_per_gb_hr')::double precision, 0) AS cached_rate,
-                              (j.payload->>'stopped_at')::double precision AS stopped_at
-                       FROM jobs j
-                       WHERE j.status = 'stopped'
-                         AND COALESCE((j.payload->>'storage_gb')::double precision, 0) > 0""",
-                ).fetchall()
-
-            for sjob in stopped_jobs:
-                try:
-                    sjob_id = sjob["job_id"]
-                    sowner = sjob["owner"]
-                    storage_gb = float(sjob["storage_gb"] or 0)
-                    storage_type = sjob["storage_type"] or "hdd"
-                    cached_rate = float(sjob["cached_rate"] or 0)
-
-                    if not sowner or storage_gb <= 0:
-                        continue
-
-                    # Look up current rate from storage_billing_rates table
-                    try:
-                        with pool.connection() as conn:
-                            conn.row_factory = dict_row
-                            rate_row = conn.execute(
-                                "SELECT rate_cad_per_gb_hr FROM storage_billing_rates WHERE storage_type = %s",
-                                (storage_type,),
-                            ).fetchone()
-                        rate = float(rate_row["rate_cad_per_gb_hr"]) if rate_row else cached_rate
-                    except Exception:
-                        rate = cached_rate  # table not yet created
-
-                    if rate <= 0:
-                        continue
-
-                    # Find last storage billing cycle for this job
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        last_sc = conn.execute(
-                            """SELECT period_end FROM billing_cycles
-                               WHERE job_id = %s AND status IN ('storage', 'stopped', 'started')
-                               ORDER BY period_end DESC LIMIT 1""",
-                            (sjob_id,),
-                        ).fetchone()
-
-                    stopped_at = float(sjob["stopped_at"] or 0)
-                    speriod_start = (
-                        last_sc["period_end"]
-                        if last_sc
-                        else (stopped_at if stopped_at > 0 else now)
-                    )
-                    speriod_end = now
-
-                    if speriod_end - speriod_start < 60:
-                        continue
-
-                    sduration_sec = speriod_end - speriod_start
-                    samount = round((sduration_sec / 3600) * rate * storage_gb, 6)
-
-                    if samount <= 0:
-                        continue
-
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        slocked = conn.execute(
-                            "SELECT job_id FROM jobs WHERE job_id = %s AND status = 'stopped' FOR UPDATE SKIP LOCKED",
-                            (sjob_id,),
-                        ).fetchone()
-                        if not slocked:
-                            continue
-
-                        scharge = self.charge(
-                            sowner,
-                            samount,
-                            job_id=sjob_id,
-                            description=f"Storage: {storage_gb:.0f}GB {storage_type} ({sduration_sec/60:.1f}min)",
-                        )
-                        scycle_id = f"SC-{int(now)}-{os.urandom(3).hex()}"
-                        sstatus = "storage" if scharge.get("charged") else "storage_failed"
-                        conn.execute(
-                            """INSERT INTO billing_cycles
-                               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                                amount_micros, status, created_at)
-                               VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (
-                                scycle_id,
-                                sjob_id,
-                                sowner,
-                                sjob.get("host_id", ""),
-                                speriod_start,
-                                speriod_end,
-                                sduration_sec,
-                                rate * storage_gb,
-                                storage_type,
-                                "storage",
-                                1.0,
-                                round(samount * 1_000_000),
-                                sstatus,
-                                now,
-                            ),
-                        )
-                        conn.commit()
-
-                    storage_billed += 1
-                except Exception as e:
-                    errors += 1
-                    log.error("Storage billing error for job %s: %s", sjob.get("job_id", "?"), e)
-        except Exception as e:
-            log.error("Storage billing scan error: %s", e)
+        # Storage is billed once from normalized volume records above.
+        # Retained job observations do not authorize a second storage charge.
+        storage_billed = 0  # response compatibility; volume_billed is authoritative
 
         if billed or suspended or errors or volume_billed or inference_billed or storage_billed:
             log.info(
@@ -4130,7 +4011,9 @@ class BillingEngine:
                         # invoke the shared lifecycle service after commit.
                         running = conn.execute(
                             """SELECT job_id
-                               FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
+                               FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
+                                 AND spec->>'execution_spec_version'='v1'
+                                 AND history_disposition IS NULL AND status = 'running'""",
                             (customer_id,),
                         ).fetchall()
                         jobs_to_stop = [str(job["job_id"]) for job in running]
@@ -4301,15 +4184,15 @@ class BillingEngine:
                 cid = w["customer_id"]
                 running = conn.execute(
                     """SELECT job_id
-                       FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
+                       FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
+                                 AND spec->>'execution_spec_version'='v1'
+                                 AND history_disposition IS NULL AND status = 'running'""",
                     (cid,),
                 ).fetchall()
                 for job in running:
                     running_job_ids.append((str(job["job_id"]), str(cid)))
 
-        # One lifecycle service owns both v1 and v2 stops. In particular,
-        # attempt-owned jobs receive a durable fenced command instead of a
-        # raw status write plus an unfenced legacy remove.
+        # The shared service revalidates native admission and fences delivery.
         for job_id, cid in running_job_ids:
             result = self.stop_instance(job_id, reason="billing_suspended")
             if result.get("stopped"):
@@ -4362,28 +4245,37 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             running = conn.execute(
-                """SELECT j.job_id, j.host_id, j.payload->>'gpu_model' AS gpu_model, COALESCE(j.payload->>'tier', 'free') AS tier
-                   FROM jobs j
-                   WHERE j.payload->>'owner' = %s AND j.status = 'running'""",
+                """SELECT j.job_id,j.spec,j.spec_hash,a.spec_hash AS attempt_hash,
+                          a.host_id,a.placement_explanation->'billing_snapshot' AS quote
+                   FROM jobs j LEFT JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                   WHERE COALESCE(j.spec->>'owner_id',j.spec->>'owner')=%s
+                     AND j.status='running' AND j.history_disposition IS NULL""",
                 (customer_id,),
             ).fetchall()
 
+        from control_plane.attempt_billing import bound_billing_inputs
+
         burn_per_hour = 0.0
         instance_burns = []
+        unpriced = 0
         for job in running:
-            host_id = job.get("host_id", "")
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                host = conn.execute(
-                    "SELECT payload->>'cost_per_hour' AS cost_per_hour FROM hosts WHERE host_id = %s",
-                    (host_id,),
-                ).fetchone()
-            rate = float(host["cost_per_hour"]) if host else 0.20
+            try:
+                admitted, host = bound_billing_inputs(
+                    job["spec"],
+                    job["spec_hash"],
+                    job["attempt_hash"],
+                    job["quote"],
+                    job["host_id"],
+                )
+                rate, _ = resolve_compute_rate_cad(admitted, host)
+            except (TypeError, ValueError, KeyError):
+                unpriced += 1
+                continue
             burn_per_hour += rate
             instance_burns.append(
                 {
                     "job_id": job["job_id"],
-                    "gpu_model": job.get("gpu_model", ""),
+                    "gpu_model": admitted.get("gpu_model", ""),
                     "rate_per_hour": rate,
                 }
             )
@@ -4402,9 +4294,13 @@ class BillingEngine:
             "burn_rate_per_hour": round(burn_per_hour, 4),
             "burn_rate_per_second": round(burn_per_second, 6),
             "seconds_to_zero": (
-                round(seconds_to_zero, 1) if seconds_to_zero != float("inf") else None
+                round(seconds_to_zero, 1)
+                if seconds_to_zero != float("inf") and not unpriced
+                else None
             ),
             "running_instances": len(running),
+            "estimate_complete": unpriced == 0,
+            "unpriced_running_instances": unpriced,
             "instance_burns": instance_burns,
             "alert_30min": alert_30min,
             "alert_5min": alert_5min,

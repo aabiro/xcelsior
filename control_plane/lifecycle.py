@@ -612,7 +612,7 @@ def request_unplaced_termination(*, job_id: str, created_by: str) -> FencedLifec
                                           'lease_claimed','starting','running'))
                    OR EXISTS(SELECT 1 FROM placement_leases WHERE job_id=%s
                              AND status IN ('offered','active'))
-                   OR EXISTS(SELECT 1 FROM gpu_allocations WHERE job_id=%s
+                   OR EXISTS(SELECT 1 FROM gpu_device_allocations WHERE job_id=%s
                              AND released_at IS NULL) AS live""",
             (job_id, job_id, job_id),
         ).fetchone()

@@ -134,4 +134,6 @@ def test_queued_unfenced_start_is_permanently_nacked(cutover, monkeypatch):
     monkeypatch.setattr(worker, "v2_nack_command", nack)
     assert worker.drain_v2_commands() == 0
     execute.assert_not_called()
-    nack.assert_called_once_with("old-start", "unfenced_start_removed", retryable=False)
+    nack.assert_called_once_with(
+        "old-start", "unsupported_command", {"command": "start_container"}, retryable=False
+    )

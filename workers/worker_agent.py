@@ -1853,9 +1853,6 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "upgrade_agent",
         "rollback_agent",  # P1.2 — auto-rollback driver restores .bak
         "stop_container",
-        "pause_container",
-        "start_container",
-        "reset_container",  # P2 — fresh /workspace, preserve volumes
         "snapshot_container",
         "mount_volume",  # hot-attach: NFS mount + nsenter bind into running container
         "unmount_volume",
@@ -1874,37 +1871,6 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "fingerprint_environment",
     }
 )
-
-
-def _historical_container_stop_allowed(args: dict) -> bool:
-    """Permit a state-preserving stop of a verified historical container only."""
-    job_id = str(args.get("job_id") or "")
-    container_name = str(args.get("container_name") or "")
-    if not job_id or not container_name or not _protocol_negotiated:
-        return False
-    with _v2_attempts_lock:
-        if job_id in _v2_attempts:
-            return False
-    try:
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False
-        labels = json.loads(result.stdout)
-        if labels is None:
-            labels = {}
-        if not isinstance(labels, dict):
-            return False
-        if any(key in labels for key in ("ai.xcelsior.attempt_id", "xcelsior.attempt_id")):
-            return False
-        label_job = labels.get("ai.xcelsior.job_id") or labels.get("xcelsior.job_id")
-        return not label_job or label_job == job_id
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return False
 
 
 def _dispatch_agent_commands(commands: list) -> int:
@@ -1926,22 +1892,6 @@ def _dispatch_agent_commands(commands: list) -> int:
             _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
             continue
         try:
-            # Recognize queued old starts so delivery produces a durable NACK.
-            # Only start_attempt may authorize execution; historical stops
-            # remain available without adopting their unfenced containers.
-            if name == "start_container" or (
-                name == "pause_container" and not _historical_container_stop_allowed(args)
-            ):
-                log.warning(
-                    "Refused legacy lifecycle command=%s id=%s; authority or identity unconfirmed",
-                    name,
-                    cmd_id,
-                )
-                _agent_commands_rejected_total.labels(command=name).inc()
-                _report_agent_degraded(
-                    "legacy_lifecycle_refused", context=f"command={name} id={cmd_id}"
-                )
-                continue
             if name == "health_probe":
                 dispatched += 1
             elif name == "reinject_shell":
@@ -2092,78 +2042,6 @@ def _dispatch_agent_commands(commands: list) -> int:
                     dispatched += 1
                 except subprocess.TimeoutExpired:
                     log.warning("stop_container cmd=%s container=%s timed out", cmd_id, cname)
-            elif name == "pause_container":
-                # P3/A3 — billing-initiated PAUSE (state-preserving).
-                # Unlike stop_container, does NOT `docker rm`, so the container
-                # can later be restarted cheaply with `docker start`. Used for
-                # wallet-low-balance pauses where we expect the user to resume.
-                _job_id = str(args.get("job_id") or "")
-                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
-                if not cname:
-                    log.warning("pause_container cmd=%s missing container_name", cmd_id)
-                    continue
-                log.info("Executing pause_container cmd=%s container=%s by=%s", cmd_id, cname, by)
-                try:
-                    r = subprocess.run(
-                        ["docker", "stop", "-t", "30", cname],
-                        capture_output=True,
-                        text=True,
-                        timeout=45,
-                    )
-                    if r.returncode == 0:
-                        dispatched += 1
-                    else:
-                        log.warning(
-                            "pause_container cmd=%s rc=%s stderr=%s",
-                            cmd_id,
-                            r.returncode,
-                            (r.stderr or "")[:200],
-                        )
-                except subprocess.TimeoutExpired:
-                    log.warning("pause_container cmd=%s container=%s timed out", cmd_id, cname)
-            elif name == "reset_container":
-                # P2 — restart the container with a fresh /workspace scratch
-                # dir. Named/bind-mount volumes are untouched; only the
-                # container's own ephemeral /workspace gets wiped so the
-                # user gets a clean slate without losing mounted data.
-                cname = str(args.get("container_name") or "")
-                if not cname:
-                    log.warning("reset_container cmd=%s missing container_name", cmd_id)
-                else:
-                    try:
-                        # `docker exec <cname> sh -c 'rm -rf /workspace/* /workspace/.[!.]*'`
-                        # wipes /workspace in-place, then restart the container
-                        # so tmp/log state resets as well.
-                        subprocess.run(
-                            [
-                                "docker",
-                                "exec",
-                                cname,
-                                "sh",
-                                "-c",
-                                "rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true",
-                            ],
-                            capture_output=True,
-                            text=True,
-                            timeout=60,
-                        )
-                        r = subprocess.run(
-                            ["docker", "restart", cname],
-                            capture_output=True,
-                            text=True,
-                            timeout=60,
-                        )
-                        if r.returncode == 0:
-                            dispatched += 1
-                        else:
-                            log.warning(
-                                "reset_container cmd=%s rc=%s stderr=%s",
-                                cmd_id,
-                                r.returncode,
-                                (r.stderr or "").strip()[:400],
-                            )
-                    except subprocess.TimeoutExpired:
-                        log.warning("reset_container cmd=%s container=%s timed out", cmd_id, cname)
             elif name == "snapshot_container":
                 # P3.1 — `docker commit` the running container to a user
                 # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL
@@ -4029,8 +3907,6 @@ def _dispatch_v2_command(cmd: dict) -> int:
             daemon=True,
         ).start()
         dispatched += 1
-    elif name == "start_container":
-        v2_nack_command(command_id, "unfenced_start_removed", retryable=False)
     elif name in _AGENT_COMMAND_ALLOWED and not cmd.get("attempt_id"):
         # Host commands now share the durable command protocol. A lost ACK
         # replays the journaled result rather than deleting work on fetch.

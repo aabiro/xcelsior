@@ -37,7 +37,6 @@ TASK_SERVICES = {
     "job_log_cleanup": "reconciler",
     "telemetry_retention": "reconciler",
     "notification_cleanup": "api",
-    "reconcile_paused_stopped": "reconciler",
     "user_images_pending_sweeper": "api",
     "user_images_hard_delete_gc": "api",
     "registry_health_probe": "reconciler",

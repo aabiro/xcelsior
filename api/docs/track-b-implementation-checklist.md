@@ -2611,6 +2611,14 @@ data disposition remain separately scoped below.
   Gates pass 213, 98, 51 and 23 overlapping checks. Runtime floor 134 permits
   writer deployment before 135. No production contraction has run. See the
   [placement column receipt](review/2026-10-23-placement-column-contraction.md).
+  **Final lifecycle source candidate, 2026-10-23:** billing has no unfenced
+  start/pause/terminate fallback. Native idle termination serializes with
+  placement and commits wallet-hold release/outbox together. Host start/pause/
+  reset directives and obsolete periodic stop redelivery are removed; migration
+  136 archives and blocks resurrection of its task row. Wallet targeting and
+  depletion use admission/captured quotes; stopped-job observations cannot bill
+  storage. The focused gate passes 309 checks. Production remains 125; no final
+  deployment is claimed. See the [native lifecycle receipt](review/2026-10-23-retired-unfenced-lifecycle.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

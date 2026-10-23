@@ -128,31 +128,6 @@ def require_legacy_route_enabled() -> None:
         )
 
 
-class LegacyExecutionRejected(ValueError):
-    code = "fenced_protocol_required"
-
-
-def require_legacy_job(conn, job_id: str, *, new_claim: bool = False) -> None:
-    """Serialize compatibility lease writes with placement on the job row.
-
-    Fenced history stays fenced even between attempts. A separate history read
-    after acquiring the row lock sees a placement that committed while waiting.
-    """
-    row = conn.execute(
-        "SELECT active_attempt_id FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)
-    ).fetchone()
-    active_attempt = (
-        row.get("active_attempt_id") if isinstance(row, dict) else row[0] if row else None
-    )
-    history = conn.execute(
-        "SELECT 1 FROM job_attempts WHERE job_id=%s LIMIT 1", (job_id,)
-    ).fetchone()
-    if active_attempt or history:
-        raise LegacyExecutionRejected("Job belongs to the fenced attempt protocol")
-    if new_claim and not legacy_execution_allowed():
-        raise LegacyExecutionRejected("Legacy execution is disabled while scheduler mode is active")
-
-
 def eligible_work_ids(conn, host_id: str, job_ids: list[str]) -> set[str]:
     if not job_ids:
         return set()
@@ -163,22 +138,3 @@ def eligible_work_ids(conn, host_id: str, job_ids: list[str]) -> set[str]:
         (job_ids, host_id),
     ).fetchall()
     return {str(row["job_id"] if isinstance(row, dict) else row[0]) for row in rows}
-
-
-def require_legacy_container_command(
-    conn, *, job_id: str, host_id: str, container_name: str, starting: bool
-) -> None:
-    """Keep compatibility directives on the same job lock as placement."""
-    row = conn.execute(
-        "SELECT host_id,payload->>'container_name' AS container_name FROM jobs "
-        "WHERE job_id=%s FOR UPDATE",
-        (job_id,),
-    ).fetchone()
-    if row is None:
-        raise LegacyExecutionRejected("Legacy container job was not found")
-    assigned_host = row.get("host_id") if isinstance(row, dict) else row[0]
-    stored_name = row.get("container_name") if isinstance(row, dict) else row[1]
-    expected_name = str(stored_name or f"xcl-{job_id}")
-    if str(assigned_host or "") != host_id or expected_name != container_name:
-        raise LegacyExecutionRejected("Legacy container identity no longer matches the job")
-    require_legacy_job(conn, job_id, new_claim=starting)

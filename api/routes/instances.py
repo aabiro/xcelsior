@@ -1758,9 +1758,9 @@ def api_unlock_instance(job_id: str, request: Request):
 def api_reset_instance(job_id: str, request: Request):
     """Reset the container (running instance only).
 
-    Restarts the container with a fresh ``/workspace`` scratch space,
-    preserving mounted named volumes and the container config. Compute
-    billing is continuous. Requires a positive wallet balance.
+    Settles the current fenced attempt and queues a new container with a
+    fresh workspace from the admitted spec. Named volumes remain attached
+    through the new attempt. Requires available wallet funds.
     """
     _user, job = _authorize_instance_mutation(request, job_id, "reset")
     _check_not_locked(job)
@@ -1771,33 +1771,29 @@ def api_reset_instance(job_id: str, request: Request):
             detail=f"Instance is '{job.get('status')}', must be running to reset",
         )
 
-    host_id = job.get("host_id") or ""
-    if not host_id:
-        raise HTTPException(status_code=400, detail="Instance has no host assigned")
+    from billing import get_billing_engine
 
-    from control_plane.job_targets import resolve_job_command_target
-    from routes.agent import enqueue_agent_command
-
-    target = resolve_job_command_target(job_id)
-    if target is None:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-    # Authority-sensitive: never guess legacy xcl-{job} for fenced history.
-    if not target.allows_unfenced_container_command:
+    result = get_billing_engine().restart_instance(job_id)
+    if not result.get("restarted"):
+        reason = result.get("reason", "restart_failed")
         raise HTTPException(
-            status_code=409,
-            detail="fenced_residual_requires_live_authority",
+            status_code=402 if reason in {"wallet_suspended", "insufficient_balance"} else 409,
+            detail=reason,
         )
-    if not target.host_id:
-        raise HTTPException(status_code=400, detail="Instance has no host assigned")
-
-    cmd_id = enqueue_agent_command(
-        host_id=target.host_id,
-        command="reset_container",
-        args={"job_id": job_id, "container_name": target.container_name},
-        created_by=_user.get("customer_id", _user.get("user_id", "")),
+    _broadcast_instance_lifecycle_sse(
+        "instance_reset",
+        {"job_id": job_id},
+        event_type="job.v1.instance_reset",
+        job_id=job_id,
+        idempotency_key=f"instance_reset:{job_id}:{result.get('attempt_id') or 'queued'}",
     )
-    broadcast_sse("instance_reset", {"job_id": job_id})
-    return {"ok": True, "command_id": cmd_id, "job_id": job_id}
+    append_user_audit_event("user.instance.reset_requested", "job", job_id, _user)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "command_id": result.get("command_id"),
+        "instance": result,
+    }
 
 
 # ── Stop / Start / Restart / Terminate ──────────────────────────────
@@ -1807,9 +1803,9 @@ def api_reset_instance(job_id: str, request: Request):
 def api_stop_instance(job_id: str, request: Request):
     """Gracefully stop a running instance.
 
-    Sends SIGTERM to the container (docker stop -t 10). The container is
-    preserved — data, volumes and configuration are intact. Storage billing
-    continues at the per-GB rate. The instance can be started again at any time.
+    Requests a fenced worker stop. The response reports stopping until
+    worker settlement. Persistent volume billing continues while allocated;
+    start creates a fresh attempt from the admitted workload.
     """
     user, job = _authorize_instance_mutation(request, job_id, "stop")
 
@@ -1823,7 +1819,21 @@ def api_stop_instance(job_id: str, request: Request):
     be = get_billing_engine()
     result = be.stop_instance(job_id, reason="user_stopped")
     if not result.get("stopped"):
-        raise HTTPException(status_code=500, detail=result.get("reason", "stop failed"))
+        reason = result.get("reason", "stop failed")
+        raise HTTPException(
+            status_code=(
+                409
+                if reason
+                in {
+                    "native_admission_required",
+                    "native_attempt_required",
+                    "historical_job_requires_new_admission",
+                    "no_active_fenced_authority",
+                }
+                else 500
+            ),
+            detail=reason,
+        )
 
     _broadcast_instance_lifecycle_sse(
         "instance_stopped",
@@ -1840,9 +1850,9 @@ def api_stop_instance(job_id: str, request: Request):
 def api_start_instance(job_id: str, request: Request):
     """Start a stopped instance.
 
-    Restores the exited container via docker start. Container data is
-    preserved. Requires a positive wallet balance. Compute billing resumes
-    immediately.
+    Queues a fresh attempt from the admitted workload. Persistent volumes
+    are preserved; ephemeral container files are not restored. Requires
+    available wallet funds. Compute billing starts when the worker runs.
     """
     user, job = _authorize_instance_mutation(request, job_id, "start")
     customer_id = _canonical_owner_id(user)
@@ -1879,7 +1889,10 @@ def api_start_instance(job_id: str, request: Request):
                 409
                 if detail
                 in (
-                    "fenced_resume_requires_new_attempt",
+                    "native_admission_required",
+                    "native_attempt_required",
+                    "historical_job_requires_new_admission",
+                    "execution_authority_remains",
                     "still_attempt_owned",
                     "no_active_fenced_authority",
                 )
@@ -1901,13 +1914,10 @@ def api_start_instance(job_id: str, request: Request):
 
 @router.post("/instances/{job_id}/restart", tags=["Instances"])
 def api_restart_instance(job_id: str, request: Request):
-    """Restart an instance. Container data is fully preserved.
+    """Settle the current attempt and queue a fresh container.
 
-    Works from both running and stopped states:
-    - Running → graceful stop → start (docker stop + docker start)
-    - Stopped → start (docker start only)
-
-    Billing is continuous — no gap. Requires a positive wallet balance.
+    Persistent volumes are preserved. Ephemeral files are recreated from
+    the admitted workload. Requires available wallet funds.
     """
     user, job = _authorize_instance_mutation(request, job_id, "restart")
     _check_not_locked(job)
@@ -1945,7 +1955,10 @@ def api_restart_instance(job_id: str, request: Request):
                 409
                 if detail
                 in (
-                    "fenced_restart_requires_controller",
+                    "native_admission_required",
+                    "native_attempt_required",
+                    "historical_job_requires_new_admission",
+                    "execution_authority_remains",
                     "no_active_fenced_authority",
                     "still_attempt_owned",
                 )
@@ -2058,7 +2071,10 @@ def api_terminate_instance(job_id: str, request: Request):
             409
             if detail
             in (
-                "fenced_terminate_requires_controller",
+                "native_admission_required",
+                "native_attempt_required",
+                "historical_job_requires_new_admission",
+                "execution_authority_remains",
                 "no_active_fenced_authority",
             )
             else 400

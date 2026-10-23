@@ -1,13 +1,6 @@
-"""bg_worker reconcile + user_images sweeper regression.
-
-Structural tests: stub pool + enqueue, drive the shipped
-``reconcile_paused_stopped_jobs`` path (and task registration via main).
-Real Postgres class coverage lives in
-``tests/test_stopped_job_stop_redelivery.py``.
-"""
+"""Maintenance registrations exclude retired unfenced redelivery."""
 
 import os
-import time
 from unittest.mock import patch
 
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
@@ -93,11 +86,9 @@ def _extract_registrations():
     return collected
 
 
-def test_reconcile_task_registered_with_60s_interval():
+def test_unfenced_stop_redelivery_is_not_registered():
     closures = _extract_registrations()
-    assert "reconcile_paused_stopped" in closures, list(closures)
-    _, interval, _ = closures["reconcile_paused_stopped"]
-    assert interval == 60
+    assert "reconcile_paused_stopped" not in closures
 
 
 def test_serverless_reconcile_task_registered_with_45s_interval():
@@ -114,206 +105,12 @@ def test_user_images_sweeper_registered_with_300s_interval():
     assert interval == 300
 
 
-def test_is_fenced_history_job_classifier():
+def test_unfenced_stop_redelivery_code_is_removed():
     import bg_worker
+    from control_plane.task_identities import TASK_SERVICES
 
-    assert (
-        bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=False) is False
-    )
-    assert (
-        bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=False) is True
-    )
-    assert bg_worker.is_fenced_history_job(active_attempt_id=None, has_fenced_history=True) is True
-    assert bg_worker.is_fenced_history_job(active_attempt_id="aid", has_fenced_history=True) is True
-
-
-def test_reconcile_reenqueues_stale_stopped_jobs():
-    import bg_worker
-
-    stale_ts = time.time() - 300.0  # > 120s old
-    rows = [
-        {
-            "job_id": "job-A",
-            "status": "stopped",
-            "host_id": "host-1",
-            "container_name": "xcl-job-A",
-            "state_age_ts": stale_ts,
-            "active_attempt_id": None,
-            "has_fenced_history": False,
-        },
-        {
-            "job_id": "job-B",
-            "status": "stopped",
-            "host_id": "host-2",
-            "container_name": "xcl-job-B",
-            "state_age_ts": stale_ts,
-            "active_attempt_id": None,
-            "has_fenced_history": False,
-        },
-    ]
-    conn = _FakeConn(rows_for_select=rows, pending=False)
-    pool = _FakePool(conn)
-
-    enqueued: list[tuple[str, str, dict]] = []
-
-    def fake_enqueue(host_id, cmd, args, **kw):
-        enqueued.append((host_id, cmd, args))
-        return "cmd-x"
-
-    with (
-        patch("db._get_pg_pool", return_value=pool),
-        patch("routes.agent.enqueue_agent_command", side_effect=fake_enqueue),
-    ):
-        n = bg_worker.reconcile_paused_stopped_jobs()
-
-    names = {(h, c) for h, c, _ in enqueued}
-    assert ("host-1", "stop_container") in names
-    assert ("host-2", "stop_container") in names
-    assert n == 2
-
-
-def test_reconcile_skips_fenced_history_even_if_row_returned():
-    """Python gate: fenced-history rows must never get unfenced stop."""
-    import bg_worker
-
-    stale_ts = time.time() - 300.0
-    rows = [
-        {
-            "job_id": "job-fenced",
-            "status": "stopped",
-            "host_id": "host-1",
-            "container_name": "xcl-job-fenced",
-            "state_age_ts": stale_ts,
-            "active_attempt_id": None,
-            "has_fenced_history": True,
-        },
-        {
-            "job_id": "job-attempt-owned",
-            "status": "stopped",
-            "host_id": "host-2",
-            "container_name": "xcl-job-owned",
-            "state_age_ts": stale_ts,
-            "active_attempt_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "has_fenced_history": False,
-        },
-    ]
-    conn = _FakeConn(rows_for_select=rows, pending=False)
-    pool = _FakePool(conn)
-    enqueued: list = []
-
-    with (
-        patch("db._get_pg_pool", return_value=pool),
-        patch(
-            "routes.agent.enqueue_agent_command",
-            side_effect=lambda *a, **kw: enqueued.append(a),
-        ),
-    ):
-        n = bg_worker.reconcile_paused_stopped_jobs()
-
-    assert enqueued == [], "fenced-history / attempt-owned must not dual-command stop"
-    assert n == 0
-
-
-def test_reconcile_skips_fresh_jobs():
-    import bg_worker
-
-    fresh_ts = time.time() - 30.0  # < 120s
-    rows = [
-        {
-            "job_id": "job-fresh",
-            "status": "stopped",
-            "host_id": "host-1",
-            "container_name": "xcl-job-fresh",
-            "state_age_ts": fresh_ts,
-            "active_attempt_id": None,
-            "has_fenced_history": False,
-        }
-    ]
-    conn = _FakeConn(rows_for_select=rows)
-    pool = _FakePool(conn)
-
-    enqueued = []
-    with (
-        patch("db._get_pg_pool", return_value=pool),
-        patch(
-            "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
-        ),
-    ):
-        bg_worker.reconcile_paused_stopped_jobs()
-    assert enqueued == [], "fresh jobs must not be reconciled"
-
-
-def test_reconcile_skips_when_pending_command_exists():
-    import bg_worker
-
-    stale_ts = time.time() - 300.0
-    rows = [
-        {
-            "job_id": "job-pending",
-            "status": "stopped",
-            "host_id": "host-1",
-            "container_name": "xcl-job-pending",
-            "state_age_ts": stale_ts,
-            "active_attempt_id": None,
-            "has_fenced_history": False,
-        }
-    ]
-    conn = _FakeConn(rows_for_select=rows, pending=True)  # pending cmd exists
-    pool = _FakePool(conn)
-
-    enqueued = []
-    with (
-        patch("db._get_pg_pool", return_value=pool),
-        patch(
-            "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
-        ),
-    ):
-        bg_worker.reconcile_paused_stopped_jobs()
-    assert enqueued == [], "must not duplicate a pending reconcile command"
-
-
-def test_reconcile_throttles_recent_stop_attempts():
-    import bg_worker
-
-    stale_ts = time.time() - 300.0
-    rows = [
-        {
-            "job_id": "job-recent",
-            "status": "stopped",
-            "host_id": "host-1",
-            "container_name": "xcl-job-recent",
-            "state_age_ts": stale_ts,
-            "last_reconcile_stop_at": time.time() - 60.0,
-            "reconcile_stop_count": 1,
-            "active_attempt_id": None,
-            "has_fenced_history": False,
-        }
-    ]
-    conn = _FakeConn(rows_for_select=rows, pending=False)
-    pool = _FakePool(conn)
-
-    enqueued = []
-    with (
-        patch("db._get_pg_pool", return_value=pool),
-        patch(
-            "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
-        ),
-    ):
-        bg_worker.reconcile_paused_stopped_jobs()
-    assert enqueued == [], "recent reconcile attempts must be throttled"
-
-
-def test_reconcile_sql_excludes_fenced_history():
-    """Static gate: production SELECT must exclude attempt/fenced rows."""
-    import inspect
-
-    import bg_worker
-
-    src = inspect.getsource(bg_worker.reconcile_paused_stopped_jobs)
-    assert "active_attempt_id IS NULL" in src
-    assert "NOT EXISTS" in src
-    assert "job_attempts" in src
-    assert "stop_container" in src
+    assert not hasattr(bg_worker, "reconcile_paused_stopped_jobs")
+    assert "reconcile_paused_stopped" not in TASK_SERVICES
 
 
 def test_user_images_sweeper_marks_stale_pending_failed():
