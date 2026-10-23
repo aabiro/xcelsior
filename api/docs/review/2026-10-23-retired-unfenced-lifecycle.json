@@ -1,0 +1,58 @@
+{
+  "base_commit": "78737a5350caffa8489c94d0602d69e22d9c3a28",
+  "gates": {
+    "native-host-wallet-qualified": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-host-wallet-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.08
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.33
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 6.73
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 65.06
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.33
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 309
+      },
+      "sha256": "ef8866a0042255c20b0cc2aba634fd703559c41f8fb95d4deeef00fd60fb19d8"
+    }
+  },
+  "migration_head": "136",
+  "production_mutation": false,
+  "remaining": "final schema/inventory and combined regression; production image handoff, dedicated roles and real native worker acceptance",
+  "repairs": "report_only",
+  "root_protected_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  },
+  "runtime_min_revision": "134",
+  "worker_distribution_signatures_verified": 12
+}

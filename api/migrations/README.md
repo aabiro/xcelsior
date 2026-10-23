@@ -90,7 +90,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `135_retire_job_placement_projections.py`.**
+**Repository head: `136_retire_unfenced_stop_task.py`.**
 
 133 expands durable weighted scheduling policy, virtual service credit and
 preemption plan records. Default policy enables no evictions. This runtime
@@ -542,3 +542,10 @@ keys before removing them. Deploy the 134-compatible canonical preference
 readers and writers that no longer name these columns first; only then apply
 135. No job or financial history is deleted. Downgrade retains archive evidence
 and restores projection values; lifecycle intent remains owned by the column.
+
+
+136 archives and removes only the obsolete `reconcile_paused_stopped` schedule.
+Deploy maintenance workers without that handler first. A live task claim or
+archive mismatch refuses retirement. A database constraint prevents older
+workers from registering it again. Downgrade restores the recorded row and
+retains its archive; it does not execute the retired handler.
