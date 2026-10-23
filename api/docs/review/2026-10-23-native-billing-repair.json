@@ -1,5 +1,79 @@
 {
   "base_commit": "49de77e093affbe61647a7a73f7f448fbbe64ff8",
+  "combined_candidate": {
+    "combined-candidate-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/combined-candidate-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.05
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.8
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 4.26
+        },
+        "pytest": {
+          "exit_code": 1,
+          "seconds": 1253.59
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.22
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 3,
+        "skipped": 0,
+        "tests": 3210
+      },
+      "sha256": "db55296f6388aed79838fb3b35a353ae2e5ff7e7981a3e2f71f199f5e49fbb75"
+    },
+    "combined-three-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/combined-three-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.1
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.42
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 4.41
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 126.29
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.14
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.12
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 13
+      },
+      "sha256": "f9870a3518d016a97a4213a59e08ced3b38ad936822461172a2c1477261e10aa"
+    }
+  },
   "gates": {
     "native-billing-ceiling-qualified": {
       "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-billing-ceiling-qualified/manifest.json",

@@ -6,7 +6,6 @@ from psycopg.types.json import Jsonb
 
 from db import DatabaseOps
 from tests.native_jobs import admit_fixture_job
-from control_plane.scheduler.claim import claim_next_job, release_claim
 from tests.test_from_empty_bootstrap import empty_db  # noqa: F401
 from tests.test_migration_from_production_snapshot import _alembic, _connect
 
@@ -31,7 +30,7 @@ def projected(empty_db):
     return empty_db
 
 
-def test_claims_and_metadata_writes_preserve_priority_and_native_intent(projected):
+def test_metadata_writes_preserve_priority_and_native_intent(projected):
     _alembic(projected, "upgrade", "130")
     with _connect(projected) as conn:
         conn.execute(
@@ -42,13 +41,8 @@ def test_claims_and_metadata_writes_preserve_priority_and_native_intent(projecte
         assert conn.execute(
             "SELECT desired_state,effective_priority FROM jobs WHERE job_id='canonical-intent'"
         ).fetchone() == ("stopped", 1000)
-        claimed = claim_next_job(
-            conn, replica_id="contract-test", scope_gpu_models=["claim-target"]
-        )
-        assert claimed and claimed.effective_priority == 1000
-        assert release_claim(
-            conn, claimed.job_id, claimed.claim_token, reason_code="contract-proof"
-        )
+        # This test freezes migration 130 semantics. Current scheduling needs
+        # the later durable policy tables and is tested at its runtime floor.
         assert conn.execute(
             "SELECT effective_priority,fair_share_finish,EXTRACT(EPOCH FROM queued_at) FROM jobs WHERE job_id='claim-target'"
         ).fetchone() == (1000, 9, 100)
