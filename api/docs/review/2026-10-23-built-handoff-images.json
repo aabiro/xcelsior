@@ -1,0 +1,325 @@
+{
+  "build_contexts": {
+    "native": {
+      "archive_sha256": "a7756c133533f22148cb78278e21e90efc3432b484577c0a26b5fe0022b0ca5c",
+      "commit": "7757bdc336806794e64ca896b7c930f9b25b7c2b",
+      "contains_private_signing_key": false,
+      "contains_runtime_env_files": false,
+      "files": 3395,
+      "tracked_files_only": true
+    },
+    "transition": {
+      "archive_sha256": "f1ba5b80698cbe35502abf66052ced7057cf3d20f1f33ba4d84e9dd79e62587d",
+      "commit": "1af572b6e271a47661e63c4b2f47a7c971efba28",
+      "contains_private_signing_key": false,
+      "contains_runtime_env_files": false,
+      "files": 3357,
+      "tracked_files_only": true
+    }
+  },
+  "current_source_difference_from_image": "only test fixtures and review documentation; runtime remains 7757bdc3",
+  "frozen_image_transfer": {
+    "archive": {
+      "bytes": 671046717,
+      "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/cutover-handoff-images.tar.gz",
+      "sha256": "136b0ef453215c26cbc290ba2570c05f52b2d8a54e9a35c0d9bbcb84bd02d44f"
+    },
+    "created_at_unix": 1792757418.1582892,
+    "images": [
+      {
+        "architecture": "amd64",
+        "config_sha256": "bea9a789c5bd101bfb6c4cf2b8a899e260d09fc1980ea5a9edca4b49bf3ef33a",
+        "created": "2026-10-23T05:47:31.786558735-04:00",
+        "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+        "os": "linux",
+        "rootfs_sha256": "b0841d1365a7b065a320685d8b9fd61c62521ec9281a63bcaf9c3d6c8432d658",
+        "runtime_uid": "10001:10001",
+        "tag": "xcelsior-api:cutover-transition-1af572b6"
+      },
+      {
+        "architecture": "amd64",
+        "config_sha256": "bea9a789c5bd101bfb6c4cf2b8a899e260d09fc1980ea5a9edca4b49bf3ef33a",
+        "created": "2026-10-23T07:59:28.949358595-04:00",
+        "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+        "os": "linux",
+        "rootfs_sha256": "23d9d768e1158f1d8d7e5de07ab1571e60f1597f9ae35628c2b5a99864fec87f",
+        "runtime_uid": "10001:10001",
+        "tag": "xcelsior-api:cutover-native-7757bdc3"
+      }
+    ],
+    "production_mutation": false
+  },
+  "gates": {
+    "built-handoff-images-qualified": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/built-handoff-images-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.05
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.27
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 6.28
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 72.36
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 5
+      },
+      "sha256": "ed65babd65630b02befcb22eee868a7d7c9a63d538ac9addf4b57612add4bfcd"
+    },
+    "built-handoff-metrics-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/built-handoff-metrics-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 2.45
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 9.48
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 51.95
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.3
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.23
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 2
+      },
+      "sha256": "ee14eda44aab578a7c7d30a2aeee9796284e0ad4945b0902ebf830ef4b87833e"
+    },
+    "native-flow-volume-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-flow-volume-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.44
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.88
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 10.89
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 55.04
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.23
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.53
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 115
+      },
+      "sha256": "25f22de92d2030a4c8faa88013c2facb2d553bb3f15324a5699a5ef1cc55543c"
+    },
+    "native-instance-flow-qualified": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-instance-flow-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.23
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 7.18
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 20.45
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 17
+      },
+      "sha256": "4a38dc05167ba5d6bb1e4eb03279cd28cca549d3db770815b81d330ccc194f2b"
+    },
+    "native-regression-fixtures": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-regression-fixtures/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.05
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.68
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 2.9
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 10.75
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.12
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 24
+      },
+      "sha256": "d715237b564c9995d53f50bfb9cb2e1c8ab2756d6dd193d8be7dee60e7441951"
+    }
+  },
+  "images": {
+    "126": {
+      "cleanup_exit": 0,
+      "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "126",
+          "maximum": null,
+          "minimum": "126"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "126",
+      "tag": "xcelsior-api:cutover-transition-1af572b6",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    },
+    "136": {
+      "cleanup_exit": 0,
+      "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "136",
+          "maximum": null,
+          "minimum": "134"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "136",
+      "tag": "xcelsior-api:cutover-native-7757bdc3",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    }
+  },
+  "production_mutation": false,
+  "remaining": "latest combined selection in progress; staged production role/schema/worker handoff and acceptance; manual host eviction surfaces remain 501",
+  "repairs": "report_only"
+}

@@ -849,14 +849,16 @@ class TestBillingVolumeQuery:
         assert "IN ('available', 'attached')" in source
         assert "!= 'deleted'" not in source  # old pattern removed
 
-    def test_billing_uses_singleton(self):
-        """terminate_instance must use get_volume_engine(), not VolumeEngine()."""
+    def test_termination_defers_volume_detach_until_worker_settlement(self):
+        """A stop request cannot detach a volume while its worker still owns it."""
         import inspect
         from billing import BillingEngine
 
         source = inspect.getsource(BillingEngine.terminate_instance)
-        assert "get_volume_engine" in source
-        assert "VolumeEngine()" not in source
+        assert "get_volume_engine" not in source
+        assert "detach_all_for_instance" not in source
+        assert "request_fenced_stop_remove" in source
+        assert "request_unplaced_termination" in source
 
 
 # ── Worker agent mount paths ─────────────────────────────────────────
