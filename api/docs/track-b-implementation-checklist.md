@@ -2572,6 +2572,16 @@ data disposition remain separately scoped below.
   This is source qualification, not historical disposition, complete worker
   acceptance or production deployment.
   [Admission/worker receipt](review/2026-10-23-admission-worker-recovery.md).
+  **Historical disposition, 2026-10-23:** migration 132 retains recovered and
+  unavailable terminal history with versioned hashed receipts and an execution
+  exclusion enforced before batching and through downgrade. It refuses live or
+  owned rows and never clears authority. Resume requires a new admission. The
+  initial 145-check integration and final 36-check partial-batch/role/replay
+  gates pass; the minimized 364-job replay preserves four exact specs, 360
+  unavailable assessments and original history. This is local source/data
+  qualification; production remains at 125. Runtime floor 132 requires the
+  previously qualified 126-compatible native writer handoff first.
+  [Historical disposition receipt](review/2026-10-23-historical-disposition.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative

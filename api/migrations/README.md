@@ -90,7 +90,22 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `131_retire_projection_triggers.py`.**
+**Repository head: `132_dispose_historical_jobs.py`.**
+
+132 records explicit historical disposition after qualified recovery. Jobs
+with a recovered execution record or unavailable launch evidence retain their
+original rows and billing/command links, with hashed disposition receipts.
+Historical rows must be terminal and unowned; disposition never invents an
+admission or repairs active authority. The validated exclusion prevents these
+rows being requeued, including after downgrade. New caller admissions remain
+eligible. Terminal records created during the 129-to-native handoff receive
+the same frozen qualification assessment before disposition.
+
+Runtime floor is now 132 for the explicit resume guard. First deploy the
+126-compatible native writers at `dfacc879` (or a separately qualified
+126-compatible descendant), complete handoff and migrations through 132,
+then deploy this runtime. A direct old-production-to-head deployment is not
+qualified by this migration. Repairs remain `report_only`.
 
 126 adds hash-only attempt callback credentials. 127 verifies and archives inactive
 v1 lease history, then drops the obsolete table and its eight columns. Apply 127
