@@ -90,7 +90,11 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `132_dispose_historical_jobs.py`.**
+**Repository head: `133_durable_scheduling_policy.py`.**
+
+133 expands durable weighted scheduling policy, virtual service credit and
+preemption plan records. Default policy enables no evictions. This runtime
+requires schema 133 after the staged native handoff through 132.
 
 132 records explicit historical disposition after qualified recovery. Jobs
 with a recovered execution record or unavailable launch evidence retain their

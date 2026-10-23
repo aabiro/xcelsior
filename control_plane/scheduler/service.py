@@ -85,6 +85,9 @@ class SchedulerService:
         commands = run_transaction(
             lambda c: redeliver_expired_claims(c), what="sched_command_sweep"
         )
+        from control_plane.scheduler.preemption import sweep_plans
+
+        run_transaction(lambda c: sweep_plans(c), what="sched_preemption_sweep")
         # Phase 6: desired-vs-observed reconciliation (report-only by default),
         # for job mutations, worker observations, and periodic recovery.
         try:
@@ -147,11 +150,24 @@ class SchedulerService:
             what="sched_fleet_snapshot",
         )
         hosts = [h for h in snapshot.hosts if cfg.host_in_scope(str(h.get("host_id") or ""))]
+        nomination_host = run_transaction(
+            lambda c: c.execute(
+                """SELECT host_id FROM preemption_plans
+                WHERE nominated_job_id=%s AND state IN ('stopping','ready')""",
+                (claimed.job_id,),
+            ).fetchone(),
+            what="sched_nomination_host",
+        )
+        if nomination_host:
+            hosts = [h for h in hosts if h.get("host_id") == nomination_host[0]]
         ctx = FilterContext(stale_host_ids=snapshot.stale_host_ids)
         eligible, rejections = filter_hosts(job, hosts, ctx)
         ranked = rank_candidates(job, eligible) if eligible else []
 
         if not ranked:
+            if self._plan_preemption(claimed, hosts, rejections):
+                self._release(claimed, "preemption_waiting", _CONFLICT_BACKOFF_SEC)
+                return (claimed.job_id, "preemption_waiting")
             reason = "no_hosts" if not hosts else "no_eligible_host"
             self._release(claimed, reason, _NO_CAPACITY_BACKOFF_SEC)
             return (claimed.job_id, reason)
@@ -195,6 +211,13 @@ class SchedulerService:
                 if exc.code == "execution_spec_unqualified":
                     self._release(claimed, exc.code, _NO_CAPACITY_BACKOFF_SEC)
                     return (claimed.job_id, exc.code)
+                if exc.code in (
+                    "team_quota_exceeded",
+                    "preemption_waiting",
+                    "queue_policy_changed",
+                ):
+                    self._release(claimed, exc.code, _NO_CAPACITY_BACKOFF_SEC)
+                    return (claimed.job_id, exc.code)
                 if exc.code in ("claim_lost", "job_not_schedulable"):
                     # The job itself is gone from under us — no point in
                     # trying more hosts, and nothing to release.
@@ -225,6 +248,35 @@ class SchedulerService:
         # Every scored candidate lost its revalidation race.
         self._release(claimed, "placement_conflict", _CONFLICT_BACKOFF_SEC)
         return (claimed.job_id, "placement_conflict")
+
+    def _plan_preemption(self, claimed, hosts, rejections) -> bool:
+        from psycopg.errors import LockNotAvailable
+        from control_plane.commands import CommandProtocolError
+        from control_plane.scheduler.preemption import create_plan
+
+        for host in sorted(hosts, key=lambda h: str(h.get("host_id"))):
+            host_id = str(host.get("host_id") or "")
+            reasons = rejections.get(host_id, [])
+            if not reasons or any(
+                r.code not in {"insufficient_gpus", "insufficient_vram"} for r in reasons
+            ):
+                continue
+            try:
+                plan = run_transaction(
+                    lambda c: create_plan(
+                        c,
+                        job_id=claimed.job_id,
+                        claim_token=claimed.claim_token,
+                        host_id=host_id,
+                        replica_id=self.config.replica_id,
+                    ),
+                    what="sched_preemption_plan",
+                )
+            except (LockNotAvailable, RetryBudgetExceeded, CommandProtocolError):
+                continue
+            if plan:
+                return True
+        return False
 
     def _release(self, claimed: ClaimedJob, reason: str, backoff_sec: float) -> None:
         run_transaction(

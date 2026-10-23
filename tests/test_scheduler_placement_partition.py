@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
 
 import json
 import time
@@ -136,6 +137,7 @@ def _mk_job(
                 fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     return payload
@@ -233,7 +235,7 @@ class TestLegacyQueueSkipsOwnedJobs:
                 tick_max_placements=5,
             )
         ).tick()
-        assert any(p.job_id == job_id for p in report.placements)
+        assert any(p.job_id == job_id for p in report.placements), report
         row = _job_row(job_id)
         assert row["status"] == "assigned"
         assert row["active_attempt_id"] is not None

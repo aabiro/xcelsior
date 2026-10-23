@@ -84,6 +84,18 @@ class CapacityConflict(ReservationConflict):
     code = "capacity_conflict"
 
 
+class QueuePolicyChanged(ReservationConflict):
+    """A policy revision invalidated the persisted queue decision."""
+
+    code = "queue_policy_changed"
+
+
+class TeamQuotaConflict(ReservationConflict):
+    """The serialized team capacity check refuses a new allocation."""
+
+    code = "team_quota_exceeded"
+
+
 @dataclass(frozen=True)
 class Reservation:
     job_id: str
@@ -140,7 +152,7 @@ def reserve_and_bind(
     job = conn.execute(
         """
         SELECT status, phase, desired_state, generation, version, payload,
-               spec, spec_hash, schedule_claim_token, schedule_claim_expires_at, owner_id
+               spec, spec_hash, schedule_claim_token, schedule_claim_expires_at, owner_id, queue_policy_version
           FROM jobs
          WHERE job_id = %s
            FOR UPDATE
@@ -194,6 +206,25 @@ def reserve_and_bind(
     preferred_host_id = spec.get("preferred_host_id")
     if preferred_host_id and str(preferred_host_id) != host_id:
         raise HostNotEligible("job is pinned to another host", host_id=host_id)
+
+    from control_plane.scheduler.preemption import nomination_for_reservation
+
+    nomination = nomination_for_reservation(
+        conn,
+        job_id=job_id,
+        host_id=host_id,
+        generation=_one(job, "generation", 3),
+        spec_hash=spec_hash,
+    )
+
+    from control_plane.scheduler.fairness import lock_team_policy, QuotaExceeded
+
+    try:
+        team_policy = lock_team_policy(conn, job_id=job_id, requested_gpus=num_gpus)
+    except QuotaExceeded as exc:
+        raise TeamQuotaConflict(str(exc)) from exc
+    if _one(job, "queue_policy_version", 11) != team_policy.version:
+        raise QueuePolicyChanged("team policy changed after the queue claim")
 
     # ── Step 4-5: lock host, verify state + inventory generation ────
     host = conn.execute(
@@ -249,18 +280,42 @@ def reserve_and_bind(
               FROM gpu_device_allocations a
               JOIN host_gpu_devices d ON d.gpu_device_id = a.gpu_device_id
              WHERE d.host_id = %s
-               AND a.status = 'active'
+               AND a.released_at IS NULL
             """,
             (host_id,),
         ).fetchall()
     }
+    held = {
+        str(_one(r, "gpu_device_id", 0))
+        for r in conn.execute(
+            """SELECT n.gpu_device_id FROM preemption_plan_devices n
+            JOIN host_gpu_devices d USING(gpu_device_id)
+            WHERE d.host_id=%s AND n.held AND (%s::uuid IS NULL OR n.plan_id<>%s::uuid)""",
+            (host_id, nomination, nomination),
+        ).fetchall()
+    }
+    nominated = (
+        {
+            str(_one(r, "gpu_device_id", 0))
+            for r in conn.execute(
+                "SELECT gpu_device_id FROM preemption_plan_devices WHERE plan_id=%s AND held",
+                (nomination,),
+            ).fetchall()
+        }
+        if nomination
+        else set()
+    )
     free: list[tuple[str, str]] = []
     for row in devices:
         device_id = str(_one(row, "gpu_device_id", 0))
         health = _one(row, "health", 3)
         if health not in _DEVICE_HEALTH_SCHEDULABLE:
             continue
-        if device_id in allocated:
+        if (
+            device_id in allocated
+            or device_id in held
+            or (nomination and device_id not in nominated)
+        ):
             continue
         if requested_vram_mb and int(_one(row, "allocatable_vram_mb", 4)) < requested_vram_mb:
             continue
@@ -273,6 +328,14 @@ def reserve_and_bind(
             requested=num_gpus,
         )
     selected = free[:num_gpus]
+    if nomination:
+        conn.execute(
+            "UPDATE preemption_plans SET state='placed',updated_at=statement_timestamp() WHERE plan_id=%s",
+            (nomination,),
+        )
+        conn.execute(
+            "UPDATE preemption_plan_devices SET held=FALSE WHERE plan_id=%s", (nomination,)
+        )
 
     # ── Step 8: fencing token ────────────────────────────────────────
     fencing_token = int(
@@ -454,6 +517,10 @@ def reserve_and_bind(
     )
     if updated.rowcount != 1:  # pragma: no cover - job row is locked by us
         raise ClaimLost(f"claim token for {job_id} vanished inside reservation", job_id=job_id)
+
+    from control_plane.scheduler.fairness import spend_service_credit
+
+    spend_service_credit(conn, team_policy, gpu_count=len(selected))
 
     # ── Step 14: outbox intents (same transaction, §16.1) ────────────
     event_payload = {
