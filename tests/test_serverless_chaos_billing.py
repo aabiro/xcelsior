@@ -24,6 +24,7 @@ from serverless.repo import (
 )
 from serverless.service import ServerlessService
 from tests.test_serverless_native_lifecycle import native, start  # noqa: F401
+from tests.test_serverless_billing_authority import backdate_execution
 
 
 @pytest.fixture
@@ -114,15 +115,12 @@ class TestWorkerDeathMidInference:
         worker = repo.get_worker(native.wid)
         worker_id = str(worker["worker_id"])
         allocated = time.time() - 90.0
-        repo.update_worker(worker_id, allocated_at=allocated)
+        allocated = backdate_execution(native, allocated)
 
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 50.0}
 
-        with (
-            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
-            patch("serverless.metering.last_billed_period_end", return_value=None),
-        ):
+        with (patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),):
             period_end = allocated + 60.0
             result1 = charge_serverless_execution(
                 billing,
@@ -138,16 +136,15 @@ class TestWorkerDeathMidInference:
             assert first_amount > 0
 
             # Same period_end after cycle recorded — must not bill again.
-            with patch("serverless.metering.last_billed_period_end", return_value=period_end):
-                result2 = charge_serverless_execution(
-                    billing,
-                    repo,
-                    {**worker, "allocated_at": allocated},
-                    preset_endpoint,
-                    period_end=period_end,
-                    final=True,
-                    token_cost_cad=0.05,
-                )
+            result2 = charge_serverless_execution(
+                billing,
+                repo,
+                worker,
+                preset_endpoint,
+                period_end=period_end,
+                final=True,
+                token_cost_cad=0.05,
+            )
             assert result2["charged"] is False
             assert result2["reason"] == "zero_duration"
             assert billing.charge.call_count == 1
@@ -202,11 +199,8 @@ class TestWorkerDeathMidInference:
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
         allocated = time.time() - 120.0
-        repo.update_worker(w2, allocated_at=allocated)
-        with (
-            patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
-            patch("serverless.metering.last_billed_period_end", return_value=None),
-        ):
+        allocated = backdate_execution(native, allocated)
+        with (patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),):
             bill = charge_serverless_execution(
                 billing,
                 repo,

@@ -80,9 +80,13 @@ def running_serverless(repo, endpoint_id, *, age_sec=130):
         allocated = time.time() - age_sec
         with pool.connection() as conn:
             conn.execute(
-                "UPDATE job_attempts SET started_at=to_timestamp(%s) WHERE attempt_id=%s",
-                (allocated, r.attempt_id),
+                "UPDATE job_attempts SET reserved_at=to_timestamp(%s),started_at=to_timestamp(%s) WHERE attempt_id=%s",
+                (allocated, allocated, r.attempt_id),
             )
+            allocated = conn.execute(
+                "SELECT EXTRACT(EPOCH FROM started_at)::float8 FROM job_attempts WHERE attempt_id=%s",
+                (r.attempt_id,),
+            ).fetchone()[0]
             conn.execute(
                 "UPDATE usage_meters SET started_at=%s WHERE job_id=%s", (allocated, job_id)
             )

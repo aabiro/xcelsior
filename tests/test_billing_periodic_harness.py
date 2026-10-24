@@ -230,7 +230,7 @@ class TestBillingPeriodicHarness:
         ep_id = str(ep["endpoint_id"])
         worker = repo.create_worker(ep_id, scheduler_job_id=f"sched-{uuid.uuid4().hex[:8]}")
         worker_id = str(worker["worker_id"])
-        repo.update_worker(worker_id, state="ready", allocated_at=time.time() - 130.0)
+        repo.update_worker(worker_id, state="ready")
         repo.accrue_endpoint_token_cost(ep_id, 1.25)
 
         from unittest.mock import patch
