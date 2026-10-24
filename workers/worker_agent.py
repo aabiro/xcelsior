@@ -4219,6 +4219,7 @@ from worker_image_cache import (  # noqa: E402
     _parse_docker_size,
     _total_cache_size_mb,
     cache_evict_lru,
+    cache_image_available,
     cache_init,
     cache_prepull_popular,
     cache_track_pull,
@@ -4808,8 +4809,7 @@ def run_job(job):
                 return
 
         # Check if image already cached — skip eviction + pull if so
-        with _image_cache_lock:
-            image_already_cached = image in _image_cache_index
+        image_already_cached = cache_image_available(image)
 
         if image_already_cached:
             log.info("Image %s already cached — skipping pull", image)
