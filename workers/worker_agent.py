@@ -2528,9 +2528,13 @@ def _v2_runtime_report(auth: dict, kind: str, value: dict) -> bool:
         if not _v2_journal_save():
             return False
     try:
+        paths = {
+            "http-ports": _api_url(f"/instances/{auth['job_id']}/http-ports/report"),
+            "auto-launch": _api_url(f"/instances/{auth['job_id']}/auto-launch/report"),
+        }
         response = _api_request(
             "post",
-            _api_url(f"/instances/{auth['job_id']}/{kind}/report"),
+            paths[kind],
             json=record,
             headers=_api_headers(),
             timeout=3,
@@ -3538,6 +3542,19 @@ def handle_start_attempt(cmd: dict) -> None:
         v2_nack_command(command_id, "callback_credential_missing", retryable=False)
         return
 
+    runtime_environment = None
+    if spec.get("job_type") == "serverless_worker" and spec.get("environment"):
+        runtime_environment = grant.get("runtime_environment")
+        if (
+            grant.get("runtime_environment_spec_hash") != expected_spec_hash
+            or not isinstance(runtime_environment, dict)
+            or runtime_environment.keys() != spec["environment"].keys()
+            or not all(isinstance(v, str) for v in runtime_environment.values())
+        ):
+            _v2_abort_claimed_start(auth, "runtime_environment_missing")
+            v2_nack_command(command_id, "runtime_environment_missing", retryable=False)
+            return
+
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
     if not _v2_journal_save():
@@ -3562,6 +3579,8 @@ def handle_start_attempt(cmd: dict) -> None:
     ).start()
 
     job = dict(spec)
+    if runtime_environment is not None:
+        job["environment"] = runtime_environment
     job.setdefault("job_id", job_id)
     job["_serverless_callback_token"] = str(grant.get("callback_token") or "")
     job["_v2_attempt_id"] = auth["attempt_id"]

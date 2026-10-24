@@ -6,7 +6,14 @@ import uuid
 
 
 @contextmanager
-def running_instance(*, exposed_ports=(8888, 8443), auto_launch=("jupyter", "vscode")):
+def running_instance(
+    *,
+    exposed_ports=(8888, 8443),
+    auto_launch=("jupyter", "vscode"),
+    owner="alice",
+    cost_per_hour=0,
+    age_sec=0,
+):
     from psycopg.types.json import Jsonb
     from db import _get_pg_pool
     from control_plane.attempts import report_attempt_status
@@ -23,15 +30,15 @@ def running_instance(*, exposed_ports=(8888, 8443), auto_launch=("jupyter", "vsc
     host_payload = {
         "host_id": host_id,
         "status": "active",
-        "owner": "alice",
+        "owner": owner,
         "registered_at": now,
         "ip": "100.64.1.42",
-        "cost_per_hour": 0,
+        "cost_per_hour": cost_per_hour,
     }
     job_payload = {
         "job_id": job_id,
         "status": "queued",
-        "owner": "alice",
+        "owner": owner,
         "image": "python:3.11",
         "name": "al-test",
         "submitted_at": now,
@@ -56,8 +63,8 @@ def running_instance(*, exposed_ports=(8888, 8443), auto_launch=("jupyter", "vsc
         conn.execute(
             """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,
             desired_state,effective_priority,queued_at,owner_id) VALUES(%s,'queued',0,
-            %s,%s,'pending','running',0,clock_timestamp(),'alice')""",
-            (job_id, now, Jsonb(job_payload)),
+            %s,%s,'pending','running',0,clock_timestamp(),%s)""",
+            (job_id, now, Jsonb(job_payload), owner),
         )
         admit_fixture_job(conn, job_id)
 
@@ -78,7 +85,19 @@ def running_instance(*, exposed_ports=(8888, 8443), auto_launch=("jupyter", "vsc
         )
     )
     run_transaction(lambda conn: report_attempt_status(conn, status="running", **auth))
+    started = time.time() - age_sec
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE job_attempts SET started_at=to_timestamp(%s) WHERE attempt_id=%s",
+            (started, r.attempt_id),
+        )
+        conn.execute("UPDATE usage_meters SET started_at=%s WHERE job_id=%s", (started, job_id))
+        conn.execute(
+            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
+            (Jsonb({"started_at": started}), job_id),
+        )
     yield {
+        "started_at": started,
         "job_id": job_id,
         "host_id": host_id,
         "slug": job_id[:12],

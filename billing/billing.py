@@ -2113,6 +2113,12 @@ class BillingEngine:
             return {
                 "charged": False,
                 "balance_cad": micros_to_cad(balance),
+                "action": (
+                    "account_suspended"
+                    if balance <= 0 or wallet["status"] == "suspended"
+                    else "hard_stop"
+                ),
+                "hard_stop": amount_micros > 0,
                 "notification_ids": notification_ids,
                 "reason": (
                     "wallet_suspended"
@@ -2138,12 +2144,33 @@ class BillingEngine:
         return {
             "charged": True,
             "balance_cad": micros_to_cad(remaining),
+            "amount_cad": micros_to_cad(amount_micros),
             "tx_id": tx_id,
             "hard_stop": remaining == 0,
             "notification_ids": self._record_wallet_alerts(
                 conn, customer_id, wallet, remaining, job_id=job_id
             ),
         }
+
+    def _publish_committed_charge(self, result, *, customer_id, job_id):
+        """Publish optional projections after the debit and cycle commit together."""
+        from db import NotificationStore
+
+        for notification_id in result.pop("notification_ids", []):
+            NotificationStore.deliver(notification_id)
+        if result.get("charged") and result.get("tx_id"):
+            try:
+                from stripe_meters import enqueue_usage_from_charge
+
+                enqueue_usage_from_charge(
+                    customer_id=customer_id,
+                    job_id=job_id,
+                    amount_cad=result.get("amount_cad", 0),
+                    tx_id=result["tx_id"],
+                    description="Native periodic billing",
+                )
+            except Exception as exc:
+                log.warning("committed billing meter projection pending (%s)", type(exc).__name__)
 
     def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
         """Persist rate-limited notices while the billing transaction owns the wallet lock."""
@@ -3156,52 +3183,40 @@ class BillingEngine:
         gpu_model = job_row.get("gpu_model") or ""
         tier = job_row.get("tier", "free")
 
-        host = conn.execute(
-            "SELECT payload FROM hosts WHERE host_id = %s",
-            (host_id,),
-        ).fetchone()
-        host_payload = {}
-        if host and host.get("payload"):
-            raw = host["payload"]
-            host_payload = raw if isinstance(raw, dict) else json.loads(raw)
-
-        job_payload = {
-            "job_id": job_id,
-            "pricing_mode": job_row.get("pricing_mode") or job_row.get("payload_pricing_mode"),
-            "spot_rate_cad": job_row.get("spot_rate_cad"),
-            "preemptible": job_row.get("preemptible"),
-            "spot": job_row.get("spot"),
-            "tier": tier,
-            "gpu_model": gpu_model,
-            "host_gpu_model": job_row.get("host_gpu_model"),
-            "num_gpus": job_row.get("num_gpus") or 1,
-        }
         from control_plane.attempt_billing import pinned_period_rate
 
-        captured = pinned_period_rate(conn, job_id, customer_id, host_id)
-        if captured is not None:
-            rate_per_hour, pricing_mode, attempt_started = captured
-            # A previous attempt's final cycle can predate a restart. Never
-            # charge the stopped interval, even with a stale caller snapshot.
-            period_start = max(period_start, attempt_started)
-            duration_sec = period_end - period_start
-            if duration_sec <= 0 or duration_sec < min_seconds:
-                return None
-        else:
-            rate_per_hour, pricing_mode = resolve_compute_rate_cad(job_payload, host_payload)
+        rate_per_hour, pricing_mode, attempt_started, end_cap = pinned_period_rate(
+            conn,
+            job_id,
+            customer_id,
+            host_id,
+            terminal_attempt_id=job_row.get("_terminal_attempt_id"),
+        )
+        if not math.isfinite(period_start) or not math.isfinite(period_end):
+            raise ValueError("billing period must be finite")
+        period_end = min(period_end, end_cap)
+        period_start = max(period_start, attempt_started)
+        duration_sec = period_end - period_start
+        if duration_sec <= 0 or duration_sec < min_seconds:
+            return None
 
         tier_multiplier = 1.0
 
         amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
         if amount_cad <= 0:
-            return None
-
-        charge_result = self.charge(
-            customer_id,
-            amount_cad,
-            job_id=job_id,
-            description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
-        )
+            if not job_row.get("_terminal_attempt_id"):
+                return None
+            # The remaining confirmed interval is below monetary precision.
+            # Record its zero-cost settlement so it cannot starve later rows.
+            charge_result = {"charged": True, "amount_cad": 0, "reason": "below_monetary_precision"}
+        else:
+            charge_result = self.charge(
+                customer_id,
+                amount_cad,
+                job_id=job_id,
+                description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
+                conn=conn,
+            )
 
         now = time.time()
         cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
@@ -3257,22 +3272,22 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                """SELECT job_id, status, host_id,
-                          COALESCE(spec->>'owner',
-                                   spec->>'owner_id',owner_id) AS owner,
-                          (payload->>'started_at')::double precision AS started_at,
-                          spec->>'gpu_model' AS gpu_model,
-                          payload->>'host_gpu_model' AS host_gpu_model,
-                          COALESCE((spec->>'num_gpus')::int, 1) AS num_gpus,
-                          COALESCE(spec->>'pricing_mode', 'on_demand') AS pricing_mode,
-                          (spec->>'spot_rate_cad')::double precision AS spot_rate_cad,
-                          spec->>'preemptible' AS preemptible,
-                          spec->>'spot' AS spot,
-                          COALESCE(spec->>'tier', 'free') AS tier
-                   FROM jobs WHERE job_id = %s AND status = 'running'
-                     AND spec->>'execution_spec_version'='v1'
-                     AND COALESCE(spec->>'job_type','') <> 'serverless_worker'
-                   FOR UPDATE""",
+                """SELECT j.job_id,j.status,j.host_id,
+                          COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
+                          EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
+                          j.spec->>'gpu_model' AS gpu_model,
+                          j.spec->>'gpu_model' AS host_gpu_model,
+                          COALESCE((j.spec->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(j.spec->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (j.spec->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          j.spec->>'preemptible' AS preemptible,
+                          j.spec->>'spot' AS spot,
+                          COALESCE(j.spec->>'tier', 'free') AS tier
+                   FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                   WHERE j.job_id=%s AND j.phase='running' AND a.status='running'
+                     AND j.spec->>'execution_spec_version'='v1'
+                     AND COALESCE(j.spec->>'job_type','') <> 'serverless_worker'
+                   FOR UPDATE OF j""",
                 (job_id,),
             ).fetchone()
             if not job:
@@ -3280,7 +3295,7 @@ class BillingEngine:
 
             last = conn.execute(
                 """SELECT period_end FROM billing_cycles
-                   WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                   WHERE job_id=%s AND resource_type='gpu' AND status='charged' ORDER BY period_end DESC LIMIT 1""",
                 (job_id,),
             ).fetchone()
             period_start = last["period_end"] if last else float(job["started_at"] or 0)
@@ -3298,7 +3313,82 @@ class BillingEngine:
             conn.commit()
             if not result:
                 return {"billed": False, "reason": "below_minimum"}
-            return {"billed": True, **result}
+            self._publish_committed_charge(
+                result["charge_result"], customer_id=job["owner"], job_id=job_id
+            )
+            return {"billed": bool(result["charge_result"].get("charged")), **result}
+
+    def _settle_terminal_gpu_periods(self, pool):
+        """Normal terminal slices retry from durable native evidence, never observations.
+
+        This does not repair historical/unadmitted work. It is the final interval
+        of an ordinary native admission, including completion without an API stop.
+        """
+        from psycopg.rows import dict_row
+
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            pending = conn.execute("""SELECT a.job_id,a.attempt_id FROM job_attempts a
+                  JOIN jobs j ON j.job_id=a.job_id
+                  JOIN usage_meters m ON m.attempt_id=a.attempt_id::text
+                  JOIN wallets w ON w.customer_id=COALESCE(j.spec->>'owner_id',j.spec->>'owner')
+                 WHERE a.started_at IS NOT NULL AND a.ended_at IS NOT NULL
+                   AND j.spec->>'execution_spec_version'='v1'
+                   AND COALESCE(j.spec->>'job_type','')<>'serverless_worker'
+                   AND m.total_cost_micros>0 AND w.status<>'suspended' AND w.balance_micros>0
+                   AND NOT EXISTS (SELECT 1 FROM billing_cycles b WHERE b.job_id=a.job_id
+                       AND b.resource_type='gpu' AND b.status='charged'
+                       AND b.period_start<EXTRACT(EPOCH FROM a.ended_at)
+                       AND b.period_end>=EXTRACT(EPOCH FROM a.ended_at))
+                   AND NOT EXISTS (SELECT 1 FROM billing_cycles b WHERE b.job_id=a.job_id
+                       AND b.resource_type='gpu' AND b.status='failed'
+                       AND b.period_start<EXTRACT(EPOCH FROM a.ended_at)
+                       AND b.period_end>=EXTRACT(EPOCH FROM a.ended_at)
+                       AND b.created_at>=w.updated_at)
+                 ORDER BY a.ended_at,a.attempt_id LIMIT 200""").fetchall()
+        settled, errors = 0, 0
+        for item in pending:
+            try:
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    row = conn.execute(
+                        """SELECT j.job_id,a.host_id,a.attempt_id AS _terminal_attempt_id,
+                            COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
+                            j.spec->>'gpu_model' AS gpu_model,j.spec->>'tier' AS tier,
+                            EXTRACT(EPOCH FROM a.started_at)::float8 AS started,
+                            EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended
+                          FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
+                         WHERE j.job_id=%s AND a.attempt_id=%s FOR UPDATE OF j SKIP LOCKED""",
+                        (item["job_id"], item["attempt_id"]),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    last = conn.execute(
+                        """SELECT max(period_end) AS paid_end FROM billing_cycles
+                         WHERE job_id=%s AND resource_type='gpu' AND status='charged'
+                           AND period_start<%s AND period_end>%s""",
+                        (row["job_id"], row["ended"], row["started"]),
+                    ).fetchone()["paid_end"]
+                    start = max(row["started"], last if last is not None else row["started"])
+                    result = self._bill_gpu_period(
+                        conn,
+                        row,
+                        start,
+                        row["ended"],
+                        min_seconds=0,
+                        description_prefix="Native final billing",
+                    )
+                if result:
+                    self._publish_committed_charge(
+                        result["charge_result"], customer_id=row["owner"], job_id=row["job_id"]
+                    )
+                    settled += int(
+                        bool(result["charge_result"].get("charged")) and result["amount_cad"] > 0
+                    )
+            except Exception as exc:
+                errors += 1
+                log.error("native terminal billing pending (%s)", type(exc).__name__)
+        return settled, errors
 
     def auto_billing_cycle(self) -> dict:
         """Bill all running instances for the current billing period.
@@ -3323,21 +3413,21 @@ class BillingEngine:
                 """SELECT j.job_id,
                           COALESCE(j.spec->>'owner',
                                    j.spec->>'owner_id',j.owner_id) AS owner,
-                          (j.payload->>'started_at')::double precision AS started_at,
+                          EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
                           j.host_id,
                           j.spec->>'gpu_model' AS gpu_model,
-                          j.payload->>'host_gpu_model' AS host_gpu_model,
+                          j.spec->>'gpu_model' AS host_gpu_model,
                           COALESCE((j.spec->>'num_gpus')::int, 1) AS num_gpus,
                           COALESCE(j.spec->>'pricing_mode', 'on_demand') AS pricing_mode,
                           (j.spec->>'spot_rate_cad')::double precision AS spot_rate_cad,
                           j.spec->>'preemptible' AS preemptible,
                           j.spec->>'spot' AS spot,
                           COALESCE(j.spec->>'tier', 'free') AS tier
-                   FROM jobs j
-                   WHERE j.status = 'running'
+                   FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                   WHERE j.phase='running' AND a.status='running'
                      AND j.spec->>'execution_spec_version'='v1'
                      AND COALESCE(j.spec->>'job_type','') <> 'serverless_worker'
-                     AND (j.payload->>'started_at')::double precision > 0""",
+                     AND a.started_at IS NOT NULL""",
             ).fetchall()
 
         for job in running:
@@ -3358,7 +3448,7 @@ class BillingEngine:
 
                     last = conn.execute(
                         """SELECT period_end FROM billing_cycles
-                           WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                           WHERE job_id=%s AND resource_type='gpu' AND status='charged' ORDER BY period_end DESC LIMIT 1""",
                         (job_id,),
                     ).fetchone()
 
@@ -3377,7 +3467,10 @@ class BillingEngine:
                     charge_result = result["charge_result"]
                     conn.commit()
 
-                billed += 1
+                billed += int(bool(charge_result.get("charged")))
+                self._publish_committed_charge(
+                    charge_result, customer_id=customer_id, job_id=job_id
+                )
 
                 # Low-balance notification at $2 (dedup: once per 24h per customer)
                 # Skip notification if balance is zero AND no charge occurred (new account, never spent)
@@ -3436,9 +3529,9 @@ class BillingEngine:
                             pass
 
                 # If charge failed with grace_expired → suspend and STOP the job
-                if (
-                    not charge_result.get("charged")
-                    and charge_result.get("action") == "account_suspended"
+                if not charge_result.get("charged") and (
+                    charge_result.get("hard_stop")
+                    or charge_result.get("action") == "account_suspended"
                 ):
                     suspended += 1
                     try:
@@ -3457,6 +3550,10 @@ class BillingEngine:
             except Exception as e:
                 errors += 1
                 log.error("Auto-billing error for job %s: %s", job.get("job_id", "?"), e)
+
+        final_billed, final_errors = self._settle_terminal_gpu_periods(pool)
+        billed += final_billed
+        errors += final_errors
 
         # ── Bill active volumes (real-time storage charges) ──────────
         volume_billed = 0
@@ -3521,15 +3618,19 @@ class BillingEngine:
                         conn.row_factory = dict_row
                         # Lock the volume row so a concurrent tick skips it
                         locked = conn.execute(
-                            "SELECT volume_id FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') FOR UPDATE SKIP LOCKED",
+                            "SELECT volume_id,owner_id,name,size_gb,created_at FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') FOR UPDATE SKIP LOCKED",
                             (vid,),
                         ).fetchone()
                         if not locked:
                             continue  # Another tick already processing this volume
+                        vol = dict(locked)
+                        vol_owner, size_gb = vol["owner_id"], vol["size_gb"]
+                        if size_gb <= 0:
+                            continue
 
                         last_vc = conn.execute(
                             """SELECT period_end FROM billing_cycles
-                               WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                               WHERE job_id=%s AND resource_type='volume' AND status='charged' ORDER BY period_end DESC LIMIT 1""",
                             (vid,),
                         ).fetchone()
 
@@ -3560,6 +3661,7 @@ class BillingEngine:
                             vamount,
                             job_id=vid,
                             description=f"Volume storage: {vol.get('name', vid)} ({size_gb} GB, {vduration_sec/60:.1f}min)",
+                            conn=conn,
                         )
 
                         vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
@@ -3591,7 +3693,8 @@ class BillingEngine:
                         )
                         conn.commit()
 
-                    volume_billed += 1
+                    self._publish_committed_charge(vcharge, customer_id=vol_owner, job_id=vid)
+                    volume_billed += int(bool(vcharge.get("charged")))
                 except Exception as e:
                     errors += 1
                     log.error("Volume billing error for %s: %s", vol.get("volume_id", "?"), e)

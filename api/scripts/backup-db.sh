@@ -16,6 +16,7 @@
 #   0 3 * * * /opt/xcelsior/scripts/backup-db.sh >> /var/log/xcelsior-backup.log 2>&1
 
 set -euo pipefail
+umask 077
 
 # ── Configuration (override via environment) ──────────────────────────
 BACKUP_DIR="${XCELSIOR_BACKUP_DIR:-/var/backups/xcelsior}"
@@ -32,7 +33,8 @@ STARTED_EPOCH="$(date +%s)"
 TG_TOKEN="${XCELSIOR_TG_TOKEN:-}"
 TG_CHAT_ID="${XCELSIOR_TG_CHAT_ID:-}"
 
-LOCK_FILE="/tmp/xcelsior-backup.lock"
+LOCK_FILE="${XCELSIOR_BACKUP_LOCK_FILE:-${BACKUP_DIR}/.backup.lock}"
+IN_PROGRESS=""
 LOG_PREFIX="[xcelsior-backup]"
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -65,7 +67,7 @@ write_textfile_metric() {
 cleanup() {
     local status=$?
     trap - EXIT
-    rm -f "$LOCK_FILE"
+    [[ -z "$IN_PROGRESS" ]] || rm -f -- "$IN_PROGRESS"
     if [[ "$status" -ne 0 ]]; then
         write_textfile_metric "xcelsior_backup_failure.prom" \
             "# TYPE xcelsior_backup_last_failure_timestamp_seconds gauge" \
@@ -74,19 +76,6 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-
-# ── Prevent concurrent runs ───────────────────────────────────────────
-if [[ -f "$LOCK_FILE" ]]; then
-    # Check if the PID in the lock file is still running
-    if kill -0 "$(cat "$LOCK_FILE" 2>/dev/null)" 2>/dev/null; then
-        err "Another backup is already running (PID $(cat "$LOCK_FILE")). Exiting."
-        exit 1
-    else
-        log "Stale lock file found. Removing."
-        rm -f "$LOCK_FILE"
-    fi
-fi
-echo $$ > "$LOCK_FILE"
 
 # ── Read selected .env values without executing the file ─────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,7 +125,11 @@ fi
 DB_NAME="${DB_NAME:-xcelsior}"
 DB_USER="${DB_USER:-xcelsior}"
 DB_HOST="${DB_HOST:-localhost}"
-DB_PORT="${DB_PORT:-5432}"
+DB_PORT="${DB_PORT:-${PGPORT:-}}"
+if [[ ! "$DB_PORT" =~ ^[0-9]{1,5}$ ]] || (( 10#$DB_PORT < 1 || 10#$DB_PORT > 65535 )); then
+    err "an explicit valid PostgreSQL port is required; default cluster refused"
+    exit 1
+fi
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_${TIMESTAMP}.dump"
 
@@ -150,6 +143,13 @@ fi
 # ── Create backup directory ──────────────────────────────────────────
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
+# Keep the inode: unlinking another process's lock defeats flock ownership.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    err "Another backup owns the lock. Exiting."
+    exit 1
+fi
+IN_PROGRESS="${BACKUP_FILE}.partial-$$"
 
 # ── Run backup ───────────────────────────────────────────────────────
 log "Starting backup of database '${DB_NAME}' → ${BACKUP_FILE}"
@@ -161,32 +161,34 @@ if PGPASSWORD="$DB_PASSWORD" pg_dump \
     -d "$DB_NAME" \
     -Fc \
     -Z 9 \
-    -f "$BACKUP_FILE"; then
+    -f "$IN_PROGRESS"; then
 
-    BACKUP_SIZE="$(du -h "$BACKUP_FILE" | cut -f1)"
+    BACKUP_SIZE="$(du -h "$IN_PROGRESS" | cut -f1)"
     log "Backup completed successfully: ${BACKUP_FILE} (${BACKUP_SIZE})"
 else
     err "pg_dump failed with exit code $?"
     send_tg_alert "pg_dump failed with exit code $?"
-    rm -f "$BACKUP_FILE"
+    rm -f "$IN_PROGRESS"
     exit 1
 fi
 
 # ── Verify backup is not empty ───────────────────────────────────────
-if [[ ! -s "$BACKUP_FILE" ]]; then
+if [[ ! -s "$IN_PROGRESS" ]]; then
     err "Backup file is empty. Removing."
     send_tg_alert "Backup file was empty"
-    rm -f "$BACKUP_FILE"
+    rm -f "$IN_PROGRESS"
     exit 1
 fi
 
-if ! pg_restore --list "$BACKUP_FILE" >/dev/null; then
+if ! pg_restore --list "$IN_PROGRESS" >/dev/null; then
     err "pg_restore could not read the backup catalog. Removing invalid backup."
     send_tg_alert "pg_restore could not read the backup catalog"
-    rm -f "$BACKUP_FILE"
+    rm -f "$IN_PROGRESS"
     exit 1
 fi
 
+mv -- "$IN_PROGRESS" "$BACKUP_FILE"
+IN_PROGRESS=""
 sha256sum "$BACKUP_FILE" >"${BACKUP_FILE}.sha256"
 chmod 600 "$BACKUP_FILE" "${BACKUP_FILE}.sha256"
 

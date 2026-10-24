@@ -369,9 +369,9 @@ class ServerlessService:
         from serverless.billing_authority import capture_quote
 
         billing_quote = capture_quote(ep)
-        from serverless.env_secrets import decrypt_env_for_worker
-
-        endpoint_env = decrypt_env_for_worker(ep.get("env"))
+        # Keep ciphertext in admission, the job and durable commands. Only the
+        # successfully claiming worker receives plaintext from the API.
+        endpoint_env = dict(ep.get("env") or {})
 
         volume_ids: list[str] = []
         volume_mounts: dict[str, str] = {}

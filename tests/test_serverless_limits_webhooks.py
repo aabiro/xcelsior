@@ -102,6 +102,7 @@ def endpoint_id(user_headers):
         "/api/v2/serverless/endpoints",
         headers=user_headers,
         json={
+            "gpu_type": "RTX 4090",
             "name": "phase8-ep",
             "mode": "custom",
             "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -184,6 +185,7 @@ class TestServerlessPhase8Routes:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"rpm-{uuid.uuid4().hex[:6]}",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -243,6 +245,7 @@ class TestWebhookDelivery:
         owner = f"cust-{uuid.uuid4().hex[:12]}"
         ep = repo.create_endpoint(
             EndpointCreate(
+                gpu_tier="RTX 4090",
                 owner_id=owner,
                 name="wh-ep",
                 mode="custom",
@@ -312,6 +315,7 @@ class TestQueueBackpressure:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"queue-{uuid.uuid4().hex[:6]}",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
