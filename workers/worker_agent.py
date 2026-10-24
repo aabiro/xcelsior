@@ -4561,12 +4561,11 @@ def run_job(job):
     env_vars = {**env_vars, **build_platform_env(job, _gpu_info_for_env)}
     volumes = job.get("volumes", [])
 
-    # NFS configuration — from job dict or env vars
-    nfs_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
-    nfs_path = job.get("nfs_path") or os.environ.get("XCELSIOR_NFS_PATH", "")
-    nfs_mount_point = job.get("nfs_mount_point") or os.environ.get(
-        "XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs"
-    )
+    # Shared workload mounts must be part of immutable admission. Host-wide
+    # legacy defaults cannot add a dataset mount to a job that requested none.
+    nfs_server = job.get("nfs_server") or ""
+    nfs_path = job.get("nfs_path") or ""
+    nfs_mount_point = job.get("nfs_mount_point") or "/mnt/xcelsior-nfs"
     nfs_mounted = False
     log_fwd = None
     is_interactive = bool(job.get("interactive", False))

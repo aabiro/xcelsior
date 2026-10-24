@@ -2520,6 +2520,7 @@ def api_instance_logs(job_id: str, request: Request, limit: int = Query(100, ge=
 def api_instance_logs_download(job_id: str, request: Request):
     """Download all available logs for a job as a plain text file."""
     user = _require_auth(request)
+    _require_scope(user, "instances:read")
     _check_job_access(user, job_id)
     buf = _load_pg_logs(job_id, limit=10_000, required=True)
     if not buf:
