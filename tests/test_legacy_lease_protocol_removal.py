@@ -100,8 +100,8 @@ def caller(reservation, monkeypatch):
     }
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET payload=jsonb_set(payload,'{owner}',%s::jsonb) WHERE job_id=%s",
-            (json.dumps(user["customer_id"]), reservation.job_id),
+            "UPDATE jobs SET owner_id=%s WHERE job_id=%s",
+            (user["customer_id"], reservation.job_id),
         )
     monkeypatch.setattr(v1, "_require_auth", lambda request: user)
     monkeypatch.setattr(events, "_require_auth", lambda request: user)

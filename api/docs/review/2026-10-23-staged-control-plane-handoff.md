@@ -1,9 +1,16 @@
 # Staged control-plane production handoff
 
-This is a prepared release procedure, not a deployment receipt. The read-only
-production baseline at 2026-10-24 07:08 UTC remains schema 125, no live attempt pointers/leases/device
-allocations, and eight `report_only` repair policies. Dedicated service roles
-are still `NOLOGIN`. B16 remains open until the deployment evidence below passes.
+**Executed status, 2026-10-24:** production reached schema **139**, runtime
+`30b3daa6`, both signed native workers, and seven dedicated service logins.
+The ordered handoffs, live CUDA/fencing/restart adoption, exact wallet totals,
+public distributions and isolated full restore passed. All eight repair
+policies remain `report_only`. See the
+[executed receipt](2026-10-24-executed-control-plane-data-cutover.md).
+
+The procedure and frozen artifacts below describe the earlier staged boundary.
+They are retained as historical operator evidence, not the current runtime or
+an instruction to redeploy an older image. Population follow-up revision 140
+is a separate candidate and has not been applied to production.
 
 ## Frozen artifacts
 

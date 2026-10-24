@@ -57,7 +57,9 @@ from psycopg import Connection
 # 134 moves lifecycle authority to the controller-owned native column.
 # 137 permits native host action completion without a fabricated job identifier.
 # 139 makes Connect mappings available without runtime table creation.
-REQUIRED_MIN_REVISION = "139"
+# 140 requires canonical Lightning payment facts and removes two unused
+# compatibility columns. Replace every writer/diagnostic reader at that boundary.
+REQUIRED_MIN_REVISION = "140"
 REQUIRED_MAX_REVISION: str | None = None
 
 

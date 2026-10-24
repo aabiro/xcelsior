@@ -53,9 +53,9 @@ def deposit():
                     payment_hash, amount_msat, amount_sats, amount_btc,
                     amount_micros, amount_cad_minor, btc_cad_rate, status,
                     wallet_ledger_entry_id, created_at, expires_at,
-                    expires_at_ts)
+                    expires_at_ts,btc_cad_rate_exact,created_at_ts)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, to_timestamp(%s))""",
+                           %s, %s, %s, to_timestamp(%s),100000,clock_timestamp())""",
                 (
                     deposit_id,
                     cust,
@@ -305,7 +305,9 @@ def test_task_entry_point_is_registered_durably():
     import ast
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parent.parent / "workers" / "bg_worker.py").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parent.parent / "workers" / "bg_worker.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
     names = {
         call.args[0].value

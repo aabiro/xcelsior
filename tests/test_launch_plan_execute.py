@@ -143,13 +143,19 @@ def test_execute_creates_one_job_and_one_hold(scratch):
     assert spec["owner"] == p.tenant_id
 
 
-def test_execute_carries_plan_trace_into_queued_job(scratch):
+@pytest.mark.parametrize("implicit", [False, True])
+def test_execute_carries_plan_trace_into_queued_job(scratch, monkeypatch, implicit):
+    import structured_logging
+
     p = _funded_principal(scratch)
     trace_id = uuid.uuid4().hex
+    monkeypatch.setattr(
+        structured_logging, "_get_active_trace_context", lambda: (trace_id, "b" * 16)
+    )
     result = preview(
         {"name": "trace-e2e", "num_gpus": 1, "interactive": True},
         principal=p,
-        trace_id=trace_id,
+        trace_id=None if implicit else trace_id,
     )
     pid = result["plan_id"]
     scratch["plans"].append(pid)

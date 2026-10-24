@@ -1358,7 +1358,7 @@ def _create_session(email: str, user: dict, request: Request | None = None) -> d
     return session
 
 
-def _get_current_user(request: Request) -> dict | None:
+def _resolve_current_user(request: Request) -> dict | None:
     auth = request.headers.get("authorization", "")
     token = ""
     if auth.startswith("Bearer "):
@@ -1470,9 +1470,21 @@ def _get_current_user(request: Request) -> dict | None:
     return None
 
 
+def _get_current_user(request: Request) -> dict | None:
+    user = _resolve_current_user(request)
+    if user:
+        from control_plane.request_context import bind_authenticated_principal
+
+        bind_authenticated_principal(user)
+    return user
+
+
 def _require_auth(request: Request) -> dict:
     user = _get_current_user(request)
     if user:
+        from control_plane.request_context import bind_authenticated_principal
+
+        bind_authenticated_principal(user)
         return user
     if not AUTH_REQUIRED:
         return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": True}
@@ -2036,7 +2048,9 @@ def _validate_ws_auth(
     from types import SimpleNamespace
     from typing import cast
 
-    request = cast(Request, SimpleNamespace(headers={"authorization": "Bearer " + token}, cookies={}))
+    request = cast(
+        Request, SimpleNamespace(headers={"authorization": "Bearer " + token}, cookies={})
+    )
     try:
         user = _get_current_user(request)
         if user and user.get("auth_type") == "master_token":

@@ -451,6 +451,9 @@ def test_get_404_when_auto_launch_not_configured(api_client):
                 now,
             ),
         )
+        conn.execute(
+            "UPDATE jobs SET owner_id='alice',tenant_id='alice' WHERE job_id=%s", (job_id,)
+        )
         conn.commit()
     try:
         r = api_client.get(f"/instances/{job_id}/auto-launch")
@@ -467,8 +470,7 @@ def test_get_403_when_not_owner(api_client, api_seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"mallory\"'::jsonb) "
-            "WHERE job_id=%s",
+            "UPDATE jobs SET owner_id='mallory' " "WHERE job_id=%s",
             (api_seeded_job["job_id"],),
         )
         conn.commit()

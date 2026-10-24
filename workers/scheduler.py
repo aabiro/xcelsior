@@ -233,7 +233,7 @@ def _load_jobs_from_conn(conn, status=None):
     if status:
         rows = conn.execute(
             """
-            SELECT status, payload, spec
+            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code
             FROM jobs
             WHERE status = %s
             ORDER BY submitted_at ASC, job_id ASC
@@ -242,7 +242,7 @@ def _load_jobs_from_conn(conn, status=None):
         ).fetchall()
     else:
         rows = conn.execute("""
-            SELECT status, payload, spec
+            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code
             FROM jobs
             ORDER BY submitted_at ASC, job_id ASC
             """).fetchall()
@@ -268,48 +268,22 @@ def _load_jobs_from_conn(conn, status=None):
             col_status = row["status"] if isinstance(row, dict) else row[0]
             if col_status and item.get("status") != col_status:
                 item["status"] = col_status
+            item.update(
+                job_id=row["job_id"],
+                host_id=row["host_id"],
+                owner=row["owner_id"],
+                owner_id=row["owner_id"],
+                tenant_id=row["tenant_id"],
+                team_id=row["team_id"],
+                error_message=row["error_message"],
+                exit_code=row["exit_code"],
+            )
             jobs.append(item)
     return jobs
 
 
 def _load_hosts_from_conn(conn, active_only=False):
-    backend = _active_backend()
-    if backend == "sqlite":
-        return DatabaseOps.load_hosts(conn, active_only=active_only, backend=backend)
-    # `host_id` from the column, not from the payload — see the same repair in
-    # `db.DatabaseOps.load_hosts`, which is the sqlite half of this. The column
-    # is the primary key; registration merely happens to duplicate it into the
-    # payload JSON, and reading only the payload made that duplicate
-    # load-bearing. A row written without it — by a migration, an ops repair,
-    # or any other code path — yields a host dict with no `host_id`, and
-    # `routes/hosts.py` indexes `h["host_id"]` in nine places including
-    # `_resolve_host_id`, which every admission route funnels through. One such
-    # row turns every host lookup in the process into a 500.
-    #
-    # This is the branch production takes. The sqlite copy above was fixed
-    # first and on its own would have left the postgres path broken, which is
-    # what having the query written twice buys.
-    if active_only:
-        rows = conn.execute("""
-            SELECT host_id, payload
-            FROM hosts
-            WHERE status = 'active'
-            ORDER BY registered_at ASC, host_id ASC
-            """).fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT host_id, payload
-            FROM hosts
-            ORDER BY registered_at ASC, host_id ASC
-            """).fetchall()
-    hosts = []
-    for row in rows:
-        item = _decode_payload(row["payload"])
-        if isinstance(item, dict):
-            if row["host_id"] is not None:
-                item["host_id"] = row["host_id"]
-            hosts.append(item)
-    return hosts
+    return DatabaseOps.load_hosts(conn, active_only=active_only, backend=_active_backend())
 
 
 def _set_job_fields(job_id, **updates):
@@ -1717,6 +1691,11 @@ def submit_job(
     Interactive: If True, container stays running with SSH access until stopped.
     """
     from control_plane.launch.canonicalize import canonicalize
+
+    if trace_id is None:
+        from control_plane.request_context import event_context
+
+        trace_id = event_context().get("trace_id")
 
     if job_id:
         job_id = str(job_id).strip()

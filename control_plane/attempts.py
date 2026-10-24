@@ -159,6 +159,28 @@ def report_attempt_status(
             "AND payload IS DISTINCT FROM COALESCE(payload,'{}'::jsonb) || %s::jsonb",
             (Jsonb(runtime_metadata), job_id, attempt_id, Jsonb(runtime_metadata)),
         )
+        error_message = runtime_metadata.get("error_message")
+        if error_message is not None and not isinstance(error_message, str):
+            raise AttemptStatusRejected("invalid_runtime_metadata", "Invalid error message")
+        if isinstance(error_message, str):
+            conn.execute(
+                "UPDATE jobs SET error_message=%s WHERE job_id=%s AND active_attempt_id=%s",
+                (error_message[:2000], job_id, attempt_id),
+            )
+    if detail:
+        error = detail.get("error")
+        exit_code = detail.get("exit_code")
+        if isinstance(error, str) or type(exit_code) is int:
+            conn.execute(
+                "UPDATE jobs SET error_message=COALESCE(%s,error_message), "
+                "exit_code=COALESCE(%s,exit_code) WHERE job_id=%s AND active_attempt_id=%s",
+                (
+                    error[:2000] if isinstance(error, str) else None,
+                    exit_code if type(exit_code) is int and -(2**31) <= exit_code < 2**31 else None,
+                    job_id,
+                    attempt_id,
+                ),
+            )
     if current == status:
         sync_attempt_billing(conn, attempt_id)
         sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)

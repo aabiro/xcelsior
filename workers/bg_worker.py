@@ -545,7 +545,7 @@ def main():
             # Resolve residual container identity: attempt-owned must use
             # xcl-{job}-{attempt_prefix}, never bare xcl-{job}.
             target = resolve_job_command_target(str(job_id)) if job_id else None
-            if target is not None and not target.allows_unfenced_container_command:
+            if target is None or not target.has_live_attempt:
                 log.warning(
                     "snapshot registry-retry skip image_id=%s job=%s: "
                     "fenced history without live authority",
@@ -560,7 +560,7 @@ def main():
                     )
                     conn.commit()
                 continue
-            container_name = target.container_name if target is not None else f"xcl-{job_id}"
+            container_name = target.container_name
             use_host = target.host_id if target and target.host_id else host_id
             try:
                 enqueue_agent_command(

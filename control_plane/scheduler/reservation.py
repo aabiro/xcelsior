@@ -231,7 +231,7 @@ def reserve_and_bind(
     # ── Step 4-5: lock host, verify state + inventory generation ────
     host = conn.execute(
         """
-        SELECT status, administrative_state, inventory_generation, payload
+        SELECT status, administrative_state, inventory_generation, payload,availability_state
           FROM hosts
          WHERE host_id = %s
            FOR UPDATE
@@ -243,6 +243,8 @@ def reserve_and_bind(
     admin_state = _one(host, "administrative_state", 1)
     if admin_state != "admitted":
         raise HostNotEligible(f"host {host_id} is {admin_state}", administrative_state=admin_state)
+    if _one(host, "availability_state", 4) != "ready":
+        raise HostNotEligible("host availability changed before reservation", host_id=host_id)
     inventory_generation = int(_one(host, "inventory_generation", 2))
     if (
         expected_inventory_generation is not None
@@ -505,6 +507,11 @@ def reserve_and_bind(
         ),
     ).fetchone()
     command_id = str(_require(command_id_row)[0])
+    conn.execute(
+        "UPDATE job_attempts SET command_created_at=to_timestamp(c.created_at) "
+        "FROM agent_commands c WHERE job_attempts.attempt_id=%s AND c.command_id=%s",
+        (attempt_id, command_id),
+    )
 
     # ── Step 13: job projection update + claim consumption ───────────
     updated = conn.execute(
@@ -514,6 +521,8 @@ def reserve_and_bind(
                status = 'assigned',
                host_id = %s,
                active_attempt_id = %s,
+               error_message = '',
+               exit_code = NULL,
                payload = COALESCE(payload,'{}'::jsonb)-ARRAY[
                    'http_ports','auto_launch_ports','container_name','container_id',
                    'public_ssh_port','ssh_info','started_at','completed_at']::text[],

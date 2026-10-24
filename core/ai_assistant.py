@@ -410,7 +410,7 @@ def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> 
 # ── RAG: BM25 Document Search ────────────────────────────────────────
 
 # Arbitrary but stable key so concurrent API replicas serialise their corpus
-# refresh instead of racing each other's TRUNCATE.
+# refresh instead of racing each other's replacement.
 _DOCS_INGEST_LOCK_KEY = 0x5D0C5
 
 
@@ -431,7 +431,9 @@ def collect_public_docs() -> list[tuple[str, str]]:
             sources.append((filename, path.read_text(encoding="utf-8")))
 
     for rel_dir, pattern in PUBLIC_DOC_GLOBS:
-        directory = (root / "api" / rel_dir) if (root / "api" / rel_dir).is_dir() else (root / rel_dir)
+        directory = (
+            (root / "api" / rel_dir) if (root / "api" / rel_dir).is_dir() else (root / rel_dir)
+        )
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob(pattern)):
@@ -478,11 +480,11 @@ def ingest_docs() -> int:
             i += chunk_size - overlap
 
     with _ai_db() as conn:
-        # Serialise replicas booting simultaneously. TRUNCATE holds ACCESS
-        # EXCLUSIVE until commit, so a concurrent search_docs() blocks briefly
-        # rather than seeing an empty corpus and reporting "no documentation".
+        # Serialize complete replacements while readers keep the previous MVCC
+        # snapshot. DELETE uses the API's existing DML rights; TRUNCATE would
+        # require extra authority intentionally absent from runtime roles.
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_DOCS_INGEST_LOCK_KEY,))
-        conn.execute("TRUNCATE ai_docs")
+        conn.execute("DELETE FROM ai_docs")
         for source, chunk in chunks:
             conn.execute(
                 "INSERT INTO ai_docs (source, chunk) VALUES (%s, %s)",

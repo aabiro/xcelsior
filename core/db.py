@@ -657,9 +657,9 @@ class DatabaseOps:
                     -- Fingerprint and host assignment always move together.
                     host_key_fingerprint = EXCLUDED.host_key_fingerprint,
                     payload = EXCLUDED.payload,
-                    owner_id = COALESCE(EXCLUDED.owner_id, jobs.owner_id),
-                    tenant_id = COALESCE(EXCLUDED.tenant_id, jobs.tenant_id),
-                    team_id = COALESCE(EXCLUDED.team_id, jobs.team_id),
+                    owner_id = COALESCE(jobs.owner_id, EXCLUDED.owner_id),
+                    tenant_id = COALESCE(jobs.tenant_id, EXCLUDED.tenant_id),
+                    team_id = COALESCE(jobs.team_id, EXCLUDED.team_id),
                     updated_at = clock_timestamp()
             """
             )
@@ -685,7 +685,13 @@ class DatabaseOps:
                     pricing_mode,
                     None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
                     host_key_fingerprint,
-                    Jsonb(job),
+                    Jsonb(
+                        {
+                            k: v
+                            for k, v in job.items()
+                            if k not in {"owner", "owner_id", "tenant_id", "team_id"}
+                        }
+                    ),
                     job.get("owner_id") or job.get("owner") or None,
                     job.get("tenant_id") or job.get("owner_id") or job.get("owner") or None,
                     job.get("team_id") or None,
@@ -751,7 +757,11 @@ class DatabaseOps:
             # The conflict arm uses the locked row's current authority, never
             # the caller's (possibly stale or forged) compatibility payload.
             administrative, availability = host_states(status, "pending")
-            payload = dict(host)
+            payload = {
+                k: v
+                for k, v in host.items()
+                if k not in {"owner", "owner_id", "tenant_id", "provider_id", "user_id"}
+            }
             payload.update(
                 admitted=False,
                 admission_state="pending",
@@ -788,9 +798,10 @@ class DatabaseOps:
                     availability_state = CASE
                         WHEN EXCLUDED.status='dead' THEN 'not_ready'
                         WHEN hosts.administrative_state IN ('draining','disabled') THEN 'unknown'
+                        WHEN hosts.observation_session_id IS NOT NULL THEN hosts.availability_state
                         WHEN EXCLUDED.status='active' THEN 'ready' ELSE 'unknown' END,
-                    owner_id = COALESCE(EXCLUDED.owner_id, hosts.owner_id),
-                    tenant_id = COALESCE(EXCLUDED.tenant_id, hosts.tenant_id),
+                    owner_id = COALESCE(hosts.owner_id, EXCLUDED.owner_id),
+                    tenant_id = COALESCE(hosts.tenant_id, EXCLUDED.tenant_id),
                     region = COALESCE(EXCLUDED.region, hosts.region),
                     country = COALESCE(EXCLUDED.country, hosts.country),
                     province = COALESCE(EXCLUDED.province, hosts.province),
@@ -837,6 +848,18 @@ class DatabaseOps:
         diverge from the JSONB payload (legacy reaper SQL, partial migrations).
         """
         ph = "%s" if backend == "postgres" else "?"
+        if backend == "postgres":
+            row = conn.execute(
+                "SELECT payload || jsonb_build_object("
+                "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
+                "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
+                "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
+                "'exit_code',exit_code) AS payload FROM jobs WHERE job_id=%s",
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
         row = conn.execute(
             f"SELECT status, host_id, payload FROM jobs WHERE job_id = {ph}",
             (job_id,),
@@ -867,6 +890,18 @@ class DatabaseOps:
     @staticmethod
     def get_host(conn, host_id, backend="sqlite"):
         """Fetch a single host by ID."""
+        if backend == "postgres":
+            row = conn.execute(
+                "SELECT payload || jsonb_build_object('host_id',host_id,'status',status,"
+                "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id) AS payload "
+                "FROM hosts WHERE host_id=%s",
+                (host_id,),
+            ).fetchone()
+            return (
+                None
+                if row is None
+                else DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
+            )
         ph = "%s" if backend == "postgres" else "?"
         row = conn.execute(f"SELECT payload FROM hosts WHERE host_id = {ph}", (host_id,)).fetchone()
         if not row:
@@ -878,6 +913,22 @@ class DatabaseOps:
     def load_jobs(conn, status=None, backend="sqlite"):
         """Load jobs from DB, optionally filtered by status."""
         ph = "%s" if backend == "postgres" else "?"
+        if backend == "postgres":
+            query = (
+                "SELECT payload || jsonb_build_object("
+                "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
+                "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
+                "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
+                "'exit_code',exit_code) AS payload FROM jobs"
+            )
+            if status:
+                query += " WHERE status=%s"
+            query += " ORDER BY submitted_at ASC,job_id ASC"
+            rows = conn.execute(query, (status,) if status else ()).fetchall()
+            return [
+                DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
+                for row in rows
+            ]
         if status:
             rows = conn.execute(
                 f"SELECT payload FROM jobs WHERE status = {ph} "
@@ -920,6 +971,20 @@ class DatabaseOps:
         Taking it from the column also repairs drift rather than propagating
         it: where the two disagree, the key everything else resolves by wins.
         """
+        if backend == "postgres":
+            query = (
+                "SELECT payload || jsonb_build_object('host_id',host_id,'status',status,"
+                "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id) AS payload FROM hosts"
+            )
+            if active_only:
+                query += " WHERE status='active'"
+            query += " ORDER BY registered_at ASC,host_id ASC"
+            rows = conn.execute(query).fetchall()
+            return [
+                DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
+                for row in rows
+            ]
+
         if active_only:
             rows = conn.execute(
                 "SELECT host_id, payload FROM hosts WHERE status = 'active' "

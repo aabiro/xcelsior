@@ -529,7 +529,7 @@ class VolumeEngine:
         target = resolve_job_command_target(instance_id)
         if target is None:
             return None
-        if not target.allows_unfenced_container_command:
+        if not target.has_live_attempt:
             log.warning(
                 "volume residual refused for fenced-history instance=%s "
                 "(no live attempt authority)",

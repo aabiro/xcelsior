@@ -1,15 +1,7 @@
-"""Residual agent-command targeting for legacy vs attempt-owned jobs.
+"""Resolve job directives only from current native attempt and lease authority.
 
-Worker v2 starts attempt containers as ``xcl-{job_id}-{attempt_id[:8]}``
-(``worker_agent._v2_container_name``). Residual ops that still drain on
-the unfenced v1 path (reinject, volume hot mount/unmount, snapshot,
-reset) must resolve that identity for attempt-owned work — never default
-to ``xcl-{job_id}`` while an active attempt owns the host container.
-
-Pure-legacy jobs keep the historical ``payload.container_name`` /
-``xcl-{job_id}`` name. Fenced-history jobs without a live active attempt
-must not receive authority-sensitive unfenced container commands that
-guess the legacy name (fail closed at the call site).
+Historical observations and guessed legacy container names never authorize a
+container mutation. Host administration has its separate explicit protocol.
 """
 
 from __future__ import annotations
@@ -17,17 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-JobTargetClass = Literal["legacy", "attempt_owned", "fenced_history"]
+JobTargetClass = Literal["unadmitted", "attempt_owned", "fenced_history"]
 
 
 def attempt_container_name(job_id: str, attempt_id: str) -> str:
     """Match worker_agent._v2_container_name exactly."""
     return f"xcl-{job_id}-{str(attempt_id)[:8]}"
-
-
-def legacy_container_name(job_id: str, payload_name: str | None = None) -> str:
-    name = (payload_name or "").strip()
-    return name or f"xcl-{job_id}"
 
 
 def is_fenced_history_job(
@@ -48,13 +35,7 @@ def is_fenced_history_job(
 
 @dataclass(frozen=True)
 class JobCommandTarget:
-    """Resolved residual-command target for one job.
-
-    ``allows_unfenced_container_command`` is True for pure legacy and for
-    attempt-owned work (with the correct attempt container name). It is
-    False for fenced-history without live authority — residual writers
-    that would guess ``xcl-{job_id}`` must fail closed or skip instead.
-    """
+    """Native target; a missing live attempt always refuses container work."""
 
     job_id: str
     host_id: str | None
@@ -62,7 +43,7 @@ class JobCommandTarget:
     class_: JobTargetClass
     active_attempt_id: str | None
     container_name: str
-    allows_unfenced_container_command: bool
+    has_live_attempt: bool
 
 
 def _row_get(row: Any, key: str, index: int) -> Any:
@@ -78,7 +59,6 @@ def classify_job_target(
     status: str,
     active_attempt_id: object | None,
     has_fenced_history: bool,
-    payload_container_name: str | None = None,
 ) -> JobCommandTarget:
     """Pure policy: classify and name the residual container target."""
     if active_attempt_id is not None:
@@ -90,7 +70,7 @@ def classify_job_target(
             class_="attempt_owned",
             active_attempt_id=attempt_id,
             container_name=attempt_container_name(job_id, attempt_id),
-            allows_unfenced_container_command=True,
+            has_live_attempt=True,
         )
     if has_fenced_history:
         return JobCommandTarget(
@@ -99,17 +79,17 @@ def classify_job_target(
             status=status or "",
             class_="fenced_history",
             active_attempt_id=None,
-            container_name=legacy_container_name(job_id, payload_container_name),
-            allows_unfenced_container_command=False,
+            container_name="",
+            has_live_attempt=False,
         )
     return JobCommandTarget(
         job_id=job_id,
         host_id=host_id or None,
         status=status or "",
-        class_="legacy",
+        class_="unadmitted",
         active_attempt_id=None,
-        container_name=legacy_container_name(job_id, payload_container_name),
-        allows_unfenced_container_command=True,
+        container_name="",
+        has_live_attempt=False,
     )
 
 
@@ -125,13 +105,18 @@ def resolve_job_command_target(job_id: str) -> JobCommandTarget | None:
     with pool.connection() as conn:
         row = conn.execute(
             """
-            SELECT j.job_id, j.status, j.host_id, j.active_attempt_id,
-                   j.payload->>'container_name' AS container_name,
-                   EXISTS (
-                       SELECT 1 FROM job_attempts a WHERE a.job_id = j.job_id
-                   ) AS has_fenced_history
+            SELECT j.job_id,j.status,j.host_id,
+                   CASE WHEN l.lease_id IS NOT NULL THEN a.attempt_id END AS active_attempt_id,
+                   EXISTS(SELECT 1 FROM job_attempts history WHERE history.job_id=j.job_id)
+                     AS has_fenced_history
               FROM jobs j
-             WHERE j.job_id = %s
+              LEFT JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+               AND a.job_id=j.job_id AND a.host_id=j.host_id AND a.job_generation=j.generation
+               AND a.spec_hash=j.spec_hash AND a.status='running'
+              LEFT JOIN placement_leases l ON l.attempt_id=a.attempt_id AND l.job_id=j.job_id
+               AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token
+               AND l.status='active' AND l.expires_at>clock_timestamp()
+             WHERE j.job_id=%s
             """,
             (job_id,),
         ).fetchone()
@@ -142,6 +127,5 @@ def resolve_job_command_target(job_id: str) -> JobCommandTarget | None:
         host_id=_row_get(row, "host_id", 2),
         status=str(_row_get(row, "status", 1) or ""),
         active_attempt_id=_row_get(row, "active_attempt_id", 3),
-        has_fenced_history=bool(_row_get(row, "has_fenced_history", 5)),
-        payload_container_name=_row_get(row, "container_name", 4),
+        has_fenced_history=bool(_row_get(row, "has_fenced_history", 4)),
     )

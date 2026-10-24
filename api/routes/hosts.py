@@ -49,7 +49,7 @@ def _host_owner_ids(host: dict | None) -> set[str]:
     if not host:
         return set()
     ids: set[str] = set()
-    for key in ("owner", "provider_id", "user_id"):
+    for key in ("owner_id", "owner", "provider_id"):
         value = str(host.get(key) or "").strip()
         if value:
             ids.add(value)

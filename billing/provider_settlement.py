@@ -253,7 +253,7 @@ def prepare_settlement(
         """
         SELECT j.job_id, j.status AS job_status, j.phase AS job_phase,
                j.host_id, j.owner_id,
-               COALESCE(NULLIF(j.owner_id, ''), NULLIF(j.payload->>'owner', '')) AS job_owner,
+               NULLIF(j.owner_id, '') AS job_owner,
                h.provider_id AS host_provider_id,
                pa.default_currency, pa.province
           FROM jobs j
@@ -350,7 +350,8 @@ def prepare_settlement(
     metered_micros = int(meter.get("metered_micros") or 0)
     if int(meter.get("open_meter_count") or 0):
         raise SettlementNotEligible(
-            "open_usage_meter", "All attempt usage must be terminal before provider settlement",
+            "open_usage_meter",
+            "All attempt usage must be terminal before provider settlement",
         )
     if metered_micros <= 0:
         raise SettlementNotEligible(

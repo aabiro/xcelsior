@@ -1040,7 +1040,6 @@ def api_v1_host_observations(host_id: str, request: Request, limit: int = Query(
         "conditions",
         "gpu_inventory",
         "observed_workload_count",
-        "command_journal_watermark",
         "worker_reported_at",
         "received_at",
     ]

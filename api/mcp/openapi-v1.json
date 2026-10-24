@@ -4589,6 +4589,46 @@
               }
             ],
             "title": "Worker Reported At"
+          },
+          "capabilities": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conditions"
+          },
+          "gpu_inventory": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "maxItems": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Inventory"
           }
         },
         "type": "object",

@@ -202,6 +202,9 @@ def _inject_job(
                 fixture_submitted_at,
             ),
         )
+        conn.execute(
+            "UPDATE jobs SET owner_id=%s,tenant_id=%s WHERE job_id=%s", (owner, owner, job_id)
+        )
 
 
 def _inject_host(host_id="h-1", ip="10.0.0.5"):

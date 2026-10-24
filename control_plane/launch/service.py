@@ -145,6 +145,11 @@ def preview(
     On a structurally invalid spec it returns the problems and does *not*
     persist a plan — a plan for an unlaunchable spec is dead weight.
     """
+    if trace_id is None:
+        from control_plane.request_context import event_context
+
+        trace_id = event_context().get("trace_id")
+
     # 1–2. validate + canonicalize.
     spec = canonicalize(request)
     problems = validate_canonical_spec(spec)

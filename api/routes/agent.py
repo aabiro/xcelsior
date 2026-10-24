@@ -654,6 +654,18 @@ def prune_expired_agent_commands(conn, *, limit: int = 5000) -> int:
     ).rowcount
 
 
+_JOB_DIRECTIVES = frozenset(
+    {
+        "reinject_shell",
+        "snapshot_container",
+        "mount_volume",
+        "unmount_volume",
+        "promote_artifacts",
+        "fingerprint_environment",
+    }
+)
+
+
 def enqueue_agent_command(
     host_id: str,
     command: str,
@@ -684,6 +696,48 @@ def enqueue_agent_command(
 
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
+        authority = None
+        if command in _JOB_DIRECTIVES:
+            from psycopg.rows import dict_row
+            from control_plane.job_specs import validate_execution_spec
+            from control_plane.job_targets import attempt_container_name
+
+            requested = dict(args or {})
+            with conn.cursor(row_factory=dict_row) as native:
+                authority = native.execute(
+                    """SELECT j.job_id,a.attempt_id,a.fencing_token,j.spec_hash,j.spec
+                    FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                        AND a.job_id=j.job_id AND a.host_id=j.host_id
+                        AND a.job_generation=j.generation AND a.spec_hash=j.spec_hash
+                    JOIN placement_leases l ON l.attempt_id=a.attempt_id AND l.job_id=j.job_id
+                        AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token
+                    WHERE j.job_id=%s AND j.host_id=%s AND j.phase='running'
+                        AND j.desired_state='running' AND j.lifecycle_intent IS NULL
+                        AND a.status='running' AND l.status='active'
+                        AND l.expires_at>clock_timestamp() FOR UPDATE OF j""",
+                    (str(requested.get("job_id") or ""), host_id),
+                ).fetchone()
+            if authority is None:
+                raise HTTPException(409, "Job directive requires current native attempt authority")
+            try:
+                validate_execution_spec(
+                    authority["spec"], authority["spec_hash"], require_admission=True
+                )
+            except ValueError as exc:
+                raise HTTPException(409, "Job directive requires a valid native admission") from exc
+            expected_name = attempt_container_name(
+                authority["job_id"], str(authority["attempt_id"])
+            )
+            if requested.get("container_name") not in (None, "", expected_name):
+                raise HTTPException(409, "Job directive container differs from current attempt")
+            requested.update(
+                job_id=authority["job_id"],
+                attempt_id=str(authority["attempt_id"]),
+                fencing_token=authority["fencing_token"],
+                spec_hash=authority["spec_hash"],
+                container_name=expected_name,
+            )
+            args_json = _json.dumps(requested)
         # P3/C5 — per-host queue cap. Prevents a buggy caller or
         # compromised admin token from flooding a single host with more
         # pending commands than it can reasonably drain (default 50/drain,
@@ -708,11 +762,22 @@ def enqueue_agent_command(
             )
         cur.execute(
             """
-            INSERT INTO agent_commands (host_id, command, args, created_by, expires_at)
-            VALUES (%s, %s, %s::jsonb, %s, EXTRACT(EPOCH FROM NOW()) + %s)
+            INSERT INTO agent_commands (host_id, command, args, created_by, expires_at,
+                job_id,attempt_id,fencing_token,spec_hash)
+            VALUES (%s, %s, %s::jsonb, %s, EXTRACT(EPOCH FROM NOW()) + %s,%s,%s,%s,%s)
             RETURNING id
             """,
-            (host_id, command, args_json, created_by, int(ttl_sec)),
+            (
+                host_id,
+                command,
+                args_json,
+                created_by,
+                int(ttl_sec),
+                authority["job_id"] if authority else None,
+                authority["attempt_id"] if authority else None,
+                authority["fencing_token"] if authority else None,
+                authority["spec_hash"] if authority else None,
+            ),
         )
         row = cur.fetchone()
     return int(row[0])

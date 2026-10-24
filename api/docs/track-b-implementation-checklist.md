@@ -32,6 +32,23 @@ residual stated. `[ ]` means not built. No item claims a production deploy
 that has not happened; operator actions are listed separately in §B0.4 and
 at the end of each phase as **Operator residual**.
 
+**Current control-plane/data status, 2026-10-24:** the ordered production
+cutover reached schema **139**, runtime `30b3daa6`, both signed GPU workers and
+seven dedicated runtime/one-shot database logins. Native CUDA, restart adoption,
+fenced stop/restart, stale-report rejection, exact usage/wallet totals, all
+public distribution signatures, scheduled recovery jobs and a complete
+154-table logical restore passed. All eight repairs remain `report_only`.
+[Executed receipt](review/2026-10-24-executed-control-plane-data-cutover.md).
+
+A subsequent read-only population scan covered all 176 physical tables and
+2,078 columns with zero scan errors and zero FK orphans. The revision-140
+candidate fixes confirmed writer gaps, native ownership reads and job-scoped
+command authority; its deployment remains separate. Remaining historical
+unknowns, Lightning float/epoch contraction, compatibility code removal and
+independent offsite/PITR/object recovery are explicit residuals. Dated progress
+notes below preserve the status at their date; this paragraph supersedes their
+old schema-125, disabled-role and unexecuted-handoff statements.
+
 ---
 
 ## B0 — Engineering rules
@@ -152,7 +169,7 @@ Completed in production on 2026-10-20: scheduler active mode and both signed
 v2 workers. The cutover audit subsequently fixed journal durability, stale
 command delivery identity and normal fenced billing; see the
 [verified follow-up](review/2026-10-20-control-plane-cutover-audit.md).
-Dedicated runtime-role DSNs remain absent; these cutovers do not close that item.
+Dedicated runtime-role deployment is now executed; see the dated 2026-10-24 receipt above.
 
 **2026-10-21 dedicated-role candidate:** restricted workflow qualification
 found and fixed the scheduler's missing three-column serverless binding grant.
@@ -170,7 +187,7 @@ since spent on other content. `DA§14` and `DA§22.10` both instruct the
 implementer to inspect the real head and renumber; this section is that
 renumbering, recorded once so no future item guesses.
 
-**Repository and production head verified 2026-10-20: `125`.** The ledger below records
+**Historical head verified 2026-10-20: `125`; production is now `139` (2026-10-24).** The ledger below records
 the original 2026-07-22 renumbering baseline (`069`); later landed migrations
 are recorded in their phase entries and `migrations/README.md`. Do not use
 the historical baseline to assign a new revision.
@@ -1377,7 +1394,7 @@ Blueprint §21, §22, §23, §27, Phase 11; `DA§4.1`, `DA§4.3`, `DA§4.6`.
   blue/green stream connections; SSE/WebSocket reconnect uses the
   persisted cursor from B4.6. The agent gateway (§22.3) is Track A's.
   Gate: structural config tests plus a live stream-drain drill.
-- [ ] **B8.7 PostgreSQL production contract** (§23.1, `DA§4.1`, `DA§4.3`).
+- [~] **B8.7 PostgreSQL production contract** (§23.1, `DA§4.1`, `DA§4.3`).
   Managed HA or equivalent in the required region; encrypted storage and
   TLS; continuous archiving and PITR; monitored replication lag,
   connections, locks, dead tuples, disk, WAL, and transaction age;
@@ -2405,7 +2422,7 @@ data disposition remain separately scoped below.
   transaction. Native webhook/Telegram delivery and a real isolated database
   restore have passed; repairs remain `report_only`. The final isolated gate
   passed 623 tests. [Audit](review/2026-10-20-control-plane-cutover-audit.md).
-- [ ] **B16.2 Contract migration.** Make required normalized columns
+- [~] **B16.2 Contract migration.** Make required normalized columns
   non-null; prevent direct legacy status writes; remove old active-lease
   reads; drop the transitional projection triggers from Track A's migration
   059 — **note Track A's warning: the trigger clobbers any manual
@@ -2416,7 +2433,7 @@ data disposition remain separately scoped below.
   compatibility with a documented deprecation date; archive or drop old
   event and telemetry structures only after retention and export
   validation.
-- [ ] **B16.3 Code removal.** Remove the legacy lease table and path; the
+- [~] **B16.3 Code removal.** Remove the legacy lease table and path; the
   process-memory command and preemption path (`agent_preempt.py`); direct
   scheduler SSH execution (`process_assigned`/`run_job`); the warning-only
   MCP deploy path; broad legacy `api` scope issuance for new clients, with
@@ -2619,7 +2636,7 @@ data disposition remain separately scoped below.
   depletion use admission/captured quotes; stopped-job observations cannot bill
   storage. The focused gate passes 309 checks. Production remains 125; no final
   deployment is claimed. See the [native lifecycle receipt](review/2026-10-23-retired-unfenced-lifecycle.md).
-- [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
+- [~] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
@@ -2798,7 +2815,7 @@ Every section of both governing documents, and where it is owned.
 | §6, §7 (target architecture, ADRs) | Track A; binding on Track B via §B0 |
 | §8, §9 (invariants, state models) | Track A; §9.5 action-plan machine → **B2.1** |
 | §10.1–§10.6, §10.9 | Track A |
-| §10.7, §10.8 (fairness, preemption) | **B16.4** (source trigger prerequisite: 131; production handoff remains) |
+| §10.7, §10.8 (fairness, preemption) | **B16.4** (131/133 deployed; preemption/deadline force disabled pending enforcement qualification) |
 | §11 (worker protocol) | Track A; §11.8 modularization → **B16.3** |
 | §12 (reconciler) | Track A; billing controller → **B3.3** |
 | §13.1–§13.4, §13.8 | Track A |
