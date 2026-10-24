@@ -59,3 +59,19 @@ def test_durable_read_failure_does_not_return_stale_memory(monkeypatch, authoriz
             assert exc.value.status_code == 503
     finally:
         instances._job_log_buffers.pop("outage", None)
+
+
+def test_download_refuses_missing_read_scope_before_loading_any_logs(monkeypatch):
+    principal = {
+        "user_id": "owner",
+        "auth_type": "client_credentials_jwt",
+        "grant_type": "client_credentials",
+        "scopes": ["billing:read"],
+    }
+    monkeypatch.setattr(instances, "_require_auth", lambda request: principal)
+    loaded = []
+    monkeypatch.setattr(instances, "_load_pg_logs", lambda *a, **k: loaded.append(True))
+    with pytest.raises(HTTPException) as exc:
+        instances.api_instance_logs_download("owned-job", Request({"type": "http", "headers": []}))
+    assert exc.value.status_code == 403
+    assert not loaded
