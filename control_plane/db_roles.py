@@ -228,6 +228,7 @@ AUDIT_TABLES = frozenset(
         "retired_control_task_archive",
         "job_spec_backfill_evidence",
         "job_history_dispositions",
+        "billing_history_dispositions",
         "scheduling_team_policies",
         "event_snapshots",
         "outbox_events",
@@ -305,6 +306,7 @@ RUNTIME_READ_ONLY_TABLES = frozenset(
         "retired_control_task_archive",
         "job_spec_backfill_evidence",
         "job_history_dispositions",
+        "billing_history_dispositions",
         "scheduling_team_policies",
     }
 )
