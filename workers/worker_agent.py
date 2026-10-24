@@ -356,8 +356,9 @@ def _signal_handler(signum, frame):
     _shutdown.set()
 
 
-signal.signal(signal.SIGTERM, _signal_handler)
-signal.signal(signal.SIGINT, _signal_handler)
+def _install_signal_handlers():
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
 
 
 # ── GPU Queries ──────────────────────────────────────────────────────
@@ -7607,6 +7608,7 @@ def cleanup_orphaned_volume_mounts():
 
 def main():
     """Main entry point — pull-based worker agent."""
+    _install_signal_handlers()
     validate_config()
 
     # ── Step 0: Initialize NVML (REPORT_FEATURE_1.md §Lightweight Monitoring) ──
@@ -7907,10 +7909,6 @@ def main():
     graceful_shutdown()
     nvml_shutdown()
     log.info("Worker agent stopped.")
-
-
-if __name__ == "__main__":
-    main()
 
 
 # ── P3 A1: artifact → volume promotion ───────────────────────────────
@@ -8282,3 +8280,7 @@ def _cleanup_part(path: str) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+if __name__ == "__main__":
+    main()

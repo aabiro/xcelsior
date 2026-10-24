@@ -306,7 +306,7 @@ class TestSchemaCompat:
     def test_max_revision_enforced(self, monkeypatch):
         from control_plane.schema_compat import check_schema_compatible
 
-        monkeypatch.setenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", "001")
+        monkeypatch.delenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", raising=False)
         monkeypatch.setenv("XCELSIOR_DB_SCHEMA_MAX_REVISION", "010")
         with _pool.connection() as conn:
             compat = check_schema_compatible(conn)
@@ -318,14 +318,9 @@ class TestSchemaCompat:
         Hash / unknown branch ids are resolved via the Alembic graph when
         available; a fabricated id is never treated as a silent pass.
         """
-        from control_plane.schema_compat import check_schema_compatible
+        from control_plane.schema_compat import SchemaIncompatibleError, check_schema_compatible
 
         monkeypatch.setenv("XCELSIOR_DB_SCHEMA_MIN_REVISION", "abcdef")
         with _pool.connection() as conn:
-            compat = check_schema_compatible(conn)
-        assert not compat.compatible
-        assert (
-            "non-numeric" in compat.reason
-            or "requires >=" in compat.reason
-            or "unknown" in compat.reason
-        )
+            with pytest.raises(SchemaIncompatibleError, match="cannot lower"):
+                check_schema_compatible(conn)
