@@ -2594,7 +2594,7 @@
           "Instances"
         ],
         "summary": "Logs",
-        "description": "Get buffered log lines for a job (non-streaming).\n\nReturns the last `limit` log lines. Tries in-memory buffer first,\nfalls back to persistent job_logs table in PG.\nFor real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).",
+        "description": "Read recent durable logs consistently across API processes.",
         "operationId": "api_instance_logs_instances__job_id__logs_get",
         "parameters": [
           {
@@ -2612,6 +2612,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "minimum": 1,
               "default": 100,
               "title": "Limit"
             }
