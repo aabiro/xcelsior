@@ -13,11 +13,9 @@ MOCKING STRATEGY:
   not "ai_assistant.get_marketplace_engine".
 """
 
-import asyncio
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
 from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
@@ -44,7 +42,6 @@ from ai_assistant import (
     _TOOL_HANDLERS,
     stream_ai_response,
     execute_confirmed_action,
-    get_conversation,
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -1490,39 +1487,34 @@ class TestToolCrossCutting:
 # ── Exec Tool (async) ────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 class TestExecTool:
     """Test the async wrapper for tool execution."""
 
-    def test_exec_unknown_tool(self):
+    async def test_exec_unknown_tool(self):
         from ai_assistant import _exec_tool
 
-        result = asyncio.get_event_loop().run_until_complete(
-            _exec_tool("nonexistent_tool", {}, _user())
-        )
+        result = await _exec_tool("nonexistent_tool", {}, _user())
         assert "error" in result
         assert "Unknown tool" in result["error"]
 
-    def test_exec_tool_catches_exceptions(self):
+    async def test_exec_tool_catches_exceptions(self):
         from ai_assistant import _exec_tool
 
         def boom(a, u):
             raise ValueError("boom")
 
         with patch.dict(_TOOL_HANDLERS, {"broken_tool": boom}):
-            result = asyncio.get_event_loop().run_until_complete(
-                _exec_tool("broken_tool", {}, _user())
-            )
+            result = await _exec_tool("broken_tool", {}, _user())
             assert "error" in result
             assert "failed" in result["error"].lower()
 
-    def test_exec_tool_runs_handler(self):
+    async def test_exec_tool_runs_handler(self):
         from ai_assistant import _exec_tool
 
         mock_handler = MagicMock(return_value={"ok": True})
         with patch.dict(_TOOL_HANDLERS, {"test_tool": mock_handler}):
-            result = asyncio.get_event_loop().run_until_complete(
-                _exec_tool("test_tool", {"arg": 1}, _user())
-            )
+            result = await _exec_tool("test_tool", {"arg": 1}, _user())
             assert result == {"ok": True}
             mock_handler.assert_called_once_with({"arg": 1}, _user())
 
@@ -2175,7 +2167,7 @@ class TestConfirmationE2E:
     async def test_create_approve_execute(self):
         """Full cycle: create confirmation → approve → tool executes."""
         import contextlib
-        from ai_assistant import create_confirmation, resolve_confirmation, _sign_confirmation_id
+        from ai_assistant import create_confirmation, resolve_confirmation
 
         mock_conn = MagicMock()
 

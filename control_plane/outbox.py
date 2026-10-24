@@ -76,6 +76,10 @@ def append_event(
     from analytics.contracts import CONTRACTS
 
     metadata = dict(headers or {})
+    from control_plane.request_context import event_context
+
+    for name, value in event_context().items():
+        metadata[name] = value
     tenant_id = (
         tenant_id
         or metadata.get("tenant_id")
@@ -115,7 +119,7 @@ def append_event(
             aggregate_version,
             event_type,
             Jsonb(payload or {}),
-            Jsonb(headers or {}),
+            Jsonb(metadata),
             destination_class,
             key,
             tenant_id,

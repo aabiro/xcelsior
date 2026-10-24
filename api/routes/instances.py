@@ -283,31 +283,24 @@ def _enforce_concurrency_limit(user: dict) -> None:
 
 
 def _count_active_instances(customer_id: str) -> int:
-    """Count a user's active (non-terminal) instances via a single SQL query.
+    """Count native, nonterminal jobs in the canonical billing scope.
 
-    Uses `payload->>'owner'` because the jobs table stores owner inside the
-    JSONB payload (thin-schema convention — see repo memory). `status = ANY(...)`
-    lets PostgreSQL use the status index for the set membership.
+    Observation payloads cannot change ownership or hide live reservations.
+    An unavailable database refuses admission instead of bypassing the cap.
     """
     try:
         from db import _get_pg_pool
 
-        with _get_pg_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT COUNT(*) FROM jobs WHERE payload->>'owner' = %s AND status = ANY(%s)",
-                (customer_id, list(_ACTIVE_STATUSES)),
-            )
-            row = cur.fetchone()
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT count(*) FROM jobs WHERE owner_id=%s "
+                "AND phase IN ('pending','scheduled','starting','running')",
+                (customer_id,),
+            ).fetchone()
         return int(row[0]) if row else 0
-    except Exception as e:
-        # If the SQL path breaks, fall back to the Python filter so we never
-        # completely lose the gate. (Worst case: O(N) on all jobs once.)
-        log.warning("SQL active-instance count failed for %s: %s — falling back", customer_id, e)
-        return sum(
-            1
-            for j in list_jobs()
-            if j.get("owner") == customer_id and j.get("status") in _ACTIVE_STATUSES
-        )
+    except Exception as exc:
+        log.error("Native concurrent-instance count unavailable: %s", type(exc).__name__)
+        raise HTTPException(503, "Instance admission temporarily unavailable") from exc
 
 
 router = APIRouter()
@@ -2016,7 +2009,7 @@ def api_admin_reinject_shell(job_id: str, request: Request):
     target = resolve_job_command_target(job_id)
     if target is None:
         raise HTTPException(404, f"Instance {job_id} not found")
-    if not target.allows_unfenced_container_command:
+    if not target.has_live_attempt:
         raise HTTPException(
             status_code=409,
             detail="fenced_residual_requires_live_authority",
@@ -3010,7 +3003,7 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     if target is None:
         _snapshot_requests_total.labels(outcome="not_found").inc()
         raise HTTPException(404, f"Instance {job_id} not found")
-    if not target.allows_unfenced_container_command:
+    if not target.has_live_attempt:
         _snapshot_requests_total.labels(outcome="fenced_no_authority").inc()
         raise HTTPException(
             status_code=409,

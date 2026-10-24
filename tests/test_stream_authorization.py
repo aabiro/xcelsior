@@ -57,6 +57,9 @@ def principals():
                 """INSERT INTO jobs(job_id,status,priority,submitted_at,payload, phase, desired_state, effective_priority, queued_at) VALUES (%s,'running',0,0,%s, 'running', 'running', 0, NULL)""",
                 (uid, json.dumps({"job_id": uid, "status": "running", "owner": uid})),
             )
+            conn.execute(
+                "UPDATE jobs SET owner_id=%s,tenant_id=%s WHERE job_id=%s", (uid, uid, uid)
+            )
         records.append((uid, token, request, principal))
     yield records
     with pg_transaction() as conn:
@@ -146,7 +149,7 @@ def test_bound_ticket_continuation_rechecks_actual_credential_and_owner(principa
     else:
         with pg_transaction() as conn:
             conn.execute(
-                "UPDATE jobs SET payload=jsonb_set(payload,'{owner}',to_jsonb(%s::text)) WHERE job_id=%s",
+                "UPDATE jobs SET owner_id=%s WHERE job_id=%s",
                 (principals[1][0], uid),
             )
     with pytest.raises(HTTPException):

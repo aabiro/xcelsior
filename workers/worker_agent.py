@@ -1896,7 +1896,7 @@ def _dispatch_agent_commands(commands: list) -> int:
                 dispatched += 1
             elif name == "reinject_shell":
                 job_id = args.get("job_id") or ""
-                container_name = args.get("container_name") or (f"xcl-{job_id}" if job_id else "")
+                container_name = args.get("container_name") or ""
                 if not job_id or not container_name:
                     log.warning("reinject_shell cmd=%s missing args: %r", cmd_id, args)
                     _motd_reinjection_total.labels(result="bad_args").inc()
@@ -1974,7 +1974,7 @@ def _dispatch_agent_commands(commands: list) -> int:
                 # Replaces the legacy VPS→host `ssh_exec docker kill` path;
                 # works over CGNAT because the agent pulls the directive.
                 _job_id = str(args.get("job_id") or "")
-                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
+                cname = str(args.get("container_name") or "")
                 if not cname:
                     log.warning("stop_container cmd=%s missing container_name", cmd_id)
                     continue
@@ -2295,6 +2295,7 @@ def report_job_status(
     policy_reason=None,
     *,
     expected_v2_auth=None,
+    observed_exit_code=None,
 ):
     """Report lifecycle and runtime metadata through the exact fenced attempt."""
     with _v2_attempts_lock:
@@ -2326,6 +2327,9 @@ def report_job_status(
             policy_reason=policy_reason,
             expected_auth=v2_auth,
             **({"runtime_metadata": runtime_metadata} if runtime_metadata else {}),
+            **(
+                {"observed_exit_code": observed_exit_code} if observed_exit_code is not None else {}
+            ),
         )
         return outcome == "ok"
     except Exception as exc:
@@ -3313,7 +3317,7 @@ def v2_adopt_attempts() -> int:
                 outcome,
                 terminal.get("failure_code")
                 or (None if outcome != "failed" else "container_exited"),
-                None if outcome != "failed" else {"exit_code": exit_code},
+                {"exit_code": exit_code} if exit_code >= 0 else None,
             )
             if report_outcome == "ok" and isinstance(pending, dict):
                 command_id = str(pending.get("command_id") or "")
@@ -3417,6 +3421,7 @@ def _v2_on_job_status(
     policy_reason: str | None = None,
     expected_auth: dict | None = None,
     runtime_metadata: dict | None = None,
+    observed_exit_code: int | None = None,
 ) -> str:
     """Report through fenced authority and forget it only after resolution.
 
@@ -3434,6 +3439,8 @@ def _v2_on_job_status(
         return "not_v2"
     failure_code = (policy_reason or "container_failed") if v2_status == "failed" else None
     detail = {"error": error_message[:300]} if (error_message and failure_code) else None
+    if type(observed_exit_code) is int and 0 <= observed_exit_code < 2**31:
+        detail = {**(detail or {}), "exit_code": observed_exit_code}
     outcome = (
         v2_report_attempt_status(
             auth, v2_status, failure_code, detail, runtime_metadata=runtime_metadata
@@ -3890,6 +3897,40 @@ def _collect_local_workloads() -> list[dict]:
     return workloads
 
 
+def _observation_inventory() -> tuple[list[dict] | None, dict]:
+    """Report actual per-device identities, never environment-declared slots."""
+    if not is_nvml_available():
+        return None, {"gpu_inventory": "unavailable"}
+    try:
+        from nvml_telemetry import collect_gpu_inventory
+
+        raw = collect_gpu_inventory()
+        if raw is None:
+            raise ValueError("physical inventory unavailable")
+        inventory = []
+        for gpu in raw:
+            gpu_uuid = str(gpu.get("gpu_uuid") or "")
+            if (
+                not gpu_uuid.startswith("GPU-")
+                or not gpu.get("total_vram_mb")
+                or not gpu.get("model")
+            ):
+                raise ValueError("incomplete physical GPU identity")
+            inventory.append(
+                {
+                    "gpu_uuid": gpu_uuid,
+                    "device_index": gpu["device_index"],
+                    "pci_bus_id": gpu.get("pci_bus_id"),
+                    "model": _canonicalize_gpu_model(gpu["model"]),
+                    "total_vram_mb": gpu["total_vram_mb"],
+                }
+            )
+        return inventory, {"gpu_inventory": "reported"}
+    except Exception as exc:
+        log.warning("Physical inventory unavailable (%s)", type(exc).__name__)
+        return None, {"gpu_inventory": "unavailable"}
+
+
 def report_observations_v2(force: bool = False) -> bool:
     """§12.2 full-state report, throttled to the observation interval."""
     global _last_observation_at
@@ -3897,21 +3938,26 @@ def report_observations_v2(force: bool = False) -> bool:
         return False
     _resume_pending_log_delivery()
     _v2_retry_resource_cleanup(background=True)
-    now = time.time()
+    now = time.monotonic()
     if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
         return False
     _last_observation_at = now
+    inventory, conditions = _observation_inventory()
+    from egress_isolation import isolation_ready
+
     code, _body = _v2_post(
         "/agent/v2/observations",
         {
             "host_id": HOST_ID,
             "worker_session_id": WORKER_SESSION_ID,
-            # Monotonic per session: epoch seconds — each report is a new
-            # immutable snapshot; duplicates within a second collapse.
-            "observation_generation": int(now),
+            # Monotonic per process session even if the wall clock moves.
+            "observation_generation": time.monotonic_ns(),
             "workloads": _collect_local_workloads(),
             "agent_version": VERSION,
-            "worker_reported_at": now,
+            "worker_reported_at": time.time(),
+            "capabilities": {"egress_isolation": isolation_ready()},
+            "conditions": conditions,
+            "gpu_inventory": inventory,
         },
         timeout=15,
     )
@@ -3932,6 +3978,51 @@ def drain_v2_commands() -> int:
     return sum(
         _v2_run_claimed_command(_dispatch_v2_command, command) for command in v2_claim_commands()
     )
+
+
+_V2_JOB_DIRECTIVES = frozenset(
+    {
+        "reinject_shell",
+        "snapshot_container",
+        "mount_volume",
+        "unmount_volume",
+        "promote_artifacts",
+        "fingerprint_environment",
+    }
+)
+
+
+def _v2_authorize_job_directive(cmd: dict) -> str:
+    """A container operation needs the same live authority as execution."""
+    job_id = str(cmd.get("job_id") or "")
+    args = cmd.get("args") or {}
+    with _v2_attempts_lock:
+        auth = _v2_attempts.get(job_id)
+        if (
+            auth is None
+            or cmd.get("attempt_id") != auth.get("attempt_id")
+            or cmd.get("fencing_token") != auth.get("fencing_token")
+            or cmd.get("spec_hash") != auth.get("spec_hash")
+            or not cmd.get("spec_hash")
+            or args.get("job_id") != job_id
+            or args.get("container_name") != auth.get("container_name")
+            or args.get("container_name") != _v2_container_name(job_id, str(auth["attempt_id"]))
+            or (auth.get("stop") is not None and auth["stop"].is_set())
+        ):
+            return "fenced"
+    code, _ = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+    if code != 200:
+        return "fenced" if code in (404, 409, 410) else "error"
+    state, _, label = _v2_container_state(job_id, auth["container_name"])
+    with _v2_attempts_lock:
+        if (
+            _v2_attempts.get(job_id) is not auth
+            or state != "running"
+            or label != auth["attempt_id"]
+            or (auth.get("stop") is not None and auth["stop"].is_set())
+        ):
+            return "fenced"
+    return "ok"
 
 
 def _dispatch_v2_command(cmd: dict) -> int:
@@ -3964,7 +4055,19 @@ def _dispatch_v2_command(cmd: dict) -> int:
             daemon=True,
         ).start()
         dispatched += 1
-    elif name in _AGENT_COMMAND_ALLOWED and not cmd.get("attempt_id"):
+    elif name in _AGENT_COMMAND_ALLOWED:
+        if name in _V2_JOB_DIRECTIVES:
+            authority = _v2_authorize_job_directive(cmd)
+            if authority != "ok":
+                v2_nack_command(
+                    command_id,
+                    "job_directive_authority_" + authority,
+                    retryable=authority == "error",
+                )
+                return 0
+        elif cmd.get("attempt_id"):
+            v2_nack_command(command_id, "host_directive_has_attempt", retryable=False)
+            return 0
         # Host commands now share the durable command protocol. A lost ACK
         # replays the journaled result rather than deleting work on fetch.
         host_cmd = {**cmd, "id": command_id, "_durable": True}
@@ -5725,6 +5828,7 @@ def _v2_monitor_container(auth: dict) -> None:
                     job_id,
                     _v2_exit_status(auth, exit_code),
                     expected_v2_auth=auth,
+                    observed_exit_code=exit_code if exit_code >= 0 else None,
                 )
                 with _v2_attempts_lock:
                     still_current = _v2_attempts.get(job_id) is auth
