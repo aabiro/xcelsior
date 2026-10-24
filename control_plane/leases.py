@@ -353,6 +353,11 @@ def expire_stale_leases(
         lease_id = str(_get(row, "lease_id", 0))
         job_id = str(_get(row, "job_id", 1))
         attempt_id = str(_get(row, "attempt_id", 2))
+        from control_plane.billing_effects import serialize_native_period
+        from psycopg.errors import LockNotAvailable
+
+        if not serialize_native_period(conn, job_id, wait=not lock_nowait):
+            raise LockNotAvailable("billing period is settling; retry lease expiry")
         if lock_nowait:
             # Reconciliation owns a queue row already. Runtime writers can
             # hold these rows while waiting for that queue, so fail fast and
