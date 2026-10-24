@@ -32,6 +32,8 @@ REQUIRED_AT_HEAD = (
     "outbox_events",
     "job_attempts",
     "alembic_version",
+    "connect_accounts",
+    "connect_products",
     # Residual tables formerly ensure-only (migration 061).
     "job_logs",
     "oauth_clients",
@@ -40,7 +42,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "138"
+EXPECTED_HEAD = "139"
 
 
 def _admin_dsn() -> str | None:

@@ -370,18 +370,25 @@ class TestHappyPathLifecycle:
         _, inst = _submit_job("log-test")
         job_id = inst["job_id"]
 
-        # Push more logs than the max buffer size
+        # Seed more durable logs than both the process buffer and public cap.
         from routes.instances import push_job_log
+        from db import _get_pg_pool
 
-        for i in range(600):
-            push_job_log(job_id, f"Line {i}")
+        push_job_log(job_id, "Stale process-buffer entry")
+        with _get_pg_pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "INSERT INTO job_logs(job_id,ts,level,line) VALUES(%s,%s,'info',%s)",
+                    [(job_id, time.time() + i, f"Durable line {i}") for i in range(10_005)],
+                )
 
         # Request with absurdly high limit — should be capped
         resp = client.get(f"/instances/{job_id}/logs?limit=999999")
         assert resp.status_code == 200
         returned = resp.json()["total"]
-        assert returned <= 500, f"Expected <=500 logs but got {returned}"
-        assert returned > 0, "Expected at least some logs"
+        assert returned == 10_000
+        assert resp.json()["logs"][0]["message"] == "Durable line 5"
+        assert resp.json()["logs"][-1]["message"] == "Durable line 10004"
 
     def test_gpu_model_request_blocks_non_matching_hosts_until_available(self):
         """GPU model constraints should keep the job queued until a matching host exists."""

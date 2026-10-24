@@ -56,7 +56,8 @@ from psycopg import Connection
 # jobs cannot be resumed as a substitute for a new customer admission.
 # 134 moves lifecycle authority to the controller-owned native column.
 # 137 permits native host action completion without a fabricated job identifier.
-REQUIRED_MIN_REVISION = "137"
+# 139 makes Connect mappings available without runtime table creation.
+REQUIRED_MIN_REVISION = "139"
 REQUIRED_MAX_REVISION: str | None = None
 
 

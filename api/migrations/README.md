@@ -97,7 +97,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `138_billing_history_dispositions.py`.**
+**Repository head: `139_connect_mapping_authority.py`.**
 
 138 adds immutable operator disposition receipts for qualified duplicate
 historical volume intervals. It changes no balances or source history. The
@@ -105,12 +105,12 @@ separate `dispose_historical_billing.py` command previews a private evidence
 plan, requalifies it on application and commits one bounded credit with its
 ledger row and receipt. Ambiguous evidence or wallet/ledger drift refuses the
 operation. Runtime roles cannot rewrite these receipts. The runtime schema
-floor remains 137; this additive operator table is not execution authority.
+floor at revision 138 remained 137; this additive operator table is not execution authority.
 
 133 expands durable weighted scheduling policy, virtual service credit and
-preemption plan records. Default policy enables no evictions. This runtime
-now requires schema 137 for native lifecycle intent and completed host eviction
-results, after the staged handoffs.
+preemption plan records. Default policy enables no evictions. Schema 137
+introduced native lifecycle intent and completed host eviction results; the
+current runtime floor is 139 after moving Connect bootstrap into Alembic.
 
 132 records explicit historical disposition after qualified recovery. Jobs
 with a recovered execution record or unavailable launch evidence retain their
@@ -576,3 +576,9 @@ an isolated database with existing plan rows; downgrade explicitly refuses if
 completed native host actions would violate the older constraint, preserving
 their evidence. Apply 137 before serving the new runtime (floor 137). The frozen
 7757bdc3 image remains the schema-134-compatible intermediate for 134–136.
+
+139 moves Connect account and product mapping bootstrap into Alembic. It retains
+existing rows and creates missing tables on fresh databases. Downgrade retains
+these financial/provider mappings. API imports no longer attempt DDL, and the
+runtime floor is 139. Apply this additive migration with the direct migrator
+credential before replacing the schema-138-compatible runtime.
