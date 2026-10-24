@@ -48,7 +48,7 @@ def test_every_job_status_writer_sets_native_phase():
             query,
             re.I | re.S,
         )
-        if update and re.search(r"\bstatus\s*=", update[1]):
+        if update and re.search(r"(?:^|,)\s*status\s*=", update[1]):
             assert re.search(
                 r"\bphase\s*=", update[1]
             ), f"{rel}:{line} delegates phase to a trigger"
@@ -74,7 +74,7 @@ def test_every_host_admission_or_status_writer_sets_native_states():
             query,
             re.I | re.S,
         )
-        if update and re.search(r"\b(?:admission_state|status)\s*=", update[1]):
+        if update and re.search(r"(?:^|,)\s*(?:admission_state|status)\s*=", update[1]):
             for column in ["administrative_state", "availability_state"]:
                 assert re.search(rf"\b{column}\s*=", update[1]), f"{rel}:{line} omits {column}"
             checked.add(rel)

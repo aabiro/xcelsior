@@ -109,12 +109,8 @@ def test_both_loaders_read_the_column() -> None:
     from db import DatabaseOps
     import scheduler
 
-    for label, fn in (
-        ("db.DatabaseOps.load_hosts", DatabaseOps.load_hosts),
-        ("scheduler._load_hosts_from_conn", scheduler._load_hosts_from_conn),
-    ):
-        source = inspect.getsource(fn)
-        assert "SELECT host_id, payload" in source, (
-            f"{label} still selects only the payload, so it depends on the id "
-            "being duplicated inside the JSON"
-        )
+    source = inspect.getsource(DatabaseOps.load_hosts)
+    assert "'host_id',host_id" in source
+    assert "SELECT host_id, payload" in source  # SQLite's explicit projection.
+    # PostgreSQL delegates to the same canonical loader.
+    assert "DatabaseOps.load_hosts" in inspect.getsource(scheduler._load_hosts_from_conn)

@@ -3346,7 +3346,15 @@ def v2_adopt_attempts() -> int:
                 auth,
                 terminal.get("status") or "failed",
                 terminal.get("failure_code") if terminal else "container_missing",
-                {"note": "agent restarted; container not found"},
+                {
+                    "note": "agent restarted; container not found",
+                    **(
+                        {"exit_code": terminal["exit_code"]}
+                        if type(terminal.get("exit_code")) is int
+                        and 0 <= terminal["exit_code"] < 2**31
+                        else {}
+                    ),
+                },
             )
             if report_outcome == "error":
                 with _v2_attempts_lock:
@@ -3461,6 +3469,11 @@ def _v2_on_job_status(
                 auth["pending_terminal_report"] = {
                     "status": v2_status,
                     "failure_code": failure_code,
+                    **(
+                        {"exit_code": observed_exit_code}
+                        if type(observed_exit_code) is int and 0 <= observed_exit_code < 2**31
+                        else {}
+                    ),
                 }
                 _v2_journal_save()
         _v2_start_exit_monitor(auth)
@@ -5791,8 +5804,16 @@ def _v2_monitor_container(auth: dict) -> None:
             )
         if terminal and (state == "missing" or (state == "exited" and label == auth["attempt_id"])):
             auth["stop"].set()
+            recorded_exit = terminal.get("exit_code", exit_code)
             outcome = v2_report_attempt_status(
-                auth, terminal["status"], terminal.get("failure_code")
+                auth,
+                terminal["status"],
+                terminal.get("failure_code"),
+                (
+                    {"exit_code": recorded_exit}
+                    if type(recorded_exit) is int and 0 <= recorded_exit < 2**31
+                    else None
+                ),
             )
             if outcome != "error":
                 _v2_forget_attempt(job_id, auth)
