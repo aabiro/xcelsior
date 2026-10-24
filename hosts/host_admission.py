@@ -158,20 +158,14 @@ def _actor_id(actor: Mapping[str, Any]) -> str:
 
 
 def _tenant_from_host(row: Any) -> str:
-    payload = _row_value(row, "payload", 3) or {}
-    if not isinstance(payload, Mapping):
-        payload = {}
     for value in (
         _row_value(row, "tenant_id", 1),
         _row_value(row, "owner_id", 2),
-        payload.get("owner"),
-        payload.get("provider_id"),
-        _row_value(row, "host_id", 0),
     ):
         normalized = str(value or "").strip()
         if normalized:
             return normalized
-    return "legacy"
+    raise AdmissionPreconditionFailed("Host has no recorded canonical tenant or owner")
 
 
 def _compatibility_secret() -> bytes:
@@ -926,6 +920,7 @@ def _sync_marketplace(
     conn: Any,
     *,
     host_id: str,
+    provider_id: str | None,
     payload: Mapping[str, Any],
     admitted: bool,
     host_status: str,
@@ -941,11 +936,10 @@ def _sync_marketplace(
         """,
         (host_id,),
     )
-    if not admitted or host_status != "active":
+    if not admitted or host_status != "active" or not provider_id:
         return "disabled"
 
     gpu_model = str(payload.get("gpu_model") or "").strip()
-    provider_id = str(payload.get("owner") or payload.get("provider_id") or host_id).strip()
     vram_gb = max(
         0,
         int(
@@ -1078,7 +1072,7 @@ def decide_admission(
         host = conn.execute(
             """
             SELECT host_id, tenant_id, owner_id, payload, status,
-                   admission_state, admission_version
+                   admission_state, admission_version, provider_id
               FROM hosts
              WHERE host_id = %s
              FOR UPDATE
@@ -1161,6 +1155,9 @@ def decide_admission(
             ]
 
         tenant_id = _tenant_from_host(host)
+        provider_id = _row_value(host, "provider_id", 7) or _row_value(host, "owner_id", 2)
+        if action == "admit" and not provider_id:
+            raise AdmissionPreconditionFailed("Host has no recorded canonical provider")
         payload = _row_value(host, "payload", 3) or {}
         if not isinstance(payload, Mapping):
             payload = {}
@@ -1260,6 +1257,7 @@ def decide_admission(
         marketplace = _sync_marketplace(
             conn,
             host_id=host_id,
+            provider_id=str(provider_id) if provider_id else None,
             payload=payload,
             admitted=resulting_state == "admitted",
             host_status=new_status,

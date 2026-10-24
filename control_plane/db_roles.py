@@ -443,7 +443,15 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
     "ssh_gateway": ServiceRole(
         name="xcelsior_ssh_gateway",
         description="SSH route inventory only; no credential, billing, or command access.",
-        read_tables=frozenset({"public.jobs", "public.hosts", "public.ssh_account_suspensions"}),
+        read_tables=frozenset(
+            {
+                "public.jobs",
+                "public.hosts",
+                "public.job_attempts",
+                "public.placement_leases",
+                "public.ssh_account_suspensions",
+            }
+        ),
     ),
 }
 
