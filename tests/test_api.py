@@ -681,8 +681,8 @@ class TestJobEndpoints:
         r = client.get("/instance/nonexistent")
         assert r.status_code == 404
 
-    def test_update_job_status(self):
-        """PATCH /instance/{id} status updates (worker/platform token)."""
+    def test_legacy_status_patch_is_retired(self):
+        """Lifecycle reports must use native attempt authority."""
         resp = _submit_job("test", 8)
         job_id = resp.json()["instance"]["job_id"]
         token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
@@ -691,8 +691,8 @@ class TestJobEndpoints:
             json={"status": "completed"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert r.status_code == 200
-        assert r.json()["status"] == "completed"
+        assert r.status_code == 410
+        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "queued"
 
     def test_process_queue(self):
         _register_host("h1", versions=GOOD_VERSIONS)
@@ -738,8 +738,8 @@ class TestJobEndpoints:
 
 
 class TestJobStatusApiValidation:
-    def test_invalid_status_returns_400(self):
-        """PATCH /job/{id} with invalid status should return 400, not 200."""
+    def test_invalid_status_cannot_revive_retired_patch(self):
+        """The retired transport refuses every lifecycle mutation."""
         resp = _submit_job("test", 8)
         job_id = resp.json()["instance"]["job_id"]
         token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
@@ -748,8 +748,8 @@ class TestJobStatusApiValidation:
             json={"status": "totally_bogus_status"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert r.status_code == 400
-        assert "Invalid status" in r.json()["error"]["message"]
+        assert r.status_code == 410
+        assert r.json()["error"]["code"] == "v2_protocol_required"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1430,9 +1430,9 @@ class TestAutoscaleEndpoints:
 
 class TestAgentEndpoints:
     def test_agent_work_no_jobs(self):
-        """GET /agent/work/{host_id} with no work → 204."""
+        """The retired v1 transport always explains the native requirement."""
         r = client.get("/agent/work/h-idle")
-        assert r.status_code == 204
+        assert r.status_code == 410
 
     def test_agent_mining_alert(self):
         """POST /agent/mining-alert receives alert."""
@@ -1637,19 +1637,25 @@ class TestFailover:
         assert "requeued" in r.json()
         assert "assigned" in r.json()
 
-    def test_requeue_job(self):
-        """POST /job/{id}/requeue re-queues a running job."""
-        resp = _submit_job("requeue-test", 8)
-        job_id = resp.json()["instance"]["job_id"]
-        # Must transition to running before requeue is allowed
-        token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "running", "host_id": "h1"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        r = client.post(f"/instance/{job_id}/requeue")
-        assert r.status_code == 200
+    def test_raw_requeue_cannot_discard_running_native_authority(self):
+        """A live attempt must settle through the fenced restart protocol."""
+        from tests.fixtures.native_runtime import running_instance
+
+        with running_instance(owner="api-admin") as native:
+            job_id = native["job_id"]
+            response = client.post(f"/instance/{job_id}/requeue")
+            assert response.status_code == 400, response.text
+            job = client.get(f"/instance/{job_id}").json()["instance"]
+            assert job["status"] == "running"
+            with db_mod._get_pg_pool().connection() as conn:
+                assert (
+                    str(
+                        conn.execute(
+                            "SELECT active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
+                        ).fetchone()[0]
+                    )
+                    == native["authority"]["attempt_id"]
+                )
 
 
 # ═══════════════════════════════════════════════════════════════════════

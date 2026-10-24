@@ -1,12 +1,10 @@
-"""Fence compatibility execution and measure paths awaiting retirement."""
+"""Reject retired execution transports and count authenticated callers."""
 
 from contextlib import contextmanager
 import os
 
 from fastapi import HTTPException
 from prometheus_client import Counter, Gauge, REGISTRY
-
-from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
 
 try:
     _uses = Counter(
@@ -39,35 +37,22 @@ def record_use(path: str, outcome: str, count: int = 1) -> None:
     _uses.labels(path=path, outcome=outcome).inc(count)
 
 
-class LegacyRequest:
-    def __init__(self, path: str):
-        self.path = path
-        self.effects = 0
-
-    def effect(self, count: int = 1) -> None:
-        """Record completed mutator calls or committed command deliveries."""
-        record_use(self.path, "used", count)
-        self.effects += count
-
-
 @contextmanager
 def legacy_request(path: str):
     if path not in LEGACY_PATHS:
         raise ValueError("Unknown legacy observation path")
-    observation = LegacyRequest(path)
     record_use(path, "requested")
     try:
-        yield observation
+        yield
     except Exception as exc:
-        # An HTTP failure can follow a committed mutation. Calling that
-        # blocked would erase evidence that the compatibility path was used.
         refused = isinstance(exc, HTTPException) and 400 <= exc.status_code < 500
-        record_use(path, "blocked" if refused and not observation.effects else "failed")
+        record_use(path, "blocked" if refused else "failed")
         raise
 
 
 def legacy_execution_allowed() -> bool:
-    return SchedulerConfig.from_env().mode is not SchedulerMode.ACTIVE
+    """Native authority is permanent, including paused and canary modes."""
+    return False
 
 
 try:
@@ -90,7 +75,8 @@ def retired_paths() -> set[str]:
     }
     if declared.difference(LEGACY_PATHS):
         raise ValueError("XCELSIOR_RETIRED_LEGACY_PATHS contains an unknown path")
-    return declared
+    # Validate obsolete declarations, but no setting can revive a transport.
+    return set(LEGACY_PATHS)
 
 
 # Refuse a misspelled policy on startup rather than silently suppress an alert.
@@ -108,33 +94,16 @@ except ValueError:
     _retired = _existing_retired
 
 for _path in LEGACY_PATHS:
-    _retired.labels(path=_path).set_function(
-        lambda path=_path: int(
-            path in retired_paths() or (path in EXECUTION_PATHS and not legacy_execution_allowed())
-        )
-    )
+    _retired.labels(path=_path).set(1)
 
 
 def require_legacy_route_enabled() -> None:
-    if not legacy_execution_allowed():
-        raise HTTPException(
-            410,
-            detail={
-                "error": {
-                    "code": "v2_protocol_required",
-                    "message": "This control plane requires the durable v2 worker protocol",
-                }
-            },
-        )
-
-
-def eligible_work_ids(conn, host_id: str, job_ids: list[str]) -> set[str]:
-    if not job_ids:
-        return set()
-    rows = conn.execute(
-        "SELECT j.job_id FROM jobs j WHERE j.job_id=ANY(%s) AND j.host_id=%s "
-        "AND j.status='assigned' AND j.active_attempt_id IS NULL "
-        "AND NOT EXISTS (SELECT 1 FROM job_attempts a WHERE a.job_id=j.job_id)",
-        (job_ids, host_id),
-    ).fetchall()
-    return {str(row["job_id"] if isinstance(row, dict) else row[0]) for row in rows}
+    raise HTTPException(
+        410,
+        detail={
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "This control plane requires the durable v2 worker protocol",
+            }
+        },
+    )
