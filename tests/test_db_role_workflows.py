@@ -29,36 +29,37 @@ from tests.test_serverless_worker_attempt_binding import (
 @pytest.fixture
 def restricted_logins(provisioned_roles, monkeypatch):
     admin_dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    monkeypatch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "1")
-    monkeypatch.setenv("XCELSIOR_SERVICE", "api")
-    monkeypatch.setattr(db, "_pg_pool", None)
-    monkeypatch.setattr(db, "_pg_pool_identity", None)
-    monkeypatch.setattr(db, "_scoped_pg_pools", {})
-    dsns = {}
-    with psycopg.connect(admin_dsn, autocommit=True) as admin:
-        for service in ["api", "scheduler", "reconciler", "billing", "projector"]:
-            name = SERVICE_ROLES[service].name
-            admin.execute(
-                sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
-                    sql.Identifier(name), sql.Literal("isolated-role-workflow-password")
-                )
-            )
-            dsns[service] = make_conninfo(
-                admin_dsn, user=name, password="isolated-role-workflow-password"
-            )
-            monkeypatch.setenv(service_dsn_env_var(service), dsns[service])
-    try:
-        yield dsns
-    finally:
-        for pool in {db._pg_pool, *db._scoped_pg_pools.values()} - {None}:
-            pool.close()
+    with monkeypatch.context() as identity_patch:
+        identity_patch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "1")
+        identity_patch.setenv("XCELSIOR_SERVICE", "api")
+        identity_patch.setattr(db, "_pg_pool", None)
+        identity_patch.setattr(db, "_pg_pool_identity", None)
+        identity_patch.setattr(db, "_scoped_pg_pools", {})
+        dsns = {}
         with psycopg.connect(admin_dsn, autocommit=True) as admin:
-            for service in dsns:
+            for service in ["api", "scheduler", "reconciler", "billing", "projector"]:
+                name = SERVICE_ROLES[service].name
                 admin.execute(
-                    sql.SQL("ALTER ROLE {} NOLOGIN PASSWORD NULL").format(
-                        sql.Identifier(SERVICE_ROLES[service].name)
+                    sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
+                        sql.Identifier(name), sql.Literal("isolated-role-workflow-password")
                     )
                 )
+                dsns[service] = make_conninfo(
+                    admin_dsn, user=name, password="isolated-role-workflow-password"
+                )
+                identity_patch.setenv(service_dsn_env_var(service), dsns[service])
+        try:
+            yield dsns
+        finally:
+            for pool in {db._pg_pool, *db._scoped_pg_pools.values()} - {None}:
+                pool.close()
+            with psycopg.connect(admin_dsn, autocommit=True) as admin:
+                for service in dsns:
+                    admin.execute(
+                        sql.SQL("ALTER ROLE {} NOLOGIN PASSWORD NULL").format(
+                            sql.Identifier(SERVICE_ROLES[service].name)
+                        )
+                    )
 
 
 @pytest.mark.parametrize("serverless", [False, True])
