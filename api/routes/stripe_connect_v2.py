@@ -120,40 +120,8 @@ def _get_stripe_client():
 # the rest of the Xcelsior schema.
 
 
-def _ensure_connect_tables():
-    """Create the connect_accounts and connect_products tables if missing."""
-    pool = _get_pg_pool()
-    with pool.connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS connect_accounts (
-                id              SERIAL PRIMARY KEY,
-                display_name    TEXT NOT NULL,
-                contact_email   TEXT NOT NULL,
-                stripe_account_id TEXT UNIQUE NOT NULL,
-                created_at      TIMESTAMPTZ DEFAULT now()
-            );
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS connect_products (
-                id              SERIAL PRIMARY KEY,
-                stripe_product_id TEXT UNIQUE NOT NULL,
-                stripe_price_id TEXT NOT NULL,
-                name            TEXT NOT NULL,
-                description     TEXT DEFAULT '',
-                price_cents     INTEGER NOT NULL,
-                currency        TEXT DEFAULT 'usd',
-                account_id      TEXT NOT NULL,  -- stripe connected-account ID
-                created_at      TIMESTAMPTZ DEFAULT now()
-            );
-        """)
-        conn.commit()
-
-
-# Run table creation once at import time.
-try:
-    _ensure_connect_tables()
-except Exception as exc:
-    log.warning("Could not ensure connect tables (will retry on first request): %s", exc)
+# Connect mappings are owned by Alembic revision 139. Importing a route must
+# never create schema or borrow migration authority from a runtime login.
 
 
 # ── Pydantic request models ──────────────────────────────────────────

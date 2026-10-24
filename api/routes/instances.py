@@ -2286,8 +2286,8 @@ def _poll_pg_job_tail(job_id: str, last_ts: float) -> tuple[list[dict], str, str
     return new_rows, cur_status, cur_host_id
 
 
-def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
-    """Load recent log lines from PG job_logs table (fallback when in-memory buffer is empty)."""
+def _load_pg_logs(job_id: str, limit: int = 200, *, required: bool = False) -> list[dict]:
+    """Load durable logs; required reads report database failure explicitly."""
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
@@ -2304,6 +2304,8 @@ def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
             return []
         return list(reversed(rows))  # chronological order, already dicts
     except Exception:
+        if required:
+            raise HTTPException(503, "Instance logs are temporarily unavailable") from None
         return []
 
 
@@ -2504,22 +2506,12 @@ def api_instance_telemetry(job_id: str, request: Request):
 
 
 @router.get("/instances/{job_id}/logs", tags=["Instances"])
-def api_instance_logs(job_id: str, request: Request, limit: int = 100):
-    """Get buffered log lines for a job (non-streaming).
-
-    Returns the last `limit` log lines. Tries in-memory buffer first,
-    falls back to persistent job_logs table in PG.
-    For real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).
-    """
+def api_instance_logs(job_id: str, request: Request, limit: int = Query(100, ge=1)):
+    """Read recent durable logs consistently across API processes."""
     user = _require_auth(request)
     _require_scope(user, "instances:read")
     _check_job_access(user, job_id)
-    limit = min(limit, 10_000)
-    buf = _job_log_buffers.get(job_id, [])
-
-    # If in-memory buffer is empty, load from PG
-    if not buf:
-        buf = _load_pg_logs(job_id, limit=limit)
+    buf = _load_pg_logs(job_id, limit=min(limit, 10_000), required=True)
 
     return {"ok": True, "job_id": job_id, "logs": buf[-limit:], "total": len(buf)}
 
@@ -2529,9 +2521,7 @@ def api_instance_logs_download(job_id: str, request: Request):
     """Download all available logs for a job as a plain text file."""
     user = _require_auth(request)
     _check_job_access(user, job_id)
-    buf = _job_log_buffers.get(job_id, [])
-    if not buf:
-        buf = _load_pg_logs(job_id, limit=10_000)
+    buf = _load_pg_logs(job_id, limit=10_000, required=True)
     if not buf:
         raise HTTPException(404, "No logs available for this job")
 
