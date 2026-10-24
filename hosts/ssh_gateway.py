@@ -31,6 +31,7 @@ log = logging.getLogger("ssh-gateway")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
+
 def _configured_postgres_dsn() -> str:
     """Shared DSN from the environment. No built-in host, port, or password."""
     return (os.environ.get("XCELSIOR_POSTGRES_DSN") or "").strip()
@@ -124,15 +125,21 @@ async def _get_pg_conn(**kwargs):
 
         def validate():
             with psycopg.connect(
-                dsn, connect_timeout=5, options=options["options"],
+                dsn,
+                connect_timeout=5,
+                options=options["options"],
                 application_name=options["application_name"],
             ) as probe:
                 require_runtime_role(probe, "ssh_gateway")
 
         await asyncio.to_thread(validate)
     conn = await psycopg.AsyncConnection.connect(
-        dsn, autocommit=True, connect_timeout=5, options=options["options"],
-        application_name=options["application_name"], **kwargs
+        dsn,
+        autocommit=True,
+        connect_timeout=5,
+        options=options["options"],
+        application_name=options["application_name"],
+        **kwargs,
     )
     if roles_required():
         identity = await (await conn.execute("SELECT current_user, session_user")).fetchone()
@@ -146,31 +153,32 @@ async def query_running_instances() -> list[InstanceRoute]:
     """Query DB for all instances that should have SSH access."""
     conn = await _get_pg_conn()
     try:
-        # Prefer `public_ssh_port` (gateway-side public port written by the
-        # control plane when the worker reports its host-side mapping). Fall
-        # back to legacy `ssh_port` for rows predating the split (see the
-        # self-poisoning incident notes in routes/instances.py).
+        # A confirmed host mapping belongs to the current native attempt.
+        # Requested ports and JSONB host/owner aliases cannot authorize a relay.
         query = """
             SELECT j.job_id, j.status,
-                   COALESCE(j.payload->>'public_ssh_port',
-                            j.payload->>'ssh_port')    AS ssh_port,
-                   j.payload->>'host_id'               AS host_id,
+                   j.payload->>'public_ssh_port'        AS ssh_port,
+                   j.host_id                          AS host_id,
                    j.payload->>'name'                  AS instance_name,
                    h.payload->>'ip'                    AS host_ip
             FROM jobs j
-            LEFT JOIN hosts h ON j.payload->>'host_id' = h.host_id
-            WHERE j.status IN ('running', 'starting')
-              AND COALESCE(j.payload->>'public_ssh_port',
-                           j.payload->>'ssh_port') IS NOT NULL
-              AND j.payload->>'host_id'  IS NOT NULL
+            JOIN hosts h ON j.host_id=h.host_id
+            JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                AND a.job_id=j.job_id AND a.host_id=j.host_id
+                AND a.job_generation=j.generation AND a.spec_hash=j.spec_hash
+            JOIN placement_leases l ON l.attempt_id=a.attempt_id
+                AND l.job_id=j.job_id AND l.host_id=a.host_id
+                AND l.fencing_token=a.fencing_token
+            WHERE j.phase IN ('running','starting') AND j.desired_state='running'
+              AND j.lifecycle_intent IS NULL AND j.owner_id IS NOT NULL
+              AND a.status IN ('claimed','starting','running')
+              AND l.status='active' AND l.expires_at>clock_timestamp()
+              AND j.payload->>'public_ssh_port' IS NOT NULL
               AND NOT EXISTS (
                     SELECT 1 FROM ssh_account_suspensions s
                      WHERE s.identifier IN (
                          COALESCE(j.owner_id, ''),
-                         COALESCE(j.payload->>'owner', ''),
-                         COALESCE(j.payload->>'customer_id', ''),
-                         COALESCE(j.payload->>'user_id', ''),
-                         COALESCE(j.payload->>'email', '')
+                         COALESCE(j.tenant_id, '')
                      )
                        AND s.identifier <> ''
               )

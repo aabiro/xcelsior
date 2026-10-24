@@ -69,7 +69,28 @@ def test_transient_terminal_failure_retries_before_removing_container(execution,
     worker._monitor_container(auth["job_id"], auth["container_name"])
     assert len(posts) == 2
     assert posts[0] == posts[1]
+    assert posts[0]["detail"]["exit_code"] == 0
     cleanup.assert_called_once_with(auth["container_name"])
+    assert auth["job_id"] not in json.loads(journal.read_text())
+
+
+def test_recorded_exit_survives_container_loss_during_terminal_retry(execution, monkeypatch):
+    auth, journal, _ = execution
+    auth["pending_terminal_report"] = {
+        "status": "failed",
+        "failure_code": "container_failed",
+        "exit_code": 17,
+    }
+    worker._v2_journal_save()
+    assert (
+        json.loads(journal.read_text())[auth["job_id"]]["pending_terminal_report"]["exit_code"]
+        == 17
+    )
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *a: ("missing", -1, ""))
+    post = mock.Mock(return_value=(200, {}))
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker._v2_monitor_container(auth)
+    assert post.call_args.args[1]["detail"] == {"exit_code": 17}
     assert auth["job_id"] not in json.loads(journal.read_text())
 
 

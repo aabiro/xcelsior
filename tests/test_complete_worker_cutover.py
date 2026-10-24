@@ -61,7 +61,7 @@ def test_host_command_failure_is_nacked_and_retained(cutover, monkeypatch):
     monkeypatch.setattr(
         worker,
         "v2_claim_commands",
-        lambda: [{"command_id": "host-2", "command": "mount_volume", "args": {}}],
+        lambda: [{"command_id": "host-2", "command": "reverify", "args": {}}],
     )
     monkeypatch.setattr(worker, "_dispatch_agent_commands", lambda _: 0)
     nack = mock.Mock()
