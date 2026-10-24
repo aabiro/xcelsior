@@ -66,9 +66,19 @@ def main():
         be = get_billing_engine()
         be.auto_billing_cycle()
         be.check_low_balance_and_topup()
-        be.stop_jobs_for_suspended_wallets()
 
     register_task("billing_cycle", _billing_cycle, 300)
+
+    def _billing_control_cycle():
+        from billing import get_billing_engine
+        from volumes import get_volume_engine
+
+        get_billing_engine().stop_jobs_for_suspended_wallets()
+        volumes = get_volume_engine()
+        volumes.cleanup_stale_volumes()
+        volumes.reconcile_orphaned_attachments()
+
+    register_task("billing_control_cycle", _billing_control_cycle, 30)
 
     # 1a-i. Stripe Billing Meters dual-write drain (observability only).
     def _stripe_meter_outbox():

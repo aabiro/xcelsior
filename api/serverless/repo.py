@@ -1196,18 +1196,19 @@ class ServerlessRepo:
         cost_cad: float = 0.0,
         conn=None,
     ) -> None:
+        request_update = "total_requests = COALESCE(total_requests, 0) + %s," if requests else ""
         with nullcontext(conn) if conn is not None else self._conn() as conn:
             conn.execute(
-                """
+                f"""
                 UPDATE serverless_endpoints
-                SET total_requests = COALESCE(total_requests, 0) + %s,
+                SET {request_update}
                     total_gpu_seconds = COALESCE(total_gpu_seconds, 0) + %s,
                     total_cost_micros = COALESCE(total_cost_micros, 0) + %s,
                     updated_at = %s
                 WHERE endpoint_id = %s
                 """,
                 (
-                    requests,
+                    *((requests,) if requests else ()),
                     gpu_seconds,
                     round(float(cost_cad) * 1_000_000),
                     time.time(),

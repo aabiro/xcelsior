@@ -7,7 +7,8 @@ DDL moves to the separately credentialed, one-shot maintenance command.
 
 TASK_SERVICES = {
     "maintenance_heartbeat": "reconciler",
-    "billing_cycle": "api",  # current cycle also writes control/notifications
+    "billing_cycle": "billing",
+    "billing_control_cycle": "api",  # fenced lifecycle and volume housekeeping
     "stripe_meter_outbox": "billing",
     "provider_settlement_daily": "billing",
     "billing_meter_reconcile": "api",  # enforcing repair can write meters

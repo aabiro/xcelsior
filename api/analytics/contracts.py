@@ -106,6 +106,24 @@ def _job(evt: str) -> EventContract:
 
 
 CONTRACTS: tuple[EventContract, ...] = (
+    EventContract(
+        "billing.v1.wallet_notice_requested",
+        1,
+        "financial",
+        {
+            "customer_id": "pii",
+            "kind": "financial",
+            "title": "pii",
+            "body": "pii",
+            "data": "financial",
+        },
+    ),
+    EventContract(
+        "billing.v1.failed_cycle_stop_requested",
+        1,
+        "financial",
+        {"cycle_id": "internal", "attempt_id": "internal", "generation": "internal"},
+    ),
     # Canonical lifecycle (§16.2 / DA§8.3)
     _job("job.v1.created"),
     _job("job.v1.placement_reserved"),
@@ -212,6 +230,7 @@ CONTRACTS: tuple[EventContract, ...] = (
     EventContract("host.v1.removed", 1, "internal", {"host_id": "internal"}),
     EventContract("pricing.v1.spot_prices_updated", 1, "public", {"gpu_model": "public"}),
 )
+
 
 def register_all(conn: Any) -> int:
     """Upsert every contract into `event_contracts`. Validates first — an invalid

@@ -408,6 +408,16 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
         description="Ledger and meter rights; no host command rights.",
         write=frozenset({"billing", "marketplace", "audit"}),
         read=frozenset({"identity", "control", "serverless", "storage"}),
+        column_updates={
+            "public.serverless_endpoints": frozenset(
+                {
+                    "total_gpu_seconds",
+                    "total_cost_micros",
+                    "unbilled_token_cost_micros",
+                    "updated_at",
+                }
+            ),
+        },
     ),
     "retrieval": ServiceRole(
         name="xcelsior_retrieval",

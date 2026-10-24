@@ -319,14 +319,12 @@ def charge_serverless_execution(billing_engine, repo, worker, endpoint, **kwargs
 
     with _get_pg_pool().connection() as conn:
         conn.row_factory = dict_row
-        lock = conn.execute(
-            "SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS acquired",
-            (f"serverless_billing:{_billing_job_id(worker)}",),
-        ).fetchone()
-        if not lock["acquired"]:
+        from control_plane.billing_effects import lock_period
+
+        if not lock_period(conn, "serverless", _billing_job_id(worker)):
             return {"charged": False, "reason": "billing_in_progress"}
         current = conn.execute(
-            "SELECT * FROM serverless_workers WHERE worker_id=%s FOR UPDATE",
+            "SELECT * FROM serverless_workers WHERE worker_id=%s",
             (str(worker.get("worker_id") or ""),),
         ).fetchone()
         if current is None:
@@ -355,13 +353,9 @@ def charge_serverless_execution(billing_engine, repo, worker, endpoint, **kwargs
         result = _charge_serverless_execution(
             billing_engine, repo, worker, endpoint, _conn=conn, _quote=quote, **kwargs
         )
-    from db import NotificationStore
+    from control_plane.billing_effects import publish_committed_effects
 
-    for notification_id in result.pop("notification_ids", []):
-        try:
-            NotificationStore.deliver(notification_id)
-        except Exception as exc:
-            log.warning("serverless wallet push pending: %s", exc)
+    publish_committed_effects(notice_ids=result.pop("notification_ids", []))
     # This optional external dual-write cannot precede the authoritative commit.
     if result.get("charged") and result.get("tx_id"):
         try:

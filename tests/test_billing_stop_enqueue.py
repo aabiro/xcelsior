@@ -41,15 +41,39 @@ def test_lifecycle_has_no_unfenced_enqueues(billing_src: str) -> None:
     assert "request_fresh_attempt_resume" in billing_src
 
 
-def test_billing_sweepers_delegate_to_stop_instance(billing_src: str) -> None:
-    """Automated stops must use the same fenced lifecycle service as users."""
-    delegated = re.findall(
-        r"self\.stop_instance\(\s*job_id,\s*reason=\"billing_suspended\"\s*\)",
-        billing_src,
+def test_billing_sweepers_preserve_the_financial_control_boundary(billing_src: str) -> None:
+    """Financial tasks persist intent; the API sweep uses fenced lifecycle."""
+    import ast
+
+    tree = ast.parse(billing_src)
+    sweep = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "stop_jobs_for_suspended_wallets"
     )
-    assert len(delegated) >= 2, (
-        "Grace-expired and suspended-wallet sweepers must delegate to "
-        "stop_instance so v2 jobs receive attempt-bound commands."
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "stop_instance"
+        and any(kw.arg == "expected_authority" for kw in node.keywords)
+        for node in ast.walk(sweep)
+    )
+    periodic = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "auto_billing_cycle"
+    )
+    calls = {
+        node.func.id
+        for node in ast.walk(periodic)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "queue_failed_cycle_stop" in calls
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "stop_instance"
+        for node in ast.walk(periodic)
     )
 
 

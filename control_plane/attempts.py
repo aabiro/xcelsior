@@ -107,6 +107,9 @@ def report_attempt_status(
 
     # Serialize metadata and lifecycle with placement on the job row.
     conn.execute("SELECT job_id FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)).fetchone()
+    from control_plane.billing_effects import serialize_native_period
+
+    serialize_native_period(conn, job_id)
 
     # §8.1: authority first, before reading anything else.
     require_current_fence(
