@@ -1027,12 +1027,3 @@ class TestWorkerVolumeMountPaths:
         # Managed volumes (volume_ids) must use per-volume mount paths, not hardcode /workspace
         # Note: encrypted workspace deliberately mounts at /workspace — that's a separate feature
         assert "vol_mount_paths" in source
-
-    def test_work_endpoint_enriches_mount_paths(self):
-        """The agent work endpoint must inject volume_mounts into job payloads."""
-        import inspect
-        from routes.agent import api_agent_work
-
-        source = inspect.getsource(api_agent_work)
-        assert "volume_mounts" in source
-        assert "get_instance_volumes" in source

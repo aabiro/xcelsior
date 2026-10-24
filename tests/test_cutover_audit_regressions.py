@@ -230,19 +230,41 @@ def test_overlapping_handlers_retain_their_own_claim_identity(journal, monkeypat
     assert all(payload["worker_session_id"] == worker.WORKER_SESSION_ID for payload in sent)
 
 
-def test_active_mode_requires_command_claim_identity(command_row):
-    host, command_id, _ = command_row
+@pytest.mark.parametrize("mode", ["active", "canary", "paused", "shadow"])
+@pytest.mark.parametrize("mutation", ["ack", "nack"])
+def test_every_mode_requires_exact_command_claim_identity(command_row, monkeypatch, mode, mutation):
+    host, command_id, pool = command_row
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
     client = TestClient(app)
     headers = {"Authorization": "Bearer " + os.environ["XCELSIOR_API_TOKEN"]}
+    response = client.post(
+        "/agent/v2/commands/claim",
+        headers=headers,
+        json={"host_id": host, "worker_session_id": "current", "host_commands": True},
+    )
+    assert response.status_code == 200, response.text
+    command = next(c for c in response.json()["commands"] if c["command_id"] == command_id)
+    body = {
+        "host_id": host,
+        "worker_session_id": "current",
+        "claim_attempt": command["attempt_count"],
+        "error_code": "test_failure",
+    }
+    for missing in ["worker_session_id", "claim_attempt"]:
+        response = client.post(
+            f"/agent/v2/commands/{command_id}/{mutation}",
+            headers=headers,
+            json={k: v for k, v in body.items() if k != missing},
+        )
+        assert response.status_code == 422, response.text
+        with pool.connection() as conn:
+            assert conn.execute(
+                "SELECT status,claim_session,attempt_count FROM agent_commands WHERE command_id=%s",
+                (command_id,),
+            ).fetchone() == ("claimed", "current", command["attempt_count"])
     assert (
         client.post(
-            "/agent/v2/commands/claim",
-            headers=headers,
-            json={"host_id": host, "worker_session_id": "current", "host_commands": True},
+            f"/agent/v2/commands/{command_id}/{mutation}", headers=headers, json=body
         ).status_code
         == 200
     )
-    response = client.post(
-        f"/agent/v2/commands/{command_id}/ack", headers=headers, json={"host_id": host}
-    )
-    assert response.status_code == 422, response.text

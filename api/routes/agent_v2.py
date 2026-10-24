@@ -7,9 +7,8 @@ the full ``job/attempt/host/fence`` authority tuple. A 409 with
 ``code=fencing_violation`` (or a rejected renewal) is the worker's
 definitive signal that authority is gone — it must stop the container.
 
-Rollout is negotiated per host: ``XCELSIOR_AGENT_V2_HOSTS`` is a csv of
-host_ids (or ``*``) allowed to speak v2; everyone else keeps the v1
-poll/drain protocol untouched.
+Native execution is enabled per host: ``XCELSIOR_AGENT_V2_HOSTS`` is a csv
+of host_ids (or ``*``). Disabled hosts cannot fall back to v1 execution.
 """
 
 from __future__ import annotations
@@ -84,7 +83,7 @@ def api_v2_negotiate(host_id: str, request: Request):
 
     return {
         "ok": True,
-        "protocol": PROTOCOL_VERSION if enabled else 1,
+        "protocol": PROTOCOL_VERSION,
         "v2": enabled,
         "features": list(FEATURES) if enabled else [],
         "legacy_execution_allowed": legacy_execution_allowed(),
@@ -138,8 +137,8 @@ def api_v2_commands_claim(req: CommandClaimRequest, request: Request):
 
 class CommandAckRequest(BaseModel):
     host_id: str = Field(min_length=1, max_length=128)
-    worker_session_id: str | None = Field(default=None, min_length=1, max_length=128)
-    claim_attempt: int | None = Field(default=None, ge=1, strict=True)
+    worker_session_id: str = Field(min_length=1, max_length=128)
+    claim_attempt: int = Field(ge=1, strict=True)
     result: dict[str, Any] | None = None
 
 
@@ -147,7 +146,6 @@ class CommandAckRequest(BaseModel):
 def api_v2_command_ack(command_id: str, req: CommandAckRequest, request: Request):
     """Once-only terminal ACK; duplicates replay the stored result."""
     _require_agent_auth(request, host_id=req.host_id)
-    _require_command_claim_identity(req.worker_session_id, req.claim_attempt)
     try:
         outcome = run_transaction(
             lambda c: ack_command(
@@ -167,8 +165,8 @@ def api_v2_command_ack(command_id: str, req: CommandAckRequest, request: Request
 
 class CommandNackRequest(BaseModel):
     host_id: str = Field(min_length=1, max_length=128)
-    worker_session_id: str | None = Field(default=None, min_length=1, max_length=128)
-    claim_attempt: int | None = Field(default=None, ge=1, strict=True)
+    worker_session_id: str = Field(min_length=1, max_length=128)
+    claim_attempt: int = Field(ge=1, strict=True)
     error_code: str = Field(min_length=1, max_length=64)
     error_details: dict[str, Any] | None = None
     retryable: bool = True
@@ -178,7 +176,6 @@ class CommandNackRequest(BaseModel):
 def api_v2_command_nack(command_id: str, req: CommandNackRequest, request: Request):
     """Typed failure report → bounded-backoff redelivery or dead-letter."""
     _require_agent_auth(request, host_id=req.host_id)
-    _require_command_claim_identity(req.worker_session_id, req.claim_attempt)
     try:
         status = run_transaction(
             lambda c: nack_command(
@@ -196,21 +193,6 @@ def api_v2_command_nack(command_id: str, req: CommandNackRequest, request: Reque
     except CommandProtocolError as exc:
         raise HTTPException(409, detail={"error": {"code": "nack_rejected", "message": str(exc)}})
     return {"ok": True, "status": status}
-
-
-def _require_command_claim_identity(session: str | None, attempt: int | None) -> None:
-    from control_plane.legacy_execution import legacy_execution_allowed
-
-    if not legacy_execution_allowed() and (not session or attempt is None):
-        raise HTTPException(
-            422,
-            detail={
-                "error": {
-                    "code": "command_claim_identity_required",
-                    "message": "Active command completion requires the claiming session and delivery attempt",
-                }
-            },
-        )
 
 
 # ── Fenced leases (§11.2 hard gate) ──────────────────────────────────

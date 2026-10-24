@@ -2771,28 +2771,14 @@
             "title": "Host Id"
           },
           "worker_session_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 128,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
             "title": "Worker Session Id"
           },
           "claim_attempt": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
+            "minimum": 1.0,
             "title": "Claim Attempt"
           },
           "result": {
@@ -2810,7 +2796,9 @@
         },
         "type": "object",
         "required": [
-          "host_id"
+          "host_id",
+          "worker_session_id",
+          "claim_attempt"
         ],
         "title": "CommandAckRequest"
       },
@@ -2857,28 +2845,14 @@
             "title": "Host Id"
           },
           "worker_session_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 128,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
             "title": "Worker Session Id"
           },
           "claim_attempt": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
+            "minimum": 1.0,
             "title": "Claim Attempt"
           },
           "error_code": {
@@ -2908,6 +2882,8 @@
         "type": "object",
         "required": [
           "host_id",
+          "worker_session_id",
+          "claim_attempt",
           "error_code"
         ],
         "title": "CommandNackRequest"

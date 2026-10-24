@@ -1,4 +1,4 @@
-"""Retirement evidence counts real compatibility effects and refuses false zeroes."""
+"""Retired transports count authenticated refusals and never mutate state."""
 
 import json
 import os
@@ -53,24 +53,28 @@ def patch(job, **extra):
     )
 
 
-def test_status_patch_counts_committed_status(job):
-    before = counts("status_patch")
-    response = patch(job)
-    assert response.status_code == 200, response.text
-    assert counts("status_patch") == {
+def assert_refused(path, before):
+    assert counts(path) == {
         **before,
         "requested": before["requested"] + 1,
-        "used": before["used"] + 1,
+        "blocked": before["blocked"] + 1,
     }
+
+
+def test_status_patch_counts_refusal_without_committed_status(job):
+    before = counts("status_patch")
+    response = patch(job)
+    assert response.status_code == 410, response.text
+    assert_refused("status_patch", before)
     with _get_pg_pool().connection() as conn:
         assert (
             conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job[0],)).fetchone()[0]
-            == "starting"
+            == "assigned"
         )
 
 
 @pytest.mark.parametrize("attributed", [False, True])
-def test_patch_counts_fence_refusal_and_attributed_compatibility_use(job, attributed):
+def test_status_patch_is_retired_even_with_current_authority(job, attributed):
     job_id, host_id = job
     attempt_id = str(uuid.uuid4())
     with _get_pg_pool().connection() as conn:
@@ -82,34 +86,21 @@ def test_patch_counts_fence_refusal_and_attributed_compatibility_use(job, attrib
         conn.execute("UPDATE jobs SET active_attempt_id=%s WHERE job_id=%s", (attempt_id, job_id))
     before = counts("status_patch")
     authority = {"attempt_id": attempt_id, "fencing_token": 1} if attributed else {}
-    assert patch(job, **authority).status_code == (200 if attributed else 409)
-    outcome = "used" if attributed else "blocked"
-    assert counts("status_patch") == {
-        **before,
-        "requested": before["requested"] + 1,
-        outcome: before[outcome] + 1,
-    }
+    assert patch(job, **authority).status_code == 410
+    assert_refused("status_patch", before)
 
 
-def test_error_after_committed_patch_is_not_reported_as_blocked(job):
+def test_patch_cannot_apply_runtime_fields_after_retirement(job):
     before = counts("status_patch")
-    # This field is validated after the status transaction commits. Observability
-    # must not describe its HTTP 400 as a side-effect-free refusal.
-    assert patch(job, ssh_port=22).status_code == 400
-    assert counts("status_patch") == {
-        **before,
-        "requested": before["requested"] + 1,
-        "used": before["used"] + 1,
-        "failed": before["failed"] + 1,
-    }
+    assert patch(job, ssh_port=22).status_code == 410
+    assert_refused("status_patch", before)
     with _get_pg_pool().connection() as conn:
-        assert (
-            conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job[0],)).fetchone()[0]
-            == "starting"
-        )
+        assert conn.execute(
+            "SELECT status, payload->>'ssh_port' FROM jobs WHERE job_id=%s", (job[0],)
+        ).fetchone() == ("assigned", None)
 
 
-def test_command_drain_counts_committed_rows_and_empty_polls(job):
+def test_command_drain_counts_refusals_and_preserves_pending_rows(job):
     job_id, host_id = job
     with _get_pg_pool().connection() as conn:
         for _ in range(2):
@@ -118,62 +109,43 @@ def test_command_drain_counts_committed_rows_and_empty_polls(job):
                 "VALUES(%s,'reverify','{}',%s,%s,'pending')",
                 (host_id, time.time(), time.time() + 100),
             )
-    before = counts("command_drain")
-    response = client.get(f"/agent/commands/{host_id}")
-    assert response.status_code == 200, response.text
-    assert len(response.json()["commands"]) == 2
-    assert counts("command_drain") == {
-        **before,
-        "requested": before["requested"] + 1,
-        "used": before["used"] + 2,
-    }
-    response = client.get(f"/agent/commands/{host_id}")
-    assert response.json()["commands"] == []
-    assert counts("command_drain") == {
-        **before,
-        "requested": before["requested"] + 2,
-        "used": before["used"] + 2,
-    }
-
-
-def test_drain_database_failure_cannot_look_like_an_empty_poll(monkeypatch):
-    import routes.agent as agent
-
-    def unavailable():
-        raise RuntimeError("synthetic pool outage")
-
-    monkeypatch.setattr(agent, "_get_pg_pool", unavailable)
-    before = counts("command_drain")
-    assert client.get("/agent/commands/observation-outage").status_code == 500
-    assert counts("command_drain") == {
-        **before,
-        "requested": before["requested"] + 1,
-        "failed": before["failed"] + 1,
-    }
-
-
-def test_error_with_uncertain_commit_is_failed_not_claimed_side_effect_free(job, monkeypatch):
-    import routes.instances as instances
-
-    original = instances.update_job_status
-
-    def reply_lost(*args, **kwargs):
-        original(*args, **kwargs)
-        raise RuntimeError("synthetic error after committed mutation")
-
-    monkeypatch.setattr(instances, "update_job_status", reply_lost)
-    before = counts("status_patch")
-    assert patch(job).status_code == 500
-    assert counts("status_patch") == {
-        **before,
-        "requested": before["requested"] + 1,
-        "failed": before["failed"] + 1,
-    }
+    for _ in range(2):
+        before = counts("command_drain")
+        response = client.get(f"/agent/commands/{host_id}")
+        assert response.status_code == 410, response.text
+        assert_refused("command_drain", before)
     with _get_pg_pool().connection() as conn:
         assert (
-            conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job[0],)).fetchone()[0]
-            == "starting"
+            conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE host_id=%s AND status='pending'",
+                (host_id,),
+            ).fetchone()[0]
+            == 2
         )
+
+
+def test_retired_drain_does_not_open_the_command_database(monkeypatch):
+    import routes.agent as agent
+
+    def forbidden():
+        raise AssertionError("a retired transport must not read or drain commands")
+
+    monkeypatch.setattr(agent, "_get_pg_pool", forbidden)
+    before = counts("command_drain")
+    assert client.get("/agent/commands/observation-outage").status_code == 410
+    assert_refused("command_drain", before)
+
+
+def test_retired_patch_never_enters_the_raw_lifecycle_writer(job, monkeypatch):
+    import routes.instances as instances
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a retired transport must not mutate jobs")
+
+    monkeypatch.setattr(instances, "update_job_status", forbidden)
+    before = counts("status_patch")
+    assert patch(job).status_code == 410
+    assert_refused("status_patch", before)
 
 
 @pytest.mark.parametrize("path", ["status_patch", "command_drain"])
@@ -195,19 +167,17 @@ def test_auth_rejection_does_not_claim_an_authenticated_legacy_caller(job, monke
     assert counts(path) == before
 
 
-def test_retirement_policy_does_not_assume_active_mode_retires_status_or_commands(monkeypatch):
+@pytest.mark.parametrize("mode", ["active", "canary", "paused", "shadow"])
+def test_every_execution_transport_is_permanently_retired(monkeypatch, mode):
     from prometheus_client import generate_latest
+    from control_plane.legacy_execution import LEGACY_PATHS, retired_paths
 
-    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
     monkeypatch.delenv("XCELSIOR_RETIRED_LEGACY_PATHS", raising=False)
     generate_latest(REGISTRY)
-    assert REGISTRY.get_sample_value("xcelsior_legacy_path_retired", {"path": "work_poll"}) == 1
-    for path in ("status_patch", "command_drain"):
-        assert REGISTRY.get_sample_value("xcelsior_legacy_path_retired", {"path": path}) == 0
-    monkeypatch.setenv("XCELSIOR_RETIRED_LEGACY_PATHS", "status_patch,command_drain")
-    generate_latest(REGISTRY)
-    assert REGISTRY.get_sample_value("xcelsior_legacy_path_retired", {"path": "status_patch"}) == 1
-    assert REGISTRY.get_sample_value("xcelsior_legacy_path_retired", {"path": "command_drain"}) == 1
+    assert retired_paths() == set(LEGACY_PATHS)
+    for path in LEGACY_PATHS:
+        assert REGISTRY.get_sample_value("xcelsior_legacy_path_retired", {"path": path}) == 1
 
 
 def test_unknown_retirement_path_is_rejected(monkeypatch):

@@ -177,7 +177,9 @@ def _auth(job_id, host_id, refs, **overrides):
 
 
 class TestNegotiation:
-    @pytest.mark.parametrize("mode,legacy", [("active", False), ("canary", True)])
+    @pytest.mark.parametrize(
+        "mode,legacy", [("active", False), ("canary", False), ("paused", False), ("shadow", False)]
+    )
     def test_execution_policy_is_explicit(self, monkeypatch, mode, legacy):
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
         monkeypatch.setenv("XCELSIOR_AGENT_V2_HOSTS", "*")
@@ -191,7 +193,7 @@ class TestNegotiation:
         monkeypatch.delenv("XCELSIOR_AGENT_V2_HOSTS", raising=False)
         r = client.get("/agent/v2/negotiate/some-host")
         assert r.status_code == 200
-        assert r.json()["v2"] is False and r.json()["protocol"] == 1
+        assert r.json()["v2"] is False and r.json()["protocol"] == 2
 
     def test_allowlist_enables_v2(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_AGENT_V2_HOSTS", "Host-A, host-b")
@@ -210,26 +212,19 @@ class TestCommandDeliveryPartition:
         from routes import agent
 
         job_id, host_id, refs = _place_one(fleet, uuid.uuid4().hex[:8])
-        hint = {"job_id": job_id, "status": "assigned", "host_id": host_id}
-        with agent._agent_lock:
-            agent._agent_work[host_id] = [hint]
-        assert client.get("/agent/work/" + host_id).status_code == 204
+        assert not hasattr(agent, "_agent_work")
+        assert client.get("/agent/work/" + host_id).status_code == 410
 
-    def test_failed_ownership_read_keeps_cached_work(self, fleet, monkeypatch):
+    def test_retired_work_never_reads_or_consumes_placement_hints(self, fleet, monkeypatch):
         from routes import agent
 
-        job_id, host_id, refs = _place_one(fleet, uuid.uuid4().hex[:8])
-        hint = {"job_id": job_id, "status": "assigned", "host_id": host_id}
-        with agent._agent_lock:
-            agent._agent_work[host_id] = [hint]
-        monkeypatch.setattr(
-            agent, "eligible_work_ids", lambda *args: (_ for _ in ()).throw(RuntimeError("offline"))
-        )
-        try:
-            assert client.get("/agent/work/" + host_id).status_code == 503
-            assert agent._agent_work[host_id] == [hint]
-        finally:
-            agent._agent_work.pop(host_id, None)
+        _, host_id, _ = _place_one(fleet, uuid.uuid4().hex[:8])
+
+        def forbidden():
+            raise AssertionError("retired transport read a placement hint")
+
+        monkeypatch.setattr(agent, "list_jobs", forbidden)
+        assert client.get("/agent/work/" + host_id).status_code == 410
 
     def test_legacy_execution_usage_is_exported(self, monkeypatch):
         from prometheus_client import REGISTRY, generate_latest
@@ -246,7 +241,7 @@ class TestCommandDeliveryPartition:
     def test_work_poll_never_returns_fenced_placement(self, fleet, path):
         job_id, host_id, refs = _place_one(fleet, uuid.uuid4().hex[:8])
         response = client.get(path + host_id)
-        assert response.status_code == 204
+        assert response.status_code == 410
         with _pool.connection() as conn:
             assert (
                 conn.execute(
@@ -289,10 +284,10 @@ class TestCommandDeliveryPartition:
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, refs = _place_one(fleet, marker)
 
-        # v1 destructive drain: must NOT return or delete the start command.
+        # Retired v1 drain cannot return or delete the start command.
         r = client.get(f"/agent/commands/{host_id}")
-        assert r.status_code == 200
-        assert all(c["command"] != "start_attempt" for c in r.json()["commands"])
+        assert r.status_code == 410
+        assert r.json()["error"]["code"] == "v2_protocol_required"
         with _pool.connection() as conn:
             row = conn.execute(
                 "SELECT status FROM agent_commands WHERE command_id=%s",
@@ -319,18 +314,20 @@ class TestCommandDeliveryPartition:
     def test_ack_is_once_only_and_replayed(self, fleet):
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, refs = _place_one(fleet, marker)
-        client.post(
+        claimed = client.post(
             "/agent/v2/commands/claim",
             json={"host_id": host_id, "worker_session_id": "sess-test"},
-        )
+        ).json()["commands"]
+        command = next(c for c in claimed if c["command_id"] == refs["command_id"])
+        completion = {"worker_session_id": "sess-test", "claim_attempt": command["attempt_count"]}
         r1 = client.post(
             f"/agent/v2/commands/{refs['command_id']}/ack",
-            json={"host_id": host_id, "result": {"started": True}},
+            json={"host_id": host_id, **completion, "result": {"started": True}},
         )
         assert r1.status_code == 200 and r1.json()["duplicate"] is False
         r2 = client.post(
             f"/agent/v2/commands/{refs['command_id']}/ack",
-            json={"host_id": host_id, "result": {"started": True}},
+            json={"host_id": host_id, **completion, "result": {"started": True}},
         )
         assert r2.status_code == 200 and r2.json()["duplicate"] is True
         assert r2.json()["result"] == {"started": True}
@@ -338,14 +335,17 @@ class TestCommandDeliveryPartition:
     def test_nack_nonretryable_dead_letters(self, fleet):
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, refs = _place_one(fleet, marker)
-        client.post(
+        claimed = client.post(
             "/agent/v2/commands/claim",
             json={"host_id": host_id, "worker_session_id": "sess-test"},
-        )
+        ).json()["commands"]
+        command = next(c for c in claimed if c["command_id"] == refs["command_id"])
+        completion = {"worker_session_id": "sess-test", "claim_attempt": command["attempt_count"]}
         r = client.post(
             f"/agent/v2/commands/{refs['command_id']}/nack",
             json={
                 "host_id": host_id,
+                **completion,
                 "error_code": "lease_claim_rejected",
                 "retryable": False,
             },
@@ -535,7 +535,12 @@ class TestFencedLeaseLifecycle:
         assert (
             client.post(
                 f"/agent/v2/commands/{refs['command_id']}/ack",
-                json={"host_id": host_id, "result": {"lease_claimed": True}},
+                json={
+                    "host_id": host_id,
+                    "worker_session_id": "sess-test",
+                    "claim_attempt": start["attempt_count"],
+                    "result": {"lease_claimed": True},
+                },
             ).status_code
             == 200
         )
@@ -620,86 +625,52 @@ class TestLegacyPatchFence:
         assert row[0] == "assigned"
         assert str(row[1]) == refs["attempt_id"]
 
-    def test_wrong_host_patch_fenced_out(self, fleet):
-        """Split-brain guard: a worker on another host cannot v1-report
-        status for an attempt-owned job."""
+    @pytest.mark.parametrize("authority", ["wrong_host", "exact", "missing", "wrong_fence"])
+    def test_retired_patch_never_mutates_attempt_owned_job(self, fleet, authority):
         marker = uuid.uuid4().hex[:8]
         job_id, host_id, refs = _place_one(fleet, marker)
-        r = client.patch(
-            f"/instance/{job_id}",
-            json={
-                "status": "running",
-                "host_id": f"h-{marker}-imposter",
-                "attempt_id": refs["attempt_id"],
-                "fencing_token": refs["fencing_token"],
-            },
-            headers=_worker_headers(),
-        )
-        assert r.status_code == 409
-        assert r.json()["error"]["code"] == "fencing_violation"
+        body = {"status": "starting"}
+        if authority != "missing":
+            body.update(
+                host_id=host_id, attempt_id=refs["attempt_id"], fencing_token=refs["fencing_token"]
+            )
+        if authority == "wrong_host":
+            body["host_id"] += "-imposter"
+        elif authority == "wrong_fence":
+            body["fencing_token"] += 1
         with _pool.connection() as conn:
-            row = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
-        assert (row[0] if not isinstance(row, dict) else row["status"]) == "assigned"
+            before = conn.execute(
+                "SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)
+            ).fetchone()
+        response = client.patch(f"/instance/{job_id}", json=body, headers=_worker_headers())
+        assert response.status_code == 410
+        assert response.json()["error"]["code"] == "v2_protocol_required"
+        with _pool.connection() as conn:
+            assert (
+                conn.execute("SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)).fetchone()
+                == before
+            )
 
-    def test_authority_host_patch_allowed(self, fleet):
-        marker = uuid.uuid4().hex[:8]
-        job_id, host_id, refs = _place_one(fleet, marker)
-        r = client.patch(
-            f"/instance/{job_id}",
-            json={
-                "status": "starting",
-                "host_id": host_id,
-                "attempt_id": refs["attempt_id"],
-                "fencing_token": refs["fencing_token"],
-            },
-            headers=_worker_headers(),
-        )
-        assert r.status_code == 200
-
-    def test_patch_without_authority_tuple_is_fenced(self, fleet):
-        """Attempt-owned compatibility writes fail closed when unattributed."""
-        marker = uuid.uuid4().hex[:8]
-        job_id, host_id, refs = _place_one(fleet, marker)
-        r = client.patch(
-            f"/instance/{job_id}",
-            json={"status": "starting"},
-            headers=_worker_headers(),
-        )
-        assert r.status_code == 409
-        assert r.json()["error"]["code"] == "fencing_violation"
-
-    def test_same_host_wrong_fence_is_rejected(self, fleet):
-        marker = uuid.uuid4().hex[:8]
-        job_id, host_id, refs = _place_one(fleet, marker)
-        r = client.patch(
-            f"/instance/{job_id}",
-            json={
-                "status": "running",
-                "host_id": host_id,
-                "attempt_id": refs["attempt_id"],
-                "fencing_token": refs["fencing_token"] + 1,
-            },
-            headers=_worker_headers(),
-        )
-        assert r.status_code == 409
-        assert r.json()["error"]["code"] == "fencing_violation"
-
-    def test_non_attempt_job_unaffected(self, fleet):
-        marker = uuid.uuid4().hex[:8]
-        job_id = f"j-{marker}-legacy"
+    def test_non_attempt_job_cannot_use_retired_patch(self, fleet):
+        job_id = f"j-{uuid.uuid4().hex[:8]}-legacy"
         with _pool.connection() as conn:
             conn.execute(
-                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'assigned', 0, %s, %s, 'scheduled', 'running', 0, NULL)""",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+                VALUES (%s, 'assigned', 0, %s, %s, 'scheduled', 'running', 0, NULL)""",
                 (job_id, time.time(), json.dumps({"job_id": job_id, "name": job_id})),
             )
-            conn.commit()
         fleet["jobs"].append(job_id)
-        r = client.patch(
+        response = client.patch(
             f"/instance/{job_id}",
             json={"status": "starting", "host_id": "any-host"},
             headers=_worker_headers(),
         )
-        assert r.status_code == 200
+        assert response.status_code == 410
+        with _pool.connection() as conn:
+            assert (
+                conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
+                == "assigned"
+            )
 
 
 class TestCompleteWorkerCutover:
@@ -894,14 +865,20 @@ class TestCompleteWorkerCutover:
             ).json()["commands"]
             == []
         )
+        command = next(c for c in response.json()["commands"] if c["command_id"] == command_id)
+        completion = {
+            "host_id": hid,
+            "worker_session_id": "complete-cutover",
+            "claim_attempt": command["attempt_count"],
+        }
         assert (
             client.post(
                 f"/agent/v2/commands/{command_id}/ack",
-                json={"host_id": hid, "result": {"dispatched": True}},
+                json={**completion, "result": {"dispatched": True}},
             ).status_code
             == 200
         )
-        duplicate = client.post(f"/agent/v2/commands/{command_id}/ack", json={"host_id": hid})
+        duplicate = client.post(f"/agent/v2/commands/{command_id}/ack", json=completion)
         assert duplicate.json()["duplicate"] is True
         with _pool.connection() as conn:
             assert (

@@ -1372,9 +1372,9 @@ export interface components {
             /** Host Id */
             host_id: string;
             /** Worker Session Id */
-            worker_session_id?: string | null;
+            worker_session_id: string;
             /** Claim Attempt */
-            claim_attempt?: number | null;
+            claim_attempt: number;
             /** Result */
             result?: {
                 [key: string]: unknown;
@@ -1402,9 +1402,9 @@ export interface components {
             /** Host Id */
             host_id: string;
             /** Worker Session Id */
-            worker_session_id?: string | null;
+            worker_session_id: string;
             /** Claim Attempt */
-            claim_attempt?: number | null;
+            claim_attempt: number;
             /** Error Code */
             error_code: string;
             /** Error Details */
