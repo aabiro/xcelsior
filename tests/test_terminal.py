@@ -1456,6 +1456,7 @@ class TestInputFrameLimit:
             msg = ws.receive_json()
             assert msg["type"] == "error"
             assert msg["code"] == 1009
+        assert fake_client.closed
 
 
 class TestMalformedControlFrames:

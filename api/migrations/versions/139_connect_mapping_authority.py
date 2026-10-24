@@ -1,7 +1,7 @@
 """Move Connect mapping bootstrap from API import to the migration login.
 
-Existing mappings are retained verbatim. Fresh databases receive the same
-tables; downgrade retains financial/provider mappings for older readers.
+Original mapping fields are retained verbatim, with explicit platform catalog
+scope and tenant-leading indexes. Fresh databases receive the same tables; downgrade retains financial/provider mappings for older readers.
 """
 
 from alembic import op
@@ -32,6 +32,21 @@ def upgrade():
         account_id TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT now()
     )""")
+    # These are the platform administrator's shared Connect catalog, never
+    # recovered personal workspace ownership inferred from a contact email.
+    for table in ("connect_accounts", "connect_products"):
+        op.execute(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS tenant_id TEXT "
+            "NOT NULL DEFAULT 'system:stripe-connect'"
+        )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS connect_accounts_tenant_account "
+        "ON connect_accounts(tenant_id,stripe_account_id)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS connect_products_tenant_account "
+        "ON connect_products(tenant_id,account_id,stripe_product_id)"
+    )
 
 
 def downgrade():
