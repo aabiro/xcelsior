@@ -1,0 +1,182 @@
+{
+  "production_source": "fdaab8143fea857915f3f2841a35880737803460",
+  "schema": "141",
+  "qualification": {
+    "tests": 3889,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "inherited_warnings": 8,
+    "source_hashes_unchanged": 1127,
+    "isolated_postgres16": true,
+    "redis_cleanup": true
+  },
+  "handoff": {
+    "ready": true,
+    "source": "fdaab814",
+    "schema": "141",
+    "image": "sha256:34400f7931bb10fee87d277a811c2d26082a5247ae5352bf26c2e75678c57dba",
+    "runtime_audits": [
+      {
+        "service": "api",
+        "passed": true
+      },
+      {
+        "service": "scheduler",
+        "passed": true
+      },
+      {
+        "service": "reconciler",
+        "passed": true
+      },
+      {
+        "service": "api",
+        "passed": true
+      },
+      {
+        "service": "billing",
+        "passed": true
+      },
+      {
+        "service": "projector",
+        "passed": true
+      },
+      {
+        "service": "ssh_gateway",
+        "passed": true
+      }
+    ],
+    "persisted": true
+  },
+  "migration": {
+    "applied": true,
+    "schema": "141",
+    "source": "fdaab814",
+    "normalized_existing_tables_unchanged": 153,
+    "direct_migrator": true,
+    "role_convergence": {
+      "passed": true,
+      "statements": 1577,
+      "credentials_and_logins_unchanged": true,
+      "runtime_grant_issues": {
+        "api": [],
+        "scheduler": [],
+        "reconciler": [],
+        "billing": [],
+        "projector": [],
+        "ssh_gateway": []
+      }
+    },
+    "invariants": {
+      "schema": "141",
+      "active_jobs": 0,
+      "live_leases": 0,
+      "live_allocations": 0,
+      "ledger_mismatches": 0,
+      "preemption_enabled": 0
+    }
+  },
+  "worker_source_sha256": "65c6aeb142ba2fc2996b375871e1a4115d6fa5f2998f185743950c40af08fda1",
+  "nvml_source_sha256": "35b6dca88433107078bf5fd3d4bf46f4223864e7fd75342c40c6b44cbd828381",
+  "signed_workers_activated": 2,
+  "worker_environment_unchanged": true,
+  "native_physical_inventories": 2,
+  "request_provenance_and_measured_exit_verified": true,
+  "api_acceptance": {
+    "passed": true,
+    "schema": "141",
+    "startup_and_readiness": true,
+    "public_signed_distributions_verified": 12,
+    "pinned_signing_key_verified": true,
+    "native_jobs": 4,
+    "attempts_and_meters": 5,
+    "charged_cycles": 6,
+    "debited_micros": 55800,
+    "meter_cycle_ledger_amounts_match": true,
+    "wallet_ledger_mismatches": 0,
+    "active_attempts_leases_allocations": 0,
+    "admission_hashes_and_host_pins_valid": true,
+    "http_log_repeats": 8,
+    "http_log_download": true,
+    "boundary_job_no_implicit_nfs_setup": true,
+    "draft_invoice_preview_and_csv_match_usage": true,
+    "invoice_preview_read_only": true,
+    "historical_dispositions": {
+      "retained_recovered": 4,
+      "retained_unavailable": 360
+    },
+    "qualified_credit_receipts": 2,
+    "qualified_credit_micros": 300,
+    "repair_policies": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "preemption_and_force_enabled_policies": 0,
+    "external_provider_transfer_tested": false
+  },
+  "host_acceptance": {
+    "healthy_containers": 5,
+    "new_error_patterns": {
+      "xcelsior-api-1": {},
+      "xcelsior-scheduler-worker-1": {},
+      "xcelsior-bg-worker-1": {},
+      "xcelsior-ssh-gateway-1": {},
+      "xcelsior-mcp-blue-1": {}
+    },
+    "partition_alerts_healthy": 3,
+    "public_and_mcp_readiness": true
+  },
+  "post_cutover_backup": {
+    "dump_sha256": "5b73fae4b978314cd8096374fc87ce3e8445d3ab4f2bf0a154de0702408bf69a",
+    "dump_bytes": 54716852,
+    "captured_at": "2026-10-24T21:28:11.877963+00:00",
+    "source_schema": "141",
+    "read_only": true,
+    "logical_tables": 155,
+    "port": "5434",
+    "snapshot_shared_with_dump": true,
+    "offline_backup_login": "xcelsior"
+  },
+  "post_cutover_restore": {
+    "passed": true,
+    "schema": "141",
+    "offline_backup_login": "xcelsior",
+    "all_table_hashes_match": 155,
+    "wallet_ledger_mismatches": 0,
+    "historical_dispositions": {
+      "retained_recovered": 4,
+      "retained_unavailable": 360
+    },
+    "historical_credits_micros": 300,
+    "real_head_entrypoint": true,
+    "production_mutation": false,
+    "isolated_restore": true,
+    "dump_sha256": "5b73fae4b978314cd8096374fc87ce3e8445d3ab4f2bf0a154de0702408bf69a"
+  },
+  "native_recovery_jobs": {
+    "passed": true,
+    "backup": true,
+    "restore_under_direct_migrator": true,
+    "partition_maintenance": true,
+    "timers_enabled_and_active": 3,
+    "production_port": 5434,
+    "source": "fdaab814",
+    "prior_backups_preserved": 15
+  },
+  "production_continuous_wal_archiving": false,
+  "independent_offsite_recovery_verified": false,
+  "all_cutover_work_complete": false,
+  "post_cutover_population_scan": {
+    "tables": 177,
+    "columns": 2077,
+    "nonempty_tables": 93,
+    "scan_errors": 0,
+    "read_only": true
+  }
+}
