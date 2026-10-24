@@ -2433,6 +2433,14 @@ data disposition remain separately scoped below.
   compatibility with a documented deprecation date; archive or drop old
   event and telemetry structures only after retention and export
   validation.
+  **Population/column increment, 2026-10-24:** native ownership, physical GPU
+  inventory, request provenance and fenced outcomes are implemented in revision
+  140's runtime. Revision 141 archives/drops Lightning's six float/epoch twins,
+  derives API numbers from typed values and protects canonical payment terms.
+  The focused source gates pass 47 and 207 checks; generated contracts pass
+  twelve checks. Production remains 139 pending this new boundary. Historical
+  unknowns and remaining compatibility handlers are explicit residuals.
+  [Column qualification](review/2026-10-24-lightning-column-contraction.md).
 - [~] **B16.3 Code removal.** Remove the legacy lease table and path; the
   process-memory command and preemption path (`agent_preempt.py`); direct
   scheduler SSH execution (`process_assigned`/`run_job`); the warning-only

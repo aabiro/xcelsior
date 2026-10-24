@@ -43,28 +43,20 @@ def _insert_deposit(
     with pg_transaction() as conn:
         conn.execute(
             """INSERT INTO ln_deposits
-               (deposit_id, customer_id, label, bolt11, payment_hash,
-                amount_msat, amount_sats, amount_btc, amount_micros,
-                btc_cad_rate, status, created_at, expires_at, amount_cad_minor, btc_cad_rate_exact, created_at_ts, expires_at_ts)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), to_timestamp(%s))""",
+                (deposit_id,customer_id,label,bolt11,payment_hash,
+                 amount_msat,amount_sats,amount_micros,amount_cad_minor,
+                 btc_cad_rate_exact,status,created_at_ts,expires_at_ts)
+            VALUES(%s,%s,%s,%s,%s,1000000,1000,%s,%s,100000,%s,
+                clock_timestamp(),clock_timestamp()+interval '1 day')""",
             (
                 deposit_id,
                 customer_id,
                 f"xcelsior-{deposit_id}",
                 f"lnbc-{deposit_id}",
                 f"hash-{deposit_id}",
-                1_000_000,
-                1000,
-                0.00001,
                 round(amount_cad * 1_000_000),
-                100_000.0,
-                status,
-                time.time(),
-                time.time() + 86_400,
                 round(amount_cad * 100),
-                100_000,
-                time.time(),
-                time.time() + 86_400,
+                status,
             ),
         )
 
@@ -419,8 +411,8 @@ def test_writer_that_omits_typed_columns_is_refused_after_contract():
     with pytest.raises(NotNullViolation):
         with pg_transaction() as conn:
             conn.execute(
-                "INSERT INTO ln_deposits(deposit_id,customer_id,label,bolt11,payment_hash,amount_msat,amount_sats,amount_micros,status,created_at,expires_at) "
-                "VALUES(%s,'customer',%s,'bolt',%s,1000000,1000,3330000,'pending',1,2)",
+                "INSERT INTO ln_deposits(deposit_id,customer_id,label,bolt11,payment_hash,amount_msat,amount_sats,amount_micros,status) "
+                "VALUES(%s,'customer',%s,'bolt',%s,1000000,1000,3330000,'pending')",
                 (marker, marker, marker),
             )
 
@@ -436,38 +428,34 @@ def test_zero_epoch_sentinels_project_to_null(deposits):
 
     with pg_transaction() as conn:
         row = conn.execute(
-            "SELECT paid_at, paid_at_ts, credited_at, credited_at_ts "
-            "FROM ln_deposits WHERE deposit_id = %s",
+            "SELECT paid_at_ts,credited_at_ts FROM ln_deposits WHERE deposit_id=%s",
             (deposit_id,),
         ).fetchone()
-
-    assert row is not None
-    paid_at, paid_at_ts, credited_at, credited_at_ts = row
-    assert (paid_at or 0) == 0
-    assert paid_at_ts is None, f"paid_at=0 must project to NULL, got {paid_at_ts}"
-    assert (credited_at or 0) == 0
-    assert credited_at_ts is None
+    assert row == (None, None)
+    projection = next(r for r in ln.get_pending_deposits() if r["deposit_id"] == deposit_id)
+    assert projection["paid_at"] == projection["credited_at"] == 0
 
 
 def test_credit_and_mark_stamp_typed_timestamps(deposits):
-    """The lifecycle writes both representations during the expand phase."""
+    """The lifecycle writes typed time and derives the API epoch at read time."""
     deposit_id, _ = deposits("paid")
 
     assert ln.mark_credited(deposit_id) is True
 
     with pg_transaction() as conn:
         row = conn.execute(
-            "SELECT credited_at, credited_at_ts FROM ln_deposits " "WHERE deposit_id = %s",
+            "SELECT credited_at_ts FROM ln_deposits WHERE deposit_id = %s",
             (deposit_id,),
         ).fetchone()
 
     assert row is not None
-    credited_at, credited_at_ts = row
-    assert credited_at and credited_at > 0
-    assert credited_at_ts is not None, (
-        "mark_credited must stamp the TIMESTAMPTZ column too, or the typed "
-        "column silently lags the legacy one"
+    assert row[0] is not None
+    projection = next(
+        r
+        for r in ln.get_customer_deposits(ln.check_deposit(deposit_id)["customer_id"])
+        if r["deposit_id"] == deposit_id
     )
+    assert projection["credited_at"] == row[0].timestamp()
 
 
 def test_sweep_credits_from_exact_cents_not_the_float(deposits):
@@ -478,13 +466,16 @@ def test_sweep_credits_from_exact_cents_not_the_float(deposits):
     """
     deposit_id, customer_id = deposits("paid", amount_cad=19.99)
 
-    # Corrupt the legacy float the way binary representation does, leaving
-    # the exact column correct.
-    with pg_transaction() as conn:
-        conn.execute(
-            "UPDATE ln_deposits SET amount_micros = %s WHERE deposit_id = %s",
-            (round(19.989999999999998 * 1_000_000), deposit_id),
-        )
+    # The contract now rejects monetary history edits instead of carrying an
+    # independently mutable legacy projection alongside exact cents.
+    import psycopg
+
+    with pytest.raises(psycopg.errors.IntegrityConstraintViolation):
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE ln_deposits SET amount_micros=19980000 WHERE deposit_id=%s",
+                (deposit_id,),
+            )
 
     credits: list[tuple] = []
     ln.process_ln_deposits(credit_callback=lambda c, a, d: credits.append((c, a, d)))
@@ -506,25 +497,10 @@ def test_amount_check_constraint_rejects_non_positive():
         with pg_transaction() as conn:
             conn.execute(
                 """INSERT INTO ln_deposits
-                   (deposit_id, customer_id, label, bolt11, payment_hash,
-                    amount_msat, amount_sats, amount_btc, amount_micros,
-                    amount_cad_minor, btc_cad_rate, status, created_at,
-                    expires_at, btc_cad_rate_exact, created_at_ts, expires_at_ts)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 100000,clock_timestamp(),clock_timestamp())""",
-                (
-                    deposit_id,
-                    "c",
-                    f"lbl-{deposit_id}",
-                    "b",
-                    "h",
-                    0,
-                    0,
-                    0.0,
-                    0.0,
-                    0,
-                    100_000.0,
-                    "pending",
-                    time.time(),
-                    time.time() + 3600,
-                ),
+                    (deposit_id,customer_id,label,bolt11,payment_hash,
+                     amount_msat,amount_sats,amount_micros,amount_cad_minor,
+                     btc_cad_rate_exact,status,created_at_ts,expires_at_ts)
+                VALUES(%s,'c',%s,'b',%s,0,0,0,0,100000,'pending',
+                    clock_timestamp(),clock_timestamp()+interval '1 hour')""",
+                (deposit_id, deposit_id, deposit_id),
             )

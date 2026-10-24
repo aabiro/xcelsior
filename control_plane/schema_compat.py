@@ -59,7 +59,8 @@ from psycopg import Connection
 # 139 makes Connect mappings available without runtime table creation.
 # 140 requires canonical Lightning payment facts and removes two unused
 # compatibility columns. Replace every writer/diagnostic reader at that boundary.
-REQUIRED_MIN_REVISION = "140"
+# 141 contracts Lightning float/epoch twins after all old writers stop.
+REQUIRED_MIN_REVISION = "141"
 REQUIRED_MAX_REVISION: str | None = None
 
 

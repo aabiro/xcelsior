@@ -43,26 +43,20 @@ def ln_rows():
         with pg_transaction() as conn:
             conn.execute(
                 """INSERT INTO ln_deposits
-                   (deposit_id, customer_id, tenant_id, label, bolt11,
-                    payment_hash, amount_msat, amount_sats, amount_btc,
-                    amount_micros, btc_cad_rate, status, created_at, expires_at, amount_cad_minor, btc_cad_rate_exact, created_at_ts, expires_at_ts)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,100000,clock_timestamp(),clock_timestamp()+interval '1 day')""",
+                    (deposit_id,customer_id,tenant_id,label,bolt11,payment_hash,
+                     amount_msat,amount_sats,amount_micros,amount_cad_minor,
+                     btc_cad_rate_exact,status,created_at_ts,expires_at_ts)
+                VALUES(%s,%s,%s,%s,'bolt',%s,1000000,1000,%s,%s,100000,%s,
+                    clock_timestamp(),clock_timestamp()+interval '1 day')""",
                 (
                     deposit_id,
                     cust,
                     cust,
                     f"lbl-{deposit_id}",
-                    "bolt",
                     payment_hash or f"hash-{deposit_id}",
-                    1_000_000,
-                    1000,
-                    0.00001,
                     round(amount_cad * 1_000_000),
-                    100_000.0,
-                    status,
-                    time.time(),
-                    time.time() + 3600,
                     round(amount_cad * 100),
+                    status,
                 ),
             )
         created.append(deposit_id)
@@ -193,6 +187,11 @@ def test_status_check_rejects_an_invented_state(ln_rows):
         ("amount_msat", 1),
         ("payment_hash", "different-hash"),
         ("currency", "USD"),
+        ("tenant_id", "other-tenant"),
+        ("amount_sats", 1),
+        ("amount_micros", 1),
+        ("amount_cad_minor", 1),
+        ("btc_cad_rate_exact", 1),
     ],
 )
 def test_payment_terms_are_immutable(ln_rows, column, value):
