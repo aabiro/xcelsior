@@ -1,7 +1,7 @@
 # Staged control-plane production handoff
 
 This is a prepared release procedure, not a deployment receipt. The read-only
-production baseline at 2026-10-23 20:04 UTC remains schema 125, no live attempt pointers/leases/device
+production baseline at 2026-10-24 07:08 UTC remains schema 125, no live attempt pointers/leases/device
 allocations, and eight `report_only` repair policies. Dedicated service roles
 are still `NOLOGIN`. B16 remains open until the deployment evidence below passes.
 
@@ -11,26 +11,27 @@ are still `NOLOGIN`. B16 remains open until the deployment evidence below passes
 |---|---|---|---|
 | Native writers compatible with schema 126, before removing legacy triggers | `1af572b6` | `xcelsior-api:cutover-transition-1af572b6` | `sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6` |
 | Intermediate native lifecycle, admitted preferences, schema contraction and retired task | `7757bdc3` | `xcelsior-api:cutover-native-7757bdc3` | `sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6` |
-| Native host eviction, serialized snapshots, net replacement quotas and schema-137 results | `23158934` | `xcelsior-api:cutover-review-23158934` | `sha256:788f6b8084caa223fd4a3a8d4b2e4f4444822041e6048ac8f2948f187ce71ec3` |
+| Fenced runtime metadata, encrypted execution delivery and atomic native billing | `e41f180d` | `xcelsior-api:cutover-audited-e41f180d` | `sha256:e50da92fb4698b9a60fc747ff0aaaea383a2f5b7d5028558db28c8bc2b987f04` |
 
 All three builds use tracked-file archives, exclude runtime environment files and
 private signing keys, and retain build logs/context hashes outside Git.
-Later `c0f4af05` and `5b51d90e` change only fixtures/review evidence.
-`23158934` supersedes the `821d1a07` operator runtime; do not substitute the
-intermediate or the older operator image for it.
+Runtime `e41f180d` includes the control-plane/data audit fixes in `2e175630`
+and `7e51a2d0`; `c1cd32f0` changes only two calculator fixtures. All runtime
+files match the frozen final image. This supersedes `23158934` and earlier
+operator candidates; use the intermediate image only at its named boundary.
 Do not rebuild or substitute a moving tag when transferring these artifacts.
 Retain archive/image checksums and compare imported Config/RootFS/platform with
 the frozen local image. A matching tag alone is insufficient.
 
-The local transfer archive is `review-handoff-images.tar.gz`
-(966587391 bytes, SHA-256 `5ed3be54e4f272a390b75dca4084c28adad16d8249861958de7d6925fefb5a4b`).
-Its saved tags, Config payload hashes and RootFS layers independently match all
-three frozen local images. It has not been transferred to production.
+The local transfer archive is `audited-handoff-images.tar.gz`
+(896788408 bytes, SHA-256 `e6960bf144edee46c11165392d682c52fdfc4b504c6d58c521ce7270471f1cb3`).
+Every saved blob digest, Config payload, RootFS layer and platform independently
+matches the three frozen local images. It has not been transferred to production.
 All three images passed real Gunicorn readiness, metrics and signature checks
 on an isolated PostgreSQL 16 cluster: transition at 126, intermediate at 136,
 and final at 137. The final image runs as UID 10001 with a read-only root,
 no network and no capabilities. See the
-[review follow-up receipt](2026-10-23-native-review-and-full-restore.md).
+[control-plane/data-layer audit](2026-10-24-control-plane-data-layer-audit.md).
 
 The final image's runtime floor is 137. It cannot serve earlier schemas.
 The intermediate `7757bdc3` image has floor 134 and is needed for 134–136.
@@ -50,9 +51,10 @@ absolute targets and keeps migration credentials in the one-shot process.
    port **5434**. Pass an isolated restore/migration drill and retain its
    cleanup/invariant receipt. Port 5432 belongs to other services. Do not treat
    the scoped historical fixture as a full financial backup/restore proof.
-   The complete 19:20 UTC snapshot has now passed a PostgreSQL 16 restore of
-   all 138 source tables and ordered migrations 126–137, preserving 34 protected
-   tables at every target. Retain that receipt and recheck freshness before the
+   The complete 2026-10-24 06:52 UTC read-only snapshot passed a PostgreSQL 16
+   restore of all 142 logical public/storage tables and ordered migrations
+   126–137, preserving 38 protected tables at every target, including all four
+   storage-schema tables. Retain that receipt and recheck freshness before the
    actual production change; it does not capture writes after its snapshot.
 3. Stage the frozen images and source under a private release directory. Keep
    saved credentials/configuration private; never print rendered Compose
