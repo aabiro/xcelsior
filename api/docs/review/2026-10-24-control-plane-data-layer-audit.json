@@ -1,0 +1,1035 @@
+{
+  "artifact_root": "/mnt/storage/projects/xcelsior/artifacts/control-plane-production-readiness-20261023",
+  "artifact_sha256": {
+    "audited-handoff-archive.json": "4bb73db2b6135dd9a00e14580d9b8d4a02244c67a4ef388771465e9f834001a3",
+    "calculator-context-qualified/manifest.json": "6a13096a5145afc1602e2d31eec94b67d93703a96215ef1aaa29baf6b185e9c1",
+    "clean-control-data-expanded/manifest.json": "e9bfba6d75428fa008dc8af89fd6cf64b7b62dcd9398f6dce6824fc590bafd55",
+    "data-audit-generated-qualified/manifest.json": "587b28f8fa21fb66f0b2d6fd134e46e1e539d426636a107986cf5ca4e0fc45bb",
+    "final-build-context.json": "259cb0ed6114820da20463d112ead6784b862d3beed9c9d4df10eddaccd6be6c",
+    "final-built-images-pg16/manifest.json": "2ee764bcaa24779d0a64a915dffed4309debb0599fe9eceecede9593b1ff58a1",
+    "final-cuda-worker-acceptance/manifest.json": "681d2087b9e2e3ff2a9c53e6000852f564eb1eb4862947d1483957e4f9303f02",
+    "final-runtime-source-match.json": "4c115b6f6b47765efdb0c6b3be3066dac45b9311738b8ba74709f3602d5d86ad",
+    "financial-overlap-classification.json": "ae4cea5a67ff38ca4d79847327cbdc8a90ba799066e1cd5ba6db2dba84980252",
+    "financial-race-followup/manifest.json": "9edcd24febc5e82c23a9ab3e36919c35624205fe1669efb00d62e5d650ad0c50",
+    "fresh-complete-restore-all-schemas/manifest.json": "1013e2a440a82703df286cb518084df96e900ab061e86e02745e8b6e01f9bc84",
+    "fresh-full-production-restore-result.json": "34bf4a752e32bebb2b649fd1db360a441bbb5edf496cbc5105e144c110bb3e52",
+    "fresh-production-dump-custody.json": "148215fe967a2e96b88484c5249872f622d0420e2d2ae69caf910c50b479fcf8",
+    "native-secret-delivery/manifest.json": "2fc6fba0e4f59fcc288c08a419de486724b0641ce514e47fb60a11726bd1917d",
+    "production-audit-baseline.json": "f36d0fb6abd52ed29ce8b928b6794b7cddfe31f2d4f18a05b732f2e9d22f110e",
+    "production-backup-verification.json": "d4562b68f698b0e13698ba4fbf5a155cb91c0edba5a7ae05d0a276cc5cbde3ba",
+    "production-data-layer-final.json": "bb3411e2482f5a613e117282f48538f48e3120d003c2c671fca8acdcd051685e",
+    "production-environment-storage.json": "d03a8504b5514718e3fe3bb16cbd1ca7a558d05b1d823e4dfe98cba704a12b52",
+    "production-final-images.json": "799b0969928124a94bce335cbce74615366fa485c89b3f0f169dcc904644cb38",
+    "production-final-probe.json": "5e9fc3f3528f88d93bf7ab18e4c4e07bca2a40a9b515ec604918c124cda8fd9e",
+    "production-population-audit.json": "09e11960dec3e2ef77eb7bc1bd4c272df600e799cdf90adacc57308093337ee7",
+    "serverless-bounds-and-roles-final/manifest.json": "eed441ee371af4f9fa2deb3cd79722b71e863cf3f053078771c773e90fa29e72"
+  },
+  "broad_baseline_exclusions": [
+    "tests/test_instance_flow.py::TestDockerComposeSmoke",
+    "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+    "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+  ],
+  "candidate_source_qualified": true,
+  "cuda": {
+    "fault_modes": [
+      "none",
+      "none",
+      "before_commit",
+      "after_commit",
+      "restart"
+    ],
+    "journeys": 5,
+    "limits": [
+      "no public launch or ingress",
+      "no run_job provisioning",
+      "no wallet debit or provider-payment proof"
+    ],
+    "passed": true
+  },
+  "diagnostics_not_qualification": [
+    "audit-expanded: 26 initial failures, repaired by native fixtures/contracts and new data guards",
+    "data-control-expanded: interrupted superseded gate; PostgreSQL and Redis cleanup passed",
+    "final-control-data-expanded: 3421 passed and 9 calculator fixture failures; repaired and repeated in clean-control-data-expanded",
+    "data-audit-final-contracts: generator scratch-path assertion; corrected invocation",
+    "data-audit-generated-contracts: nonexistent test selectors; corrected invocation",
+    "data-audit-generated-final: missing alias origin notes; corrected classification",
+    "serverless-time-bound-reproduced-valid: three real financial boundary failures; fixed",
+    "private snapshot attempts without an in-container pg_dump: empty private files retained; host client used with the same read-only snapshot"
+  ],
+  "fresh_snapshot": {
+    "all_schemas_dump": true,
+    "captured_at": "2026-10-24T06:52:17.122251+00:00",
+    "dump_bytes": 53435995,
+    "dump_sha256": "b05da641ffc4a8638d871488845f43ecbca17e2379e7f0e5c5b9c3f93023e4f6",
+    "logical_tables_fingerprinted": 142,
+    "private_modes": "0600",
+    "read_only": true,
+    "schema": "125",
+    "snapshot_shared_with_dump": true,
+    "source_port": "5434",
+    "storage_tables_fingerprinted": 4
+  },
+  "frozen_source_files_compared_to_final_broad_manifest": 1104,
+  "gate_results": {
+    "calculator-context-qualified": {
+      "commit": "e41f180dc26b287d2f922485bc4d9ff53b8bd17d",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.76
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.82
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 5.33
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.1
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 29
+      }
+    },
+    "clean-control-data-expanded": {
+      "commit": "c1cd32f0016e778c6a7c72bc88c95ce8876a3311",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.09
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.9
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.37
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 888.01
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 3430
+      }
+    },
+    "data-audit-generated-qualified": {
+      "commit": "2e1756307fdb66c1a1888492c2838953e1bf938c",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.7
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.55
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 22.53
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.21
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 12
+      }
+    },
+    "final-built-images-pg16": {
+      "commit": "e41f180dc26b287d2f922485bc4d9ff53b8bd17d",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.79
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 4.03
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 33.94
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 3
+      }
+    },
+    "final-cuda-worker-acceptance": {
+      "commit": "e41f180dc26b287d2f922485bc4d9ff53b8bd17d",
+      "mode": "worker_billing_acceptance",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.73
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.44
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.1
+        },
+        "worker_billing": {
+          "exit_code": 0,
+          "seconds": 34.12
+        }
+      }
+    },
+    "financial-race-followup": {
+      "commit": "2e1756307fdb66c1a1888492c2838953e1bf938c",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.08
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.96
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 4.19
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 8.75
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.2
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 17
+      }
+    },
+    "fresh-complete-restore-all-schemas": {
+      "commit": "e41f180dc26b287d2f922485bc4d9ff53b8bd17d",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.07
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.73
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.48
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 287.58
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 1
+      }
+    },
+    "native-secret-delivery": {
+      "commit": "2e1756307fdb66c1a1888492c2838953e1bf938c",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.06
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.87
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.81
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 44.76
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.32
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 85
+      }
+    },
+    "serverless-bounds-and-roles-final": {
+      "commit": "7e51a2d0f7e9b899e164c7d2fcd5bf104ca60833",
+      "mode": "pytest",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.06
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.73
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.56
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 15.36
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.2
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 58
+      }
+    }
+  },
+  "historical_overlapping_volume_cycles": {
+    "cycle_amount_total_micros": 300,
+    "cycles": 3,
+    "date": "2026-04-07",
+    "disposition": "retained for financial review; no automatic ledger rewrite",
+    "jobs": 1
+  },
+  "images": [
+    {
+      "cleanup_exit": 0,
+      "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "126",
+          "maximum": null,
+          "minimum": "126"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "126",
+      "tag": "xcelsior-api:cutover-transition-1af572b6",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    },
+    {
+      "cleanup_exit": 0,
+      "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "136",
+          "maximum": null,
+          "minimum": "134"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "136",
+      "tag": "xcelsior-api:cutover-native-7757bdc3",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    },
+    {
+      "cleanup_exit": 0,
+      "image_id": "sha256:e50da92fb4698b9a60fc747ff0aaaea383a2f5b7d5028558db28c8bc2b987f04",
+      "metrics_available_values": [
+        1
+      ],
+      "metrics_scraped": true,
+      "network": "none",
+      "passed": true,
+      "readiness": {
+        "auth_cache": {
+          "backend": "memory",
+          "ok": true
+        },
+        "identity": {
+          "agent_gateway": false
+        },
+        "nfs_volumes": {
+          "configured": false,
+          "export_base": "/exports/volumes",
+          "mode": "metadata-only",
+          "ok": true,
+          "reachable": false,
+          "server": "",
+          "ssh_host": ""
+        },
+        "ok": true,
+        "schema": {
+          "current": "137",
+          "maximum": null,
+          "minimum": "137"
+        },
+        "status": "ready",
+        "storage": {
+          "backend": "postgresql",
+          "ok": true
+        }
+      },
+      "schema": "137",
+      "tag": "xcelsior-api:cutover-audited-e41f180d",
+      "uid": "10001:10001",
+      "verified_signatures": 12
+    }
+  ],
+  "mcp": {
+    "build": true,
+    "generate_api": true,
+    "skips": [
+      "opt-in real-stack end-to-end",
+      "knowledge URL unavailable"
+    ],
+    "source_tests_passed": 293,
+    "source_tests_skipped": 2,
+    "typecheck": true
+  },
+  "production_backup_verification": {
+    "backups": 15,
+    "checksum_matches": true,
+    "checksum_sidecar_present": true,
+    "collected_at": "2026-10-24T06:27:44.162179+00:00",
+    "latest": "xcelsior_20261024_030023.dump",
+    "mode": "0o600",
+    "mtime": "2026-10-24T03:00:38.465626+00:00",
+    "read_only": true,
+    "sha256": "79cbf7cc449910bec137138f4e5c88aed7747deb1b37552e03bb7b7cb60824f6",
+    "size": 52393435
+  },
+  "production_baseline": {
+    "active_allocations": 0,
+    "collected_at": "2026-10-24T07:08:30.553782+00:00",
+    "dedicated_role_logins": [
+      [
+        "xcelsior_api",
+        false
+      ],
+      [
+        "xcelsior_billing",
+        false
+      ],
+      [
+        "xcelsior_migrator",
+        false
+      ],
+      [
+        "xcelsior_projector",
+        false
+      ],
+      [
+        "xcelsior_readonly",
+        false
+      ],
+      [
+        "xcelsior_reconciler",
+        false
+      ],
+      [
+        "xcelsior_retrieval",
+        false
+      ],
+      [
+        "xcelsior_scheduler",
+        false
+      ],
+      [
+        "xcelsior_ssh_gateway",
+        false
+      ]
+    ],
+    "heartbeats": [
+      [
+        "outbox",
+        1
+      ],
+      [
+        "reconciler",
+        1
+      ],
+      [
+        "scheduler",
+        1
+      ]
+    ],
+    "job_counts": [
+      364,
+      0,
+      0,
+      4
+    ],
+    "live_leases": [],
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "schema": "125",
+    "unfenced_stop_task": [
+      [
+        true,
+        false
+      ]
+    ]
+  },
+  "production_database_mutation": false,
+  "production_deployed": false,
+  "production_integrity": {
+    "collected_at": "2026-10-24T05:48:44.301418+00:00",
+    "complete": true,
+    "constraints_unvalidated": [],
+    "disabled_triggers": [],
+    "durability_settings": {
+      "archive_mode": "off",
+      "data_checksums": "off",
+      "fsync": "on",
+      "full_page_writes": "on",
+      "synchronous_commit": "on",
+      "wal_level": "replica"
+    },
+    "foreign_keys": [
+      {
+        "constraint": "action_plans_wallet_hold_id_fkey",
+        "orphans": 0,
+        "table": "public.action_plans"
+      },
+      {
+        "constraint": "fk_ai_msg_conv",
+        "orphans": 0,
+        "table": "public.ai_messages"
+      },
+      {
+        "constraint": "chat_messages_conversation_id_fkey",
+        "orphans": 0,
+        "table": "public.chat_messages"
+      },
+      {
+        "constraint": "gpu_device_allocations_attempt_id_fkey",
+        "orphans": 0,
+        "table": "public.gpu_device_allocations"
+      },
+      {
+        "constraint": "gpu_device_allocations_gpu_device_id_fkey",
+        "orphans": 0,
+        "table": "public.gpu_device_allocations"
+      },
+      {
+        "constraint": "gpu_device_allocations_job_id_fkey",
+        "orphans": 0,
+        "table": "public.gpu_device_allocations"
+      },
+      {
+        "constraint": "host_admission_decisions_host_id_fkey",
+        "orphans": 0,
+        "table": "public.host_admission_decisions"
+      },
+      {
+        "constraint": "host_admission_evidence_host_id_fkey",
+        "orphans": 0,
+        "table": "public.host_admission_evidence"
+      },
+      {
+        "constraint": "host_admission_evidence_session_id_fkey",
+        "orphans": 0,
+        "table": "public.host_admission_evidence"
+      },
+      {
+        "constraint": "host_agent_tokens_rotated_from_fkey",
+        "orphans": 0,
+        "table": "public.host_agent_tokens"
+      },
+      {
+        "constraint": "host_compatibility_sessions_host_id_fkey",
+        "orphans": 0,
+        "table": "public.host_compatibility_sessions"
+      },
+      {
+        "constraint": "host_gpu_devices_host_id_fkey",
+        "orphans": 0,
+        "table": "public.host_gpu_devices"
+      },
+      {
+        "constraint": "host_gpu_devices_parent_gpu_device_id_fkey",
+        "orphans": 0,
+        "table": "public.host_gpu_devices"
+      },
+      {
+        "constraint": "host_observations_host_id_fkey",
+        "orphans": 0,
+        "table": "public.host_observations"
+      },
+      {
+        "constraint": "inference_results_job_id_fkey",
+        "orphans": 0,
+        "table": "public.inference_results"
+      },
+      {
+        "constraint": "job_attempts_job_id_fkey",
+        "orphans": 0,
+        "table": "public.job_attempts"
+      },
+      {
+        "constraint": "fk_jobs_active_attempt",
+        "orphans": 0,
+        "table": "public.jobs"
+      },
+      {
+        "constraint": "fk_jobs_wallet_hold",
+        "orphans": 0,
+        "table": "public.jobs"
+      },
+      {
+        "constraint": "observed_workloads_observation_id_fkey",
+        "orphans": 0,
+        "table": "public.observed_workloads"
+      },
+      {
+        "constraint": "placement_leases_attempt_id_fkey",
+        "orphans": 0,
+        "table": "public.placement_leases"
+      },
+      {
+        "constraint": "placement_leases_job_id_fkey",
+        "orphans": 0,
+        "table": "public.placement_leases"
+      },
+      {
+        "constraint": "privacy_deletion_sink_status_request_id_fkey",
+        "orphans": 0,
+        "table": "public.privacy_deletion_sink_status"
+      },
+      {
+        "constraint": "serverless_api_keys_endpoint_id_fkey",
+        "orphans": 0,
+        "table": "public.serverless_api_keys"
+      },
+      {
+        "constraint": "serverless_endpoints_action_plan_id_fkey",
+        "orphans": 0,
+        "table": "public.serverless_endpoints"
+      },
+      {
+        "constraint": "serverless_job_stream_events_job_id_fkey",
+        "orphans": 0,
+        "table": "public.serverless_job_stream_events"
+      },
+      {
+        "constraint": "serverless_jobs_endpoint_id_fkey",
+        "orphans": 0,
+        "table": "public.serverless_jobs"
+      },
+      {
+        "constraint": "serverless_jobs_worker_id_fkey",
+        "orphans": 0,
+        "table": "public.serverless_jobs"
+      },
+      {
+        "constraint": "fk_serverless_workers_attempt",
+        "orphans": 0,
+        "table": "public.serverless_workers"
+      },
+      {
+        "constraint": "serverless_workers_endpoint_id_fkey",
+        "orphans": 0,
+        "table": "public.serverless_workers"
+      },
+      {
+        "constraint": "volume_snapshots_volume_id_fkey",
+        "orphans": 0,
+        "table": "public.volume_snapshots"
+      },
+      {
+        "constraint": "artifact_deletion_jobs_artifact_id_fkey",
+        "orphans": 0,
+        "table": "storage.artifact_deletion_jobs"
+      },
+      {
+        "constraint": "artifact_replicas_artifact_id_fkey",
+        "orphans": 0,
+        "table": "storage.artifact_replicas"
+      },
+      {
+        "constraint": "artifact_upload_sessions_artifact_id_fkey",
+        "orphans": 0,
+        "table": "storage.artifact_upload_sessions"
+      },
+      {
+        "constraint": "artifacts_attempt_id_fkey",
+        "orphans": 0,
+        "table": "storage.artifacts"
+      },
+      {
+        "constraint": "artifacts_job_id_fkey",
+        "orphans": 0,
+        "table": "storage.artifacts"
+      }
+    ],
+    "invalid_indexes": [],
+    "negative_wallet_states": [
+      [
+        "suspended",
+        2
+      ]
+    ],
+    "read_only": true,
+    "schema": "125",
+    "semantic_checks": {
+      "active_lease_without_active_attempt": {
+        "count": 0
+      },
+      "allocation_without_live_attempt": {
+        "count": 0
+      },
+      "billing_negative_charged_cycle": {
+        "count": 0
+      },
+      "billing_overlapping_charged_slices": {
+        "count": 3
+      },
+      "duplicate_active_device_allocation": {
+        "count": 0
+      },
+      "wallet_negative_balance": {
+        "count": 2
+      },
+      "wallet_orphan_ledger": {
+        "count": 0
+      },
+      "wallet_vs_signed_ledger": {
+        "count": 0
+      }
+    },
+    "unlogged_tables": []
+  },
+  "production_population": {
+    "collected_at": "2026-10-24T05:47:21.124356+00:00",
+    "columns": 1984,
+    "partitions": 22,
+    "scan_complete": true,
+    "tables_including_partitions": 164
+  },
+  "production_sensitive_key_presence": {
+    "collected_at": "2026-10-24T06:27:41.493198+00:00",
+    "read_only": true,
+    "storage": {
+      "durable_commands": {
+        "not_ciphertext": 0,
+        "sensitive_named_nonempty": 0
+      },
+      "endpoint": {
+        "not_ciphertext": 0,
+        "sensitive_named_nonempty": 0
+      },
+      "execution_spec": {
+        "not_ciphertext": 0,
+        "sensitive_named_nonempty": 0
+      },
+      "job_observations": {
+        "not_ciphertext": 0,
+        "sensitive_named_nonempty": 0
+      }
+    }
+  },
+  "production_service_images": [
+    {
+      "image": "xcelsior-api:cutover-audit-cb71106b",
+      "name": "xcelsior-scheduler-worker-1"
+    },
+    {
+      "image": "xcelsior-api:cutover-audit-cb71106b",
+      "name": "xcelsior-bg-worker-1"
+    },
+    {
+      "image": "xcelsior-api:cutover-audit-cb71106b",
+      "name": "xcelsior-api-1"
+    }
+  ],
+  "protected_root_work": {
+    "unchanged_files": 9
+  },
+  "recorded_at": "2026-10-24T07:14:18.341317+00:00",
+  "release_archive": {
+    "all_archive_blob_digests_verified": true,
+    "archive": "/mnt/storage/projects/xcelsior/artifacts/control-plane-production-readiness-20261023/audited-handoff-images.tar.gz",
+    "archive_bytes": 896788408,
+    "archive_sha256": "e6960bf144edee46c11165392d682c52fdfc4b504c6d58c521ce7270471f1cb3",
+    "images": [
+      {
+        "config_rootfs_platform_match": true,
+        "image_id": "sha256:86a4545e3d73fdb2c0e9a089e3bf0dd693a165fbf8b048f458e4a1c14990f3a6",
+        "layers": 14,
+        "tag": "xcelsior-api:cutover-transition-1af572b6"
+      },
+      {
+        "config_rootfs_platform_match": true,
+        "image_id": "sha256:57107a070e5bacb95dd94760dc4231f2681713a02c02d69e1f03f2ac1c0fc8c6",
+        "layers": 14,
+        "tag": "xcelsior-api:cutover-native-7757bdc3"
+      },
+      {
+        "config_rootfs_platform_match": true,
+        "image_id": "sha256:e50da92fb4698b9a60fc747ff0aaaea383a2f5b7d5028558db28c8bc2b987f04",
+        "layers": 14,
+        "tag": "xcelsior-api:cutover-audited-e41f180d"
+      }
+    ],
+    "transferred_to_production": false,
+    "verified_configs_and_rootfs": true
+  },
+  "remaining": [
+    "staged production schema 126-137, role and worker handoffs and deployed financial/public acceptance",
+    "historical financial overlap disposition",
+    "PITR, off-site/object recovery and failover acceptance",
+    "three baseline test gaps and B16 observation/API adapters and module decomposition"
+  ],
+  "repairs": "report_only",
+  "restore": {
+    "all_restored_table_fingerprints_match": 142,
+    "collected_at": "2026-10-24T06:58:26.836268+00:00",
+    "database_lc_collate": "C.UTF-8",
+    "database_lc_ctype": "C.UTF-8",
+    "deployed_acceptance": false,
+    "dump_bytes": 53435995,
+    "dump_sha256": "b05da641ffc4a8638d871488845f43ecbca17e2379e7f0e5c5b9c3f93023e4f6",
+    "financial_tables_unchanged": 30,
+    "jobs": 364,
+    "postgres_major": 16,
+    "production_mutation": false,
+    "protected_tables_unchanged": 38,
+    "recovered_exact_specs": 4,
+    "restoration": "fresh local Unix-socket-only PostgreSQL, no outbound application services",
+    "restored_schema": "137",
+    "source_access": "read-only exported snapshot shared with pg_dump",
+    "source_port": "5434",
+    "source_schema": "125",
+    "stages": [
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "126"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "127"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "128"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "129"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "130"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "131"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "132"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "133"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "134"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "135"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "136"
+      },
+      {
+        "protected_tables_unchanged": 38,
+        "revision": "137"
+      }
+    ],
+    "storage_tables_unchanged": 4,
+    "unavailable_specs_retained": 360
+  },
+  "runtime_commit": "e41f180dc26b287d2f922485bc4d9ff53b8bd17d",
+  "runtime_source_match": {
+    "all_runtime_files_identical": true,
+    "only_changed_paths": [
+      "tests/fixtures/serverless_billing.py",
+      "tests/test_serverless_billing.py"
+    ],
+    "runtime_commit": "e41f180dc26b287d2f922485bc4d9ff53b8bd17d",
+    "test_commit": "c1cd32f0016e778c6a7c72bc88c95ce8876a3311"
+  },
+  "static_checks": {
+    "black_ruff_python_files": 50,
+    "shell_syntax": true,
+    "targeted_pyright_errors": 0,
+    "targeted_pyright_warnings": 0,
+    "worker_distribution_signatures": 12
+  },
+  "test_commit": "c1cd32f0016e778c6a7c72bc88c95ce8876a3311"
+}
