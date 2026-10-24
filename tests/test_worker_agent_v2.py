@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -298,6 +300,48 @@ class TestHardLeaseGate:
             call.kwargs.get("error_message") == "required gVisor runtime is unavailable"
             for call in report.call_args_list
         )
+
+    @pytest.mark.parametrize("admitted_mount", [False, True])
+    def test_shared_nfs_mount_uses_only_admitted_inputs(self, monkeypatch, admitted_mount):
+        monkeypatch.setenv("XCELSIOR_NFS_SERVER", "unadmitted-server")
+        monkeypatch.setenv("XCELSIOR_NFS_PATH", "/unadmitted-dataset")
+        monkeypatch.setenv("XCELSIOR_NFS_MOUNT", "/mnt/unadmitted")
+        job = {
+            "job_id": "job-1",
+            "name": "job-1",
+            "image": "image:test",
+            "required_runtime": "gvisor",
+            "_v2_attempt_id": "att-1",
+            "_v2_fencing_token": 7,
+            "_v2_container_name": "xcl-job-1-att-1",
+        }
+        if admitted_mount:
+            job.update(nfs_server="admitted-server", nfs_path="/approved-dataset")
+        with (
+            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
+            mock.patch.object(worker_agent, "get_gpu_info", return_value={"gpu_model": "RTX 2060"}),
+            mock.patch.object(worker_agent, "build_platform_env", return_value={}),
+            mock.patch.object(worker_agent, "_kill_container"),
+            mock.patch.object(worker_agent, "_remove_container"),
+            mock.patch.object(worker_agent.time, "sleep"),
+            mock.patch.object(worker_agent, "report_job_status", return_value=True),
+            mock.patch.object(worker_agent, "_push_log_lines"),
+            mock.patch.object(worker_agent, "_v2_resource_intent"),
+            mock.patch.object(worker_agent, "_v2_cleanup_resources"),
+            mock.patch.object(worker_agent, "_mount_nfs", return_value=True) as mount,
+            mock.patch.object(worker_agent, "cache_track_pull"),
+            mock.patch.object(worker_agent, "cache_image_available", return_value=True),
+            mock.patch.object(worker_agent, "is_gvisor_available", return_value=False),
+            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
+        ):
+            worker_agent.run_job(job)
+        build.assert_not_called()
+        if admitted_mount:
+            mount.assert_called_once_with(
+                "admitted-server", "/approved-dataset", "/mnt/xcelsior-nfs"
+            )
+        else:
+            mount.assert_not_called()
 
     def test_required_image_signature_without_verifier_fails_closed(self):
         job = {
