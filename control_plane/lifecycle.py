@@ -106,6 +106,7 @@ def _request_fenced_stop_attempt(
     reason_tag: str | None,
     preserve: bool,
     allowed_intents: frozenset[str],
+    billing_evidence: dict | None = None,
 ) -> FencedLifecycleResult:
     """Shared path: atomic lifecycle_intent + fenced stop_attempt enqueue.
 
@@ -134,7 +135,7 @@ def _request_fenced_stop_attempt(
             """
             SELECT job_id, status, host_id, active_attempt_id,
                    payload->>'container_name' AS container_name,
-                   lifecycle_intent, spec, spec_hash, history_disposition
+                   lifecycle_intent, spec, spec_hash, history_disposition, generation
               FROM jobs
              WHERE job_id = %s
                AND status NOT IN (
@@ -162,6 +163,42 @@ def _request_fenced_stop_attempt(
             return FencedLifecycleResult(
                 False, job_id, intent, str(_get(job, "status", 1)), problem
             )
+        if billing_evidence is not None:
+            if (
+                str(_get(job, "active_attempt_id", 3)) != billing_evidence["attempt_id"]
+                or _get(job, "generation", 9) != billing_evidence["generation"]
+            ):
+                return FencedLifecycleResult(
+                    False, job_id, intent, str(_get(job, "status", 1)), "stale_billing_authority"
+                )
+            spec = _get(job, "spec", 6)
+            owner = spec.get("owner_id") or spec.get("owner")
+            if "cycle_id" in billing_evidence:
+                qualified = conn.execute(
+                    """SELECT 1 FROM billing_cycles b JOIN wallets w USING(customer_id)
+                   WHERE b.cycle_id=%s AND b.job_id=%s AND b.customer_id=%s
+                     AND b.resource_type='gpu' AND b.status='failed'
+                     AND b.amount_micros>0 AND w.balance_micros<b.amount_micros
+                   FOR UPDATE OF w""",
+                    (billing_evidence["cycle_id"], job_id, owner),
+                ).fetchone()
+            else:
+                qualified = (
+                    owner == billing_evidence.get("owner")
+                    and conn.execute(
+                        "SELECT 1 FROM wallets WHERE customer_id=%s "
+                        "AND (status='suspended' OR balance_micros<=0) FOR UPDATE",
+                        (owner,),
+                    ).fetchone()
+                )
+            if not qualified:
+                return FencedLifecycleResult(
+                    False,
+                    job_id,
+                    intent,
+                    str(_get(job, "status", 1)),
+                    "billing_stop_no_longer_required",
+                )
         if isinstance(job, dict):
             active_attempt_id = job.get("active_attempt_id")
             job_status = str(job.get("status") or "")
@@ -363,6 +400,7 @@ def request_fenced_stop(
     created_by: str,
     container_name: str | None = None,
     reason_tag: str | None = None,
+    wallet_evidence: dict | None = None,
 ) -> FencedLifecycleResult:
     """User/billing stop for attempt-owned work: preserve container.
 
@@ -378,6 +416,25 @@ def request_fenced_stop(
         reason_tag=reason_tag or "user",
         preserve=True,
         allowed_intents=frozenset({"stop"}),
+        billing_evidence=wallet_evidence,
+    )
+
+
+def request_billing_stop(*, job_id, cycle_id, expected_attempt_id, expected_generation):
+    """Only an unpaid cycle for this exact still-unfunded native attempt may stop it."""
+    return _request_fenced_stop_attempt(
+        job_id=job_id,
+        intent="stop",
+        created_by="billing_outbox",
+        container_name=None,
+        reason_tag="billing_suspended",
+        preserve=True,
+        allowed_intents=frozenset({"stop"}),
+        billing_evidence={
+            "cycle_id": cycle_id,
+            "attempt_id": str(expected_attempt_id),
+            "generation": expected_generation,
+        },
     )
 
 
