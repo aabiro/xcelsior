@@ -68,7 +68,6 @@ class TestIncrementalBilling:
 
         with (
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
-            patch("serverless.metering.last_billed_period_end", return_value=1100.0),
             patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}),
         ):
             result = charge_priced_fixture_slice(
@@ -77,6 +76,7 @@ class TestIncrementalBilling:
                 worker,
                 endpoint,
                 period_end=1150.0,
+                paid_end=1100.0,
                 final=True,
             )
         assert result["charged"] is True
