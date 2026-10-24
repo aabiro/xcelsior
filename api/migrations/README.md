@@ -97,7 +97,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `140_contract_recorded_runtime_metadata.py`.**
+**Repository head: `141_archive_lightning_compatibility_columns.py`.**
 
 138 adds immutable operator disposition receipts for qualified duplicate
 historical volume intervals. It changes no balances or source history. The
@@ -593,3 +593,12 @@ startup no longer backfills JSONB identity or location. The runtime floor is 140
 result and unimplemented observation cursor columns, refusing either when it
 contains evidence. Quiesce all lifecycle writers and replace every diagnostic
 reader at this boundary. Do not roll back to a pre-140 runtime.
+
+
+141 archives all six retired Lightning float/epoch values with per-record
+SHA-256 verification before removing their columns. Typed payment terms and
+ledger links remain untouched; the immutability guard covers all canonical
+payment terms. Every Lightning reader derives legacy API numeric fields at its
+boundary and every writer uses typed columns. Quiesce old API/billing/background
+writers for this contract; the runtime floor is 141. Downgrade retains canonical
+facts and archive evidence and needs a compatible runtime.

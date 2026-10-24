@@ -69,6 +69,19 @@ def _fetch_all(conn, sql: str, params: tuple = ()) -> list[dict]:
         return list(cur.execute(sql, params).fetchall())
 
 
+# Legacy API numbers are derived only at the read boundary. PostgreSQL stores
+# integer monetary values, an exact rate and typed timestamps after revision 141.
+_DEPOSIT_SELECT = """SELECT d.*,
+    d.amount_micros::double precision / 1000000.0 AS amount_cad,
+    d.amount_sats::double precision / 100000000.0 AS amount_btc,
+    d.btc_cad_rate_exact::double precision AS btc_cad_rate,
+    EXTRACT(EPOCH FROM d.created_at_ts)::double precision AS created_at,
+    EXTRACT(EPOCH FROM d.expires_at_ts)::double precision AS expires_at,
+    COALESCE(EXTRACT(EPOCH FROM d.paid_at_ts)::double precision,0) AS paid_at,
+    COALESCE(EXTRACT(EPOCH FROM d.credited_at_ts)::double precision,0) AS credited_at
+    FROM ln_deposits d"""
+
+
 # ── CLN clnrest HTTP API ──────────────────────────────────────────────
 
 
@@ -255,7 +268,7 @@ def _deposit_by_idempotency_key(customer_id: str, key: str) -> dict | None:
     with pg_transaction() as conn:
         return _fetch_one(
             conn,
-            "SELECT * FROM ln_deposits " " WHERE customer_id = %s AND idempotency_key = %s",
+            _DEPOSIT_SELECT + " WHERE customer_id = %s AND idempotency_key = %s",
             (customer_id, key),
         )
 
@@ -271,6 +284,7 @@ def _deposit_result(row: dict) -> dict:
         "bolt11": row["bolt11"],
         "payment_hash": row["payment_hash"],
         "amount_sats": int(row["amount_sats"]),
+        "amount_btc": int(row["amount_sats"]) / 100_000_000,
         "amount_cad": int(row.get("amount_micros") or 0) / 1_000_000,
         "btc_cad_rate": float(row["btc_cad_rate"]),
         "expires_at": float(row["expires_at"]),
@@ -327,10 +341,7 @@ def create_deposit(customer_id: str, amount_cad: float, idempotency_key: str = "
 
     invoice = create_invoice(amount_msat, label, description)
 
-    # Exact ledger values. The legacy float columns are written alongside
-    # only so an un-upgraded replica can still read the row; they are
-    # dropped at contract phase (Track B B16.2) and nothing derives money
-    # from them.
+    # Native payment facts are the only stored monetary/time authority.
     amount_cad_minor = cad_to_minor(amount_cad)
     rate_exact = Decimal(str(rate))
 
@@ -339,12 +350,12 @@ def create_deposit(customer_id: str, amount_cad: float, idempotency_key: str = "
             """INSERT INTO ln_deposits
                (deposit_id, customer_id, tenant_id, currency,
                 label, bolt11, payment_hash,
-                amount_msat, amount_sats, amount_btc, amount_micros, btc_cad_rate,
+                amount_msat, amount_sats, amount_micros,
                 amount_cad_minor, btc_cad_rate_exact,
-                status, created_at, expires_at, created_at_ts, expires_at_ts,
+                status, created_at_ts, expires_at_ts,
                 idempotency_key)
-               VALUES (%s, %s, %s, 'CAD', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                       'pending', %s, %s, to_timestamp(%s), to_timestamp(%s), %s)
+               VALUES (%s, %s, %s, 'CAD', %s, %s, %s, %s, %s, %s, %s, %s,
+                       'pending', to_timestamp(%s), to_timestamp(%s), %s)
                ON CONFLICT (customer_id, idempotency_key)
                     WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''
                     DO NOTHING""",
@@ -360,13 +371,9 @@ def create_deposit(customer_id: str, amount_cad: float, idempotency_key: str = "
                 invoice["payment_hash"],
                 amount_msat,
                 amount_sats,
-                amount_btc,
                 round(amount_cad * 1_000_000),
-                rate,
                 amount_cad_minor,
                 rate_exact,
-                now,
-                invoice["expires_at"],
                 now,
                 invoice["expires_at"],
                 key or None,
@@ -416,7 +423,7 @@ def check_deposit(deposit_id: str) -> dict | None:
     with pg_transaction() as conn:
         dep = _fetch_one(
             conn,
-            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE deposit_id = %s",
+            _DEPOSIT_SELECT + " WHERE deposit_id = %s",
             (deposit_id,),
         )
         if not dep:
@@ -440,12 +447,10 @@ def check_deposit(deposit_id: str) -> dict | None:
                 """UPDATE ln_deposits
                    SET status = 'paid',
                        payment_preimage = %s,
-                       paid_at = %s,
                        paid_at_ts = to_timestamp(%s)
                    WHERE deposit_id = %s AND status IN ('pending')""",
                 (
                     inv.get("payment_preimage", ""),
-                    inv.get("paid_at", now),
                     inv.get("paid_at", now),
                     deposit_id,
                 ),
@@ -482,11 +487,10 @@ def mark_credited(deposit_id: str, wallet_ledger_entry_id: str | None = None) ->
         result = conn.execute(
             """UPDATE ln_deposits
                SET status = 'credited',
-                   credited_at = %s,
                    credited_at_ts = to_timestamp(%s),
                    wallet_ledger_entry_id = COALESCE(%s, wallet_ledger_entry_id)
                WHERE deposit_id = %s AND status = 'paid'""",
-            (now, now, wallet_ledger_entry_id, deposit_id),
+            (now, wallet_ledger_entry_id, deposit_id),
         )
         return result.rowcount > 0
 
@@ -496,7 +500,7 @@ def get_pending_deposits() -> list[dict]:
     with pg_transaction() as conn:
         return _fetch_all(
             conn,
-            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'pending'",
+            _DEPOSIT_SELECT + " WHERE status = 'pending'",
         )
 
 
@@ -505,7 +509,7 @@ def get_paid_uncredited() -> list[dict]:
     with pg_transaction() as conn:
         return _fetch_all(
             conn,
-            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE status = 'paid'",
+            _DEPOSIT_SELECT + " WHERE status = 'paid'",
         )
 
 
@@ -514,8 +518,8 @@ def get_customer_deposits(customer_id: str, limit: int = 20) -> list[dict]:
     with pg_transaction() as conn:
         return _fetch_all(
             conn,
-            "SELECT *, amount_micros::double precision / 1000000.0 AS amount_cad FROM ln_deposits WHERE customer_id = %s "
-            "ORDER BY created_at DESC LIMIT %s",
+            _DEPOSIT_SELECT + " WHERE customer_id = %s "
+            "ORDER BY created_at_ts DESC,deposit_id DESC LIMIT %s",
             (customer_id, limit),
         )
 
