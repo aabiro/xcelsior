@@ -732,6 +732,8 @@ class BillingEngine:
                     MAX(province) AS province
                 FROM usage_meters
                 WHERE owner = %s
+                  AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.job_id=usage_meters.job_id
+                      AND j.spec->>'job_type'='serverless_worker')
                   AND completed_at >= %s
                   AND completed_at < %s
                   AND total_cost_micros > 0

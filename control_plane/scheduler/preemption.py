@@ -357,6 +357,10 @@ def reconcile_plan(conn, plan_id: str) -> str:
             WHERE plan_id=%s FOR UPDATE NOWAIT""",
             (plan_id,),
         ).fetchone()
+        # The initial read is only a lock-order hint. Another scheduler may
+        # have placed/cancelled the plan before these job and plan locks landed.
+        if not plan or plan["state"] not in ("stopping", "ready"):
+            return plan["state"] if plan else "missing"
         nominee = jobs.get(plan["nominated_job_id"])
         cancelled = (
             not nominee

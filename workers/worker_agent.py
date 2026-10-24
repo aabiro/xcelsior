@@ -2348,7 +2348,7 @@ def _push_log_lines(job_id, lines):
         pass  # best-effort — don't block job execution
 
 
-def _report_http_ports(job_id, port_map):
+def _report_http_ports(job_id, port_map, *, expected_auth=None):
     """Report the final {container_port: host_port} mapping to the API.
 
     Used by the P2.2 subdomain router to resolve
@@ -2357,28 +2357,11 @@ def _report_http_ports(job_id, port_map):
     call leaves the public URL unresolved; users can simply retry
     ``POST /instances/{id}/expose`` once the next report lands.
     """
-    if not port_map:
+    if not port_map or expected_auth is None:
         return False
-    try:
-        resp = _api_request(
-            "post",
-            _api_url(f"/instances/{job_id}/http-ports/report"),
-            json={"host_id": HOST_ID, "ports": {str(k): int(v) for k, v in port_map.items()}},
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            log.info("Reported http_ports for job %s: %s", job_id, port_map)
-            return True
-        log.warning(
-            "http_ports report for job %s returned %d: %s",
-            job_id,
-            resp.status_code,
-            (getattr(resp, "text", "") or "")[:200],
-        )
-    except requests.RequestException as e:
-        log.error("http_ports report failed for job %s: %s", job_id, e)
-    return False
+    return _v2_runtime_report(
+        expected_auth, "http-ports", {"ports": {str(k): int(v) for k, v in port_map.items()}}
+    )
 
 
 # ── /agent/v2 fenced protocol ──────────────────────────────────────
@@ -2530,6 +2513,48 @@ def _v2_auth_payload(auth: dict) -> dict:
         "fencing_token": auth["fencing_token"],
         "worker_session_id": WORKER_SESSION_ID,
     }
+
+
+def _v2_runtime_report(auth: dict, kind: str, value: dict) -> bool:
+    """Persist metadata delivery before HTTP; a stale thread cannot borrow a fence."""
+    if kind not in ("http-ports", "auto-launch"):
+        raise ValueError("unknown runtime report")
+    with _v2_attempts_lock:
+        if _v2_attempts.get(auth["job_id"]) is not auth:
+            return False
+        record = {**value, **_v2_auth_payload(auth)}
+        pending = auth.setdefault("pending_runtime_reports", {})
+        pending[kind] = record
+        if not _v2_journal_save():
+            return False
+    try:
+        response = _api_request(
+            "post",
+            _api_url(f"/instances/{auth['job_id']}/{kind}/report"),
+            json=record,
+            headers=_api_headers(),
+            timeout=3,
+        )
+    except Exception as exc:
+        log.warning("native runtime callback retained (%s)", type(exc).__name__)
+        return False
+    if response.status_code in (200, 404, 409, 410):
+        with _v2_attempts_lock:
+            if _v2_attempts.get(auth["job_id"]) is auth and pending.get(kind) == record:
+                pending.pop(kind, None)
+                if not _v2_journal_save():
+                    pending[kind] = record
+    return response.status_code == 200
+
+
+def _v2_retry_runtime_reports(auth: dict) -> None:
+    with _v2_attempts_lock:
+        reports = dict(auth.get("pending_runtime_reports") or {})
+    for kind, value in reports.items():
+        try:
+            _v2_runtime_report(auth, kind, value)
+        except (KeyError, TypeError, ValueError) as exc:
+            log.warning("invalid journaled runtime report retained (%s)", type(exc).__name__)
 
 
 def v2_claim_lease_fenced(auth: dict) -> dict | None:
@@ -2841,6 +2866,12 @@ def _v2_journal_save() -> bool:
                 "spec_hash": a.get("spec_hash"),
                 "interactive": bool(a.get("interactive", False)),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
+                "pending_runtime_reports": dict(a.get("pending_runtime_reports") or {}),
+                **(
+                    {"auto_launch_token": a["auto_launch_token"]}
+                    if a.get("auto_launch_token")
+                    else {}
+                ),
                 **({"resources": a["resources"]} if a.get("resources") else {}),
                 **(
                     {"pending_terminal_report": a["pending_terminal_report"]}
@@ -3175,6 +3206,12 @@ def v2_adopt_attempts() -> int:
                 "spec_hash": rec.get("spec_hash"),
                 "interactive": bool(rec.get("interactive", False)),
                 "running_report_pending": bool(rec.get("running_report_pending", False)),
+                "pending_runtime_reports": dict(rec.get("pending_runtime_reports") or {}),
+                **(
+                    {"auto_launch_token": rec["auto_launch_token"]}
+                    if rec.get("auto_launch_token")
+                    else {}
+                ),
                 "resources": dict(rec.get("resources") or {}),
                 "stop": threading.Event(),
             }
@@ -3333,6 +3370,7 @@ def _v2_renewal_loop(auth: dict) -> None:
             return  # Exit reporting now owns completion and journal cleanup.
         if code == 200:
             last_ok = time.time()
+            _v2_retry_runtime_reports(auth)
             continue
         if code == 409:
             container_name = auth.get("container_name")
@@ -4232,6 +4270,33 @@ TOWER_SERVERLESS_URL = os.environ.get("TOWER_SERVERLESS_URL", "http://127.0.0.1:
 EXCLUSIVE_GPU_LOCK_TIMEOUT_S = 60
 
 
+def _connection_refused_before_request(exc: BaseException) -> bool:
+    """Recognize a kernel refusal, never infer non-delivery from error text.
+
+    requests/urllib3 wrap the original socket exception in cause/reason/args.
+    A read timeout or generic connection error remains an uncertain mutation.
+    """
+    pending, seen = [exc], set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, ConnectionRefusedError):
+            return True
+        pending.extend(
+            value
+            for value in (
+                current.__cause__,
+                current.__context__,
+                getattr(current, "reason", None),
+                *current.args,
+            )
+            if isinstance(value, BaseException)
+        )
+    return False
+
+
 def _acquire_exclusive_gpu(job_id: str, *, checkpoint=None) -> dict:
     """Record drain and planned process ownership before their side effects."""
     import fcntl
@@ -4264,9 +4329,18 @@ def _acquire_exclusive_gpu(job_id: str, *, checkpoint=None) -> dict:
         reply = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
         if reply.status_code == 404:
             state["drain_requested"] = False
+        elif not 200 <= reply.status_code < 300:
+            raise RuntimeError(f"exclusive GPU drain failed (HTTP {reply.status_code})")
         log.info("exclusive_gpu[%s]: drain rc=%s", job_id, reply.status_code)
-    except Exception as exc:
-        log.warning("exclusive_gpu[%s]: drain response unavailable (%s)", job_id, exc)
+    except requests.exceptions.ConnectionError as exc:
+        if not _connection_refused_before_request(exc):
+            raise RuntimeError("exclusive GPU drain outcome is unknown") from exc
+        # The optional local service received no request. There is no drain
+        # to compensate, so cleanup must not wait forever for its resume API.
+        state["drain_requested"] = False
+        log.info("exclusive_gpu[%s]: optional local coordinator is absent", job_id)
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError("exclusive GPU drain outcome is unknown") from exc
     if checkpoint:
         checkpoint(state)
     try:
@@ -5076,7 +5150,7 @@ def run_job(job):
             health_path = str(job.get("health_check_path") or "/health")
             host_http_port = int(port_map.get(str(http_port)) or http_port)
             if port_map:
-                _report_http_ports(job_id, port_map)
+                _report_http_ports(job_id, port_map, expected_auth=authority)
             _push_log_lines(
                 job_id,
                 [
@@ -5133,9 +5207,9 @@ def run_job(job):
             # `/instances/{id}/expose` and the nginx subdomain router can
             # resolve public URLs. Best-effort — a failed report just means
             # the public URL won't resolve yet; the next heartbeat cycle
-            # will retry via _report_http_ports_with_retry.
+            # retries the journaled callback after its next lease renewal.
             if is_interactive and port_map:
-                _report_http_ports(job_id, port_map)
+                _report_http_ports(job_id, port_map, expected_auth=authority)
 
             # For interactive jobs, report SSH connection info
             if is_interactive:
@@ -5163,7 +5237,7 @@ def run_job(job):
             # conda env before Jupyter installs into the default python.
             # Never fatal — a failed auto-launch must not kill the instance.
             try:
-                _run_auto_launch(job_id, container_name, job)
+                _run_auto_launch(job_id, container_name, job, expected_auth=authority)
             except Exception as e:
                 log.debug("auto_launch error (non-fatal): %s", e)
 
@@ -5870,19 +5944,15 @@ def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
 
 
 def _auto_launch_token(job_id: str) -> str:
-    """Derive a per-instance secret for Jupyter / code-server auth.
+    """Mint an independent service credential for each container launch.
 
-    Combines the job_id with a host-side secret so leaked job_ids alone
-    can't be used to log in. Falls back to a job-id-only hash when no
-    host secret is configured (still opaque to the outside world; just
-    predictable across hosts that share a job_id which never happens
-    in practice).
+    The owner API stores the reported token; no consumer reconstructs it from
+    a public job ID or requires a shared host secret for service credentials.
     """
-    host_secret = os.environ.get("HOST_SECRET") or os.environ.get("XCELSIOR_HOST_SECRET", "")
-    return hashlib.sha256(f"{job_id}:{host_secret}".encode()).hexdigest()[:32]
+    return secrets.token_hex(16)
 
 
-def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
+def _run_auto_launch(job_id: str, container_name: str, job: dict, *, expected_auth=None) -> None:
     """P2.3 — bring up Jupyter and/or code-server inside the container.
 
     Mirrors the safety posture of ``_run_provisioning_hooks``: each
@@ -5892,7 +5962,7 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
     longer grace would just waste the user's perception of boot time).
 
     Security:
-      * Token = sha256(job_id + HOST_SECRET)[:32] — 128 bits.
+      * Token contains 128 cryptographically random bits per launch.
       * Token is never echoed to stdout; we print a prefix hash only
         (`token_sha=xxxxxxxx`) and the user retrieves it via the API.
       * ``--allow-root`` is acceptable because the container is
@@ -5908,7 +5978,16 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
     if not services:
         return
 
-    token = _auto_launch_token(job_id)
+    with _v2_attempts_lock:
+        if (
+            expected_auth is None
+            or _v2_attempts.get(job_id) is not expected_auth
+            or expected_auth.get("container_name") != container_name
+        ):
+            return
+        token = expected_auth.setdefault("auto_launch_token", _auto_launch_token(job_id))
+        if not _v2_journal_save():
+            raise OSError("cannot persist the native service credential before launch")
     token_prefix = hashlib.sha256(token.encode()).hexdigest()[:8]
 
     def _exec_bg(tag: str, shell_cmd: str, seconds: int = 15) -> None:
@@ -6026,28 +6105,11 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
     # must SSH-tunnel manually. Report back via the API so the UI can
     # display the URL.
     if ports:
-        try:
-            api_url = os.environ.get("XCELSIOR_API_URL", "").rstrip("/")
-            if api_url:
-                host_id = os.environ.get("HOST_ID") or os.environ.get("XCELSIOR_HOST_ID", "")
-                payload = {
-                    "host_id": host_id,
-                    "ports": ports,
-                    "token_sha": token_prefix,
-                    "token": token,
-                }
-                try:
-                    _api_request(
-                        "post",
-                        f"{api_url}/instances/{job_id}/auto-launch/report",
-                        json=payload,
-                        timeout=5,
-                        headers={"X-Host-Secret": os.environ.get("HOST_SECRET", "")},
-                    )
-                except Exception as e:
-                    log.debug("auto_launch report failed: %s", e)
-        except Exception as e:
-            log.debug("auto_launch report outer error: %s", e)
+        _v2_runtime_report(
+            expected_auth,
+            "auto-launch",
+            {"ports": ports, "token_sha": token_prefix, "token": token},
+        )
 
 
 #: `ssh-keygen -lf` prints "<bits> <hash> <comment> (<TYPE>)". The middle field

@@ -7079,6 +7079,16 @@
             "minLength": 1,
             "title": "Host Id"
           },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fencing Token"
+          },
           "ports": {
             "additionalProperties": {
               "type": "integer"
@@ -7107,7 +7117,9 @@
         },
         "type": "object",
         "required": [
-          "host_id"
+          "host_id",
+          "attempt_id",
+          "fencing_token"
         ],
         "title": "_AutoLaunchReport"
       },
@@ -7172,6 +7184,16 @@
             "minLength": 1,
             "title": "Host Id"
           },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fencing Token"
+          },
           "ports": {
             "additionalProperties": {
               "type": "integer"
@@ -7182,7 +7204,9 @@
         },
         "type": "object",
         "required": [
-          "host_id"
+          "host_id",
+          "attempt_id",
+          "fencing_token"
         ],
         "title": "_HttpPortsReport"
       },

@@ -23,6 +23,7 @@ from serverless.repo import (
     WORKER_STATE_READY,
 )
 from serverless.service import ServerlessService
+from tests.test_serverless_native_lifecycle import native, start  # noqa: F401
 
 
 @pytest.fixture
@@ -103,16 +104,14 @@ class TestWorkerDeathMidInference:
         assert matching[0]["input_tokens"] == 512
         assert matching[0]["output_tokens"] == 128
 
-    def test_gpu_billing_no_double_charge_same_period(
-        self, repo: ServerlessRepo, preset_endpoint: dict, monkeypatch
-    ):
+    def test_gpu_billing_no_double_charge_same_period(self, native, monkeypatch):
         """Mid-inference tick then worker death: re-billing same period must not double-charge."""
         monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "1")
         monkeypatch.setenv("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "1")
 
-        ep_id = preset_endpoint["endpoint_id"]
-        sched_job = f"sched-{uuid.uuid4().hex[:8]}"
-        worker = repo.create_worker(ep_id, scheduler_job_id=sched_job)
+        start(native)
+        repo, preset_endpoint = native.repo, native.ep
+        worker = repo.get_worker(native.wid)
         worker_id = str(worker["worker_id"])
         allocated = time.time() - 90.0
         repo.update_worker(worker_id, allocated_at=allocated)
@@ -153,16 +152,16 @@ class TestWorkerDeathMidInference:
             assert result2["reason"] == "zero_duration"
             assert billing.charge.call_count == 1
 
-    def test_full_chaos_worker_death_then_retry_single_bill(
-        self, repo: ServerlessRepo, preset_endpoint: dict, owner_id: str, monkeypatch
-    ):
+    def test_full_chaos_worker_death_then_retry_single_bill(self, native, monkeypatch):
         """End-to-end: in-flight job → token accrual → worker lost → retry → one ledger row."""
         monkeypatch.setenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", "1")
         monkeypatch.setenv("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "1")
 
+        start(native)
+        repo, preset_endpoint, owner_id = native.repo, native.ep, native.owner
         ep_id = preset_endpoint["endpoint_id"]
-        sched_job = f"sched-{uuid.uuid4().hex[:8]}"
-        worker1 = repo.create_worker(ep_id, scheduler_job_id=sched_job)
+        sched_job = native.jid
+        worker1 = repo.create_worker(ep_id, scheduler_job_id=f"prior-{uuid.uuid4().hex[:8]}")
         w1 = str(worker1["worker_id"])
         repo.update_worker(w1, state=WORKER_STATE_READY)
         idem_key = f"chaos-{uuid.uuid4().hex[:12]}"
@@ -184,7 +183,7 @@ class TestWorkerDeathMidInference:
         assert repo.requeue_worker_jobs(w1) == 1
 
         # Retry on fresh worker — same client idempotency key.
-        worker2 = repo.create_worker(ep_id, scheduler_job_id=sched_job)
+        worker2 = repo.get_worker(native.wid)
         w2 = str(worker2["worker_id"])
         repo.update_worker(w2, state=WORKER_STATE_READY)
         retry_claim = repo.claim_next_job(ep_id, w2)
@@ -203,6 +202,7 @@ class TestWorkerDeathMidInference:
         billing = MagicMock()
         billing.charge.return_value = {"charged": True, "balance_cad": 100.0}
         allocated = time.time() - 120.0
+        repo.update_worker(w2, allocated_at=allocated)
         with (
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
             patch("serverless.metering.last_billed_period_end", return_value=None),

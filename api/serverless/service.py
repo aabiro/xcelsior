@@ -366,6 +366,9 @@ class ServerlessService:
         gpu_model = str(ep.get("gpu_tier") or "").strip() or None
         http_port = int(ep.get("http_port") or 8080)
         health_check_path = str(ep.get("health_check_path") or "/health")
+        from serverless.billing_authority import capture_quote
+
+        billing_quote = capture_quote(ep)
         from serverless.env_secrets import decrypt_env_for_worker
 
         endpoint_env = decrypt_env_for_worker(ep.get("env"))
@@ -403,6 +406,7 @@ class ServerlessService:
                         "volume_mounts": volume_mounts,
                         "http_port": http_port,
                         "health_check_path": health_check_path,
+                        "serverless_billing_quote": billing_quote,
                     },
                     vram_needed_gb=vram,
                     priority=5,

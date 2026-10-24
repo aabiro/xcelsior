@@ -167,6 +167,7 @@ def test_wallet_notices_rollback_with_cycle_then_commit_once_and_push_after_comm
 
     billing = get_billing_engine()
     billing.deposit(native.owner, 1)
+    start(native)
     native.repo.update_worker(native.wid, allocated_at=1000)
     worker = native.repo.get_worker(native.wid)
     monkeypatch.setattr("serverless.metering.get_gpu_rate_per_hour", lambda *a: 3.6)
@@ -273,6 +274,7 @@ def test_insufficient_wallet_warns_without_debiting_and_suspends_only_when_empty
     billing.get_wallet(native.owner)
     if initial_balance:
         billing.deposit(native.owner, initial_balance)
+    start(native)
     native.repo.update_worker(native.wid, allocated_at=1000)
     worker = native.repo.get_worker(native.wid)
     monkeypatch.setattr("serverless.metering.get_gpu_rate_per_hour", lambda *a: 3.6)

@@ -66,6 +66,15 @@ def sse_payload_for(event: OutboxEvent) -> dict | None:
     user-visible shape (unknown types publish silently — forward
     compatible with producers this build doesn't know yet)."""
     p = event.payload or {}
+    if event.event_type in ("job.v1.http_ports_ready", "job.v1.auto_launch_ports_ready"):
+        return {
+            "type": (
+                "http_ports_ready"
+                if event.event_type == "job.v1.http_ports_ready"
+                else "auto_launch_ready"
+            ),
+            "data": {**p, "job_id": event.aggregate_id},
+        }
     if event.event_type == "job.v1.placement_reserved":
         return {
             "type": "job_status",

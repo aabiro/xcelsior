@@ -3515,8 +3515,13 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
 # ───────────────────────────────────────────────────────────────────────
 # P2.3 — Jupyter / VSCode auto-launch report callback
 # ───────────────────────────────────────────────────────────────────────
-class _AutoLaunchReport(BaseModel):
+class _AttemptRuntimeReport(BaseModel):
     host_id: str = Field(..., min_length=1, max_length=128)
+    attempt_id: uuid.UUID
+    fencing_token: int = Field(ge=1)
+
+
+class _AutoLaunchReport(_AttemptRuntimeReport):
     # Map of service_name -> container port, e.g. {"jupyter": 8888, "vscode": 8443}
     ports: dict[str, int] = Field(default_factory=dict)
     # First 8 hex chars of sha256(token) — cheap integrity check so the
@@ -3527,8 +3532,7 @@ class _AutoLaunchReport(BaseModel):
     # ``--ServerApp.token``; code-server uses it as the PASSWORD env.
     # Stored in ``jobs.payload.auto_launch_ports.token``; returned only
     # to the job owner via ``GET /instances/{id}/auto-launch``. Hex,
-    # up to 64 chars (worker currently emits 32). Optional to stay
-    # backward-compatible with agents that haven't been upgraded yet.
+    # up to 64 chars (worker currently emits 32). Required for native attempt callbacks.
     token: str | None = Field(default=None, max_length=64)
 
     @field_validator("token")
@@ -3536,8 +3540,8 @@ class _AutoLaunchReport(BaseModel):
     def _v_token(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        if not re.fullmatch(r"[0-9a-f]{16,64}", v):
-            raise ValueError("token must be 16–64 hex chars")
+        if not re.fullmatch(r"[0-9a-f]{32,64}", v):
+            raise ValueError("token must be 32–64 hex chars")
         return v
 
     @field_validator("ports")
@@ -3574,36 +3578,41 @@ def api_instances_auto_launch_report(job_id: str, body: _AutoLaunchReport, reque
 
     _require_agent_auth(request, host_id=body.host_id)
 
-    pool = _user_images_pool()
-    import json as _json
+    from control_plane.runtime_callbacks import record_runtime_callback
+    from control_plane.leases import FencingViolation
+    import hashlib
 
-    payload_value = _json.dumps(
-        {
-            "host_id": body.host_id,
-            "ports": body.ports,
-            "token_sha": body.token_sha,
-            "token": body.token or "",
-            "reported_at": time.time(),
-        }
-    )
-
-    with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, "
-            "'{auto_launch_ports}', %s::jsonb, true) "
-            "WHERE job_id = %s AND payload->>'host_id' = %s",
-            (payload_value, job_id, body.host_id),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(404, "job not found or host_id mismatch")
-
+    if not body.token:
+        raise HTTPException(422, "native service report requires its credential")
+    token_sha = hashlib.sha256(body.token.encode()).hexdigest()[:8]
+    if body.token_sha and body.token_sha != token_sha:
+        raise HTTPException(422, "service credential digest mismatch")
+    payload_value = {
+        "host_id": body.host_id,
+        "attempt_id": str(body.attempt_id),
+        "fencing_token": body.fencing_token,
+        "ports": body.ports,
+        "token_sha": token_sha,
+        "token": body.token or "",
+        "reported_at": time.time(),
+    }
     try:
-        broadcast_sse(
-            "auto_launch_ready",
-            {"job_id": job_id, "ports": body.ports, "token_sha": body.token_sha},
-        )
-    except Exception as e:
-        log.debug("broadcast_sse(auto_launch_ready) failed: %s", e)
+        with _user_images_pool().connection() as conn:
+            recorded = record_runtime_callback(
+                conn,
+                job_id=job_id,
+                host_id=body.host_id,
+                attempt_id=str(body.attempt_id),
+                fencing_token=body.fencing_token,
+                kind="auto_launch_ports",
+                value=payload_value,
+            )
+        if not recorded:
+            raise HTTPException(404, "job not found or host_id mismatch")
+    except FencingViolation:
+        raise HTTPException(409, "runtime callback authority is no longer current")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return {"ok": True}
 
 
@@ -3664,6 +3673,25 @@ def api_instances_auto_launch_get(job_id: str, request: Request):
             auto = {}
     reported_ports = (auto.get("ports") or {}) if isinstance(auto, dict) else {}
     token = (auto.get("token") or "") if isinstance(auto, dict) else ""
+    try:
+        attempt_id = str(uuid.UUID(str(auto.get("attempt_id"))))
+        fencing_token = auto.get("fencing_token")
+        if type(fencing_token) is not int or fencing_token < 1:
+            raise ValueError("missing runtime authority")
+    except (ValueError, AttributeError, TypeError):
+        return {"ready": False, "services": {}}
+    with _user_images_pool().connection() as conn:
+        current = conn.execute(
+            """SELECT 1 FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                 JOIN placement_leases l ON l.attempt_id=a.attempt_id
+                WHERE j.job_id=%s AND a.attempt_id=%s AND a.fencing_token=%s
+                  AND a.host_id=j.host_id AND a.status IN ('starting','running')
+                  AND l.status='active' AND l.expires_at>clock_timestamp()
+                  AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token""",
+            (job_id, attempt_id, fencing_token),
+        ).fetchone()
+    if current is None:
+        return {"ready": False, "services": {}}
 
     http_ports = job.get("http_ports") or {}
     if isinstance(http_ports, str):
@@ -3747,8 +3775,7 @@ def _job_slug(job_id: str) -> str:
     return (job_id or "")[:JOB_SLUG_LEN].lower()
 
 
-class _HttpPortsReport(BaseModel):
-    host_id: str = Field(..., min_length=1, max_length=128)
+class _HttpPortsReport(_AttemptRuntimeReport):
     # Mapping of container-port (stringified, JSON-safe) → host-port.
     ports: dict[str, int] = Field(default_factory=dict)
 
@@ -3784,24 +3811,26 @@ def api_http_ports_report(job_id: str, body: _HttpPortsReport, request: Request)
     from routes.agent import _require_agent_auth
 
     _require_agent_auth(request, host_id=body.host_id)
-    payload_value = json.dumps(body.ports)
-    pool = _user_images_pool()
-    with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, "
-            "'{http_ports}', %s::jsonb, true) "
-            "WHERE job_id = %s AND payload->>'host_id' = %s",
-            (payload_value, job_id, body.host_id),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(404, "job not found or host_id mismatch")
+    from control_plane.runtime_callbacks import record_runtime_callback
+    from control_plane.leases import FencingViolation
+
     try:
-        broadcast_sse(
-            "http_ports_ready",
-            {"job_id": job_id, "ports": body.ports},
-        )
-    except Exception as e:
-        log.debug("broadcast_sse(http_ports_ready) failed: %s", e)
+        with _user_images_pool().connection() as conn:
+            recorded = record_runtime_callback(
+                conn,
+                job_id=job_id,
+                host_id=body.host_id,
+                attempt_id=str(body.attempt_id),
+                fencing_token=body.fencing_token,
+                kind="http_ports",
+                value=body.ports,
+            )
+        if not recorded:
+            raise HTTPException(404, "job not found or host_id mismatch")
+    except FencingViolation:
+        raise HTTPException(409, "runtime callback authority is no longer current")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return {"ok": True}
 
 
@@ -3963,15 +3992,21 @@ def api_internal_route(slug: str, port: int, request: Request):
             """
             SELECT j.job_id,
                    j.payload->'http_ports' AS http_ports,
-                   j.payload->>'host' AS host_id,
+                   j.host_id,
                    h.payload->>'ip' AS host_ip
               FROM jobs j
-              LEFT JOIN hosts h ON h.host_id = j.payload->>'host'
-             WHERE j.status = 'running'
+              JOIN hosts h ON h.host_id = j.host_id
+              JOIN job_attempts a ON a.attempt_id=j.active_attempt_id AND a.job_id=j.job_id
+              JOIN placement_leases l ON l.attempt_id=a.attempt_id AND l.job_id=j.job_id
+             WHERE j.phase = 'running'
+               AND a.status='running' AND a.host_id=j.host_id
+               AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token
+               AND l.status='active' AND l.expires_at>clock_timestamp()
+               AND j.spec->'exposed_ports' @> jsonb_build_array(%s::int)
                AND substr(j.job_id, 1, %s) = %s
              LIMIT 2
             """,
-            (JOB_SLUG_LEN, slug),
+            (port, JOB_SLUG_LEN, slug),
         )
         rows = cur.fetchall()
 

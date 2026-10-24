@@ -3296,6 +3296,13 @@ export interface components {
         _AutoLaunchReport: {
             /** Host Id */
             host_id: string;
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            attempt_id: string;
+            /** Fencing Token */
+            fencing_token: number;
             /** Ports */
             ports?: {
                 [key: string]: number;
@@ -3337,6 +3344,13 @@ export interface components {
         _HttpPortsReport: {
             /** Host Id */
             host_id: string;
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            attempt_id: string;
+            /** Fencing Token */
+            fencing_token: number;
             /** Ports */
             ports?: {
                 [key: string]: number;
