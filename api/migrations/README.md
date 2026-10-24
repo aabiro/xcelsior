@@ -578,7 +578,10 @@ their evidence. Apply 137 before serving the new runtime (floor 137). The frozen
 7757bdc3 image remains the schema-134-compatible intermediate for 134–136.
 
 139 moves Connect account and product mapping bootstrap into Alembic. It retains
-existing rows and creates missing tables on fresh databases. Downgrade retains
+all original fields, adds a tenant-leading index and the explicit
+`system:stripe-connect` platform catalog scope, and creates missing tables on
+fresh databases. This is shared platform administration, not an inferred
+personal owner recovered from a contact email. Downgrade retains
 these financial/provider mappings. API imports no longer attempt DDL, and the
 runtime floor is 139. Apply this additive migration with the direct migrator
 credential before replacing the schema-138-compatible runtime.
