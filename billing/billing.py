@@ -1824,53 +1824,26 @@ class BillingEngine:
         return float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
 
     def maybe_warn_low_balance(self, customer_id: str, balance_cad: float) -> dict:
-        """Emit a low-balance warning notification, at most once per six hours.
+        """Commit the warning watermark and durable notice intent together."""
+        from control_plane.billing_effects import publish_committed_effects
+        from psycopg.rows import dict_row
 
-        The watermark is `wallets.low_balance_warned_at` (migration 116), not
-        `grace_until` — see the comment below for what sharing that column would
-        have cost the first time anyone granted a real grace window.
-        """
         threshold = self.low_balance_threshold_cad(customer_id)
-        if balance_cad > threshold:
-            return {"warned": False, "threshold_cad": threshold}
-        now = time.time()
-        wallet = self.get_wallet(customer_id)
-        # `low_balance_warned_at`, not `grace_until` — migration 116.
-        #
-        # This used to reuse `grace_until` as the watermark, which was safe only
-        # because nothing ever set that column to a *future* time. The moment
-        # someone granted a real grace window, `now - last` would go negative,
-        # compare as "warned recently", and suppress the warning for the whole
-        # window — silencing the low-balance notice exactly while a deadline the
-        # customer did not ask for ran out.
-        #
-        # NULL means never warned. `0` is refused by the schema, so an unset
-        # watermark cannot be confused with an ancient one.
-        last = float(wallet.get("low_balance_warned_at") or 0)
-        if last and now - last < 6 * 3600 and balance_cad > 0:
-            return {"warned": False, "threshold_cad": threshold, "reason": "rate_limited"}
-        try:
-            with self._conn() as conn:
-                conn.execute(
-                    "UPDATE wallets SET low_balance_warned_at = %s, updated_at = %s "
-                    " WHERE customer_id = %s",
-                    (now, now, customer_id),
-                )
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=customer_id,
-                notif_type="billing_low_balance",
-                title="Low balance warning",
-                body=(
-                    f"Your wallet is ${balance_cad:.2f} CAD "
-                    f"(warning at ${threshold:.2f} CAD). Top up to avoid hard stop."
-                ),
-                data={"balance_cad": balance_cad, "threshold_cad": threshold},
+        with self._conn() as conn:
+            conn.row_factory = dict_row
+            wallet = conn.execute(
+                "SELECT * FROM wallets WHERE customer_id=%s FOR UPDATE", (customer_id,)
+            ).fetchone()
+            if not wallet:
+                return {"warned": False, "threshold_cad": threshold}
+            actual = micros_to_cad(wallet["balance_micros"])
+            if actual > threshold:
+                return {"warned": False, "threshold_cad": threshold}
+            notices = self._record_wallet_alerts(
+                conn, customer_id, wallet, wallet["balance_micros"], job_id=""
             )
-        except Exception:
-            pass
-        return {"warned": True, "threshold_cad": threshold, "balance_cad": balance_cad}
+        publish_committed_effects(notice_ids=notices)
+        return {"warned": bool(notices), "threshold_cad": threshold, "balance_cad": actual}
 
     def charge(
         self,
@@ -2154,10 +2127,12 @@ class BillingEngine:
 
     def _publish_committed_charge(self, result, *, customer_id, job_id):
         """Publish optional projections after the debit and cycle commit together."""
-        from db import NotificationStore
+        from control_plane.billing_effects import publish_committed_effects
 
-        for notification_id in result.pop("notification_ids", []):
-            NotificationStore.deliver(notification_id)
+        publish_committed_effects(
+            notice_ids=result.pop("notification_ids", []),
+            stop_event_ids=result.pop("stop_event_ids", []),
+        )
         if result.get("charged") and result.get("tx_id"):
             try:
                 from stripe_meters import enqueue_usage_from_charge
@@ -2174,7 +2149,7 @@ class BillingEngine:
 
     def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
         """Persist rate-limited notices while the billing transaction owns the wallet lock."""
-        from db import NotificationStore
+        from control_plane.billing_effects import queue_wallet_notice
 
         threshold = micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0)
         if threshold <= 0:
@@ -2189,25 +2164,25 @@ class BillingEngine:
                 (now, customer_id),
             )
             notices.append(
-                NotificationStore.create(
+                queue_wallet_notice(
+                    conn,
                     customer_id,
                     "billing_low_balance",
                     "Low balance warning",
                     f"Your wallet is ${balance_cad:.2f} CAD (warning at ${threshold:.2f} CAD). "
                     "Top up to avoid hard stop.",
                     {"balance_cad": balance_cad, "threshold_cad": threshold},
-                    conn=conn,
                 )
             )
         if remaining <= 0 and wallet["status"] != "suspended":
             notices.append(
-                NotificationStore.create(
+                queue_wallet_notice(
+                    conn,
                     customer_id,
                     "billing_suspended",
                     "Wallet suspended",
                     "Your wallet is empty. Top up to resume compute.",
                     {"balance_cad": balance_cad, "job_id": job_id},
-                    conn=conn,
                 )
             )
         return notices
@@ -2347,7 +2322,9 @@ class BillingEngine:
         {"user_stopped", "low_balance", "billing_suspended", "paused_low_balance"}
     )
 
-    def stop_instance(self, job_id: str, reason: str = "user_stopped") -> dict:
+    def stop_instance(
+        self, job_id: str, reason: str = "user_stopped", *, expected_authority: dict | None = None
+    ) -> dict:
         """Request a fenced stop; only worker settlement projects stopped."""
         if reason not in self._VALID_STOP_REASONS:
             return {
@@ -2373,7 +2350,7 @@ class BillingEngine:
                           COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
                           spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
-                          payload->>'container_name' AS container_name
+                          payload->>'container_name' AS container_name, generation
                    FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
                 (job_id,),
             ).fetchone()
@@ -2402,6 +2379,18 @@ class BillingEngine:
                 created_by="billing_stop",
                 container_name=container_name,
                 reason_tag=stop_reason_tag,
+                wallet_evidence=(
+                    (
+                        expected_authority
+                        or {
+                            "attempt_id": str(active_attempt_id),
+                            "generation": job["generation"],
+                            "owner": owner,
+                        }
+                    )
+                    if reason == "billing_suspended"
+                    else None
+                ),
             )
             if not fenced.ok:
                 return {
@@ -3249,6 +3238,7 @@ class BillingEngine:
         return {
             "job_id": job_id,
             "amount_cad": amount_cad,
+            "cycle_id": cycle_id,
             "charge_result": charge_result,
             "pricing_mode": pricing_mode,
         }
@@ -3266,11 +3256,14 @@ class BillingEngine:
         """
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+        from control_plane.billing_effects import lock_period
 
         period_end = period_end or time.time()
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
+            if not lock_period(conn, "gpu", job_id):
+                return {"billed": False, "reason": "billing_in_progress"}
             job = conn.execute(
                 """SELECT j.job_id,j.status,j.host_id,
                           COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
@@ -3287,7 +3280,7 @@ class BillingEngine:
                    WHERE j.job_id=%s AND j.phase='running' AND a.status='running'
                      AND j.spec->>'execution_spec_version'='v1'
                      AND COALESCE(j.spec->>'job_type','') <> 'serverless_worker'
-                   FOR UPDATE OF j""",
+                   """,
                 (job_id,),
             ).fetchone()
             if not job:
@@ -3351,6 +3344,10 @@ class BillingEngine:
             try:
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
+                    from control_plane.billing_effects import lock_period
+
+                    if not lock_period(conn, "gpu", item["job_id"]):
+                        continue
                     row = conn.execute(
                         """SELECT j.job_id,a.host_id,a.attempt_id AS _terminal_attempt_id,
                             COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
@@ -3358,7 +3355,7 @@ class BillingEngine:
                             EXTRACT(EPOCH FROM a.started_at)::float8 AS started,
                             EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended
                           FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
-                         WHERE j.job_id=%s AND a.attempt_id=%s FOR UPDATE OF j SKIP LOCKED""",
+                         WHERE j.job_id=%s AND a.attempt_id=%s""",
                         (item["job_id"], item["attempt_id"]),
                     ).fetchone()
                     if row is None:
@@ -3399,6 +3396,7 @@ class BillingEngine:
         """
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+        from control_plane.billing_effects import lock_period, queue_failed_cycle_stop
 
         now = time.time()
         billed = 0
@@ -3410,7 +3408,7 @@ class BillingEngine:
             conn.row_factory = dict_row
             # Find all running jobs
             running = conn.execute(
-                """SELECT j.job_id,
+                """SELECT j.job_id, j.active_attempt_id, j.generation,
                           COALESCE(j.spec->>'owner',
                                    j.spec->>'owner_id',j.owner_id) AS owner,
                           EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
@@ -3439,11 +3437,7 @@ class BillingEngine:
                     continue
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
-                    locked = conn.execute(
-                        "SELECT job_id FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE SKIP LOCKED",
-                        (job_id,),
-                    ).fetchone()
-                    if not locked:
+                    if not lock_period(conn, "gpu", job_id):
                         continue
 
                     last = conn.execute(
@@ -3465,31 +3459,19 @@ class BillingEngine:
                     if not result:
                         continue
                     charge_result = result["charge_result"]
+                    if not charge_result.get("charged") and (
+                        charge_result.get("hard_stop")
+                        or charge_result.get("action") == "account_suspended"
+                    ):
+                        event_id = queue_failed_cycle_stop(conn, job, result)
+                        charge_result["stop_event_ids"] = [event_id] if event_id else []
+                        suspended += 1
                     conn.commit()
 
                 billed += int(bool(charge_result.get("charged")))
                 self._publish_committed_charge(
                     charge_result, customer_id=customer_id, job_id=job_id
                 )
-
-                # If charge failed with grace_expired → suspend and STOP the job
-                if not charge_result.get("charged") and (
-                    charge_result.get("hard_stop")
-                    or charge_result.get("action") == "account_suspended"
-                ):
-                    suspended += 1
-                    try:
-                        stop_result = self.stop_instance(job_id, reason="billing_suspended")
-                        if not stop_result.get("stopped"):
-                            log.error(
-                                "BILLING: Failed to stop job %s on suspension: %s",
-                                job_id,
-                                stop_result.get("reason"),
-                            )
-                    except Exception as kill_err:
-                        log.error(
-                            "BILLING: Failed to kill job %s on suspension: %s", job_id, kill_err
-                        )
 
             except Exception as e:
                 errors += 1
@@ -3502,22 +3484,6 @@ class BillingEngine:
         # ── Bill active volumes (real-time storage charges) ──────────
         volume_billed = 0
         try:
-            from volumes import get_volume_engine
-
-            ve = get_volume_engine()
-
-            # Sweep stale provisioning/deleting volumes before billing
-            try:
-                ve.cleanup_stale_volumes()
-            except Exception as e:
-                log.warning("Stale volume cleanup error: %s", e)
-
-            # Reconcile orphaned attachments (volumes attached to dead instances)
-            try:
-                ve.reconcile_orphaned_attachments()
-            except Exception as e:
-                log.warning("Orphan volume reconciliation error: %s", e)
-
             # Fetch suspended wallets to skip their volumes
             suspended_owners: set[str] = set()
             _skip_volume_billing = False
@@ -3556,13 +3522,14 @@ class BillingEngine:
                         log.debug("Skipping volume billing for %s: wallet suspended", vid)
                         continue
 
-                    # Single transaction with row lock prevents double-billing
-                    # from concurrent billing ticks (mirrors GPU billing pattern)
+                    # Financial advisory lock serializes the paid cursor without
+                    # granting the billing login UPDATE on volume control state.
                     with pool.connection() as conn:
                         conn.row_factory = dict_row
-                        # Lock the volume row so a concurrent tick skips it
+                        if not lock_period(conn, "volume", vid):
+                            continue
                         locked = conn.execute(
-                            "SELECT volume_id,owner_id,name,size_gb,created_at FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') FOR UPDATE SKIP LOCKED",
+                            "SELECT volume_id,owner_id,name,size_gb,created_at FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') ",
                             (vid,),
                         ).fetchone()
                         if not locked:
@@ -4039,11 +4006,11 @@ class BillingEngine:
                     "Auto-topup failed for %s (attempt %d/3): %s", customer_id, new_failures, e
                 )
 
-                jobs_to_stop: list[str] = []
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
                     if new_failures >= 3:
-                        # Max retries exhausted — disable auto-topup + pause instances
+                        # Max retries exhausted — disable auto-topup; unpaid native cycles
+                        # persist their own fenced stop intent. Funded work stays eligible.
                         conn.execute(
                             """UPDATE wallets
                                SET auto_topup_failures = %s,
@@ -4053,19 +4020,9 @@ class BillingEngine:
                             (new_failures, now, customer_id),
                         )
                         log.warning(
-                            "Auto-topup DISABLED for %s after 3 failures — stopping instances",
+                            "Auto-topup DISABLED for %s after 3 failures",
                             customer_id,
                         )
-                        # Snapshot targets while updating the wallet, then
-                        # invoke the shared lifecycle service after commit.
-                        running = conn.execute(
-                            """SELECT job_id
-                               FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
-                                 AND spec->>'execution_spec_version'='v1'
-                                 AND history_disposition IS NULL AND status = 'running'""",
-                            (customer_id,),
-                        ).fetchall()
-                        jobs_to_stop = [str(job["job_id"]) for job in running]
                     else:
                         conn.execute(
                             """UPDATE wallets
@@ -4075,15 +4032,6 @@ class BillingEngine:
                             (new_failures, now, customer_id),
                         )
                     conn.commit()
-
-                for job_id in jobs_to_stop:
-                    stop_result = self.stop_instance(job_id, reason="low_balance")
-                    if not stop_result.get("stopped"):
-                        log.error(
-                            "Auto-topup exhaustion failed to stop job=%s reason=%s",
-                            job_id,
-                            stop_result.get("reason"),
-                        )
 
         if topped_up or errors:
             log.info(
@@ -4226,24 +4174,37 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             suspended = conn.execute(
-                "SELECT customer_id FROM wallets WHERE status = 'suspended'",
+                "SELECT customer_id FROM wallets WHERE status = 'suspended' OR balance_micros<=0",
             ).fetchall()
-            running_job_ids: list[tuple[str, str]] = []
+            running_job_ids: list[tuple[str, str, dict]] = []
             for w in suspended:
                 cid = w["customer_id"]
                 running = conn.execute(
-                    """SELECT job_id
+                    """SELECT job_id,active_attempt_id,generation
                        FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
                                  AND spec->>'execution_spec_version'='v1'
-                                 AND history_disposition IS NULL AND status = 'running'""",
+                                 AND history_disposition IS NULL AND status = 'running'
+                                 AND active_attempt_id IS NOT NULL""",
                     (cid,),
                 ).fetchall()
                 for job in running:
-                    running_job_ids.append((str(job["job_id"]), str(cid)))
+                    running_job_ids.append(
+                        (
+                            str(job["job_id"]),
+                            str(cid),
+                            {
+                                "attempt_id": str(job["active_attempt_id"]),
+                                "generation": job["generation"],
+                                "owner": str(cid),
+                            },
+                        )
+                    )
 
         # The shared service revalidates native admission and fences delivery.
-        for job_id, cid in running_job_ids:
-            result = self.stop_instance(job_id, reason="billing_suspended")
+        for job_id, cid, authority in running_job_ids:
+            result = self.stop_instance(
+                job_id, reason="billing_suspended", expected_authority=authority
+            )
             if result.get("stopped"):
                 stopped += 1
                 log.warning("Stopped job %s for suspended wallet %s", job_id, cid)
@@ -4254,23 +4215,9 @@ class BillingEngine:
                     result.get("reason"),
                 )
 
-        # Deprovision serverless workers owned by suspended wallets
-        try:
-            from serverless.repo import ServerlessRepo
-            from serverless.service import get_serverless_service
-
-            sl_repo = ServerlessRepo()
-            sl_svc = get_serverless_service()
-            for w in suspended:
-                cid = w["customer_id"]
-                for ep in sl_repo.list_endpoints(cid):
-                    for worker in sl_repo.list_workers(str(ep["endpoint_id"])):
-                        state = str(worker.get("state") or "")
-                        if state in ("booting", "ready", "idle", "draining"):
-                            sl_svc.deprovision_worker(str(worker["worker_id"]), charge=False)
-                            stopped += 1
-        except Exception as e:
-            log.warning("Serverless suspend enforcement failed: %s", e)
+        # The native job query includes running serverless attempts. Their
+        # worker projection closes only on fenced settlement. Unclaimed offers
+        # remain subject to admission and the normal bounded claim deadline.
 
         if stopped:
             log.info("ENFORCEMENT: Stopped %d jobs for suspended wallets", stopped)
