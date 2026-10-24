@@ -278,7 +278,9 @@ def test_native_terminal_charge_retries_atomically_and_survives_soft_delete(nati
     start(native)
     billing = get_billing_engine()
     billing.deposit(native.owner, 50)
-    native.repo.update_worker(native.wid, allocated_at=time.time() - 130)
+    from tests.test_serverless_billing_authority import backdate_execution
+
+    backdate_execution(native, time.time() - 130)
     native.repo.accrue_endpoint_token_cost(native.ep["endpoint_id"], 1.25)
     report(native, "failed")
     w = native.repo.get_worker(native.wid)
@@ -312,7 +314,9 @@ def test_overlapping_final_billing_cannot_charge_twice(native):
     start(native)
     billing = get_billing_engine()
     billing.deposit(native.owner, 50)
-    native.repo.update_worker(native.wid, allocated_at=time.time() - 130)
+    from tests.test_serverless_billing_authority import backdate_execution
+
+    backdate_execution(native, time.time() - 130)
     native.repo.accrue_endpoint_token_cost(native.ep["endpoint_id"], 2.5)
     report(native, "succeeded")
     w = native.repo.get_worker(native.wid)

@@ -408,10 +408,15 @@ def _charge_serverless_execution(
     job_id = _billing_job_id(worker)
     now = time.time()
     period_end = float(period_end if period_end is not None else now)
-    last_end = last_billed_period_end(job_id)
-    period_start = (
-        last_end if last_end is not None else float(worker.get("allocated_at") or period_end)
-    )
+    if not math.isfinite(period_end) or period_end < 0 or resource_type != "serverless_gpu":
+        raise ValueError("invalid native serverless billing interval or resource")
+    period_end = min(period_end, _quote["execution_end_cap"])
+    paid = _conn.execute(
+        "SELECT max(period_end) AS paid_end FROM billing_cycles "
+        "WHERE job_id=%s AND resource_type='serverless_gpu' AND status='charged'",
+        (job_id,),
+    ).fetchone()["paid_end"]
+    period_start = max(_quote["execution_start"], paid if paid is not None else 0)
     duration_sec = period_end - period_start
 
     if duration_sec <= 0:
