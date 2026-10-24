@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
 import os
 import time
 import uuid
@@ -30,6 +31,14 @@ SCRATCH = os.environ.get(
 )
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def priced_worker():
+    from tests.fixtures.native_serverless import running_serverless
+
+    with ExitStack() as stack:
+        yield lambda repo, endpoint_id: stack.enter_context(running_serverless(repo, endpoint_id))
 
 
 @pytest.fixture(autouse=True)
@@ -82,6 +91,7 @@ class TestBillingPeriodicHarness:
     def test_auto_billing_cycle_charges_max_gpu_when_token_small(
         self,
         fake_vllm_port,
+        priced_worker,
     ):
         """Production path with gpu_tier set: blended = max(gpu_slice, token_accrual)."""
         headers, owner = _funded_headers()
@@ -103,9 +113,8 @@ class TestBillingPeriodicHarness:
         )
         ep_id = str(ep["endpoint_id"])
         sched = f"sched-{uuid.uuid4().hex[:8]}"
-        worker = repo.create_worker(ep_id, scheduler_job_id=sched)
+        worker = priced_worker(repo, ep_id)
         worker_id = str(worker["worker_id"])
-        repo.update_worker(worker_id, state="ready", allocated_at=time.time() - 130.0)
 
         chat = client.post(
             f"/v1/serverless/{ep_id}/openai/v1/chat/completions",
@@ -149,7 +158,7 @@ class TestBillingPeriodicHarness:
         )
         repo.soft_delete_endpoint(ep_id, owner)
 
-    def test_auto_billing_cycle_charges_max_token_when_token_larger(self):
+    def test_auto_billing_cycle_charges_max_token_when_token_larger(self, priced_worker):
         """When token accrual exceeds GPU slice, blended charges token side."""
         repo = ServerlessRepo()
         billing = get_billing_engine()
@@ -170,10 +179,7 @@ class TestBillingPeriodicHarness:
             )
         )
         ep_id = str(ep["endpoint_id"])
-        worker = repo.create_worker(ep_id, scheduler_job_id=f"sched-{uuid.uuid4().hex[:8]}")
-        repo.update_worker(
-            str(worker["worker_id"]), state="ready", allocated_at=time.time() - 130.0
-        )
+        worker = priced_worker(repo, ep_id)
         token_cost = 2.50
         repo.accrue_endpoint_token_cost(ep_id, token_cost)
 
@@ -200,7 +206,7 @@ class TestBillingPeriodicHarness:
         )
         repo.soft_delete_endpoint(ep_id, owner)
 
-    def test_deprovision_worker_uses_full_billing_context(self, monkeypatch):
+    def test_deprovision_without_runtime_evidence_cannot_charge(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "1")
 
         repo = ServerlessRepo()
@@ -224,7 +230,7 @@ class TestBillingPeriodicHarness:
         ep_id = str(ep["endpoint_id"])
         worker = repo.create_worker(ep_id, scheduler_job_id=f"sched-{uuid.uuid4().hex[:8]}")
         worker_id = str(worker["worker_id"])
-        repo.update_worker(worker_id, state="ready", allocated_at=time.time() - 130.0)
+        repo.update_worker(worker_id, state="ready")
         repo.accrue_endpoint_token_cost(ep_id, 1.25)
 
         from unittest.mock import patch
@@ -233,10 +239,10 @@ class TestBillingPeriodicHarness:
 
         svc = ServerlessService(repo)
         wallet_before = float(billing.get_wallet(owner)["balance_cad"])
-        with patch.object(svc.dispatcher, "terminate_worker"):
-            svc.deprovision_worker(worker_id, charge=True)
+        result = svc.deprovision_worker(worker_id, charge=True)
+        assert result["reason"] == "scheduler_job_missing"
         wallet_after = float(billing.get_wallet(owner)["balance_cad"])
 
-        assert wallet_before - wallet_after >= 1.25
-        assert repo.peek_endpoint_token_cost(ep_id) == pytest.approx(0.0)
+        assert wallet_after == wallet_before
+        assert repo.peek_endpoint_token_cost(ep_id) == pytest.approx(1.25)
         repo.soft_delete_endpoint(ep_id, owner)

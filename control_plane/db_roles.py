@@ -111,10 +111,13 @@ CONTROL_TABLES = frozenset(
         "host_gpu_devices",
         "gpu_device_allocations",
         "placement_leases",
+        # Recognize the old relation during the supported 126 handoff. The
+        # provisioner filters missing relations after 127 drops it.
         "leases",
         "agent_commands",
         "agent_rollouts",
         "host_agent_tokens",
+        "serverless_attempt_credentials",
         "node_versions",
         "host_observations",
         "observed_workloads",
@@ -123,6 +126,11 @@ CONTROL_TABLES = frozenset(
         "scheduled_tasks",
         "scheduler_shadow_decisions",
         "service_heartbeats",
+        "scheduling_virtual_clock",
+        "scheduling_team_state",
+        "preemption_plans",
+        "preemption_plan_victims",
+        "preemption_plan_devices",
         "telemetry_latest",
         "telemetry_samples",
         "telemetry_snapshots",
@@ -215,6 +223,12 @@ AUDIT_TABLES = frozenset(
     {
         "events",
         "events_archive",
+        "legacy_lease_archive",
+        "job_retired_projection_archive",
+        "retired_control_task_archive",
+        "job_spec_backfill_evidence",
+        "job_history_dispositions",
+        "scheduling_team_policies",
         "event_snapshots",
         "outbox_events",
         "alembic_version",
@@ -281,6 +295,19 @@ TABLE_DOMAINS: dict[str, frozenset[str]] = {
 }
 
 ALL_DOMAINS = tuple(TABLE_DOMAINS) + ("storage",)
+
+# Runtime readers may inspect migration-owned evidence, never rewrite it.
+RUNTIME_READ_ONLY_TABLES = frozenset(
+    {
+        "alembic_version",
+        "legacy_lease_archive",
+        "job_retired_projection_archive",
+        "retired_control_task_archive",
+        "job_spec_backfill_evidence",
+        "job_history_dispositions",
+        "scheduling_team_policies",
+    }
+)
 
 
 def domain_of(table: str) -> str | None:
@@ -365,7 +392,9 @@ SERVICE_ROLES: dict[str, ServiceRole] = {
         write=frozenset({"control", "audit"}),
         read=frozenset({"identity", "billing", "marketplace", "serverless"}),
         column_updates={
-            "public.serverless_workers": frozenset({"attempt_id", "host_id", "updated_at"}),
+            "public.serverless_workers": frozenset(
+                {"attempt_id", "host_id", "allocated_at", "updated_at"}
+            ),
         },
     ),
     "reconciler": ServiceRole(
@@ -424,6 +453,15 @@ DENIAL_CONTRACT: tuple[tuple[str, str, str], ...] = (
     # read-only means read-only
     ("readonly", "jobs", "UPDATE"),
     ("readonly", "events", "INSERT"),
+    ("api", "legacy_lease_archive", "UPDATE"),
+    ("api", "legacy_lease_archive", "INSERT"),
+    ("api", "legacy_lease_archive", "DELETE"),
+    ("api", "job_spec_backfill_evidence", "INSERT"),
+    ("api", "job_spec_backfill_evidence", "UPDATE"),
+    ("api", "job_spec_backfill_evidence", "DELETE"),
+    ("api", "job_history_dispositions", "INSERT"),
+    ("api", "job_history_dispositions", "UPDATE"),
+    ("api", "job_history_dispositions", "DELETE"),
     ("readonly", "wallets", "UPDATE"),
     # retrieval never touches the control plane
     ("retrieval", "jobs", "UPDATE"),
@@ -533,7 +571,7 @@ def grant_statements(
             # Runtime audit writers must not rewrite the migration stamp.
             verbs = (
                 "SELECT"
-                if table == "alembic_version" and role.runtime
+                if table in RUNTIME_READ_ONLY_TABLES and role.runtime
                 else "SELECT, INSERT, UPDATE, DELETE"
             )
             stmts.append(f"GRANT {verbs} ON {_qualified(domain, table)} " f'TO "{role.name}"')

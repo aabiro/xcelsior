@@ -78,14 +78,8 @@ def _stop_subject_workloads(conn: Any, customer_ids: list[str]) -> tuple[int, in
     result = conn.execute(
         """
         UPDATE jobs
-           -- `desired_state` is derived, not written: the BEFORE trigger
-           -- `control_plane_project_job` recomputes it from `status` on every
-           -- write. Setting it alone left `status = 'running'`, so the trigger
-           -- put it straight back to 'running' and nothing stopped — while
-           -- `reason_code` persisted, making the request look honoured.
-           -- `stopping` is the state that means it: the trigger maps it to
-           -- phase='running' (not stopped yet) and desired_state='stopped'.
            SET status = 'stopping',
+               phase = 'running',
                desired_state = 'stopped',
                generation = generation + 1,
                updated_at = clock_timestamp(),
@@ -384,12 +378,16 @@ def delete_authoritative_subject(
             counts["hosts_drained"] = conn.execute(
                 """
                 UPDATE hosts
-                   SET administrative_state = 'draining',
-                       availability_state = 'unavailable',
+                   SET status = 'draining',
+                       administrative_state = CASE WHEN admission_state='admitted'
+                           THEN 'draining' ELSE 'pending' END,
+                       availability_state = 'unknown',
+                       payload = COALESCE(payload,'{}'::jsonb)
+                           || jsonb_build_object('status','draining'),
                        drain_reason = 'provider_account_deleted',
                        generation = generation + 1
                  WHERE provider_id = %s
-                   AND administrative_state <> 'decommissioned'
+                   AND status <> 'disabled'
                 """,
                 (provider_id,),
             ).rowcount

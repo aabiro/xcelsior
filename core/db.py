@@ -175,7 +175,9 @@ def _get_pg_pool() -> Any:
     scoped = scoped_service() is not None
     pool_key = (service, resolve_postgres_dsn(), roles_required())
     if not scoped and _pg_pool is not None and pool_key[2] and _pg_pool_identity != pool_key:
-        raise RuntimeError("database identity configuration changed; restart required before pool reuse")
+        raise RuntimeError(
+            "database identity configuration changed; restart required before pool reuse"
+        )
     if scoped and pool_key in _scoped_pg_pools:
         return _scoped_pg_pools[pool_key]
     if not scoped and _pg_pool is not None:
@@ -537,11 +539,11 @@ class DatabaseOps:
     """Unified database operations that work across SQLite and PostgreSQL."""
 
     @staticmethod
-    def decode_payload(payload):
+    def decode_payload(payload) -> Any:
         """Decode a JSON payload from either backend."""
         if payload is None:
             return None
-        if isinstance(payload, dict):
+        if isinstance(payload, (dict, list)):
             return payload  # Already decoded (psycopg3 JSONB auto-decodes)
         try:
             return json.loads(payload)
@@ -556,9 +558,35 @@ class DatabaseOps:
         return json.dumps(data)
 
     @staticmethod
-    def upsert_job(conn, job, backend="sqlite"):
-        """Upsert a job record."""
+    def replay_job_admission(conn, job_id, admission_request):
+        """Return an exact recorded request without recomputing server policy.
+
+        Locking serializes a retry with lifecycle writers. Missing request
+        evidence cannot be reconstructed from mutable observations.
+        """
+        from control_plane.job_specs import validate_execution_spec
+
+        row = conn.execute(
+            "SELECT spec,spec_hash FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        spec, digest = (row["spec"], row["spec_hash"]) if isinstance(row, dict) else row
+        validate_execution_spec(spec, digest)
+        if spec.get("admission_request") != admission_request:
+            raise ValueError("job id already admitted with a different execution spec or request")
+        return DatabaseOps.get_job(conn, job_id, backend="postgres")
+
+    @staticmethod
+    def upsert_job(conn, job, backend="sqlite", *, admission_spec=None, admission_request=None):
+        """Persist observations; only explicit admission may freeze authority.
+
+        ``admission_spec`` marks a submission, whose retry must leave an
+        existing job untouched. Ordinary status writers preserve its spec.
+        """
         job_id = str(job.get("job_id", "")).strip()
+        if admission_request is not None and admission_spec is None:
+            raise ValueError("admission request requires an approved launch spec")
         if not job_id:
             log.error(
                 "upsert_job refused: missing job_id (status=%r) — "
@@ -581,62 +609,72 @@ class DatabaseOps:
         # here, because nothing else writes the key into the job dict.
         host_key_fingerprint = job.get("host_key_fingerprint") or None
 
-        # P5's placement preference, in the units the schema stores (115).
-        # Percent arrives at the API; basis points are what a price bound can be
-        # compared on exactly. `pct_to_bps` reads the number the caller wrote
-        # rather than the float it became — see
-        # `tests/test_placement_preference_is_exact.py`, where `int(8.7 * 100)`
-        # is 869.
-        #
-        # Clamped here as well as CHECKed in the database. The constraint is the
-        # backstop for every writer; this is so a caller that fat-fingers a
-        # bound gets it bounded rather than a failed insert on the launch path.
-        from control_plane.scheduler.preference import pct_to_bps
-
-        _pref = job.get("placement_preference") or {}
-        _min_uptime_bps = pct_to_bps(_pref.get("min_uptime_pct"))
-        if _min_uptime_bps is not None:
-            _min_uptime_bps = max(0, min(10_000, _min_uptime_bps))
-        _max_premium_bps = pct_to_bps(_pref.get("max_premium_pct"))
-        if _max_premium_bps is not None:
-            _max_premium_bps = max(0, min(100_000_000, _max_premium_bps))
-        _min_tier = str(_pref.get("min_tier") or "").strip().lower() or None
-        _require_verified = bool(_pref.get("require_verified") or False)
-
         if backend == "postgres":
             from psycopg.types.json import Jsonb
+            from control_plane.job_specs import (
+                canonical_spec_hash,
+                make_execution_spec,
+                validate_execution_spec,
+            )
+            from control_plane.state import initial_desired_state, job_phase
 
-            conn.execute(
-                """
-                INSERT INTO jobs(
-                    job_id, status, priority, submitted_at, host_id,
-                    pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
-                    placement_min_uptime_bps, placement_min_tier,
-                    placement_require_verified, placement_max_premium_bps
+            execution_spec = (
+                make_execution_spec(
+                    job, launch_spec=admission_spec, admission_request=admission_request
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT(job_id) DO UPDATE SET
+                if admission_spec is not None
+                else None
+            )
+            execution_hash = (
+                canonical_spec_hash(execution_spec) if execution_spec is not None else None
+            )
+            phase = job_phase(status)
+            conflict = (
+                "DO NOTHING"
+                if admission_spec is not None
+                else """DO UPDATE SET
+                    phase = CASE WHEN jobs.status IS DISTINCT FROM EXCLUDED.status
+                        THEN EXCLUDED.phase ELSE jobs.phase END,
+                    desired_state = CASE
+                        WHEN jobs.status IS NOT DISTINCT FROM EXCLUDED.status
+                            THEN jobs.desired_state
+                        WHEN EXCLUDED.status IN ('stopping','stopped','paused','cancelled','terminated')
+                            THEN 'stopped'
+                        WHEN EXCLUDED.phase='pending' THEN 'running'
+                        ELSE jobs.desired_state END,
+                    effective_priority = CASE WHEN jobs.priority IS DISTINCT FROM EXCLUDED.priority
+                        THEN EXCLUDED.priority ELSE jobs.effective_priority END,
+                    queued_at = CASE WHEN EXCLUDED.phase='pending'
+                        AND (jobs.status IS DISTINCT FROM EXCLUDED.status
+                             OR jobs.submitted_at IS DISTINCT FROM EXCLUDED.submitted_at)
+                        THEN EXCLUDED.queued_at ELSE jobs.queued_at END,
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
                     submitted_at = EXCLUDED.submitted_at,
                     host_id = EXCLUDED.host_id,
                     pricing_mode = EXCLUDED.pricing_mode,
                     spot_rate_micros = EXCLUDED.spot_rate_micros,
-                    -- Moves in the *same* statement as host_id. A2 of
-                    -- docs/host-key-fingerprint-plan.md: the fingerprint
-                    -- describes the container, so it cannot be allowed to
-                    -- outlive the host field that defines it. Structural, not
-                    -- procedural — no hook to forget, and automatic failover
-                    -- (which skips `_clear_job_output`) is covered for free.
+                    -- Fingerprint and host assignment always move together.
                     host_key_fingerprint = EXCLUDED.host_key_fingerprint,
                     payload = EXCLUDED.payload,
-                    -- Same statement as the rest of the row. A resubmit that
-                    -- drops the preference must clear it, not leave the old
-                    -- constraint attached to a job nobody asked to constrain.
-                    placement_min_uptime_bps = EXCLUDED.placement_min_uptime_bps,
-                    placement_min_tier = EXCLUDED.placement_min_tier,
-                    placement_require_verified = EXCLUDED.placement_require_verified,
-                    placement_max_premium_bps = EXCLUDED.placement_max_premium_bps
+                    owner_id = COALESCE(EXCLUDED.owner_id, jobs.owner_id),
+                    tenant_id = COALESCE(EXCLUDED.tenant_id, jobs.tenant_id),
+                    team_id = COALESCE(EXCLUDED.team_id, jobs.team_id),
+                    updated_at = clock_timestamp()
+            """
+            )
+            result = conn.execute(
+                f"""
+                INSERT INTO jobs(
+                    job_id, status, priority, submitted_at, host_id,
+                    pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
+                    owner_id, tenant_id, team_id, updated_at, spec, spec_hash,
+                    phase, desired_state, effective_priority, queued_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, clock_timestamp(), %s, %s,
+                        %s, %s, %s, CASE WHEN %s THEN to_timestamp(%s) ELSE NULL END)
+                ON CONFLICT(job_id) {conflict}
                 """,
                 (
                     job_id,
@@ -648,12 +686,38 @@ class DatabaseOps:
                     None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
                     host_key_fingerprint,
                     Jsonb(job),
-                    _min_uptime_bps,
-                    _min_tier,
-                    _require_verified,
-                    _max_premium_bps,
+                    job.get("owner_id") or job.get("owner") or None,
+                    job.get("tenant_id") or job.get("owner_id") or job.get("owner") or None,
+                    job.get("team_id") or None,
+                    Jsonb(execution_spec) if execution_spec is not None else None,
+                    execution_hash,
+                    phase,
+                    initial_desired_state(status),
+                    priority,
+                    phase == "pending",
+                    submitted_at,
                 ),
             )
+            if admission_spec is not None:
+                if result.rowcount == 0:
+                    if admission_request is not None:
+                        replay = DatabaseOps.replay_job_admission(conn, job_id, admission_request)
+                        if replay is None:
+                            raise ValueError("existing job admission is no longer present")
+                        return replay
+                    row = conn.execute(
+                        "SELECT spec,spec_hash FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)
+                    ).fetchone()
+                    if row is None:
+                        raise ValueError("existing job admission is no longer present")
+                    existing_spec, existing_hash = (
+                        (row["spec"], row["spec_hash"]) if isinstance(row, dict) else row
+                    )
+                    validate_execution_spec(existing_spec, existing_hash)
+                    if existing_hash != execution_hash:
+                        raise ValueError("job id already admitted with a different execution spec")
+                    return DatabaseOps.get_job(conn, job_id, backend=backend)
+                return job
         else:
             conn.execute(
                 """
@@ -681,17 +745,76 @@ class DatabaseOps:
 
         if backend == "postgres":
             from psycopg.types.json import Jsonb
+            from control_plane.state import host_states
+
+            # Registration and inventory cannot confer operator admission.
+            # The conflict arm uses the locked row's current authority, never
+            # the caller's (possibly stale or forged) compatibility payload.
+            administrative, availability = host_states(status, "pending")
+            payload = dict(host)
+            payload.update(
+                admitted=False,
+                admission_state="pending",
+                admission_version=0,
+                admission_decision_id=None,
+            )
 
             conn.execute(
                 """
-                INSERT INTO hosts(host_id, status, registered_at, payload)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO hosts(host_id, status, registered_at, payload,
+                                  owner_id, tenant_id, region, country, province, capabilities,
+                                  administrative_state, availability_state)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb),
+                        %s, %s)
                 ON CONFLICT(host_id) DO UPDATE SET
-                    status = EXCLUDED.status,
+                    status = CASE WHEN hosts.administrative_state IN ('draining','disabled')
+                        THEN hosts.administrative_state ELSE EXCLUDED.status END,
                     registered_at = EXCLUDED.registered_at,
-                    payload = EXCLUDED.payload
+                    payload = EXCLUDED.payload || jsonb_build_object(
+                        'status', CASE WHEN hosts.administrative_state IN ('draining','disabled')
+                            THEN hosts.administrative_state ELSE EXCLUDED.status END,
+                        'admitted', hosts.admission_state='admitted',
+                        'admission_state', hosts.admission_state,
+                        'admission_version', hosts.admission_version,
+                        'admission_decision_id', hosts.admission_decision_id),
+                    administrative_state = CASE
+                        WHEN hosts.administrative_state IN ('draining','disabled')
+                            THEN hosts.administrative_state
+                        WHEN EXCLUDED.status='disabled' THEN 'disabled'
+                        WHEN hosts.admission_state='admitted' AND EXCLUDED.status='draining'
+                            THEN 'draining'
+                        WHEN hosts.admission_state='admitted' THEN 'admitted'
+                        ELSE 'pending' END,
+                    availability_state = CASE
+                        WHEN EXCLUDED.status='dead' THEN 'not_ready'
+                        WHEN hosts.administrative_state IN ('draining','disabled') THEN 'unknown'
+                        WHEN EXCLUDED.status='active' THEN 'ready' ELSE 'unknown' END,
+                    owner_id = COALESCE(EXCLUDED.owner_id, hosts.owner_id),
+                    tenant_id = COALESCE(EXCLUDED.tenant_id, hosts.tenant_id),
+                    region = COALESCE(EXCLUDED.region, hosts.region),
+                    country = COALESCE(EXCLUDED.country, hosts.country),
+                    province = COALESCE(EXCLUDED.province, hosts.province),
+                    capabilities = CASE WHEN %s THEN EXCLUDED.capabilities ELSE hosts.capabilities END
                 """,
-                (host_id, status, registered_at, Jsonb(host)),
+                (
+                    host_id,
+                    status,
+                    registered_at,
+                    Jsonb(payload),
+                    host.get("owner_id") or host.get("owner") or None,
+                    host.get("tenant_id") or host.get("owner_id") or host.get("owner") or None,
+                    host.get("region") or None,
+                    host.get("country") or None,
+                    host.get("province") or None,
+                    (
+                        Jsonb(host["capabilities"])
+                        if isinstance(host.get("capabilities"), dict)
+                        else None
+                    ),
+                    administrative,
+                    availability,
+                    isinstance(host.get("capabilities"), dict),
+                ),
             )
         else:
             conn.execute(
@@ -1817,14 +1940,17 @@ class NotificationStore:
         entity_type: str = "",
         entity_id: str = "",
         priority: int = 0,
+        conn=None,
     ) -> str:
         from psycopg.types.json import Jsonb
         import uuid as _uuid
 
         nid = f"notif-{_uuid.uuid4().hex[:12]}"
         payload = dict(data or {})
-        with auth_connection() as conn:
-            conn.execute(
+        from contextlib import nullcontext
+
+        with nullcontext(conn) if conn is not None else auth_connection() as write_conn:
+            write_conn.execute(
                 """
                 INSERT INTO notifications (
                     id,
@@ -1857,27 +1983,41 @@ class NotificationStore:
                 ),
             )
 
+        if conn is None:
+            NotificationStore.deliver(nid)
+        return nid
+
+    @staticmethod
+    def deliver(notification_id: str) -> None:
+        """Send the optional push projection of an already committed notice."""
         try:
+            with auth_connection() as conn:
+                row = conn.execute(
+                    "SELECT * FROM notifications WHERE id=%s", (notification_id,)
+                ).fetchone()
+            if row is None:
+                return
             from web_push import deliver_web_push_notification
 
             deliver_web_push_notification(
-                user_email,
+                row["user_email"],
                 {
-                    "id": nid,
-                    "type": notif_type,
-                    "title": title,
-                    "body": body,
-                    "data": payload,
-                    "action_url": action_url,
-                    "entity_type": entity_type,
-                    "entity_id": entity_id,
-                    "priority": priority,
+                    key: row[key]
+                    for key in (
+                        "id",
+                        "type",
+                        "title",
+                        "body",
+                        "data",
+                        "action_url",
+                        "entity_type",
+                        "entity_id",
+                        "priority",
+                    )
                 },
             )
         except Exception as exc:
-            log.debug("Web push delivery error for %s: %s", user_email, exc)
-
-        return nid
+            log.debug("Web push delivery error: %s", exc)
 
     @staticmethod
     def list_for_user(user_email: str, unread_only: bool = False, limit: int = 50) -> list[dict]:

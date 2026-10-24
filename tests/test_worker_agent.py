@@ -10,6 +10,8 @@ import signal
 import subprocess
 import time
 import pytest
+from unittest import mock
+
 import requests
 from unittest.mock import Mock
 
@@ -32,7 +34,6 @@ def _patch_base(
     """Apply the common module-level patches for most tests."""
     monkeypatch.setattr(worker_agent, "HOST_ID", host_id)
     monkeypatch.setattr(worker_agent, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker_agent, "_legacy_execution_allowed", True)
     monkeypatch.setattr(worker_agent, "SCHEDULER_URL", url)
     monkeypatch.setattr(worker_agent, "API_TOKEN", token)
     monkeypatch.setattr(worker_agent, "OAUTH_CLIENT_ID", oauth_client_id)
@@ -376,160 +377,44 @@ class TestReportVersions:
         assert "error" in details
 
 
-# ── Work Polling ─────────────────────────────────────────────────────
-
-
-class TestPollForWork:
-    def test_returns_jobs(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            return _FakeResp(200, {"instances": [{"job_id": "j-1", "image": "ubuntu:22.04"}]})
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        jobs = worker_agent.poll_for_work()
-        assert len(jobs) == 1
-        assert jobs[0]["job_id"] == "j-1"
-
-    def test_returns_empty_on_204(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            return _FakeResp(204)
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        assert worker_agent.poll_for_work() == []
-
-    def test_returns_empty_on_error(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            raise requests.ConnectionError("timeout")
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        assert worker_agent.poll_for_work() == []
-
-
-# ── Preemption Check ─────────────────────────────────────────────────
-
-
-class TestCheckPreemption:
-    def test_returns_job_ids(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            return _FakeResp(200, {"preempt_jobs": ["j-1", "j-2"]})
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        ids = worker_agent.check_preemption()
-        assert ids == ["j-1", "j-2"]
-
-    def test_returns_empty_on_failure(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_get(url, headers, timeout):
-            return _FakeResp(500)
-
-        monkeypatch.setattr(worker_agent.requests, "get", fake_get)
-        assert worker_agent.check_preemption() == []
-
-
-# ── Lease Management ─────────────────────────────────────────────────
-
-
-class TestLeaseManagement:
-    def test_claim_lease_success(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_post(url, json, headers, timeout):
-            return _FakeResp(200, {"lease_id": "L-123", "expires_at": time.time() + 300})
-
-        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
-        result = worker_agent.claim_lease("j-1")
-        assert result is not None
-        assert result["lease_id"] == "L-123"
-
-    def test_claim_lease_failure(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_post(url, json, headers, timeout):
-            return _FakeResp(409)
-
-        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
-        assert worker_agent.claim_lease("j-1") is None
-
-    def test_renew_lease_success(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_post(url, json, headers, timeout):
-            return _FakeResp(200, {"lease_id": "L-123", "renewed": True})
-
-        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
-        result = worker_agent.renew_lease("j-1")
-        assert result is not None
-
-    def test_renew_lease_expired(self, monkeypatch):
-        _patch_base(monkeypatch)
-
-        def fake_post(url, json, headers, timeout):
-            return _FakeResp(410)
-
-        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
-        assert worker_agent.renew_lease("j-1") is None
-
-    def test_release_lease(self, monkeypatch):
-        """Release is best-effort — should not raise."""
-        _patch_base(monkeypatch)
-        captured = {}
-
-        def fake_post(url, json, headers, timeout):
-            captured["json"] = json
-            return _FakeResp(200)
-
-        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
-        worker_agent.release_lease("j-1", reason="preempted")
-        assert captured["json"]["reason"] == "preempted"
-
-
-# ── Job Status Reporting ─────────────────────────────────────────────
+# ── Fenced Job Status Reporting ─────────────────────────────────────
 
 
 class TestReportJobStatus:
-    def test_success(self, monkeypatch):
+    def test_unowned_job_never_writes_raw_status(self, monkeypatch):
         _patch_base(monkeypatch)
-        captured = {}
+        monkeypatch.setattr(worker_agent, "_v2_attempts", {})
+        transport = mock.Mock(side_effect=AssertionError("unfenced HTTP write"))
+        monkeypatch.setattr(worker_agent, "_api_request", transport)
+        assert worker_agent.report_job_status("j-42", "completed") is False
+        transport.assert_not_called()
 
-        def fake_patch(url, json, headers, timeout):
-            captured.update(url=url, json=json)
-            return _FakeResp(200)
-
-        monkeypatch.setattr(worker_agent.requests, "patch", fake_patch)
-        ok = worker_agent.report_job_status("j-42", "completed")
-        assert ok is True
-        assert "/instance/j-42" in captured["url"]
-        assert captured["json"]["status"] == "completed"
-        assert captured["json"]["host_id"] == "rig-01"
-
-    def test_with_host_id(self, monkeypatch):
+    def test_runtime_metadata_uses_captured_authority(self, monkeypatch):
         _patch_base(monkeypatch)
-        captured = {}
+        auth = {"job_id": "j-42", "attempt_id": "a", "lease_id": "l", "fencing_token": 3}
+        monkeypatch.setattr(worker_agent, "_v2_attempts", {"j-42": auth})
+        report = mock.Mock(return_value="ok")
+        monkeypatch.setattr(worker_agent, "_v2_on_job_status", report)
+        assert worker_agent.report_job_status(
+            "j-42", "running", container_name="xcl-j-42-a", ssh_port=12345, interactive=True
+        )
+        assert report.call_args.kwargs["expected_auth"] == auth
+        assert report.call_args.kwargs["runtime_metadata"] == {
+            "container_name": "xcl-j-42-a",
+            "public_ssh_port": 12345,
+            "interactive": True,
+        }
 
-        def fake_patch(url, json, headers, timeout):
-            captured["json"] = json
-            return _FakeResp(200)
-
-        monkeypatch.setattr(worker_agent.requests, "patch", fake_patch)
-        worker_agent.report_job_status("j-42", "running", host_id="rig-01")
-        assert captured["json"]["host_id"] == "rig-01"
-
-    def test_failure(self, monkeypatch):
+    @pytest.mark.parametrize("outcome", ["error", "fenced", "unsupported"])
+    def test_failure_never_falls_back_to_raw_patch(self, monkeypatch, outcome):
         _patch_base(monkeypatch)
-
-        def fake_patch(url, json, headers, timeout):
-            return _FakeResp(500)
-
-        monkeypatch.setattr(worker_agent.requests, "patch", fake_patch)
-        assert worker_agent.report_job_status("j-99", "failed") is False
+        auth = {"job_id": "j-42", "attempt_id": "a", "lease_id": "l", "fencing_token": 3}
+        monkeypatch.setattr(worker_agent, "_v2_attempts", {"j-42": auth})
+        monkeypatch.setattr(worker_agent, "_v2_on_job_status", mock.Mock(return_value=outcome))
+        transport = mock.Mock(side_effect=AssertionError("legacy status fallback"))
+        monkeypatch.setattr(worker_agent, "_api_request", transport)
+        assert worker_agent.report_job_status("j-42", "failed") is False
+        transport.assert_not_called()
 
 
 # ── Mining Alert ─────────────────────────────────────────────────────

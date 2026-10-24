@@ -21,7 +21,6 @@ def cutover(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "_V2_JOURNAL_PATH", str(tmp_path / "journal.json"))
     monkeypatch.setattr(worker, "_v2_enabled", True)
     monkeypatch.setattr(worker, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", False)
     return auth
 
 
@@ -75,7 +74,8 @@ def test_host_command_failure_is_nacked_and_retained(cutover, monkeypatch):
 def test_v2_worker_never_destructively_drains_host_commands(cutover, monkeypatch):
     transport = mock.Mock(side_effect=AssertionError("legacy drain called"))
     monkeypatch.setattr(worker, "_api_request", transport)
-    assert worker.drain_agent_commands() == 0
+    monkeypatch.setattr(worker, "v2_claim_commands", lambda: [])
+    assert worker.drain_v2_commands() == 0
     transport.assert_not_called()
 
 
@@ -104,3 +104,36 @@ def test_host_command_never_acks_an_unpersisted_result(cutover, monkeypatch):
     ack.assert_not_called()
     nack.assert_called_once_with("host-3", "journal_unavailable", retryable=True)
     assert worker._v2_completed_command_result("host-3") is None
+
+
+def test_status_cannot_borrow_replacement_authority_between_reads(cutover, monkeypatch):
+    original = worker._v2_on_job_status
+    replacement = dict(cutover, attempt_id="replacement", fencing_token=8)
+    post = mock.Mock(side_effect=AssertionError("replacement authority was borrowed"))
+    monkeypatch.setattr(worker, "_v2_post", post)
+
+    def replace_then_report(*args, **kwargs):
+        worker._v2_attempts["j"] = replacement
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(worker, "_v2_on_job_status", replace_then_report)
+    assert not worker.report_job_status("j", "completed")
+    assert worker._v2_attempts["j"] is replacement
+    post.assert_not_called()
+
+
+def test_queued_unfenced_start_is_permanently_nacked(cutover, monkeypatch):
+    monkeypatch.setattr(
+        worker,
+        "v2_claim_commands",
+        lambda: [{"command_id": "old-start", "command": "start_container", "args": {}}],
+    )
+    execute = mock.Mock(side_effect=AssertionError("old start reached Docker dispatcher"))
+    nack = mock.Mock()
+    monkeypatch.setattr(worker, "_dispatch_agent_commands", execute)
+    monkeypatch.setattr(worker, "v2_nack_command", nack)
+    assert worker.drain_v2_commands() == 0
+    execute.assert_not_called()
+    nack.assert_called_once_with(
+        "old-start", "unsupported_command", {"command": "start_container"}, retryable=False
+    )

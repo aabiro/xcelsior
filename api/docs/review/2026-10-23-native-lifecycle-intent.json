@@ -1,0 +1,166 @@
+{
+  "additional_role_gate": {
+    "failure": "ledger filename documentation corrected; role and authority checks passed",
+    "name": "native-intent-final",
+    "results": {
+      "errors": 0,
+      "failures": 1,
+      "skipped": 0,
+      "tests": 107
+    }
+  },
+  "base_commit": "1dd16a89073574d13261cbd4a74f28ca5d636eb6",
+  "gates": {
+    "native-intent-authority-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-intent-authority-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.51
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 8.52
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 74.1
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.45
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 132
+      },
+      "sha256": "233fcc30a1ba2ab1992bf24d327de1265bae1acf9ba878021425ae7c45c785d6"
+    },
+    "native-intent-ledger-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-intent-ledger-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 2.07
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 10.46
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 21.17
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.15
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.52
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 28
+      },
+      "sha256": "5a1bd78e98a53f286da660565abdae00c5c49dc277bbd3b230c6cd8d00343d88"
+    },
+    "native-intent-migration-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-intent-migration-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.06
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 0.79
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 3.77
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 186.58
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.14
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 57
+      },
+      "sha256": "efc028c5f3df0034f7015a6baf3aea4671adc7009706ba16193aaa35b360fbdb"
+    }
+  },
+  "handoff": "quiesce all lifecycle writers; 134; deploy native-column writers; resume only after schema/runtime checks",
+  "production_mutated": false,
+  "read_only_production": {
+    "aggregates": {
+      "collected_at": "2026-10-23T08:51:18.894313+00:00",
+      "lifecycle_types": [
+        [
+          null,
+          364
+        ]
+      ],
+      "lifecycle_validity": [
+        0,
+        0
+      ],
+      "placement_column_population": [
+        364,
+        0,
+        0,
+        0,
+        0
+      ],
+      "placement_payload_population": [
+        0,
+        0
+      ],
+      "schema": "125"
+    },
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/column-production-baseline.json",
+    "sha256": "0eae9f02f7a6945a4aa920f1c82aeac5879209a056fc2c40b68fed29bb4b6d08"
+  },
+  "repairs": "report_only",
+  "root_protected_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  }
+}

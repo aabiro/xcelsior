@@ -1,0 +1,346 @@
+{
+  "gates": {
+    "contract-candidate-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/contract-candidate-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.88
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 9.66
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 1956.98
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.15
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.23
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 3299
+      },
+      "sha256": "a53f771499616db4d62c572662faed99b6764eb9028f24b538394745001d5a44"
+    },
+    "native-cuda-qualified": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-cuda-qualified/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.11
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.72
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 5.93
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.13
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.32
+        },
+        "worker_billing": {
+          "exit_code": 0,
+          "seconds": 47.57
+        }
+      },
+      "results": null,
+      "sha256": "a070a39626d07c7ece8c618d5497944f0f981bf7ddbc3b5bd1abdb7c219d8e01"
+    },
+    "native-inventory-classification-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/native-inventory-classification-final/manifest.json",
+      "phases": {
+        "createdb": {
+          "exit_code": 0,
+          "seconds": 0.12
+        },
+        "initdb": {
+          "exit_code": 0,
+          "seconds": 1.66
+        },
+        "migrate": {
+          "exit_code": 0,
+          "seconds": 9.52
+        },
+        "pytest": {
+          "exit_code": 0,
+          "seconds": 36.6
+        },
+        "start": {
+          "exit_code": 0,
+          "seconds": 0.14
+        },
+        "stop": {
+          "exit_code": 0,
+          "seconds": 0.11
+        }
+      },
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 22
+      },
+      "sha256": "6d729227f084a841175e98e95ceb31bdd3f805ccfdac32ed58951eaa412c0d2b"
+    }
+  },
+  "hardware_result": {
+    "finished_at": 1792756632.869911,
+    "gpu_model": "NVIDIA GeForce RTX 2060",
+    "gpu_uuid": "GPU-f22a551d-2bee-2f17-22af-454481edcdc7",
+    "image_id": "sha256:e2a75ae5a502eceac46a1b29c8acfe8876bb2216d32cd04dd1193f7e76366652",
+    "journeys": [
+      {
+        "actual_exit_code": 0,
+        "attempt_id": "b13d3714-02cd-481d-b533-c424e6f09317",
+        "attempt_status": "succeeded",
+        "command_id": "c1dd7e0b-bbfc-45ac-93de-284f0c70988c",
+        "completed_at": 1792756595.737006,
+        "container_id": "a36ec9405462bbf16a844bd0566a81e448deb10a15f996a7a1ff854adf1f954d",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "expected_exit_code": 0,
+        "fencing_token": 1,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0,
+        "job_id": "acceptance-283fee4c8518-0-none",
+        "lease_id": "26cd8d1e-e547-4a13-bb85-729060d34f3c",
+        "lease_status": "released",
+        "meter_id": "59b4f6a7-966",
+        "normal_meter_id": "c58966cc-518",
+        "observation_id": "93df862a-0516-4293-be75-d07ffc2e2112",
+        "spec_hash": "sha256:bdc7383c1c4a43dc5c03e5fc57f66ffa1a20476799e580f4e6d47f756639ac33",
+        "stale_report_refused": true,
+        "started_at": 1792756594.819118,
+        "terminal_fault": "none",
+        "total_cost_micros": 300
+      },
+      {
+        "actual_exit_code": 7,
+        "attempt_id": "fbe01ed3-0c22-4f0a-8d09-47acc0803218",
+        "attempt_status": "failed",
+        "command_id": "f706b025-f930-4d8c-84e8-4a3b7da2e5ed",
+        "completed_at": 1792756599.67984,
+        "container_id": "67507bbf226d2f3924ac3049ac43d0f8a14936ff8c81b1e8b2b47aab8eda55ca",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "expected_exit_code": 7,
+        "fencing_token": 2,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0,
+        "job_id": "acceptance-283fee4c8518-7-none",
+        "lease_id": "9be3b5fc-a8a1-4dd4-885c-cb5f1f571556",
+        "lease_status": "released",
+        "meter_id": "b0b47915-846",
+        "normal_meter_id": "e17ddec4-1b9",
+        "observation_id": "413e539c-1e49-41c1-8777-528ad58429d9",
+        "spec_hash": "sha256:625f7643594569ebddfcb6ae986cb3293f2d9177e7b2437a5cc70b8b13ad0be3",
+        "stale_report_refused": true,
+        "started_at": 1792756598.718979,
+        "terminal_fault": "none",
+        "total_cost_micros": 300
+      },
+      {
+        "actual_exit_code": 0,
+        "attempt_id": "7e2e2452-8852-406c-90d0-4f5614a70ada",
+        "attempt_status": "succeeded",
+        "command_id": "c7d858e9-1fc6-4c6d-8800-b3850a5b4de2",
+        "committed_before_response_loss": false,
+        "completed_at": 1792756616.134426,
+        "container_id": "e79d3ec9f8390501a0f4af3881d7eb95bf2acaf02971644c537e04559498607e",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "expected_exit_code": 0,
+        "fencing_token": 3,
+        "invoice_delta_micros": 2900,
+        "invoice_display_subtotal_cad": 0.0,
+        "job_id": "acceptance-283fee4c8518-0-before_commit",
+        "lease_id": "b38a125c-0169-451e-a96b-34cc8f3118c9",
+        "lease_status": "released",
+        "meter_id": "d5bb702b-15c",
+        "normal_meter_id": "9cc077f3-a40",
+        "observation_id": "6d76553c-9657-4a2b-a1b9-5e5aa1cc273e",
+        "retained_until_retry": true,
+        "spec_hash": "sha256:8024e426733aa116ed31807e4f5670a871d95ed7a7e631a1409e720114ea37cc",
+        "stale_report_refused": true,
+        "started_at": 1792756605.801639,
+        "terminal_fault": "before_commit",
+        "terminal_report_requests": 2,
+        "total_cost_micros": 2900
+      },
+      {
+        "actual_exit_code": 7,
+        "attempt_id": "ae6db390-7d21-4521-b49f-16b344bd05dd",
+        "attempt_status": "failed",
+        "command_id": "5cd8033f-7401-4a08-9c15-78f225ca5ed9",
+        "committed_before_response_loss": true,
+        "completed_at": 1792756622.545071,
+        "container_id": "5a18a9cbed417e8d97f90f82a571ac05ebdb877d1df3ccaf379d1d98337f78f3",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "expected_exit_code": 7,
+        "fencing_token": 4,
+        "invoice_delta_micros": 300,
+        "invoice_display_subtotal_cad": 0.0,
+        "job_id": "acceptance-283fee4c8518-7-after_commit",
+        "lease_id": "8a892b82-9618-47a9-a668-9f6ae22e9d9b",
+        "lease_status": "released",
+        "meter_id": "7fd82e80-067",
+        "normal_meter_id": "657b06af-0b1",
+        "observation_id": "295020b7-6e77-4fed-bbb9-d4fb31d30419",
+        "retained_until_retry": true,
+        "spec_hash": "sha256:9746e787968700e1c7c7ac0d7948689551adfeea69004dd666480cd87cc38278",
+        "stale_report_refused": true,
+        "started_at": 1792756621.448105,
+        "terminal_fault": "after_commit",
+        "terminal_report_requests": 2,
+        "total_cost_micros": 300
+      },
+      {
+        "actual_exit_code": 0,
+        "attempt_id": "e076a169-1c88-4a16-b78c-7904705a4aa9",
+        "attempt_status": "succeeded",
+        "command_id": "9d813261-210c-4737-9a89-6b5403548547",
+        "committed_before_response_loss": false,
+        "completed_at": 1792756631.615755,
+        "container_id": "3bd53c29ee5b055c221a2ca32dfbce744eef5c7d999c4fc1f7a1302b074ffb20",
+        "cuda": {
+          "cuda_result": 32768.0,
+          "device": "NVIDIA GeForce RTX 2060"
+        },
+        "expected_exit_code": 0,
+        "fencing_token": 5,
+        "invoice_delta_micros": 400,
+        "invoice_display_subtotal_cad": 0.0,
+        "job_id": "acceptance-283fee4c8518-0-restart",
+        "lease_id": "3b0b7eae-07c4-42b1-ad67-4f91327f65d6",
+        "lease_status": "released",
+        "meter_id": "bf24b5ee-f8a",
+        "normal_meter_id": "77be4779-f14",
+        "observation_id": "90ff6063-bf8e-43fc-9194-db3864d7877a",
+        "retained_until_retry": true,
+        "separate_worker_processes": true,
+        "spec_hash": "sha256:1101be1494dc583c14c9351a0352f3c62f4bc1e0c6a2f4a25c6788c2d99416e6",
+        "stale_report_refused": true,
+        "started_at": 1792756630.264133,
+        "terminal_fault": "restart",
+        "terminal_report_requests": 2,
+        "total_cost_micros": 400
+      }
+    ],
+    "passed": true,
+    "scope": "isolated CUDA worker protocol to invoice",
+    "started_at": 1792756586.1333976
+  },
+  "limits": "CUDA proof is isolated loopback HTTP and manual bounded container launch after native admission/claim; does not prove public launch, full run_job provisioning, wallet debit or deployed ingress.",
+  "production_baseline": {
+    "active_allocations": 0,
+    "collected_at": "2026-10-23T11:56:49.926817+00:00",
+    "dedicated_role_logins": [
+      [
+        "xcelsior_api",
+        false
+      ],
+      [
+        "xcelsior_billing",
+        false
+      ],
+      [
+        "xcelsior_migrator",
+        false
+      ],
+      [
+        "xcelsior_projector",
+        false
+      ],
+      [
+        "xcelsior_readonly",
+        false
+      ],
+      [
+        "xcelsior_reconciler",
+        false
+      ],
+      [
+        "xcelsior_retrieval",
+        false
+      ],
+      [
+        "xcelsior_scheduler",
+        false
+      ],
+      [
+        "xcelsior_ssh_gateway",
+        false
+      ]
+    ],
+    "heartbeats": [
+      [
+        "outbox",
+        1
+      ],
+      [
+        "reconciler",
+        1
+      ],
+      [
+        "scheduler",
+        1
+      ]
+    ],
+    "job_counts": [
+      364,
+      0,
+      0,
+      4
+    ],
+    "live_leases": [],
+    "repairs": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "schema": "125",
+    "unfenced_stop_task": [
+      [
+        true,
+        false
+      ]
+    ]
+  },
+  "production_mutation": false,
+  "repairs": "report_only"
+}

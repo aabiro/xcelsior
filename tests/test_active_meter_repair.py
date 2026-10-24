@@ -15,13 +15,17 @@ pytestmark = pytest.mark.needs_db
 FLAG = "XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING"
 
 
+@pytest.fixture(autouse=True)
+def native_admission_fields(request):
+    """Customer identity/resources/price are approved before placement."""
+    return {"billable": True, **getattr(request, "param", {})}
+
+
 @pytest.fixture
 def running(placed):
     with placed["pool"].connection() as conn:
-        conn.execute(
-            "UPDATE jobs SET payload=payload || %s WHERE job_id=%s",
-            (Jsonb({"owner": placed["job_id"]}), placed["job_id"]),
-        )
+        # Reproduce a missing-meter incident without changing admission/quote.
+        conn.execute("DELETE FROM usage_meters WHERE attempt_id=%s", (placed["attempt_id"],))
         conn.execute(
             "UPDATE job_attempts SET started_at=clock_timestamp()-interval '1 hour' "
             "WHERE attempt_id=%s",
@@ -45,7 +49,7 @@ def _meters(p):
         ).fetchall()
 
 
-def _finish(p, *, simulate_orphan=False):
+def _finish(p, *, simulate_orphan=False, simulate_missing=False):
     with p["pool"].connection() as conn:
         report_attempt_status(
             conn,
@@ -60,6 +64,8 @@ def _finish(p, *, simulate_orphan=False):
                 "gpu_seconds=0,total_cost_micros=0 WHERE attempt_id=%s",
                 (p["attempt_id"],),
             )
+        if simulate_missing:
+            conn.execute("DELETE FROM usage_meters WHERE attempt_id=%s", (p["attempt_id"],))
 
 
 @pytest.mark.parametrize("policy", [None, "report_only", "typo"])
@@ -111,14 +117,14 @@ def test_active_meter_enforce_is_atomic_idempotent_and_not_invoiced(running, mon
     assert evidence["meter_id"] == created[0] and evidence["observation_id"]
 
 
-@pytest.mark.parametrize("rate", [0, 1.25])
-def test_completion_settles_same_meter_at_captured_rate_once(running, monkeypatch, rate):
+@pytest.mark.parametrize(
+    "native_admission_fields", [{"cost_per_hour": 0}, {"cost_per_hour": 1.25}], indirect=True
+)
+def test_completion_settles_same_meter_at_captured_rate_once(
+    running, monkeypatch, native_admission_fields
+):
+    rate = native_admission_fields["cost_per_hour"]
     monkeypatch.setenv(FLAG, "enforce")
-    with running["pool"].connection() as conn:
-        conn.execute(
-            "UPDATE hosts SET payload=payload || %s WHERE host_id=%s",
-            (Jsonb({"cost_per_hour": rate}), running["host_id"]),
-        )
     mid = _run(running).meters_created[0]
     _finish(running)
     # Completion caller and current host data cannot reprice captured usage.
@@ -216,7 +222,10 @@ def test_repair_refuses_incomplete_or_conflicting_authority(running, monkeypatch
                 ),
             )
         elif defect == "stopped":
-            conn.execute("UPDATE jobs SET status='stopping' WHERE job_id=%s", (p["job_id"],))
+            conn.execute(
+                """UPDATE jobs SET status='stopping', phase='running', desired_state='stopped' WHERE job_id=%s""",
+                (p["job_id"],),
+            )
         elif defect == "missing_owner":
             conn.execute(
                 "UPDATE jobs SET owner_id=NULL, payload=payload-'owner' WHERE job_id=%s",
@@ -229,13 +238,13 @@ def test_repair_refuses_incomplete_or_conflicting_authority(running, monkeypatch
         elif defect in {"missing_rate", "negative_rate", "nan_rate"}:
             value = {"missing_rate": None, "negative_rate": -1, "nan_rate": "NaN"}[defect]
             conn.execute(
-                "UPDATE hosts SET payload=payload || %s WHERE host_id=%s",
-                (Jsonb({"cost_per_hour": value}), p["host_id"]),
+                "UPDATE job_attempts SET placement_explanation=jsonb_set(placement_explanation, '{billing_snapshot,host,cost_per_hour}',%s::jsonb) WHERE attempt_id=%s",
+                (Jsonb(value), p["attempt_id"]),
             )
         elif defect == "unlocked_spot":
             conn.execute(
-                "UPDATE jobs SET payload=payload || %s WHERE job_id=%s",
-                (Jsonb({"pricing_mode": "spot"}), p["job_id"]),
+                "UPDATE job_attempts SET placement_explanation=jsonb_set(placement_explanation,'{billing_snapshot,pricing_mode}','\"spot\"') WHERE attempt_id=%s",
+                (p["attempt_id"],),
             )
         elif defect in {"future_start", "missing_start"}:
             conn.execute(
@@ -311,19 +320,18 @@ def test_concurrent_repairs_and_completion_deliveries_create_one_settled_meter(
     assert len(_meters(running)) == 1
 
 
-@pytest.mark.parametrize("pricing", [{"pricing_mode": "spot"}, {"preemptible": True}])
+@pytest.mark.parametrize(
+    "native_admission_fields",
+    [
+        {"pricing_mode": "spot", "spot_rate_cad": 0.25, "num_gpus": 2},
+        {"preemptible": True, "spot_rate_cad": 0.25, "num_gpus": 2},
+    ],
+    indirect=True,
+)
 def test_spot_snapshot_and_missing_terminal_repair_preserve_locked_multi_gpu_price(
-    running, monkeypatch, pricing
+    running, monkeypatch, native_admission_fields
 ):
-    with running["pool"].connection() as conn:
-        conn.execute(
-            "UPDATE jobs SET payload=payload || %s WHERE job_id=%s",
-            (
-                Jsonb({**pricing, "spot_rate_cad": 0.25, "num_gpus": 2}),
-                running["job_id"],
-            ),
-        )
-    _finish(running)
+    _finish(running, simulate_missing=True)
     monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", "enforce")
     with running["pool"].connection() as conn:
         with pytest.raises(RuntimeError, match="abort"):
@@ -378,18 +386,18 @@ def test_settlement_requires_terminal_binding_and_time_evidence(running, monkeyp
     assert _meters(running) == before
 
 
-def test_active_spot_snapshot_and_job_finding_converge(running, monkeypatch):
+@pytest.mark.parametrize(
+    "native_admission_fields",
+    [{"pricing_mode": "spot", "spot_rate_cad": 0.25, "num_gpus": 2}],
+    indirect=True,
+)
+def test_active_spot_snapshot_and_job_finding_converge(
+    running, monkeypatch, native_admission_fields
+):
     from control_plane.job_reconcile import reconcile_job
 
     monkeypatch.setenv(FLAG, "enforce")
     with running["pool"].connection() as conn:
-        conn.execute(
-            "UPDATE jobs SET payload=payload || %s WHERE job_id=%s",
-            (
-                Jsonb({"pricing_mode": "spot", "spot_rate_cad": 0.25, "num_gpus": 2}),
-                running["job_id"],
-            ),
-        )
         assert "job_active_meter_missing" in reconcile_job(conn, running["job_id"]).findings_opened
         assert len(reconcile_billing_meters(conn).meters_created) == 1
         assert reconcile_job(conn, running["job_id"]).findings_resolved == 1
@@ -398,7 +406,7 @@ def test_active_spot_snapshot_and_job_finding_converge(running, monkeypatch):
 
 def test_report_only_active_finding_resolves_after_terminal_completion(running):
     _run(running)
-    _finish(running)
+    _finish(running, simulate_missing=True)
     _run(running)
     with running["pool"].connection() as conn:
         assert conn.execute(
@@ -447,3 +455,59 @@ def test_runtime_api_login_can_repair_and_settle_without_broader_role_grants(
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute("ALTER ROLE xcelsior_api NOLOGIN")
+
+
+def test_observation_metadata_and_current_host_price_cannot_rewrite_repaired_usage(
+    running, monkeypatch
+):
+    monkeypatch.setenv(FLAG, "enforce")
+    with running["pool"].connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
+            (
+                Jsonb(dict(owner="intruder", num_gpus=99, pricing_mode="spot", spot_rate_cad=999)),
+                running["job_id"],
+            ),
+        )
+        conn.execute(
+            "UPDATE hosts SET payload=payload||%s WHERE host_id=%s",
+            (Jsonb(dict(cost_per_hour=999)), running["host_id"]),
+        )
+    assert len(_run(running).meters_created) == 1
+    with running["pool"].connection() as conn:
+        assert conn.execute(
+            "SELECT owner,base_rate_per_hour,pricing_mode FROM usage_meters WHERE attempt_id=%s",
+            (running["attempt_id"],),
+        ).fetchone() == (running["job_id"], 1.0, "on_demand")
+
+
+@pytest.mark.parametrize("native_admission_fields", [{"max_price_per_hour": 1}], indirect=True)
+@pytest.mark.parametrize(
+    "defect", ["missing_spec", "unadmitted_spec", "wrong_hash", "missing_quote", "above_ceiling"]
+)
+def test_active_repair_refuses_missing_native_admission_or_captured_quote(
+    running, monkeypatch, defect
+):
+    monkeypatch.setenv(FLAG, "enforce")
+    with running["pool"].connection() as conn:
+        if defect == "missing_spec":
+            conn.execute("UPDATE jobs SET spec=NULL WHERE job_id=%s", (running["job_id"],))
+        elif defect == "wrong_hash":
+            conn.execute("UPDATE jobs SET spec_hash='wrong' WHERE job_id=%s", (running["job_id"],))
+        elif defect == "unadmitted_spec":
+            conn.execute(
+                "UPDATE jobs SET spec=spec-'execution_spec_version' WHERE job_id=%s",
+                (running["job_id"],),
+            )
+        elif defect == "above_ceiling":
+            conn.execute(
+                "UPDATE job_attempts SET placement_explanation=jsonb_set(placement_explanation,'{billing_snapshot,host,cost_per_hour}','2') WHERE attempt_id=%s",
+                (running["attempt_id"],),
+            )
+        else:
+            conn.execute(
+                "UPDATE job_attempts SET placement_explanation=placement_explanation-'billing_snapshot' WHERE attempt_id=%s",
+                (running["attempt_id"],),
+            )
+    assert _run(running).meters_created == []
+    assert _meters(running) == []

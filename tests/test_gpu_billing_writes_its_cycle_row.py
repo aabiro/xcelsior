@@ -71,7 +71,7 @@ def _funded_owner() -> str:
 
 
 @pytest.fixture
-def running_job():
+def unclaimed_running_job():
     """A running GPU job that started two hours ago.
 
     No `hosts` row: `_bill_gpu_period` reads only `hosts.payload` and treats a
@@ -97,16 +97,28 @@ def running_job():
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, 'running', 0, %s, %s, %s)""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
             (job_id, started_at, host_id, json.dumps(payload)),
         )
+        from tests.native_jobs import admit_fixture_job
+
+        admit_fixture_job(conn, job_id)
         conn.commit()
     yield job_id, owner, started_at
     with pool.connection() as conn:
         conn.execute("DELETE FROM billing_cycles WHERE job_id = %s", (job_id,))
         conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
         conn.commit()
+
+
+@pytest.fixture
+def running_job():
+    from tests.fixtures.native_runtime import running_instance
+
+    owner = _funded_owner()
+    with running_instance(owner=owner, cost_per_hour=0.2, age_sec=7200) as instance:
+        yield instance["job_id"], owner, instance["started_at"]
 
 
 def _cycles(job_id: str) -> list[dict]:

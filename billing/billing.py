@@ -732,6 +732,8 @@ class BillingEngine:
                     MAX(province) AS province
                 FROM usage_meters
                 WHERE owner = %s
+                  AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.job_id=usage_meters.job_id
+                      AND j.spec->>'job_type'='serverless_worker')
                   AND completed_at >= %s
                   AND completed_at < %s
                   AND total_cost_micros > 0
@@ -1876,12 +1878,18 @@ class BillingEngine:
         amount_cad: float,
         job_id: str = "",
         description: str = "Compute charge",
+        *,
+        conn=None,
     ) -> dict:
         """Charge a customer wallet from prepaid credits.
 
         Hard stop: never debit more than available balance (no free-ride grace).
         Low-balance warnings fire before zero so customers can top up.
         """
+        if conn is not None:
+            return self._charge_on_connection(
+                conn, customer_id, amount_cad, job_id=job_id, description=description
+            )
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
         balance = float(wallet["balance_cad"] or 0)
@@ -2075,6 +2083,135 @@ class BillingEngine:
             "low_balance": new_balance <= self.low_balance_threshold_cad(customer_id),
         }
 
+    def _charge_on_connection(self, conn, customer_id, amount_cad, *, job_id, description):
+        """Debit and journal inside the caller's billing-cycle transaction.
+
+        Notices commit with the debit and cycle; push delivery follows commit.
+        A failed cycle insert must roll the wallet debit and notices back too.
+        """
+        if not customer_id:
+            return {"charged": False, "reason": "missing_customer"}
+        self.get_wallet(customer_id)  # Ensure the ordinary zero-funded row exists.
+        amount_micros = cad_to_micros(round(float(amount_cad), 4))
+        wallet = conn.execute(
+            "SELECT balance_micros,status,auto_topup_threshold_micros,low_balance_warned_at "
+            "FROM wallets WHERE customer_id=%s FOR UPDATE",
+            (customer_id,),
+        ).fetchone()
+        balance = int(wallet["balance_micros"] or 0)
+        if wallet["status"] == "suspended" or amount_micros <= 0 or balance < amount_micros:
+            notification_ids = []
+            if balance <= 0 and amount_micros > 0:
+                conn.execute(
+                    "UPDATE wallets SET status='suspended',updated_at=%s WHERE customer_id=%s",
+                    (time.time(), customer_id),
+                )
+            if amount_micros > 0:
+                notification_ids = self._record_wallet_alerts(
+                    conn, customer_id, wallet, balance, job_id=job_id
+                )
+            return {
+                "charged": False,
+                "balance_cad": micros_to_cad(balance),
+                "action": (
+                    "account_suspended"
+                    if balance <= 0 or wallet["status"] == "suspended"
+                    else "hard_stop"
+                ),
+                "hard_stop": amount_micros > 0,
+                "notification_ids": notification_ids,
+                "reason": (
+                    "wallet_suspended"
+                    if wallet["status"] == "suspended"
+                    else "invalid_amount" if amount_micros <= 0 else "insufficient_balance"
+                ),
+            }
+        now = time.time()
+        remaining = balance - amount_micros
+        conn.execute(
+            "UPDATE wallets SET balance_micros=%s,total_spent_micros=total_spent_micros+%s,"
+            "grace_until=0,updated_at=%s,status=CASE WHEN %s=0 THEN 'suspended' ELSE status END "
+            "WHERE customer_id=%s",
+            (remaining, amount_micros, now, remaining, customer_id),
+        )
+        tx_id = f"TX-{int(now)}-{os.urandom(6).hex()}"
+        conn.execute(
+            "INSERT INTO wallet_transactions(tx_id,customer_id,tx_type,amount_micros,"
+            "balance_after_micros,description,job_id,created_at) "
+            "VALUES(%s,%s,'charge',%s,%s,%s,%s,%s)",
+            (tx_id, customer_id, -amount_micros, remaining, description, job_id, now),
+        )
+        return {
+            "charged": True,
+            "balance_cad": micros_to_cad(remaining),
+            "amount_cad": micros_to_cad(amount_micros),
+            "tx_id": tx_id,
+            "hard_stop": remaining == 0,
+            "notification_ids": self._record_wallet_alerts(
+                conn, customer_id, wallet, remaining, job_id=job_id
+            ),
+        }
+
+    def _publish_committed_charge(self, result, *, customer_id, job_id):
+        """Publish optional projections after the debit and cycle commit together."""
+        from db import NotificationStore
+
+        for notification_id in result.pop("notification_ids", []):
+            NotificationStore.deliver(notification_id)
+        if result.get("charged") and result.get("tx_id"):
+            try:
+                from stripe_meters import enqueue_usage_from_charge
+
+                enqueue_usage_from_charge(
+                    customer_id=customer_id,
+                    job_id=job_id,
+                    amount_cad=result.get("amount_cad", 0),
+                    tx_id=result["tx_id"],
+                    description="Native periodic billing",
+                )
+            except Exception as exc:
+                log.warning("committed billing meter projection pending (%s)", type(exc).__name__)
+
+    def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
+        """Persist rate-limited notices while the billing transaction owns the wallet lock."""
+        from db import NotificationStore
+
+        threshold = micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0)
+        if threshold <= 0:
+            threshold = float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
+        balance_cad = micros_to_cad(remaining)
+        now = time.time()
+        last = float(wallet.get("low_balance_warned_at") or 0)
+        notices = []
+        if balance_cad <= threshold and (not last or now - last >= 6 * 3600):
+            conn.execute(
+                "UPDATE wallets SET low_balance_warned_at=%s WHERE customer_id=%s",
+                (now, customer_id),
+            )
+            notices.append(
+                NotificationStore.create(
+                    customer_id,
+                    "billing_low_balance",
+                    "Low balance warning",
+                    f"Your wallet is ${balance_cad:.2f} CAD (warning at ${threshold:.2f} CAD). "
+                    "Top up to avoid hard stop.",
+                    {"balance_cad": balance_cad, "threshold_cad": threshold},
+                    conn=conn,
+                )
+            )
+        if remaining <= 0 and wallet["status"] != "suspended":
+            notices.append(
+                NotificationStore.create(
+                    customer_id,
+                    "billing_suspended",
+                    "Wallet suspended",
+                    "Your wallet is empty. Top up to resume compute.",
+                    {"balance_cad": balance_cad, "job_id": job_id},
+                    conn=conn,
+                )
+            )
+        return notices
+
     def _credit_wallet(
         self, customer_id: str, amount_cad: float, description: str = "Refund credit"
     ):
@@ -2204,16 +2341,6 @@ class BillingEngine:
             "promo_available": True,
         }
 
-    # ── Instance Pause / Resume (REMOVED) ─────────────────────────────
-    #
-    # User-facing pause/resume was removed in favour of a RunPod-style
-    # stop/start lifecycle: stopped instances preserve their container
-    # (via the internal pause_container docker primitive) and can be
-    # started again by the owner at any time. Low-balance auto-stops now
-    # set ``payload.stop_reason = 'low_balance'`` instead of a distinct
-    # ``paused_low_balance`` status, so the UI has one consistent
-    # "stopped" surface. See alembic migration 031_drop_pause_resume_state.
-
     # ── Instance Lifecycle: Stop / Start / Restart / Terminate ───────
 
     _VALID_STOP_REASONS = frozenset(
@@ -2221,12 +2348,7 @@ class BillingEngine:
     )
 
     def stop_instance(self, job_id: str, reason: str = "user_stopped") -> dict:
-        """Gracefully stop a running instance. Container is preserved for restart.
-
-        Attempt-owned: atomic fenced lifecycle (``request_fenced_stop``) —
-        no pre-mark raw SQL dual-write. Worker ACK projects to ``stopped``.
-        Legacy: guarded ``update_job_status`` + pause_container agent queue.
-        """
+        """Request a fenced stop; only worker settlement projects stopped."""
         if reason not in self._VALID_STOP_REASONS:
             return {
                 "stopped": False,
@@ -2248,7 +2370,8 @@ class BillingEngine:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
                    FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
@@ -2257,11 +2380,17 @@ class BillingEngine:
             if not job:
                 return {"stopped": False, "reason": "not_running"}
 
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"stopped": False, "reason": admission_problem, "job_id": job_id}
+
             owner = job.get("owner") or ""
             host_id = job.get("host_id") or ""
             active_attempt_id = job.get("active_attempt_id")
             container_name = job.get("container_name") or f"xcl-{job_id}"
-            # Release lock before fenced controller / agent enqueue.
+            # Release lock before fenced controller.
             conn.commit()
 
         # ── Attempt-owned: single fenced domain path (no dual raw SQL) ──
@@ -2325,106 +2454,20 @@ class BillingEngine:
                 out["command_id"] = fenced.command_id
             return out
 
-        # ── Legacy (no active attempt): guarded status + pause_container ──
-        from scheduler import update_job_status
-
-        marked = update_job_status(
-            job_id,
-            "stopping",
-            expected_status="running",
-            stop_reason=stop_reason_tag,
-            stopping_at=now,
-        )
-        if marked is None:
-            return {"stopped": False, "reason": "not_running"}
-
-        stop_queued = False
-        if host_id:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "pause_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_stop",
-                )
-                log.info("STOP pause_container queued: %s on %s", container_name, host_id)
-                stop_queued = True
-            except Exception as e:
-                log.warning("STOP container stop enqueue failed for %s: %s", job_id, e)
-
-        # Legacy commands have no ACK path — optimistic projection to stopped.
-        final_status = "stopped" if stop_queued else "running"
-        if stop_queued:
-            update_job_status(
-                job_id,
-                "stopped",
-                expected_status="stopping",
-                stop_reason=stop_reason_tag,
-                stopped_at=now,
-            )
-            with pool.connection() as conn:
-                cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
-                conn.execute(
-                    """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, resource_type,
-                        period_start, period_end, duration_seconds, rate_per_hour,
-                        gpu_model, tier, tier_multiplier, amount_micros, status,
-                        created_at)
-                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
-                               0, 'stopped', %s)""",
-                    (cycle_id, job_id, owner, host_id, now, now, now),
-                )
-                conn.commit()
-        else:
-            # Roll intermediate projection back so UI is not stuck on stopping.
-            update_job_status(
-                job_id,
-                "running",
-                expected_status="stopping",
-            )
-            log.error("STOP failed for job=%s — could not enqueue pause_container", job_id)
-            return {"stopped": False, "reason": "enqueue_failed", "job_id": job_id}
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_stopped",
-                title=f"Instance stopped: {job.get('name', job_id)}",
-                body=(
-                    "Your instance has been stopped. Storage continues to be billed. "
-                    "Start it again anytime."
-                ),
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("STOP job=%s reason=%s owner=%s", job_id, reason, owner)
-        return {"stopped": True, "job_id": job_id, "status": final_status}
+        return {"stopped": False, "reason": "native_attempt_required", "job_id": job_id}
 
     def start_instance(self, job_id: str) -> dict:
-        """Start a stopped instance.
-
-        Legacy (no fenced history): docker start via agent queue.
-        Fenced history: re-admit for a **new** placement attempt (never
-        revive the old attempt/fence labels with start_container).
-        """
+        """Queue an admitted stopped workload for a fresh placement attempt."""
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
-        now = time.time()
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name,
                           EXISTS (
@@ -2439,6 +2482,12 @@ class BillingEngine:
             ).fetchone()
             if not job:
                 return {"started": False, "reason": "not_stopped"}
+
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"started": False, "reason": admission_problem, "job_id": job_id}
 
             owner = job.get("owner") or ""
             fund = self.wallet_has_available_funds(owner)
@@ -2479,109 +2528,20 @@ class BillingEngine:
                     "fresh_attempt": True,
                 }
 
-            if job.get("status") != "stopped":
-                return {"started": False, "reason": "not_stopped"}
-
-            host_id = job.get("host_id") or ""
-            container_name = job.get("container_name") or f"xcl-{job_id}"
-            conn.commit()
-
-        # Legacy: guarded status transitions (CAS + outbox) — no bare SQL.
-        from scheduler import update_job_status
-
-        marked = update_job_status(
-            job_id,
-            "restarting",
-            expected_status="stopped",
-            restarting_at=now,
-        )
-        if marked is None:
-            return {"started": False, "reason": "not_stopped"}
-
-        start_queued = False
-        if host_id:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "start_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_start",
-                )
-                start_queued = True
-                log.info("START start_container queued: %s on %s", container_name, host_id)
-            except Exception as e:
-                log.warning("START container start enqueue failed for %s: %s", job_id, e)
-
-        if not start_queued:
-            update_job_status(
-                job_id,
-                "stopped",
-                expected_status="restarting",
-            )
-            log.error("START failed for job=%s — could not enqueue start_container", job_id)
-            return {"started": False, "reason": "enqueue_failed", "job_id": job_id}
-
-        projected = update_job_status(
-            job_id,
-            "running",
-            expected_status="restarting",
-            started_at=now,
-            stopped_at=0,
-        )
-        if projected is None:
-            return {"started": False, "reason": "status_race", "job_id": job_id}
-
-        with pool.connection() as conn:
-            cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
-            conn.execute(
-                """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_micros, status, created_at)
-                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
-                (cycle_id, job_id, owner, host_id, now, now, now),
-            )
-            conn.commit()
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_started",
-                title=f"Instance started: {job.get('name', job_id)}",
-                body="Your instance is running again.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("START job=%s owner=%s", job_id, owner)
-        return {"started": True, "job_id": job_id, "status": "running"}
+        return {"started": False, "reason": "native_attempt_required", "job_id": job_id}
 
     def restart_instance(self, job_id: str) -> dict:
-        """Restart a running or stopped instance.
-
-        Legacy: pause_container + start_container via agent queue.
-        Fenced / attempt-owned: never unfenced docker start. Running jobs
-        get a fenced stop_attempt (intent=restart); worker ACK re-admits
-        the job as ``queued`` for a new attempt. Already-stopped fenced
-        jobs requeue immediately via fresh-attempt resume.
-        """
+        """Settle the current attempt, then queue a fresh fenced attempt."""
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
-        now = time.time()
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name,
                           EXISTS (
@@ -2596,6 +2556,12 @@ class BillingEngine:
             ).fetchone()
             if not job:
                 return {"restarted": False, "reason": "not_restartable"}
+
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"restarted": False, "reason": admission_problem, "job_id": job_id}
 
             owner = job.get("owner") or ""
             fund = self.wallet_has_available_funds(owner)
@@ -2670,118 +2636,10 @@ class BillingEngine:
                     "fresh_attempt": True,
                 }
 
-            if job["status"] not in ("running", "stopped"):
-                return {"restarted": False, "reason": "not_restartable"}
-
-            was_running = job["status"] == "running"
-            prior_status = job["status"]
-            host_id = job.get("host_id") or ""
-            container_name = job.get("container_name") or f"xcl-{job_id}"
-            conn.commit()
-
-        # Legacy: guarded status transitions (CAS + outbox) — no bare SQL.
-        from scheduler import update_job_status
-
-        marked = update_job_status(
-            job_id,
-            "restarting",
-            expected_status=prior_status,
-            restarting_at=now,
-        )
-        if marked is None:
-            return {"restarted": False, "reason": "not_restartable"}
-
-        restart_queued = False
-        enqueue_error: str | None = None
-        if not host_id:
-            enqueue_error = "no_host"
-            log.warning(
-                "RESTART failed for job=%s — no host_id on job (instance was never assigned?)",
-                job_id,
-            )
-        else:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                if was_running:
-                    enqueue_agent_command(
-                        host_id,
-                        "pause_container",
-                        {"container_name": container_name, "job_id": job_id},
-                        created_by="billing_restart_stop",
-                    )
-                enqueue_agent_command(
-                    host_id,
-                    "start_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_restart_start",
-                )
-                restart_queued = True
-                log.info(
-                    "RESTART queued (was_running=%s): %s on %s",
-                    was_running,
-                    container_name,
-                    host_id,
-                )
-            except Exception as e:
-                enqueue_error = type(e).__name__
-                log.warning("RESTART enqueue failed for %s: %s: %s", job_id, enqueue_error, e)
-
-        if not restart_queued:
-            # Project to stopped so UI is not stuck on restarting.
-            update_job_status(
-                job_id,
-                "stopped",
-                expected_status="restarting",
-            )
-            log.error(
-                "RESTART failed for job=%s — marking stopped (reason=%s)",
-                job_id,
-                enqueue_error or "unknown",
-            )
-            return {
-                "restarted": False,
-                "reason": enqueue_error or "enqueue_failed",
-                "job_id": job_id,
-            }
-
-        projected = update_job_status(
-            job_id,
-            "running",
-            expected_status="restarting",
-            restarted_at=now,
-        )
-        if projected is None:
-            return {
-                "restarted": False,
-                "reason": "status_race",
-                "job_id": job_id,
-            }
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_restarted",
-                title=f"Instance restarted: {job.get('name', job_id)}",
-                body="Your instance has been restarted successfully.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("RESTART job=%s owner=%s", job_id, owner)
-        return {"restarted": True, "job_id": job_id, "status": "running"}
+        return {"restarted": False, "reason": "native_attempt_required", "job_id": job_id}
 
     def terminate_instance(self, job_id: str) -> dict:
-        """Hard-kill and remove a container. This is irreversible.
-
-        The container and its anonymous volumes are permanently destroyed.
-        Named/NFS volumes are preserved. No restart is possible after termination.
-        """
+        """Request fenced removal, or terminate an admitted unplaced job."""
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
@@ -2791,7 +2649,8 @@ class BillingEngine:
             conn.row_factory = dict_row
             job = conn.execute(
                 """SELECT job_id, status, host_id, active_attempt_id,
-                          payload->>'owner' AS owner,
+                          COALESCE(spec->>'owner_id', spec->>'owner') AS owner,
+                          spec, spec_hash, history_disposition,
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
                    FROM jobs
@@ -2803,8 +2662,14 @@ class BillingEngine:
             if not job:
                 return {"terminated": False, "reason": "already_terminal_or_not_found"}
 
-            # Snapshot under lock, then release before fenced enqueue / legacy work.
+            # Snapshot under lock, then release before fenced enqueue.
             active_attempt_id = job.get("active_attempt_id")
+            from control_plane.lifecycle import native_admission_problem
+
+            admission_problem = native_admission_problem(job)
+            if admission_problem:
+                return {"terminated": False, "reason": admission_problem, "job_id": job_id}
+
             owner = job.get("owner") or ""
             host_id = job.get("host_id") or ""
             container_name = job.get("container_name") or f"xcl-{job_id}"
@@ -2864,67 +2729,15 @@ class BillingEngine:
                 "command_id": fenced.command_id,
             }
 
-        # Legacy (non-attempt-owned): guarded status path, detach, direct kill.
-        from scheduler import update_job_status
+        from control_plane.lifecycle import request_unplaced_termination
 
-        prior_status = job.get("status")
-        terminated = update_job_status(
-            job_id,
-            "terminated",
-            expected_status=prior_status,
-            terminated_at=now,
-        )
-        if terminated is None:
-            return {"terminated": False, "reason": "already_terminal_or_not_found"}
-        with pool.connection() as conn:
-            cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
-            conn.execute(
-                """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_micros, status, created_at)
-                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'terminated', %s)""",
-                (cycle_id, job_id, owner, host_id, now, now, now),
-            )
-            conn.commit()
-
-        try:
-            from volumes import get_volume_engine
-
-            get_volume_engine().detach_all_for_instance(job_id)
-        except Exception as e:
-            log.warning("Volume detach failed for %s: %s", job_id, e)
-
-        if host_id:
-            try:
-                from scheduler import terminate_job as _terminate_job, list_hosts, _validate_name
-
-                _validate_name(container_name, "container name")
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    _terminate_job({"job_id": job_id, "container_name": container_name}, host)
-            except Exception as e:
-                log.warning(
-                    "TERMINATE container removal failed for %s: %s — already gone?", job_id, e
-                )
-
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="instance_terminated",
-                title=f"Instance terminated: {job.get('name', job_id)}",
-                body="Your instance has been permanently terminated.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass
-
-        log.info("TERMINATE job=%s owner=%s", job_id, owner)
-        return {"terminated": True, "job_id": job_id, "status": "terminated"}
+        terminated = request_unplaced_termination(job_id=job_id, created_by="billing_terminate")
+        return {
+            "terminated": terminated.ok,
+            "job_id": job_id,
+            "status": terminated.status,
+            **({"reason": terminated.reason} if terminated.reason else {}),
+        }
 
     # ── Wallet Lifecycle ──────────────────────────────────────────────
 
@@ -3370,52 +3183,40 @@ class BillingEngine:
         gpu_model = job_row.get("gpu_model") or ""
         tier = job_row.get("tier", "free")
 
-        host = conn.execute(
-            "SELECT payload FROM hosts WHERE host_id = %s",
-            (host_id,),
-        ).fetchone()
-        host_payload = {}
-        if host and host.get("payload"):
-            raw = host["payload"]
-            host_payload = raw if isinstance(raw, dict) else json.loads(raw)
-
-        job_payload = {
-            "job_id": job_id,
-            "pricing_mode": job_row.get("pricing_mode") or job_row.get("payload_pricing_mode"),
-            "spot_rate_cad": job_row.get("spot_rate_cad"),
-            "preemptible": job_row.get("preemptible"),
-            "spot": job_row.get("spot"),
-            "tier": tier,
-            "gpu_model": gpu_model,
-            "host_gpu_model": job_row.get("host_gpu_model"),
-            "num_gpus": job_row.get("num_gpus") or 1,
-        }
         from control_plane.attempt_billing import pinned_period_rate
 
-        captured = pinned_period_rate(conn, job_id, customer_id, host_id)
-        if captured is not None:
-            rate_per_hour, pricing_mode, attempt_started = captured
-            # A previous attempt's final cycle can predate a restart. Never
-            # charge the stopped interval, even with a stale caller snapshot.
-            period_start = max(period_start, attempt_started)
-            duration_sec = period_end - period_start
-            if duration_sec <= 0 or duration_sec < min_seconds:
-                return None
-        else:
-            rate_per_hour, pricing_mode = resolve_compute_rate_cad(job_payload, host_payload)
+        rate_per_hour, pricing_mode, attempt_started, end_cap = pinned_period_rate(
+            conn,
+            job_id,
+            customer_id,
+            host_id,
+            terminal_attempt_id=job_row.get("_terminal_attempt_id"),
+        )
+        if not math.isfinite(period_start) or not math.isfinite(period_end):
+            raise ValueError("billing period must be finite")
+        period_end = min(period_end, end_cap)
+        period_start = max(period_start, attempt_started)
+        duration_sec = period_end - period_start
+        if duration_sec <= 0 or duration_sec < min_seconds:
+            return None
 
         tier_multiplier = 1.0
 
         amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
         if amount_cad <= 0:
-            return None
-
-        charge_result = self.charge(
-            customer_id,
-            amount_cad,
-            job_id=job_id,
-            description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
-        )
+            if not job_row.get("_terminal_attempt_id"):
+                return None
+            # The remaining confirmed interval is below monetary precision.
+            # Record its zero-cost settlement so it cannot starve later rows.
+            charge_result = {"charged": True, "amount_cad": 0, "reason": "below_monetary_precision"}
+        else:
+            charge_result = self.charge(
+                customer_id,
+                amount_cad,
+                job_id=job_id,
+                description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
+                conn=conn,
+            )
 
         now = time.time()
         cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
@@ -3471,18 +3272,22 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                """SELECT job_id, status, host_id,
-                          payload->>'owner' AS owner,
-                          (payload->>'started_at')::double precision AS started_at,
-                          payload->>'gpu_model' AS gpu_model,
-                          payload->>'host_gpu_model' AS host_gpu_model,
-                          COALESCE((payload->>'num_gpus')::int, 1) AS num_gpus,
-                          COALESCE(payload->>'pricing_mode', 'on_demand') AS pricing_mode,
-                          (payload->>'spot_rate_cad')::double precision AS spot_rate_cad,
-                          payload->>'preemptible' AS preemptible,
-                          payload->>'spot' AS spot,
-                          COALESCE(payload->>'tier', 'free') AS tier
-                   FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
+                """SELECT j.job_id,j.status,j.host_id,
+                          COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
+                          EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
+                          j.spec->>'gpu_model' AS gpu_model,
+                          j.spec->>'gpu_model' AS host_gpu_model,
+                          COALESCE((j.spec->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(j.spec->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (j.spec->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          j.spec->>'preemptible' AS preemptible,
+                          j.spec->>'spot' AS spot,
+                          COALESCE(j.spec->>'tier', 'free') AS tier
+                   FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                   WHERE j.job_id=%s AND j.phase='running' AND a.status='running'
+                     AND j.spec->>'execution_spec_version'='v1'
+                     AND COALESCE(j.spec->>'job_type','') <> 'serverless_worker'
+                   FOR UPDATE OF j""",
                 (job_id,),
             ).fetchone()
             if not job:
@@ -3490,7 +3295,7 @@ class BillingEngine:
 
             last = conn.execute(
                 """SELECT period_end FROM billing_cycles
-                   WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                   WHERE job_id=%s AND resource_type='gpu' AND status='charged' ORDER BY period_end DESC LIMIT 1""",
                 (job_id,),
             ).fetchone()
             period_start = last["period_end"] if last else float(job["started_at"] or 0)
@@ -3508,7 +3313,82 @@ class BillingEngine:
             conn.commit()
             if not result:
                 return {"billed": False, "reason": "below_minimum"}
-            return {"billed": True, **result}
+            self._publish_committed_charge(
+                result["charge_result"], customer_id=job["owner"], job_id=job_id
+            )
+            return {"billed": bool(result["charge_result"].get("charged")), **result}
+
+    def _settle_terminal_gpu_periods(self, pool):
+        """Normal terminal slices retry from durable native evidence, never observations.
+
+        This does not repair historical/unadmitted work. It is the final interval
+        of an ordinary native admission, including completion without an API stop.
+        """
+        from psycopg.rows import dict_row
+
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            pending = conn.execute("""SELECT a.job_id,a.attempt_id FROM job_attempts a
+                  JOIN jobs j ON j.job_id=a.job_id
+                  JOIN usage_meters m ON m.attempt_id=a.attempt_id::text
+                  JOIN wallets w ON w.customer_id=COALESCE(j.spec->>'owner_id',j.spec->>'owner')
+                 WHERE a.started_at IS NOT NULL AND a.ended_at IS NOT NULL
+                   AND j.spec->>'execution_spec_version'='v1'
+                   AND COALESCE(j.spec->>'job_type','')<>'serverless_worker'
+                   AND m.total_cost_micros>0 AND w.status<>'suspended' AND w.balance_micros>0
+                   AND NOT EXISTS (SELECT 1 FROM billing_cycles b WHERE b.job_id=a.job_id
+                       AND b.resource_type='gpu' AND b.status='charged'
+                       AND b.period_start<EXTRACT(EPOCH FROM a.ended_at)
+                       AND b.period_end>=EXTRACT(EPOCH FROM a.ended_at))
+                   AND NOT EXISTS (SELECT 1 FROM billing_cycles b WHERE b.job_id=a.job_id
+                       AND b.resource_type='gpu' AND b.status='failed'
+                       AND b.period_start<EXTRACT(EPOCH FROM a.ended_at)
+                       AND b.period_end>=EXTRACT(EPOCH FROM a.ended_at)
+                       AND b.created_at>=w.updated_at)
+                 ORDER BY a.ended_at,a.attempt_id LIMIT 200""").fetchall()
+        settled, errors = 0, 0
+        for item in pending:
+            try:
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    row = conn.execute(
+                        """SELECT j.job_id,a.host_id,a.attempt_id AS _terminal_attempt_id,
+                            COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
+                            j.spec->>'gpu_model' AS gpu_model,j.spec->>'tier' AS tier,
+                            EXTRACT(EPOCH FROM a.started_at)::float8 AS started,
+                            EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended
+                          FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
+                         WHERE j.job_id=%s AND a.attempt_id=%s FOR UPDATE OF j SKIP LOCKED""",
+                        (item["job_id"], item["attempt_id"]),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    last = conn.execute(
+                        """SELECT max(period_end) AS paid_end FROM billing_cycles
+                         WHERE job_id=%s AND resource_type='gpu' AND status='charged'
+                           AND period_start<%s AND period_end>%s""",
+                        (row["job_id"], row["ended"], row["started"]),
+                    ).fetchone()["paid_end"]
+                    start = max(row["started"], last if last is not None else row["started"])
+                    result = self._bill_gpu_period(
+                        conn,
+                        row,
+                        start,
+                        row["ended"],
+                        min_seconds=0,
+                        description_prefix="Native final billing",
+                    )
+                if result:
+                    self._publish_committed_charge(
+                        result["charge_result"], customer_id=row["owner"], job_id=row["job_id"]
+                    )
+                    settled += int(
+                        bool(result["charge_result"].get("charged")) and result["amount_cad"] > 0
+                    )
+            except Exception as exc:
+                errors += 1
+                log.error("native terminal billing pending (%s)", type(exc).__name__)
+        return settled, errors
 
     def auto_billing_cycle(self) -> dict:
         """Bill all running instances for the current billing period.
@@ -3531,20 +3411,23 @@ class BillingEngine:
             # Find all running jobs
             running = conn.execute(
                 """SELECT j.job_id,
-                          j.payload->>'owner' AS owner,
-                          (j.payload->>'started_at')::double precision AS started_at,
+                          COALESCE(j.spec->>'owner',
+                                   j.spec->>'owner_id',j.owner_id) AS owner,
+                          EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
                           j.host_id,
-                          j.payload->>'gpu_model' AS gpu_model,
-                          j.payload->>'host_gpu_model' AS host_gpu_model,
-                          COALESCE((j.payload->>'num_gpus')::int, 1) AS num_gpus,
-                          COALESCE(j.payload->>'pricing_mode', 'on_demand') AS pricing_mode,
-                          (j.payload->>'spot_rate_cad')::double precision AS spot_rate_cad,
-                          j.payload->>'preemptible' AS preemptible,
-                          j.payload->>'spot' AS spot,
-                          COALESCE(j.payload->>'tier', 'free') AS tier
-                   FROM jobs j
-                   WHERE j.status = 'running'
-                     AND (j.payload->>'started_at')::double precision > 0""",
+                          j.spec->>'gpu_model' AS gpu_model,
+                          j.spec->>'gpu_model' AS host_gpu_model,
+                          COALESCE((j.spec->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(j.spec->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (j.spec->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          j.spec->>'preemptible' AS preemptible,
+                          j.spec->>'spot' AS spot,
+                          COALESCE(j.spec->>'tier', 'free') AS tier
+                   FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                   WHERE j.phase='running' AND a.status='running'
+                     AND j.spec->>'execution_spec_version'='v1'
+                     AND COALESCE(j.spec->>'job_type','') <> 'serverless_worker'
+                     AND a.started_at IS NOT NULL""",
             ).fetchall()
 
         for job in running:
@@ -3565,7 +3448,7 @@ class BillingEngine:
 
                     last = conn.execute(
                         """SELECT period_end FROM billing_cycles
-                           WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                           WHERE job_id=%s AND resource_type='gpu' AND status='charged' ORDER BY period_end DESC LIMIT 1""",
                         (job_id,),
                     ).fetchone()
 
@@ -3584,7 +3467,10 @@ class BillingEngine:
                     charge_result = result["charge_result"]
                     conn.commit()
 
-                billed += 1
+                billed += int(bool(charge_result.get("charged")))
+                self._publish_committed_charge(
+                    charge_result, customer_id=customer_id, job_id=job_id
+                )
 
                 # Low-balance notification at $2 (dedup: once per 24h per customer)
                 # Skip notification if balance is zero AND no charge occurred (new account, never spent)
@@ -3643,9 +3529,9 @@ class BillingEngine:
                             pass
 
                 # If charge failed with grace_expired → suspend and STOP the job
-                if (
-                    not charge_result.get("charged")
-                    and charge_result.get("action") == "account_suspended"
+                if not charge_result.get("charged") and (
+                    charge_result.get("hard_stop")
+                    or charge_result.get("action") == "account_suspended"
                 ):
                     suspended += 1
                     try:
@@ -3664,6 +3550,10 @@ class BillingEngine:
             except Exception as e:
                 errors += 1
                 log.error("Auto-billing error for job %s: %s", job.get("job_id", "?"), e)
+
+        final_billed, final_errors = self._settle_terminal_gpu_periods(pool)
+        billed += final_billed
+        errors += final_errors
 
         # ── Bill active volumes (real-time storage charges) ──────────
         volume_billed = 0
@@ -3728,15 +3618,19 @@ class BillingEngine:
                         conn.row_factory = dict_row
                         # Lock the volume row so a concurrent tick skips it
                         locked = conn.execute(
-                            "SELECT volume_id FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') FOR UPDATE SKIP LOCKED",
+                            "SELECT volume_id,owner_id,name,size_gb,created_at FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') FOR UPDATE SKIP LOCKED",
                             (vid,),
                         ).fetchone()
                         if not locked:
                             continue  # Another tick already processing this volume
+                        vol = dict(locked)
+                        vol_owner, size_gb = vol["owner_id"], vol["size_gb"]
+                        if size_gb <= 0:
+                            continue
 
                         last_vc = conn.execute(
                             """SELECT period_end FROM billing_cycles
-                               WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                               WHERE job_id=%s AND resource_type='volume' AND status='charged' ORDER BY period_end DESC LIMIT 1""",
                             (vid,),
                         ).fetchone()
 
@@ -3767,6 +3661,7 @@ class BillingEngine:
                             vamount,
                             job_id=vid,
                             description=f"Volume storage: {vol.get('name', vid)} ({size_gb} GB, {vduration_sec/60:.1f}min)",
+                            conn=conn,
                         )
 
                         vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
@@ -3798,7 +3693,8 @@ class BillingEngine:
                         )
                         conn.commit()
 
-                    volume_billed += 1
+                    self._publish_committed_charge(vcharge, customer_id=vol_owner, job_id=vid)
+                    volume_billed += int(bool(vcharge.get("charged")))
                 except Exception as e:
                     errors += 1
                     log.error("Volume billing error for %s: %s", vol.get("volume_id", "?"), e)
@@ -3814,128 +3710,9 @@ class BillingEngine:
         except Exception as e:
             log.error("Serverless billing scan error: %s", e)
 
-        # ── Bill stopped instances for storage ───────────────────────
-        # Charges per GB per hour based on storage_type. Requires the
-        # storage_billing_rates table from migration 019. Gracefully
-        # skips if the table doesn't exist yet.
-        storage_billed = 0
-        try:
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                stopped_jobs = conn.execute(
-                    """SELECT j.job_id,
-                              j.host_id,
-                              j.payload->>'owner' AS owner,
-                              COALESCE((j.payload->>'storage_gb')::double precision, 0) AS storage_gb,
-                              COALESCE(j.payload->>'storage_type', 'hdd') AS storage_type,
-                              COALESCE((j.payload->>'storage_rate_cad_per_gb_hr')::double precision, 0) AS cached_rate,
-                              (j.payload->>'stopped_at')::double precision AS stopped_at
-                       FROM jobs j
-                       WHERE j.status = 'stopped'
-                         AND COALESCE((j.payload->>'storage_gb')::double precision, 0) > 0""",
-                ).fetchall()
-
-            for sjob in stopped_jobs:
-                try:
-                    sjob_id = sjob["job_id"]
-                    sowner = sjob["owner"]
-                    storage_gb = float(sjob["storage_gb"] or 0)
-                    storage_type = sjob["storage_type"] or "hdd"
-                    cached_rate = float(sjob["cached_rate"] or 0)
-
-                    if not sowner or storage_gb <= 0:
-                        continue
-
-                    # Look up current rate from storage_billing_rates table
-                    try:
-                        with pool.connection() as conn:
-                            conn.row_factory = dict_row
-                            rate_row = conn.execute(
-                                "SELECT rate_cad_per_gb_hr FROM storage_billing_rates WHERE storage_type = %s",
-                                (storage_type,),
-                            ).fetchone()
-                        rate = float(rate_row["rate_cad_per_gb_hr"]) if rate_row else cached_rate
-                    except Exception:
-                        rate = cached_rate  # table not yet created
-
-                    if rate <= 0:
-                        continue
-
-                    # Find last storage billing cycle for this job
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        last_sc = conn.execute(
-                            """SELECT period_end FROM billing_cycles
-                               WHERE job_id = %s AND status IN ('storage', 'stopped', 'started')
-                               ORDER BY period_end DESC LIMIT 1""",
-                            (sjob_id,),
-                        ).fetchone()
-
-                    stopped_at = float(sjob["stopped_at"] or 0)
-                    speriod_start = (
-                        last_sc["period_end"]
-                        if last_sc
-                        else (stopped_at if stopped_at > 0 else now)
-                    )
-                    speriod_end = now
-
-                    if speriod_end - speriod_start < 60:
-                        continue
-
-                    sduration_sec = speriod_end - speriod_start
-                    samount = round((sduration_sec / 3600) * rate * storage_gb, 6)
-
-                    if samount <= 0:
-                        continue
-
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        slocked = conn.execute(
-                            "SELECT job_id FROM jobs WHERE job_id = %s AND status = 'stopped' FOR UPDATE SKIP LOCKED",
-                            (sjob_id,),
-                        ).fetchone()
-                        if not slocked:
-                            continue
-
-                        scharge = self.charge(
-                            sowner,
-                            samount,
-                            job_id=sjob_id,
-                            description=f"Storage: {storage_gb:.0f}GB {storage_type} ({sduration_sec/60:.1f}min)",
-                        )
-                        scycle_id = f"SC-{int(now)}-{os.urandom(3).hex()}"
-                        sstatus = "storage" if scharge.get("charged") else "storage_failed"
-                        conn.execute(
-                            """INSERT INTO billing_cycles
-                               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                                amount_micros, status, created_at)
-                               VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (
-                                scycle_id,
-                                sjob_id,
-                                sowner,
-                                sjob.get("host_id", ""),
-                                speriod_start,
-                                speriod_end,
-                                sduration_sec,
-                                rate * storage_gb,
-                                storage_type,
-                                "storage",
-                                1.0,
-                                round(samount * 1_000_000),
-                                sstatus,
-                                now,
-                            ),
-                        )
-                        conn.commit()
-
-                    storage_billed += 1
-                except Exception as e:
-                    errors += 1
-                    log.error("Storage billing error for job %s: %s", sjob.get("job_id", "?"), e)
-        except Exception as e:
-            log.error("Storage billing scan error: %s", e)
+        # Storage is billed once from normalized volume records above.
+        # Retained job observations do not authorize a second storage charge.
+        storage_billed = 0  # response compatibility; volume_billed is authoritative
 
         if billed or suspended or errors or volume_billed or inference_billed or storage_billed:
             log.info(
@@ -4339,7 +4116,9 @@ class BillingEngine:
                         # invoke the shared lifecycle service after commit.
                         running = conn.execute(
                             """SELECT job_id
-                               FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
+                               FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
+                                 AND spec->>'execution_spec_version'='v1'
+                                 AND history_disposition IS NULL AND status = 'running'""",
                             (customer_id,),
                         ).fetchall()
                         jobs_to_stop = [str(job["job_id"]) for job in running]
@@ -4510,15 +4289,15 @@ class BillingEngine:
                 cid = w["customer_id"]
                 running = conn.execute(
                     """SELECT job_id
-                       FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
+                       FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
+                                 AND spec->>'execution_spec_version'='v1'
+                                 AND history_disposition IS NULL AND status = 'running'""",
                     (cid,),
                 ).fetchall()
                 for job in running:
                     running_job_ids.append((str(job["job_id"]), str(cid)))
 
-        # One lifecycle service owns both v1 and v2 stops. In particular,
-        # attempt-owned jobs receive a durable fenced command instead of a
-        # raw status write plus an unfenced legacy remove.
+        # The shared service revalidates native admission and fences delivery.
         for job_id, cid in running_job_ids:
             result = self.stop_instance(job_id, reason="billing_suspended")
             if result.get("stopped"):
@@ -4571,28 +4350,37 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             running = conn.execute(
-                """SELECT j.job_id, j.host_id, j.payload->>'gpu_model' AS gpu_model, COALESCE(j.payload->>'tier', 'free') AS tier
-                   FROM jobs j
-                   WHERE j.payload->>'owner' = %s AND j.status = 'running'""",
+                """SELECT j.job_id,j.spec,j.spec_hash,a.spec_hash AS attempt_hash,
+                          a.host_id,a.placement_explanation->'billing_snapshot' AS quote
+                   FROM jobs j LEFT JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                   WHERE COALESCE(j.spec->>'owner_id',j.spec->>'owner')=%s
+                     AND j.status='running' AND j.history_disposition IS NULL""",
                 (customer_id,),
             ).fetchall()
 
+        from control_plane.attempt_billing import bound_billing_inputs
+
         burn_per_hour = 0.0
         instance_burns = []
+        unpriced = 0
         for job in running:
-            host_id = job.get("host_id", "")
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                host = conn.execute(
-                    "SELECT payload->>'cost_per_hour' AS cost_per_hour FROM hosts WHERE host_id = %s",
-                    (host_id,),
-                ).fetchone()
-            rate = float(host["cost_per_hour"]) if host else 0.20
+            try:
+                admitted, host = bound_billing_inputs(
+                    job["spec"],
+                    job["spec_hash"],
+                    job["attempt_hash"],
+                    job["quote"],
+                    job["host_id"],
+                )
+                rate, _ = resolve_compute_rate_cad(admitted, host)
+            except (TypeError, ValueError, KeyError):
+                unpriced += 1
+                continue
             burn_per_hour += rate
             instance_burns.append(
                 {
                     "job_id": job["job_id"],
-                    "gpu_model": job.get("gpu_model", ""),
+                    "gpu_model": admitted.get("gpu_model", ""),
                     "rate_per_hour": rate,
                 }
             )
@@ -4601,9 +4389,11 @@ class BillingEngine:
         seconds_to_zero = balance / burn_per_second if burn_per_second > 0 else float("inf")
 
         # Alert thresholds
-        alert_30min = seconds_to_zero <= 1800
-        alert_5min = seconds_to_zero <= 300
-        alert_depleted = seconds_to_zero <= 0
+        # A partial burn gives only an upper bound on remaining time. It
+        # cannot clear a warning. Zero balance is known independently of rates.
+        alert_30min = balance <= 0 or unpriced > 0 or seconds_to_zero <= 1800
+        alert_5min = balance <= 0 or unpriced > 0 or seconds_to_zero <= 300
+        alert_depleted = balance <= 0
 
         return {
             "customer_id": customer_id,
@@ -4611,10 +4401,15 @@ class BillingEngine:
             "burn_rate_per_hour": round(burn_per_hour, 4),
             "burn_rate_per_second": round(burn_per_second, 6),
             "seconds_to_zero": (
-                round(seconds_to_zero, 1) if seconds_to_zero != float("inf") else None
+                round(seconds_to_zero, 1)
+                if seconds_to_zero != float("inf") and not unpriced
+                else None
             ),
             "running_instances": len(running),
+            "estimate_complete": unpriced == 0,
+            "unpriced_running_instances": unpriced,
             "instance_burns": instance_burns,
+            "alert_estimate_unavailable": unpriced > 0,
             "alert_30min": alert_30min,
             "alert_5min": alert_5min,
             "alert_depleted": alert_depleted,

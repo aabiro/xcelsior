@@ -79,8 +79,7 @@ def job():
         # to exist before its artifacts do. Only the NOT NULL columns without a
         # default are supplied; everything else is left to the schema.
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id) "
-            "VALUES (%s, 'completed', 0, %s, '{}'::jsonb, %s)",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'completed', 0, %s, '{}'::jsonb, %s, 'succeeded', 'running', 0, NULL)""",
             (job_id, time.time(), tenant),
         )
         for name, size, sha in [

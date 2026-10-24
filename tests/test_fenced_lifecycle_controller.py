@@ -8,11 +8,15 @@ and intermediate job projection — not a mocked "success" string.
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
+
 import json
 import time
 import uuid
 
 import pytest
+from fastapi import HTTPException, Request
 
 try:
     from db import _get_pg_pool
@@ -51,8 +55,8 @@ def cleanup_ids():
 def _mkhost(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'online', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'online', %s, %s, 'admitted', 'admitted', 'unknown')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
@@ -70,12 +74,24 @@ def _mkjob(cleanup, *, host_id, status="running", container_name=None):
         "container_name": cname,
     }
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, %s, 0, %s, %s, %s)""",
-            (job_id, status, time.time(), host_id, json.dumps(payload)),
+                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                fixture_submitted_at,
+                host_id,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                status,
+                fixture_submitted_at,
+            ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id, cname
@@ -130,7 +146,7 @@ def test_terminate_entry_point_enqueues_fenced_remove(cleanup_ids):
 
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent',
+            """SELECT status, lifecycle_intent,
                       active_attempt_id::text
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -174,7 +190,7 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
 
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent'
+            """SELECT status, lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -190,6 +206,100 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
     assert cmd[1] == fence
     assert cmd[2]["preserve"] is False
     assert cmd[2]["intent"] == "cancel"
+
+
+@pytest.fixture
+def cancel_route(monkeypatch):
+    import routes.instances as routes
+
+    monkeypatch.setattr(routes, "_require_auth", lambda request: {"is_admin": True})
+    monkeypatch.setattr(routes, "_require_scope", lambda *args: None)
+    monkeypatch.setattr(routes, "_check_job_write_access", lambda *args: None)
+    request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
+    return lambda job_id: routes.api_cancel_instance(job_id, request)
+
+
+@pytest.mark.parametrize("status", ["running", "assigned", "stopped", "queued"])
+def test_cancel_refuses_unfenced_history_without_changing_it(cleanup_ids, cancel_route, status):
+    host_id = f"h-cancel-history-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id, status=status)
+    with _pool.connection() as conn:
+        before = conn.execute(
+            "SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)
+        ).fetchone()[0]
+    with pytest.raises(HTTPException) as exc:
+        cancel_route(job_id)
+    assert exc.value.status_code == 409
+    with _pool.connection() as conn:
+        assert (
+            conn.execute("SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)).fetchone()[0]
+            == before
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM agent_commands WHERE job_id=%s", (job_id,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_cancel_can_settle_an_unplaced_queued_job(cleanup_ids, cancel_route):
+    job_id, _ = _mkjob(cleanup_ids, host_id=None, status="queued")
+    assert cancel_route(job_id)["status"] == "cancelled"
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status,active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone() == ("cancelled", None)
+
+
+def test_cancel_route_uses_fenced_stop_for_active_attempt(cleanup_ids, cancel_route, monkeypatch):
+    from unittest.mock import Mock
+
+    detach = Mock(side_effect=AssertionError("volume detached before worker stop confirmation"))
+    monkeypatch.setattr("volumes.get_volume_engine", detach)
+    host_id = f"h-cancel-active-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
+    attempt_id, fence = _mk_active_attempt(job_id, host_id)
+    assert cancel_route(job_id)["status"] == "stopping"
+    detach.assert_not_called()
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT command,attempt_id::text,fencing_token FROM agent_commands WHERE job_id=%s",
+            (job_id,),
+        ).fetchone() == ("stop_attempt", attempt_id, fence)
+
+
+@pytest.mark.parametrize("race", ["assigned", "fenced", "host_only"])
+def test_cancel_rechecks_authority_after_initial_read(cleanup_ids, cancel_route, monkeypatch, race):
+    import routes.instances as routes
+
+    host_id = f"h-cancel-race-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=None, status="queued")
+    update = routes.update_job_status
+
+    def advance_before_cancel(*args, **kwargs):
+        if race == "fenced":
+            _mk_active_attempt(job_id, host_id)
+        elif race == "host_only":
+            from scheduler import _set_job_fields
+
+            _set_job_fields(job_id, host_id=host_id)
+        else:
+            update(job_id, "assigned", host_id=host_id)
+        return update(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "update_job_status", advance_before_cancel)
+    with pytest.raises(HTTPException) as exc:
+        cancel_route(job_id)
+    assert exc.value.status_code == 409
+    with _pool.connection() as conn:
+        assert (
+            conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
+            != "cancelled"
+        )
 
 
 def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
@@ -216,7 +326,7 @@ def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
         conn.commit()
         row = conn.execute(
             """SELECT status, active_attempt_id,
-                      payload->>'lifecycle_intent'
+                      lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -256,23 +366,23 @@ def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
     assert status == "cancelled"
 
 
-def test_legacy_terminate_still_marks_terminal_without_attempt(cleanup_ids):
+def test_unfenced_running_termination_refuses_without_status_projection(cleanup_ids):
     host_id = f"h-life-leg-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
 
     from billing import BillingEngine
 
-    # No host SSH — terminate still marks terminal in PG; kill may warn.
+    # A missing attempt pointer is not evidence that running work has stopped.
     result = BillingEngine().terminate_instance(job_id)
-    assert result.get("terminated") is True
-    assert result.get("status") == "terminated"
+    assert result.get("terminated") is False
+    assert result.get("reason") == "native_attempt_required"
     with _pool.connection() as conn:
         status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
         cmds = conn.execute(
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
-    assert status == "terminated"
+    assert status == "running"
     assert cmds == 0
 
 
@@ -319,7 +429,7 @@ def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
 
     with _pool.connection() as conn:
         row = conn.execute(
-            """SELECT status, payload->>'lifecycle_intent'
+            """SELECT status, lifecycle_intent
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()

@@ -682,13 +682,64 @@
         }
       }
     },
+    "/api/v1/hosts/{host_id}/eviction-plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Read Eviction Plan",
+        "description": "Read the approved targets and current release proof without side effects.",
+        "operationId": "api_v1_read_eviction_plan_api_v1_hosts__host_id__eviction_plans__plan_id__get",
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Host Id"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/hosts/{host_id}/drain": {
       "post": {
         "tags": [
           "Control plane v1"
         ],
         "summary": "Api V1 Drain Host",
-        "description": "\u00a73.3 drain \u2014 stop **new** placements only. Running workloads keep running.\n\nUnlike the legacy endpoint, this does NOT preempt. To remove workloads, call\n`/evictions` (a separate scope + audit trail).",
+        "description": "\u00a73.3 drain \u2014 stop **new** placements only. Running workloads keep running.\n\nEviction requires a separate scope and the durable preemption controller.",
         "operationId": "api_v1_drain_host_api_v1_hosts__host_id__drain_post",
         "parameters": [
           {
@@ -804,7 +855,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Evict Host Workloads",
-        "description": "\u00a73.3 evict \u2014 remove running workloads from a host, distinct from drain.\n\nRequires the `hosts:evict` scope (a principal cleared only to drain cannot\nevict). Each workload is preempted (running \u2192 preempted \u2192 requeued), which\nabandons its placement so a fresh, fenced attempt is scheduled elsewhere.\nRecords a separate `host.workloads_evicted` audit event.",
+        "description": "Require an approved plan; this route never bypasses human approval.",
         "operationId": "api_v1_evict_host_workloads_api_v1_hosts__host_id__evictions_post",
         "parameters": [
           {
@@ -2365,6 +2416,16 @@
               }
             ],
             "title": "Detail"
+          },
+          "runtime_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2709,6 +2770,31 @@
             "minLength": 1,
             "title": "Host Id"
           },
+          "worker_session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Session Id"
+          },
+          "claim_attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Attempt"
+          },
           "result": {
             "anyOf": [
               {
@@ -2748,6 +2834,11 @@
             "minimum": 1.0,
             "title": "Limit",
             "default": 10
+          },
+          "host_commands": {
+            "type": "boolean",
+            "title": "Host Commands",
+            "default": false
           }
         },
         "type": "object",
@@ -2764,6 +2855,31 @@
             "maxLength": 128,
             "minLength": 1,
             "title": "Host Id"
+          },
+          "worker_session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Session Id"
+          },
+          "claim_attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Attempt"
           },
           "error_code": {
             "type": "string",
@@ -3861,6 +3977,11 @@
           "encrypted_workspace": {
             "type": "boolean",
             "title": "Encrypted Workspace",
+            "default": false
+          },
+          "exclusive_gpu": {
+            "type": "boolean",
+            "title": "Exclusive Gpu",
             "default": false
           },
           "init_script": {
@@ -5620,6 +5741,96 @@
         "type": "object",
         "title": "RunJobRequest"
       },
+      "RuntimeMetadata": {
+        "properties": {
+          "container_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "container_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Name"
+          },
+          "public_ssh_port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65000.0,
+                "minimum": 10000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Ssh Port"
+          },
+          "interactive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interactive"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "resume_from": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume From"
+          },
+          "resumable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RuntimeMetadata"
+      },
       "SLAEnforceRequest": {
         "properties": {
           "host_id": {
@@ -6868,6 +7079,16 @@
             "minLength": 1,
             "title": "Host Id"
           },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fencing Token"
+          },
           "ports": {
             "additionalProperties": {
               "type": "integer"
@@ -6896,7 +7117,9 @@
         },
         "type": "object",
         "required": [
-          "host_id"
+          "host_id",
+          "attempt_id",
+          "fencing_token"
         ],
         "title": "_AutoLaunchReport"
       },
@@ -6911,6 +7134,13 @@
             "maxLength": 500,
             "minLength": 1,
             "title": "Reason"
+          },
+          "grace_seconds": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Grace Seconds",
+            "default": 60
           }
         },
         "type": "object",
@@ -6954,6 +7184,16 @@
             "minLength": 1,
             "title": "Host Id"
           },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fencing Token"
+          },
           "ports": {
             "additionalProperties": {
               "type": "integer"
@@ -6964,7 +7204,9 @@
         },
         "type": "object",
         "required": [
-          "host_id"
+          "host_id",
+          "attempt_id",
+          "fencing_token"
         ],
         "title": "_HttpPortsReport"
       },

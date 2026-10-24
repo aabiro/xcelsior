@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
-import uuid
 from typing import Iterator
 
 import pytest
@@ -53,58 +51,10 @@ def client() -> Iterator[TestClient]:
 
 @pytest.fixture
 def seeded_job():
-    """Running job owned by 'alice' with exposed_ports=[8888,8080].
+    from tests.fixtures.native_runtime import running_instance
 
-    We do NOT pre-populate ``http_ports`` — individual tests either seed
-    it directly (to test /expose happy path) or let the /http-ports/report
-    endpoint install it (to test that path).
-    """
-    from db import _get_pg_pool
-
-    pool = _get_pg_pool()
-    job_id = f"abcd{uuid.uuid4().hex[:20]}"  # 24 chars, stable slug prefix
-    host_id = f"host-pp-{uuid.uuid4().hex[:8]}"
-
-    now = time.time()
-    host_payload = {
-        "host_id": host_id,
-        "status": "active",
-        "owner": "alice",
-        "registered_at": now,
-        "ip": "100.64.1.42",
-    }
-    job_payload = {
-        "job_id": job_id,
-        "status": "running",
-        "owner": "alice",
-        "host": host_id,
-        "host_id": host_id,
-        "image": "python:3.11",
-        "name": "pp-test",
-        "submitted_at": now,
-        "exposed_ports": [8888, 8080],
-    }
-
-    with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, %s, %s, %s::jsonb, 'admitted') "
-            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
-            (host_id, "active", now, json.dumps(host_payload)),
-        )
-        conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s, %s, 0, %s, %s, %s::jsonb)",
-            (job_id, "running", now, host_id, json.dumps(job_payload)),
-        )
-        conn.commit()
-
-    yield {"job_id": job_id, "host_id": host_id, "slug": job_id[:12]}
-
-    with pool.connection() as conn:
-        conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM hosts WHERE host_id=%s", (host_id,))
-        conn.commit()
+    with running_instance(exposed_ports=(8888, 8080, 9000), auto_launch=()) as instance:
+        yield instance
 
 
 def _set_http_ports(job_id: str, ports: dict[str, int]) -> None:
@@ -129,6 +79,7 @@ def test_http_ports_report_stores_mapping(client, seeded_job):
         f"/instances/{seeded_job['job_id']}/http-ports/report",
         json={
             "host_id": seeded_job["host_id"],
+            **seeded_job["authority"],
             "ports": {"8888": 55123, "8080": 55124},
         },
     )
@@ -151,7 +102,7 @@ def test_http_ports_report_stores_mapping(client, seeded_job):
 def test_http_ports_report_404_for_wrong_host(client, seeded_job):
     r = client.post(
         f"/instances/{seeded_job['job_id']}/http-ports/report",
-        json={"host_id": "other-host", "ports": {"8888": 55123}},
+        json={"host_id": "other-host", **seeded_job["authority"], "ports": {"8888": 55123}},
     )
     assert r.status_code == 404
 
@@ -161,6 +112,7 @@ def test_http_ports_report_drops_invalid_entries(client, seeded_job):
         f"/instances/{seeded_job['job_id']}/http-ports/report",
         json={
             "host_id": seeded_job["host_id"],
+            **seeded_job["authority"],
             "ports": {
                 "22": 55100,  # reserved → dropped
                 "8888": 54999,  # host port below 55000 → dropped
@@ -228,9 +180,7 @@ def test_expose_400_when_not_running(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status='stopped', "
-            "payload = jsonb_set(payload, '{status}', '\"stopped\"') "
-            "WHERE job_id=%s",
+            """UPDATE jobs SET status='stopped', phase='stopped', desired_state='stopped', payload = jsonb_set(payload, '{status}', '"stopped"') WHERE job_id=%s""",
             (seeded_job["job_id"],),
         )
         conn.commit()
@@ -300,7 +250,7 @@ def test_internal_route_404_when_job_not_running(client, seeded_job):
     _set_http_ports(seeded_job["job_id"], {"8888": 55123})
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET status='stopped' WHERE job_id=%s",
+            """UPDATE jobs SET status='stopped', phase='stopped', desired_state='stopped' WHERE job_id=%s""",
             (seeded_job["job_id"],),
         )
         conn.commit()

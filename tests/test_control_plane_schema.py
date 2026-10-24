@@ -65,8 +65,8 @@ def _mkjob(cleanup, status="queued", phase="pending", desired_state="running"):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at, updated_at)
-               VALUES (%s, %s, 0, %s, %s, %s, %s, now(), now())""",
+                                 phase, desired_state, queued_at, updated_at, effective_priority)
+               VALUES (%s, %s, 0, %s, %s, %s, %s, now(), now(), 0)""",
             (job_id, status, time.time(), json.dumps({"name": job_id}), phase, desired_state),
         )
         conn.commit()
@@ -78,8 +78,8 @@ def _mkhost(cleanup):
     host_id = f"host-cp-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
         conn.commit()
@@ -204,36 +204,28 @@ class TestSchemaPresence:
 
 
 # ── Invariant: legacy status projections are constrained ────────────
-# Since migration 059 the projection trigger *normalizes* every write —
-# an invalid value handed to the projection columns never reaches the
-# CHECK constraint because the trigger recomputes it from the legacy
-# truth first. The invariant under test is therefore "garbage cannot
-# persist", not "garbage raises".
+# Native writers supply these fields. Invalid values must reach the database
+# constraints and fail instead of being silently replaced by a projection.
 
 
 class TestJobProjectionConstraints:
-    def test_invalid_phase_normalized_by_trigger(self, cleanup_ids):
-        job_id = _mkjob(cleanup_ids, phase="warming_up")
-        with _pool.connection() as conn:
-            row = conn.execute("SELECT phase FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
-        assert row[0] == "pending"  # projected from status='queued'
+    def test_invalid_phase_is_rejected(self, cleanup_ids):
+        with pytest.raises(CheckViolation):
+            _mkjob(cleanup_ids, phase="warming_up")
 
-    def test_invalid_desired_state_normalized_by_trigger(self, cleanup_ids):
-        job_id = _mkjob(cleanup_ids, desired_state="maybe")
-        with _pool.connection() as conn:
-            row = conn.execute(
-                "SELECT desired_state FROM jobs WHERE job_id=%s", (job_id,)
-            ).fetchone()
-        assert row[0] == "running"
+    def test_invalid_desired_state_is_rejected(self, cleanup_ids):
+        with pytest.raises(CheckViolation):
+            _mkjob(cleanup_ids, desired_state="maybe")
 
-    def test_invalid_host_admin_state_normalized_by_trigger(self, cleanup_ids):
+    def test_invalid_host_admin_state_is_rejected(self, cleanup_ids):
         host_id = _mkhost(cleanup_ids)
         with _pool.connection() as conn:
-            conn.execute(
-                "UPDATE hosts SET administrative_state='paused' WHERE host_id=%s",
-                (host_id,),
-            )
-            conn.commit()
+            with pytest.raises(CheckViolation):
+                with conn.transaction():
+                    conn.execute(
+                        "UPDATE hosts SET administrative_state='paused' WHERE host_id=%s",
+                        (host_id,),
+                    )
             row = conn.execute(
                 "SELECT administrative_state FROM hosts WHERE host_id=%s",
                 (host_id,),

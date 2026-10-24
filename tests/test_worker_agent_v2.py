@@ -70,6 +70,49 @@ def _stop_cmd():
 
 
 class TestHardLeaseGate:
+    def test_serverless_grant_secret_reaches_container_but_not_recovery_journal(self, tmp_path):
+        command = _start_cmd()
+        command["args"]["spec"]["job_type"] = "serverless_worker"
+        command["spec_hash"] = worker_agent.compute_spec_hash(command["args"]["spec"])
+        journal = tmp_path / "attempts.json"
+        with (
+            mock.patch.object(
+                worker_agent,
+                "v2_claim_lease_fenced",
+                return_value={"renewal_ttl_sec": 300, "callback_token": "xsw_scoped-proof"},
+            ),
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(journal)),
+            mock.patch.object(worker_agent, "_v2_attempts", {}),
+            mock.patch.object(worker_agent, "v2_report_attempt_status", return_value="ok"),
+            mock.patch.object(worker_agent, "_v2_record_and_ack", return_value=True),
+            mock.patch.object(worker_agent.threading, "Thread"),
+            mock.patch.object(worker_agent, "run_job") as run,
+        ):
+            worker_agent.handle_start_attempt(command)
+        assert run.call_args.args[0]["_serverless_callback_token"] == "xsw_scoped-proof"
+        assert "xsw_scoped-proof" not in journal.read_text()
+
+    def test_serverless_start_refuses_a_grant_without_callback_credential(self, tmp_path):
+        command = _start_cmd()
+        command["args"]["spec"]["job_type"] = "serverless_worker"
+        command["spec_hash"] = worker_agent.compute_spec_hash(command["args"]["spec"])
+        with (
+            mock.patch.object(
+                worker_agent, "v2_claim_lease_fenced", return_value={"renewal_ttl_sec": 300}
+            ),
+            mock.patch.object(worker_agent, "v2_nack_command") as nack,
+            mock.patch.object(worker_agent, "_v2_attempts", {}),
+            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "attempts.json")),
+            mock.patch.object(
+                worker_agent, "v2_report_attempt_status", return_value="ok"
+            ) as report,
+            mock.patch.object(worker_agent, "run_job") as run,
+        ):
+            worker_agent.handle_start_attempt(command)
+        run.assert_not_called()
+        assert report.call_args.args[1:3] == ("failed", "callback_credential_missing")
+        nack.assert_called_once_with("cmd-1", "callback_credential_missing", retryable=False)
+
     def test_rejected_lease_aborts_start(self):
         """§11.2: lease claim 409 → NACK non-retryable, run_job NEVER called."""
         posts = []
@@ -201,7 +244,7 @@ class TestHardLeaseGate:
         assert nack.call_args.args[1] == "lease_authority_lost_before_start"
         assert nack.call_args.kwargs["retryable"] is False
 
-    def test_run_job_never_reenters_legacy_lease_path_for_v2(self):
+    def test_run_job_requires_confirmed_starting_before_setup(self):
         job = {
             "job_id": "job-1",
             "name": "job-1",
@@ -214,16 +257,16 @@ class TestHardLeaseGate:
             mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
-            mock.patch.object(worker_agent, "claim_lease") as legacy_claim,
             mock.patch.object(worker_agent, "_kill_container") as kill,
             mock.patch.object(worker_agent, "_remove_container"),
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=False) as report,
         ):
             worker_agent.run_job(job)
-        legacy_claim.assert_not_called()
         kill.assert_called_once_with("xcl-job-1-att-1")
-        report.assert_called_once_with("job-1", "starting", host_id=worker_agent.HOST_ID)
+        report.assert_called_once_with(
+            "job-1", "starting", host_id=worker_agent.HOST_ID, expected_v2_auth=mock.ANY
+        )
 
     def test_required_gvisor_missing_aborts_before_docker_start(self):
         job = {
@@ -426,6 +469,7 @@ class TestStatusMirror:
             "lease_id": "lease-1",
             "job_id": job_id,
             "attempt_id": "att-1",
+            "container_name": "xcl-job-1",
             "fencing_token": 7,
             "renewal_ttl_sec": 300,
             "stop": threading.Event(),
@@ -536,9 +580,12 @@ class TestStatusMirror:
         with (
             mock.patch.object(worker_agent.requests, "post", fake_post),
             mock.patch.object(worker_agent.requests, "patch") as legacy_patch,
+            mock.patch.object(worker_agent.threading, "Thread") as monitor,
         ):
             assert worker_agent.report_job_status("job-1", "failed") is False
         legacy_patch.assert_not_called()
+        monitor.assert_called_once()
+        assert monitor.call_args.kwargs["target"] is worker_agent._v2_monitor_container
         with worker_agent._v2_attempts_lock:
             assert "job-1" in worker_agent._v2_attempts
 

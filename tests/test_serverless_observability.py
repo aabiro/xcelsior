@@ -180,7 +180,9 @@ class TestServiceObservabilityIntegration:
         svc = ServerlessService(repo)
         owner = f"cust-{uuid.uuid4().hex[:8]}"
         ep = repo.create_endpoint(
-            EndpointCreate(owner_id=owner, name="obs", mode="custom", image_ref="img")
+            EndpointCreate(
+                gpu_tier="RTX 4090", owner_id=owner, name="obs", mode="custom", image_ref="img"
+            )
         )
         ep_id = str(ep["endpoint_id"])
         now = time.time()
@@ -221,7 +223,9 @@ class TestServiceObservabilityIntegration:
             patch.object(svc, "wallet_preflight"),
         ):
             ep = svc.create_endpoint(
-                EndpointCreate(owner_id=owner, name="sse", mode="custom", image_ref="img"),
+                EndpointCreate(
+                    gpu_tier="RTX 4090", owner_id=owner, name="sse", mode="custom", image_ref="img"
+                ),
                 emit_sse=True,
             )
         assert any(t == "serverless_endpoint.created" for t, _ in events)

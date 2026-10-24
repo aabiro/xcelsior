@@ -9,6 +9,50 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 
+def bound_billing_inputs(spec, spec_hash, attempt_hash, quote, host_id):
+    """Recover only native admission and the quote captured with its attempt."""
+    from control_plane.job_specs import validate_execution_spec
+    from billing import resolve_job_pricing_mode
+
+    spec = dict(validate_execution_spec(spec, spec_hash, require_admission=True))
+    if not attempt_hash or attempt_hash != spec_hash or not isinstance(quote, dict):
+        raise ValueError("billing admission/attempt quote is missing or mismatched")
+    owner = spec.get("owner_id") or spec.get("owner")
+    mode = resolve_job_pricing_mode(spec)
+    count = spec.get("num_gpus", 1)
+    if (
+        not owner
+        or quote.get("owner") != owner
+        or quote.get("pricing_mode") != mode
+        or type(count) is not int
+        or count < 1
+        or quote.get("num_gpus") != count
+    ):
+        raise ValueError("billing quote does not match admitted identity or resources")
+    host = quote.get("host")
+    if not isinstance(host, dict) or host.get("host_id") != host_id:
+        raise ValueError("billing quote does not match the attempt host")
+    rate = quote.get("spot_rate_cad") if mode == "spot" else host.get("cost_per_hour")
+    if rate is None or isinstance(rate, bool) or not math.isfinite(float(rate)) or float(rate) < 0:
+        raise ValueError("billing quote has no explicit valid price")
+    if mode == "spot" and quote.get("spot_rate_cad") != spec.get("spot_rate_cad"):
+        raise ValueError("spot quote differs from admitted locked price")
+    ceiling = spec.get("max_price_per_hour")
+    if (
+        ceiling is not None
+        and float(ceiling) > 0
+        and float(rate) * (count if mode == "spot" else 1) > float(ceiling)
+    ):
+        raise ValueError("billing quote exceeds admitted price ceiling")
+    return {
+        **spec,
+        "owner": owner,
+        "pricing_mode": mode,
+        "num_gpus": count,
+        "spot_rate_cad": quote.get("spot_rate_cad"),
+    }, dict(host)
+
+
 def capture_billing_snapshot(payload: dict, owner_id: str | None, host: dict) -> dict | None:
     """Freeze the server-selected owner and explicit rate under reservation locks."""
     from billing import resolve_job_pricing_mode
@@ -66,7 +110,8 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
 
     with conn.cursor(row_factory=dict_row) as cur:
         attempt = cur.execute(
-            """SELECT a.job_id,a.host_id,a.status,a.placement_explanation,j.payload,
+            """SELECT a.job_id,a.host_id,a.status,a.placement_explanation,
+                      j.spec AS payload,j.spec_hash AS job_spec_hash,a.spec_hash AS attempt_hash,
                       EXTRACT(EPOCH FROM a.started_at)::float8 AS started,
                       EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended
                  FROM job_attempts a JOIN jobs j ON j.job_id=a.job_id
@@ -108,8 +153,18 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
         quote = (attempt["placement_explanation"] or {}).get("billing_snapshot")
         meter_id = str(existing["meter_id"]) if existing else None
         if meter_id is None and isinstance(quote, dict):
+            try:
+                inputs, frozen_host = bound_billing_inputs(
+                    attempt["payload"],
+                    attempt["job_spec_hash"],
+                    attempt["attempt_hash"],
+                    quote,
+                    attempt["host_id"],
+                )
+            except (ValueError, TypeError, OverflowError):
+                return
             job = {
-                **(attempt["payload"] or {}),
+                **inputs,
                 "job_id": attempt["job_id"],
                 "attempt_id": attempt_id,
                 "host_id": attempt["host_id"],
@@ -119,9 +174,7 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
                 "num_gpus": quote["num_gpus"],
                 "spot_rate_cad": quote["spot_rate_cad"],
             }
-            meter = get_billing_engine().meter_job(
-                job, {**quote["host"], "host_id": attempt["host_id"]}, conn=conn, active=True
-            )
+            meter = get_billing_engine().meter_job(job, frozen_host, conn=conn, active=True)
             meter_id = meter.meter_id
         if meter_id and attempt["ended"] is not None:
             if settle_attempt_meter(conn, attempt_id, meter_id) is None:
@@ -129,25 +182,62 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
 
 
 def pinned_period_rate(
-    conn, job_id: str, owner: str, host_id: str
-) -> tuple[float, str, float] | None:
-    """Wallet billing uses the same captured quote as the attempt meter."""
+    conn, job_id: str, owner: str, host_id: str, *, terminal_attempt_id=None
+) -> tuple[float, str, float, float]:
+    """Qualify the exact native attempt and bound billing to its server times."""
     from billing import resolve_compute_rate_cad
 
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
-            "SELECT j.active_attempt_id,a.host_id,a.placement_explanation,a.status,"
-            "EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at "
-            "FROM jobs j LEFT JOIN job_attempts a ON a.attempt_id=j.active_attempt_id "
-            "WHERE j.job_id=%s",
-            (job_id,),
+            """SELECT j.active_attempt_id,j.spec,j.spec_hash,j.generation,
+                a.attempt_id,a.spec_hash AS attempt_hash,a.job_generation,a.host_id,
+                a.placement_explanation,a.status,
+                EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
+                EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended_at,
+                EXTRACT(EPOCH FROM l.expires_at)::float8 AS lease_end,
+                l.status AS lease_status,l.fencing_token AS lease_fence,a.fencing_token,
+                EXTRACT(EPOCH FROM clock_timestamp())::float8 AS checked_at
+              FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
+                  AND a.attempt_id=COALESCE(%s::uuid,j.active_attempt_id)
+              LEFT JOIN placement_leases l ON l.attempt_id=a.attempt_id
+                  AND l.job_id=a.job_id AND l.host_id=a.host_id
+             WHERE j.job_id=%s""",
+            (terminal_attempt_id, job_id),
         ).fetchone()
-    if row is None or row["active_attempt_id"] is None:
-        return None
+    if row is None:
+        raise ValueError("wallet billing requires its exact native attempt")
     quote = (row["placement_explanation"] or {}).get("billing_snapshot")
-    if not isinstance(quote, dict) or quote.get("owner") != owner or row["host_id"] != host_id:
-        raise ValueError("fenced wallet billing requires its captured owner, host and rate")
-    if row["status"] != "running" or row["started_at"] is None:
-        raise ValueError("fenced wallet billing requires a running attempt with a server start")
-    rate, mode = resolve_compute_rate_cad(quote, quote["host"])
-    return rate, mode, float(row["started_at"])
+    inputs, host = bound_billing_inputs(
+        row["spec"], row["spec_hash"], row["attempt_hash"], quote, row["host_id"]
+    )
+    if (
+        inputs["owner"] != owner
+        or row["host_id"] != host_id
+        or inputs.get("job_type") == "serverless_worker"
+    ):
+        raise ValueError("wallet billing identity differs from native compute execution")
+    started = row["started_at"]
+    if started is None or started <= 0 or started > row["checked_at"]:
+        raise ValueError("wallet billing requires its server-recorded start")
+    if terminal_attempt_id is not None:
+        if (
+            row["ended_at"] is None
+            or row["status"]
+            not in ("succeeded", "failed", "cancelled", "lost", "fenced", "preempted")
+            or not started <= row["ended_at"] <= row["checked_at"]
+        ):
+            raise ValueError("final billing requires confirmed native terminal evidence")
+        end_cap = row["ended_at"]
+    else:
+        if (
+            row["active_attempt_id"] != row["attempt_id"]
+            or row["generation"] != row["job_generation"]
+            or row["status"] != "running"
+            or row["lease_status"] != "active"
+            or row["lease_fence"] != row["fencing_token"]
+            or row["lease_end"] is None
+        ):
+            raise ValueError("periodic billing requires its current claimed native lease")
+        end_cap = min(row["checked_at"], row["lease_end"])
+    rate, mode = resolve_compute_rate_cad(inputs, host)
+    return rate, mode, float(started), float(end_cap)

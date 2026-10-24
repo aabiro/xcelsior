@@ -51,7 +51,7 @@ print(value, end='')
 PY
         )"
     fi
-    PGPORT="${PGPORT:-5432}"
+    [[ -n "$PGPORT" ]] || die "an explicit PostgreSQL port is required; default cluster refused"
 fi
 [[ "$PGPORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$PGPORT > 0 && 10#$PGPORT <= 65535 )) ||
     die "invalid PostgreSQL port"

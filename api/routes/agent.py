@@ -24,15 +24,13 @@ from scheduler import (
     register_compute_score,
     update_job_status,
 )
-from events import Event, get_event_store, get_state_machine
+from events import Event
 from control_plane.legacy_execution import (
-    LegacyExecutionRejected,
     eligible_work_ids,
     legacy_execution_allowed,
     legacy_request,
     record_use,
     require_legacy_route_enabled,
-    require_legacy_container_command,
 )
 from security import check_node_versions, recommend_runtime
 from db import _get_pg_pool
@@ -471,39 +469,34 @@ def api_agent_work(host_id: str, request: Request):
 
 @router.get("/agent/preempt/{host_id}", tags=["Agent"])
 def api_agent_preempt(host_id: str, request: Request):
-    """Check if any jobs on this host should be preempted."""
+    """Permanent tombstone for the removed process-memory preemption queue."""
     _require_agent_auth(request, host_id=host_id)
-    require_legacy_route_enabled()
-    from agent_preempt import pop_host_preemptions
-
-    preempt_list = pop_host_preemptions(host_id)
-    checkpoint_mode = ""
-    try:
-        hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
-        host = hosts.get(host_id) or {}
-        checkpoint_mode = str(host.get("checkpoint_class") or "")
-    except Exception:
-        pass
-    return {
-        "ok": True,
-        "preempt_jobs": preempt_list,
-        "checkpoint_mode": checkpoint_mode,
-        "checkpoint_resumable": bool(checkpoint_mode),
-    }
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use durable fenced worker commands",
+            }
+        },
+    )
 
 
 @router.post("/agent/preempt/{host_id}/{job_id}", tags=["Agent"])
 def api_schedule_preemption(host_id: str, job_id: str, request: Request):
-    """Schedule a job for preemption on a host. Admin-only."""
+    """Permanent tombstone for the removed process-memory preemption queue."""
     user = _require_user_grant(request, allow_api_key=True)
     if not user.get("is_admin"):
         raise HTTPException(403, "Admin role required")
-    require_legacy_route_enabled()
-    from agent_preempt import schedule_host_preemptions
-
-    schedule_host_preemptions(host_id, [job_id])
-    broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
-    return {"ok": True, "host_id": host_id, "job_id": job_id}
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use durable fenced worker commands",
+            }
+        },
+    )
 
 
 # ── Agent command queue (admin control plane → worker) ────────────────
@@ -545,9 +538,6 @@ _AGENT_COMMAND_ALLOWED = {
     "upgrade_agent",
     "rollback_agent",  # P1.2 — auto-rollback driver
     "stop_container",  # P3.2 — billing/admin-initiated container kill (+ rm)
-    "pause_container",  # internal: state-preserving stop primitive used by /stop
-    "start_container",  # P3.2 — (re)start a stopped container
-    "reset_container",  # P2 — restart with fresh /workspace, preserve volumes
     "snapshot_container",  # P3.1 — docker commit → user_images
     "mount_volume",  # hot-attach managed NFS volume into running container
     "unmount_volume",
@@ -678,15 +668,6 @@ def enqueue_agent_command(
     """
     if command not in _AGENT_COMMAND_ALLOWED:
         raise HTTPException(400, f"Unknown agent command: {command}")
-    command_args = args or {}
-    lifecycle_path = {"start_container": "command_start", "pause_container": "command_pause"}.get(
-        command
-    )
-    if lifecycle_path:
-        record_use(lifecycle_path, "requested")
-        if not command_args.get("job_id") or not command_args.get("container_name"):
-            record_use(lifecycle_path, "blocked")
-            raise HTTPException(400, "Legacy lifecycle commands require job and container identity")
     import json as _json
 
     # P3/C4 — args size cap. Serialised JSON > 16 KB almost certainly
@@ -703,18 +684,6 @@ def enqueue_agent_command(
 
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
-        if lifecycle_path:
-            try:
-                require_legacy_container_command(
-                    conn,
-                    job_id=str(command_args["job_id"]),
-                    host_id=host_id,
-                    container_name=str(command_args["container_name"]),
-                    starting=command == "start_container",
-                )
-            except LegacyExecutionRejected as exc:
-                record_use(lifecycle_path, "blocked")
-                raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
         # P3/C5 — per-host queue cap. Prevents a buggy caller or
         # compromised admin token from flooding a single host with more
         # pending commands than it can reasonably drain (default 50/drain,
@@ -746,8 +715,6 @@ def enqueue_agent_command(
             (host_id, command, args_json, created_by, int(ttl_sec)),
         )
         row = cur.fetchone()
-    if lifecycle_path:
-        record_use(lifecycle_path, "used")  # Authorized queue insertion, not Docker completion.
     return int(row[0])
 
 
@@ -938,136 +905,47 @@ class LeaseReleaseRequest(BaseModel):
 
 @router.post("/agent/lease/claim", tags=["Agent"])
 def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
-    """Agent claims a lease for an assigned job.
-
-    This transitions the job from ASSIGNED → LEASED and starts
-    the lease clock. The agent must renew before expiry.
-    """
+    """Permanent tombstone for the retired v1 lease protocol."""
     _require_agent_auth(request, host_id=req.host_id)
-    record_use("lease_claim", "requested")
-    require_legacy_route_enabled()
-    store = get_event_store()
-    sm = get_state_machine()
-
-    # Validate the job is in a claimable state.
-    # Normal flow: job must be "assigned".
-    # Restart-recovery: allow re-claiming if job is already leased/starting/running
-    # on this same host (worker restart without server-side requeue).
-    _RECLAIM_STATUSES = {"leased", "starting", "running"}
-    jobs = list_jobs()
-    job = next((j for j in jobs if j.get("job_id") == req.job_id), None)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {req.job_id} not found")
-
-    current_status = job.get("status", "queued")
-    is_reclaim = current_status in _RECLAIM_STATUSES
-
-    if current_status != "assigned" and not is_reclaim:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Job {req.job_id} is '{current_status}', expected 'assigned'",
-        )
-
-    # Verify the requesting host is the one assigned to this job
-    assigned_host = job.get("host_id", "")
-    if assigned_host and assigned_host != req.host_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Host {req.host_id} is not assigned to job {req.job_id}",
-        )
-
-    # Grant lease (or re-grant after worker restart)
-    try:
-        lease = store.grant_lease(req.job_id, req.host_id)
-    except LegacyExecutionRejected as exc:
-        record_use("lease_claim", "blocked")
-        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
-    record_use("lease_claim", "used")
-
-    if not is_reclaim:
-        # Normal first-claim: transition assigned → leased
-        try:
-            sm.transition(
-                req.job_id,
-                "assigned",
-                "leased",
-                actor=f"agent:{req.host_id}",
-                data={"lease_id": lease.lease_id},
-            )
-        except ValueError:
-            pass  # Event already recorded by grant_lease
-
-        # Update scheduler's job status to leased (lifecycle log emitted by update_job_status)
-        update_job_status(req.job_id, "leased", host_id=req.host_id)
-    else:
-        # Restart-recovery reclaim: job already past "leased", don't regress its status.
-        # Just refresh the lease clock so the scheduler doesn't requeue a live container.
-        log.info(
-            "LEASE RECLAIM job=%s host=%s (status was '%s') — refreshing lease without status change",
-            req.job_id,
-            req.host_id,
-            current_status,
-        )
-
-    broadcast_sse(
-        "lease_granted",
+    raise HTTPException(
+        410,
         {
-            "job_id": req.job_id,
-            "host_id": req.host_id,
-            "lease_id": lease.lease_id,
-            "expires_at": lease.expires_at,
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use fenced /agent/v2 lease operations",
+            }
         },
     )
-
-    return {
-        "ok": True,
-        "lease_id": lease.lease_id,
-        "expires_at": lease.expires_at,
-        "duration_sec": lease.duration_sec,
-    }
 
 
 @router.post("/agent/lease/renew", tags=["Agent"])
 def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
-    """Agent renews its lease on a job. Must be called before expiry."""
+    """Permanent tombstone for the retired v1 lease protocol."""
     _require_agent_auth(request, host_id=req.host_id)
-    record_use("lease_renew", "requested")
-    require_legacy_route_enabled()
-    store = get_event_store()
-    try:
-        lease = store.renew_lease(req.job_id, req.host_id)
-    except LegacyExecutionRejected as exc:
-        record_use("lease_renew", "blocked")
-        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
-    if not lease:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No active lease for job {req.job_id} on host {req.host_id}",
-        )
-    record_use("lease_renew", "used")
-    return {
-        "ok": True,
-        "lease_id": lease.lease_id,
-        "expires_at": lease.expires_at,
-    }
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use fenced /agent/v2 lease operations",
+            }
+        },
+    )
 
 
 @router.post("/agent/lease/release", tags=["Agent"])
 def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
-    """Agent releases its lease (job completed/failed/preempted)."""
+    """Permanent tombstone for the retired v1 lease protocol."""
     _require_agent_auth(request)
-    record_use("lease_release", "requested")
-    require_legacy_route_enabled()
-    store = get_event_store()
-    try:
-        released = store.release_lease(req.job_id)
-    except LegacyExecutionRejected as exc:
-        record_use("lease_release", "blocked")
-        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
-    if not released:
-        return {"ok": True, "released": False, "detail": "No active lease"}
-    record_use("lease_release", "used")
-    return {"ok": True, "released": True}
+    raise HTTPException(
+        410,
+        {
+            "error": {
+                "code": "v2_protocol_required",
+                "message": "Use fenced /agent/v2 lease operations",
+            }
+        },
+    )
 
 
 @router.get("/agent/popular-images", tags=["Agent"])

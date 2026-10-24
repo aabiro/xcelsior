@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from tests.native_jobs import admit_fixture_job
 
 try:
     from db import _get_pg_pool
@@ -74,16 +75,24 @@ def _mk_stopped_job(cleanup, *, owner: str, host_id: str) -> str:
     }
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, now, json.dumps({"host_id": host_id})),
         )
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, 'stopped', 0, %s, %s, %s)""",
+                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'stopped', 0, %s, %s, %s, 'stopped', 'stopped', 0, NULL)""",
             (job_id, now - 1000, host_id, json.dumps(payload)),
+        )
+        admit_fixture_job(conn, job_id)
+        conn.execute(
+            """INSERT INTO job_attempts(attempt_id,job_id,attempt_number,status,host_id,
+                      fencing_token,spec_hash,ended_at)
+               SELECT %s,job_id,1,'cancelled',host_id,nextval('placement_fencing_token_seq'),
+                      spec_hash,clock_timestamp() FROM jobs WHERE job_id=%s""",
+            (str(uuid.uuid4()), job_id),
         )
         conn.commit()
     cleanup["jobs"].append(job_id)
@@ -182,11 +191,8 @@ def test_start_gate_passes_when_available_positive(cleanup, monkeypatch):
     )
 
     result = eng.start_instance(job_id)
-    # May be started True (legacy path enqueued) or fail for other reasons,
-    # but must not be insufficient_balance when available > 0.
-    assert result.get("reason") != "insufficient_balance"
-    if result.get("started"):
-        assert result.get("status") in ("running", "queued", "restarting")
+    assert result.get("started") is True, result
+    assert result["status"] == "queued" and result["fresh_attempt"] is True
 
 
 # ── Expiry ─────────────────────────────────────────────────────────────

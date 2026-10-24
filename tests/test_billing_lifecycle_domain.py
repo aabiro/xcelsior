@@ -1,11 +1,9 @@
-"""Billing lifecycle dual-writer cutover — attempt-owned vs legacy paths.
-
-Drives shipped BillingEngine stop/terminate against real Postgres:
-- attempt-owned: fenced lifecycle only (atomic stop/remove command + projection)
-- legacy: guarded update_job_status (no sole raw unconstrained SQL machine)
-"""
+"""Native billing lifecycle, refusal of unqualified work and fenced settlement."""
 
 from __future__ import annotations
+
+from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
 
 import inspect
 import json
@@ -49,8 +47,8 @@ def cleanup():
 def _mk_host(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
@@ -84,11 +82,23 @@ def _mk_job(cleanup, *, owner, host_id, status="running"):
         "status": status,
     }
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, %s, 0, %s, %s, %s)""",
-            (job_id, status, time.time(), host_id, json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                fixture_submitted_at,
+                host_id,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                status,
+                fixture_submitted_at,
+            ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id
@@ -127,7 +137,7 @@ def _job_row(job_id):
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, active_attempt_id,
-                      payload->>'lifecycle_intent' AS intent,
+                      lifecycle_intent AS intent,
                       payload->>'status' AS pstatus
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -234,117 +244,58 @@ def _outbox_legacy_status_count(job_id: str) -> int:
     return int(row[0] if not isinstance(row, dict) else row["count"])
 
 
-class TestLegacyBillingLifecycle:
-    def test_legacy_stop_projects_stopped_via_guarded_path(self, cleanup, monkeypatch):
-        from billing import BillingEngine
-        import routes.agent as agent_mod
+@pytest.mark.parametrize(
+    "method,status,flag",
+    [
+        ("stop_instance", "running", "stopped"),
+        ("start_instance", "stopped", "started"),
+        ("restart_instance", "running", "restarted"),
+        ("terminate_instance", "running", "terminated"),
+    ],
+)
+@pytest.mark.parametrize("admitted", [False, True])
+def test_unfenced_running_work_cannot_use_billing_lifecycle(
+    cleanup, monkeypatch, method, status, flag, admitted
+):
+    from billing import BillingEngine
+    import routes.agent as agent_mod
 
-        owner = f"bill-leg-{uuid.uuid4().hex[:6]}@test"
-        host_id = f"h-bill-leg-{uuid.uuid4().hex[:6]}"
-        _mk_wallet(cleanup, owner)
-        _mk_host(cleanup, host_id)
-        job_id = _mk_job(cleanup, owner=owner, host_id=host_id)
-
-        enqueued = []
-
-        def _fake_enqueue(hid, command, args, *, created_by, expires_in=900):
-            enqueued.append((hid, command, args, created_by))
-            return "cmd-1"
-
-        monkeypatch.setattr(agent_mod, "enqueue_agent_command", _fake_enqueue)
-
-        before_obx = _outbox_legacy_status_count(job_id)
-        result = BillingEngine().stop_instance(job_id, "user_stopped")
-        assert result.get("stopped") is True
-        assert result.get("status") == "stopped"
-        assert _job_row(job_id)["status"] == "stopped"
-        assert enqueued and enqueued[0][1] == "pause_container"
-        # Guarding path writes durable outbox intents (not bare SQL-only).
-        assert _outbox_legacy_status_count(job_id) > before_obx
-
-    def test_legacy_terminate_projects_terminated(self, cleanup, monkeypatch):
-        from billing import BillingEngine
-        import routes.agent as agent_mod
-
-        owner = f"bill-leg-t-{uuid.uuid4().hex[:6]}@test"
-        host_id = f"h-bill-leg-t-{uuid.uuid4().hex[:6]}"
-        _mk_wallet(cleanup, owner)
-        _mk_host(cleanup, host_id)
-        job_id = _mk_job(cleanup, owner=owner, host_id=host_id)
-
-        monkeypatch.setattr(
-            agent_mod,
-            "enqueue_agent_command",
-            lambda *a, **k: "cmd-1",
+    owner = f"unfenced-{uuid.uuid4().hex[:6]}@test"
+    host = f"unfenced-{uuid.uuid4().hex[:6]}"
+    _mk_wallet(cleanup, owner)
+    _mk_host(cleanup, host)
+    jid = _mk_job(cleanup, owner=owner, host_id=host, status=status)
+    if not admitted:
+        with _pool.connection() as conn:
+            conn.execute("UPDATE jobs SET spec=NULL,spec_hash=NULL WHERE job_id=%s", (jid,))
+    calls = []
+    monkeypatch.setattr(agent_mod, "enqueue_agent_command", lambda *a, **k: calls.append((a, k)))
+    result = getattr(BillingEngine(), method)(jid)
+    assert result[flag] is False, result
+    assert result["reason"] == (
+        "native_attempt_required" if admitted else "native_admission_required"
+    )
+    assert _job_row(jid)["status"] == status
+    assert calls == []
+    with _pool.connection() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM billing_cycles WHERE job_id=%s", (jid,)).fetchone()[
+                0
+            ]
+            == 0
         )
-        before_obx = _outbox_legacy_status_count(job_id)
-        result = BillingEngine().terminate_instance(job_id)
-        assert result.get("terminated") is True
-        assert _job_row(job_id)["status"] == "terminated"
-        assert _outbox_legacy_status_count(job_id) > before_obx
-
-    def test_legacy_start_projects_running_via_guarded_path(self, cleanup, monkeypatch):
-        """Non-attempt-owned start uses update_job_status (CAS + outbox)."""
-        from billing import BillingEngine
-        import routes.agent as agent_mod
-
-        owner = f"bill-start-{uuid.uuid4().hex[:6]}@test"
-        host_id = f"h-bill-start-{uuid.uuid4().hex[:6]}"
-        _mk_wallet(cleanup, owner)
-        _mk_host(cleanup, host_id)
-        job_id = _mk_job(cleanup, owner=owner, host_id=host_id, status="stopped")
-
-        enqueued = []
-
-        def _fake_enqueue(hid, command, args, *, created_by, expires_in=900):
-            enqueued.append((hid, command, created_by))
-            return "cmd-start"
-
-        monkeypatch.setattr(agent_mod, "enqueue_agent_command", _fake_enqueue)
-
-        before_obx = _outbox_legacy_status_count(job_id)
-        result = BillingEngine().start_instance(job_id)
-        assert result.get("started") is True
-        assert result.get("status") == "running"
-        assert _job_row(job_id)["status"] == "running"
-        assert enqueued and enqueued[0][1] == "start_container"
-        assert enqueued[0][2] == "billing_start"
-        # At least restarting + running transitions should append outbox rows.
-        after_obx = _outbox_legacy_status_count(job_id)
         assert (
-            after_obx >= before_obx + 2
-        ), f"expected durable outbox for start path, before={before_obx} after={after_obx}"
-
-    def test_legacy_restart_projects_running_via_guarded_path(self, cleanup, monkeypatch):
-        """Non-attempt-owned restart uses update_job_status (CAS + outbox)."""
-        from billing import BillingEngine
-        import routes.agent as agent_mod
-
-        owner = f"bill-rst-{uuid.uuid4().hex[:6]}@test"
-        host_id = f"h-bill-rst-{uuid.uuid4().hex[:6]}"
-        _mk_wallet(cleanup, owner)
-        _mk_host(cleanup, host_id)
-        job_id = _mk_job(cleanup, owner=owner, host_id=host_id, status="running")
-
-        enqueued = []
-
-        def _fake_enqueue(hid, command, args, *, created_by, expires_in=900):
-            enqueued.append((command, created_by))
-            return "cmd-rst"
-
-        monkeypatch.setattr(agent_mod, "enqueue_agent_command", _fake_enqueue)
-
-        before_obx = _outbox_legacy_status_count(job_id)
-        result = BillingEngine().restart_instance(job_id)
-        assert result.get("restarted") is True
-        assert result.get("status") == "running"
-        assert _job_row(job_id)["status"] == "running"
-        cmds = [c[0] for c in enqueued]
-        assert "pause_container" in cmds and "start_container" in cmds
-        after_obx = _outbox_legacy_status_count(job_id)
+            conn.execute("SELECT count(*) FROM agent_commands WHERE job_id=%s", (jid,)).fetchone()[
+                0
+            ]
+            == 0
+        )
         assert (
-            after_obx >= before_obx + 2
-        ), f"expected durable outbox for restart path, before={before_obx} after={after_obx}"
+            conn.execute(
+                "SELECT count(*) FROM outbox_events WHERE aggregate_id=%s", (jid,)
+            ).fetchone()[0]
+            == 0
+        )
 
 
 class TestBillingStopSourceContract:
@@ -356,13 +307,13 @@ class TestBillingStopSourceContract:
         # No pre-mark dual-write before fenced path for attempt-owned.
         assert "enqueue_current_attempt_command" not in src or "request_fenced_stop" in src
 
-    def test_legacy_start_restart_use_guarded_status_not_bare_sql(self):
+    def test_start_restart_have_no_unfenced_status_writer(self):
         import billing as billing_mod
 
         start_src = inspect.getsource(billing_mod.BillingEngine.start_instance)
         restart_src = inspect.getsource(billing_mod.BillingEngine.restart_instance)
-        assert "update_job_status" in start_src
-        assert "update_job_status" in restart_src
+        assert "update_job_status" not in start_src
+        assert "update_job_status" not in restart_src
         # Bare dual-writer pattern must not remain on legacy arms.
         assert "UPDATE jobs SET status = 'restarting'" not in start_src
         assert "UPDATE jobs SET status = 'restarting'" not in restart_src

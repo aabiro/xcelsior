@@ -16,6 +16,7 @@ import json as _json
 import os
 import tempfile
 import time
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -61,7 +62,6 @@ def _reset_state():
         conn.execute("DELETE FROM state")
         conn.execute("DELETE FROM billing_cycles")
         conn.execute("DELETE FROM job_logs")
-        conn.execute("DELETE FROM leases")
     for f in (
         scheduler.HOSTS_FILE,
         scheduler.JOBS_FILE,
@@ -135,6 +135,50 @@ def _set_status(job_id, status, host_id=None):
     return client.patch(f"/instance/{job_id}", json=body, headers=_worker_auth_headers())
 
 
+def _start_native_attempt(job_id, host_id):
+    """Exercise real reservation, lease claim and settlement; no Docker is implied."""
+    from db import _get_pg_pool
+    from control_plane.db import run_transaction
+    from control_plane.scheduler.claim import claim_next_job
+    from control_plane.scheduler.reservation import reserve_and_bind
+    from control_plane.leases import claim_lease
+    from control_plane.attempts import report_attempt_status
+
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            """INSERT INTO host_gpu_devices(host_id,gpu_uuid,device_index,model,
+                      total_vram_mb,allocatable_vram_mb,health)
+               VALUES(%s,%s,0,'RTX 4090',24576,24576,'healthy')
+               ON CONFLICT(host_id,gpu_uuid) DO NOTHING""",
+            (host_id, f"GPU-{host_id}"),
+        )
+    replica = f"instance-flow-{uuid.uuid4().hex[:8]}"
+
+    def place(conn):
+        claim = claim_next_job(conn, replica_id=replica)
+        assert claim and claim.job_id == job_id
+        return reserve_and_bind(
+            conn,
+            job_id=job_id,
+            claim_token=claim.claim_token,
+            replica_id=replica,
+            host_id=host_id,
+            requested_vram_mb=8192,
+        )
+
+    reserved = run_transaction(place)
+    authority = {
+        key: getattr(reserved, key) for key in ("job_id", "attempt_id", "host_id", "fencing_token")
+    }
+    run_transaction(
+        lambda conn: claim_lease(
+            conn, **authority, lease_id=reserved.lease_id, worker_session_id=replica
+        )
+    )
+    run_transaction(lambda conn: report_attempt_status(conn, **authority, status="running"))
+    return authority
+
+
 def _get_instance(job_id):
     """Fetch a single instance."""
     resp = client.get(f"/instance/{job_id}")
@@ -152,8 +196,41 @@ def _get_instance(job_id):
 class TestHappyPathLifecycle:
     """Full happy-path: host→submit→assign→lease→run→log→bill→cancel."""
 
-    def test_full_lifecycle_register_through_cancel(self):
-        """Register host, submit job, walk through every status, bill, cancel."""
+    def test_host_pinned_launch_waits_for_transactional_placement(self, monkeypatch):
+        _reset_state()
+        _register_host("pin-launch-host", vram=24)
+        _admit_host("pin-launch-host")
+        monkeypatch.setattr("security.probe_image_exists", lambda image: None)
+        response = client.post(
+            "/instance",
+            json={
+                "name": "pinned-launch",
+                "host_id": "pin-launch-host",
+                "image": "nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+                "vram_needed_gb": 8,
+            },
+        )
+        assert response.status_code == 200, response.text
+        job = response.json()["instance"]
+        assert job["status"] == "queued"
+        assert job.get("host_id") is None
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT active_attempt_id,payload->>'preferred_host_id' FROM jobs WHERE job_id=%s",
+                (job["job_id"],),
+            ).fetchone()
+            assert row == (None, "pin-launch-host")
+            assert (
+                conn.execute(
+                    "SELECT count(*) FROM agent_commands WHERE job_id=%s", (job["job_id"],)
+                ).fetchone()[0]
+                == 0
+            )
+
+    def test_register_assign_logs_and_billing(self):
+        """Register, queue, project status, stream logs, and bill without a v1 lease."""
         _reset_state()
 
         # 1. Register & admit host
@@ -176,24 +253,12 @@ class TestHappyPathLifecycle:
             inst = _get_instance(job_id)
             assert inst["status"] == "assigned"
 
-        # 4. Claim lease (assigned → leased)
-        if inst["status"] == "assigned":
-            lease_resp = client.post(
-                "/agent/lease/claim",
-                json={
-                    "host_id": "hp-host-1",
-                    "job_id": job_id,
-                },
-            )
-            assert lease_resp.status_code == 200
-            lease = lease_resp.json()
-            assert lease.get("ok") is True
-            assert "lease_id" in lease
-            assert "expires_at" in lease
-
-            # Verify job is now leased
-            inst = _get_instance(job_id)
-            assert inst["status"] == "leased"
+        # The old lease protocol is permanently retired, even outside active mode.
+        lease_resp = client.post(
+            "/agent/lease/claim", json={"host_id": "hp-host-1", "job_id": job_id}
+        )
+        assert lease_resp.status_code == 410
+        assert _get_instance(job_id)["status"] == "assigned"
 
         # 5. Transition to running
         _set_status(job_id, "running", host_id="hp-host-1")
@@ -235,8 +300,8 @@ class TestHappyPathLifecycle:
         assert bill["cost"] > 0
         assert bill["duration_sec"] > 0
 
-    def test_lifecycle_with_cancel_while_running(self):
-        """Submit → run → cancel mid-execution."""
+    def test_cancel_refuses_running_job_without_fenced_authority(self):
+        """An old running row cannot authorize a destructive cancellation."""
         _reset_state()
         _register_host("cancel-h", vram=24)
         _admit_host("cancel-h")
@@ -253,10 +318,10 @@ class TestHappyPathLifecycle:
 
         # Cancel
         cancel_resp = client.post(f"/instances/{job_id}/cancel")
-        assert cancel_resp.status_code == 200
+        assert cancel_resp.status_code == 409
 
         inst = _get_instance(job_id)
-        assert inst["status"] in ("cancelled", "completed", "failed")
+        assert inst["status"] == "running"
 
     def test_lifecycle_queued_cancel(self):
         """Cancel while still queued — should succeed immediately."""
@@ -351,113 +416,6 @@ class TestHappyPathLifecycle:
 # ══════════════════════════════════════════════════════════════════════
 # 8.2 — Failure scenarios
 # ══════════════════════════════════════════════════════════════════════
-
-
-class TestWorkerDeathLeaseExpiry:
-    """Worker death → lease expiry → requeue."""
-
-    def test_lease_grant_and_expiry(self):
-        """Grant a short lease, expire it, verify job is requeued."""
-        _reset_state()
-        _register_host("ld-h1", vram=24)
-        _admit_host("ld-h1")
-
-        _, inst = _submit_job("lease-test", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-            inst = _get_instance(job_id)
-
-        assert inst["status"] in ("assigned", "running")
-
-        # Claim lease with very short duration
-        from events import get_event_store
-
-        es = get_event_store()
-        lease = es.grant_lease(job_id, "ld-h1", duration_sec=1)
-        _set_status(job_id, "leased", host_id="ld-h1")
-
-        # Verify lease is active
-        active = es.get_active_lease(job_id)
-        assert active is not None
-        assert active.lease_id == lease.lease_id
-
-        # Wait for it to expire (1s duration + 60s grace in prod — but we
-        # can manually expire by backdating)
-        from db import _get_pg_pool
-
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.execute(
-                "UPDATE leases SET expires_at = %s WHERE lease_id = %s",
-                (time.time() - 120, lease.lease_id),
-            )
-            conn.commit()
-
-        expired = es.expire_stale_leases()
-        assert job_id in expired
-
-        # Requeue the expired job
-        result = scheduler.requeue_job(job_id)
-        assert result is not None
-        assert result["status"] == "queued"
-
-        # Verify it can be re-assigned
-        client.post("/queue/process")
-        inst = _get_instance(job_id)
-        assert inst["status"] in ("queued", "assigned", "running")
-
-    def test_lease_renew(self):
-        """Renewing a lease extends its expiry."""
-        _reset_state()
-        _register_host("lr-h1", vram=24)
-        _admit_host("lr-h1")
-
-        _, inst = _submit_job("renew-test", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        # Claim lease
-        from events import get_event_store
-
-        es = get_event_store()
-        lease = es.grant_lease(job_id, "lr-h1", duration_sec=300)
-        original_expiry = lease.expires_at
-
-        # Renew
-        renewed = es.renew_lease(job_id, "lr-h1")
-        assert renewed is not None
-        assert renewed.expires_at > original_expiry
-
-    def test_lease_release_on_completion(self):
-        """Completing a job releases its lease."""
-        _reset_state()
-        _register_host("lc-h1", vram=24)
-        _admit_host("lc-h1")
-
-        _, inst = _submit_job("complete-lease", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        from events import get_event_store
-
-        es = get_event_store()
-        es.grant_lease(job_id, "lc-h1", duration_sec=300)
-
-        # Complete the job
-        _set_status(job_id, "running", host_id="lc-h1")
-        _set_status(job_id, "completed", host_id="lc-h1")
-
-        # Lease should be released
-        released = es.release_lease(job_id)
-        # release_lease returns True if found and released, False if already gone
-        active = es.get_active_lease(job_id)
-        assert active is None
 
 
 class TestHostOfflineFailover:
@@ -574,8 +532,9 @@ class TestHostOfflineFailover:
 class TestWalletEmptyStopStart:
     """Wallet empty → stop → top-up → start (pause/resume routes were removed)."""
 
-    def test_stop_and_start(self):
+    def test_stop_and_start(self, monkeypatch):
         """Stop a running instance, then start it again."""
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
         _reset_state()
         _register_host("pr-h1", vram=24)
         _admit_host("pr-h1")
@@ -583,10 +542,7 @@ class TestWalletEmptyStopStart:
         _, inst = _submit_job("pause-test", vram=8)
         job_id = inst["job_id"]
 
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        _set_status(job_id, "running", host_id="pr-h1")
+        first = _start_native_attempt(job_id, "pr-h1")
         inst = _get_instance(job_id)
         assert inst["status"] == "running"
 
@@ -594,18 +550,22 @@ class TestWalletEmptyStopStart:
         assert stop_resp.status_code == 200
         assert stop_resp.json().get("ok") is True
 
-        inst = _get_instance(job_id)
-        assert inst["status"] == "stopped"
+        assert _get_instance(job_id)["status"] == "stopping"
+        from control_plane.db import run_transaction
+        from control_plane.attempts import report_attempt_status
 
-        from unittest.mock import patch
+        run_transaction(lambda conn: report_attempt_status(conn, **first, status="stopped"))
+        assert _get_instance(job_id)["status"] == "stopped"
 
-        with patch("scheduler.run_job", return_value="fake-container-id"):
-            start_resp = client.post(f"/instances/{job_id}/start")
+        start_resp = client.post(f"/instances/{job_id}/start")
         assert start_resp.status_code == 200
         assert start_resp.json().get("ok") is True
 
-        inst = _get_instance(job_id)
-        assert inst["status"] == "running"
+        assert _get_instance(job_id)["status"] == "queued"
+        second = _start_native_attempt(job_id, "pr-h1")
+        assert second["attempt_id"] != first["attempt_id"]
+        assert second["fencing_token"] > first["fencing_token"]
+        assert _get_instance(job_id)["status"] == "running"
 
     def test_empty_wallet_blocks_new_jobs(self):
         """A suspended wallet should block new job submissions with 402."""
@@ -670,8 +630,9 @@ class TestWalletEmptyStopStart:
         )
         assert resp.status_code == 402
 
-    def test_start_with_no_funds_rejected(self):
+    def test_start_with_no_funds_rejected(self, monkeypatch):
         """Start should fail if wallet is empty."""
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
         _reset_state()
         _register_host("rf-h1", vram=24)
         _admit_host("rf-h1")
@@ -679,12 +640,13 @@ class TestWalletEmptyStopStart:
         _, inst = _submit_job("resume-fail", vram=8)
         job_id = inst["job_id"]
 
-        if inst["status"] == "queued":
-            client.post("/queue/process")
+        authority = _start_native_attempt(job_id, "rf-h1")
+        stop = client.post(f"/instances/{job_id}/stop")
+        assert stop.status_code == 200, stop.text
+        from control_plane.db import run_transaction
+        from control_plane.attempts import report_attempt_status
 
-        _set_status(job_id, "running", host_id="rf-h1")
-
-        client.post(f"/instances/{job_id}/stop")
+        run_transaction(lambda conn: report_attempt_status(conn, **authority, status="stopped"))
 
         # Drain wallet
         from billing import get_billing_engine
@@ -899,11 +861,7 @@ class TestStateTransitions:
         if inst["status"] == "queued":
             client.post("/queue/process")
 
-        # Claim lease → leased
-        from events import get_event_store
-
-        es = get_event_store()
-        es.grant_lease(job_id, "stl-h1", duration_sec=300)
+        # Compatibility status projection does not acquire a legacy lease.
         _set_status(job_id, "leased", host_id="stl-h1")
         inst = _get_instance(job_id)
         assert inst["status"] == "leased"
@@ -1018,7 +976,6 @@ class TestEventStoreIntegrity:
         from events import get_event_store
 
         es = get_event_store()
-        es.grant_lease(job_id, "ev-h1", duration_sec=300)
         _set_status(job_id, "leased", host_id="ev-h1")
         _set_status(job_id, "running", host_id="ev-h1")
         _set_status(job_id, "completed", host_id="ev-h1")
@@ -1158,102 +1115,6 @@ class TestAgentWorkPull:
             assert isinstance(jobs_list, list)
             job_ids = [j.get("job_id", "") for j in jobs_list]
             assert job_id in job_ids, f"Expected {job_id} in work pull results {job_ids}"
-
-    def test_agent_lease_claim_via_api(self):
-        """Agent claims a lease via the API endpoint."""
-        _reset_state()
-        _register_host("lc-api-h1", vram=24)
-        _admit_host("lc-api-h1")
-
-        _, inst = _submit_job("api-lease", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        inst = _get_instance(job_id)
-        if inst["status"] != "assigned":
-            # Already running; skip lease test
-            pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
-
-        resp = client.post(
-            "/agent/lease/claim",
-            json={
-                "host_id": "lc-api-h1",
-                "job_id": job_id,
-            },
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data.get("ok") is True
-        assert "lease_id" in data
-
-    def test_agent_lease_renew_via_api(self):
-        """Agent renews a lease via the API endpoint."""
-        _reset_state()
-        _register_host("lr-api-h1", vram=24)
-        _admit_host("lr-api-h1")
-
-        _, inst = _submit_job("api-renew", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        inst = _get_instance(job_id)
-        if inst["status"] != "assigned":
-            pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
-
-        # Claim first
-        client.post(
-            "/agent/lease/claim",
-            json={
-                "host_id": "lr-api-h1",
-                "job_id": job_id,
-            },
-        )
-
-        # Renew
-        renew_resp = client.post(
-            "/agent/lease/renew",
-            json={
-                "host_id": "lr-api-h1",
-                "job_id": job_id,
-            },
-        )
-        assert renew_resp.status_code == 200
-
-    def test_agent_lease_release_via_api(self):
-        """Agent releases a lease via the API endpoint."""
-        _reset_state()
-        _register_host("rl-api-h1", vram=24)
-        _admit_host("rl-api-h1")
-
-        _, inst = _submit_job("api-release", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            client.post("/queue/process")
-
-        inst = _get_instance(job_id)
-        if inst["status"] != "assigned":
-            pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
-
-        client.post(
-            "/agent/lease/claim",
-            json={
-                "host_id": "rl-api-h1",
-                "job_id": job_id,
-            },
-        )
-
-        release_resp = client.post(
-            "/agent/lease/release",
-            json={
-                "job_id": job_id,
-            },
-        )
-        assert release_resp.status_code == 200
 
 
 class TestCancelRequeueAuth:

@@ -16,6 +16,7 @@ The governed set is read out of the migrations themselves, not maintained by
 hand here, so a new table is governed the moment it is created.
 """
 
+import ast
 import pathlib
 import re
 
@@ -75,7 +76,14 @@ def _tables_created_since(revision: str) -> frozenset[str]:
     for path in sorted(MIGRATIONS_DIR.glob("*.py")):
         rev = path.name.split("_", 1)[0]
         if rev.isdigit() and rev >= revision:
-            text = path.read_text()
+            source = path.read_text()
+            # A downgrade can recreate retired tables. Only upgrade SQL
+            # describes the schema this gate checks at the chain's head.
+            text = "\n".join(
+                ast.get_source_segment(source, node) or ""
+                for node in ast.parse(source).body
+                if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
+            )
             tables |= set(_CREATE_TABLE.findall(text))
             renames.update(dict(_RENAME_TABLE.findall(text)))
 
@@ -340,7 +348,8 @@ def test_no_float_cad_column_shadows_a_micros_column():
 # the document is checked against the database like everything else here.
 COMPANION_DOC = (
     pathlib.Path(__file__).resolve().parent.parent
-    / "api" / "docs"
+    / "api"
+    / "docs"
     / "xcelsior-production-data-architecture-companion.md"
 )
 

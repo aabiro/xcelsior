@@ -49,7 +49,14 @@ from psycopg import Connection
 # `test_schema_floor_covers_what_the_code_uses` derives it so it cannot drift
 # silently again.
 # 123 also wakes jobs for command outcomes and lease-only authority changes.
-REQUIRED_MIN_REVISION = "123"
+# 126 stores attempt callback digests. The new runtime can serve at 126 while
+# operators retire the old writers, before 127 removes the obsolete lease table.
+# 132 makes historical disposition explicit. Deploy the qualified 126-compatible
+# native writers at dfacc879 before 131/132, then deploy this runtime. Historical
+# jobs cannot be resumed as a substitute for a new customer admission.
+# 134 moves lifecycle authority to the controller-owned native column.
+# 137 permits native host action completion without a fabricated job identifier.
+REQUIRED_MIN_REVISION = "137"
 REQUIRED_MAX_REVISION: str | None = None
 
 
@@ -155,7 +162,10 @@ def check_schema_compatible(conn: Connection) -> SchemaCompat:
     current = current_revision(conn)
     if current is None:
         return SchemaCompat(
-            current, minimum, maximum, False,
+            current,
+            minimum,
+            maximum,
+            False,
             "alembic_version missing or empty — migrations have not run",
         )
 
@@ -166,7 +176,10 @@ def check_schema_compatible(conn: Connection) -> SchemaCompat:
     if cur_ord is not None and min_ord is not None:
         if cur_ord < min_ord:
             return SchemaCompat(
-                current, minimum, maximum, False,
+                current,
+                minimum,
+                maximum,
+                False,
                 f"database at {current}, service requires >= {minimum} — "
                 "run alembic upgrade before deploying this build",
             )
@@ -175,13 +188,19 @@ def check_schema_compatible(conn: Connection) -> SchemaCompat:
         at_least = _revision_at_least(current, minimum)
         if at_least is False:
             return SchemaCompat(
-                current, minimum, maximum, False,
+                current,
+                minimum,
+                maximum,
+                False,
                 f"database at {current}, service requires >= {minimum} — "
                 "run alembic upgrade before deploying this build",
             )
         if at_least is None and (cur_ord is None or min_ord is None):
             return SchemaCompat(
-                current, minimum, maximum, False,
+                current,
+                minimum,
+                maximum,
+                False,
                 f"non-numeric revision (current={current!r}, min={minimum!r}) "
                 "and Alembic graph unavailable — unknown migration branch",
             )
@@ -191,7 +210,10 @@ def check_schema_compatible(conn: Connection) -> SchemaCompat:
         if cur_ord is not None and max_ord is not None:
             if cur_ord > max_ord:
                 return SchemaCompat(
-                    current, minimum, maximum, False,
+                    current,
+                    minimum,
+                    maximum,
+                    False,
                     f"database at {current} exceeds supported maximum {maximum} — "
                     "deploy newer service binaries first",
                 )
@@ -199,13 +221,19 @@ def check_schema_compatible(conn: Connection) -> SchemaCompat:
             at_most = _revision_at_most(current, maximum)
             if at_most is False:
                 return SchemaCompat(
-                    current, minimum, maximum, False,
+                    current,
+                    minimum,
+                    maximum,
+                    False,
                     f"database at {current} exceeds supported maximum {maximum} — "
                     "deploy newer service binaries first",
                 )
             if at_most is None and (cur_ord is None or max_ord is None):
                 return SchemaCompat(
-                    current, minimum, maximum, False,
+                    current,
+                    minimum,
+                    maximum,
+                    False,
                     f"non-numeric revision (current={current!r}, max={maximum!r}) "
                     "and Alembic graph unavailable — unknown migration branch",
                 )

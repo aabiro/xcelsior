@@ -65,11 +65,18 @@ def _mk_host(scratch) -> str:
     host_id = f"host-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) VALUES (%s,'active',%s,%s, 'admitted')",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s,'active',%s,%s, 'admitted', 'admitted', 'ready')""",
             (
                 host_id,
                 time.time(),
-                json.dumps({"gpu_model": "RTX 4090", "country": "CA", "compute_score": 8.0}),
+                json.dumps(
+                    {
+                        "gpu_model": "RTX 4090",
+                        "country": "CA",
+                        "compute_score": 8.0,
+                        "cost_per_hour": 0.2,
+                    }
+                ),
             ),
         )
         conn.commit()
@@ -83,8 +90,8 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
     job_id = f"job-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state)
-               VALUES (%s, 'completed', 0, %s, %s, 'terminal', 'stopped')""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'completed', 0, %s, %s, 'succeeded', 'running', 0, NULL)""",
             (
                 job_id,
                 time.time(),
@@ -98,6 +105,9 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
                 ),
             ),
         )
+        from tests.native_jobs import admit_fixture_job
+
+        admit_fixture_job(conn, job_id)
         conn.commit()
     scratch["jobs"].append(job_id)
     return job_id
@@ -105,14 +115,22 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
 
 def _mk_attempt(scratch, job_id: str, host_id: str, *, status="succeeded", ran=True) -> str:
     with _pool.connection() as conn:
+        from control_plane.attempt_billing import capture_billing_snapshot
+        from psycopg.types.json import Jsonb
+
+        spec, digest = conn.execute(
+            "SELECT spec,spec_hash FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone()
+        host = conn.execute("SELECT payload FROM hosts WHERE host_id=%s", (host_id,)).fetchone()[0]
+        quote = capture_billing_snapshot(spec, None, {**host, "host_id": host_id})
         row = conn.execute(
             """INSERT INTO job_attempts
                    (job_id, attempt_number, status, host_id, fencing_token, job_generation,
-                    reserved_at, spec_hash)
+                    reserved_at, spec_hash,placement_explanation)
                VALUES (%s, 1, %s, %s, nextval('placement_fencing_token_seq'), 1,
-                       clock_timestamp(), 'sh')
+                       clock_timestamp(), %s,%s)
                RETURNING attempt_id""",
-            (job_id, status, host_id),
+            (job_id, status, host_id, digest, Jsonb(dict(billing_snapshot=quote))),
         ).fetchone()
         attempt_id = str(row[0])
         if ran:

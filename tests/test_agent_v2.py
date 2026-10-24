@@ -7,6 +7,8 @@ fenced status reporting through terminal settlement, and definitive
 fence-loss signals.
 """
 
+from tests.native_jobs import admit_fixture_job
+
 import json
 import os
 import time
@@ -22,7 +24,8 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='jobs' AND column_name='phase'"
             ).fetchone()
             is not None
         )
@@ -99,15 +102,21 @@ def _place_one(fleet, marker, *, owner=None):
         job_payload["owner"] = owner
     with _pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, 'active', %s, %s, 'admitted')",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps(host_payload)),
         )
+        fixture_submitted_at = time.time()
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id) "
-            "VALUES (%s, 'queued', 0, %s, %s, %s)",
-            (job_id, time.time(), json.dumps(job_payload), owner),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'queued', 0, %s, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
+            (
+                job_id,
+                fixture_submitted_at,
+                json.dumps(job_payload),
+                owner,
+                fixture_submitted_at,
+            ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["hosts"].append(host_id)
     fleet["jobs"].append(job_id)
@@ -222,68 +231,6 @@ class TestCommandDeliveryPartition:
         finally:
             agent._agent_work.pop(host_id, None)
 
-    @pytest.mark.parametrize("operation", ["grant", "renew", "release"])
-    def test_event_store_cannot_mutate_a_legacy_lease_for_fenced_history(self, fleet, operation):
-        from events import get_event_store, Lease
-        from control_plane.legacy_execution import LegacyExecutionRejected
-
-        job_id, host_id, refs = _place_one(fleet, uuid.uuid4().hex[:8])
-        lease = Lease(job_id=job_id, host_id=host_id)
-        with _pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO leases (lease_id,job_id,host_id,granted_at,expires_at,"
-                "last_renewed,duration_sec,status) VALUES (%s,%s,%s,%s,%s,%s,%s,'active')",
-                (
-                    lease.lease_id,
-                    job_id,
-                    host_id,
-                    lease.granted_at,
-                    lease.expires_at,
-                    lease.last_renewed,
-                    lease.duration_sec,
-                ),
-            )
-        try:
-            store = get_event_store()
-            with pytest.raises(LegacyExecutionRejected):
-                if operation == "grant":
-                    store.grant_lease(job_id, host_id)
-                elif operation == "renew":
-                    store.renew_lease(job_id, host_id)
-                else:
-                    store.release_lease(job_id)
-            with _pool.connection() as conn:
-                row = conn.execute(
-                    "SELECT status,expires_at FROM leases WHERE lease_id=%s", (lease.lease_id,)
-                ).fetchone()
-                assert row == ("active", lease.expires_at)
-        finally:
-            with _pool.connection() as conn:
-                conn.execute("DELETE FROM leases WHERE job_id=%s", (job_id,))
-
-    def test_compatibility_write_waits_for_the_placement_job_lock(self, fleet):
-        from concurrent.futures import ThreadPoolExecutor
-        import threading
-        from events import get_event_store
-        from control_plane.legacy_execution import LegacyExecutionRejected
-
-        job_id, host_id, refs = _place_one(fleet, uuid.uuid4().hex[:8])
-        started = threading.Event()
-
-        def grant():
-            started.set()
-            return get_event_store().grant_lease(job_id, host_id)
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            with _pool.connection() as conn:
-                conn.execute("SELECT job_id FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,))
-                future = executor.submit(grant)
-                assert started.wait(2)
-                with pytest.raises(TimeoutError):
-                    future.result(timeout=0.1)
-            with pytest.raises(LegacyExecutionRejected):
-                future.result(timeout=5)
-
     def test_legacy_execution_usage_is_exported(self, monkeypatch):
         from prometheus_client import REGISTRY, generate_latest
 
@@ -315,10 +262,13 @@ class TestCommandDeliveryPartition:
         if operation == "release":
             body["reason"] = "completed"
         response = client.post(f"/agent/lease/{operation}", json=body)
-        assert response.status_code == 409
+        assert response.status_code == 410
         with _pool.connection() as conn:
             assert (
-                conn.execute("SELECT count(*) FROM leases WHERE job_id=%s", (job_id,)).fetchone()[0]
+                conn.execute(
+                    "SELECT count(*) FROM legacy_lease_archive WHERE record->>'job_id'=%s",
+                    (job_id,),
+                ).fetchone()[0]
                 == 0
             )
             assert (
@@ -333,7 +283,7 @@ class TestCommandDeliveryPartition:
         with _pool.connection() as conn:
             conn.execute("UPDATE jobs SET active_attempt_id=NULL WHERE job_id=%s", (job_id,))
         response = client.post("/agent/lease/claim", json={"job_id": job_id, "host_id": host_id})
-        assert response.status_code == 409
+        assert response.status_code == 410
 
     def test_v1_drain_never_touches_attempt_commands(self, fleet):
         marker = uuid.uuid4().hex[:8]
@@ -362,7 +312,9 @@ class TestCommandDeliveryPartition:
         assert got["command"] == "start_attempt"
         assert got["attempt_id"] == refs["attempt_id"]
         assert got["fencing_token"] == refs["fencing_token"]
-        assert got["args"]["spec"]["job_id"] == job_id
+        assert got["args"]["job_id"] == job_id
+        assert got["args"]["spec"]["execution_spec_version"] == "v1"
+        assert "job_id" not in got["args"]["spec"]
 
     def test_ack_is_once_only_and_replayed(self, fleet):
         marker = uuid.uuid4().hex[:8]
@@ -737,8 +689,7 @@ class TestLegacyPatchFence:
         job_id = f"j-{marker}-legacy"
         with _pool.connection() as conn:
             conn.execute(
-                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
-                "VALUES (%s, 'assigned', 0, %s, %s)",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'assigned', 0, %s, %s, 'scheduled', 'running', 0, NULL)""",
                 (job_id, time.time(), json.dumps({"job_id": job_id, "name": job_id})),
             )
             conn.commit()
@@ -1036,25 +987,22 @@ class TestCompleteWorkerCutover:
             method,
             path,
             json=body,
-            headers={"Authorization": "Bearer " + os.environ["XCELSIOR_API_TOKEN"]},
+            headers=_worker_headers(),
         )
         assert response.status_code == 410, response.text
 
-    def test_active_mode_rejects_legacy_admin_preemption_before_queue_effect(self, monkeypatch):
-        import agent_preempt
+    @pytest.mark.parametrize("mode", ["active", "canary", "paused"])
+    def test_retired_admin_preemption_has_no_notification_effect(self, monkeypatch, mode):
         import routes.agent as agent_routes
         from unittest.mock import Mock
 
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
         monkeypatch.setattr(agent_routes, "_require_user_grant", lambda *a, **k: {"is_admin": True})
-        enqueue = Mock(side_effect=AssertionError("legacy preemption queued"))
         notify = Mock(side_effect=AssertionError("preemption announced without delivery"))
-        monkeypatch.setattr(agent_preempt, "schedule_host_preemptions", enqueue)
         monkeypatch.setattr(agent_routes, "broadcast_sse", notify)
         response = client.post("/agent/preempt/cutover-host/cutover-job")
         assert response.status_code == 410, response.text
         assert response.json()["error"]["code"] == "v2_protocol_required"
-        enqueue.assert_not_called()
         notify.assert_not_called()
 
     def test_new_operational_metrics_read_durable_command_states(self, fleet):

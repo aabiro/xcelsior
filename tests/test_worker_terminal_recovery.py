@@ -28,9 +28,9 @@ def execution(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "_v2_completed_commands", {})
     monkeypatch.setattr(worker, "_v2_enabled", True)
     monkeypatch.setattr(worker, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", True)
     monkeypatch.setattr(worker, "_shutdown", threading.Event())
     monkeypatch.setattr(worker, "_active_containers", {auth["job_id"]: {}})
+    monkeypatch.setattr(worker, "LogForwarder", mock.Mock())
     monkeypatch.setattr(worker.time, "sleep", lambda _: None)
     worker._v2_journal_save()
 
@@ -66,11 +66,64 @@ def test_transient_terminal_failure_retries_before_removing_container(execution,
         return (503 if len(posts) == 1 else 200), {}
 
     monkeypatch.setattr(worker, "_v2_post", post)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     assert len(posts) == 2
     assert posts[0] == posts[1]
     cleanup.assert_called_once_with(auth["container_name"])
     assert auth["job_id"] not in json.loads(journal.read_text())
+
+
+def test_pre_container_failure_survives_report_outage(execution, monkeypatch):
+    auth, journal, _ = execution
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("missing", -1, ""))
+    post = mock.Mock(side_effect=[(503, {}), (200, {})])
+    monkeypatch.setattr(worker, "_v2_post", post)
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        assert (
+            worker.report_job_status(auth["job_id"], "failed", error_message="not journaled")
+            is False
+        )
+    assert json.loads(journal.read_text())[auth["job_id"]]["pending_terminal_report"] == {
+        "status": "failed",
+        "failure_code": "container_failed",
+    }
+    assert "not journaled" not in journal.read_text()
+    thread.call_args.kwargs["target"](*thread.call_args.kwargs["args"])
+    assert post.call_args.args[1]["status"] == "failed"
+    assert auth["job_id"] not in worker._v2_attempts
+
+
+def test_pending_startup_failure_retries_after_restart(execution, monkeypatch):
+    auth, journal, _ = execution
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("missing", -1, ""))
+    monkeypatch.setattr(worker, "_v2_post", mock.Mock(return_value=(503, {})))
+    with mock.patch.object(worker.threading, "Thread"):
+        assert not worker.report_job_status(auth["job_id"], "failed")
+    worker._v2_attempts.clear()
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        assert worker.v2_adopt_attempts() == 0
+    monkeypatch.setattr(worker, "_v2_post", mock.Mock(return_value=(200, {})))
+    thread.call_args.kwargs["target"](*thread.call_args.kwargs["args"])
+    assert auth["job_id"] not in json.loads(journal.read_text())
+
+
+def test_pending_failure_stops_matching_container_before_retry(execution, monkeypatch):
+    auth, _, _ = execution
+    auth["pending_terminal_report"] = {"status": "failed", "failure_code": "setup_failed"}
+    state = mock.Mock(return_value=("running", 0, auth["attempt_id"]))
+    monkeypatch.setattr(worker, "_v2_container_state", state)
+
+    def stopped(*args):
+        state.return_value = ("exited", 137, auth["attempt_id"])
+
+    stop = mock.Mock(side_effect=stopped)
+    monkeypatch.setattr(worker, "_v2_stop_container", stop)
+    post = mock.Mock(return_value=(200, {}))
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker._v2_monitor_container(auth)
+    stop.assert_called_once()
+    assert post.call_count == 1
+    assert post.call_args.args[1]["failure_code"] == "setup_failed"
 
 
 def test_shutdown_retains_exit_and_restart_retries(execution, monkeypatch):
@@ -81,7 +134,7 @@ def test_shutdown_retains_exit_and_restart_retries(execution, monkeypatch):
         return 503, {}
 
     monkeypatch.setattr(worker, "_v2_post", unavailable)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     cleanup.assert_not_called()
     assert auth["job_id"] in json.loads(journal.read_text())
     worker._v2_attempts.clear()
@@ -98,7 +151,7 @@ def test_lost_reply_then_fencing_never_falls_back_to_legacy(execution, monkeypat
     auth, _, cleanup = execution
     post = mock.Mock(side_effect=[(0, {}), (409, {})])
     monkeypatch.setattr(worker, "_v2_post", post)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     assert post.call_count == 2
     worker._api_request.assert_not_called()
     cleanup.assert_called_once_with(auth["container_name"])
@@ -109,7 +162,7 @@ def test_wrong_attempt_label_is_never_reported_or_removed(execution, monkeypatch
     monkeypatch.setattr(worker, "_v2_container_state", lambda *args: ("exited", 0, "new-attempt"))
     post = mock.Mock(return_value=(200, {}))
     monkeypatch.setattr(worker, "_v2_post", post)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     post.assert_not_called()
     cleanup.assert_not_called()
 
@@ -151,7 +204,7 @@ def test_old_terminal_response_preserves_replacement_authority(execution, monkey
         return response, {}
 
     monkeypatch.setattr(worker, "_v2_post", post)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     assert worker._v2_attempts[auth["job_id"]] is replacement
     assert not replacement["stop"].is_set()
     assert json.loads(journal.read_text())[auth["job_id"]]["attempt_id"] == "replacement"
@@ -192,7 +245,7 @@ def test_preserved_stop_retries_original_intent_and_ack(execution, monkeypatch):
     ack = mock.Mock(return_value=True)
     monkeypatch.setattr(worker, "_v2_post", post)
     monkeypatch.setattr(worker, "v2_ack_command", ack)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     assert [call.args[1]["status"] for call in post.call_args_list] == ["stopped", "stopped"]
     ack.assert_called_once_with("stop-recovery", result)
     assert worker._v2_completed_command_result("stop-recovery") == result
@@ -249,40 +302,6 @@ def test_inspect_uncertainty_cannot_fabricate_terminal_failure(execution, monkey
 
 
 @pytest.mark.parametrize(
-    "labels,expected_claims",
-    [
-        ('{"ai.xcelsior.attempt_id":"attempt-recovery"}', 0),
-        ("{}", 1),
-        ("not valid JSON", 0),
-    ],
-)
-def test_legacy_adoption_respects_fenced_ownership(execution, monkeypatch, labels, expected_claims):
-    auth, _, _ = execution
-    monkeypatch.setattr(worker, "_active_containers", {})
-    monkeypatch.setattr(worker, "_adopted_containers", set())
-    monkeypatch.setattr(
-        worker.subprocess,
-        "run",
-        mock.Mock(
-            side_effect=[
-                SimpleNamespace(returncode=0, stdout=auth["container_name"], stderr=""),
-                SimpleNamespace(returncode=0, stdout=labels, stderr=""),
-            ]
-        ),
-    )
-    claim = mock.Mock(return_value={"duration_sec": 300})
-    monkeypatch.setattr(worker, "claim_lease", claim)
-    with (
-        mock.patch.object(worker, "LogForwarder") as forwarder,
-        mock.patch.object(worker.threading, "Thread") as thread,
-    ):
-        worker.adopt_running_containers()
-    assert claim.call_count == expected_claims
-    assert forwarder.call_count == expected_claims
-    assert thread.call_count == 2 * expected_claims
-
-
-@pytest.mark.parametrize(
     "exit_code,status",
     [(0, "stopped"), (130, "stopped"), (137, "stopped"), (143, "stopped"), (7, "failed")],
 )
@@ -293,7 +312,7 @@ def test_interactive_report_loss_preserves_exit_meaning(execution, monkeypatch, 
     )
     post = mock.Mock(side_effect=[(503, {}), (200, {})])
     monkeypatch.setattr(worker, "_v2_post", post)
-    worker._monitor_interactive(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_interactive(auth["job_id"], auth["container_name"])
     assert [call.args[1]["status"] for call in post.call_args_list] == [status, status]
     assert auth["job_id"] not in json.loads(journal.read_text())
     cleanup.assert_called_once_with(auth["container_name"])
@@ -323,6 +342,97 @@ def test_incomplete_execution_is_not_reported_as_terminal(execution, monkeypatch
     monkeypatch.setattr(worker.subprocess, "run", inspection)
     post = mock.Mock(return_value=(200, {}))
     monkeypatch.setattr(worker, "_v2_post", post)
-    worker._monitor_container(auth["job_id"], auth["container_name"], is_v2_attempt=True)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
     post.assert_not_called()
     cleanup.assert_not_called()
+
+
+def test_serverless_running_confirmation_retries_with_bound_authority(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    auth["running_report_pending"] = True
+    worker._v2_journal_save()
+    states = iter(
+        [
+            ("running", 0, auth["attempt_id"]),
+            ("running", 0, auth["attempt_id"]),
+            ("exited", 0, auth["attempt_id"]),
+            ("exited", 0, auth["attempt_id"]),
+        ]
+    )
+    monkeypatch.setattr(worker, "_v2_container_state", lambda *args: next(states))
+    post = mock.Mock(side_effect=[(503, {}), (200, {}), (200, {})])
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
+    assert [c.args[1]["status"] for c in post.call_args_list] == ["running", "running", "succeeded"]
+    assert all(c.args[1]["attempt_id"] == auth["attempt_id"] for c in post.call_args_list)
+    assert not auth["running_report_pending"]
+    cleanup.assert_called_once_with(auth["container_name"])
+
+
+def test_pending_serverless_readiness_survives_journal_recovery(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    auth["running_report_pending"] = True
+    worker._v2_journal_save()
+    worker._v2_attempts.clear()
+    monkeypatch.setattr(
+        worker, "_v2_container_state", lambda *args: ("running", 0, auth["attempt_id"])
+    )
+    monkeypatch.setattr(worker, "_v2_post", mock.Mock(return_value=(200, {})))
+    with mock.patch.object(worker.threading, "Thread"):
+        worker.v2_adopt_attempts()
+    assert worker._v2_attempts[auth["job_id"]]["running_report_pending"]
+    cleanup.assert_not_called()
+
+
+def test_aborted_claim_retries_in_process_until_native_settlement(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    post = mock.Mock(side_effect=[(503, {}), (200, {})])
+    monkeypatch.setattr(worker, "_v2_post", post)
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        worker._v2_abort_claimed_start(auth, "callback_credential_missing")
+    assert (
+        json.loads(journal.read_text())[auth["job_id"]]["pending_start_failure"]
+        == "callback_credential_missing"
+    )
+    invocation = thread.call_args
+    invocation.kwargs["target"](*invocation.kwargs["args"])
+    assert [c.args[1]["status"] for c in post.call_args_list] == ["failed", "failed"]
+    assert all(
+        c.args[1]["failure_code"] == "callback_credential_missing" for c in post.call_args_list
+    )
+    assert auth["job_id"] not in json.loads(journal.read_text())
+    cleanup.assert_not_called()
+
+
+@pytest.mark.parametrize("response", [200, 409, 503])
+def test_aborted_claim_response_cannot_erase_a_replacement(execution, monkeypatch, response):
+    auth, journal, cleanup = execution
+    replacement = dict(auth, attempt_id="replacement", fencing_token=8, stop=threading.Event())
+
+    def post(path, body):
+        assert body["attempt_id"] == auth["attempt_id"]
+        worker._v2_attempts[auth["job_id"]] = replacement
+        worker._v2_journal_save()
+        return response, {}
+
+    monkeypatch.setattr(worker, "_v2_post", post)
+    with mock.patch.object(worker.threading, "Thread"):
+        worker._v2_abort_claimed_start(auth, "callback_credential_missing")
+    assert worker._v2_attempts[auth["job_id"]] is replacement
+    assert json.loads(journal.read_text())[auth["job_id"]]["attempt_id"] == "replacement"
+    assert not replacement["stop"].is_set()
+    cleanup.assert_not_called()
+
+
+def test_shutdown_cannot_decommission_a_host_with_unsettled_work(execution, monkeypatch):
+    auth, journal, cleanup = execution
+    monkeypatch.setattr(worker, "_DEREGISTER_ON_EXIT", True)
+    mounts = mock.Mock()
+    monkeypatch.setattr(worker, "cleanup_orphaned_volume_mounts", mounts)
+    docker = mock.Mock()
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    worker.graceful_shutdown()
+    worker._api_request.assert_not_called()
+    docker.assert_not_called()
+    mounts.assert_not_called()
+    assert auth["job_id"] in json.loads(journal.read_text())

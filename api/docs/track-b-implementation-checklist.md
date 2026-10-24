@@ -2425,8 +2425,203 @@ data disposition remain separately scoped below.
   `worker_agent.py` compatibility shells into the §11.8 `agent/` module
   layout, preserving signature generation and rollout compatibility through
   `scripts/deploy_worker_agent.sh` at every step.
+  **Removal candidate, 2026-10-21:** the process-memory preemption module,
+  scheduler SSH startup functions, worker preemption poll/handler, scheduler
+  JSON-file adoption and mirrors are physically removed in a separate review
+  candidate. Host pins enter through transactional placement; cancellation
+  without an active attempt is limited to unplaced queued jobs. Both drain
+  routes leave running work intact. Eviction execution returns 501 pending
+  durable preemption; approved plans stay retryable. This is repository proof,
+  not deployment or completion of B16.2/B16.3. The live schema inventory found
+  both projection triggers, 302 historical leases, null canonical specs on all
+  364 historical jobs, and unresolved identity/tenancy. See the
+  [removal candidate and contraction prerequisites](review/2026-10-21-legacy-control-plane-removal.md).
+  **Follow-up, 2026-10-22:** legacy container-name startup adoption and its
+  startup call are removed, along with unused scheduler SSH start/stop/wait
+  helpers and an unused unfenced cancellation helper. Native journal/label
+  recovery remains covered; the expanded gate passed 1,387 tests. This is
+  still a source candidate, with no worker rollout or historical deletion.
+  [Receipt](review/2026-10-22-legacy-startup-removal.md).
+  **Lease authority follow-up, 2026-10-22:** the old `Lease` model,
+  `EventStore` lease grant/renew/release/read/expiry methods and scheduler
+  expiry/requeue loop are removed. V1 lease mutations are permanent 410
+  tombstones in every scheduler mode. Both diagnostics read only the current
+  fenced placement lease with host redaction and tenant/scope checks. The
+  302 historical lease records remain intact; the table is not dropped.
+  Worker compatibility and other legacy execution paths remain open.
+  [Receipt](review/2026-10-22-legacy-lease-removal.md).
+  **Native-only worker follow-up, 2026-10-22:** v1 work polling, destructive
+  command drain, old lease client/renewal loop, raw status PATCH, unfenced
+  start and the separate legacy batch/interactive monitors are removed.
+  Execution requires the full native handshake and matching local attempt
+  authority. Native terminal recovery and durable maintenance delivery remain;
+  queued old starts are permanently NACKed. Historical state-preserving stops
+  remain guarded. The serverless callback/terminal flow, other SSH callers,
+  worker decomposition and rollout still remain open.
+  [Receipt](review/2026-10-22-native-only-worker.md).
+  **Serverless lifecycle follow-up, 2026-10-22:** service/reaper SSH kill and
+  premature release/charge writers are removed. Native attempt transactions
+  project serverless readiness and confirmed release, requeue requests and
+  retain the actual release timestamp for retryable final billing. Unclaimed
+  offers are revoked under lock; claimed work waits for fenced stop. The old
+  callback writers, SDK readiness sender and separate monitor are removed.
+  Provisioning includes execution metadata before work becomes runnable.
+  The SDK image passes a local nonroot/read-only/network-isolated boot and real
+  readiness check; standalone packaging and health callback binding are fixed.
+  Registry image pinning, callback/claim fencing, lease-expiry handoff and
+  coordinated rollout remain open.
+  [Receipt](review/2026-10-22-serverless-native-lifecycle.md).
+  **Authority-loss follow-up, 2026-10-22:** native lease expiry closes serverless
+  routing and request ownership atomically; replacement uses fresh worker/job
+  IDs and a higher fence. Claims reserve slots transactionally, and completion,
+  cancellation, token accounting and result events share locked request state.
+  A queued timeout cannot overwrite claimed work. Old dispatcher slot-release
+  writes are removed. This does not assert physical exit or complete the broad
+  callback-credential handoff, gateway/SDK rollout or live GPU acceptance.
+  [Receipt](review/2026-10-22-serverless-authority-loss.md).
+  **Credential/schema follow-up, 2026-10-22:** migration 126 introduces
+  attempt-bound, hash-only callback credentials and bounded stale-digest
+  pruning. Serverless containers no longer receive the broad host credential.
+  Migration 127 verifies and archives inactive v1 lease rows before dropping
+  the obsolete table/eight columns; a real 302-row production export passes
+  up/down/up restoration and guarded-refusal drills. The runtime can operate
+  at 126 for the old-writer handoff before applying 127. This is a source/drill
+  candidate, not production pruning or completion of the remaining canonical
+  columns, projection-trigger cleanup or historical event/state disposition.
+  [Receipt](review/2026-10-22-scoped-callbacks-lease-contraction.md).
+  **Population follow-up, 2026-10-22:** a read-only scan covered all 164 live
+  application tables/1,984 columns. Job/host normalized metadata and outbox
+  envelope writers are corrected. Migration 128 backfills recorded evidence
+  without guessing identities or rewriting sealed audit data. The isolated
+  production-record rehearsal recovered 52 job identities and 36 archive
+  attributions; 20 jobs/eight archived leases remain unresolved. Canonical
+  specs, trigger removal, all-table semantic review and the broader cutover
+  remain open. This candidate is not a production backfill.
+  [Audit and repair receipt](review/2026-10-22-data-population-repair.md).
+  **Review repairs, 2026-10-22:** compatibility placement now honors host pins;
+  serverless stop reloads authority after a cancellation race; provisioning
+  commits worker/job/outbox together and safely retires unsubmitted orphans;
+  wallet notices share billing-cycle commit; missing callback credentials roll
+  back the lease claim; migration 128 accepts recorded `owner_id` as well as
+  `owner`. The expanded dashboard deduplicates API observations and counts
+  distinct required fresh service identities. Dedicated-role integration keeps
+  archive immutability and adds the exact allocation/retention permissions. These are source
+  repairs with PostgreSQL regression and production-record rehearsal proof,
+  not completion of the open cutover or a production rollout.
+  [Review repair receipt](review/2026-10-22-control-plane-review-repairs.md).
+  **Worker handoff follow-up, 2026-10-22:** ordinary SIGTERM preserves newly
+  started and adopted native containers, their journaled authority and mounted
+  resources for verified restart adoption. A tokenless grant from an older API
+  now persists a no-execution abort and settles the exact claimed attempt;
+  outages retry in process and after restart. Pre-start journal failures use
+  the same settlement path. The worker is re-signed; real PostgreSQL/API and
+  isolated Docker tests cover these paths. This is not a production handoff
+  or live GPU acceptance.
+  [Worker recovery receipt](review/2026-10-22-worker-shutdown-claim-handoff.md).
+  **Canonical admission follow-up, 2026-10-22:** new PostgreSQL submissions
+  populate immutable execution specs in their admission transaction and retain
+  the approved logical launch spec/hash separately inside that snapshot.
+  Submission retries preserve existing state; observation upserts cannot
+  replace the workload. Native filtering, capacity accounting, reservation and
+  start commands use the stored snapshot; corrupt evidence cannot authorize a
+  lease. Real PostgreSQL/API tests cover admission and worker handoff. The
+  explicit pre-cutover payload bridge still needs historical qualification and
+  removal before column/trigger contraction. This is a source candidate with
+  no production backfill or deployment; B16 remains open.
+  [Canonical admission receipt](review/2026-10-22-canonical-admission.md).
+  **Historical qualification and column contract, 2026-10-22:** migration 129
+  recovers execution specs only from matching job/command/attempt hashes and
+  fenced bindings, with explicit assessment evidence for unavailable history.
+  The production-derived local rehearsal recovers four specs and records 360
+  unavailable assessments. Migration 130 requires non-null job phase/desired
+  state and a recorded queue time for pending jobs. It narrows the job trigger
+  so unrelated writes preserve priority boosts and native queue/intent state.
+  At this stage both triggers remained pending native status/admission writer
+  conversion; migration 131 below supersedes that prerequisite. Historical
+  spec gaps and full contraction remain open. These migrations
+  are locally qualified source candidates, not production mutations.
+  [Backfill and column contract receipt](review/2026-10-22-historical-spec-contract.md).
+  **Native writer follow-up, 2026-10-22:** persistence, fenced reports,
+  lifecycle stop/readmission, lease expiry, serverless cancellation, host
+  admission and privacy deletion now maintain their native lifecycle fields.
+  A real PostgreSQL gate drops both projection functions/triggers and exercises
+  these transitions, including late reports preserving stop intent. Periodic
+  and preemption billing use admitted identity/capacity and exclude serverless
+  workers despite conflicting observations. This rehearsal used head 130;
+  migration 131 below supplies permanent trigger contraction and raw-fixture
+  conversion. Admission and worker handoff review repairs, historical
+  disposition and broader JSONB removal remain open. This is source
+  qualification, not production deployment.
+  [Native writer receipt](review/2026-10-22-native-projection-writers.md).
+  **Projection trigger contract, 2026-10-22:** migration 131 removes both
+  lifecycle projection triggers/functions after the native writer handoff.
+  Hosts default to pending administration, with a validated constraint refusing
+  admitted/draining administration without normalized admission. Independent
+  table units and downgrade are resumable; refusal never repairs historical
+  authority. Current-schema fixtures supply native state explicitly; historical
+  migration fixtures retain their legacy shape. Production-derived replay
+  preserves jobs, hosts and execution history, with four qualified specs and
+  360 unavailable assessments unchanged. This is a locally qualified source
+  contraction, not production migration or final B16 completion.
+  [Trigger contract receipt](review/2026-10-22-projection-trigger-contract.md).
+  **Admission and worker recovery, 2026-10-23:** exact caller intent now
+  authorizes replay independently of changing server defaults; observations
+  never create execution authority. Attempt-scoped logs, resource ownership,
+  cleanup retry and terminal-report recovery survive restart. The focused
+  isolated gate passes 232 checks with thread warnings treated as errors.
+  This is source qualification, not historical disposition, complete worker
+  acceptance or production deployment.
+  [Admission/worker receipt](review/2026-10-23-admission-worker-recovery.md).
+  **Historical disposition, 2026-10-23:** migration 132 retains recovered and
+  unavailable terminal history with versioned hashed receipts and an execution
+  exclusion enforced before batching and through downgrade. It refuses live or
+  owned rows and never clears authority. Resume requires a new admission. The
+  initial 145-check integration and final 36-check partial-batch/role/replay
+  gates pass; the minimized 364-job replay preserves four exact specs, 360
+  unavailable assessments and original history. This is local source/data
+  qualification; production remains at 125. Runtime floor 132 requires the
+  previously qualified 126-compatible native writer handoff first.
+  [Historical disposition receipt](review/2026-10-23-historical-disposition.md).
+  **Strict native specs, 2026-10-23:** queue, reservation and new lease claims
+  require stored native admission; historical evidence and mutable payload
+  cannot authorize a new attempt. Billing/serverless execution readers no
+  longer fall back to payload. Snapshot capacity comes from unreleased device
+  allocations. Main run: 205 passes plus two stale floor assertions; corrected
+  floor/inventory/negative gate: 24 passes; final native billing boundary: 28
+  passes. Broader regression and production acceptance remain open.
+  [Strict admission receipt](review/2026-10-23-strict-native-specs.md).
+  **Billing repair follow-up, 2026-10-23:** missing active/terminal meters now
+  require the admitted spec and the exact attempt's captured billing quote.
+  Mutable observation metadata and current host prices cannot authorize or
+  reprice repair. Missing evidence remains a finding. Corrected native fixture
+  and real Redis gates pass 199 and 103 overlapping checks; the full candidate
+  rerun and production acceptance remain open. See the
+  [native billing repair receipt](review/2026-10-23-native-billing-repair.md).
+  **Native intent candidate, 2026-10-23:** migration 134 moves controller
+  lifecycle intent out of payload JSONB authority. Fenced writers, settlement,
+  expiry, reconciliation and preemption use the native column; rollback retains
+  the latest intent and consumed NULL. Gates pass 132 and 57 overlapping checks.
+  All lifecycle writers must be quiesced for the migration/runtime handoff;
+  production remains 125. See the
+  [native intent receipt](review/2026-10-23-native-lifecycle-intent.md).
+  **Physical column candidate, 2026-10-23:** migration 135 archives/drops four
+  unused placement projections and removes obsolete payload intent keys.
+  Native placement/preemption/reservation enforce admitted constraints and
+  record evidence; serializable commit aborts retry without duplicate writes.
+  Gates pass 213, 98, 51 and 23 overlapping checks. Runtime floor 134 permits
+  writer deployment before 135. No production contraction has run. See the
+  [placement column receipt](review/2026-10-23-placement-column-contraction.md).
+  **Final lifecycle source candidate, 2026-10-23:** billing has no unfenced
+  start/pause/terminate fallback. Native idle termination serializes with
+  placement and commits wallet-hold release/outbox together. Host start/pause/
+  reset directives and obsolete periodic stop redelivery are removed; migration
+  136 archives and blocks resurrection of its task row. Wallet targeting and
+  depletion use admission/captured quotes; stopped-job observations cannot bill
+  storage. The focused gate passes 309 checks. Production remains 125; no final
+  deployment is claimed. See the [native lifecycle receipt](review/2026-10-23-retired-unfenced-lifecycle.md).
 - [ ] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
-  B16.2 removes the trigger: weighted fair share from administrative
+  the staged native handoff and migration 131 remove the production triggers
+  (source prerequisite is implemented): weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,
   capped age boost, explicit preemptibility, and quota and concurrency
   limits, with the calculated queue key persisted so every replica orders
@@ -2439,6 +2634,69 @@ data disposition remain separately scoped below.
   longer owns it**; a force-stop may follow the deadline under explicit
   policy; and the allocation transfers only in a new reservation
   transaction.
+  **Source candidate, 2026-10-23:** migration 133 persists operator policy,
+  weighted service and quota accounting, queue components and fenced preemption
+  plans/device nominations. TERM grace, explicitly permitted deadline force,
+  restart recovery, settlement proof and new-fence transfer are covered by
+  runnable database/worker gates (169 checks; policy/migration gate 60; final
+  policy-race/inventory gate 46, overlapping selections). Default policy enables
+  no preemption. The staged production handoff, broad regression and acceptance
+  remain open; repairs stay `report_only`. See the
+  [durable scheduling receipt](review/2026-10-23-durable-scheduling.md).
+  **Clean candidate repeat, 2026-10-23:** the frozen `5b51d90e` selection
+  passes 3,336 tests with zero failures/errors/skips and the same three explicit
+  baseline exclusions. PostgreSQL and Redis cleanup both pass. Five earlier
+  isolated CUDA journeys and both intermediate image checks remain qualified.
+  **Manual operator eviction, 2026-10-23:** `821d1a07` replaces the 501 executor
+  with human-approved exact attempt/lease/fence/spec snapshots, atomic durable
+  TERM-only stops, terminal release proof, idempotent progress and scheduler
+  restart completion. Compute requeues only after settlement; serverless worker
+  identities close, and user stop/cancel/terminate wins. Drain now changes native
+  host identity/state under a locked version check, without a JSONB identity
+  duplicate. Migration 137 preserves non-launch host results without fake jobs;
+  runtime floor is 137, using 7757bdc3 as the 134-compatible intermediate.
+  Native/worker/migration/role/inventory gates pass 178 checks; the later launch
+  action guard and regenerated MCP contract pass 69 checks. MCP units pass 268
+  with one existing skip. The scoped production-derived replay preserves all
+  364 jobs and execution history through 137 and rollback/replay (four exact
+  specs, 360 unavailable retained; financial rows are outside this fixture).
+  The read-only production probe at 16:04 UTC remains schema 125, no live native
+  authority and all eight repairs `report_only`. No production mutation or final
+  deployed acceptance is claimed. B16 stays open. See the
+  [host eviction receipt](review/2026-10-23-native-host-eviction.md),
+  [clean baseline receipt](review/2026-10-23-final-control-plane-checks.md) and
+  [staged handoff](review/2026-10-23-staged-control-plane-handoff.md).
+  **Review and complete restore qualification, 2026-10-23:** `23158934`
+  serializes approved eviction snapshots, evaluates net same-team replacement
+  quotas, requeues failed preemption settlement without overriding user intent
+  or mining policy, and preserves wallet warnings when burn estimates are incomplete.
+  The affected selection passes 154 tests; all three frozen handoff images
+  pass actual Gunicorn readiness, signature and metrics checks on PostgreSQL 16.
+  A fresh complete read-only production snapshot restores with matching hashes
+  for all 138 tables, then passes every target 126–137 with 30 financial/
+  marketplace and four execution/storage tables unchanged at each step.
+  All 364 jobs are retained (four exact specs, 360 unavailable); disposable
+  database and cluster cleanup pass. This qualifies the full restore, beyond
+  the earlier scoped fixture. Production remains 125 with eight `report_only`
+  repairs; role/schema/worker handoffs and deployed acceptance remain open.
+  See the [review and restore receipt](review/2026-10-23-native-review-and-full-restore.md).
+  **Control-plane/data audit, 2026-10-24:** runtime `e41f180d` closes admission
+  outbox, runtime callback/secret delivery, coordinator uncertainty, stale host/
+  preemption races and native financial interval/transaction gaps. The frozen
+  selection at test-only follow-up `c1cd32f0` passes 3,430 tests with the same
+  three explicit baseline exclusions; MCP source tests pass 293 with two
+  opt-in skips. All three immutable handoff images pass real PostgreSQL 16
+  boot/metrics/signature checks, and five bounded CUDA protocol journeys pass.
+  A fresh read-only production snapshot at 06:52 UTC restores with matching
+  counts/full-row fingerprints for 142 logical public/storage tables. Every
+  target 126–137 preserves 38 protected tables, all 364 jobs, four recovered
+  exact specs and 360 explicitly unavailable retained histories. The live
+  population/integrity audit covers 164 relations, 1,984 columns and 35 foreign
+  keys. Three historical volume-cycle overlaps remain retained for financial
+  disposition. Production remains schema 125; dedicated service logins,
+  schema/worker handoffs, deployed public/financial acceptance and operational
+  recovery gates remain open. Repairs stay `report_only`; no B16 completion
+  box is checked. See the [audit receipt](review/2026-10-24-control-plane-data-layer-audit.md).
 - **Exit gate:** one authoritative path exists for launch, placement,
   execution, transition, billing, command, and audit; legacy-path metrics
   are zero for the agreed retention period; repository architecture docs
@@ -2540,7 +2798,7 @@ Every section of both governing documents, and where it is owned.
 | §6, §7 (target architecture, ADRs) | Track A; binding on Track B via §B0 |
 | §8, §9 (invariants, state models) | Track A; §9.5 action-plan machine → **B2.1** |
 | §10.1–§10.6, §10.9 | Track A |
-| §10.7, §10.8 (fairness, preemption) | **B16.4** (blocked on trigger removal) |
+| §10.7, §10.8 (fairness, preemption) | **B16.4** (source trigger prerequisite: 131; production handoff remains) |
 | §11 (worker protocol) | Track A; §11.8 modularization → **B16.3** |
 | §12 (reconciler) | Track A; billing controller → **B3.3** |
 | §13.1–§13.4, §13.8 | Track A |

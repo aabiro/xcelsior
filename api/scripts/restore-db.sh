@@ -16,7 +16,7 @@ BACKUP_DIR="${XCELSIOR_BACKUP_DIR:-/var/backups/xcelsior}"
 DB_NAME="${XCELSIOR_POSTGRES_DB:-xcelsior}"
 DB_USER="${XCELSIOR_POSTGRES_USER:-xcelsior}"
 DB_HOST="${XCELSIOR_POSTGRES_HOST:-localhost}"
-DB_PORT="${XCELSIOR_POSTGRES_PORT:-5432}"
+DB_PORT="${XCELSIOR_POSTGRES_PORT:-${PGPORT:-}}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,6 +62,11 @@ PY
     DB_PORT="${XCELSIOR_POSTGRES_PORT:-${database_settings[3]:-$DB_PORT}}"
     export XCELSIOR_POSTGRES_PASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-${database_settings[4]:-}}"
     unset database_settings
+fi
+
+if [[ ! "$DB_PORT" =~ ^[0-9]{1,5}$ ]] || (( 10#$DB_PORT < 1 || 10#$DB_PORT > 65535 )); then
+    err "an explicit valid PostgreSQL port is required; default cluster refused"
+    exit 1
 fi
 
 # ── Select backup file ───────────────────────────────────────────────
@@ -124,16 +129,43 @@ if [[ "$CONFIRM" != "yes" ]]; then
     exit 0
 fi
 
-# ── Stop services ────────────────────────────────────────────────────
-log "Stopping Xcelsior services..."
-if command -v docker &>/dev/null && docker compose ps --quiet 2>/dev/null | grep -q .; then
-    docker compose stop api scheduler-worker 2>/dev/null || true
-    ok "Docker services stopped"
-elif systemctl is-active --quiet xcelsior-api 2>/dev/null; then
-    sudo systemctl stop xcelsior-api xcelsior-health 2>/dev/null || true
-    ok "Systemd services stopped"
+# Validate the complete input before stopping any writer or dropping data.
+[[ -s "$BACKUP_FILE" && -f "${BACKUP_FILE}.sha256" ]] || {
+    err "a nonempty backup and checksum sidecar are required"; exit 1;
+}
+expected_checksum="$(awk 'NR == 1 {print $1}' "${BACKUP_FILE}.sha256")"
+[[ "$expected_checksum" =~ ^[0-9a-fA-F]{64}$ ]] &&
+    [[ "$(sha256sum "$BACKUP_FILE" | awk '{print $1}')" == "$expected_checksum" ]] || {
+    err "backup checksum verification failed"; exit 1;
+}
+pg_restore --list "$BACKUP_FILE" >/dev/null || {
+    err "backup catalog verification failed"; exit 1;
+}
+
+# Every application writer must stop successfully. A failed stop is a refusal.
+cd "$PROJECT_DIR"
+if command -v docker &>/dev/null && [[ -f docker-compose.yml || -f compose.yaml ]]; then
+    configured_services="$(docker compose config --services)" || {
+        err "cannot resolve the configured writer services"; exit 1;
+    }
+    writers=()
+    for writer in api api-blue scheduler-worker bg-worker; do
+        if [[ $'\n'"$configured_services"$'\n' == *$'\n'"$writer"$'\n'* ]]; then
+            writers+=("$writer")
+        fi
+    done
+    [[ ${#writers[@]} -gt 0 ]] || { err "no application writers were identified"; exit 1; }
+    docker compose stop "${writers[@]}" || { err "writer shutdown failed; restore refused"; exit 1; }
+    running_writers="$(docker compose ps --status running --quiet "${writers[@]}")" || {
+        err "cannot verify writer shutdown"; exit 1;
+    }
+    [[ -z "$running_writers" ]] || { err "application writers remain active"; exit 1; }
+elif command -v systemctl &>/dev/null && systemctl is-active --quiet xcelsior-api; then
+    sudo systemctl stop xcelsior-api xcelsior-health || { err "writer shutdown failed"; exit 1; }
 else
-    warn "No running services detected — proceeding"
+    [[ "${XCELSIOR_RESTORE_WRITERS_QUIESCED:-0}" == "1" ]] || {
+        err "writer shutdown cannot be verified; explicitly quiesce remote writers first"; exit 1;
+    }
 fi
 
 # ── Restore ──────────────────────────────────────────────────────────
@@ -163,15 +195,7 @@ else
     exit 1
 fi
 
-# ── Restart services ─────────────────────────────────────────────────
-log "Restarting services..."
-if command -v docker &>/dev/null && [[ -f "docker-compose.yml" || -f "compose.yaml" ]]; then
-    docker compose up -d api scheduler-worker 2>/dev/null || true
-    ok "Docker services restarted"
-elif systemctl list-unit-files | grep -q xcelsior-api; then
-    sudo systemctl start xcelsior-api xcelsior-health 2>/dev/null || true
-    ok "Systemd services restarted"
-fi
-
-echo ""
-ok "Restore complete. Database '${DB_NAME}' restored from $(basename "$BACKUP_FILE")"
+# A backup may predate this runtime's required schema. Keep writers stopped;
+# the staged schema/runtime handoff must qualify them before traffic resumes.
+ok "Database '${DB_NAME}' restored from $(basename "$BACKUP_FILE")."
+warn "Application writers remain stopped. Complete the staged migration/runtime handoff before restarting them."

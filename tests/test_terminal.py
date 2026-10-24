@@ -6,6 +6,8 @@ resize, rate limiting, idle timeout/warning, tmux detach, metrics,
 and frontend integration smoke checks.
 """
 
+from control_plane.state import host_states, initial_desired_state, job_phase
+
 import asyncio
 import json
 import os
@@ -183,10 +185,22 @@ def _inject_job(
         **extra,
     }
     with scheduler._atomic_mutation() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (job_id, status, 0, time.time(), host_id, json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                0,
+                fixture_submitted_at,
+                host_id,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                0,
+                status,
+                fixture_submitted_at,
+            ),
         )
 
 
@@ -194,9 +208,15 @@ def _inject_host(host_id="h-1", ip="10.0.0.5"):
     payload = {"host_id": host_id, "ip": ip, "status": "active"}
     with scheduler._atomic_mutation() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s, %s, %s, %s, 'admitted')",
-            (host_id, "active", time.time(), json.dumps(payload)),
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, %s, %s, %s, 'admitted', %s, %s)""",
+            (
+                host_id,
+                "active",
+                time.time(),
+                json.dumps(payload),
+                host_states("active", "admitted")[0],
+                host_states("active", "admitted")[1],
+            ),
         )
 
 
@@ -933,56 +953,17 @@ class TestHostSshUserResolution:
 
 
 # ===============================================================================
-# 4. Prometheus metrics noop fallback
+# 4. Required Prometheus metrics
 # ===============================================================================
 
 
-class TestNoopMetrics:
-    @pytest.mark.skipif(
-        not hasattr(term_mod, "_Noop"),
-        reason="prometheus_client installed — _Noop not defined",
-    )
-    def test_noop_absorbs_inc(self):
-        n = term_mod._Noop()
-        n.inc()
-        n.inc(42)
+class TestPrometheusMetrics:
+    def test_prometheus_metrics_are_live(self):
+        from prometheus_client import Counter, Gauge
 
-    @pytest.mark.skipif(
-        not hasattr(term_mod, "_Noop"),
-        reason="prometheus_client installed — _Noop not defined",
-    )
-    def test_noop_absorbs_dec(self):
-        n = term_mod._Noop()
-        n.dec()
-
-    @pytest.mark.skipif(
-        not hasattr(term_mod, "_Noop"),
-        reason="prometheus_client installed — _Noop not defined",
-    )
-    def test_noop_labels_returns_noop(self):
-        n = term_mod._Noop()
-        labeled = n.labels(reason="test")
-        assert isinstance(labeled, term_mod._Noop)
-
-    @pytest.mark.skipif(
-        not hasattr(term_mod, "_Noop"),
-        reason="prometheus_client installed — _Noop not defined",
-    )
-    def test_noop_labels_chain(self):
-        n = term_mod._Noop()
-        n.labels(reason="test").inc()
-        n.labels(cause="disconnect").inc()
-        labeled = n.labels(reason="test")
-        labeled.inc()
-
-    def test_prometheus_flag_set(self):
-        """When prometheus_client is installed, _PROMETHEUS is True."""
-        try:
-            import prometheus_client  # noqa: F401
-
-            assert term_mod._PROMETHEUS is True
-        except ImportError:
-            assert term_mod._PROMETHEUS is False
+        assert term_mod._PROMETHEUS is True
+        assert isinstance(term_mod._sessions_opened, Counter)
+        assert isinstance(term_mod._active_sessions, Gauge)
 
 
 # ===============================================================================
@@ -1517,6 +1498,18 @@ class TestResizeClamp:
         monkeypatch.setattr(term_mod, "_MAX_RESIZE_ROWS", 50)
         monkeypatch.setattr(term_mod, "_MAX_INPUT_FRAME_BYTES", 64)
 
+        import threading
+
+        released = threading.Event()
+        release = term_mod._release_terminal_session_slot
+
+        def finished(*args):
+            try:
+                return release(*args)
+            finally:
+                released.set()
+
+        monkeypatch.setattr(term_mod, "_release_terminal_session_slot", finished)
         fake_client = _FakeDockerClient(job_id="j-resize")
         monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
 
@@ -1535,6 +1528,10 @@ class TestResizeClamp:
             msg = ws.receive_json()
             assert msg["type"] == "error"
             assert msg["code"] == 1009
+
+            assert ws.receive()["type"] == "websocket.close"
+            assert released.wait(5), "terminal handler must finish cleanup before client teardown"
+            assert fake_client.closed
 
 
 class TestSessionLifetime:
@@ -1914,7 +1911,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -1926,7 +1924,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -1942,7 +1941,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -1956,7 +1956,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -1972,7 +1973,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -1988,7 +1990,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "hooks",
             "useInstanceWebSocket.ts",
@@ -2003,7 +2006,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -2024,7 +2028,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -2038,7 +2043,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -2052,7 +2058,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -2066,7 +2073,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -2082,7 +2090,8 @@ class TestFrontendIntegration:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",

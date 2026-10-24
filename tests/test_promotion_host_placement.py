@@ -28,6 +28,8 @@ the caller cannot tell "no capacity right now" from "this will never work".
 
 from __future__ import annotations
 
+from control_plane.state import host_states
+
 import os
 import uuid
 
@@ -57,21 +59,22 @@ def hosts():
     jobs = []
     with pg_transaction() as conn:
         for key, hid in made.items():
+            fixture_status = "offline" if key.startswith("down") else "active"
             conn.execute(
-                "INSERT INTO hosts (host_id, status, registered_at, payload, region) "
-                "VALUES (%s, %s, extract(epoch from now()), '{}'::jsonb, %s)",
+                """INSERT INTO hosts (host_id, status, registered_at, payload, region, administrative_state, availability_state) VALUES (%s, %s, extract(epoch from now()), '{}'::jsonb, %s, %s, %s)""",
                 (
                     hid,
-                    "offline" if key.startswith("down") else "active",
+                    fixture_status,
                     f"reg-west-{tag}" if "west" in key else f"reg-east-{tag}",
+                    host_states(fixture_status, "pending")[0],
+                    host_states(fixture_status, "pending")[1],
                 ),
             )
         # Two live jobs on the busy host so ordering by load is decidable.
         for i in range(2):
             jid = f"j-{tag}-{i}"
             conn.execute(
-                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, host_id) "
-                "VALUES (%s, 'running', 0, extract(epoch from now()), '{}'::jsonb, %s)",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, host_id, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'running', 0, extract(epoch from now()), '{}'::jsonb, %s, 'running', 'running', 0, NULL)""",
                 (jid, made["busy_east"]),
             )
             jobs.append(jid)

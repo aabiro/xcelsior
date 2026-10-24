@@ -57,9 +57,6 @@ from scheduler import (
     get_job,
     get_job,
     host_accepts_spot_job,
-    host_uses_worker_agent,
-    kill_job,
-    legacy_inline_placement_allowed,
     list_hosts,
     list_jobs,
     list_tiers,
@@ -67,7 +64,6 @@ from scheduler import (
     process_queue,
     process_queue_binpack,
     requeue_job,
-    run_job,
     submit_job,
     update_job_status,
 )
@@ -313,8 +309,6 @@ def _count_active_instances(customer_id: str) -> int:
             if j.get("owner") == customer_id and j.get("status") in _ACTIVE_STATUSES
         )
 
-
-from agent_preempt import schedule_host_preemptions
 
 router = APIRouter()
 
@@ -676,151 +670,9 @@ def _refresh_job(job_id: str):
     return None
 
 
-def _direct_host_launch_or_defer(
-    job: dict,
-    *,
-    target_host_id: str,
-    target_host: dict | None,
-    image: str | None,
-    pricing_mode: str,
-    num_gpus: int = 1,
-) -> dict:
-    """Host-pin placement path used by ``api_submit_instance``.
-
-    P4.4b: when the transactional scheduler owns this job (canary partition
-    or active), refuse inline ``assigned`` + SSH ``run_job``. Leave the job
-    queued with a preferred-host pin so the claim→reserve path is the sole
-    writer (attempt + lease + durable start command).
-
-    Legacy assignments on enrolled worker hosts are polled by that worker.
-    Only hosts without an agent may use the synchronous SSH runner.
-    """
-    if not legacy_inline_placement_allowed(job):
-        try:
-            from scheduler import _set_job_fields
-
-            _set_job_fields(job["job_id"], preferred_host_id=target_host_id)
-        except Exception as exc:
-            log.debug(
-                "preferred_host_id pin failed job=%s host=%s: %s",
-                job.get("job_id"),
-                target_host_id,
-                exc,
-            )
-        log.info(
-            "Direct launch deferred for control-plane-owned job %s "
-            "(host pin=%s) — transactional scheduler owns placement/start",
-            job.get("job_id"),
-            target_host_id,
-        )
-        # Wake authoritative tick when running (no-op unless canary/active).
-        try:
-            from scheduler import _control_plane_tick
-
-            _control_plane_tick()
-        except Exception as exc:
-            log.debug("control-plane tick after deferred pin: %s", exc)
-        return _refresh_job(job["job_id"]) or job
-
-    try:
-        if pricing_mode == "spot":
-            try:
-                from marketplace import get_marketplace_engine
-
-                me = get_marketplace_engine()
-                offer = me.get_offer_for_host(
-                    target_host_id,
-                    target_host.get("gpu_model", "") if target_host else "",
-                )
-                if offer:
-                    alloc = me.allocate_gpu(
-                        offer["offer_id"],
-                        job["job_id"],
-                        num_gpus,
-                        allocation_type="spot",
-                    )
-                    if alloc and alloc.get("price_cents_per_hour"):
-                        from scheduler import _set_job_fields
-
-                        job["spot_rate_cad"] = alloc["price_cents_per_hour"] / 100.0
-                        _set_job_fields(
-                            job["job_id"],
-                            spot_rate_cad=job["spot_rate_cad"],
-                        )
-            except Exception as exc:
-                log.debug("Marketplace spot allocation skipped: %s", exc)
-
-        assign_kwargs: dict = {}
-        if pricing_mode == "spot" and not job.get("spot_rate_cad"):
-            from spot_pricing import lock_spot_rate_for_job
-
-            lock_spot_rate_for_job(
-                job,
-                host_gpu_model=target_host.get("gpu_model", "") if target_host else "",
-            )
-            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-            assign_kwargs["pricing_mode"] = "spot"
-        elif pricing_mode == "spot":
-            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-            assign_kwargs["pricing_mode"] = "spot"
-
-        updated = update_job_status(
-            job["job_id"],
-            "assigned",
-            host_id=target_host_id,
-            **assign_kwargs,
-        )
-        if updated and updated.get("status") == "assigned":
-            hosts = list_hosts()
-            hmap = {h["host_id"]: h for h in hosts}
-            host = hmap.get(target_host_id)
-            if host:
-                if host_uses_worker_agent(host):
-                    log.info(
-                        "Direct launch assigned to worker job=%s host=%s",
-                        job["job_id"],
-                        target_host_id,
-                    )
-                    return _refresh_job(job["job_id"]) or updated
-                container_id = run_job(updated, host, docker_image=image)
-                if container_id:
-                    job = _refresh_job(job["job_id"]) or job
-                    log.info(
-                        "Direct launch: job %s running on host %s",
-                        job["job_id"],
-                        target_host_id,
-                    )
-                else:
-                    job = _refresh_job(job["job_id"]) or job
-                    log.warning(
-                        "Direct launch: container start failed for job %s on host %s",
-                        job["job_id"],
-                        target_host_id,
-                    )
-            else:
-                log.warning(
-                    "Direct launch: host %s not found, job %s stays queued",
-                    target_host_id,
-                    job["job_id"],
-                )
-                update_job_status(job["job_id"], "queued")
-                job = _refresh_job(job["job_id"]) or job
-    except Exception as e:
-        log.error("Direct launch failed for job %s: %s", job["job_id"], e)
-        job = _refresh_job(job["job_id"]) or job
-    return job
-
-
 @router.post("/instance", tags=["Instances"])
 def api_submit_instance(j: JobIn, request: Request):
-    """Submit a job to the queue or directly assign to a host.
-
-    If host_id is provided (marketplace launch), the job is assigned directly
-    to that host for its worker to start (SSH only without an agent). When the
-    transactional scheduler owns the job (canary/active partition),
-    case the pin is recorded and placement/start stay with the claim→reserve
-    path. Otherwise the job is queued and process_queue runs to find a host.
-    """
+    """Queue a job, optionally pinned to a host, for transactional placement."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
@@ -1035,6 +887,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 exposed_ports=j.exposed_ports,
                 source_template_id=source_template_id,
                 pricing_mode=j.pricing_mode,
+                preferred_host_id=target_host_id,
                 placement_preference=(
                     j.placement_preference.model_dump() if j.placement_preference else None
                 ),
@@ -1084,23 +937,9 @@ def api_submit_instance(j: JobIn, request: Request):
         except Exception:
             pass
 
-        # Direct host assignment: assign + start immediately — unless the
-        # transactional scheduler owns this job (P4.4b exclusive partition).
-        if target_host_id:
-            job = _direct_host_launch_or_defer(
-                job,
-                target_host_id=target_host_id,
-                target_host=target_host,
-                image=j.image or None,
-                pricing_mode=j.pricing_mode,
-                num_gpus=j.num_gpus,
-            )
-        else:
-            # §10.1 / B2.6: the job is enqueued durably and the scheduler claims
-            # and places it. A request handler never runs the queue walker inline
-            # (Track A P4.4b deferred the host-pin path; this completes the
-            # general path). Reflect the just-submitted queued state in the reply.
-            job = _refresh_job(job["job_id"]) or job
+        # The pin is persisted in the submission transaction, before a scheduler
+        # can claim the row. Request handlers never assign or start containers.
+        job = _refresh_job(job["job_id"]) or job
 
         append_user_audit_event(
             "user.instance.launched",
@@ -1682,8 +1521,7 @@ def api_cancel_instance(job_id: str, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _check_job_write_access(user, job_id)
-    jobs = list_jobs()
-    job = next((j for j in jobs if j["job_id"] == job_id), None)
+    job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
@@ -1758,34 +1596,25 @@ def api_cancel_instance(job_id: str, request: Request):
             "command_id": fenced.command_id,
         }
 
-    # Legacy (non-attempt-owned): direct kill + immediate cancel + detach.
-    if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
-        hosts = list_hosts()
-        hmap = {h["host_id"]: h for h in hosts}
-        host = hmap.get(job["host_id"])
-        if host:
-            try:
-                kill_job(job, host)
-            except Exception as e:
-                log.warning("Container kill failed for %s: %s", job_id, e)
-        schedule_host_preemptions(job["host_id"], [job_id])
-
-    update_job_status(job_id, "cancelled")
+    # Only an unplaced queued job can settle without worker acknowledgement.
+    # Historical rows without fenced authority must not be killed or rewritten.
+    if job.get("status") != "queued" or job.get("host_id"):
+        raise HTTPException(409, "Instance has no active fenced authority")
+    try:
+        cancelled = update_job_status(
+            job_id, "cancelled", expected_status="queued", expected_host_id=None
+        )
+    except RuntimeError as exc:
+        raise HTTPException(409, "Instance acquired fenced authority; retry cancellation") from exc
+    if cancelled is None:
+        raise HTTPException(409, "Instance changed; retry cancellation")
     _broadcast_instance_lifecycle_sse(
         "job_cancelled",
         {"job_id": job_id},
         event_type="job.v1.cancelled",
         job_id=job_id,
-        idempotency_key=f"job_cancelled:{job_id}:legacy:{time.time()}",
+        idempotency_key=f"job_cancelled:{job_id}:queued:{time.time()}",
     )
-
-    # Detach any volumes still attached to this instance (legacy only).
-    try:
-        from volumes import get_volume_engine
-
-        get_volume_engine().detach_all_for_instance(job_id)
-    except Exception as e:
-        log.warning("Volume detach on cancel failed for %s: %s", job_id, e)
 
     return {"ok": True, "job_id": job_id, "status": "cancelled"}
 
@@ -1929,9 +1758,9 @@ def api_unlock_instance(job_id: str, request: Request):
 def api_reset_instance(job_id: str, request: Request):
     """Reset the container (running instance only).
 
-    Restarts the container with a fresh ``/workspace`` scratch space,
-    preserving mounted named volumes and the container config. Compute
-    billing is continuous. Requires a positive wallet balance.
+    Settles the current fenced attempt and queues a new container with a
+    fresh workspace from the admitted spec. Named volumes remain attached
+    through the new attempt. Requires available wallet funds.
     """
     _user, job = _authorize_instance_mutation(request, job_id, "reset")
     _check_not_locked(job)
@@ -1942,33 +1771,29 @@ def api_reset_instance(job_id: str, request: Request):
             detail=f"Instance is '{job.get('status')}', must be running to reset",
         )
 
-    host_id = job.get("host_id") or ""
-    if not host_id:
-        raise HTTPException(status_code=400, detail="Instance has no host assigned")
+    from billing import get_billing_engine
 
-    from control_plane.job_targets import resolve_job_command_target
-    from routes.agent import enqueue_agent_command
-
-    target = resolve_job_command_target(job_id)
-    if target is None:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-    # Authority-sensitive: never guess legacy xcl-{job} for fenced history.
-    if not target.allows_unfenced_container_command:
+    result = get_billing_engine().restart_instance(job_id)
+    if not result.get("restarted"):
+        reason = result.get("reason", "restart_failed")
         raise HTTPException(
-            status_code=409,
-            detail="fenced_residual_requires_live_authority",
+            status_code=402 if reason in {"wallet_suspended", "insufficient_balance"} else 409,
+            detail=reason,
         )
-    if not target.host_id:
-        raise HTTPException(status_code=400, detail="Instance has no host assigned")
-
-    cmd_id = enqueue_agent_command(
-        host_id=target.host_id,
-        command="reset_container",
-        args={"job_id": job_id, "container_name": target.container_name},
-        created_by=_user.get("customer_id", _user.get("user_id", "")),
+    _broadcast_instance_lifecycle_sse(
+        "instance_reset",
+        {"job_id": job_id},
+        event_type="job.v1.instance_reset",
+        job_id=job_id,
+        idempotency_key=f"instance_reset:{job_id}:{result.get('attempt_id') or 'queued'}",
     )
-    broadcast_sse("instance_reset", {"job_id": job_id})
-    return {"ok": True, "command_id": cmd_id, "job_id": job_id}
+    append_user_audit_event("user.instance.reset_requested", "job", job_id, _user)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "command_id": result.get("command_id"),
+        "instance": result,
+    }
 
 
 # ── Stop / Start / Restart / Terminate ──────────────────────────────
@@ -1978,9 +1803,9 @@ def api_reset_instance(job_id: str, request: Request):
 def api_stop_instance(job_id: str, request: Request):
     """Gracefully stop a running instance.
 
-    Sends SIGTERM to the container (docker stop -t 10). The container is
-    preserved — data, volumes and configuration are intact. Storage billing
-    continues at the per-GB rate. The instance can be started again at any time.
+    Requests a fenced worker stop. The response reports stopping until
+    worker settlement. Persistent volume billing continues while allocated;
+    start creates a fresh attempt from the admitted workload.
     """
     user, job = _authorize_instance_mutation(request, job_id, "stop")
 
@@ -1994,7 +1819,21 @@ def api_stop_instance(job_id: str, request: Request):
     be = get_billing_engine()
     result = be.stop_instance(job_id, reason="user_stopped")
     if not result.get("stopped"):
-        raise HTTPException(status_code=500, detail=result.get("reason", "stop failed"))
+        reason = result.get("reason", "stop failed")
+        raise HTTPException(
+            status_code=(
+                409
+                if reason
+                in {
+                    "native_admission_required",
+                    "native_attempt_required",
+                    "historical_job_requires_new_admission",
+                    "no_active_fenced_authority",
+                }
+                else 500
+            ),
+            detail=reason,
+        )
 
     _broadcast_instance_lifecycle_sse(
         "instance_stopped",
@@ -2011,9 +1850,9 @@ def api_stop_instance(job_id: str, request: Request):
 def api_start_instance(job_id: str, request: Request):
     """Start a stopped instance.
 
-    Restores the exited container via docker start. Container data is
-    preserved. Requires a positive wallet balance. Compute billing resumes
-    immediately.
+    Queues a fresh attempt from the admitted workload. Persistent volumes
+    are preserved; ephemeral container files are not restored. Requires
+    available wallet funds. Compute billing starts when the worker runs.
     """
     user, job = _authorize_instance_mutation(request, job_id, "start")
     customer_id = _canonical_owner_id(user)
@@ -2050,7 +1889,10 @@ def api_start_instance(job_id: str, request: Request):
                 409
                 if detail
                 in (
-                    "fenced_resume_requires_new_attempt",
+                    "native_admission_required",
+                    "native_attempt_required",
+                    "historical_job_requires_new_admission",
+                    "execution_authority_remains",
                     "still_attempt_owned",
                     "no_active_fenced_authority",
                 )
@@ -2072,13 +1914,10 @@ def api_start_instance(job_id: str, request: Request):
 
 @router.post("/instances/{job_id}/restart", tags=["Instances"])
 def api_restart_instance(job_id: str, request: Request):
-    """Restart an instance. Container data is fully preserved.
+    """Settle the current attempt and queue a fresh container.
 
-    Works from both running and stopped states:
-    - Running → graceful stop → start (docker stop + docker start)
-    - Stopped → start (docker start only)
-
-    Billing is continuous — no gap. Requires a positive wallet balance.
+    Persistent volumes are preserved. Ephemeral files are recreated from
+    the admitted workload. Requires available wallet funds.
     """
     user, job = _authorize_instance_mutation(request, job_id, "restart")
     _check_not_locked(job)
@@ -2116,7 +1955,10 @@ def api_restart_instance(job_id: str, request: Request):
                 409
                 if detail
                 in (
-                    "fenced_restart_requires_controller",
+                    "native_admission_required",
+                    "native_attempt_required",
+                    "historical_job_requires_new_admission",
+                    "execution_authority_remains",
                     "no_active_fenced_authority",
                     "still_attempt_owned",
                 )
@@ -2229,7 +2071,10 @@ def api_terminate_instance(job_id: str, request: Request):
             409
             if detail
             in (
-                "fenced_terminate_requires_controller",
+                "native_admission_required",
+                "native_attempt_required",
+                "historical_job_requires_new_admission",
+                "execution_authority_remains",
                 "no_active_fenced_authority",
             )
             else 400
@@ -3670,8 +3515,13 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
 # ───────────────────────────────────────────────────────────────────────
 # P2.3 — Jupyter / VSCode auto-launch report callback
 # ───────────────────────────────────────────────────────────────────────
-class _AutoLaunchReport(BaseModel):
+class _AttemptRuntimeReport(BaseModel):
     host_id: str = Field(..., min_length=1, max_length=128)
+    attempt_id: uuid.UUID
+    fencing_token: int = Field(ge=1)
+
+
+class _AutoLaunchReport(_AttemptRuntimeReport):
     # Map of service_name -> container port, e.g. {"jupyter": 8888, "vscode": 8443}
     ports: dict[str, int] = Field(default_factory=dict)
     # First 8 hex chars of sha256(token) — cheap integrity check so the
@@ -3682,8 +3532,7 @@ class _AutoLaunchReport(BaseModel):
     # ``--ServerApp.token``; code-server uses it as the PASSWORD env.
     # Stored in ``jobs.payload.auto_launch_ports.token``; returned only
     # to the job owner via ``GET /instances/{id}/auto-launch``. Hex,
-    # up to 64 chars (worker currently emits 32). Optional to stay
-    # backward-compatible with agents that haven't been upgraded yet.
+    # up to 64 chars (worker currently emits 32). Required for native attempt callbacks.
     token: str | None = Field(default=None, max_length=64)
 
     @field_validator("token")
@@ -3691,8 +3540,8 @@ class _AutoLaunchReport(BaseModel):
     def _v_token(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        if not re.fullmatch(r"[0-9a-f]{16,64}", v):
-            raise ValueError("token must be 16–64 hex chars")
+        if not re.fullmatch(r"[0-9a-f]{32,64}", v):
+            raise ValueError("token must be 32–64 hex chars")
         return v
 
     @field_validator("ports")
@@ -3729,36 +3578,41 @@ def api_instances_auto_launch_report(job_id: str, body: _AutoLaunchReport, reque
 
     _require_agent_auth(request, host_id=body.host_id)
 
-    pool = _user_images_pool()
-    import json as _json
+    from control_plane.runtime_callbacks import record_runtime_callback
+    from control_plane.leases import FencingViolation
+    import hashlib
 
-    payload_value = _json.dumps(
-        {
-            "host_id": body.host_id,
-            "ports": body.ports,
-            "token_sha": body.token_sha,
-            "token": body.token or "",
-            "reported_at": time.time(),
-        }
-    )
-
-    with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, "
-            "'{auto_launch_ports}', %s::jsonb, true) "
-            "WHERE job_id = %s AND payload->>'host_id' = %s",
-            (payload_value, job_id, body.host_id),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(404, "job not found or host_id mismatch")
-
+    if not body.token:
+        raise HTTPException(422, "native service report requires its credential")
+    token_sha = hashlib.sha256(body.token.encode()).hexdigest()[:8]
+    if body.token_sha and body.token_sha != token_sha:
+        raise HTTPException(422, "service credential digest mismatch")
+    payload_value = {
+        "host_id": body.host_id,
+        "attempt_id": str(body.attempt_id),
+        "fencing_token": body.fencing_token,
+        "ports": body.ports,
+        "token_sha": token_sha,
+        "token": body.token or "",
+        "reported_at": time.time(),
+    }
     try:
-        broadcast_sse(
-            "auto_launch_ready",
-            {"job_id": job_id, "ports": body.ports, "token_sha": body.token_sha},
-        )
-    except Exception as e:
-        log.debug("broadcast_sse(auto_launch_ready) failed: %s", e)
+        with _user_images_pool().connection() as conn:
+            recorded = record_runtime_callback(
+                conn,
+                job_id=job_id,
+                host_id=body.host_id,
+                attempt_id=str(body.attempt_id),
+                fencing_token=body.fencing_token,
+                kind="auto_launch_ports",
+                value=payload_value,
+            )
+        if not recorded:
+            raise HTTPException(404, "job not found or host_id mismatch")
+    except FencingViolation:
+        raise HTTPException(409, "runtime callback authority is no longer current")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return {"ok": True}
 
 
@@ -3819,6 +3673,25 @@ def api_instances_auto_launch_get(job_id: str, request: Request):
             auto = {}
     reported_ports = (auto.get("ports") or {}) if isinstance(auto, dict) else {}
     token = (auto.get("token") or "") if isinstance(auto, dict) else ""
+    try:
+        attempt_id = str(uuid.UUID(str(auto.get("attempt_id"))))
+        fencing_token = auto.get("fencing_token")
+        if type(fencing_token) is not int or fencing_token < 1:
+            raise ValueError("missing runtime authority")
+    except (ValueError, AttributeError, TypeError):
+        return {"ready": False, "services": {}}
+    with _user_images_pool().connection() as conn:
+        current = conn.execute(
+            """SELECT 1 FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+                 JOIN placement_leases l ON l.attempt_id=a.attempt_id
+                WHERE j.job_id=%s AND a.attempt_id=%s AND a.fencing_token=%s
+                  AND a.host_id=j.host_id AND a.status IN ('starting','running')
+                  AND l.status='active' AND l.expires_at>clock_timestamp()
+                  AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token""",
+            (job_id, attempt_id, fencing_token),
+        ).fetchone()
+    if current is None:
+        return {"ready": False, "services": {}}
 
     http_ports = job.get("http_ports") or {}
     if isinstance(http_ports, str):
@@ -3902,8 +3775,7 @@ def _job_slug(job_id: str) -> str:
     return (job_id or "")[:JOB_SLUG_LEN].lower()
 
 
-class _HttpPortsReport(BaseModel):
-    host_id: str = Field(..., min_length=1, max_length=128)
+class _HttpPortsReport(_AttemptRuntimeReport):
     # Mapping of container-port (stringified, JSON-safe) → host-port.
     ports: dict[str, int] = Field(default_factory=dict)
 
@@ -3939,24 +3811,26 @@ def api_http_ports_report(job_id: str, body: _HttpPortsReport, request: Request)
     from routes.agent import _require_agent_auth
 
     _require_agent_auth(request, host_id=body.host_id)
-    payload_value = json.dumps(body.ports)
-    pool = _user_images_pool()
-    with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, "
-            "'{http_ports}', %s::jsonb, true) "
-            "WHERE job_id = %s AND payload->>'host_id' = %s",
-            (payload_value, job_id, body.host_id),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(404, "job not found or host_id mismatch")
+    from control_plane.runtime_callbacks import record_runtime_callback
+    from control_plane.leases import FencingViolation
+
     try:
-        broadcast_sse(
-            "http_ports_ready",
-            {"job_id": job_id, "ports": body.ports},
-        )
-    except Exception as e:
-        log.debug("broadcast_sse(http_ports_ready) failed: %s", e)
+        with _user_images_pool().connection() as conn:
+            recorded = record_runtime_callback(
+                conn,
+                job_id=job_id,
+                host_id=body.host_id,
+                attempt_id=str(body.attempt_id),
+                fencing_token=body.fencing_token,
+                kind="http_ports",
+                value=body.ports,
+            )
+        if not recorded:
+            raise HTTPException(404, "job not found or host_id mismatch")
+    except FencingViolation:
+        raise HTTPException(409, "runtime callback authority is no longer current")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return {"ok": True}
 
 
@@ -4118,15 +3992,21 @@ def api_internal_route(slug: str, port: int, request: Request):
             """
             SELECT j.job_id,
                    j.payload->'http_ports' AS http_ports,
-                   j.payload->>'host' AS host_id,
+                   j.host_id,
                    h.payload->>'ip' AS host_ip
               FROM jobs j
-              LEFT JOIN hosts h ON h.host_id = j.payload->>'host'
-             WHERE j.status = 'running'
+              JOIN hosts h ON h.host_id = j.host_id
+              JOIN job_attempts a ON a.attempt_id=j.active_attempt_id AND a.job_id=j.job_id
+              JOIN placement_leases l ON l.attempt_id=a.attempt_id AND l.job_id=j.job_id
+             WHERE j.phase = 'running'
+               AND a.status='running' AND a.host_id=j.host_id
+               AND l.host_id=a.host_id AND l.fencing_token=a.fencing_token
+               AND l.status='active' AND l.expires_at>clock_timestamp()
+               AND j.spec->'exposed_ports' @> jsonb_build_array(%s::int)
                AND substr(j.job_id, 1, %s) = %s
              LIMIT 2
             """,
-            (JOB_SLUG_LEN, slug),
+            (port, JOB_SLUG_LEN, slug),
         )
         rows = cur.fetchall()
 

@@ -62,8 +62,7 @@ def promotable(monkeypatch):
 
     with pg_transaction() as conn:
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id) "
-            "VALUES (%s, 'completed', 0, extract(epoch from now()), '{}'::jsonb, %s)",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'completed', 0, extract(epoch from now()), '{}'::jsonb, %s, 'succeeded', 'running', 0, NULL)""",
             (job_id, tenant),
         )
         for i in range(2):

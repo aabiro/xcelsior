@@ -3,13 +3,15 @@
 Runs against the real test PostgreSQL; the two-connection tests exercise
 actual FOR UPDATE SKIP LOCKED semantics, not mocks.
 
-Since migration 059 the projection trigger derives ``phase`` /
-``desired_state`` / ``effective_priority`` / ``queued_at`` from the
-legacy columns on every write, so fixtures control eligibility via
-``status`` and ordering via ``submitted_at`` — exactly like production
-writers. Every test claims within its own scope (``gpu_model`` carries a
+Native fixtures explicitly initialize lifecycle columns and admission.
+Migration 131 retired the projection trigger; durable team credit and DB
+queue time now own ordering. Every test claims within its own scope (``gpu_model`` carries a
 per-test marker) so shared-DB residue can never leak into assertions.
 """
+
+from tests.native_jobs import admit_fixture_job
+
+from control_plane.state import initial_desired_state, job_phase
 
 import json
 import time
@@ -47,6 +49,7 @@ def cleanup_jobs():
     with _pool.connection() as conn:
         for jid in ids:
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
+            conn.execute("DELETE FROM scheduling_team_state WHERE team_key=%s", ("job:" + jid,))
         conn.commit()
 
 
@@ -68,24 +71,31 @@ def _mkjob(
 ):
     job_id = f"job-claim-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time() + queued_offset_sec
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 fair_share_finish, next_schedule_at)
+                                 fair_share_finish, next_schedule_at, phase, desired_state, effective_priority, queued_at)
                VALUES (%s, %s, %s, %s, %s, %s,
                        CASE WHEN %s::float8 IS NULL THEN NULL
-                            ELSE clock_timestamp() + make_interval(secs => %s) END)
+                            ELSE clock_timestamp() + make_interval(secs => %s) END, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)
             """,
             (
                 job_id,
                 status,
                 priority,
-                time.time() + queued_offset_sec,
+                fixture_submitted_at,
                 json.dumps({"name": job_id, "gpu_model": scope}),
                 fair_share,
                 next_schedule_delay_sec,
                 next_schedule_delay_sec or 0.0,
+                job_phase(status),
+                initial_desired_state(status),
+                priority,
+                status,
+                fixture_submitted_at,
             ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup.append(job_id)
     return job_id
@@ -112,6 +122,11 @@ class TestClaimOrdering:
     def test_fair_share_breaks_priority_ties(self, cleanup_jobs, scope):
         behind = _mkjob(cleanup_jobs, scope, priority=5, fair_share=100)
         ahead = _mkjob(cleanup_jobs, scope, priority=5, fair_share=1)
+        with _pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO scheduling_team_state(team_key,virtual_finish) VALUES(%s,100),(%s,1)",
+                ("job:" + behind, "job:" + ahead),
+            )
         got = _claim(scope)
         assert got is not None and got.job_id == ahead
         assert _claim(scope).job_id == behind
@@ -150,17 +165,20 @@ class TestClaimEligibility:
     def test_v2_optin_claimable_in_any_scope(self, cleanup_jobs, scope):
         job_id = f"job-claim-{uuid.uuid4().hex[:10]}"
         with _pool.connection() as conn:
+            fixture_submitted_at = time.time()
             conn.execute(
-                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-                   VALUES (%s, 'queued', 0, %s, %s)""",
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+                   VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
                 (
                     job_id,
-                    time.time(),
+                    fixture_submitted_at,
                     json.dumps(
                         {"name": job_id, "scheduler": "v2", "gpu_model": f"unrelated-{scope}"}
                     ),
+                    fixture_submitted_at,
                 ),
             )
+            admit_fixture_job(conn, job_id)
             conn.commit()
         cleanup_jobs.append(job_id)
         got = _claim(scope)  # scope doesn't match, but v2 opt-in does

@@ -66,10 +66,16 @@ def _insert_queued_job(job_id: str) -> None:
         "submitted_at": time.time(),
     }
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-               VALUES (%s, 'queued', 0, %s, %s)""",
-            (job_id, time.time(), json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
+            (
+                job_id,
+                fixture_submitted_at,
+                json.dumps(payload),
+                fixture_submitted_at,
+            ),
         )
         conn.commit()
 
@@ -215,7 +221,10 @@ class TestUpdateJobStatusEnqueuesOutbox:
         sched.update_job_status(job_id, "assigned", host_id="h-i")
         # Force payload path to running (skip invalid transition noise).
         with _pool.connection() as conn:
-            conn.execute("UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,))
+            conn.execute(
+                """UPDATE jobs SET status='running', phase='running', desired_state='running' WHERE job_id=%s""",
+                (job_id,),
+            )
             conn.execute(
                 """UPDATE jobs SET payload =
                        jsonb_set(payload, '{status}', '"running"')

@@ -1,23 +1,13 @@
-"""Exclusive placement partition + no SSH double-start for control-plane-owned jobs.
-
-Drives the *shipped* legacy entry points (``process_queue``,
-``process_queue_binpack``, ``process_queue_filtered``,
-``process_queue_ranked``, ``process_assigned``) against a real Postgres
-with the transactional scheduler in canary/active mode. Proves:
-
-1. Owned jobs are never assigned by legacy queue walkers.
-2. Only the transactional tick creates attempt + lease + command for
-   owned work.
-3. ``process_assigned`` never SSH-starts attempt-owned jobs (and fails
-   closed when ownership lookup fails).
-"""
+"""Exclusive transactional placement and host pins against real PostgreSQL."""
 
 from __future__ import annotations
+
+from control_plane.state import initial_desired_state, job_phase
+from tests.native_jobs import admit_fixture_job
 
 import json
 import time
 import uuid
-from unittest.mock import patch
 
 import pytest
 
@@ -29,7 +19,8 @@ try:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='jobs' AND column_name='phase'"
             ).fetchone()
             is not None
         )
@@ -96,8 +87,8 @@ def _mk_host(fleet, host_id, *, gpu_model, gpu_count=2, total_vram_gb=48.0):
     }
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
             (host_id, time.time(), json.dumps(payload)),
         )
         conn.commit()
@@ -129,11 +120,24 @@ def _mk_job(
     if scheduler:
         payload["scheduler"] = scheduler
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (job_id, status, priority, time.time(), json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                priority,
+                fixture_submitted_at,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                priority,
+                status,
+                fixture_submitted_at,
+            ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     return payload
@@ -231,7 +235,7 @@ class TestLegacyQueueSkipsOwnedJobs:
                 tick_max_placements=5,
             )
         ).tick()
-        assert any(p.job_id == job_id for p in report.placements)
+        assert any(p.job_id == job_id for p in report.placements), report
         row = _job_row(job_id)
         assert row["status"] == "assigned"
         assert row["active_attempt_id"] is not None
@@ -275,277 +279,89 @@ class TestLegacyQueueSkipsOwnedJobs:
             assert _job_row(job_id)["active_attempt_id"] is None
 
 
-class TestDirectHostLaunchDefersOwned:
-    """api_submit_instance host-pin path must not dual-write under canary/active."""
+@pytest.mark.parametrize("mode", ["active", "canary", "paused"])
+def test_host_pin_is_persisted_before_any_assignment(fleet, reset_cp_config, monkeypatch, mode):
+    """Only a later transactional tick may create the attempt and start command."""
+    import scheduler as sched
 
-    def test_direct_launch_defers_owned_job_no_assign_no_ssh(
-        self, fleet, reset_cp_config, monkeypatch
-    ):
-        """Shipped ``_direct_host_launch_or_defer`` refuses owned work.
-
-        Under canary, a host-pinned job matching the partition must stay
-        queued, never receive ``assigned`` via update_job_status, and never
-        call ``run_job`` (SSH). preferred_host_id is recorded for the
-        transactional path.
-        """
-        marker = uuid.uuid4().hex[:8]
-        model = f"RTX-{marker}"
-        host_id = f"h-{marker}-pin"
-        job_id = f"j-{marker}-pin"
-        _mk_host(fleet, host_id, gpu_model=model)
-        _mk_job(fleet, job_id, gpu_model=model)
-
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", model.lower())
-        import scheduler as sched
-
-        monkeypatch.setattr(sched, "_cp_config", None)
-
-        job = {
-            "job_id": job_id,
-            "gpu_model": model,
-            "status": "queued",
-            "name": job_id,
-        }
-        assert not sched.legacy_inline_placement_allowed(job)
-
-        run_job_calls: list = []
-        assign_calls: list = []
-
-        def _spy_run_job(*a, **k):
-            run_job_calls.append((a, k))
-            return "should-not-start"
-
-        def _spy_update(job_id_arg, status, host_id=None, **kw):
-            assign_calls.append((job_id_arg, status, host_id))
-            # Must not advance owned jobs to assigned on this path.
-            return {"job_id": job_id_arg, "status": status, "host_id": host_id}
-
-        monkeypatch.setattr(sched, "run_job", _spy_run_job)
-        # Patch where the launch helper imports them from.
-        import routes.instances as inst_mod
-
-        monkeypatch.setattr(inst_mod, "run_job", _spy_run_job)
-        monkeypatch.setattr(inst_mod, "update_job_status", _spy_update)
-
-        # The deferral wakes the authoritative tick, which may then place the
-        # job *legitimately* — attempt, lease, durable start. Whether it does
-        # depends on canary host scope, and this test used to inherit that from
-        # the developer's `.env`: passing where the test host was out of scope,
-        # failing on a clean checkout where every host is in scope. What is
-        # under test is the direct path, so the tick is recorded, not run.
-        ticks: list = []
-        monkeypatch.setattr(sched, "_control_plane_tick", lambda *a, **k: ticks.append(1))
-
-        host_payload = {
-            "host_id": host_id,
-            "gpu_model": model,
-            "status": "active",
-            "free_vram_gb": 48.0,
-        }
-        result = inst_mod._direct_host_launch_or_defer(
-            job,
-            target_host_id=host_id,
-            target_host=host_payload,
-            image="alpine:latest",
-            pricing_mode="on_demand",
-            num_gpus=1,
-        )
-        assert run_job_calls == []
-        # No assigned transition for owned job on the direct path.
-        assert not any(c[0] == job_id and c[1] == "assigned" for c in assign_calls)
-        row = _job_row(job_id)
-        assert row["status"] == "queued"
-        assert row["active_attempt_id"] is None
-        # preferred pin recorded on payload
-        with _pool.connection() as conn:
-            payload = conn.execute("SELECT payload FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
-        p = payload[0] if not isinstance(payload, dict) else payload["payload"]
-        if isinstance(p, str):
-            p = json.loads(p)
-        assert p.get("preferred_host_id") == host_id
-        assert result is not None
-        assert ticks, "the deferral did not wake the transactional scheduler"
-
-    @pytest.mark.parametrize("agent_version", [None, "1.9.0", "2.2.0"])
-    def test_legacy_direct_launch_hands_agent_hosts_to_the_worker(
-        self, fleet, reset_cp_config, monkeypatch, agent_version
-    ):
-        """Legacy placement must not race a polling worker's container start."""
-        marker = uuid.uuid4().hex[:8]
-        model = f"RTX-LEGACY-{marker}"
-        host_id = f"h-{marker}-leg"
-        job_id = f"j-{marker}-leg"
-        _mk_host(fleet, host_id, gpu_model=model)
-        _mk_job(fleet, job_id, gpu_model=model)
-
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
-        # Canary only owns a different model — this job is free for legacy.
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", "rtx-canary-only")
-        import scheduler as sched
-
-        monkeypatch.setattr(sched, "_cp_config", None)
-
-        job = {
-            "job_id": job_id,
-            "gpu_model": model,
-            "status": "queued",
-            "name": job_id,
-        }
-        assert sched.legacy_inline_placement_allowed(job)
-
-        run_job_calls: list = []
-        import routes.instances as inst_mod
-
-        def _fake_run(job_arg, host, docker_image=None):
-            run_job_calls.append(job_arg.get("job_id"))
-            return f"ctr-{job_arg.get('job_id')}"
-
-        monkeypatch.setattr(inst_mod, "run_job", _fake_run)
-        # list_hosts must see our host for the assign path.
-        monkeypatch.setattr(
-            inst_mod,
-            "list_hosts",
-            lambda active_only=True: [
-                {
-                    "host_id": host_id,
-                    "gpu_model": model,
-                    "status": "active",
-                    "free_vram_gb": 48.0,
-                    "total_vram_gb": 48.0,
-                    "admitted": True,
-                    "agent_version": agent_version,
-                    "capabilities": {"egress_isolation": True},
-                }
-            ],
-        )
-
-        result = inst_mod._direct_host_launch_or_defer(
-            job,
-            target_host_id=host_id,
-            target_host={
-                "host_id": host_id,
-                "gpu_model": model,
-                "status": "active",
-            },
-            image="alpine:latest",
-            pricing_mode="on_demand",
-        )
-        assert run_job_calls == ([] if agent_version else [job_id])
-        row = _job_row(job_id)
-        assert row["status"] == "assigned"
-        assert row["host_id"] == host_id
-        assert result is not None
-
-    def test_api_submit_instance_uses_defer_helper(self):
-        """Structural: host-pin branch routes through the fenced helper."""
-        import inspect
-        import routes.instances as inst_mod
-
-        src = inspect.getsource(inst_mod.api_submit_instance)
-        assert "_direct_host_launch_or_defer" in src
-        # Must not call run_job inline in the submit path anymore.
-        assert "run_job(" not in src
-
-
-class TestProcessAssignedNoDoubleStart:
-    def test_legacy_assignment_on_agent_host_never_starts_via_ssh(self, monkeypatch):
-        import scheduler as sched
-
-        job = {"job_id": "legacy-pull", "status": "assigned", "host_id": "pull-host"}
-        monkeypatch.setattr(sched, "list_jobs", lambda **kw: [job])
-        monkeypatch.setattr(sched, "_attempt_owned_job_ids", lambda: set())
-        monkeypatch.setattr(
-            sched,
-            "list_hosts",
-            lambda **kw: [
-                {"host_id": "pull-host", "agent_version": "2.2.0", "last_seen": 0},
-            ],
-        )
-        with patch.object(sched, "run_job") as start:
-            assert sched.process_assigned() == []
-        start.assert_not_called()
-        assert job["status"] == "assigned"
-
-    def test_ssh_runner_defers_before_resume_or_remote_commands(self):
-        import scheduler as sched
-
-        job = {"job_id": "legacy-pull", "resume_from": {"success": True}}
-        host = {"host_id": "pull-host", "agent_version": "2.2.0"}
-        with (
-            patch.object(sched, "ssh_exec") as ssh,
-            patch.object(sched, "resume_from_checkpoint") as resume,
-        ):
-            assert sched.run_job(job, host) is None
-        ssh.assert_not_called()
-        resume.assert_not_called()
-
-    def test_skips_attempt_owned_and_never_calls_run_job(self, fleet, reset_cp_config, monkeypatch):
-        marker = uuid.uuid4().hex[:8]
-        model = f"RTX-{marker}"
-        host_id = f"h-{marker}-1"
-        job_id = f"j-{marker}-ssh"
-        _mk_host(fleet, host_id, gpu_model=model)
-        _mk_job(fleet, job_id, gpu_model=model)
-
-        cfg = _cfg_canary(marker, [host_id])
-        report = SchedulerService(cfg).tick()
-        assert len(report.placements) == 1
-        assert _job_row(job_id)["active_attempt_id"] is not None
-
-        import scheduler as sched
-
-        run_job_calls: list = []
-
-        def _fake_run_job(job, host, docker_image=None):
-            run_job_calls.append(job.get("job_id"))
-            return "container-should-not-start"
-
-        monkeypatch.setattr(sched, "run_job", _fake_run_job)
-        # process_assigned walks every assigned job in the shared test DB;
-        # only our attempt-owned job is under test (residue must not start it).
-        started = sched.process_assigned()
-        started_ids = {
-            (s[0]["job_id"] if isinstance(s, tuple) else s.get("job_id")) for s in started
-        }
-        assert job_id not in started_ids
-        assert job_id not in run_job_calls
-        # Still assigned; container authority remains the durable command.
-        assert _job_row(job_id)["status"] == "assigned"
-        assert _job_row(job_id)["active_attempt_id"] is not None
-
-    def test_fail_closed_when_ownership_lookup_fails(self, fleet, reset_cp_config, monkeypatch):
-        marker = uuid.uuid4().hex[:8]
-        model = f"RTX-{marker}"
-        host_id = f"h-{marker}-1"
-        # Legacy-style assigned job (no active attempt) — still must not
-        # start if ownership lookup fails, because we cannot prove it is
-        # not fenced.
-        job_id = f"j-{marker}-failclosed"
-        _mk_host(fleet, host_id, gpu_model=model)
-        _mk_job(fleet, job_id, gpu_model=model, status="assigned")
-        with _pool.connection() as conn:
+    marker = uuid.uuid4().hex[:8]
+    model = f"RTX-{marker}"
+    pinned, other = f"h-{marker}-pin", f"h-{marker}-other"
+    _mk_host(fleet, pinned, gpu_model=model)
+    _mk_host(fleet, other, gpu_model=model)
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
+    monkeypatch.setattr(sched, "_cp_config", None)
+    job = sched.submit_job("pinned", 8, gpu_model=model, preferred_host_id=pinned)
+    jid = job["job_id"]
+    fleet["jobs"].append(jid)
+    before = _job_row(jid)
+    assert before["status"] == "queued"
+    assert before["host_id"] is None
+    assert before["active_attempt_id"] is None
+    with _pool.connection() as conn:
+        assert (
             conn.execute(
-                "UPDATE jobs SET host_id=%s, status='assigned' WHERE job_id=%s",
-                (host_id, job_id),
-            )
-            conn.execute(
-                """UPDATE jobs SET payload =
-                       jsonb_set(payload, '{host_id}', to_jsonb(%s::text))
-                    WHERE job_id=%s""",
-                (host_id, job_id),
-            )
-            conn.commit()
-
-        import scheduler as sched
-
-        run_job_calls: list = []
-        monkeypatch.setattr(sched, "_attempt_owned_job_ids", lambda: None)
-        monkeypatch.setattr(
-            sched,
-            "run_job",
-            lambda *a, **k: run_job_calls.append(1) or "c",
+                "SELECT payload->>'preferred_host_id' FROM jobs WHERE job_id=%s", (jid,)
+            ).fetchone()[0]
+            == pinned
         )
-        started = sched.process_assigned()
-        assert started == []
-        assert run_job_calls == []
+        assert (
+            conn.execute("SELECT count(*) FROM agent_commands WHERE job_id=%s", (jid,)).fetchone()[
+                0
+            ]
+            == 0
+        )
+
+    report = SchedulerService(_cfg_canary(marker, [pinned, other])).tick()
+    assert any(p.job_id == jid for p in report.placements)
+    after = _job_row(jid)
+    assert after["host_id"] == pinned
+    assert after["active_attempt_id"] is not None
+    with _pool.connection() as conn:
+        commands = conn.execute(
+            "SELECT host_id,command FROM agent_commands WHERE job_id=%s", (jid,)
+        ).fetchall()
+    assert commands == [(pinned, "start_attempt")]
+
+
+def test_unavailable_pinned_host_does_not_fall_back(fleet, reset_cp_config):
+    import scheduler as sched
+
+    marker = uuid.uuid4().hex[:8]
+    model, other = f"RTX-{marker}", f"h-{marker}-other"
+    _mk_host(fleet, other, gpu_model=model)
+    job = sched.submit_job("missing-pin", 8, gpu_model=model, preferred_host_id="absent-host")
+    jid = job["job_id"]
+    fleet["jobs"].append(jid)
+    SchedulerService(_cfg_canary(marker, [other])).tick()
+    assert _job_row(jid)["status"] == "queued"
+    assert _job_row(jid)["active_attempt_id"] is None
+
+
+@pytest.mark.parametrize("mode", ["paused", "canary"])
+@pytest.mark.parametrize("pin_available", [True, False])
+def test_non_native_queue_respects_host_pin_without_fallback(
+    fleet, reset_cp_config, monkeypatch, mode, pin_available
+):
+    import scheduler as sched
+    from psycopg.types.json import Jsonb
+
+    marker = uuid.uuid4().hex[:10]
+    model = f"pin-model-{marker}"
+    pin, other, jid = f"pin-{marker}", f"other-{marker}", f"job-{marker}"
+    _mk_host(fleet, other, gpu_model=model)
+    if pin_available:
+        _mk_host(fleet, pin, gpu_model=model)
+    _mk_job(fleet, jid, gpu_model=model)
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
+            (Jsonb({"preferred_host_id": pin}), jid),
+        )
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", "different-model")
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_HOSTS", "different-host")
+    sched.process_queue()
+    row = _job_row(jid)
+    assert row["host_id"] == (pin if pin_available else None)
+    assert row["status"] == ("assigned" if pin_available else "queued")

@@ -90,7 +90,74 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `125_oauth_revoked_jtis.py`.**
+**Repository head: `137_allow_native_host_eviction_results.py`.**
+
+133 expands durable weighted scheduling policy, virtual service credit and
+preemption plan records. Default policy enables no evictions. This runtime
+now requires schema 137 for native lifecycle intent and completed host eviction
+results, after the staged handoffs.
+
+132 records explicit historical disposition after qualified recovery. Jobs
+with a recovered execution record or unavailable launch evidence retain their
+original rows and billing/command links, with hashed disposition receipts.
+Historical rows must be terminal and unowned; disposition never invents an
+admission or repairs active authority. The validated exclusion prevents these
+rows being requeued, including after downgrade. New caller admissions remain
+eligible. Terminal records created during the 129-to-native handoff receive
+the same frozen qualification assessment before disposition.
+
+Runtime floor is now 132 for the explicit resume guard. First deploy the
+126-compatible native writers at `dfacc879` (or a separately qualified
+126-compatible descendant), complete handoff and migrations through 132,
+then deploy this runtime. A direct old-production-to-head deployment is not
+qualified by this migration. Repairs remain `report_only`.
+
+126 adds hash-only attempt callback credentials. 127 verifies and archives inactive
+v1 lease history, then drops the obsolete table and its eight columns. Apply 127
+only after the native-only runtime handoff; active/unknown leases or unreviewed
+columns/dependencies abort it. Its downgrade restores the exact archived rows.
+The new runtime requires at least 126 and can run there during that handoff;
+127 is the later contraction step. Do not run a one-shot upgrade to 127 while
+old API/background/scheduler processes can still query the v1 lease table.
+
+128 repairs missing normalized job/host identity from recorded evidence and
+host capabilities from recorded objects. It restores outbox occurrence/digest
+and contract classification metadata without changing source payloads/headers
+or sealed audit rows. Historical tenant/trace IDs come only from original event
+headers. Newly recovered job tenancy can resolve archive attribution. Units
+commit per table, use bounded SKIP LOCKED selection, and refuse incomplete
+locked work; rerun after contention clears. Downgrade retains recovered facts.
+
+129 (`129_qualify_recorded_job_specs.py`) recovers a historical execution spec
+only when its saved job hash agrees with a fenced start command and attempt.
+It records migration-owned assessment evidence for recovered and unavailable
+history; current payload never becomes an invented approved spec. Each batch
+commits independently, detects locked unfinished rows and refuses unrelated
+job-state drift. Downgrade retains recovered specs and provenance.
+
+130 contracts `jobs.phase` and `desired_state` to non-null and requires an
+actual queue timestamp for pending jobs. Missing projections use recorded
+status/submission evidence; unknown history aborts the table unit. The job
+projection bridge now fires only for legacy status/priority/submission writes
+and changes priority only when the raw priority changes. Claims, observations
+and billing metadata no longer erase priority boosts or native intent.
+131 removes both projection triggers and functions. The native writers own
+job phase, intent, priority and queue state; host registration defaults to
+pending administration. A validated host constraint refuses admitted/draining
+administration without normalized operator admission. Existing inconsistent
+authority refuses the host unit rather than being rewritten. Independent host
+and job transactions are resumable; downgrade restores the exact 130/082
+definitions and prior default without rewriting rows. Current-schema fixtures
+now supply explicit native fields; older migration fixtures retain their
+historical shape. The [native writer rehearsal](../docs/review/2026-10-22-native-projection-writers.md)
+and the migration up/down/interrupted-unit gates cover the handoff mechanics.
+
+This is a scoped trigger contraction, not final B16.2 cleanup. Runtime floor
+remains 126. Production rollout requires 126, the native API/worker/service
+handoff, 127, then the later data/column migrations. Before 131, every API,
+scheduler and maintenance replica must run the qualified native writers
+(`c0f4e4f4` or a qualified descendant). An Alembic upgrade is not that handoff.
+The historical payload bridge and unqualified spec histories remain open.
 
 (`125` stores one revoked client-credentials JWT id until that token's own
 expiry. Downgrade drops the table.)
@@ -463,3 +530,34 @@ the declared range in `control_plane/schema_compat.py` if the minimum
 compatible revision moves, the domain assignment in
 `control_plane/db_roles.py` if a table was added, and the relevant Track B
 item.
+
+Migration 134 moves recorded lifecycle intent to a native column. Quiesce every
+API/scheduler/maintenance lifecycle writer for this handoff; apply 134, deploy
+all native intent writers, and reopen only after schema/runtime checks. Old
+JSONB intent writers cannot run concurrently after authority moves. Downgrade
+copies the latest native value (including consumed NULL) back before restoring
+old readers. No projection authority trigger is reintroduced.
+
+135 archives four unused placement projection columns and old payload intent
+keys before removing them. Deploy the 134-compatible canonical preference
+readers and writers that no longer name these columns first; only then apply
+135. No job or financial history is deleted. Downgrade retains archive evidence
+and restores projection values; lifecycle intent remains owned by the column.
+
+
+136 archives and removes only the obsolete `reconcile_paused_stopped` schedule.
+Deploy maintenance workers without that handler first. A live task claim or
+archive mismatch refuses retirement. A database constraint prevents older
+workers from registering it again. Downgrade restores the recorded row and
+retains its archive; it does not execute the retired handler.
+
+
+137 permits a succeeded `evict_host_workloads` action to retain a host resource
+result without inventing a launch job ID. Every prior approval, consumption,
+response and failure constraint remains required. Other action types still need
+a job ID. No job, financial row, column or history is deleted. The unit locks
+only `action_plans` with the migration lock budget. Up/down/up is qualified on
+an isolated database with existing plan rows; downgrade explicitly refuses if
+completed native host actions would violate the older constraint, preserving
+their evidence. Apply 137 before serving the new runtime (floor 137). The frozen
+7757bdc3 image remains the schema-134-compatible intermediate for 134–136.

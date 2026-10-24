@@ -126,7 +126,7 @@
       "id": 3,
       "type": "stat",
       "title": "Services",
-      "description": "Fresh scheduler, reconciler, outbox and maintenance identities. Inspect heartbeat age for a missing service.",
+      "description": "Distinct fresh scheduler, reconciler, outbox and maintenance identities. Shared database observations are deduplicated across API scrape targets; extra replicas do not replace a missing service.",
       "gridPos": {
         "x": 4,
         "y": 1,
@@ -140,7 +140,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(xcelsior_service_heartbeat_fresh_replicas{job=\"xcelsior-api\"})",
+          "expr": "count(max by (service) (xcelsior_service_heartbeat_fresh_replicas{job=\"xcelsior-api\",service=~\"scheduler|reconciler|outbox|maintenance\"}) > 0) or vector(0)",
           "legendFormat": "Services fresh",
           "instant": true,
           "range": false

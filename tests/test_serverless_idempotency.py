@@ -24,6 +24,41 @@ from serverless.webhooks import (
 )
 
 
+@pytest.fixture(autouse=True)
+def controlled_local_webhook_transport(monkeypatch):
+    """Exercise real local delivery/HMAC without weakening production SSRF."""
+    import urllib.request
+    import urllib.error
+    from types import SimpleNamespace
+    import serverless.webhooks as webhooks
+
+    original = webhooks.public_request
+
+    def send(url, *, method, body, headers, timeout, max_response_bytes):
+        if not url.startswith("http://127.0.0.1:"):
+            return original(
+                url,
+                method=method,
+                body=body,
+                headers=headers,
+                timeout=timeout,
+                max_response_bytes=max_response_bytes,
+            )
+        request = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return SimpleNamespace(status=response.status)
+        except urllib.error.HTTPError as exc:
+            return SimpleNamespace(status=exc.code)
+        except urllib.error.URLError as exc:
+            # Match the production transport's typed network-failure contract.
+            from public_http import PublicHTTPError
+
+            raise PublicHTTPError("local webhook connection failed") from exc
+
+    monkeypatch.setattr(webhooks, "public_request", send)
+
+
 @pytest.fixture
 def owner_id():
     return f"cust-{uuid.uuid4().hex[:12]}"
@@ -141,7 +176,7 @@ class TestWebhookRetry:
     def test_retry_pending_delivers_after_backoff(
         self, repo: ServerlessRepo, endpoint: dict, owner_id: str, monkeypatch
     ):
-        server, hook_url, received = self._local_hook()
+        received = []
         attempts = {"n": 0}
 
         class Handler(BaseHTTPRequestHandler):

@@ -23,6 +23,7 @@ from typing import Any
 from control_plane.db import control_plane_transaction, run_transaction
 from control_plane.launch import action_plans as plans_repo
 from control_plane.launch import quoting, spend_policy
+
 # Import the functions from the submodule path directly: the package __init__
 # re-exports a `canonicalize` *function*, which shadows the same-named
 # submodule for attribute access — `from ...canonicalize import` sidesteps it.
@@ -114,9 +115,7 @@ def simulate_placement(spec: dict[str, Any]) -> dict[str, Any]:
     an eligible host". Runs in its own REPEATABLE READ transaction and does
     not hold a lock while it thinks.
     """
-    snapshot = run_transaction(
-        lambda conn: take_snapshot(conn), what="launch_preview_snapshot"
-    )
+    snapshot = run_transaction(lambda conn: take_snapshot(conn), what="launch_preview_snapshot")
     job = {
         "gpu_model": spec.get("gpu_model"),
         "num_gpus": spec.get("num_gpus"),
@@ -171,9 +170,7 @@ def preview(
         policy = plans_repo.load_client_policy(
             conn, client_id=principal.client_id, tenant_id=principal.tenant_id
         )
-        decision = spend_policy.evaluate(
-            spec, estimate_micros=quote.estimate_micros, policy=policy
-        )
+        decision = spend_policy.evaluate(spec, estimate_micros=quote.estimate_micros, policy=policy)
         plan = plans_repo.create_quoted_plan(
             conn,
             action_type=action_type,
@@ -208,9 +205,9 @@ def preview(
         "availability": availability,
         "expires_at": _iso(plan["expires_at"]),
         "next_action": "approve",
-        "approval_url": f"/dashboard/launch-plans/{plan_id}"
-        if decision.approval_mode == "human"
-        else None,
+        "approval_url": (
+            f"/dashboard/launch-plans/{plan_id}" if decision.approval_mode == "human" else None
+        ),
         "required_scopes": required_scopes,
     }
 
@@ -302,9 +299,7 @@ def approve(
         if status == "approved":
             return {"ok": True, "plan": _plan_view(plan), "idempotent": True}
         if status not in ("quoted", "awaiting_approval"):
-            raise PlanConflict(
-                "plan_not_approvable", f"a {status} plan cannot be approved"
-            )
+            raise PlanConflict("plan_not_approvable", f"a {status} plan cannot be approved")
         if plans_repo.is_expired(plan):
             # Lazy expiry on access: persist the terminal transition durably
             # (it commits with this transaction), then refuse *after* the block
@@ -378,9 +373,7 @@ def revoke(plan_id: str, *, principal: Principal, reason: str = "") -> dict[str,
         if status == "revoked":
             return {"ok": True, "plan": _plan_view(plan), "idempotent": True}
         if status not in ("quoted", "awaiting_approval", "approved"):
-            raise PlanConflict(
-                "plan_not_revocable", f"a {status} plan cannot be revoked"
-            )
+            raise PlanConflict("plan_not_revocable", f"a {status} plan cannot be revoked")
         updated = plans_repo.mark_revoked(conn, plan_id, reason=reason or "revoked by owner")
         return {"ok": True, "plan": _plan_view(updated), "idempotent": False}
 
@@ -438,6 +431,7 @@ def _submit_from_spec(
         region=spec.get("region") or "",
         trace_id=trace_id,
         job_id=job_id,
+        admitted_launch_spec=spec,
     )
 
 
@@ -463,6 +457,10 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
 
     with control_plane_transaction() as conn:
         plan = _load_owned_for_update(conn, plan_id, principal)
+        if plan["action_type"] != "create_instance":
+            raise PlanConflict(
+                "wrong_action_type", "this plan does not authorize an instance launch"
+            )
         status = str(plan["status"])
 
         # Exactly-once replay.
@@ -491,9 +489,7 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
             spec = dict(plan["canonical_args"])
             # Integrity: the spec must still hash to what was quoted (§14.3).
             if _spec_hash(spec) != str(plan["canonical_args_hash"]):
-                raise PlanConflict(
-                    "spec_hash_mismatch", "plan arguments failed integrity check"
-                )
+                raise PlanConflict("spec_hash_mismatch", "plan arguments failed integrity check")
 
             # Re-quote and enforce tolerance (§15.4).
             requote = quoting.quote_launch(spec)
@@ -526,9 +522,7 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                             daily_limit_micros=policy.get("daily_spend_max_micros"),
                         )
                     except spend_counters.SpendLimitExceeded as exc:
-                        raise PlanConflict(
-                            f"{exc.window}_spend_limit_exceeded", str(exc)
-                        ) from exc
+                        raise PlanConflict(f"{exc.window}_spend_limit_exceeded", str(exc)) from exc
                     except spend_counters.SpendCounterUnavailable as exc:
                         raise LaunchPlanError(
                             "spend_counter_unavailable",

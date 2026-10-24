@@ -61,6 +61,11 @@ ALIASES: tuple[tuple[str, str, str], ...] = (
     ("/agent/mining-alert", "POST", "/agent/v2/mining-alert"),
     # Worker protocol that was filed under product prefixes.
     (
+        "/instances/{job_id}/auto-launch/report",
+        "POST",
+        "/agent/v2/instances/{job_id}/auto-launch/report",
+    ),
+    (
         "/instances/{job_id}/http-ports/report",
         "POST",
         "/agent/v2/instances/{job_id}/http-ports/report",

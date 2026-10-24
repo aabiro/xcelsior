@@ -26,6 +26,8 @@ the number is for.
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import os
 import time
@@ -63,9 +65,18 @@ def jobs_with_known_outcomes():
         for status in ("completed", "failed", "cancelled", "running"):
             job_id = f"j-fr-{uuid.uuid4().hex[:8]}"
             conn.execute(
-                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-                   VALUES (%s, %s, 0, %s, %s)""",
-                (job_id, status, now - 60, json.dumps({"job_id": job_id})),
+                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+                   VALUES (%s, %s, 0, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+                (
+                    job_id,
+                    status,
+                    now - 60,
+                    json.dumps({"job_id": job_id}),
+                    job_phase(status),
+                    initial_desired_state(status),
+                    status,
+                    now - 60,
+                ),
             )
             made.append(job_id)
         conn.commit()

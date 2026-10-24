@@ -60,8 +60,8 @@ def cleanup():
 def _mk_host(cleanup, host_id: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id, "gpu_model": "A100"})),
         )
@@ -84,8 +84,8 @@ def _mk_legacy_job(cleanup, *, host_id: str, owner: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, 'completed', 0, %s, %s, %s)""",
+                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'completed', 0, %s, %s, %s, 'succeeded', 'running', 0, NULL)""",
             (job_id, now - 3600, host_id, json.dumps(payload)),
         )
         conn.commit()
@@ -110,8 +110,8 @@ def _mk_attempt_owned_job(cleanup, *, host_id: str, owner: str) -> tuple[str, st
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id)
-               VALUES (%s, 'completed', 0, %s, %s, %s, NULL)""",
+                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'completed', 0, %s, %s, %s, NULL, 'succeeded', 'running', 0, NULL)""",
             (job_id, now - 1800, host_id, json.dumps(payload)),
         )
         conn.execute(
@@ -277,8 +277,8 @@ def test_active_attempt_on_job_row_preferred(cleanup):
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id)
-               VALUES (%s, 'running', 0, %s, %s, %s, NULL)""",
+                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'running', 0, %s, %s, %s, NULL, 'running', 'running', 0, NULL)""",
             (
                 job_id,
                 now,

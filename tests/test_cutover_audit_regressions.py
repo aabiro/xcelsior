@@ -25,7 +25,6 @@ def journal(monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "_V2_JOURNAL_PATH", str(tmp_path / "journal.json"))
     monkeypatch.setattr(worker, "_v2_enabled", True)
     monkeypatch.setattr(worker, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", False)
     monkeypatch.setattr(worker, "_report_agent_degraded", mock.Mock())
     return tmp_path / "journal.json"
 

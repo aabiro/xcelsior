@@ -5,6 +5,10 @@ rows, capacity charging across a cycle, the old-vs-new comparator's
 classification matrix, retention pruning, and the mismatch-rate rollup.
 """
 
+from tests.native_jobs import admit_fixture_job
+
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -36,6 +40,9 @@ from control_plane.scheduler.shadow import (
     summarize_comparisons,
 )
 from control_plane.scheduler.snapshot import SchedulerSnapshot, take_snapshot
+from control_plane.inventory import sync_host_gpu_inventory
+from control_plane.scheduler.claim import claim_next_job
+from control_plane.scheduler.reservation import reserve_and_bind
 
 
 @pytest.fixture
@@ -128,11 +135,24 @@ def _mk_job(
         "priority": priority,
     }
     with _pool.connection() as conn:
+        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (job_id, status, priority, time.time(), json.dumps(payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                priority,
+                fixture_submitted_at,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                priority,
+                status,
+                fixture_submitted_at,
+            ),
         )
+        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     return payload
@@ -172,7 +192,7 @@ class TestSnapshot:
     def test_snapshot_projections_and_capacity(self, fleet):
         marker = uuid.uuid4().hex[:8]
         model = f"TESTGPU-{marker}"
-        _mk_host(fleet, f"h-{marker}-a", gpu_model=model, gpu_count=2)
+        host = _mk_host(fleet, f"h-{marker}-a", gpu_model=model, gpu_count=2)
         # Stale host: last heartbeat far in the past.
         _mk_host(
             fleet,
@@ -182,17 +202,23 @@ class TestSnapshot:
         )
         _mk_job(fleet, f"j-{marker}-hi", gpu_model=model, priority=5)
         _mk_job(fleet, f"j-{marker}-lo", gpu_model=model, priority=1)
-        # Active job consumes one of host-a's two GPUs.
+        # A real reservation consumes one of host-a's two GPUs.
         _mk_job(
             fleet,
             f"j-{marker}-run",
             gpu_model=model,
-            status="running",
+            priority=10,
         )
         with _pool.connection() as conn:
-            conn.execute(
-                "UPDATE jobs SET host_id=%s WHERE job_id=%s",
-                (f"h-{marker}-a", f"j-{marker}-run"),
+            sync_host_gpu_inventory(conn, host)
+            claim = claim_next_job(conn, replica_id="snapshot-test", scope_gpu_models=[model])
+            assert claim and claim.job_id == f"j-{marker}-run"
+            reserve_and_bind(
+                conn,
+                job_id=claim.job_id,
+                claim_token=claim.claim_token,
+                replica_id="snapshot-test",
+                host_id=f"h-{marker}-a",
             )
             conn.commit()
 
@@ -209,9 +235,17 @@ class TestSnapshot:
         hosts = {h["host_id"]: h for h in snap.hosts}
         host_a = hosts[f"h-{marker}-a"]
         assert host_a["administrative_state"] == "admitted"
-        assert host_a["free_gpu_count"] == 1  # 2 GPUs - 1 running job
+        assert host_a["free_gpu_count"] == 1
         assert f"h-{marker}-stale" in snap.stale_host_ids
         assert f"h-{marker}-a" not in snap.stale_host_ids
+        with _pool.connection() as conn:
+            conn.execute("UPDATE jobs SET status='completed' WHERE job_id=%s", (f"j-{marker}-run",))
+        with control_plane_transaction() as conn:
+            after = take_snapshot(conn)
+        # A compatibility status cannot release the live device allocation.
+        assert (
+            next(h for h in after.hosts if h["host_id"] == f"h-{marker}-a")["free_gpu_count"] == 1
+        )
 
 
 class TestSimulation:
@@ -298,11 +332,11 @@ class TestShadowRunner:
         # 'stuck' queued, and 'gone' disappears entirely.
         with _pool.connection() as conn:
             conn.execute(
-                "UPDATE jobs SET status='assigned', host_id=%s WHERE job_id=%s",
+                """UPDATE jobs SET status='assigned', phase='scheduled', desired_state='running', host_id=%s WHERE job_id=%s""",
                 (agree_host, f"j-{marker}-agree"),
             )
             conn.execute(
-                "UPDATE jobs SET status='assigned', host_id=%s WHERE job_id=%s",
+                """UPDATE jobs SET status='assigned', phase='scheduled', desired_state='running', host_id=%s WHERE job_id=%s""",
                 (other_host, f"j-{marker}-differ"),
             )
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (f"j-{marker}-gone",))

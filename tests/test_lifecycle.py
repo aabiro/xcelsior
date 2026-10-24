@@ -28,7 +28,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 _BILLING_SRC = (_ROOT / "billing" / "billing.py").read_text()
 _SCHEDULER_SRC = (_ROOT / "workers" / "scheduler.py").read_text()
 _ROUTES_SRC = (_ROOT / "api" / "routes" / "instances.py").read_text()
-_MIGRATION_SRC = (_ROOT / "api" / "migrations" / "versions" / "019_instance_lifecycle.py").read_text()
+_MIGRATION_SRC = (
+    _ROOT / "api" / "migrations" / "versions" / "019_instance_lifecycle.py"
+).read_text()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -311,54 +313,6 @@ class TestLifecycleStateMachine:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestSchedulerLifecycleHelpers:
-    """Verify scheduler lifecycle helper functions are defined."""
-
-    def test_stop_container_graceful_exists(self):
-        import scheduler
-
-        assert hasattr(scheduler, "stop_container_graceful")
-        assert callable(scheduler.stop_container_graceful)
-
-    def test_start_stopped_container_exists(self):
-        import scheduler
-
-        assert hasattr(scheduler, "start_stopped_container")
-        assert callable(scheduler.start_stopped_container)
-
-    def test_terminate_job_exists(self):
-        import scheduler
-
-        assert hasattr(scheduler, "terminate_job")
-        assert callable(scheduler.terminate_job)
-
-    def test_stop_container_graceful_uses_docker_stop(self):
-        """docker stop -t 10 should appear in source."""
-        assert "docker stop" in _SCHEDULER_SRC
-        assert (
-            "-t 10" in _SCHEDULER_SRC or "t=10" in _SCHEDULER_SRC or '"-t", "10"' in _SCHEDULER_SRC
-        )
-
-    def test_start_stopped_container_uses_docker_start(self):
-        assert "docker start" in _SCHEDULER_SRC
-
-    def test_terminate_job_uses_docker_kill_and_rm(self):
-        assert "docker kill" in _SCHEDULER_SRC
-        assert "docker rm" in _SCHEDULER_SRC
-
-    def test_stop_container_graceful_returns_bool(self):
-        """Source declares a bool return — just verifies no import error."""
-        import scheduler
-
-        # Function should be callable without error (won't actually run docker)
-        assert callable(scheduler.stop_container_graceful)
-
-    def test_start_stopped_container_returns_bool(self):
-        import scheduler
-
-        assert callable(scheduler.start_stopped_container)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 6. billing.py — Structure & Constants
 # ═══════════════════════════════════════════════════════════════════════
@@ -418,12 +372,12 @@ class TestBillingLifecycleStructure:
         assert "BC-term-" in _BILLING_SRC
 
     def test_auto_billing_cycle_has_storage_section(self):
-        assert "storage_billing_rates" in _BILLING_SRC
-        assert "storage_gb" in _BILLING_SRC
-        assert "storage_type" in _BILLING_SRC
+        assert "FROM volumes WHERE status IN" in _BILLING_SRC
+        assert "storage_billing_rates" not in _BILLING_SRC
+        assert "storage_rate_cad_per_gb_hr" not in _BILLING_SRC
 
-    def test_storage_billing_uses_stopped_status(self):
-        assert "status = 'stopped'" in _BILLING_SRC or 'status = "stopped"' in _BILLING_SRC
+    def test_storage_billing_uses_normalized_volume_records(self):
+        assert "FROM volumes WHERE status IN ('available', 'attached')" in _BILLING_SRC
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -469,44 +423,25 @@ class TestBillingStopInstance:
             )
         )
 
-    def test_stop_calls_stop_container_graceful(self):
-        """stop_instance calls scheduler.stop_container_graceful on a running job."""
-        from billing import BillingEngine
-
-        be = BillingEngine.__new__(BillingEngine)
-
-        job_row = {
-            "job_id": "j1",
-            "status": "running",
-            "host_id": "h1",
-            "owner": "user@test.com",
-            "name": "test-instance",
-            "container_name": "xcl-j1",
-        }
-
-        pool = _mock_pool(job_row=job_row)
-        with patch("db._get_pg_pool", return_value=pool):
-            with patch("scheduler.stop_container_graceful", return_value=True) as mock_stop:
-                # We just check the function is referenced; full mock is complex
-                pass
-
-        # Structural check: stop enqueues pause_container (preserves container for restart)
-        assert "pause_container" in _BILLING_SRC
-
 
 class TestBillingStartInstance:
     """Unit tests for BillingEngine.start_instance."""
 
-    def test_start_calls_start_stopped_container(self):
-        assert "start_container" in _BILLING_SRC
+    def test_start_requires_fresh_native_attempt(self):
+        assert "start_container" not in _BILLING_SRC
+        assert "request_fresh_attempt_resume" in _BILLING_SRC
 
     def test_start_checks_wallet_balance(self):
         """start_instance must check wallet balance before starting."""
         assert "insufficient_balance" in _BILLING_SRC or "balance_cad" in _BILLING_SRC
 
-    def test_start_transitions_through_restarting(self):
-        """Transitional state 'restarting' must be used during start."""
-        assert "restarting" in _BILLING_SRC
+    def test_start_does_not_optimistically_mark_running(self):
+        import inspect
+        from billing import BillingEngine
+
+        src = inspect.getsource(BillingEngine.start_instance)
+        assert '"status": "queued"' in src
+        assert '"status": "running"' not in src
 
     def test_start_instance_returns_started_key(self):
         """Return dict must include 'started' key."""
@@ -516,9 +451,10 @@ class TestBillingStartInstance:
 class TestBillingRestartInstance:
     """Unit tests for BillingEngine.restart_instance."""
 
-    def test_restart_calls_stop_and_start_helpers(self):
-        assert "pause_container" in _BILLING_SRC
-        assert "start_container" in _BILLING_SRC
+    def test_restart_uses_fenced_lifecycle(self):
+        assert "pause_container" not in _BILLING_SRC
+        assert "start_container" not in _BILLING_SRC
+        assert "request_fenced_stop_remove" in _BILLING_SRC
 
     def test_restart_works_from_running_and_stopped(self):
         """Source must handle both 'running' and 'stopped' input states."""
@@ -540,7 +476,8 @@ class TestBillingTerminateInstance:
     """Unit tests for BillingEngine.terminate_instance."""
 
     def test_terminate_calls_terminate_job_helper(self):
-        assert "terminate_job" in _BILLING_SRC
+        assert "terminate_job" not in _BILLING_SRC
+        assert "request_fenced_stop_remove" in _BILLING_SRC
 
     def test_terminate_creates_final_billing_cycle(self):
         """A final billing anchor with status='terminated' is inserted."""
@@ -548,7 +485,10 @@ class TestBillingTerminateInstance:
         assert "BC-term-" in _BILLING_SRC
 
     def test_terminate_sets_terminated_at_in_payload(self):
-        assert "terminated_at" in _BILLING_SRC
+        from control_plane import lifecycle
+        import inspect
+
+        assert "terminated_at" in inspect.getsource(lifecycle.request_unplaced_termination)
 
     def test_terminate_guards_against_already_terminal(self):
         """Query must exclude already-terminal statuses."""
@@ -568,45 +508,13 @@ class TestBillingTerminateInstance:
 
 
 class TestBillingStorageCycle:
-    """Verify auto_billing_cycle has correct storage billing logic."""
+    """Job observations cannot authorize a second charge beside native volumes."""
 
-    def test_auto_billing_cycle_exists(self):
-        from billing import BillingEngine
-
-        assert hasattr(BillingEngine, "auto_billing_cycle")
-        assert callable(BillingEngine.auto_billing_cycle)
-
-    def test_storage_billing_queries_stopped_jobs(self):
-        assert "status = 'stopped'" in _BILLING_SRC or "j.status = 'stopped'" in _BILLING_SRC
-
-    def test_storage_billing_reads_storage_gb(self):
-        assert "storage_gb" in _BILLING_SRC
-
-    def test_storage_billing_reads_storage_type(self):
-        assert "storage_type" in _BILLING_SRC
-
-    def test_storage_billing_uses_rate_table(self):
-        assert "storage_billing_rates" in _BILLING_SRC
-        assert "rate_cad_per_gb_hr" in _BILLING_SRC
-
-    def test_storage_billing_has_graceful_fallback(self):
-        """If the table doesn't exist yet, falls back to cached_rate."""
-        assert "cached_rate" in _BILLING_SRC
-
-    def test_storage_billing_uses_skip_locked(self):
-        """SKIP LOCKED prevents double-billing from concurrent ticks."""
-        assert "SKIP LOCKED" in _BILLING_SRC
-
-    def test_storage_billing_uses_stopped_at_anchor(self):
-        """Storage billing starts from stopped_at, not job created_at."""
-        assert "stopped_at" in _BILLING_SRC
-
-    def test_storage_billing_records_storage_cycle_id(self):
-        """Storage billing cycles are prefixed SC-."""
-        assert "SC-" in _BILLING_SRC
-
-    def test_auto_billing_cycle_returns_storage_billed_key(self):
-        assert "storage_billed" in _BILLING_SRC
+    def test_no_observation_based_storage_charge(self):
+        for field in ("storage_gb", "storage_rate_cad_per_gb_hr", "cached_rate", "SC-"):
+            assert field not in _BILLING_SRC
+        assert "volume_billed" in _BILLING_SRC
+        assert "storage_billed" in _BILLING_SRC  # retained response key, always zero
 
 
 # ═══════════════════════════════════════════════════════════════════════

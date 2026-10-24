@@ -1,0 +1,167 @@
+{
+  "recorded_at": "2026-10-22T22:38:47.527279+00:00",
+  "base_commit": "10b7914d3a33f2d0d901d5618d58c3736530914b",
+  "scope": "canonical job admission and one immutable execution identity through native placement, callbacks and settlement",
+  "behavior": {
+    "admission": "new PostgreSQL inserts populate jobs.spec/spec_hash; observations never replace them",
+    "hashes": "exact approved logical launch args/hash retained inside the server-selected execution snapshot; attempts and commands bind execution hash",
+    "idempotency": "submission retries preserve current job status/assignment and refuse different execution inputs",
+    "scheduling": "native scope/filtering/capacity and compatibility ownership prefer stored execution inputs; GPU/VRAM requirements derive under reservation lock",
+    "integrity": "invalid/missing/unsupported hashes and changed authority cannot reserve; scheduler records qualification reason and backoff",
+    "serverless": "callback mint/auth, stop, cancellation, terminal settlement and expiry use the admitted worker/endpoint/type",
+    "historical_bridge": "rows without specs freeze exact legacy evidence on first successful reservation; recorded hashes are never replaced to conceal disagreement"
+  },
+  "validation": {
+    "expanded": {
+      "tests": 2513,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "tests": 199,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "baseline_exclusions": [
+      "tests/test_instance_flow.py::TestDockerComposeSmoke",
+      "tests/test_migration_ledger.py::test_real_chain_contract_cleanup_placement",
+      "tests/test_companion_schema_discipline.py::test_companion_conformance_prose_matches_the_database"
+    ],
+    "pyright": {
+      "filesAnalyzed": 245,
+      "errorCount": 0,
+      "warningCount": 0,
+      "informationCount": 0,
+      "timeInSec": 27.018
+    },
+    "black_python_files": 18,
+    "ruff": "repository passed",
+    "signatures_verified": 12,
+    "full_manifest_sha256": "3e673d5c3d19f61f630c94755869bf9dc8f9ae537a6bb92659ebed40d2c37348",
+    "focused_manifest_sha256": "3b78815d3bcbd3460ac9fc42b4c879078d1ec7257661c6dac81e9f07dbfff5d7",
+    "postgres": "real disposable PostgreSQL",
+    "worker_handoff": "real FastAPI claim/status and callback authentication; Docker execution isolated",
+    "scratch_postgres_removed": true,
+    "scratch_redis_removed": true
+  },
+  "source_sha256": {
+    "api/routes/agent_v2.py": "afe006a77d32afa20dfe7ced1a7a94dd72f41cc576197740f671ee3f8c611b00",
+    "api/serverless/service.py": "74f2fa2fe030fbe68a0d85fca3feb40ccc152cfa99686e354f00715111abd429",
+    "control_plane/attempts.py": "6c4cbdb33f250e5d6a1f73899d8a7bdd56e3b029dc6ab61173ba53051add2f72",
+    "control_plane/job_specs.py": "d3a721ad01ddc93458329c768e9e6d78cf0ce657be7a13e737967c8fbcb78089",
+    "control_plane/launch/canonicalize.py": "b3be2f1749cf5b1708459a807e792277cb247d3d19d14fd87cd0631582e7eeb7",
+    "control_plane/launch/service.py": "bc82c7ec40e05ccdf215fb43fe074f12122a3ba2763f5a056ab7fb2de2e26d15",
+    "control_plane/leases.py": "5bf411a8fabdf621af319711777f510be194a14ccebafadd9fff662eb63220a7",
+    "control_plane/scheduler/claim.py": "cbfc33d4cc713c391b1fa03c30a20d8dc27fa05a10afb21148f3d6b63ed203ab",
+    "control_plane/scheduler/reservation.py": "802bed80199b472193c89f5a23e4fef32992d671c1d43a359928698592025d67",
+    "control_plane/scheduler/service.py": "7dee9516459bf0b180807a80277448720fdf8931bc2bded6b22f48157907a10b",
+    "control_plane/scheduler/snapshot.py": "92e6c24439d59d59af4f323c1433a6a7a9b08db9cecfc7406f297efb5e1f5332",
+    "control_plane/serverless_credentials.py": "1b13d75550a23f708d1f2df126494d5f9eed9ec8f3dc0c23c57d98f899f2b700",
+    "control_plane/serverless_workers.py": "62d8de1e900caa6cc6bc4abcdca13e28ce2a185d6357e6843a72291153ed011e",
+    "core/db.py": "b61d1bd9987e0006d5f91d5bd57bc4f61410ae8ea800a6d9227d61a8f87563bf",
+    "tests/test_job_spec_admission.py": "df49fccb501a0bd256869a76d8209fb48d4e5049275ac9657b4a5239b2948056",
+    "tests/test_launch_plan_execute.py": "10da376554c73934608f396091ef9aca9d843fb8de2c1b627fc57313532bbe11",
+    "tests/test_serverless_native_lifecycle.py": "d0f571fc77070a723a5c154ef8c09933ea83cbca4964cacab133ff66ed39d8e2",
+    "workers/scheduler.py": "b09286c7f8a23e3d032d61b788b8838816adf0fbdf6c51cc828ff44176a4f6bb"
+  },
+  "production": {
+    "deployed": false,
+    "migrations_applied": false,
+    "worker_restarts": false,
+    "schema": [
+      [
+        "125"
+      ]
+    ],
+    "repair_modes": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "protected_job_hashes_unchanged": true,
+    "legacy_leases_unchanged": true,
+    "service_images_and_pids_unchanged": true
+  },
+  "historical_qualification": {
+    "collected_at": "2026-10-22T22:31:33.545057+00:00",
+    "counts": {
+      "hash_missing": 360,
+      "jobs": 364,
+      "legacy_payload_differs_from_recorded_hash": 4,
+      "legacy_payload_matches_recorded_hash": 0,
+      "spec_missing": 364,
+      "spec_present": 0,
+      "stored_spec_hash_mismatch": 0
+    },
+    "database": "xcelsior",
+    "historical_hashes_with_matching_command_and_attempt": 4,
+    "port": 5434,
+    "read_only": true,
+    "schema": "125",
+    "status_spec_population": [
+      [
+        "cancelled",
+        false,
+        false,
+        77
+      ],
+      [
+        "completed",
+        false,
+        false,
+        3
+      ],
+      [
+        "completed",
+        false,
+        true,
+        1
+      ],
+      [
+        "failed",
+        false,
+        false,
+        246
+      ],
+      [
+        "failed",
+        false,
+        true,
+        3
+      ],
+      [
+        "stopped",
+        false,
+        false,
+        12
+      ],
+      [
+        "terminated",
+        false,
+        false,
+        22
+      ]
+    ],
+    "transitional_triggers": [
+      "trg_hosts_control_plane_projection",
+      "trg_jobs_control_plane_projection"
+    ]
+  },
+  "unrelated_root_paths_preserved": 9,
+  "remaining": [
+    "reviewed historical spec qualification/backfill and payload bridge removal",
+    "canonical column and transitional trigger contraction",
+    "remaining JSONB compatibility and all-table semantic review",
+    "historical data disposition",
+    "durable fairness/preemption",
+    "coordinated production rollout and live GPU acceptance; repairs stay report_only"
+  ],
+  "local_evidence": "/mnt/storage/projects/xcelsior/artifacts/canonical-admission-cutover-20261022"
+}

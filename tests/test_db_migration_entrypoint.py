@@ -17,8 +17,9 @@ spec.loader.exec_module(entrypoint)
 
 
 @pytest.mark.parametrize("strict,credential", [(True, True), (True, False), (False, False)])
+@pytest.mark.parametrize("target", ["head", "126", "134", "135"])
 def test_deploy_credential_injection_is_one_shot_and_fails_closed(
-    tmp_path, monkeypatch, strict, credential
+    tmp_path, monkeypatch, strict, credential, target
 ):
     for key in list(os.environ):
         if key.startswith("XCELSIOR_"):
@@ -49,17 +50,23 @@ def test_deploy_credential_injection_is_one_shot_and_fails_closed(
         private.chmod(0o600)
     if strict and not credential:
         with pytest.raises(RuntimeError, match="private migration credential"):
-            entrypoint.run(tmp_path, private)
+            entrypoint.run(tmp_path, private, target=target)
         assert not observed.exists()
     else:
-        assert entrypoint.run(tmp_path, private) == 0
+        assert entrypoint.run(tmp_path, private, target=target) == 0
         invocation = json.loads(observed.read_text())
         assert invocation["credential"] == ("private-fixture" if credential else None)
         assert "private-fixture" not in json.dumps(invocation["argv"])
-        assert invocation["argv"][-6:] == ["api", "python", "-m", "alembic", "upgrade", "head"]
+        assert invocation["argv"][-6:] == ["api", "python", "-m", "alembic", "upgrade", target]
         if credential:
             assert "XCELSIOR_POSTGRES_DSN_MIGRATOR" in invocation["argv"]
             private.chmod(0o644)
             with pytest.raises(RuntimeError, match="must be private"):
                 entrypoint.run(tmp_path, private)
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("target", ["+2", "134:135", "134;echo unsafe", "base", "1"])
+def test_staged_target_refuses_relative_or_unreviewed_revision_shapes(tmp_path, target):
+    with pytest.raises(RuntimeError, match="absolute three-digit"):
+        entrypoint.run(tmp_path, tmp_path / "missing", target=target)

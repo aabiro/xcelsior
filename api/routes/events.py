@@ -20,14 +20,17 @@ router = APIRouter()
 
 @router.get("/api/events/leases/{job_id}", tags=["Events"])
 def api_get_lease(job_id: str, request: Request):
-    """Get active lease for a job."""
+    """Get the current fenced placement lease for a job."""
     user = _require_auth(request)
     _require_scope(user, "events:read")
     from routes.instances import _check_job_access
 
     _check_job_access(user, job_id)
-    store = get_event_store()
-    lease = store.get_active_lease(job_id)
+    from control_plane.lease_views import current_lease_view
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        lease = current_lease_view(conn, job_id)
     if not lease:
         raise HTTPException(status_code=404, detail=f"No active lease for job {job_id}")
     return {"ok": True, "lease": lease}

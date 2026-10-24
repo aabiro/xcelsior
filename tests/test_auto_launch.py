@@ -17,7 +17,13 @@ actually fork docker.
 
 from __future__ import annotations
 
+from control_plane.state import host_states, initial_desired_state, job_phase
+
 import subprocess
+import functools
+import hashlib
+import threading
+from types import SimpleNamespace
 from typing import Any, List
 
 import pytest
@@ -43,8 +49,21 @@ def captured_calls(monkeypatch: pytest.MonkeyPatch) -> List[List[str]]:
     # Silence the log-shipping helper so tests don't hit the network.
     monkeypatch.setattr(wa, "_push_log_lines", lambda *a, **kw: None)
 
-    # Don't call the report endpoint during tests.
-    monkeypatch.setenv("XCELSIOR_API_URL", "")
+    auth = {
+        "job_id": "jobA",
+        "attempt_id": "attempt-A",
+        "lease_id": "lease-A",
+        "fencing_token": 1,
+        "container_name": "container1",
+        "stop": threading.Event(),
+    }
+    monkeypatch.setattr(wa, "_v2_attempts", {"jobA": auth})
+    monkeypatch.setattr(wa, "_v2_journal_save", lambda: True)
+    monkeypatch.setattr(wa, "_api_request", lambda *a, **kw: SimpleNamespace(status_code=200))
+    monkeypatch.setattr(wa, "_api_headers", lambda: {})
+    monkeypatch.setattr(
+        wa, "_run_auto_launch", functools.partial(wa._run_auto_launch, expected_auth=auth)
+    )
     return calls
 
 
@@ -132,17 +151,17 @@ def test_unknown_service_skipped(captured_calls):
     assert captured_calls == []
 
 
-def test_token_is_deterministic(monkeypatch: pytest.MonkeyPatch):
+def test_service_tokens_are_independent_of_public_job_ids_and_host_secrets(monkeypatch):
     import worker_agent as wa
 
-    monkeypatch.setenv("HOST_SECRET", "s3cret")
+    monkeypatch.delenv("HOST_SECRET", raising=False)
+    monkeypatch.delenv("XCELSIOR_HOST_SECRET", raising=False)
     t1 = wa._auto_launch_token("jobA")
     t2 = wa._auto_launch_token("jobA")
     t3 = wa._auto_launch_token("jobB")
 
-    assert t1 == t2
-    assert t1 != t3
-    assert len(t1) == 32
+    assert len({t1, t2, t3}) == 3
+    assert all(len(token) == 32 and int(token, 16) >= 0 for token in (t1, t2, t3))
 
 
 def test_csv_auto_launch_string_accepted(captured_calls):
@@ -181,6 +200,7 @@ import api as _iapi  # noqa: E402
 import routes.instances as _irinst  # noqa: E402
 
 _TOKEN_HEX = "a" * 32
+_TOKEN_SHA = hashlib.sha256(_TOKEN_HEX.encode()).hexdigest()[:8]
 
 
 # ── JobIn model-validator unit tests ────────────────────────────────────
@@ -253,51 +273,10 @@ def api_client() -> "_IIterator[_ITestClient]":
 
 @pytest.fixture
 def api_seeded_job():
-    from db import _get_pg_pool
+    from tests.fixtures.native_runtime import running_instance
 
-    pool = _get_pg_pool()
-    job_id = f"abcd{_iuuid.uuid4().hex[:20]}"
-    host_id = f"host-al-{_iuuid.uuid4().hex[:8]}"
-    now = _itime.time()
-    host_payload = {
-        "host_id": host_id,
-        "status": "active",
-        "owner": "alice",
-        "registered_at": now,
-        "ip": "100.64.1.42",
-    }
-    job_payload = {
-        "job_id": job_id,
-        "status": "running",
-        "owner": "alice",
-        "host": host_id,
-        "host_id": host_id,
-        "image": "python:3.11",
-        "name": "al-test",
-        "submitted_at": now,
-        "auto_launch": ["jupyter", "vscode"],
-        "exposed_ports": [8888, 8443],
-    }
-    with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s,%s,%s,%s::jsonb, 'admitted') "
-            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
-            (host_id, "active", now, _ijson.dumps(host_payload)),
-        )
-        conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s,%s,0,%s,%s,%s::jsonb)",
-            (job_id, "running", now, host_id, _ijson.dumps(job_payload)),
-        )
-        conn.commit()
-
-    yield {"job_id": job_id, "host_id": host_id, "slug": job_id[:12]}
-
-    with pool.connection() as conn:
-        conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM hosts WHERE host_id=%s", (host_id,))
-        conn.commit()
+    with running_instance() as instance:
+        yield instance
 
 
 def _api_set_http_ports(job_id: str, ports: dict) -> None:
@@ -317,8 +296,9 @@ def test_report_persists_full_token(api_client, api_seeded_job):
         f"/instances/{api_seeded_job['job_id']}/auto-launch/report",
         json={
             "host_id": api_seeded_job["host_id"],
+            **api_seeded_job["authority"],
             "ports": {"jupyter": 8888, "vscode": 8443},
-            "token_sha": "abcdef01",
+            "token_sha": _TOKEN_SHA,
             "token": _TOKEN_HEX,
         },
     )
@@ -343,6 +323,7 @@ def test_report_rejects_wrong_host(api_client, api_seeded_job):
         f"/instances/{api_seeded_job['job_id']}/auto-launch/report",
         json={
             "host_id": "other-host",
+            **api_seeded_job["authority"],
             "ports": {"jupyter": 8888},
             "token": _TOKEN_HEX,
         },
@@ -355,6 +336,7 @@ def test_report_rejects_bad_token_format(api_client, api_seeded_job):
         f"/instances/{api_seeded_job['job_id']}/auto-launch/report",
         json={
             "host_id": api_seeded_job["host_id"],
+            **api_seeded_job["authority"],
             "ports": {"jupyter": 8888},
             "token": "not-hex!",
         },
@@ -368,8 +350,9 @@ def test_get_returns_urls_and_token(api_client, api_seeded_job):
         f"/instances/{api_seeded_job['job_id']}/auto-launch/report",
         json={
             "host_id": api_seeded_job["host_id"],
+            **api_seeded_job["authority"],
             "ports": {"jupyter": 8888, "vscode": 8443},
-            "token_sha": "abcdef01",
+            "token_sha": _TOKEN_SHA,
             "token": _TOKEN_HEX,
         },
     )
@@ -409,6 +392,7 @@ def test_get_ready_false_when_http_ports_missing(api_client, api_seeded_job):
         f"/instances/{api_seeded_job['job_id']}/auto-launch/report",
         json={
             "host_id": api_seeded_job["host_id"],
+            **api_seeded_job["authority"],
             "ports": {"jupyter": 8888},
             "token": _TOKEN_HEX,
         },
@@ -443,15 +427,29 @@ def test_get_404_when_auto_launch_not_configured(api_client):
     }
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
-            "VALUES (%s,%s,%s,%s::jsonb, 'admitted') "
-            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
-            (host_id, "active", now, _ijson.dumps(host_payload)),
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s,%s,%s,%s::jsonb, 'admitted', %s, %s) ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload""",
+            (
+                host_id,
+                "active",
+                now,
+                _ijson.dumps(host_payload),
+                host_states("active", "admitted")[0],
+                host_states("active", "admitted")[1],
+            ),
         )
         conn.execute(
-            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
-            "VALUES (%s,%s,0,%s,%s,%s::jsonb)",
-            (job_id, "running", now, host_id, _ijson.dumps(job_payload)),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s,%s,0,%s,%s,%s::jsonb, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                "running",
+                now,
+                host_id,
+                _ijson.dumps(job_payload),
+                job_phase("running"),
+                initial_desired_state("running"),
+                "running",
+                now,
+            ),
         )
         conn.commit()
     try:

@@ -17,6 +17,8 @@ job attempt authority.
 
 from __future__ import annotations
 
+from control_plane.state import initial_desired_state, job_phase
+
 import json
 import time
 import uuid
@@ -71,8 +73,8 @@ def cleanup():
 def _mk_host(cleanup, host_id: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
@@ -94,8 +96,8 @@ def _mk_running_legacy(cleanup, *, host_id: str, owner: str, interactive: bool =
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload)
-               VALUES (%s, 'running', 0, %s, %s, %s)""",
+                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
             (job_id, time.time(), host_id, json.dumps(payload)),
         )
         conn.commit()
@@ -122,8 +124,8 @@ def _mk_running_attempt_owned(
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id)
-               VALUES (%s, 'running', 0, %s, %s, %s, NULL)""",
+                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'running', 0, %s, %s, %s, NULL, 'running', 'running', 0, NULL)""",
             (job_id, time.time(), host_id, json.dumps(payload)),
         )
         conn.execute(
@@ -167,12 +169,23 @@ def _mk_fenced_history_no_active(
     }
     with _pool.connection() as conn:
         fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
+        fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id)
-               VALUES (%s, %s, 0, %s, %s, %s, NULL)""",
-            (job_id, status, time.time(), host_id, json.dumps(payload)),
+                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, %s, 0, %s, %s, %s, NULL, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+            (
+                job_id,
+                status,
+                fixture_submitted_at,
+                host_id,
+                json.dumps(payload),
+                job_phase(status),
+                initial_desired_state(status),
+                status,
+                fixture_submitted_at,
+            ),
         )
         conn.execute(
             """INSERT INTO job_attempts
@@ -373,52 +386,28 @@ def test_ssh_reinject_fenced_history_skips_enqueue(cleanup, monkeypatch):
 # ── Reset / admin reinject (resolve + real enqueue) ────────────────────
 
 
-def test_reset_enqueue_legacy_and_attempt_owned(cleanup):
-    from control_plane.job_targets import (
-        attempt_container_name,
-        resolve_job_command_target,
-    )
+def test_reset_host_directive_is_refused_for_every_authority_class(cleanup):
     from routes.agent import enqueue_agent_command
+    from fastapi import HTTPException
 
     host_id = f"h-res-rst-{uuid.uuid4().hex[:6]}"
     _mk_host(cleanup, host_id)
     owner = f"rst-{uuid.uuid4().hex[:6]}@test"
-
-    leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
-    att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
-    fh = _mk_fenced_history_no_active(cleanup, host_id=host_id, owner=owner, status="running")
-
-    # Mirror the shipped gate in api_reset_instance / admin reinject.
-    for job_id, expect_cname, allow in (
-        (leg, f"xcl-{leg}", True),
-        (att_job, attempt_container_name(att_job, attempt_id), True),
-        (fh, None, False),
-    ):
-        target = resolve_job_command_target(job_id)
-        assert target is not None
-        if not allow:
-            assert target.allows_unfenced_container_command is False
-            continue
-        assert target.allows_unfenced_container_command is True
-        assert target.container_name == expect_cname
-        enqueue_agent_command(
-            host_id=target.host_id,
-            command="reset_container",
-            args={"job_id": job_id, "container_name": target.container_name},
-            created_by="test_reset",
-        )
-
-    leg_cmds = [c for c in _commands_for_job(leg) if c["command"] == "reset_container"]
-    assert len(leg_cmds) == 1
-    assert leg_cmds[0]["args"]["container_name"] == f"xcl-{leg}"
-
-    att_cmds = [c for c in _commands_for_job(att_job) if c["command"] == "reset_container"]
-    assert len(att_cmds) == 1
-    assert att_cmds[0]["args"]["container_name"] == attempt_container_name(att_job, attempt_id)
-    assert att_cmds[0]["args"]["container_name"] != f"xcl-{att_job}"
-
-    fh_cmds = [c for c in _commands_for_job(fh) if c["command"] == "reset_container"]
-    assert fh_cmds == []
+    legacy = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
+    native, _ = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
+    historical = _mk_fenced_history_no_active(
+        cleanup, host_id=host_id, owner=owner, status="running"
+    )
+    for job_id in (legacy, native, historical):
+        with pytest.raises(HTTPException) as exc:
+            enqueue_agent_command(
+                host_id=host_id,
+                command="reset_container",
+                args={"job_id": job_id, "container_name": f"xcl-{job_id}"},
+                created_by="test_reset",
+            )
+        assert exc.value.status_code == 400
+        assert _commands_for_job(job_id) == []
 
 
 # ── Volumes ────────────────────────────────────────────────────────────

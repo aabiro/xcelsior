@@ -55,9 +55,10 @@ def write_metering_matrix() -> Path:
 
     from serverless.metering import (
         blended_period_amount,
-        charge_serverless_execution,
         token_cost_metadata,
     )
+
+    from tests.fixtures.serverless_billing import charge_priced_fixture_slice
 
     lines: list[str] = []
     for model, inp, out, cached in [
@@ -94,7 +95,7 @@ def write_metering_matrix() -> Path:
         patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
         patch("serverless.metering.last_billed_period_end", return_value=None),
     ):
-        r = charge_serverless_execution(
+        r = charge_priced_fixture_slice(
             billing, repo, worker, endpoint, period_end=1120.0, final=True
         )
     lines.append(f"blended_charge: {r}")

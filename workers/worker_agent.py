@@ -226,6 +226,7 @@ SERVERLESS_PLATFORM_ENV_KEYS = (
     "XCELSIOR_HTTP_PORT",
     "XCELSIOR_HEALTH_CHECK_PATH",
     "XCELSIOR_API_TOKEN",
+    "XCELSIOR_WORKER_CALLBACK_TOKEN",
 )
 
 
@@ -283,8 +284,8 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
                 "XCELSIOR_HEALTH_CHECK_PATH": str(job.get("health_check_path") or "/health"),
             }
         )
-        if API_TOKEN:
-            env["XCELSIOR_API_TOKEN"] = str(API_TOKEN)
+        env["XCELSIOR_API_TOKEN"] = ""
+        env["XCELSIOR_WORKER_CALLBACK_TOKEN"] = str(job.get("_serverless_callback_token") or "")
     return env
 
 
@@ -340,7 +341,7 @@ _agent_commands_rejected_total = _register_counter_once(
 _shutdown = threading.Event()
 _active_containers = {}  # job_id -> container_name
 _missing_stop_container_log_at = {}  # container_name -> last absent-stop log time
-_adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
+_adopted_containers = set()  # recovered fenced attempts preserved across agent restarts
 _active_lock = threading.Lock()
 _image_pull_lock = threading.Lock()  # serialize job pulls vs idle/startup warmers
 _oauth_lock = threading.Lock()
@@ -1560,54 +1561,6 @@ def _report_agent_degraded(reason: str, *, context: str = "", level: str = "warn
         pass  # best-effort — heartbeat will also reflect degraded state
 
 
-def poll_for_work():
-    """Poll the scheduler for work assigned to this host.
-
-    GET /agent/work/{host_id}
-    Returns list of job dicts, or empty list.
-    """
-    if not _protocol_negotiated or not _legacy_execution_allowed:
-        return []
-    try:
-        resp = _api_request(
-            "get",
-            _api_url(f"/agent/work/{HOST_ID}"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get("instances", [])
-        elif resp.status_code == 204:
-            return []
-        else:
-            _report_agent_degraded("poll_non_200", context=f"status={resp.status_code}")
-            return []
-    except requests.RequestException as e:
-        _report_agent_degraded("poll_transport_error", context=str(e))
-        return []
-
-
-def check_preemption():
-    """Check if any jobs on this host are being preempted.
-
-    GET /agent/preempt/{host_id}
-    Returns list of job_ids to preempt.
-    """
-    try:
-        resp = _api_request(
-            "get",
-            _api_url(f"/agent/preempt/{HOST_ID}"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("preempt_jobs", [])
-        return []
-    except requests.RequestException:
-        return []
-
-
 #: Sibling modules that were split out of worker_agent.py (image cache, NFS,
 #: NVMe cache, LUKS volumes). worker_agent.py imports these at load time, so
 #: any host still running a pre-split agent needs them fetched + verified
@@ -1900,9 +1853,6 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "upgrade_agent",
         "rollback_agent",  # P1.2 — auto-rollback driver restores .bak
         "stop_container",
-        "pause_container",
-        "start_container",
-        "reset_container",  # P2 — fresh /workspace, preserve volumes
         "snapshot_container",
         "mount_volume",  # hot-attach: NFS mount + nsenter bind into running container
         "unmount_volume",
@@ -1923,70 +1873,6 @@ _AGENT_COMMAND_ALLOWED = frozenset(
 )
 
 
-def _legacy_container_command_allowed(command: str, args: dict) -> bool:
-    """Recheck physical identity when an old queued directive reaches a host."""
-    job_id = str(args.get("job_id") or "")
-    container_name = str(args.get("container_name") or "")
-    if not job_id or not container_name or not _protocol_negotiated:
-        return False
-    if command == "start_container" and not _legacy_execution_allowed:
-        return False
-    with _v2_attempts_lock:
-        if job_id in _v2_attempts:
-            return False
-    try:
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False
-        labels = json.loads(result.stdout)
-        if labels is None:
-            labels = {}
-        if not isinstance(labels, dict):
-            return False
-        if any(key in labels for key in ("ai.xcelsior.attempt_id", "xcelsior.attempt_id")):
-            return False
-        label_job = labels.get("ai.xcelsior.job_id") or labels.get("xcelsior.job_id")
-        return not label_job or label_job == job_id
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return False
-
-
-def drain_agent_commands() -> int:
-    """Drain admin control-plane commands from the API and dispatch them.
-
-    GET /agent/commands/{host_id} returns up to 50 pending commands and
-    atomically deletes them. Each command dict has id/command/args/created_by.
-    Unknown commands are hard-refused (P3/C7) — no forward-compat dispatch:
-    if a newer API ships a command this agent doesn't recognise, fail
-    loudly rather than silently drop, so operators upgrade agents before
-    relying on new behaviour.
-
-    Returns the number of commands successfully dispatched.
-    """
-    if _v2_enabled or (_protocol_negotiated and not _legacy_execution_allowed):
-        return 0
-    try:
-        resp = _api_request(
-            "get",
-            _api_url(f"/agent/commands/{HOST_ID}"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            return 0
-        commands = resp.json().get("commands", []) or []
-    except requests.RequestException as e:
-        _report_agent_degraded("drain_commands_error", context=str(e))
-        return 0
-
-    return _dispatch_agent_commands(commands)
-
-
 def _dispatch_agent_commands(commands: list) -> int:
     """Execute already-delivered host directives; delivery owns ACK/NACK."""
     dispatched = 0
@@ -1998,7 +1884,7 @@ def _dispatch_agent_commands(commands: list) -> int:
         # P3/C7 — enforce allowlist before entering any branch.
         if name not in _AGENT_COMMAND_ALLOWED:
             log.warning(
-                "drain_agent_commands refused unknown cmd=%s name=%r by=%s",
+                "host directive refused unknown cmd=%s name=%r by=%s",
                 cmd_id,
                 name,
                 by,
@@ -2006,20 +1892,6 @@ def _dispatch_agent_commands(commands: list) -> int:
             _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
             continue
         try:
-            if name in (
-                "start_container",
-                "pause_container",
-            ) and not _legacy_container_command_allowed(name, args):
-                log.warning(
-                    "Refused legacy lifecycle command=%s id=%s; authority or identity unconfirmed",
-                    name,
-                    cmd_id,
-                )
-                _agent_commands_rejected_total.labels(command=name).inc()
-                _report_agent_degraded(
-                    "legacy_lifecycle_refused", context=f"command={name} id={cmd_id}"
-                )
-                continue
             if name == "health_probe":
                 dispatched += 1
             elif name == "reinject_shell":
@@ -2170,142 +2042,6 @@ def _dispatch_agent_commands(commands: list) -> int:
                     dispatched += 1
                 except subprocess.TimeoutExpired:
                     log.warning("stop_container cmd=%s container=%s timed out", cmd_id, cname)
-            elif name == "pause_container":
-                # P3/A3 — billing-initiated PAUSE (state-preserving).
-                # Unlike stop_container, does NOT `docker rm`, so the container
-                # can later be restarted cheaply with `docker start`. Used for
-                # wallet-low-balance pauses where we expect the user to resume.
-                _job_id = str(args.get("job_id") or "")
-                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
-                if not cname:
-                    log.warning("pause_container cmd=%s missing container_name", cmd_id)
-                    continue
-                log.info("Executing pause_container cmd=%s container=%s by=%s", cmd_id, cname, by)
-                try:
-                    r = subprocess.run(
-                        ["docker", "stop", "-t", "30", cname],
-                        capture_output=True,
-                        text=True,
-                        timeout=45,
-                    )
-                    if r.returncode == 0:
-                        dispatched += 1
-                    else:
-                        log.warning(
-                            "pause_container cmd=%s rc=%s stderr=%s",
-                            cmd_id,
-                            r.returncode,
-                            (r.stderr or "")[:200],
-                        )
-                except subprocess.TimeoutExpired:
-                    log.warning("pause_container cmd=%s container=%s timed out", cmd_id, cname)
-            elif name == "start_container":
-                # P3.2 — resume a previously-stopped container. The image +
-                # volumes are preserved so `docker start` is a cheap restart.
-                cname = str(args.get("container_name") or "")
-                if not cname:
-                    log.warning("start_container cmd=%s missing container_name", cmd_id)
-                    continue
-                start_job_id = str(args.get("job_id") or "")
-                log.info("Executing start_container cmd=%s container=%s by=%s", cmd_id, cname, by)
-                try:
-                    r = subprocess.run(
-                        ["docker", "start", cname],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    if r.returncode == 0:
-                        dispatched += 1
-                    else:
-                        stderr_trim = (r.stderr or "").strip()[:400]
-                        log.warning(
-                            "start_container cmd=%s rc=%s stderr=%s",
-                            cmd_id,
-                            r.returncode,
-                            stderr_trim,
-                        )
-                        # P3/B8 — previous code left the job stuck at status
-                        # 'running' (set optimistically by the start path) even
-                        # though the container never started. Revert to
-                        # 'stopped' with an error message so the UI unsticks
-                        # and the user sees a real reason. (Pre-phase-2 this
-                        # used 'user_paused'; pause/resume were collapsed into
-                        # stop/start.)
-                        if start_job_id:
-                            try:
-                                report_job_status(
-                                    start_job_id,
-                                    "stopped",
-                                    error_message=f"start failed: {stderr_trim}"
-                                    or "start failed: docker start exited non-zero",
-                                )
-                            except Exception as cb_err:
-                                log.warning(
-                                    "start_container failure-callback cmd=%s job=%s failed: %s",
-                                    cmd_id,
-                                    start_job_id,
-                                    cb_err,
-                                )
-                except subprocess.TimeoutExpired:
-                    log.warning("start_container cmd=%s container=%s timed out", cmd_id, cname)
-                    if start_job_id:
-                        try:
-                            report_job_status(
-                                start_job_id,
-                                "stopped",
-                                error_message="start failed: docker start timed out",
-                            )
-                        except Exception as cb_err:
-                            log.warning(
-                                "start_container timeout-callback cmd=%s job=%s failed: %s",
-                                cmd_id,
-                                start_job_id,
-                                cb_err,
-                            )
-            elif name == "reset_container":
-                # P2 — restart the container with a fresh /workspace scratch
-                # dir. Named/bind-mount volumes are untouched; only the
-                # container's own ephemeral /workspace gets wiped so the
-                # user gets a clean slate without losing mounted data.
-                cname = str(args.get("container_name") or "")
-                if not cname:
-                    log.warning("reset_container cmd=%s missing container_name", cmd_id)
-                else:
-                    try:
-                        # `docker exec <cname> sh -c 'rm -rf /workspace/* /workspace/.[!.]*'`
-                        # wipes /workspace in-place, then restart the container
-                        # so tmp/log state resets as well.
-                        subprocess.run(
-                            [
-                                "docker",
-                                "exec",
-                                cname,
-                                "sh",
-                                "-c",
-                                "rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true",
-                            ],
-                            capture_output=True,
-                            text=True,
-                            timeout=60,
-                        )
-                        r = subprocess.run(
-                            ["docker", "restart", cname],
-                            capture_output=True,
-                            text=True,
-                            timeout=60,
-                        )
-                        if r.returncode == 0:
-                            dispatched += 1
-                        else:
-                            log.warning(
-                                "reset_container cmd=%s rc=%s stderr=%s",
-                                cmd_id,
-                                r.returncode,
-                                (r.stderr or "").strip()[:400],
-                            )
-                    except subprocess.TimeoutExpired:
-                        log.warning("reset_container cmd=%s container=%s timed out", cmd_id, cname)
             elif name == "snapshot_container":
                 # P3.1 — `docker commit` the running container to a user
                 # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL
@@ -2560,15 +2296,11 @@ def report_job_status(
     *,
     expected_v2_auth=None,
 ):
-    """Update job status on the scheduler.
-
-    PATCH /instance/{job_id}
-    """
-    # Capture authority before the mirror: a terminal v2 report removes the
-    # local journal entry, but the compatibility PATCH still needs the exact
-    # tuple so the API can distinguish it from a stale worker.
+    """Report lifecycle and runtime metadata through the exact fenced attempt."""
     with _v2_attempts_lock:
         v2_auth = dict(_v2_attempts.get(job_id) or {})
+    if not v2_auth:
+        return False
     if expected_v2_auth is not None and not _v2_same_authority(v2_auth, expected_v2_auth):
         return False
 
@@ -2586,92 +2318,19 @@ def report_job_status(
     if resume_from:
         runtime_metadata.update(resume_from=resume_from, resumable=bool(resume_from.get("success")))
 
-    # Phase 5: mirror lifecycle onto the fenced attempt when this job is
-    # v2-owned (no-op otherwise). Runs first so the fenced report cannot
-    # be skipped by a v1 transport failure.
-    mirror_outcome = "not_v2"
     try:
-        mirror_outcome = _v2_on_job_status(
+        outcome = _v2_on_job_status(
             job_id,
             status,
             error_message=error_message,
             policy_reason=policy_reason,
-            expected_auth=expected_v2_auth,
+            expected_auth=v2_auth,
             **({"runtime_metadata": runtime_metadata} if runtime_metadata else {}),
         )
-    except Exception as _v2_exc:
-        log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
-        mirror_outcome = "error"
-
-    # The compatibility PATCH is not a fallback state machine. If the
-    # fenced write was rejected or unavailable, allowing a raw legacy status
-    # mutation would strand the active attempt/lease/allocation out of sync.
-    if v2_auth and mirror_outcome != "ok":
-        log.error(
-            "refusing legacy status fallback for v2 job %s: fenced mirror=%s",
-            job_id,
-            mirror_outcome,
-        )
+        return outcome == "ok"
+    except Exception as exc:
+        log.warning("Fenced status report failed for job %s: %s", job_id, exc)
         return False
-
-    if v2_auth:
-        return mirror_outcome == "ok"
-    if _protocol_negotiated and not _legacy_execution_allowed:
-        return False
-
-    # The fenced transaction is authoritative. A lost compatibility PATCH
-    # must not turn a committed terminal report into a legacy retry.
-    terminal_confirmed = bool(v2_auth) and status in (
-        "completed",
-        "failed",
-        "stopped",
-        "terminated",
-    )
-
-    data = {"status": status}
-    if policy_reason:
-        data["policy_reason"] = policy_reason
-        data["host_id"] = HOST_ID
-    if v2_auth:
-        data["host_id"] = HOST_ID
-        data["attempt_id"] = v2_auth.get("attempt_id")
-        data["fencing_token"] = v2_auth.get("fencing_token")
-    else:
-        data["host_id"] = host_id or HOST_ID
-    if container_id:
-        data["container_id"] = container_id
-    if container_name:
-        data["container_name"] = container_name
-    if ssh_port is not None:
-        data["ssh_port"] = ssh_port
-    if interactive is not None:
-        data["interactive"] = interactive
-    if error_message:
-        data["error_message"] = error_message[:500]
-    if resume_from:
-        data["resume_from"] = resume_from
-        data["resumable"] = bool(resume_from.get("success"))
-    try:
-        resp = _api_request(
-            "patch",
-            _api_url(f"/instance/{job_id}"),
-            json=data,
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            log.warning(
-                "Status update %s for job %s failed: HTTP %s %s",
-                status,
-                job_id,
-                resp.status_code,
-                (getattr(resp, "text", "") or "")[:200],
-            )
-            return terminal_confirmed
-        return True
-    except requests.RequestException as e:
-        log.error("Status update failed for job %s: %s", job_id, e)
-        return terminal_confirmed
 
 
 def _push_log_lines(job_id, lines):
@@ -2689,7 +2348,7 @@ def _push_log_lines(job_id, lines):
         pass  # best-effort — don't block job execution
 
 
-def _report_http_ports(job_id, port_map):
+def _report_http_ports(job_id, port_map, *, expected_auth=None):
     """Report the final {container_port: host_port} mapping to the API.
 
     Used by the P2.2 subdomain router to resolve
@@ -2698,125 +2357,21 @@ def _report_http_ports(job_id, port_map):
     call leaves the public URL unresolved; users can simply retry
     ``POST /instances/{id}/expose`` once the next report lands.
     """
-    if not port_map:
+    if not port_map or expected_auth is None:
         return False
-    try:
-        resp = _api_request(
-            "post",
-            _api_url(f"/instances/{job_id}/http-ports/report"),
-            json={"host_id": HOST_ID, "ports": {str(k): int(v) for k, v in port_map.items()}},
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            log.info("Reported http_ports for job %s: %s", job_id, port_map)
-            return True
-        log.warning(
-            "http_ports report for job %s returned %d: %s",
-            job_id,
-            resp.status_code,
-            (getattr(resp, "text", "") or "")[:200],
-        )
-    except requests.RequestException as e:
-        log.error("http_ports report failed for job %s: %s", job_id, e)
-    return False
+    return _v2_runtime_report(
+        expected_auth, "http-ports", {"ports": {str(k): int(v) for k, v in port_map.items()}}
+    )
 
 
-# ── Lease Protocol ────────────────────────────────────────────────────
-# Per REPORT_FEATURE_FINAL.md: clean "lease/claim" protocol instead of
-# conflating "assigned" with "running."
-#   assign → lease claim → lease renewal → completion/release
-
-
-def claim_lease(job_id):
-    """Claim a lease for a job (assigned → leased).
-
-    POST /agent/lease/claim
-    Returns lease details or None on failure.
-    """
-    data = {"host_id": HOST_ID, "job_id": job_id}
-    try:
-        resp = _api_request(
-            "post",
-            _api_url("/agent/lease/claim"),
-            json=data,
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            result = resp.json()
-            log.info(
-                "Lease claimed: job=%s lease=%s expires=%.0f",
-                job_id,
-                result.get("lease_id"),
-                result.get("expires_at", 0),
-            )
-            return result
-        else:
-            log.warning("Lease claim failed for job %s: HTTP %d", job_id, resp.status_code)
-            return None
-    except requests.RequestException as e:
-        log.error("Lease claim error for job %s: %s", job_id, e)
-        return None
-
-
-def renew_lease(job_id):
-    """Renew a lease on a job.
-
-    POST /agent/lease/renew
-    Returns lease details or None if expired.
-    """
-    data = {"host_id": HOST_ID, "job_id": job_id}
-    try:
-        resp = _api_request(
-            "post",
-            _api_url("/agent/lease/renew"),
-            json=data,
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            log.warning("Lease renewal failed for job %s: HTTP %d", job_id, resp.status_code)
-            return None
-    except requests.RequestException as e:
-        _report_agent_degraded("lease_renew_error", context=f"job={job_id} err={e}")
-        return None
-
-
-def release_lease(job_id, reason="completed"):
-    """Release a lease (job done/failed/preempted).
-
-    POST /agent/lease/release
-    """
-    data = {"job_id": job_id, "reason": reason}
-    try:
-        resp = _api_request(
-            "post",
-            _api_url("/agent/lease/release"),
-            json=data,
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code not in (200, 204):
-            _report_agent_degraded(
-                "lease_release_non_200", context=f"job={job_id} status={resp.status_code}"
-            )
-    except requests.RequestException as e:
-        _report_agent_degraded("lease_release_error", context=f"job={job_id} err={e}")
-
-
-# ── /agent/v2 fenced protocol (Track A Phase 5) ──────────────────────
-# Claim + ACK work delivery, hard lease gate before any container start,
-# and fenced status reporting. Negotiated per host at startup; hosts the
-# server hasn't enrolled keep the v1 poll/drain path untouched.
+# ── /agent/v2 fenced protocol ──────────────────────────────────────
+# Claim + ACK delivery, exact lease authority before container start,
+# and fenced status reporting. Work waits for the complete native contract.
 
 WORKER_SESSION_ID = uuid.uuid4().hex
 
 _v2_enabled = False
 _protocol_negotiated = False
-_legacy_execution_allowed = False
 # job_id -> v2 authority dict while an attempt runs on this host:
 # {lease_id, job_id, attempt_id, host_id, fencing_token,
 #  worker_session_id, renewal_ttl_sec, stop: threading.Event}
@@ -2826,10 +2381,10 @@ _v2_delivery_context = threading.local()
 
 
 def negotiate_protocol_v2() -> bool:
-    """Ask the API which protocol this host should speak (canary rollout)."""
-    global _v2_enabled, _protocol_negotiated, _legacy_execution_allowed
+    """Require the complete native execution contract; never downgrade."""
+    global _v2_enabled, _protocol_negotiated
+    _v2_enabled = False
     _protocol_negotiated = False
-    _legacy_execution_allowed = False
     try:
         resp = _api_request(
             "get",
@@ -2838,40 +2393,30 @@ def negotiate_protocol_v2() -> bool:
             timeout=10,
         )
         body = resp.json() if resp.status_code == 200 else {}
+        required = {
+            "commands.host_claim_ack",
+            "commands.session_fencing",
+            "attempts.runtime_metadata",
+        }
         if (
             isinstance(body, dict)
-            and type(body.get("v2")) is bool
-            and body.get("protocol") == (2 if body["v2"] else 1)
+            and body.get("v2") is True
+            and type(body.get("protocol")) is int
+            and body["protocol"] == 2
+            and isinstance(body.get("features"), list)
+            and all(isinstance(feature, str) for feature in body["features"])
+            and required.issubset(body["features"])
         ):
-            _v2_enabled = body["v2"]
+            _v2_enabled = True
             _protocol_negotiated = True
-            _legacy_execution_allowed = body.get("legacy_execution_allowed") is True
-            if not _legacy_execution_allowed and (
-                not _v2_enabled
-                or not {
-                    "commands.host_claim_ack",
-                    "commands.session_fencing",
-                    "attempts.runtime_metadata",
-                }.issubset(body.get("features") or [])
-            ):
-                _v2_enabled = False
-                _protocol_negotiated = False
-                log.error(
-                    "Active control plane did not confirm the complete v2 contract; execution waits"
-                )
-            log.info(
-                "Protocol negotiated: v2=%s legacy_execution=%s",
-                _v2_enabled,
-                _legacy_execution_allowed,
-            )
+            log.info("Native execution protocol confirmed")
         else:
-            _v2_enabled = False
             log.warning(
-                "Protocol negotiation unconfirmed (HTTP %s); execution waits", resp.status_code
+                "Native execution contract unconfirmed (HTTP %s); execution waits",
+                resp.status_code,
             )
-    except (requests.RequestException, ValueError) as e:
-        _v2_enabled = False
-        log.warning("Protocol negotiation unavailable (%s); execution waits", e)
+    except (requests.RequestException, ValueError) as exc:
+        log.warning("Native protocol negotiation unavailable (%s); execution waits", exc)
     return _v2_enabled
 
 
@@ -2882,7 +2427,6 @@ def _ensure_work_protocol() -> None:
     negotiate_protocol_v2()
     if _protocol_negotiated:
         v2_adopt_attempts()
-        adopt_running_containers()
 
 
 def _v2_post(path: str, payload: dict, timeout: int = 10):
@@ -2969,6 +2513,52 @@ def _v2_auth_payload(auth: dict) -> dict:
         "fencing_token": auth["fencing_token"],
         "worker_session_id": WORKER_SESSION_ID,
     }
+
+
+def _v2_runtime_report(auth: dict, kind: str, value: dict) -> bool:
+    """Persist metadata delivery before HTTP; a stale thread cannot borrow a fence."""
+    if kind not in ("http-ports", "auto-launch"):
+        raise ValueError("unknown runtime report")
+    with _v2_attempts_lock:
+        if _v2_attempts.get(auth["job_id"]) is not auth:
+            return False
+        record = {**value, **_v2_auth_payload(auth)}
+        pending = auth.setdefault("pending_runtime_reports", {})
+        pending[kind] = record
+        if not _v2_journal_save():
+            return False
+    try:
+        paths = {
+            "http-ports": _api_url(f"/instances/{auth['job_id']}/http-ports/report"),
+            "auto-launch": _api_url(f"/instances/{auth['job_id']}/auto-launch/report"),
+        }
+        response = _api_request(
+            "post",
+            paths[kind],
+            json=record,
+            headers=_api_headers(),
+            timeout=3,
+        )
+    except Exception as exc:
+        log.warning("native runtime callback retained (%s)", type(exc).__name__)
+        return False
+    if response.status_code in (200, 404, 409, 410):
+        with _v2_attempts_lock:
+            if _v2_attempts.get(auth["job_id"]) is auth and pending.get(kind) == record:
+                pending.pop(kind, None)
+                if not _v2_journal_save():
+                    pending[kind] = record
+    return response.status_code == 200
+
+
+def _v2_retry_runtime_reports(auth: dict) -> None:
+    with _v2_attempts_lock:
+        reports = dict(auth.get("pending_runtime_reports") or {})
+    for kind, value in reports.items():
+        try:
+            _v2_runtime_report(auth, kind, value)
+        except (KeyError, TypeError, ValueError) as exc:
+            log.warning("invalid journaled runtime report retained (%s)", type(exc).__name__)
 
 
 def v2_claim_lease_fenced(auth: dict) -> dict | None:
@@ -3115,6 +2705,146 @@ _V2_JOURNAL_PATH = os.environ.get(
 _V2_COMPLETED_COMMANDS_KEY = "__completed_commands__"
 _V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
 _v2_completed_commands: dict[str, dict] = {}
+_V2_CLEANUP_KEY = "__pending_cleanup__"
+_v2_cleanup_pending: dict[str, dict] = {}
+_v2_resources_lock = threading.RLock()
+_v2_cleanup_sweep_lock = threading.Lock()
+
+
+def _v2_resource_intent(auth: dict, kind: str, value) -> None:
+    """Persist local cleanup ownership before a privileged resource operation."""
+    with _v2_resources_lock, _v2_attempts_lock:
+        if _v2_attempts.get(auth["job_id"]) is not auth:
+            raise RuntimeError("Resource setup lost its local fenced authority")
+        resources = auth.setdefault("resources", {})
+        resources["host_id"] = HOST_ID
+        if kind == "exclusive":
+            resources[kind] = value
+        else:
+            values = resources.setdefault(kind, [])
+            if value not in values:
+                values.append(value)
+        if not _v2_journal_save():
+            raise OSError("Cannot persist fenced resource ownership")
+
+
+def _v2_restore_resource_lock(auth: dict) -> bool:
+    """Reacquire the process-local flock before adopting an exclusive survivor."""
+    import fcntl
+
+    resources = auth.get("resources") or {}
+    if resources and resources.get("host_id") != HOST_ID:
+        log.error("Resource adoption refused a journal from another host")
+        return False
+    exclusive = resources.get("exclusive")
+    if not exclusive or auth.get("_exclusive_state", {}).get("lock_fd") is not None:
+        return True
+    fd = None
+    try:
+        fd = os.open(GPU_LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o664)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        auth["_exclusive_state"] = {
+            "ok": True,
+            "lock_fd": fd,
+            "ollama_pids": list(exclusive.get("ollama_pids") or []),
+            "drain_requested": bool(exclusive.get("drain_requested", True)),
+        }
+        return True
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+        return False
+
+
+def _v2_cancel_mount_intent(auth: dict, mount_point: str) -> None:
+    """A refused mount acquired no resource; retain only completed mounts."""
+    with _v2_resources_lock, _v2_attempts_lock:
+        mounts = (auth.get("resources") or {}).get("nfs_mounts") or []
+        if mount_point in mounts:
+            mounts.remove(mount_point)
+            if not _v2_journal_save():
+                raise OSError("Cannot persist refused mount cleanup")
+
+
+def _v2_cleanup_resources(auth: dict) -> bool:
+    """Release only quiescent, owned resources; retain failed cleanup for retry."""
+    resources = auth.get("resources") or {}
+    if not resources:
+        return True
+    if resources.get("host_id") != HOST_ID:
+        log.error("Resource cleanup refused a journal from another host")
+        return False
+    state, _, label = _v2_container_state(auth["job_id"], auth["container_name"])
+    if state != "missing" and not (state == "exited" and label == auth["attempt_id"]):
+        return False
+    if not _v2_restore_resource_lock(auth):
+        return False
+    with _v2_resources_lock:
+        with _v2_attempts_lock:
+            others = [
+                a.get("resources") or {}
+                for a in [*_v2_attempts.values(), *_v2_cleanup_pending.values()]
+                if not _v2_same_authority(a, auth)
+            ]
+        try:
+            for kind, operation in [
+                ("nfs_mounts", _unmount_nfs),
+                ("encrypted_volumes", detach_encrypted_volume),
+                ("workspaces", destroy_encrypted_volume),
+            ]:
+                for value in list(resources.get(kind) or []):
+                    shared = any(value in other.get(kind, []) for other in others)
+                    if shared or operation(value) is not False:
+                        with _v2_attempts_lock:
+                            resources[kind].remove(value)
+                            if not _v2_journal_save():
+                                return False
+            if any(resources.get(k) for k in ["nfs_mounts", "encrypted_volumes", "workspaces"]):
+                return False
+            if resources.get("exclusive"):
+                if any(other.get("exclusive") for other in others):
+                    return False
+                state = auth.get("_exclusive_state") or resources["exclusive"]
+                if _release_exclusive_gpu(auth["job_id"], state) is False:
+                    with _v2_attempts_lock:
+                        resources["exclusive"].update(
+                            ollama_pids=list(state.get("ollama_pids") or []),
+                            drain_requested=bool(state.get("drain_requested", True)),
+                        )
+                        _v2_journal_save()
+                    return False
+                with _v2_attempts_lock:
+                    resources.pop("exclusive", None)
+            with _v2_attempts_lock:
+                auth["resources"] = {}
+                _v2_cleanup_pending.pop(auth["attempt_id"], None)
+                return _v2_journal_save()
+        except Exception as exc:
+            log.warning("Resource cleanup retained for attempt %s: %s", auth["attempt_id"], exc)
+            return False
+
+
+def _v2_retry_resource_cleanup(*, background: bool = False) -> None:
+    with _v2_attempts_lock:
+        pending = list(_v2_cleanup_pending.values())
+    if background:
+        if not pending or not _v2_cleanup_sweep_lock.acquire(blocking=False):
+            return
+
+        def sweep():
+            try:
+                for auth in pending:
+                    _v2_cleanup_resources(auth)
+            finally:
+                _v2_cleanup_sweep_lock.release()
+
+        try:
+            threading.Thread(target=sweep, name="v2-resource-cleanup", daemon=True).start()
+        except RuntimeError:
+            _v2_cleanup_sweep_lock.release()
+        return
+    for auth in pending:
+        _v2_cleanup_resources(auth)
 
 
 def _v2_journal_save() -> bool:
@@ -3139,6 +2869,24 @@ def _v2_journal_save() -> bool:
                 or _v2_container_name(a["job_id"], a["attempt_id"]),
                 "spec_hash": a.get("spec_hash"),
                 "interactive": bool(a.get("interactive", False)),
+                "running_report_pending": bool(a.get("running_report_pending", False)),
+                "pending_runtime_reports": dict(a.get("pending_runtime_reports") or {}),
+                **(
+                    {"auto_launch_token": a["auto_launch_token"]}
+                    if a.get("auto_launch_token")
+                    else {}
+                ),
+                **({"resources": a["resources"]} if a.get("resources") else {}),
+                **(
+                    {"pending_terminal_report": a["pending_terminal_report"]}
+                    if a.get("pending_terminal_report")
+                    else {}
+                ),
+                **(
+                    {"pending_start_failure": a["pending_start_failure"]}
+                    if a.get("pending_start_failure")
+                    else {}
+                ),
                 **(
                     {"pending_command": dict(a["pending_command"])}
                     if isinstance(a.get("pending_command"), dict)
@@ -3150,6 +2898,21 @@ def _v2_journal_save() -> bool:
         snapshot[_V2_COMPLETED_COMMANDS_KEY] = {
             command_id: dict(record) for command_id, record in _v2_completed_commands.items()
         }
+        if _v2_cleanup_pending:
+            snapshot[_V2_CLEANUP_KEY] = {
+                attempt_id: {
+                    key: auth.get(key)
+                    for key in (
+                        "job_id",
+                        "attempt_id",
+                        "lease_id",
+                        "fencing_token",
+                        "container_name",
+                        "resources",
+                    )
+                }
+                for attempt_id, auth in _v2_cleanup_pending.items()
+            }
         temporary = None
         try:
             import tempfile
@@ -3179,14 +2942,20 @@ def _v2_journal_save() -> bool:
 
 
 def _v2_journal_load() -> dict:
-    global _v2_completed_commands
+    global _v2_completed_commands, _v2_cleanup_pending
     try:
         with open(_V2_JOURNAL_PATH) as fh:
             data = json.load(fh)
         if not isinstance(data, dict):
             return {}
         raw_completed = data.pop(_V2_COMPLETED_COMMANDS_KEY, {})
+        raw_cleanup = data.pop(_V2_CLEANUP_KEY, {})
         with _v2_attempts_lock:
+            _v2_cleanup_pending = (
+                {str(k): dict(v) for k, v in raw_cleanup.items() if isinstance(v, dict)}
+                if isinstance(raw_cleanup, dict)
+                else {}
+            )
             _v2_completed_commands = (
                 {
                     str(command_id): dict(record)
@@ -3220,11 +2989,13 @@ def _v2_mark_command_complete(command_id: str, result: dict, *, strict: bool = F
         return False
 
 
-def _v2_record_and_ack(command_id: str, result: dict) -> bool:
+def _v2_record_and_ack(
+    command_id: str, result: dict, *, retryable_on_journal_error: bool = True
+) -> bool:
     try:
         _v2_mark_command_complete(command_id, result, strict=True)
     except OSError:
-        v2_nack_command(command_id, "journal_unavailable", retryable=True)
+        v2_nack_command(command_id, "journal_unavailable", retryable=retryable_on_journal_error)
         return False
     v2_ack_command(command_id, result)
     return True
@@ -3252,8 +3023,14 @@ def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
         ):
             return
         auth = _v2_attempts.pop(job_id, None)
+        if auth is not None and auth.get("resources"):
+            _v2_cleanup_pending[auth["attempt_id"]] = auth
     if auth is not None:
         auth["stop"].set()
+        forwarder = auth.pop("_log_forwarder", None)
+        if forwarder is not None:
+            with suppress(Exception):
+                forwarder.stop()
         with _active_lock:
             if job_id in _adopted_containers and _active_containers.get(job_id) == auth.get(
                 "container_name"
@@ -3300,11 +3077,18 @@ def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple
     return ("running" if running else "exited", exit_code, label)
 
 
-def _v2_track_adopted(auth: dict) -> None:
+def _v2_track_adopted(auth: dict, *, confirmed: bool = True) -> None:
     """Keep restart survivors visible to heartbeat, warmers and benchmarks."""
     with _active_lock:
         _active_containers[auth["job_id"]] = auth["container_name"]
         _adopted_containers.add(auth["job_id"])
+    if confirmed and auth.get("_log_forwarder") is None:
+        try:
+            forwarder = LogForwarder(auth["job_id"], auth["container_name"])
+            forwarder.start()
+            auth["_log_forwarder"] = forwarder
+        except Exception as exc:
+            log.warning("Log forwarding could not resume for job %s: %s", auth["job_id"], exc)
 
 
 def _v2_pending_adoption_loop(auth: dict) -> None:
@@ -3317,7 +3101,7 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
         code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
         if stop.is_set():
             return
-        if code == 200:
+        if code == 200 and _v2_restore_resource_lock(auth):
             state, _exit_code, label = _v2_container_state(job_id, auth["container_name"])
             if state == "running" and label == auth["attempt_id"]:
                 _v2_track_adopted(auth)
@@ -3352,6 +3136,51 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
         stop.wait(min(10.0, max(0.1, deadline - time.monotonic())))
 
 
+def _v2_settle_aborted_start(auth: dict) -> str:
+    """Release an exact claimed attempt that this agent never started."""
+    with _v2_attempts_lock:
+        if _v2_attempts.get(auth["job_id"]) is not auth:
+            return "fenced"
+    outcome = v2_report_attempt_status(
+        auth,
+        "failed",
+        auth["pending_start_failure"],
+        {"note": "lease claimed; container execution never started"},
+    )
+    if outcome != "error":
+        _v2_forget_attempt(auth["job_id"], auth)
+    return outcome
+
+
+def _v2_retry_aborted_start(auth: dict) -> None:
+    while not _shutdown.is_set():
+        if _v2_settle_aborted_start(auth) != "error":
+            return
+        # A temporarily unwritable journal may become available again.
+        _v2_journal_save()
+        _shutdown.wait(5)
+
+
+def _v2_abort_claimed_start(auth: dict, reason: str) -> None:
+    """Persist no-execution evidence before NACK; retry settlement after outages."""
+    auth["pending_start_failure"] = reason
+    auth["stop"].set()
+    with _v2_attempts_lock:
+        current = _v2_attempts.get(auth["job_id"])
+        if current is not None and not _v2_same_authority(current, auth):
+            return
+        _v2_attempts[auth["job_id"]] = auth
+    if not _v2_journal_save():
+        log.error("Could not persist aborted start for job %s", auth["job_id"])
+    if _v2_settle_aborted_start(auth) == "error":
+        threading.Thread(
+            target=_v2_retry_aborted_start,
+            args=(auth,),
+            name=f"v2-abort-{auth['job_id'][:8]}",
+            daemon=True,
+        ).start()
+
+
 def v2_adopt_attempts() -> int:
     """§11.6 restart adoption: re-arm authority for surviving containers.
 
@@ -3380,11 +3209,30 @@ def v2_adopt_attempts() -> int:
                 ),
                 "spec_hash": rec.get("spec_hash"),
                 "interactive": bool(rec.get("interactive", False)),
+                "running_report_pending": bool(rec.get("running_report_pending", False)),
+                "pending_runtime_reports": dict(rec.get("pending_runtime_reports") or {}),
+                **(
+                    {"auto_launch_token": rec["auto_launch_token"]}
+                    if rec.get("auto_launch_token")
+                    else {}
+                ),
+                "resources": dict(rec.get("resources") or {}),
                 "stop": threading.Event(),
             }
             if isinstance(rec.get("pending_command"), dict):
                 auth["pending_command"] = dict(rec["pending_command"])
+            if isinstance(rec.get("pending_terminal_report"), dict):
+                auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
+            if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
+                auth["pending_start_failure"] = rec["pending_start_failure"]
         except (KeyError, TypeError, ValueError):
+            continue
+        with _v2_attempts_lock:
+            _v2_attempts[job_id] = auth
+        if auth.get("pending_start_failure"):
+            # No container was launched. Retry the journaled failure directly;
+            # neither Docker discovery nor a renewed execution grant is needed.
+            _v2_abort_claimed_start(auth, auth["pending_start_failure"])
             continue
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
         if state == "unknown":
@@ -3408,10 +3256,12 @@ def v2_adopt_attempts() -> int:
                 label[:8],
                 auth["attempt_id"][:8],
             )
+            _v2_forget_attempt(job_id, auth)
             continue
         if state == "running":
             code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
             if code == 409:
+                _v2_forget_attempt(job_id, auth)
                 _v2_stop_container(
                     job_id,
                     "adoption renewal rejected",
@@ -3421,8 +3271,9 @@ def v2_adopt_attempts() -> int:
                 continue
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
-            _v2_track_adopted(auth)
-            if code == 200:
+            ready = code == 200 and _v2_restore_resource_lock(auth)
+            _v2_track_adopted(auth, confirmed=ready)
+            if ready:
                 threading.Thread(
                     target=_v2_renewal_loop,
                     args=(auth,),
@@ -3451,15 +3302,17 @@ def v2_adopt_attempts() -> int:
             with _v2_attempts_lock:
                 _v2_attempts[job_id] = auth
             pending = auth.get("pending_command")
+            terminal = auth.get("pending_terminal_report") or {}
             outcome = (
                 str(pending.get("terminal_status"))
                 if isinstance(pending, dict) and pending.get("terminal_status")
-                else _V2_STATUS_MAP[_v2_exit_status(auth, exit_code)]
+                else terminal.get("status") or _V2_STATUS_MAP[_v2_exit_status(auth, exit_code)]
             )
             report_outcome = v2_report_attempt_status(
                 auth,
                 outcome,
-                None if outcome != "failed" else "container_exited",
+                terminal.get("failure_code")
+                or (None if outcome != "failed" else "container_exited"),
                 None if outcome != "failed" else {"exit_code": exit_code},
             )
             if report_outcome == "ok" and isinstance(pending, dict):
@@ -3484,15 +3337,21 @@ def v2_adopt_attempts() -> int:
                 outcome,
             )
         else:
+            terminal = auth.get("pending_terminal_report") or {}
             report_outcome = v2_report_attempt_status(
                 auth,
-                "failed",
-                "container_missing",
+                terminal.get("status") or "failed",
+                terminal.get("failure_code") if terminal else "container_missing",
                 {"note": "agent restarted; container not found"},
             )
             if report_outcome == "error":
                 with _v2_attempts_lock:
                     _v2_attempts[job_id] = auth
+                if terminal:
+                    _v2_start_exit_monitor(auth)
+            else:
+                _v2_forget_attempt(job_id, auth)
+    _v2_retry_resource_cleanup()
     _v2_journal_save()
     return adopted
 
@@ -3515,6 +3374,7 @@ def _v2_renewal_loop(auth: dict) -> None:
             return  # Exit reporting now owns completion and journal cleanup.
         if code == 200:
             last_ok = time.time()
+            _v2_retry_runtime_reports(auth)
             continue
         if code == 409:
             container_name = auth.get("container_name")
@@ -3558,12 +3418,10 @@ def _v2_on_job_status(
     expected_auth: dict | None = None,
     runtime_metadata: dict | None = None,
 ) -> str:
-    """Shared runner status funnel: mirror lifecycle onto the fenced attempt.
+    """Report through fenced authority and forget it only after resolution.
 
-    report_job_status() is the single funnel every v1 code path uses, so
-    hooking here covers all of run_job's exit points without forking its
-    control flow. Terminal statuses release the local authority record;
-    the server settles allocations/lease atomically in the same report.
+    The server settles allocations and the placement lease atomically with
+    a terminal report. A rejected fence stops only this attempt's container.
     """
     v2_status = _V2_STATUS_MAP.get(status)
     if v2_status is None:
@@ -3590,6 +3448,15 @@ def _v2_on_job_status(
         return outcome
     if outcome == "ok" and v2_status in ("succeeded", "failed", "stopped"):
         _v2_forget_attempt(job_id, auth)
+    elif outcome == "error" and v2_status in ("succeeded", "failed", "stopped"):
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is auth:
+                auth["pending_terminal_report"] = {
+                    "status": v2_status,
+                    "failure_code": failure_code,
+                }
+                _v2_journal_save()
+        _v2_start_exit_monitor(auth)
     return outcome
 
 
@@ -3652,6 +3519,14 @@ def handle_start_attempt(cmd: dict) -> None:
         )
         return
 
+    with _v2_attempts_lock:
+        previous = _v2_attempts.get(job_id)
+    if previous and _v2_same_authority(previous, auth) and previous.get("pending_start_failure"):
+        reason = previous["pending_start_failure"]
+        _v2_abort_claimed_start(previous, reason)
+        v2_nack_command(command_id, reason, retryable=False)
+        return
+
     # §11.2 hard gate — no grant, no container. Non-retryable: the offer
     # is single-shot; the lease-expiry sweep requeues with a new fence.
     grant = v2_claim_lease_fenced(auth)
@@ -3662,19 +3537,38 @@ def handle_start_attempt(cmd: dict) -> None:
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
     auth["interactive"] = bool(spec.get("interactive", False))
 
+    if spec.get("job_type") == "serverless_worker" and not grant.get("callback_token"):
+        _v2_abort_claimed_start(auth, "callback_credential_missing")
+        v2_nack_command(command_id, "callback_credential_missing", retryable=False)
+        return
+
+    runtime_environment = None
+    if spec.get("job_type") == "serverless_worker" and spec.get("environment"):
+        runtime_environment = grant.get("runtime_environment")
+        if (
+            grant.get("runtime_environment_spec_hash") != expected_spec_hash
+            or not isinstance(runtime_environment, dict)
+            or runtime_environment.keys() != spec["environment"].keys()
+            or not all(isinstance(v, str) for v in runtime_environment.values())
+        ):
+            _v2_abort_claimed_start(auth, "runtime_environment_missing")
+            v2_nack_command(command_id, "runtime_environment_missing", retryable=False)
+            return
+
     with _v2_attempts_lock:
         _v2_attempts[job_id] = auth
     if not _v2_journal_save():
-        _v2_forget_attempt(job_id, auth)
-        v2_nack_command(command_id, "journal_unavailable", retryable=True)
+        _v2_abort_claimed_start(auth, "journal_unavailable")
+        v2_nack_command(command_id, "journal_unavailable", retryable=False)
         return
     lease_report = v2_report_attempt_status(auth, "lease_claimed")
     if lease_report == "fenced":
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
         v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
         return
     start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
-    if not _v2_record_and_ack(command_id, start_result):
+    if not _v2_record_and_ack(command_id, start_result, retryable_on_journal_error=False):
+        _v2_abort_claimed_start(auth, "journal_unavailable")
         return
 
     threading.Thread(
@@ -3685,7 +3579,10 @@ def handle_start_attempt(cmd: dict) -> None:
     ).start()
 
     job = dict(spec)
+    if runtime_environment is not None:
+        job["environment"] = runtime_environment
     job.setdefault("job_id", job_id)
+    job["_serverless_callback_token"] = str(grant.get("callback_token") or "")
     job["_v2_attempt_id"] = auth["attempt_id"]
     job["_v2_fencing_token"] = auth["fencing_token"]
     job["_v2_spec_hash"] = auth.get("spec_hash") or ""
@@ -3694,8 +3591,56 @@ def handle_start_attempt(cmd: dict) -> None:
         run_job(job)
     except Exception as e:
         log.exception("start_attempt run_job crashed for job %s", job_id)
-        v2_report_attempt_status(auth, "failed", "agent_exception", {"error": str(e)[:300]})
-        _v2_forget_attempt(job_id)
+        _v2_on_job_status(
+            job_id,
+            "failed",
+            error_message=str(e),
+            policy_reason="agent_exception",
+            expected_auth=auth,
+        )
+
+
+def _v2_preemption_signal(
+    cmd: dict, container_name: str, state: str, *, validate_only=False
+) -> bool:
+    """A grace request never has Docker's implicit stop-timeout KILL."""
+    args = cmd.get("args") or {}
+    command_id = str(cmd.get("command_id") or "")
+    force = args.get("force") is True
+    try:
+        deadline = datetime.fromisoformat(str(args["grace_deadline"]).replace("Z", "+00:00"))
+        if deadline.tzinfo is None:
+            raise ValueError("deadline needs timezone")
+        elapsed = deadline.timestamp() <= time.time()
+    except (KeyError, ValueError, TypeError, OverflowError):
+        v2_nack_command(command_id, "preemption_policy_invalid", retryable=False)
+        return False
+    if (
+        not args.get("preemption_plan_id")
+        or args.get("checkpoint_policy") != "none"
+        or args.get("preserve") is not False
+        or (force and (args.get("allow_force") is not True or not elapsed))
+    ):
+        v2_nack_command(command_id, "preemption_policy_invalid", retryable=False)
+        return False
+    if validate_only:
+        return True
+    if state != "running":
+        return state in ("exited", "missing")
+    try:
+        result = subprocess.run(
+            ["docker", "kill", *([] if force else ["--signal", "TERM"]), container_name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        v2_nack_command(command_id, "preemption_signal_timeout", retryable=True)
+        return False
+    if result.returncode != 0:
+        v2_nack_command(command_id, "preemption_signal_failed", retryable=True)
+        return False
+    return True
 
 
 def handle_stop_attempt(cmd: dict) -> None:
@@ -3742,7 +3687,7 @@ def handle_stop_attempt(cmd: dict) -> None:
         )
         if code == 409:
             container_name = auth.get("container_name")
-            _v2_forget_attempt(job_id)
+            _v2_forget_attempt(job_id, auth)
             _v2_stop_container(
                 job_id,
                 "stop command authority rejected",
@@ -3753,13 +3698,18 @@ def handle_stop_attempt(cmd: dict) -> None:
 
     container_name = str(auth.get("container_name") or _v2_container_name(job_id, attempt_id))
     state, _exit_code, label = _v2_container_state(job_id, container_name)
-    if label != attempt_id:
+    if label != attempt_id and state != "missing":
         v2_nack_command(
             command_id,
             "container_attempt_mismatch",
             {"expected": attempt_id, "observed": label},
             retryable=False,
         )
+        return
+
+    if args.get("preemption") is True and not _v2_preemption_signal(
+        cmd, container_name, state, validate_only=True
+    ):
         return
 
     # Persist the intended terminal interpretation before the Docker side
@@ -3770,6 +3720,7 @@ def handle_stop_attempt(cmd: dict) -> None:
         current = _v2_attempts.get(job_id)
         authority_changed = current is not auth
         if not authority_changed:
+            previous_pending = auth.get("pending_command")
             auth["pending_command"] = {
                 "command_id": command_id,
                 "terminal_status": "stopped",
@@ -3778,7 +3729,22 @@ def handle_stop_attempt(cmd: dict) -> None:
     if authority_changed:
         v2_nack_command(command_id, "authority_changed_before_stop", retryable=False)
         return
-    _v2_journal_save()
+    if not _v2_journal_save():
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is auth:
+                if previous_pending is None:
+                    auth.pop("pending_command", None)
+                else:
+                    auth["pending_command"] = previous_pending
+        v2_nack_command(command_id, "stop_journal_unavailable", retryable=True)
+        return
+    if args.get("preemption") is True:
+        if not _v2_preemption_signal(cmd, container_name, state):
+            return
+        state, _exit_code, label = _v2_container_state(job_id, container_name)
+        if state != "missing" and (state != "exited" or label != attempt_id):
+            v2_nack_command(command_id, "preemption_grace_pending", retryable=True)
+            return
     if state == "running":
         try:
             stopped = subprocess.run(
@@ -3847,10 +3813,10 @@ def handle_stop_attempt(cmd: dict) -> None:
     outcome = v2_report_attempt_status(auth, "stopped")
     if outcome == "ok":
         _v2_record_and_ack(command_id, result)
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
     elif outcome == "fenced":
         v2_nack_command(command_id, "stop_status_fenced", retryable=False)
-        _v2_forget_attempt(job_id)
+        _v2_forget_attempt(job_id, auth)
     else:
         v2_nack_command(command_id, "stop_status_error", retryable=True)
 
@@ -3929,6 +3895,8 @@ def report_observations_v2(force: bool = False) -> bool:
     global _last_observation_at
     if not _v2_enabled:
         return False
+    _resume_pending_log_delivery()
+    _v2_retry_resource_cleanup(background=True)
     now = time.time()
     if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
         return False
@@ -4182,7 +4150,7 @@ def _reverification_worker():
 def _start_reverification() -> bool:
     """Begin a scheduled reverification, or decline and say why.
 
-    **Off the drain loop.** `drain_agent_commands` also owns preemption checks
+    **Off the command loop.** Host directive delivery also owns maintenance checks
     and job polling, and the benchmark takes about a minute — running it inline
     would stall this host's ability to notice it had been preempted.
 
@@ -4321,19 +4289,42 @@ TOWER_SERVERLESS_URL = os.environ.get("TOWER_SERVERLESS_URL", "http://127.0.0.1:
 EXCLUSIVE_GPU_LOCK_TIMEOUT_S = 60
 
 
-def _acquire_exclusive_gpu(job_id: str) -> dict:
-    """Acquire exclusive access to the local GPU. See module-level docstring.
-    Returns a state dict with keys: ok, lock_fd, ollama_pids, error.
+def _connection_refused_before_request(exc: BaseException) -> bool:
+    """Recognize a kernel refusal, never infer non-delivery from error text.
+
+    requests/urllib3 wrap the original socket exception in cause/reason/args.
+    A read timeout or generic connection error remains an uncertain mutation.
     """
+    pending, seen = [exc], set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, ConnectionRefusedError):
+            return True
+        pending.extend(
+            value
+            for value in (
+                current.__cause__,
+                current.__context__,
+                getattr(current, "reason", None),
+                *current.args,
+            )
+            if isinstance(value, BaseException)
+        )
+    return False
+
+
+def _acquire_exclusive_gpu(job_id: str, *, checkpoint=None) -> dict:
+    """Record drain and planned process ownership before their side effects."""
     import fcntl
 
-    state: dict = {"ok": False, "lock_fd": None, "ollama_pids": []}
-
-    # 1. flock (blocking with timeout)
+    state: dict = {"ok": False, "lock_fd": None, "ollama_pids": [], "drain_requested": False}
     try:
         fd = os.open(GPU_LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o664)
-    except OSError as e:
-        state["error"] = f"open(gpu.lock): {e}"
+    except OSError as exc:
+        state["error"] = f"open(gpu.lock): {exc}"
         return state
     deadline = time.time() + EXCLUSIVE_GPU_LOCK_TIMEOUT_S
     while True:
@@ -4342,77 +4333,96 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
             break
         except BlockingIOError:
             if time.time() >= deadline:
-                with suppress(Exception):
-                    os.close(fd)
-                state["error"] = (
-                    f"flock timeout ({EXCLUSIVE_GPU_LOCK_TIMEOUT_S}s) — "
-                    "another tier-1 tenant holds the GPU"
-                )
+                os.close(fd)
+                state["error"] = f"flock timeout ({EXCLUSIVE_GPU_LOCK_TIMEOUT_S}s)"
                 return state
             time.sleep(0.5)
     state["lock_fd"] = fd
-    log.info("exclusive_gpu[%s]: flock acquired", job_id)
+    if checkpoint:
+        checkpoint(state)
 
-    # 2. drain serverless
+    state["drain_requested"] = True
+    if checkpoint:
+        checkpoint(state)
     try:
-        r = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
-        log.info(
-            "exclusive_gpu[%s]: drain rc=%s body=%s",
-            job_id,
-            r.status_code,
-            r.text[:120],
-        )
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: drain skipped (%s)", job_id, e)
-
-    # 3. ollama stop (graceful unload)
+        reply = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
+        if reply.status_code == 404:
+            state["drain_requested"] = False
+        elif not 200 <= reply.status_code < 300:
+            raise RuntimeError(f"exclusive GPU drain failed (HTTP {reply.status_code})")
+        log.info("exclusive_gpu[%s]: drain rc=%s", job_id, reply.status_code)
+    except requests.exceptions.ConnectionError as exc:
+        if not _connection_refused_before_request(exc):
+            raise RuntimeError("exclusive GPU drain outcome is unknown") from exc
+        # The optional local service received no request. There is no drain
+        # to compensate, so cleanup must not wait forever for its resume API.
+        state["drain_requested"] = False
+        log.info("exclusive_gpu[%s]: optional local coordinator is absent", job_id)
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError("exclusive GPU drain outcome is unknown") from exc
+    if checkpoint:
+        checkpoint(state)
     try:
         subprocess.run(["ollama", "stop"], timeout=10, capture_output=True)
-        log.info("exclusive_gpu[%s]: ollama stop sent", job_id)
-    except FileNotFoundError:
-        log.info("exclusive_gpu[%s]: ollama not installed — skipping", job_id)
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: ollama stop failed (%s)", job_id, e)
+    except Exception as exc:
+        log.debug("exclusive_gpu[%s]: graceful unload unavailable (%s)", job_id, exc)
 
-    # 4-5. SIGSTOP ollama, SIGTERM tier3- jobs (root helper: other users' processes)
-    try:
-        reply = worker_privileged.call("gpu_tenants", action="pause")
-        if reply.get("ok"):
-            state["ollama_pids"] = list(reply.get("stopped") or [])
-            if state["ollama_pids"]:
-                log.info(
-                    "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s", job_id, state["ollama_pids"]
-                )
-        else:
-            log.warning(
-                "exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, reply.get("error")
-            )
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, e)
-
+    plan = worker_privileged.call("gpu_tenants", action="inspect")
+    pids = plan.get("stopped")
+    if (
+        not plan.get("ok")
+        or not isinstance(pids, list)
+        or not all(type(p) is int and p > 0 for p in pids)
+    ):
+        raise RuntimeError("GPU tenant helper cannot prepare a durable pause")
+    state["ollama_pids"] = list(pids)
+    if checkpoint:
+        checkpoint(state)
+    reply = worker_privileged.call("gpu_tenants", action="pause", pids=pids)
+    if not reply.get("ok"):
+        raise RuntimeError("GPU tenant pause was not confirmed")
     state["ok"] = True
+    if checkpoint:
+        checkpoint(state)
     return state
 
 
-def _release_exclusive_gpu(job_id: str, state: dict) -> None:
+def _release_exclusive_gpu(job_id: str, state: dict) -> bool:
     """Reverse of _acquire_exclusive_gpu. Idempotent and best-effort."""
     import fcntl
 
     if not state:
-        return
+        return True
+    released = True
 
     # 1. SIGCONT ollama runners
     if state.get("ollama_pids"):
         try:
-            worker_privileged.call("gpu_tenants", action="resume", pids=state["ollama_pids"])
+            reply = worker_privileged.call(
+                "gpu_tenants", action="resume", pids=state["ollama_pids"]
+            )
+            if reply.get("ok"):
+                state["ollama_pids"] = []
+            else:
+                released = False
         except Exception as e:
             log.warning("exclusive_gpu[%s]: resuming ollama failed (%s)", job_id, e)
+            released = False
 
-    # 2. resume serverless
-    try:
-        requests.post(f"{TOWER_SERVERLESS_URL}/admin/resume", timeout=5)
-    except Exception as e:
-        log.warning("exclusive_gpu[%s]: resume failed (%s)", job_id, e)
+    # 2. resume only a requested drain, including uncertain prior responses.
+    if state.get("drain_requested", True):
+        try:
+            response = requests.post(f"{TOWER_SERVERLESS_URL}/admin/resume", timeout=5)
+            if 200 <= response.status_code < 300:
+                state["drain_requested"] = False
+            else:
+                released = False
+        except Exception as e:
+            log.warning("exclusive_gpu[%s]: resume failed (%s)", job_id, e)
+            released = False
+
+    if not released:
+        return False
 
     # 3. release flock
     fd = state.get("lock_fd")
@@ -4421,8 +4431,10 @@ def _release_exclusive_gpu(job_id: str, state: dict) -> None:
             fcntl.flock(fd, fcntl.LOCK_UN)
         with suppress(Exception):
             os.close(fd)
+        state["lock_fd"] = None
 
     log.info("exclusive_gpu[%s]: released", job_id)
+    return True
 
 
 # ── Serverless worker helpers ────────────────────────────────────────
@@ -4488,7 +4500,7 @@ def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: in
     while time.time() < deadline and not _shutdown.is_set():
         try:
             resp = requests.get(url, timeout=5)
-            if resp.status_code < 500:
+            if 200 <= resp.status_code < 300:
                 log.info("Serverless health OK: %s → %d", url, resp.status_code)
                 return True
         except requests.RequestException:
@@ -4496,88 +4508,6 @@ def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: in
         time.sleep(3)
     log.error("Serverless health check timed out: %s", url)
     return False
-
-
-def _serverless_callback(worker_id: str, suffix: str, body: dict | None = None) -> bool:
-    if not worker_id:
-        return False
-    try:
-        resp = _api_request(
-            "post",
-            _api_url(f"/api/v2/serverless/workers/{worker_id}/{suffix}"),
-            json=body or {},
-            headers=_api_headers(),
-            timeout=30,
-        )
-        return resp.status_code == 200
-    except requests.RequestException as e:
-        log.warning("Serverless callback %s failed for %s: %s", suffix, worker_id, e)
-        return False
-
-
-def _monitor_serverless_worker(
-    job_id, container_name, worker_id, log_forwarder=None, is_v2_attempt=False
-):
-    """Monitor a serverless worker container until exit; notify control plane."""
-    check_interval = 5
-    while not _shutdown.is_set():
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            status = result.stdout.strip()
-            if status == "exited":
-                exit_result = subprocess.run(
-                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
-                err_msg = "" if exit_code == 0 else f"container exited with code {exit_code}"
-                _serverless_callback(
-                    worker_id,
-                    "exited",
-                    {"exit_code": exit_code, "error_message": err_msg},
-                )
-                if exit_code == 0:
-                    log.info("Serverless worker %s completed (job %s)", worker_id, job_id)
-                    report_job_status(job_id, "completed")
-                    if not is_v2_attempt:
-                        release_lease(job_id, "completed")
-                else:
-                    log.warning(
-                        "Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id
-                    )
-                    report_job_status(job_id, "failed", error_message=err_msg)
-                    if not is_v2_attempt:
-                        release_lease(job_id, "failed")
-                _remove_container(container_name)
-                return
-            if status not in ("running", "created"):
-                _serverless_callback(
-                    worker_id,
-                    "exited",
-                    {"exit_code": 1, "error_message": f"unexpected state: {status}"},
-                )
-                report_job_status(job_id, "failed", error_message=f"unexpected state: {status}")
-                if not is_v2_attempt:
-                    release_lease(job_id, "failed")
-                _remove_container(container_name)
-                return
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            report_job_status(job_id, "failed")
-            return
-        for _ in range(check_interval):
-            if _shutdown.is_set():
-                return
-            with _active_lock:
-                if job_id not in _active_containers:
-                    return
-            time.sleep(1)
 
 
 # ── Container Lifecycle ──────────────────────────────────────────────
@@ -4600,31 +4530,23 @@ def run_job(job):
     """
     job_id = job.get("job_id", "unknown")
     v2_attempt_id = str(job.get("_v2_attempt_id") or "")
-    is_v2_attempt = bool(v2_attempt_id)
-    container_name = str(
-        job.get("_v2_container_name")
-        or (_v2_container_name(job_id, v2_attempt_id) if is_v2_attempt else f"xcl-{job_id}")
-    )
+    container_name = str(job.get("_v2_container_name") or "")
     with _v2_attempts_lock:
         authority = _v2_attempts.get(job_id)
-    if is_v2_attempt:
-        if (
-            authority is None
-            or authority.get("attempt_id") != v2_attempt_id
-            or authority.get("fencing_token") != job.get("_v2_fencing_token")
-            or authority.get("container_name") != container_name
-        ):
-            log.error("Job %s: no matching local fenced authority; refusing execution", job_id)
-            return
-        lease_info = None  # The fenced handler already claimed the exact lease.
-    else:
-        if not _protocol_negotiated or not _legacy_execution_allowed or authority is not None:
-            log.error("Job %s: legacy execution is not authorized", job_id)
-            return
-        lease_info = claim_lease(job_id)
-        if not lease_info:
-            log.error("Job %s: legacy lease claim failed; refusing container changes", job_id)
-            return
+    if (
+        not v2_attempt_id
+        or not container_name
+        or authority is None
+        or authority.get("attempt_id") != v2_attempt_id
+        or authority.get("fencing_token") != job.get("_v2_fencing_token")
+        or authority.get("container_name") != container_name
+    ):
+        log.error("Job %s: no matching local fenced authority; refusing execution", job_id)
+        return
+
+    def report_status(*args, **kwargs):
+        return report_job_status(*args, expected_v2_auth=authority, **kwargs)
+
     job_name = job.get("name", "unnamed")
     image = job.get("image", job.get("docker_image", ""))
     command = job.get("command")
@@ -4653,7 +4575,7 @@ def run_job(job):
 
     if not image:
         log.error("Job %s has no image specified — skipping", job_id)
-        report_job_status(job_id, "failed")
+        report_status(job_id, "failed")
         return
 
     # ── Requeue guard: stop old container if this job was already running ──
@@ -4667,78 +4589,17 @@ def run_job(job):
 
     log.info("Starting job %s (%s) — image=%s", job_id, job_name, image)
 
-    # ── Lease Protocol: claim lease before starting work ──
-    # Job arrives as "assigned"; agent claims lease → "leased" → then "running"
-    lease_interval = (lease_info or {}).get("duration_sec", 300) // 2  # Renew at half-life
-
-    # Report starting status (leased → starting); will become "running" after
-    # the container is actually created (image pull + docker run may take minutes).
-    starting_reported = report_job_status(job_id, "starting", host_id=HOST_ID)
-    if is_v2_attempt and not starting_reported:
-        log.error(
-            "Job %s: fenced starting report failed — refusing container setup",
-            job_id,
-        )
+    # The start handler already claimed this attempt's lease and armed its
+    # native renewal loop. Confirm the starting transition before setup.
+    starting_reported = report_status(job_id, "starting", host_id=HOST_ID)
+    if not starting_reported:
+        log.error("Job %s: fenced starting report failed — refusing container setup", job_id)
         return
 
     with _active_lock:
         _active_containers[job_id] = container_name
 
-    # Start lease renewal thread (only when we have an active lease)
-    _lease_stop = threading.Event()
-
-    def _lease_renewal_loop():
-        consecutive_failures = 0
-        while not _lease_stop.is_set() and not _shutdown.is_set():
-            _lease_stop.wait(lease_interval)
-            if _lease_stop.is_set() or _shutdown.is_set():
-                break
-            result = renew_lease(job_id)
-            if not result:
-                consecutive_failures += 1
-                log.warning(
-                    "Lease renewal failed for job %s — attempt %d",
-                    job_id,
-                    consecutive_failures,
-                )
-                if consecutive_failures >= 3:
-                    # Lease may have expired after a VPS restart; try to reclaim.
-                    new_lease = claim_lease(job_id)
-                    if new_lease:
-                        consecutive_failures = 0
-                        log.info("Lease reclaimed for running job %s", job_id)
-                    else:
-                        log.error(
-                            "Lease reclaim failed for job %s — giving up renewal loop",
-                            job_id,
-                        )
-                        break
-            else:
-                consecutive_failures = 0
-
-    if lease_info:
-        lease_thread = threading.Thread(
-            target=_lease_renewal_loop,
-            name=f"lease-{job_id[:8]}",
-            daemon=True,
-        )
-        lease_thread.start()
-    elif not is_v2_attempt:
-        log.warning(
-            "Job %s: no active lease — skipping renewal loop (lease claim failed)",
-            job_id,
-        )
-
-    def _release_execution_lease(reason: str) -> None:
-        # A v2 terminal status report settles the placement lease atomically.
-        # Calling the compatibility lease endpoint as well would create a
-        # second, unfenced lifecycle writer for the same workload.
-        if not is_v2_attempt:
-            release_lease(job_id, reason)
-
-    encrypted_vol_ids = []
     encrypted_ws_vid = None
-    managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
     current_stage = "preparing instance"
 
     # ── Phase 7 / §3: acquire exclusive GPU before any container/IO setup ──
@@ -4750,16 +4611,42 @@ def run_job(job):
                 "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
                 job_id,
             )
-            _excl_state = _acquire_exclusive_gpu(job_id)
+            _v2_resource_intent(
+                authority, "exclusive", {"ollama_pids": [], "drain_requested": False}
+            )
+
+            def checkpoint_exclusive(state):
+                authority["_exclusive_state"] = state
+                _v2_resource_intent(
+                    authority,
+                    "exclusive",
+                    {
+                        "ollama_pids": list(state.get("ollama_pids") or []),
+                        "drain_requested": bool(state.get("drain_requested", False)),
+                    },
+                )
+
+            _excl_state = _acquire_exclusive_gpu(job_id, checkpoint=checkpoint_exclusive)
+            authority["_exclusive_state"] = _excl_state
+            _v2_resource_intent(
+                authority,
+                "exclusive",
+                {
+                    "ollama_pids": list(_excl_state.get("ollama_pids") or []),
+                    "drain_requested": bool(_excl_state.get("drain_requested", False)),
+                },
+            )
             if not _excl_state.get("ok"):
+                authority["resources"].pop("exclusive", None)
+                _v2_journal_save()
                 err = _excl_state.get("error", "unknown")
                 log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
-                report_job_status(
+                report_status(
                     job_id,
                     "failed",
                     error_message=f"exclusive_gpu acquire failed: {err}",
                 )
-                _release_execution_lease("failed")
+
                 return
 
         # 0. Mount legacy shared NFS (models/datasets). Skip when managed
@@ -4772,8 +4659,8 @@ def run_job(job):
         if job_requires_nfs and not has_managed_volumes and not (nfs_server and nfs_path):
             err = "required NFS configuration incomplete"
             log.error("Job %s aborting — %s", job_id, err)
-            report_job_status(job_id, "failed", error_message=err)
-            _release_execution_lease("failed")
+            report_status(job_id, "failed", error_message=err)
+
             return
         if (
             nfs_server
@@ -4781,16 +4668,18 @@ def run_job(job):
             and not has_managed_volumes
             and (not is_interactive or job_requires_nfs)
         ):
+            _v2_resource_intent(authority, "nfs_mounts", nfs_mount_point)
             nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
             if nfs_mounted:
                 log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
                 volumes = list(volumes) + [f"{nfs_mount_point}:/data/nfs:rw"]
             else:
+                _v2_cancel_mount_intent(authority, nfs_mount_point)
                 if job_requires_nfs:
                     err = "required NFS mount failed"
                     log.error("Job %s aborting — %s", job_id, err)
-                    report_job_status(job_id, "failed", error_message=err)
-                    _release_execution_lease("failed")
+                    report_status(job_id, "failed", error_message=err)
+
                     return
                 log.warning("NFS mount failed — optional shared storage unavailable")
 
@@ -4801,10 +4690,10 @@ def run_job(job):
             vol_mount = vol.get("mount_path", f"/data/vol-{vol_id[:8]}")
             vol_mode = vol.get("mode", "rw")
             if vol_id:
+                _v2_resource_intent(authority, "encrypted_volumes", vol_id)
                 mount_path = attach_encrypted_volume(vol_id)
                 if mount_path:
                     volumes = list(volumes) + [f"{mount_path}:{vol_mount}:{vol_mode}"]
-                    encrypted_vol_ids.append(vol_id)
                     log.info("Encrypted volume %s attached at %s", vol_id, vol_mount)
                 else:
                     log.error("Encrypted volume %s attach failed", vol_id)
@@ -4813,8 +4702,8 @@ def run_job(job):
         if failed_encrypted_vol_ids:
             err = "required encrypted volume attach failed: " + ", ".join(failed_encrypted_vol_ids)
             log.error("Job %s aborting — %s", job_id, err)
-            report_job_status(job_id, "failed", error_message=err)
-            _release_execution_lease("failed")
+            report_status(job_id, "failed", error_message=err)
+
             return
 
         # 0c. Mount managed volumes (volume_ids from job payload)
@@ -4833,14 +4722,15 @@ def run_job(job):
             if not container_path:
                 container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
             if nfs_vol_server:
+                _v2_resource_intent(authority, "nfs_mounts", vol_host_mount)
                 mounted = _mount_nfs(nfs_vol_server, vol_nfs_path, vol_host_mount)
                 if mounted:
                     volumes = list(volumes) + [f"{vol_host_mount}:{container_path}:rw"]
-                    managed_vol_mounts.append(vol_host_mount)
                     log.info(
                         "Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path
                     )
                 else:
+                    _v2_cancel_mount_intent(authority, vol_host_mount)
                     log.error("Managed volume %s mount failed", vid)
                     failed_volume_ids.append(vid)
             else:
@@ -4851,13 +4741,16 @@ def run_job(job):
         if required_volume_ids and failed_volume_ids:
             err = f"required volume mount failed: {', '.join(failed_volume_ids)}"
             log.error("Job %s aborting — %s", job_id, err)
-            report_job_status(job_id, "failed", error_message=err)
-            _release_execution_lease("failed")
+            report_status(job_id, "failed", error_message=err)
+
             return
 
         # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
         if job.get("encrypted_workspace"):
-            encrypted_ws_vid = f"ws-{job_id}"
+            encrypted_ws_vid = (
+                "ws-" + hashlib.sha256(f"{job_id}:{v2_attempt_id}".encode()).hexdigest()[:40]
+            )
+            _v2_resource_intent(authority, "workspaces", encrypted_ws_vid)
             ws_size_gb = 20  # Default ephemeral workspace size
             if provision_encrypted_volume(encrypted_ws_vid, ws_size_gb):
                 ws_mount = os.path.join(VOLUME_BASE_DIR, encrypted_ws_vid)
@@ -4882,10 +4775,10 @@ def run_job(job):
                 )
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
-                report_job_status(
+                report_status(
                     job_id, "failed", error_message="encrypted workspace provisioning failed"
                 )
-                _release_execution_lease("failed")
+
                 return
 
         # 1. Pull image (with cache tracking + LRU eviction)
@@ -4898,8 +4791,8 @@ def run_job(job):
             ).strip()
             if not cosign or not public_key:
                 err = "required image signature verifier/key is unavailable"
-                report_job_status(job_id, "failed", error_message=err)
-                _release_execution_lease("failed")
+                report_status(job_id, "failed", error_message=err)
+
                 return
             verified = subprocess.run(
                 [cosign, "verify", "--key", public_key, image],
@@ -4910,8 +4803,8 @@ def run_job(job):
             if verified.returncode != 0:
                 err = "required image signature verification failed"
                 log.error("Job %s: %s: %s", job_id, err, verified.stderr[:300])
-                report_job_status(job_id, "failed", error_message=err)
-                _release_execution_lease("failed")
+                report_status(job_id, "failed", error_message=err)
+
                 return
 
         # Check if image already cached — skip eviction + pull if so
@@ -4980,7 +4873,7 @@ def run_job(job):
                         }
                     ],
                 )
-                report_job_status(job_id, "failed", error_message=err)
+                report_status(job_id, "failed", error_message=err)
                 return
 
             # Track in LRU cache index
@@ -4998,20 +4891,20 @@ def run_job(job):
                     "required gVisor runtime is incompatible with this "
                     "interactive/managed-volume workload"
                 )
-                report_job_status(job_id, "failed", error_message=err)
-                _release_execution_lease("failed")
+                report_status(job_id, "failed", error_message=err)
+
                 return
             if not is_gvisor_available():
                 err = "required gVisor runtime is unavailable"
-                report_job_status(job_id, "failed", error_message=err)
-                _release_execution_lease("failed")
+                report_status(job_id, "failed", error_message=err)
+
                 return
             runtime_name = "runsc"
             log.info("Runtime: runsc (hard requirement)")
         elif required_runtime and required_runtime != "runc":
             err = f"unsupported required runtime: {required_runtime}"
-            report_job_status(job_id, "failed", error_message=err)
-            _release_execution_lease("failed")
+            report_status(job_id, "failed", error_message=err)
+
             return
         elif has_managed_volumes:
             log.info("Runtime: runc (managed NFS volume bind-mount)")
@@ -5184,7 +5077,7 @@ def run_job(job):
             egress_args, env_vars = launch_args(job, env_vars)
         except (ImportError, EgressUnavailable) as exc:
             log.error("Job %s not started: egress isolation unavailable: %s", job_id, exc)
-            report_job_status(
+            report_status(
                 job_id,
                 "failed",
                 error_message=(
@@ -5192,7 +5085,7 @@ def run_job(job):
                     "protection in place. Launch it again to use another machine."
                 ),
             )
-            _release_execution_lease("failed")
+
             return
         extra_docker_args.extend(egress_args)
 
@@ -5243,7 +5136,7 @@ def run_job(job):
                     }
                 ],
             )
-            report_job_status(job_id, "failed", error_message=err[:500])
+            report_status(job_id, "failed", error_message=err[:500])
             return
 
         container_id = start.stdout.strip()[:12]
@@ -5263,7 +5156,7 @@ def run_job(job):
         #     so the web terminal backend can resolve container_name before we
         #     flip to "running". Keeping the UI badge on "starting" until SSH
         #     injection actually finishes means "Running" is a truthful signal.
-        report_job_status(
+        report_status(
             job_id,
             "starting",
             host_id=HOST_ID,
@@ -5272,12 +5165,11 @@ def run_job(job):
         )
 
         if is_serverless:
-            worker_id = str(job.get("serverless_worker_id") or "")
             http_port = int(job.get("http_port") or 8080)
             health_path = str(job.get("health_check_path") or "/health")
             host_http_port = int(port_map.get(str(http_port)) or http_port)
             if port_map:
-                _report_http_ports(job_id, port_map)
+                _report_http_ports(job_id, port_map, expected_auth=authority)
             _push_log_lines(
                 job_id,
                 [
@@ -5290,17 +5182,13 @@ def run_job(job):
             )
             if not _wait_serverless_health(host_http_port, health_path):
                 err = f"health check failed on :{host_http_port}{health_path}"
-                _serverless_callback(
-                    worker_id,
-                    "exited",
-                    {"exit_code": 1, "error_message": err},
-                )
-                report_job_status(job_id, "failed", error_message=err)
-                _release_execution_lease("failed")
                 _kill_container(container_name)
+                # Keep exact labels and journal until native exit is confirmed.
+                _monitor_container(job_id, container_name)
                 return
-            _serverless_callback(worker_id, "ready", {"host_id": str(HOST_ID or "")})
-            report_job_status(
+            authority["running_report_pending"] = True
+            _v2_journal_save()
+            report_status(
                 job_id,
                 "running",
                 host_id=HOST_ID,
@@ -5311,7 +5199,7 @@ def run_job(job):
                 job_id,
                 [
                     {
-                        "message": f"Serverless worker {worker_id} ready",
+                        "message": f"Serverless worker {job.get('serverless_worker_id', job_id)} ready",
                         "level": "info",
                         "timestamp": time.time(),
                     }
@@ -5326,7 +5214,7 @@ def run_job(job):
             _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
             # 4c. SSH is either ready or has emitted a reason — flip to "running".
-            report_job_status(
+            report_status(
                 job_id,
                 "running",
                 host_id=HOST_ID,
@@ -5338,13 +5226,13 @@ def run_job(job):
             # `/instances/{id}/expose` and the nginx subdomain router can
             # resolve public URLs. Best-effort — a failed report just means
             # the public URL won't resolve yet; the next heartbeat cycle
-            # will retry via _report_http_ports_with_retry.
+            # retries the journaled callback after its next lease renewal.
             if is_interactive and port_map:
-                _report_http_ports(job_id, port_map)
+                _report_http_ports(job_id, port_map, expected_auth=authority)
 
             # For interactive jobs, report SSH connection info
             if is_interactive:
-                report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
+                report_status(job_id, "running", ssh_port=host_port, interactive=True)
                 log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
                 _push_log_lines(
                     job_id,
@@ -5368,7 +5256,7 @@ def run_job(job):
             # conda env before Jupyter installs into the default python.
             # Never fatal — a failed auto-launch must not kill the instance.
             try:
-                _run_auto_launch(job_id, container_name, job)
+                _run_auto_launch(job_id, container_name, job, expected_auth=authority)
             except Exception as e:
                 log.debug("auto_launch error (non-fatal): %s", e)
 
@@ -5385,32 +5273,26 @@ def run_job(job):
             log.debug("Egress rules failed (non-fatal): %s", e)
 
         # 6. Start log forwarding (container → API → SSE → frontend)
-        log_fwd = LogForwarder(job_id, container_name)
-        log_fwd.start()
+        try:
+            log_fwd = LogForwarder(job_id, container_name)
+            log_fwd.start()
+            authority["_log_forwarder"] = log_fwd
+        except Exception as exc:
+            log.warning("Log forwarding unavailable for job %s: %s", job_id, exc)
 
         # 7. Monitor container until completion
         current_stage = "monitoring container"
-        if is_serverless:
-            _monitor_serverless_worker(
-                job_id,
-                container_name,
-                str(job.get("serverless_worker_id") or ""),
-                log_forwarder=log_fwd,
-                is_v2_attempt=is_v2_attempt,
-            )
-        elif is_interactive:
+        if is_interactive:
             _monitor_interactive(
                 job_id,
                 container_name,
                 log_forwarder=log_fwd,
-                is_v2_attempt=is_v2_attempt,
             )
         else:
             _monitor_container(
                 job_id,
                 container_name,
                 log_forwarder=log_fwd,
-                is_v2_attempt=is_v2_attempt,
             )
 
     except subprocess.TimeoutExpired:
@@ -5427,8 +5309,8 @@ def run_job(job):
             ],
         )
         _kill_container(container_name)
-        report_job_status(job_id, "failed", error_message=timeout_msg)
-        _release_execution_lease("failed")
+        report_status(job_id, "failed", error_message=timeout_msg)
+
     except Exception as e:
         stage_msg = f"{current_stage}: {e}"
         log.error("Job %s failed during %s: %s", job_id, current_stage, e, exc_info=True)
@@ -5443,8 +5325,8 @@ def run_job(job):
             ],
         )
         _kill_container(container_name)
-        report_job_status(job_id, "failed", error_message=stage_msg)
-        _release_execution_lease("failed")
+        report_status(job_id, "failed", error_message=stage_msg)
+
     finally:
         # Stop log forwarding (final flush)
         if log_fwd:
@@ -5453,35 +5335,18 @@ def run_job(job):
             except Exception:
                 pass
 
-        # Stop lease renewal thread
-        _lease_stop.set()
-        with _active_lock:
-            _active_containers.pop(job_id, None)
-
-        # Release exclusive GPU lock (Phase 7 / §3) — must run last so any
-        # checkpoint/cleanup work above completes while we still own the GPU.
-        if exclusive_gpu and _excl_state.get("ok"):
-            _release_exclusive_gpu(job_id, _excl_state)
-
-        # Unmount NFS if we mounted it
-        if nfs_mounted:
-            _unmount_nfs(nfs_mount_point)
-
-        # Unmount managed volumes
-        for vol_mount in managed_vol_mounts:
-            try:
-                _unmount_nfs(vol_mount)
-            except Exception as e:
-                log.warning("Failed to unmount managed volume %s: %s", vol_mount, e)
-
-        # Detach encrypted volumes
-        for vol_id in encrypted_vol_ids:
-            detach_encrypted_volume(vol_id)
-
-        # Destroy ephemeral encrypted workspace (cryptographic erasure)
-        if encrypted_ws_vid:
-            destroy_encrypted_volume(encrypted_ws_vid)
-            log.info("Encrypted workspace destroyed for job %s (cryptographic erasure)", job_id)
+        with _v2_attempts_lock:
+            handoff = _shutdown.is_set() and _v2_same_authority(
+                _v2_attempts.get(job_id) or {}, authority
+            )
+        if handoff:
+            # The workload still owns its fenced lease. Preserve its mounts,
+            # encrypted workspace and bookkeeping for restart adoption.
+            log.info("Preserving resources for journaled job %s during shutdown", job_id)
+        else:
+            with _active_lock:
+                _active_containers.pop(job_id, None)
+            _v2_cleanup_resources(authority)
 
 
 # ── Log Forwarding ───────────────────────────────────────────────────
@@ -5496,6 +5361,7 @@ _LOG_BATCH_SIZE = 50  # flush every N lines
 _LOG_FLUSH_INTERVAL = 1.0  # or every N seconds
 _LOG_BACKOFF_MAX = 60  # max retry delay (seconds)
 _LOG_SPOOL_MAX = 50_000  # max lines in disk spool before dropping oldest
+_LOG_SPOOL_MAX_BYTES = 10_000_000
 
 
 class LogForwarder:
@@ -5507,12 +5373,40 @@ class LogForwarder:
     """
 
     def __init__(self, job_id: str, container_name: str):
+        from math import isfinite
+
         self.job_id = job_id
         self.container_name = container_name
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._buffer: list[dict] = []
-        self._spool_path = os.path.join(_tempfile.gettempdir(), f"xcelsior-logs-{job_id}.jsonl")
+        self._delivery_lock = threading.Lock()
+        self._cursor = 0.0
+        scope = hashlib.sha256(f"{job_id}\0{container_name}".encode()).hexdigest()
+        directory = os.path.join(os.path.dirname(os.path.abspath(_V2_JOURNAL_PATH)), "logs")
+        self._spool_path = os.path.join(directory, f"{scope}.json")
+        try:
+            with open(self._spool_path) as source:
+                saved = json.load(source)
+            if saved.get("job_id") != job_id or saved.get("container_name") != container_name:
+                raise ValueError("log spool belongs to another execution")
+            if saved.get("version") != 1:
+                raise ValueError("unsupported log spool version")
+            self._cursor = float(saved.get("cursor") or 0)
+            self._buffer = list(saved.get("lines") or [])[-_LOG_SPOOL_MAX:]
+            if not isfinite(self._cursor) or not all(
+                isinstance(e, dict)
+                and isinstance(e.get("message"), str)
+                and isinstance(e.get("timestamp"), (int, float))
+                and isfinite(e["timestamp"])
+                for e in self._buffer
+            ):
+                raise ValueError("invalid saved log records")
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, TypeError, AttributeError):
+            log.warning("Could not restore log spool for job %s; retaining its file", job_id)
+            raise
         self._tail_proc = None
         self._tail_thread = None
         self._flush_thread = None
@@ -5543,16 +5437,17 @@ class LogForwarder:
             self._flush_thread.join(timeout=5)
         # Final flush of remaining lines after threads have stopped
         self._flush_batch()
-        # Clean up spool file
-        with suppress(FileNotFoundError):
-            os.remove(self._spool_path)
         log.debug("LogForwarder stopped for %s", self.job_id)
 
     def _tail_loop(self):
         """Run `docker logs --follow --timestamps` and buffer lines."""
         try:
+            command = ["docker", "logs", "--follow", "--timestamps"]
+            if self._cursor:
+                command.extend(["--since", str(self._cursor)])
+            command.append(self.container_name)
             self._tail_proc = subprocess.Popen(
-                ["docker", "logs", "--follow", "--timestamps", self.container_name],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -5573,7 +5468,7 @@ class LogForwarder:
                     space = line.find(" ")
                     if space > 0:
                         try:
-                            dt = datetime.fromisoformat(line[:space].rstrip("Z"))
+                            dt = datetime.fromisoformat(line[:space].replace("Z", "+00:00"))
                             ts = dt.timestamp()
                             msg = line[space + 1 :]
                         except (ValueError, IndexError):
@@ -5581,9 +5476,10 @@ class LogForwarder:
 
                 level = "stderr" if "ERROR" in msg[:50] or "FATAL" in msg[:50] else "info"
 
-                entry = {"message": msg, "level": level, "timestamp": ts}
+                entry = {"message": msg[:16_384], "level": level, "timestamp": ts}
                 with self._lock:
                     self._buffer.append(entry)
+                    self._buffer = self._buffer[-_LOG_SPOOL_MAX:]
 
                 # Flush if batch is full
                 if len(self._buffer) >= _LOG_BATCH_SIZE:
@@ -5606,73 +5502,148 @@ class LogForwarder:
 
     def _flush_batch(self):
         """Send buffered lines to the API. Retry with exponential backoff."""
-        with self._lock:
-            if not self._buffer:
-                return
-            batch = self._buffer[:_LOG_BATCH_SIZE]
-            self._buffer = self._buffer[_LOG_BATCH_SIZE:]
+        # Tail, periodic flush and shutdown can race. A delivery owns its batch
+        # until the API acknowledges it, and disk always retains pending lines.
+        with self._delivery_lock:
+            with self._lock:
+                if not self._buffer:
+                    return True
+                try:
+                    self._persist_spool()
+                except OSError:
+                    log.warning("Cannot persist pending logs for job %s", self.job_id)
+                    return False
+                batch = self._buffer[:_LOG_BATCH_SIZE]
 
-        # Spool to disk (WAL-style) so we don't lose lines if API is down
-        try:
-            spool_size = (
-                os.path.getsize(self._spool_path) if os.path.exists(self._spool_path) else 0
-            )
-        except OSError:
-            spool_size = 0
-        if spool_size < 10_000_000:  # 10MB cap
+            body = json.dumps({"lines": batch}).encode()
+            headers = {**_api_headers()}
+            if len(body) > 1024:
+                body = _gzip.compress(body)
+                headers["Content-Encoding"] = "gzip"
             try:
-                with open(self._spool_path, "a") as f:
-                    for entry in batch:
-                        f.write(json.dumps(entry) + "\n")
-            except OSError:
-                pass  # disk full — best-effort
-
-        body = json.dumps({"lines": batch}).encode()
-
-        # Gzip compress if > 1KB
-        headers = {**_api_headers()}
-        if len(body) > 1024:
-            body = _gzip.compress(body)
-            headers["Content-Encoding"] = "gzip"
-
-        try:
-            resp = _api_request(
-                "post",
-                _api_url(f"/agent/logs/{self.job_id}"),
-                data=body,
-                headers=headers,
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                self._backoff = 1.0  # reset on success
-                # Drain from disk spool what we successfully sent
-                self._drain_spool(len(batch))
-            else:
+                resp = _api_request(
+                    "post",
+                    _api_url(f"/agent/logs/{self.job_id}"),
+                    data=body,
+                    headers=headers,
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    with self._lock:
+                        old_buffer, old_cursor = list(self._buffer), self._cursor
+                        self._buffer = self._buffer[len(batch) :]
+                        self._cursor = max(self._cursor, *(float(e["timestamp"]) for e in batch))
+                        try:
+                            self._persist_spool()
+                        except OSError:
+                            # An acknowledged batch may replay after disk loss,
+                            # but an unacknowledged batch is never discarded.
+                            self._buffer, self._cursor = old_buffer, old_cursor
+                            return False
+                    self._backoff = 1.0
+                    return True
                 log.debug("Log POST returned %d for %s", resp.status_code, self.job_id)
                 self._backoff_wait()
-        except requests.RequestException:
-            self._backoff_wait()
+            except requests.RequestException:
+                self._backoff_wait()
+            return False
+
+    def _persist_spool(self):
+        """Write under _lock; replacing one state file binds cursor and backlog."""
+        while True:
+            data = json.dumps(
+                {
+                    "version": 1,
+                    "job_id": self.job_id,
+                    "container_name": self.container_name,
+                    "cursor": self._cursor,
+                    "lines": self._buffer,
+                },
+                allow_nan=False,
+            ).encode()
+            if len(data) <= _LOG_SPOOL_MAX_BYTES:
+                break
+            keep = max(1, int(len(self._buffer) * _LOG_SPOOL_MAX_BYTES / len(data)) - 1)
+            if keep >= len(self._buffer):
+                raise OSError("one log record exceeds spool capacity")
+            self._buffer = self._buffer[-keep:]
+        directory = os.path.dirname(self._spool_path)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        fd, temporary = _tempfile.mkstemp(prefix=".logs-", dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, self._spool_path)
+            directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary)
 
     def _backoff_wait(self):
         """Wait with exponential backoff, capped at _LOG_BACKOFF_MAX."""
         self._stop.wait(self._backoff)
         self._backoff = min(self._backoff * 2, _LOG_BACKOFF_MAX)
 
-    def _drain_spool(self, count: int):
-        """Remove successfully sent lines from disk spool."""
+
+_log_replay_running = threading.Lock()
+_log_replay_offset = 0
+
+
+def _resume_pending_log_delivery() -> None:
+    """Retry terminal-attempt output without blocking observations or renewals."""
+    directory = os.path.join(os.path.dirname(os.path.abspath(_V2_JOURNAL_PATH)), "logs")
+    if not os.path.isdir(directory) or not _log_replay_running.acquire(blocking=False):
+        return
+
+    def replay():
+        global _log_replay_offset
         try:
-            with open(self._spool_path, "r") as f:
-                remaining = f.readlines()[count:]
-            if remaining:
-                with open(self._spool_path, "w") as f:
-                    f.writelines(remaining[-_LOG_SPOOL_MAX:])
-            else:
-                os.remove(self._spool_path)
-        except (FileNotFoundError, OSError):
-            pass
+            files = sorted(Path(directory).glob("*.json"))
+            if not files:
+                return
+            start = _log_replay_offset % len(files)
+            selected = (files[start:] + files[:start])[:32]
+            _log_replay_offset = (start + len(selected)) % len(files)
+            with _v2_attempts_lock:
+                active = {a.get("container_name") for a in _v2_attempts.values()}
+            for path in selected:
+                if _shutdown.is_set():
+                    return
+                try:
+                    with path.open() as source:
+                        record = json.load(source)
+                    if record.get("container_name") in active:
+                        continue
+                    forwarder = LogForwarder(record["job_id"], record["container_name"])
+                    if os.path.abspath(forwarder._spool_path) != str(path):
+                        continue
+                    for _ in range(4):
+                        if not forwarder._buffer or not forwarder._flush_batch():
+                            break
+                    if not forwarder._buffer:
+                        path.unlink(missing_ok=True)
+                except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                    log.warning("Could not replay retained worker log spool %s", path.name)
+        finally:
+            _log_replay_running.release()
+
+    try:
+        threading.Thread(target=replay, name="v2-log-replay", daemon=True).start()
+    except RuntimeError:
+        _log_replay_running.release()
 
 
 def _v2_start_exit_monitor(auth: dict) -> None:
+    with _v2_attempts_lock:
+        if auth.get("_exit_monitor_started"):
+            return
+        auth["_exit_monitor_started"] = True
     threading.Thread(
         target=_v2_monitor_container,
         args=(auth,),
@@ -5682,6 +5653,7 @@ def _v2_start_exit_monitor(auth: dict) -> None:
 
 
 def _v2_cleanup_exited(auth: dict) -> None:
+    _v2_cleanup_resources(auth)
     pending = auth.get("pending_command") or {}
     if (pending.get("result") or {}).get("preserved"):
         return
@@ -5704,12 +5676,38 @@ def _v2_monitor_container(auth: dict) -> None:
     An old monitor never borrows a replacement attempt's authority.
     """
     job_id = auth["job_id"]
+    auth["_exit_monitor_started"] = True
     while not _shutdown.is_set():
         with _v2_attempts_lock:
             if _v2_attempts.get(job_id) is not auth:
                 return
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
-        if state == "exited" and label == auth["attempt_id"]:
+        terminal = auth.get("pending_terminal_report")
+        if terminal and state == "running" and label == auth["attempt_id"]:
+            _v2_stop_container(
+                job_id, "terminal report pending", auth["container_name"], auth["attempt_id"]
+            )
+        if terminal and (state == "missing" or (state == "exited" and label == auth["attempt_id"])):
+            auth["stop"].set()
+            outcome = v2_report_attempt_status(
+                auth, terminal["status"], terminal.get("failure_code")
+            )
+            if outcome != "error":
+                _v2_forget_attempt(job_id, auth)
+                _v2_cleanup_exited(auth)
+                return
+        if (
+            state == "running"
+            and label == auth["attempt_id"]
+            and auth.get("running_report_pending")
+            and not terminal
+        ):
+            if report_job_status(
+                job_id, "running", container_name=auth["container_name"], expected_v2_auth=auth
+            ):
+                auth["running_report_pending"] = False
+                _v2_journal_save()
+        elif state == "exited" and label == auth["attempt_id"] and not terminal:
             # Do not let a renewal's post-completion 409 erase the journal
             # while an uncertain terminal report is still being retried.
             auth["stop"].set()
@@ -5749,209 +5747,22 @@ def _v2_monitor_container(auth: dict) -> None:
             time.sleep(1)
 
 
-def _monitor_container(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
-    """Monitor a running container until it exits or is preempted."""
-    if is_v2_attempt:
-        with _v2_attempts_lock:
-            auth = _v2_attempts.get(job_id)
-        if auth is not None and auth.get("container_name") == container_name:
-            _v2_monitor_container(auth)
-        return
-    check_interval = 5  # seconds
-
-    while not _shutdown.is_set():
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            status = result.stdout.strip()
-
-            if status == "exited":
-                # Check exit code
-                exit_result = subprocess.run(
-                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
-
-                if exit_code == 0:
-                    log.info("Job %s completed successfully", job_id)
-                    report_job_status(job_id, "completed")
-                    if not is_v2_attempt:
-                        release_lease(job_id, "completed")
-                else:
-                    log.warning("Job %s exited with code %d", job_id, exit_code)
-                    # Collect logs for debugging
-                    try:
-                        logs = subprocess.run(
-                            ["docker", "logs", "--tail", "50", container_name],
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                        )
-                        if logs.stdout:
-                            log.info("Container output (last 50 lines):\n%s", logs.stdout[-2000:])
-                    except Exception as e:
-                        log.debug("docker logs retrieval failed: %s", e)
-                    report_job_status(job_id, "failed")
-                    if not is_v2_attempt:
-                        release_lease(job_id, "failed")
-
-                # Cleanup container
-                _remove_container(container_name)
-                return
-
-            elif status not in ("running", "created"):
-                log.warning("Container %s in unexpected state: %s", container_name, status)
-                report_job_status(job_id, "failed")
-                if not is_v2_attempt:
-                    release_lease(job_id, "failed")
-                _remove_container(container_name)
-                return
-
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            log.debug("Container inspect failed — may have been removed")
-            report_job_status(job_id, "failed")
-            return
-
-        # Sleep in small increments to respond to shutdown/requeue quickly
-        for _ in range(check_interval):
-            if _shutdown.is_set():
-                return
-            with _active_lock:
-                if job_id not in _active_containers:
-                    return  # Requeued or preempted — let new run_job take over
-            time.sleep(1)
+def _monitor_container(job_id, container_name, log_forwarder=None):
+    """Monitor only a locally journaled attempt with the exact container name."""
+    with _v2_attempts_lock:
+        auth = _v2_attempts.get(job_id)
+    if auth is not None and auth.get("container_name") == container_name:
+        _v2_monitor_container(auth)
 
 
-def _monitor_interactive(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
-    """Monitor an interactive container — stays running until cancelled or shutdown.
-
-    Unlike batch containers, interactive containers run indefinitely.
-    The container is only stopped when:
-    - User cancels via API (preemption signal)
-    - Worker shuts down gracefully
-    - Container crashes unexpectedly
-    """
-    if is_v2_attempt:
-        with _v2_attempts_lock:
-            auth = _v2_attempts.get(job_id)
-        if auth is not None and auth.get("container_name") == container_name:
-            auth["interactive"] = True
-            _v2_journal_save()
-            _v2_monitor_container(auth)
-        return
-    check_interval = 10  # Check less frequently — container is meant to stay alive
-
-    log.info(
-        "Monitoring interactive container %s (job %s) — will run until stopped",
-        container_name,
-        job_id,
-    )
-
-    while not _shutdown.is_set():
-        # Another control path removed this job from tracking (requeue,
-        # graceful shutdown, preemption, billing pause/restart). That path
-        # already owns the DB status — do not clobber it with "cancelled".
-        with _active_lock:
-            if job_id not in _active_containers:
-                log.info(
-                    "Interactive job %s removed from active containers — monitor exiting",
-                    job_id,
-                )
-                return
-
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            status = result.stdout.strip()
-
-            if status == "exited":
-                # Interactive container has stopped. This happens in three
-                # scenarios, all of which we must handle correctly:
-                #   1. `docker stop` via the agent command queue (billing
-                #      stop/pause, admin kill) — the DB has already been
-                #      flipped to stopped/paused/cancelled/terminated; don't
-                #      overwrite it with "failed".
-                #   2. User cleanly exited their shell (exit_code 0) or the
-                #      process received SIGTERM/SIGINT/SIGKILL from a stop
-                #      (exit codes 130/137/143). Report "stopped", not
-                #      "failed" — the instance is resumable via restart.
-                #   3. Non-zero, non-signal exit (e.g. OOM, segfault in the
-                #      user's entrypoint). This is the only genuine "failed"
-                #      case.
-                exit_result = subprocess.run(
-                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                try:
-                    exit_code = int(exit_result.stdout.strip())
-                except (TypeError, ValueError):
-                    exit_code = -1
-
-                # Clean-exit codes: 0 (explicit exit), 130 (SIGINT/Ctrl-C),
-                # 137 (SIGKILL from `docker stop` timeout), 143 (SIGTERM
-                # graceful). Anything else is a real crash.
-                _CLEAN_EXIT_CODES = {0, 130, 137, 143}
-                reported_status = "stopped" if exit_code in _CLEAN_EXIT_CODES else "failed"
-                log.info(
-                    "Interactive container %s exited (code %d) — reporting %s",
-                    container_name,
-                    exit_code,
-                    reported_status,
-                )
-                report_job_status(job_id, reported_status)
-                if not is_v2_attempt:
-                    release_lease(job_id, reported_status)
-                if reported_status != "stopped":
-                    _remove_container(container_name)
-                return
-
-            elif status not in ("running", "created", "restarting", "paused"):
-                # A paused container still exists and must remain managed.
-                # Keep polling so termination and shutdown retain ownership.
-                log.warning(
-                    "Interactive container %s in unexpected state: %s", container_name, status
-                )
-                report_job_status(job_id, "failed")
-                if not is_v2_attempt:
-                    release_lease(job_id, "failed")
-                _remove_container(container_name)
-                return
-
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            # `docker inspect` failed — the container was almost certainly
-            # removed by the `stop_container` agent handler in another
-            # drain cycle. That handler already flipped the DB status, so
-            # reporting "failed" here would clobber the correct state.
-            log.debug(
-                "Interactive container %s inspect failed — assuming removed by stop_container",
-                container_name,
-            )
-            return
-
-        # Sleep in small increments to respond to shutdown/cancel/requeue quickly
-        for _ in range(check_interval):
-            if _shutdown.is_set():
-                # graceful_shutdown() stops agent-started containers and marks
-                # them queued; adopted containers are left running. Either way
-                # this monitor must not report "cancelled" on worker restart.
-                return
-            with _active_lock:
-                if job_id not in _active_containers:
-                    break  # Requeued — exit sleep, handle at top of loop
-            time.sleep(1)
+def _monitor_interactive(job_id, container_name, log_forwarder=None):
+    """Preserve clean interactive stops through the native terminal monitor."""
+    with _v2_attempts_lock:
+        auth = _v2_attempts.get(job_id)
+    if auth is not None and auth.get("container_name") == container_name:
+        auth["interactive"] = True
+        _v2_journal_save()
+        _v2_monitor_container(auth)
 
 
 def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
@@ -6152,19 +5963,15 @@ def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
 
 
 def _auto_launch_token(job_id: str) -> str:
-    """Derive a per-instance secret for Jupyter / code-server auth.
+    """Mint an independent service credential for each container launch.
 
-    Combines the job_id with a host-side secret so leaked job_ids alone
-    can't be used to log in. Falls back to a job-id-only hash when no
-    host secret is configured (still opaque to the outside world; just
-    predictable across hosts that share a job_id which never happens
-    in practice).
+    The owner API stores the reported token; no consumer reconstructs it from
+    a public job ID or requires a shared host secret for service credentials.
     """
-    host_secret = os.environ.get("HOST_SECRET") or os.environ.get("XCELSIOR_HOST_SECRET", "")
-    return hashlib.sha256(f"{job_id}:{host_secret}".encode()).hexdigest()[:32]
+    return secrets.token_hex(16)
 
 
-def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
+def _run_auto_launch(job_id: str, container_name: str, job: dict, *, expected_auth=None) -> None:
     """P2.3 — bring up Jupyter and/or code-server inside the container.
 
     Mirrors the safety posture of ``_run_provisioning_hooks``: each
@@ -6174,7 +5981,7 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
     longer grace would just waste the user's perception of boot time).
 
     Security:
-      * Token = sha256(job_id + HOST_SECRET)[:32] — 128 bits.
+      * Token contains 128 cryptographically random bits per launch.
       * Token is never echoed to stdout; we print a prefix hash only
         (`token_sha=xxxxxxxx`) and the user retrieves it via the API.
       * ``--allow-root`` is acceptable because the container is
@@ -6190,7 +5997,16 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
     if not services:
         return
 
-    token = _auto_launch_token(job_id)
+    with _v2_attempts_lock:
+        if (
+            expected_auth is None
+            or _v2_attempts.get(job_id) is not expected_auth
+            or expected_auth.get("container_name") != container_name
+        ):
+            return
+        token = expected_auth.setdefault("auto_launch_token", _auto_launch_token(job_id))
+        if not _v2_journal_save():
+            raise OSError("cannot persist the native service credential before launch")
     token_prefix = hashlib.sha256(token.encode()).hexdigest()[:8]
 
     def _exec_bg(tag: str, shell_cmd: str, seconds: int = 15) -> None:
@@ -6308,28 +6124,11 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
     # must SSH-tunnel manually. Report back via the API so the UI can
     # display the URL.
     if ports:
-        try:
-            api_url = os.environ.get("XCELSIOR_API_URL", "").rstrip("/")
-            if api_url:
-                host_id = os.environ.get("HOST_ID") or os.environ.get("XCELSIOR_HOST_ID", "")
-                payload = {
-                    "host_id": host_id,
-                    "ports": ports,
-                    "token_sha": token_prefix,
-                    "token": token,
-                }
-                try:
-                    _api_request(
-                        "post",
-                        f"{api_url}/instances/{job_id}/auto-launch/report",
-                        json=payload,
-                        timeout=5,
-                        headers={"X-Host-Secret": os.environ.get("HOST_SECRET", "")},
-                    )
-                except Exception as e:
-                    log.debug("auto_launch report failed: %s", e)
-        except Exception as e:
-            log.debug("auto_launch report outer error: %s", e)
+        _v2_runtime_report(
+            expected_auth,
+            "auto-launch",
+            {"ports": ports, "token_sha": token_prefix, "token": token},
+        )
 
 
 #: `ssh-keygen -lf` prints "<bits> <hash> <comment> (<TYPE>)". The middle field
@@ -7004,83 +6803,6 @@ def _remove_container(container_name):
         log.warning("_remove_container(%s) error: %s", container_name, e)
 
 
-def handle_preemptions(preempt_job_ids):
-    """Handle preemption — checkpoint on CRIU-capable hosts, else graceful stop."""
-    grace_sec = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
-    checkpoint_class = ""
-    try:
-        from criu_hosts import docker_checkpoint_local, probe_checkpoint_stack
-
-        checkpoint_class = str(probe_checkpoint_stack().get("checkpoint_class") or "")
-    except Exception:
-        pass
-
-    for job_id in preempt_job_ids:
-        with _active_lock:
-            container_name = _active_containers.get(job_id)
-
-        if not container_name:
-            log.debug("Preemption for %s but no active container found", job_id)
-            continue
-
-        log.warning(
-            "PREEMPTING job %s (container %s, grace=%ss, checkpoint=%s)",
-            job_id,
-            container_name,
-            grace_sec,
-            checkpoint_class or "none",
-        )
-
-        ckpt_meta = None
-        if checkpoint_class:
-            try:
-                from criu_hosts import docker_checkpoint_local
-
-                ckpt_meta = docker_checkpoint_local(
-                    container_name,
-                    job_id,
-                    checkpoint_class=checkpoint_class,
-                )
-            except Exception as exc:
-                log.warning("checkpoint preemption failed job=%s: %s", job_id, exc)
-
-        if not ckpt_meta:
-            try:
-                subprocess.run(
-                    ["docker", "kill", "--signal=SIGTERM", container_name],
-                    capture_output=True,
-                    timeout=10,
-                )
-            except Exception as e:
-                log.debug("SIGTERM during preemption for %s: %s", job_id, e)
-
-            try:
-                subprocess.run(
-                    ["docker", "stop", "-t", str(grace_sec), container_name],
-                    capture_output=True,
-                    timeout=grace_sec + 15,
-                )
-            except Exception as e:
-                log.warning("docker stop failed during preemption: %s", e)
-                _kill_container(container_name)
-
-        report_job_status(
-            job_id,
-            "preempted",
-            resume_from=ckpt_meta,
-            host_id=HOST_ID,
-        )
-
-        with _active_lock:
-            _active_containers.pop(job_id, None)
-
-        log.info(
-            "Job %s preempted (%s)",
-            job_id,
-            "checkpointed" if ckpt_meta else "stopped",
-        )
-
-
 # ── Telemetry Push Thread ─────────────────────────────────────────────
 # Per REPORT_FEATURE_2.md §3: "Enhance agent to report GPU metrics every 5s."
 # Reuses security.py's get_gpu_telemetry() which delegates to NVML when available.
@@ -7480,38 +7202,25 @@ def heartbeat_loop(host_ip, compute_score=None):
 
 
 def graceful_shutdown():
-    """Stop agent-started containers and deregister from scheduler.
-
-    Adopted containers (started by the scheduler via SSH) are left running
-    so they survive agent restarts.
-    """
-    log.info("Graceful shutdown — stopping %d active containers", len(_active_containers))
-
+    """Checkpoint fenced workloads for restart without stopping their containers."""
+    _shutdown.set()
+    with _v2_attempts_lock:
+        pending_attempts = len(_v2_attempts)
+        if not _v2_journal_save():
+            log.error("Shutdown journal checkpoint failed; retaining existing recovery evidence")
     with _active_lock:
-        for job_id, container_name in list(_active_containers.items()):
-            if job_id in _adopted_containers:
-                log.info("Leaving adopted container %s (job %s) running", container_name, job_id)
-                continue
-            log.info("Stopping container %s (job %s)", container_name, job_id)
-            try:
-                subprocess.run(
-                    ["docker", "stop", "-t", "15", container_name],
-                    capture_output=True,
-                    timeout=25,
-                )
-            except Exception as e:
-                log.warning("docker stop failed during shutdown: %s", e)
-                _kill_container(container_name)
-
-            # Mark job as queued so it can be rescheduled
-            report_job_status(job_id, "queued")
-        _active_containers.clear()
-
-    # Clean up orphaned volume mounts after containers are stopped
-    try:
-        cleanup_orphaned_volume_mounts()
-    except Exception as e:
-        log.warning("Volume cleanup during shutdown failed: %s", e)
+        active = dict(_active_containers)
+    log.info(
+        "Graceful shutdown — preserving %d native attempts and %d tracked containers",
+        pending_attempts,
+        len(active),
+    )
+    # Cleanup must not detach mounts or destroy workspaces of surviving work.
+    if not pending_attempts and not active:
+        try:
+            cleanup_orphaned_volume_mounts()
+        except Exception as e:
+            log.warning("Volume cleanup during shutdown failed: %s", e)
 
     # Deregister from the scheduler — only when this host is genuinely being
     # decommissioned, never on an ordinary restart.
@@ -7533,7 +7242,7 @@ def graceful_shutdown():
     # Absence needs no announcement: `check_hosts()` marks a host dead after a
     # grace period, which is how the four existing dead hosts got there. So the
     # default is now to say nothing and let staleness speak.
-    if _DEREGISTER_ON_EXIT:
+    if _DEREGISTER_ON_EXIT and not pending_attempts and not active:
         try:
             _api_request(
                 "delete",
@@ -7545,7 +7254,7 @@ def graceful_shutdown():
         except requests.RequestException:
             log.warning("Failed to deregister from scheduler")
     else:
-        log.info("Shutdown without deregistering — admission and evidence preserved")
+        log.info("Shutdown without deregistering — drain work before decommissioning")
 
 
 # ── Main Loop ─────────────────────────────────────────────────────────
@@ -7595,137 +7304,6 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     log.info("  Admitted:       %s", "YES" if admitted else "NO (limited to heartbeats)")
     log.info("  Headscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
     log.info("=" * 64)
-
-
-def adopt_running_containers():
-    """Discover containers started by the scheduler (via SSH) and adopt them.
-
-    The scheduler starts containers named 'xcl-{job_id}' via SSH.
-    If the worker agent wasn't running at the time, it needs to discover
-    and adopt these containers to provide log forwarding and monitoring.
-    """
-    if not _protocol_negotiated or not _legacy_execution_allowed:
-        return
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return
-
-        containers = [name.strip() for name in result.stdout.strip().split("\n") if name.strip()]
-        if not containers:
-            return
-
-        for container_name in containers:
-            # Extract job_id from container name (xcl-{job_id})
-            if not container_name.startswith("xcl-"):
-                continue
-            try:
-                inspected = subprocess.run(
-                    ["docker", "inspect", "-f", "{{json .Config.Labels}}", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if inspected.returncode != 0:
-                    continue
-                labels = json.loads(inspected.stdout) or {}
-                if not isinstance(labels, dict) or "ai.xcelsior.attempt_id" in labels:
-                    continue  # Fenced containers belong exclusively to v2 adoption.
-            except (OSError, subprocess.TimeoutExpired, ValueError):
-                continue
-            job_id = container_name[4:]  # Remove "xcl-" prefix
-
-            with _active_lock:
-                if job_id in _active_containers:
-                    continue  # Already tracking this container
-
-            # Reclaim the lease for this running job. The server now accepts
-            # claim requests for jobs in leased/starting/running state if the
-            # host matches, so adopted containers can keep their lease fresh
-            # across worker restarts.
-            try:
-                lease_info = claim_lease(job_id)
-            except Exception as e:
-                log.debug("Lease reclaim on adoption failed for %s: %s", job_id, e)
-                lease_info = None
-            if not lease_info:
-                log.warning("Legacy adoption refused without a lease: %s", container_name)
-                continue
-            with _active_lock:
-                _active_containers[job_id] = container_name
-                _adopted_containers.add(job_id)
-            log.info("Adopting authorized legacy container %s (job %s)", container_name, job_id)
-
-            # Start log forwarding
-            log_fwd = LogForwarder(job_id, container_name)
-            log_fwd.start()
-
-            # Start lease renewal loop if we have a live lease
-            if lease_info:
-                lease_interval = int(lease_info.get("duration_sec", 300)) // 2
-                lease_stop = threading.Event()
-
-                def _adopt_renew(jid=job_id, interval=lease_interval, stop=lease_stop):
-                    fails = 0
-                    while not stop.is_set() and not _shutdown.is_set():
-                        stop.wait(interval)
-                        if stop.is_set() or _shutdown.is_set():
-                            return
-                        with _active_lock:
-                            if jid not in _active_containers:
-                                return  # Container gone
-                        res = renew_lease(jid)
-                        if not res:
-                            fails += 1
-                            log.warning(
-                                "Adopted-lease renewal failed for job %s — attempt %d",
-                                jid,
-                                fails,
-                            )
-                            if fails >= 3:
-                                new = claim_lease(jid)
-                                if new:
-                                    fails = 0
-                                    log.info("Adopted-lease reclaimed for job %s", jid)
-                                else:
-                                    log.error(
-                                        "Adopted-lease reclaim failed for job %s — stopping",
-                                        jid,
-                                    )
-                                    return
-                        else:
-                            fails = 0
-
-                renew_thread = threading.Thread(
-                    target=_adopt_renew,
-                    name=f"adopt-lease-{job_id[:8]}",
-                    daemon=True,
-                )
-                renew_thread.start()
-            else:
-                log.warning(
-                    "Adopted container %s has no active lease — running unmonitored",
-                    job_id,
-                )
-
-            # Start monitoring in a separate thread
-            monitor_thread = threading.Thread(
-                target=_monitor_interactive,
-                args=(job_id, container_name),
-                kwargs={"log_forwarder": log_fwd},
-                name=f"adopt-{job_id[:8]}",
-                daemon=True,
-            )
-            monitor_thread.start()
-
-        log.info("Adopted %d running container(s)", len(containers))
-    except Exception as e:
-        log.warning("Container adoption failed: %s", e)
 
 
 def reinject_shells_for_running():
@@ -8134,20 +7712,12 @@ def main():
     while not _shutdown.is_set():
         try:
             _ensure_work_protocol()
-            # Check for preemptions
-            preempt_jobs = check_preemption() if not _v2_enabled else []
-            if preempt_jobs:
-                handle_preemptions(preempt_jobs)
-
             # Renew this host's own credential well before it expires
             # (§19.2). No-op unless a per-host token has been issued.
             try:
                 maybe_rotate_host_token()
             except Exception as e:
                 log.warning("agent token rotation check failed: %s", e)
-
-            # Drain admin control-plane commands (reinject_shell, etc.)
-            drain_agent_commands()
 
             # Phase 5: claim + dispatch fenced attempt commands (v2 hosts)
             if _v2_enabled:
@@ -8158,26 +7728,11 @@ def main():
                 except Exception as e:
                     log.warning("observation report failed: %s", e)
 
-            # Poll for new work (only if admitted)
-            if admitted:
-                jobs = poll_for_work()
-                for job in jobs:
-                    job_id = job.get("job_id", "?")
-                    log.info("Received job: %s (%s)", job_id, job.get("name", "?"))
-
-                    # Run job in a separate thread so we can continue polling
-                    job_thread = threading.Thread(
-                        target=run_job,
-                        args=(job,),
-                        name=f"job-{job_id[:8]}",
-                        daemon=True,
-                    )
-                    job_thread.start()
-                    threads.append(job_thread)
-
+            # Native command delivery is the sole execution transport.
+            if admitted and _protocol_negotiated:
                 # Idle-time pre-pulling: if no active containers and enough
                 # time has passed, pre-pull popular images for faster cold starts
-                if IMAGE_PREPULL_ENABLED and not jobs and len(_active_containers) == 0:
+                if IMAGE_PREPULL_ENABLED and len(_active_containers) == 0:
                     now = time.time()
                     if now - _last_prepull_time >= PREPULL_INTERVAL:
                         _last_prepull_time = now

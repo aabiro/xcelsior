@@ -53,7 +53,12 @@ export function registerOperatorTools(server: McpServer, client: XcelsiorApiClie
         `/api/v1/hosts/${encodeURIComponent(args.host_id)}/eviction-plans/${encodeURIComponent(args.plan_id)}/execute`,
         {}, { idempotencyKey: args.idempotency_key, retry: "idempotent" },
       );
-      return structuredResult(result, `Eviction plan ${args.plan_id} executed.`);
+      const summary = result.pending === true
+        ? `Eviction plan ${args.plan_id} is pending fenced worker settlement.`
+        : result.status === "succeeded"
+          ? `Eviction plan ${args.plan_id} settled.`
+          : `Eviction plan ${args.plan_id} request accepted.`;
+      return structuredResult(result, summary);
     } catch (error) {
       return structuredResult(apiProblem(error));
     }

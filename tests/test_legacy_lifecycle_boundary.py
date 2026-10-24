@@ -1,7 +1,6 @@
 """Old start/stop directives cannot bypass active-mode or attempt fencing."""
 
 import json
-import threading
 import time
 import uuid
 from types import SimpleNamespace
@@ -22,8 +21,7 @@ def legacy_job():
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload) "
-            "VALUES(%s,'stopped',%s,0,%s,%s)",
+            """INSERT INTO jobs(job_id,status,host_id,priority,submitted_at,payload, phase, desired_state, effective_priority, queued_at) VALUES(%s,'stopped',%s,0,%s,%s, 'stopped', 'stopped', 0, NULL)""",
             (job_id, host_id, time.time(), json.dumps({"container_name": cname})),
         )
     yield job_id, host_id, cname
@@ -44,7 +42,7 @@ def test_enqueue_refuses_fenced_history(legacy_job, command):
         )
     with pytest.raises(HTTPException) as exc:
         enqueue_agent_command(host_id, command, {"job_id": job_id, "container_name": cname})
-    assert exc.value.status_code == 409
+    assert exc.value.status_code == 400
     with _get_pg_pool().connection() as conn:
         assert (
             conn.execute(
@@ -54,19 +52,14 @@ def test_enqueue_refuses_fenced_history(legacy_job, command):
         )
 
 
-def test_active_mode_refuses_legacy_resume_but_allows_state_preserving_stop(
-    legacy_job, monkeypatch
-):
+@pytest.mark.parametrize("mode", ["active", "paused", "canary"])
+@pytest.mark.parametrize("command", ["start_container", "pause_container", "reset_container"])
+def test_all_modes_refuse_retired_directives(legacy_job, monkeypatch, mode, command):
     job_id, host_id, cname = legacy_job
-    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
+    monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
     with pytest.raises(HTTPException) as exc:
-        enqueue_agent_command(
-            host_id, "start_container", {"job_id": job_id, "container_name": cname}
-        )
-    assert exc.value.status_code == 409
-    assert enqueue_agent_command(
-        host_id, "pause_container", {"job_id": job_id, "container_name": cname}
-    )
+        enqueue_agent_command(host_id, command, {"job_id": job_id, "container_name": cname})
+    assert exc.value.status_code == 400
 
 
 @pytest.mark.parametrize(
@@ -82,80 +75,61 @@ def test_enqueue_requires_current_host_and_container(legacy_job, field, value):
         enqueue_agent_command(
             host_id, "start_container", {"job_id": job_id, "container_name": cname}
         )
-    assert exc.value.status_code == 409
+    assert exc.value.status_code == 400
 
 
 @pytest.mark.parametrize(
-    "labels,negotiated,allowed,current",
+    "labels,negotiated,current",
     [
-        ({"ai.xcelsior.attempt_id": "old-attempt"}, True, True, False),
-        ({}, False, True, False),
-        ({}, True, False, False),
-        ({}, True, True, True),
+        ({"ai.xcelsior.attempt_id": "old-attempt"}, True, False),
+        ({}, False, False),
+        ({}, True, False),
+        ({}, True, True),
     ],
 )
-def test_worker_refuses_stale_or_unauthorized_start(
-    monkeypatch, labels, negotiated, allowed, current
-):
+def test_worker_refuses_all_unfenced_starts(monkeypatch, labels, negotiated, current):
     job_id, cname = "guard-job", "xcl-guard-job"
     monkeypatch.setattr(worker, "_protocol_negotiated", negotiated)
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", allowed)
-    monkeypatch.setattr(
-        worker,
-        "_v2_attempts",
-        {job_id: {"attempt_id": "live", "stop": threading.Event()}} if current else {},
-    )
-    api = mock.Mock(
-        return_value=SimpleNamespace(
-            status_code=200,
-            json=lambda: {
-                "commands": [
-                    {
-                        "id": 1,
-                        "command": "start_container",
-                        "args": {"job_id": job_id, "container_name": cname},
-                    }
-                ]
-            },
-        )
-    )
-    monkeypatch.setattr(worker, "_api_request", api)
-    docker = mock.Mock(
-        return_value=SimpleNamespace(returncode=0, stdout=json.dumps(labels), stderr="")
-    )
+    monkeypatch.setattr(worker, "_v2_attempts", {job_id: {"attempt_id": "live"}} if current else {})
+    monkeypatch.setattr(worker, "_report_agent_degraded", mock.Mock())
+    docker = mock.Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(labels)))
     monkeypatch.setattr(worker.subprocess, "run", docker)
-    assert worker.drain_agent_commands() == 0
-    assert not any(call.args[0][:2] == ["docker", "start"] for call in docker.call_args_list)
-
-
-@pytest.mark.parametrize("exit_code", [0, 130, 137, 143])
-def test_legacy_interactive_clean_stop_preserves_container(monkeypatch, exit_code):
-    monkeypatch.setattr(worker, "_shutdown", threading.Event())
-    monkeypatch.setattr(worker, "_active_containers", {"job-1": "xcl-job-1"})
-    inspect = mock.Mock(
-        side_effect=[
-            SimpleNamespace(returncode=0, stdout="exited"),
-            SimpleNamespace(returncode=0, stdout=str(exit_code)),
-        ]
+    assert (
+        worker._dispatch_agent_commands(
+            [
+                {
+                    "id": 1,
+                    "command": "start_container",
+                    "args": {"job_id": job_id, "container_name": cname},
+                }
+            ]
+        )
+        == 0
     )
-    monkeypatch.setattr(worker.subprocess, "run", inspect)
-    report = mock.Mock(return_value=True)
-    monkeypatch.setattr(worker, "report_job_status", report)
-    monkeypatch.setattr(worker, "release_lease", mock.Mock())
-    remove = mock.Mock()
-    monkeypatch.setattr(worker, "_remove_container", remove)
-    worker._monitor_interactive("job-1", "xcl-job-1")
-    report.assert_called_once_with("job-1", "stopped")
-    remove.assert_not_called()
+    docker.assert_not_called()
 
 
-def test_active_mode_worker_can_stop_a_genuine_legacy_container(monkeypatch):
-    monkeypatch.setattr(worker, "_protocol_negotiated", True)
-    monkeypatch.setattr(worker, "_legacy_execution_allowed", False)
+@pytest.mark.parametrize("monitor", ["_monitor_container", "_monitor_interactive"])
+def test_monitor_does_not_adopt_an_unfenced_container(monkeypatch, monitor):
     monkeypatch.setattr(worker, "_v2_attempts", {})
-    monkeypatch.setattr(
-        worker.subprocess, "run", mock.Mock(return_value=SimpleNamespace(returncode=0, stdout="{}"))
+    docker = mock.Mock(side_effect=AssertionError("legacy container inspection"))
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    report = mock.Mock()
+    monkeypatch.setattr(worker, "report_job_status", report)
+    getattr(worker, monitor)("job-1", "xcl-job-1")
+    report.assert_not_called()
+    docker.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["pause_container", "reset_container"])
+def test_worker_has_no_historical_container_lifecycle(monkeypatch, command):
+    docker = mock.Mock(side_effect=AssertionError("unfenced container IO"))
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    assert (
+        worker._dispatch_agent_commands(
+            [{"id": 1, "command": command, "args": {"job_id": "old", "container_name": "old"}}]
+        )
+        == 0
     )
-    assert worker._legacy_container_command_allowed(
-        "pause_container", {"job_id": "job-1", "container_name": "xcl-job-1"}
-    )
+    docker.assert_not_called()
+    assert not hasattr(worker, "_historical_container_stop_allowed")

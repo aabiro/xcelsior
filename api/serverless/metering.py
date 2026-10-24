@@ -62,14 +62,19 @@ def blended_billing_for_endpoint(endpoint: dict) -> bool:
 
 
 def min_billing_interval_sec() -> int:
-    return int(os.environ.get("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", str(MIN_BILLING_INTERVAL_SEC)))
+    return int(
+        os.environ.get(
+            "XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", str(MIN_BILLING_INTERVAL_SEC)
+        )
+    )
+
 
 # Size-tiered token pricing (CAD per million tokens), by model parameter count.
 # (max_params_b_inclusive, input_price, output_price)
 _TOKEN_PRICE_BANDS: list[tuple[float, float, float]] = [
-    (9.0, 0.15, 0.45),          # ≤ 9B
-    (34.0, 0.35, 1.05),         # 10–34B
-    (80.0, 0.70, 2.10),         # 35–80B
+    (9.0, 0.15, 0.45),  # ≤ 9B
+    (34.0, 0.35, 1.05),  # 10–34B
+    (80.0, 0.70, 2.10),  # 35–80B
     (float("inf"), 1.10, 3.30),  # 80B+ / MoE
 ]
 # Model families that should price at the top band even without an explicit size.
@@ -87,6 +92,7 @@ def infer_model_params_b(model_ref: str | None) -> float | None:
     if not model_ref:
         return None
     from serverless.openai_proxy import model_task
+
     if model_task(model_ref) in ("embed", "rerank"):
         return 1.0  # auxiliary models get lowest pricing band (<= 9B)
     s = model_ref.lower()
@@ -296,7 +302,7 @@ def last_billed_period_end(job_id: str) -> float | None:
         row = conn.execute(
             """
             SELECT period_end FROM billing_cycles
-            WHERE job_id = %s AND resource_type IN ('serverless_gpu', 'serverless_gpu_cold_start')
+            WHERE job_id = %s AND resource_type='serverless_gpu' AND status='charged'
             ORDER BY period_end DESC LIMIT 1
             """,
             (job_id,),
@@ -306,7 +312,74 @@ def last_billed_period_end(job_id: str) -> float | None:
     return None
 
 
-def charge_serverless_execution(
+def charge_serverless_execution(billing_engine, repo, worker, endpoint, **kwargs) -> dict:
+    """Serialize a worker slice and commit debit, cycle and token consumption together."""
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    with _get_pg_pool().connection() as conn:
+        conn.row_factory = dict_row
+        lock = conn.execute(
+            "SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS acquired",
+            (f"serverless_billing:{_billing_job_id(worker)}",),
+        ).fetchone()
+        if not lock["acquired"]:
+            return {"charged": False, "reason": "billing_in_progress"}
+        current = conn.execute(
+            "SELECT * FROM serverless_workers WHERE worker_id=%s FOR UPDATE",
+            (str(worker.get("worker_id") or ""),),
+        ).fetchone()
+        if current is None:
+            return {"charged": False, "reason": "native_worker_missing"}
+        worker = dict(current)
+        if worker.get("billing_exempt"):
+            return {"charged": False, "reason": "billing_exempt"}
+        if worker.get("released_at") is not None:
+            end = float(worker["released_at"])
+            kwargs["period_end"] = min(float(kwargs.get("period_end") or end), end)
+            kwargs["final"] = True
+        current_endpoint = conn.execute(
+            "SELECT * FROM serverless_endpoints WHERE endpoint_id=%s FOR UPDATE",
+            (str(endpoint.get("endpoint_id") or ""),),
+        ).fetchone()
+        if current_endpoint is None or current_endpoint["endpoint_id"] != worker["endpoint_id"]:
+            return {"charged": False, "reason": "native_endpoint_mismatch"}
+        endpoint = {**endpoint, **dict(current_endpoint)}
+        from serverless.billing_authority import require_execution_quote
+
+        quote = require_execution_quote(conn, worker, endpoint)
+        if quote is None:
+            return {"charged": False, "reason": "native_running_evidence_missing"}
+        if kwargs.get("token_cost_cad") is None:
+            kwargs["token_cost_cad"] = (endpoint["unbilled_token_cost_micros"] or 0) / 1_000_000
+        result = _charge_serverless_execution(
+            billing_engine, repo, worker, endpoint, _conn=conn, _quote=quote, **kwargs
+        )
+    from db import NotificationStore
+
+    for notification_id in result.pop("notification_ids", []):
+        try:
+            NotificationStore.deliver(notification_id)
+        except Exception as exc:
+            log.warning("serverless wallet push pending: %s", exc)
+    # This optional external dual-write cannot precede the authoritative commit.
+    if result.get("charged") and result.get("tx_id"):
+        try:
+            from stripe_meters import enqueue_usage_from_charge
+
+            enqueue_usage_from_charge(
+                customer_id=str(endpoint.get("owner_id") or ""),
+                amount_cad=result["amount_cad"],
+                job_id=_billing_job_id(worker),
+                description="Serverless worker",
+                tx_id=result["tx_id"],
+            )
+        except Exception as exc:
+            log.warning("serverless meter projection pending: %s", exc)
+    return result
+
+
+def _charge_serverless_execution(
     billing_engine,
     repo: ServerlessRepo,
     worker: dict,
@@ -317,6 +390,8 @@ def charge_serverless_execution(
     resource_type: str = "serverless_gpu",
     description: str | None = None,
     token_cost_cad: float | None = None,
+    _conn,
+    _quote,
 ) -> dict:
     """
     Debit wallet for an unbilled worker uptime slice (incremental; no double-charge).
@@ -333,8 +408,15 @@ def charge_serverless_execution(
     job_id = _billing_job_id(worker)
     now = time.time()
     period_end = float(period_end if period_end is not None else now)
-    last_end = last_billed_period_end(job_id)
-    period_start = last_end if last_end is not None else float(worker.get("allocated_at") or period_end)
+    if not math.isfinite(period_end) or period_end < 0 or resource_type != "serverless_gpu":
+        raise ValueError("invalid native serverless billing interval or resource")
+    period_end = min(period_end, _quote["execution_end_cap"])
+    paid = _conn.execute(
+        "SELECT max(period_end) AS paid_end FROM billing_cycles "
+        "WHERE job_id=%s AND resource_type='serverless_gpu' AND status='charged'",
+        (job_id,),
+    ).fetchone()["paid_end"]
+    period_start = max(_quote["execution_start"], paid if paid is not None else 0)
     duration_sec = period_end - period_start
 
     if duration_sec <= 0:
@@ -357,29 +439,21 @@ def charge_serverless_execution(
 
     # Peek accrual for blended math; consume only after a successful charge (billing-critical).
     if token_cost_cad is None:
-        try:
-            if blended_on and hasattr(repo, "peek_endpoint_token_cost"):
-                token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
-            elif hasattr(repo, "peek_endpoint_token_cost"):
-                token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
-            else:
-                token_cost_cad = 0.0
-        except Exception:
-            token_cost_cad = 0.0
+        token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
 
-    rate = get_gpu_rate_per_hour(
-        str(endpoint.get("gpu_tier") or ""),
-        str(endpoint.get("region") or "ca-east"),
-    )
-    gpu_count = int(endpoint.get("gpu_count") or 1)
+    rate = _quote["rate_per_gpu_micros"] / 1_000_000
+    gpu_count = _quote["gpu_count"]
     gpu_seconds = max(0, int(math.ceil(duration_sec)))
     gpu_amount_cad = estimate_cost_cad(gpu_seconds, rate, gpu_count)
     blended_cad = blended_period_amount(gpu_amount_cad, token_cost_cad)
-    amount_cad = blended_cad if blended_on else gpu_amount_cad
+    amount_cad = round(blended_cad if blended_on else gpu_amount_cad, 4)
     if blended_on and token_cost_cad > 0:
         log.info(
             "blended-meter job=%s gpu=%.6f token=%.6f charged=%.6f",
-            job_id, gpu_amount_cad, token_cost_cad, amount_cad,
+            job_id,
+            gpu_amount_cad,
+            token_cost_cad,
+            amount_cad,
         )
     if amount_cad <= 0 or not owner_id:
         return {
@@ -400,17 +474,15 @@ def charge_serverless_execution(
         amount_cad,
         job_id=job_id,
         description=desc,
+        conn=_conn,
     )
 
     cycle_id = f"BC-slvr-{int(now)}-{uuid.uuid4().hex[:6]}"
     status = "charged" if charge_result.get("charged") else "failed"
 
-    from db import _get_pg_pool
-    from psycopg.rows import dict_row
+    from contextlib import nullcontext
 
-    pool = _get_pg_pool()
-    with pool.connection() as conn:
-        conn.row_factory = dict_row
+    with nullcontext(_conn) as conn:
         conn.execute(
             """
             INSERT INTO billing_cycles
@@ -440,29 +512,25 @@ def charge_serverless_execution(
                 str(endpoint.get("model_ref") or ""),
             ),
         )
-        conn.commit()
 
     if charge_result.get("charged"):
-        if blended_on and token_cost_cad and token_cost_cad > 0 and hasattr(
-            repo, "consume_endpoint_token_cost"
+        if (
+            blended_on
+            and token_cost_cad
+            and token_cost_cad > 0
+            and hasattr(repo, "consume_endpoint_token_cost")
         ):
-            try:
-                repo.consume_endpoint_token_cost(endpoint_id)
-            except Exception as exc:
-                log.error(
-                    "token accrual consume failed job=%s endpoint=%s: %s",
-                    job_id,
-                    endpoint_id,
-                    exc,
-                )
+            repo.consume_endpoint_token_cost(endpoint_id, conn=_conn)
         repo.increment_endpoint_totals(
             str(endpoint["endpoint_id"]),
             gpu_seconds=gpu_seconds,
             cost_cad=amount_cad,
+            conn=_conn,
         )
 
     return {
         "charged": bool(charge_result.get("charged")),
+        "tx_id": charge_result.get("tx_id"),
         "gpu_seconds": gpu_seconds,
         "amount_cad": amount_cad,
         "gpu_amount_cad": gpu_amount_cad,
@@ -473,6 +541,7 @@ def charge_serverless_execution(
         "period_start": period_start,
         "period_end": period_end,
         "balance_cad": charge_result.get("balance_cad"),
+        "notification_ids": charge_result.get("notification_ids", []),
     }
 
 
@@ -561,10 +630,21 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
             SELECT w.*, {ENDPOINT_BILLING_SELECT_SQL}
             FROM serverless_workers w
             JOIN serverless_endpoints e ON e.endpoint_id = w.endpoint_id
-            WHERE w.state IN ('booting', 'ready', 'idle', 'draining')
+            LEFT JOIN job_attempts a ON a.attempt_id=w.attempt_id
+            WHERE (
+                (w.state IN ('booting','ready','idle','draining') AND w.released_at IS NULL)
+                OR (w.state IN ('terminated','error') AND a.job_id=w.scheduler_job_id
+                    AND a.host_id=w.host_id AND a.started_at IS NOT NULL
+                    AND a.ended_at IS NOT NULL
+                    AND w.released_at=EXTRACT(EPOCH FROM a.ended_at)::float8
+                    AND NOT EXISTS (
+                        SELECT 1 FROM billing_cycles b WHERE b.job_id=w.scheduler_job_id
+                        AND b.resource_type='serverless_gpu' AND b.status='charged'
+                        AND b.period_end>=w.released_at
+                    ))
+            )
               AND COALESCE(w.billing_exempt, FALSE) = FALSE
-              AND w.allocated_at IS NOT NULL
-              AND e.deleted_at = 0
+              AND w.allocated_at > 0
             """,
         ).fetchall()
 
@@ -577,8 +657,8 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
                 repo,
                 worker,
                 endpoint,
-                period_end=now,
-                final=False,
+                period_end=worker.get("released_at") or now,
+                final=worker.get("released_at") is not None,
             )
             if result.get("charged"):
                 billed += 1
@@ -602,8 +682,10 @@ def charge_serverless_worker(
     from billing import get_billing_engine
     from serverless.billing_context import endpoint_billing_context, endpoint_from_worker_row
 
-    ctx = endpoint_billing_context(repo, worker) if endpoint is None else endpoint_from_worker_row(
-        {**endpoint, **worker}
+    ctx = (
+        endpoint_billing_context(repo, worker)
+        if endpoint is None
+        else endpoint_from_worker_row({**endpoint, **worker})
     )
 
     return charge_serverless_execution(
@@ -613,7 +695,5 @@ def charge_serverless_worker(
         ctx,
         period_end=released_at,
         final=True,
-        description=(
-            f"Serverless worker final: {ctx.get('name') or ctx.get('endpoint_id')}"
-        ),
+        description=(f"Serverless worker final: {ctx.get('name') or ctx.get('endpoint_id')}"),
     )

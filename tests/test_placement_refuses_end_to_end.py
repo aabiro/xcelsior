@@ -92,8 +92,8 @@ def fleet():
             # overwritten and the host arrives at the hard filter as `pending`.
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                      admission_state, admitted_at)
-                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp())""",
+                                      admission_state, admitted_at, administrative_state, availability_state)
+                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp(), 'admitted', 'ready')""",
                 (
                     host_id,
                     now,

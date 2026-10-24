@@ -1,0 +1,103 @@
+{
+  "base_commit": "f8ca915d0e6a9251ebf96b05399d6e6b6674de72",
+  "correction": "Main run has 205 passes and two obsolete 126/127 schema-floor assertion failures. Updated explicit 132 floor checks pass in the 24-test follow-up; final billing guard passes 28 checks. Full 207 selection has not been repeated after those changes.",
+  "gates": {
+    "strict-billing-boundary": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/strict-billing-boundary/manifest.json",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 28
+      },
+      "source_manifest_sha256": "95add5fa05863da7e39c2af8a3dd4a1420fd3aa9f6f2588451b61971b687d5e8",
+      "stop_exit": 0
+    },
+    "strict-floor-final": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/strict-floor-final/manifest.json",
+      "results": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 24
+      },
+      "source_manifest_sha256": "e86f3bbd74471ab34bb41fd3505dc5d7c934910314ec75839f6721fe5eee840a",
+      "stop_exit": 0
+    },
+    "strict-spec-resumed": {
+      "manifest": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/strict-spec-resumed/manifest.json",
+      "results": {
+        "errors": 0,
+        "failures": 2,
+        "skipped": 0,
+        "tests": 207
+      },
+      "source_manifest_sha256": "3e2c7634bce988f8ef7ad30ab1e8b95cdbd628d8a66f23f19daf06c068635563",
+      "stop_exit": 0
+    }
+  },
+  "production_deployed": false,
+  "protected_root_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  },
+  "remaining": [
+    "Remaining mutable lifecycle JSONB readers and physical columns",
+    "Durable fairness/preemption integration",
+    "Broader native fixture and regression acceptance",
+    "Production staged handoff and acceptance"
+  ],
+  "repair_mode": "report_only",
+  "runtime_floor": "132",
+  "scope": "Remove mutable-payload execution fallback",
+  "source_sha256": {
+    "api/routes/agent_v2.py": "fd62c14fb6a33a3bc86fc6d2f761dc7f239205e140971d77588ed22be1119195",
+    "api/serverless/service.py": "5456a2c32cc98a8cbd5dd58bfc4e92886abb6fc6dc24e62d068fdfd9586aeab7",
+    "billing/billing.py": "a43efb477748065e46920b246250154be58f5420dc418e1af9d139fbf09644ca",
+    "control_plane/attempt_billing.py": "ab2d4214298294604031355b64556f5193434b62a69cae171cd0e4f354118677",
+    "control_plane/attempts.py": "70b1ebbe6bad2ca74e7751ee4d25ab75495598ca0d6f28767c24fcc04f24164b",
+    "control_plane/job_specs.py": "c0a39cd1cbc0545af0c4339ef1de37ef5f82000c32915f6fb5741319215f25b2",
+    "control_plane/leases.py": "062e8344560d9ae512bfb5028ffd4654ab816679d304cb270d2c5265b507fe98",
+    "control_plane/scheduler/claim.py": "d111c5cb4f73ef08077491057b5243f7189e98a6adaec8724d7dfaa2ccaeee47",
+    "control_plane/scheduler/reservation.py": "5068ab8db3ce98d79d12be22e7fe5d17af6ff209b6b00fc9a3e4dba0e2cad758",
+    "control_plane/scheduler/service.py": "d60e478c8c99eaa0b7ce20dfb59c14ffbcca0dc115a1b5d1c256b8f45080c945",
+    "control_plane/scheduler/snapshot.py": "9f1443c1f317c1d9e5193b41d3101182898aa23a5dc428dc6241849492d5efc2",
+    "control_plane/serverless_credentials.py": "1afda56c56a2f5c21833b973114fdeb37aa2cdb780a975cb22ac05af0e996447",
+    "control_plane/serverless_workers.py": "706a8bb6c773c2d641eed525612a58837918dfa897bc462e865063d8294b721d",
+    "tests/native_jobs.py": "ad45fb5f36de694d6292d2f1b43fca5acdce377b0ffe5f018a1d02846ba786d9",
+    "tests/test_agent_v2.py": "a7a4f50aec127b7fcb750b94b905557d97ca1cca453b606ad4f6fb72099991de",
+    "tests/test_control_plane_claim.py": "53c53ac8c0a3ffd7e1c05cf042c51ca209a3e088bb543c8e7898b1e0f3e05703",
+    "tests/test_control_plane_leases.py": "bf4ab5ed8dd1a09ecaf34c1f4d62dc6d8f79b923909d771e96647bde32db211c",
+    "tests/test_control_plane_reservation.py": "8377dc1ee06c56214a43c5e2eb9d729183b5b1d4b2133b567b3ef979199b280d",
+    "tests/test_control_plane_service.py": "60a8774672d1989d060a15d440abac82ccd56fa06210b731dc7e87ca1181c154",
+    "tests/test_control_plane_shadow.py": "b7ed4d4ad1dccdad9b5b9084b0637cdccdbce42a9a7d93db81bc6b3d54fd15d4",
+    "tests/test_db_role_workflows.py": "6cb7e32993453004170069d109457331abff0dae1cec16d34a79e6195a4820da",
+    "tests/test_job_projection_contract.py": "da7536b12476db4b1a8d7bcd0efa520b6e8742c46b1a37e38b4161ec02b2d53a",
+    "tests/test_job_spec_admission.py": "0d1c3a6a825f064514490d1f5445083266739ea57b0e405fd4e5e1d2442dae08",
+    "tests/test_native_projection_writers.py": "153c06498c2a29773801ca3d9f008becaf5e27b79c39eca30f14df682f2c9fb5",
+    "tests/test_native_spec_boundary.py": "d7092c6c3fff440e90d46270c0454011a14867af388b98434925984e6f28d4f7",
+    "tests/test_serverless_callback_credentials.py": "afd6c4b40d2afddd4dc43353bb79e4b56dcdb742a4a1f4535e192b38ec36c643",
+    "tests/test_serverless_native_lifecycle.py": "f58dee428e83ca0868d1191982926b86fc9ee4d1919a0e0d7e147b14868c4622",
+    "tests/test_serverless_worker_attempt_binding.py": "c59fbc2b2eaf141c3bbf3ae040c5fe266187efd87f8f594244543de1fa62f1c5"
+  },
+  "static": {
+    "black_python_files": 28,
+    "generated_inventory": "fresh generation passed",
+    "pyright": {
+      "errorCount": 0,
+      "filesAnalyzed": 247,
+      "informationCount": 0,
+      "timeInSec": 159.862,
+      "warningCount": 0
+    },
+    "ruff": "repository passed",
+    "worker_signatures": 12
+  }
+}

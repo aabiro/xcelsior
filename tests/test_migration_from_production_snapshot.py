@@ -281,22 +281,37 @@ def seeded_snapshot_db(snapshot_db):
 # ───────────────────────── the rehearsal ─────────────────────────
 
 
-def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
-    """053 + representative rows → head, with every §16.1 property checked."""
+def _upgrade_after_native_cutover(dsn):
+    _alembic(dsn, "upgrade", "126")
+    refused = _alembic(dsn, "upgrade", "127", check=False)
+    assert refused.returncode != 0 and "native cutover required" in refused.stderr
+    # Simulate the explicit handoff only after 055 has backfilled native
+    # authority. This closes the v1 record without inventing a new attempt.
+    with _connect(dsn) as conn:
+        conn.execute("UPDATE leases SET status='released' WHERE status='active'")
+    # This fixture includes unqualified live legacy jobs. Qualification through
+    # the native writer handoff is meaningful; historical disposition must
+    # refuse these live rows rather than invent their approved execution spec.
+    _alembic(dsn, "upgrade", "131")
+
+
+def test_production_shaped_upgrade_to_native_writer_handoff(seeded_snapshot_db):
+    """053 + live legacy rows → 131, before explicit historical disposition."""
     dsn, seeded = seeded_snapshot_db
 
-    _alembic(dsn, "upgrade", "head")
+    _upgrade_after_native_cutover(dsn)
 
     with _connect(dsn) as conn:
         # ── head reached ──
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert (
-            rev is not None and rev[0] == EXPECTED_HEAD
-        ), f"expected head {EXPECTED_HEAD}, database is at {rev}"
+            rev is not None and rev[0] == "131"
+        ), f"expected native handoff 131, database is at {rev}"
 
         # ── no data loss or duplication ──
         for table, expected in seeded.items():
-            actual = conn.execute(f"SELECT count(*) FROM {table}").fetchone()
+            relation = "legacy_lease_archive" if table == "leases" else table
+            actual = conn.execute(f"SELECT count(*) FROM {relation}").fetchone()
             assert actual is not None and actual[0] == expected, (
                 f"{table}: seeded {expected} rows, found {actual[0]} after "
                 f"upgrade. A migration lost or duplicated production rows."
@@ -429,7 +444,7 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
     """
     dsn, seeded = seeded_snapshot_db
 
-    _alembic(dsn, "upgrade", "head")
+    _upgrade_after_native_cutover(dsn)
     _alembic(dsn, "downgrade", BASELINE_REVISION)
 
     with _connect(dsn) as conn:
@@ -442,11 +457,11 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
                 actual is not None and actual[0] == expected
             ), f"{table} lost rows during downgrade to {BASELINE_REVISION}"
 
-    _alembic(dsn, "upgrade", "head")
+    _alembic(dsn, "upgrade", "131")
 
     with _connect(dsn) as conn:
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert rev is not None and rev[0] == EXPECTED_HEAD
+        assert rev is not None and rev[0] == "131"
         # The backfill re-derives cleanly the second time.
         unmapped = conn.execute(
             "SELECT count(*) FROM jobs WHERE phase IS NULL OR desired_state IS NULL"
@@ -463,7 +478,9 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
     _alembic(dsn, "upgrade", "121")
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = 'job-running'")
+        conn.execute(
+            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = 'job-running'"""
+        )
         assert conn.execute(
             "SELECT reason FROM reconciliation_queue WHERE resource_type = 'job' "
             "AND resource_id = 'job-running'"
@@ -479,7 +496,9 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
         ).fetchone() == ("job_changed",)
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        conn.execute("UPDATE jobs SET status = 'stopped' WHERE job_id = 'job-running'")
+        conn.execute(
+            """UPDATE jobs SET status = 'stopped', phase='stopped', desired_state='stopped' WHERE job_id = 'job-running'"""
+        )
         assert conn.execute(
             "SELECT count(*) FROM reconciliation_queue WHERE resource_type = 'job' "
             "AND resource_id = 'job-running'"

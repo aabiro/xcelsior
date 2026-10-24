@@ -1,0 +1,2 @@
+# Ed25519 signatures are raw bytes, including possible whitespace and NULs.
+api/scripts/*.sig binary

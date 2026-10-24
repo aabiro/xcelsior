@@ -30,6 +30,7 @@ from control_plane.commands import redeliver_expired_claims
 from control_plane.inventory import sync_host_gpu_inventory
 from control_plane.leases import expire_stale_leases
 from control_plane.operational_metrics import ServiceHeartbeat
+from control_plane.job_specs import validate_execution_spec
 from control_plane.scheduler.claim import (
     ClaimedJob,
     claim_next_job,
@@ -79,15 +80,17 @@ class SchedulerService:
     # ── maintenance ──────────────────────────────────────────────────
 
     def _run_sweeps(self) -> tuple[int, int, int]:
-        claims = run_transaction(
-            lambda c: clear_expired_claims(c), what="sched_claim_sweep"
-        )
-        leases = run_transaction(
-            lambda c: expire_stale_leases(c), what="sched_lease_sweep"
-        )
+        claims = run_transaction(lambda c: clear_expired_claims(c), what="sched_claim_sweep")
+        leases = run_transaction(lambda c: expire_stale_leases(c), what="sched_lease_sweep")
         commands = run_transaction(
             lambda c: redeliver_expired_claims(c), what="sched_command_sweep"
         )
+        from control_plane.scheduler.preemption import sweep_plans
+
+        run_transaction(lambda c: sweep_plans(c), what="sched_preemption_sweep")
+        from control_plane.host_evictions import sweep as sweep_host_evictions
+
+        run_transaction(lambda c: sweep_host_evictions(c), what="sched_host_eviction_sweep")
         # Phase 6: desired-vs-observed reconciliation (report-only by default),
         # for job mutations, worker observations, and periodic recovery.
         try:
@@ -136,24 +139,56 @@ class SchedulerService:
     def _place_one(self, claimed: ClaimedJob) -> Reservation | tuple[str, str]:
         """Place a claimed job or release it with a durable reason."""
         cfg = self.config
-        job = dict(claimed.payload)
+        try:
+            job = dict(
+                validate_execution_spec(claimed.spec, claimed.spec_hash, require_admission=True)
+            )
+        except ValueError:
+            self._release(claimed, "execution_spec_unqualified", _NO_CAPACITY_BACKOFF_SEC)
+            return (claimed.job_id, "execution_spec_unqualified")
         job["job_id"] = claimed.job_id
 
         snapshot = run_transaction(
-            lambda c: take_snapshot(
-                c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec
-            ),
+            lambda c: take_snapshot(c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec),
             what="sched_fleet_snapshot",
         )
-        hosts = [
-            h for h in snapshot.hosts
-            if cfg.host_in_scope(str(h.get("host_id") or ""))
-        ]
+        hosts = [h for h in snapshot.hosts if cfg.host_in_scope(str(h.get("host_id") or ""))]
+        nomination_host = run_transaction(
+            lambda c: c.execute(
+                """SELECT host_id FROM preemption_plans
+                WHERE nominated_job_id=%s AND state IN ('stopping','ready')""",
+                (claimed.job_id,),
+            ).fetchone(),
+            what="sched_nomination_host",
+        )
+        if nomination_host:
+            hosts = [h for h in hosts if h.get("host_id") == nomination_host[0]]
         ctx = FilterContext(stale_host_ids=snapshot.stale_host_ids)
         eligible, rejections = filter_hosts(job, hosts, ctx)
+        if eligible:
+            from control_plane.scheduler.native_preference import choose_preferred
+            from control_plane.scheduler.preference import PlacementRefused
+
+            try:
+                decision = run_transaction(
+                    lambda c: choose_preferred(c, job, eligible, now=snapshot.taken_at.timestamp()),
+                    what="sched_preference",
+                )
+            except ValueError:
+                self._release(claimed, "placement_preference_invalid", _NO_CAPACITY_BACKOFF_SEC)
+                return (claimed.job_id, "placement_preference_invalid")
+            if isinstance(decision, PlacementRefused):
+                reason = "placement_preference_" + decision.code
+                self._release(claimed, reason, _NO_CAPACITY_BACKOFF_SEC, details=decision.as_dict())
+                return (claimed.job_id, reason)
+            if decision is not None:
+                eligible = [decision.host]
         ranked = rank_candidates(job, eligible) if eligible else []
 
         if not ranked:
+            if self._plan_preemption(claimed, hosts, rejections):
+                self._release(claimed, "preemption_waiting", _CONFLICT_BACKOFF_SEC)
+                return (claimed.job_id, "preemption_waiting")
             reason = "no_hosts" if not hosts else "no_eligible_host"
             self._release(claimed, reason, _NO_CAPACITY_BACKOFF_SEC)
             return (claimed.job_id, reason)
@@ -183,28 +218,44 @@ class SchedulerService:
                         host_id=cand.host_id,
                         num_gpus=num_gpus,
                         requested_vram_mb=vram_mb,
-                        expected_inventory_generation=int(
-                            h.get("inventory_generation") or 0
-                        ),
+                        expected_inventory_generation=int(h.get("inventory_generation") or 0),
                         placement_score=cand.total,
                         placement_explanation=expl,
                         lease_claim_ttl_sec=cfg.lease_claim_ttl_sec,
                         lease_renewal_ttl_sec=cfg.lease_renewal_ttl_sec,
-                        trace_id=str(job.get("trace_id") or "") or None,
+                        trace_id=str(claimed.payload.get("trace_id") or "") or None,
+                        expected_spec_hash=claimed.spec_hash,
+                        scope_host_ids=(
+                            None
+                            if cfg.mode is SchedulerMode.ACTIVE or not cfg.canary_host_ids
+                            else cfg.canary_host_ids
+                        ),
+                        host_freshness_timeout_sec=cfg.host_freshness_timeout_sec,
                     ),
                     what="sched_reserve",
+                    isolation_level="SERIALIZABLE",
                 )
             except ReservationConflict as exc:
+                if exc.code == "execution_spec_unqualified":
+                    self._release(claimed, exc.code, _NO_CAPACITY_BACKOFF_SEC)
+                    return (claimed.job_id, exc.code)
+                if exc.code in (
+                    "team_quota_exceeded",
+                    "preemption_waiting",
+                    "queue_policy_changed",
+                ):
+                    self._release(claimed, exc.code, _NO_CAPACITY_BACKOFF_SEC)
+                    return (claimed.job_id, exc.code)
                 if exc.code in ("claim_lost", "job_not_schedulable"):
                     # The job itself is gone from under us — no point in
                     # trying more hosts, and nothing to release.
-                    log.info(
-                        "reservation abandoned for %s: %s", claimed.job_id, exc.code
-                    )
+                    log.info("reservation abandoned for %s: %s", claimed.job_id, exc.code)
                     return (claimed.job_id, exc.code)
                 log.info(
                     "candidate %s rejected for %s (%s); trying next",
-                    candidate.host_id, claimed.job_id, exc.code,
+                    candidate.host_id,
+                    claimed.job_id,
+                    exc.code,
                 )
                 continue
             except RetryBudgetExceeded:
@@ -214,8 +265,10 @@ class SchedulerService:
                 return (claimed.job_id, "placement_conflict")
             log.info(
                 "PLACED job=%s host=%s attempt=%s fence=%d gpus=%s",
-                reservation.job_id, reservation.host_id,
-                reservation.attempt_id, reservation.fencing_token,
+                reservation.job_id,
+                reservation.host_id,
+                reservation.attempt_id,
+                reservation.fencing_token,
                 reservation.gpu_device_ids,
             )
             return reservation
@@ -224,7 +277,50 @@ class SchedulerService:
         self._release(claimed, "placement_conflict", _CONFLICT_BACKOFF_SEC)
         return (claimed.job_id, "placement_conflict")
 
-    def _release(self, claimed: ClaimedJob, reason: str, backoff_sec: float) -> None:
+    def _plan_preemption(self, claimed, hosts, rejections) -> bool:
+        from psycopg.errors import LockNotAvailable
+        from control_plane.commands import CommandProtocolError
+        from control_plane.scheduler.preemption import create_plan
+
+        for host in sorted(hosts, key=lambda h: str(h.get("host_id"))):
+            host_id = str(host.get("host_id") or "")
+            reasons = rejections.get(host_id, [])
+            if not reasons or any(
+                r.code not in {"insufficient_gpus", "insufficient_vram"} for r in reasons
+            ):
+                continue
+            try:
+                plan = run_transaction(
+                    lambda c: create_plan(
+                        c,
+                        job_id=claimed.job_id,
+                        claim_token=claimed.claim_token,
+                        host_id=host_id,
+                        replica_id=self.config.replica_id,
+                        scope_host_ids=(
+                            None
+                            if self.config.mode is SchedulerMode.ACTIVE
+                            or not self.config.canary_host_ids
+                            else self.config.canary_host_ids
+                        ),
+                    ),
+                    what="sched_preemption_plan",
+                    isolation_level="SERIALIZABLE",
+                )
+            except (
+                LockNotAvailable,
+                RetryBudgetExceeded,
+                CommandProtocolError,
+                ReservationConflict,
+            ):
+                continue
+            if plan:
+                return True
+        return False
+
+    def _release(
+        self, claimed: ClaimedJob, reason: str, backoff_sec: float, *, details=None
+    ) -> None:
         run_transaction(
             lambda c: release_claim(
                 c,
@@ -232,6 +328,7 @@ class SchedulerService:
                 claimed.claim_token,
                 reason_code=reason,
                 requeue_delay_sec=backoff_sec,
+                reason_details=details,
             ),
             what="sched_release_claim",
         )
@@ -257,9 +354,7 @@ class SchedulerService:
         # Inventory before placement so filters and reservations see the
         # same device truth this tick.
         fleet = run_transaction(
-            lambda c: take_snapshot(
-                c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec
-            ),
+            lambda c: take_snapshot(c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec),
             what="sched_inventory_snapshot",
         )
         report_kwargs["inventory_synced"] = self._sync_inventory(fleet.hosts)
@@ -269,9 +364,7 @@ class SchedulerService:
         scope = self._claim_scope()
         for _ in range(cfg.tick_max_placements):
             claimed = run_transaction(
-                lambda c: claim_next_job(
-                    c, replica_id=cfg.replica_id, scope_gpu_models=scope
-                ),
+                lambda c: claim_next_job(c, replica_id=cfg.replica_id, scope_gpu_models=scope),
                 what="sched_claim",
             )
             if claimed is None:

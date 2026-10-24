@@ -1,0 +1,114 @@
+{
+  "base": "59ec4ae458c9ffd14f9d32dbf6b6131f627c6082",
+  "expanded_follow_up": {
+    "changes": [
+      "Required-volume fixture supplies complete native lease and durable journal",
+      "Cold metrics scrape uses the configured production 10-second budget; worker probes keep 2 seconds"
+    ],
+    "full_expanded_rerun": false,
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/expanded-failure-final/manifest.json",
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 13
+    },
+    "source_sha256": {
+      "tests/test_prometheus_worker_aggregation.py": "7b58b46db21fda09aef280e80d3d879dcb8c8a466c2fa4eb3d68efda546d5494",
+      "tests/test_volumes.py": "77216a8b384b695766cef859acc80978730dbc0752936d1f32307a1a084cc3c9"
+    }
+  },
+  "expanded_gate": {
+    "exclusions": 3,
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-expanded/manifest.json",
+    "production_mutation": false,
+    "results": {
+      "errors": 0,
+      "failures": 2,
+      "skipped": 0,
+      "tests": 3134
+    }
+  },
+  "focused_gate": {
+    "path": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/review-fixes-final/manifest.json",
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 232
+    },
+    "thread_warnings_are_errors": true
+  },
+  "follow_up": {
+    "gate": "/mnt/storage/projects/xcelsior/artifacts/control-plane-completion-20261022/worker-outer-failure/manifest.json",
+    "resolved": [
+      "Unexpected outer worker exceptions retain terminal retry intent",
+      "Resource adoption rejects another host journal"
+    ],
+    "results": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "tests": 58
+    },
+    "source_sha256": {
+      "tests/test_worker_claim_handoff.py": "d36c072dc5f716e5bfcfddbb6e93813693dc51d5572892ec0be60d08e1cb4e4a",
+      "tests/test_worker_resource_recovery.py": "449b3f1462d47f1d3ea51ef11b97246b14c676792183f7bc175f2b7c3f7a2afa",
+      "workers/worker_agent.py": "4dbb19345f9b90d9b426b5804780dfcde886308388b4117fb2cc955848024e5d"
+    }
+  },
+  "production_deployed": false,
+  "production_schema_observed": "125",
+  "protected_root_paths_unchanged": {
+    "api/routes/auth.py": true,
+    "api/routes/billing.py": true,
+    "auth/oauth_service.py": true,
+    "billing/stripe_connect.py": true,
+    "core/gitguardian.py": true,
+    "core/meta_capi.py": true,
+    "tests/test_mcp_connector_flow.py": true,
+    "tests/test_meta_capi.py": true,
+    "text.md": true
+  },
+  "pyright": {
+    "errorCount": 0,
+    "filesAnalyzed": 247,
+    "informationCount": 0,
+    "timeInSec": 63.975,
+    "warningCount": 0
+  },
+  "remaining": [
+    "Unexpected outer worker exceptions must retain terminal retry intent",
+    "Resource adoption must reject another host journal",
+    "Historical disposition and strict admitted-spec cutover",
+    "Remaining JSONB and physical columns",
+    "Durable fairness and preemption integration",
+    "Staged production acceptance"
+  ],
+  "repair_mode": "report_only",
+  "scope": "Native admission replay and worker restart recovery",
+  "source_sha256": {
+    "api/scripts/worker_agent.py.sig": "12d782e472357a4c3dbdd071ea6b9dbf41b3385dc937230d0515e2eb74faf970",
+    "api/scripts/worker_nfs.py.sig": "d074ae8a2d967ca359e92f0ec3ae32e243930bb7312d1883d9e3c8bad8f6a997",
+    "api/scripts/worker_privileged.py.sig": "c00b0987c928ea7f6a3f52d645dd534d06e6a53cc0063d23cb8952b78c0f14f0",
+    "control_plane/job_specs.py": "0adebdb3d654abd052a5a29f5aabd5c04eadc09a13720a3686843415480cb4f8",
+    "core/db.py": "553522b5e669ab69d7b2955681c1674e235b3cf039de01ae5654b55c01faf64b",
+    "tests/test_job_spec_admission.py": "6c70c58ce72a967f605de4380556cf9d15ced74701d9440d6b4c55a41cd028b0",
+    "tests/test_worker_agent_v2.py": "9e63a3d5a4779dc8d9cdba8c3e169f592a9cd7aa7576d9e6cf87bf24a9f89baa",
+    "tests/test_worker_claim_handoff.py": "d600ed524ded3ae1b7f0d748a80dbdca72eb6ba67bb797a27df9dfad7286e874",
+    "tests/test_worker_log_recovery.py": "3ce6e080a427b8898cfed2e0593757553a66a28f0ef809201adad6e55261cd4f",
+    "tests/test_worker_resource_recovery.py": "a3128e05a324a14df251d51d60d05da21c730034ae85169d647a7204855ca5ac",
+    "tests/test_worker_startup_regressions.py": "b773ac06fa01c1fc49c1f9bd2b55c408d55ba2deaa91a8b59bdace65545c3e8f",
+    "tests/test_worker_terminal_recovery.py": "954d110620cccf2eb03db9ba132f1150a24a877ce93c8dc9210b8f54a50f286f",
+    "workers/scheduler.py": "463d8591ec08633c16e12694c99779e1f3aa9120695529f0d955e69420be5271",
+    "workers/worker_agent.py": "330ebf94330f940ac3a05e26ffdc330055b265c13b6f1da7cfbd070e6d62666b",
+    "workers/worker_nfs.py": "a5b744def6bc7eea05a11b6ef0e8effcfe7c3f1d9540b7573236bd0890b93858",
+    "workers/worker_privileged.py": "ef00b3555af9b01520d80de0e49ec15dddb53c94e56a3b75fc0aa7230102d266"
+  },
+  "static": {
+    "black_files": 13,
+    "diff_check": "passed",
+    "ruff": "repository passed",
+    "worker_signatures": 12
+  }
+}

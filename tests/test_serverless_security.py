@@ -97,6 +97,7 @@ class TestRunPayloadLimit:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": "payload-limit",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -128,6 +129,7 @@ class TestKeyMismatch404:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": "ep-a",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -137,6 +139,7 @@ class TestKeyMismatch404:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": "ep-b",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -161,6 +164,7 @@ class TestQueueTTL:
         owner = f"cust-{uuid.uuid4().hex[:12]}"
         ep = repo.create_endpoint(
             EndpointCreate(
+                gpu_tier="RTX 4090",
                 owner_id=owner,
                 name="queue-ttl",
                 mode="custom",
@@ -195,26 +199,21 @@ class TestWebhookBodyCap:
         repo = ServerlessRepo()
         owner = f"cust-{uuid.uuid4().hex[:12]}"
         ep = repo.create_endpoint(
-            EndpointCreate(owner_id=owner, name="wh", mode="custom", image_ref="img")
+            EndpointCreate(
+                gpu_tier="RTX 4090", owner_id=owner, name="wh", mode="custom", image_ref="img"
+            )
         )
         posted: list[bytes] = []
 
-        import urllib.request
+        from types import SimpleNamespace
+        import serverless.webhooks as webhooks
 
-        class _FakeResp:
-            status = 200
+        def capture(url, **kwargs):
+            assert url == "https://example.com/h"
+            posted.append(kwargs["body"])
+            return SimpleNamespace(status=200)
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                return False
-
-        def _capture_urlopen(req, timeout=10):
-            posted.append(req.data)
-            return _FakeResp()
-
-        monkeypatch.setattr(urllib.request, "urlopen", _capture_urlopen)
+        monkeypatch.setattr(webhooks, "public_request", capture)
         job = repo.enqueue_job(
             ep["endpoint_id"], owner, {"x": 1}, webhook_url="https://example.com/h"
         )
@@ -257,6 +256,7 @@ class TestAgentKeyPrefixCollision:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"agent-key-{uuid.uuid4().hex[:8]}",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
