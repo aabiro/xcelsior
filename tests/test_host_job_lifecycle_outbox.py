@@ -366,8 +366,7 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
 
     before = _outbox_for(job_id)
     assert not hasattr(sched, "preempt_job")
-    with pytest.raises(NotImplementedError, match="Durable preemption"):
-        sched.preemption_cycle(dry_run=False)
+    assert not hasattr(sched, "preemption_cycle")
     assert _outbox_for(job_id) == before
     assert sched.get_job(job_id)["status"] == "running"
     assert emit_calls == []

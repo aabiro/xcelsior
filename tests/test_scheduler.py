@@ -241,7 +241,8 @@ class TestHostRegistry:
         scheduler.register_host("h1", "10.0.0.1", "RTX 4090", 24, 24)
         hosts = scheduler.load_hosts(active_only=False)
         hosts[0]["status"] = "dead"
-        scheduler.save_hosts(hosts)
+        with scheduler._atomic_mutation() as conn:
+            scheduler._upsert_host_row(conn, hosts[0])
         assert len(scheduler.list_hosts(active_only=True)) == 0
         assert len(scheduler.list_hosts(active_only=False)) == 1
 
@@ -726,7 +727,8 @@ class TestAutoscale:
         # Mark as autoscaled
         hosts = scheduler.load_hosts(active_only=False)
         hosts[0]["autoscaled"] = True
-        scheduler.save_hosts(hosts)
+        with scheduler._atomic_mutation() as conn:
+            scheduler._upsert_host_row(conn, hosts[0])
         deprovisioned = scheduler.autoscale_down()
         assert "h1" in deprovisioned
 
@@ -952,14 +954,14 @@ class TestPreemption:
         job = scheduler.submit_job("unchanged", 8, pricing_mode="spot")
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
         before = scheduler.get_job(job["job_id"])
-        with pytest.raises(NotImplementedError, match="Durable preemption"):
-            scheduler.preemption_cycle()
+        assert not hasattr(scheduler, "preemption_cycle")
         assert scheduler.get_job(job["job_id"]) == before
 
     def test_preemption_preview_does_not_update_prices(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
         before = scheduler.load_spot_prices()
-        prices, candidates = scheduler.preemption_cycle(dry_run=True)
+        prices = scheduler.get_current_spot_prices()
+        candidates = scheduler.identify_preemptible_jobs()
         assert isinstance(prices, dict)
         assert isinstance(candidates, list)
         assert scheduler.load_spot_prices() == before
