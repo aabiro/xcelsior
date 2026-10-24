@@ -149,6 +149,16 @@ def _mk_running_attempt_owned(
                        clock_timestamp() + interval '10 minutes')""",
             (job_id, attempt_id, host_id, fence),
         )
+        from tests.native_jobs import admit_fixture_job
+
+        conn.execute(
+            "UPDATE jobs SET owner_id=%s,tenant_id=%s WHERE job_id=%s", (owner, owner, job_id)
+        )
+        admit_fixture_job(conn, job_id)
+        conn.execute(
+            "UPDATE job_attempts a SET spec_hash=j.spec_hash FROM jobs j WHERE a.attempt_id=%s AND j.job_id=a.job_id",
+            (attempt_id,),
+        )
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id, attempt_id
@@ -245,11 +255,10 @@ def test_classify_and_attempt_container_name_match_worker():
         status="running",
         active_attempt_id=None,
         has_fenced_history=False,
-        payload_container_name=None,
     )
-    assert leg.class_ == "legacy"
-    assert leg.container_name == f"xcl-{job_id}"
-    assert leg.allows_unfenced_container_command is True
+    assert leg.class_ == "unadmitted"
+    assert leg.container_name == ""
+    assert leg.has_live_attempt is False
 
     att = classify_job_target(
         job_id=job_id,
@@ -257,11 +266,10 @@ def test_classify_and_attempt_container_name_match_worker():
         status="running",
         active_attempt_id=attempt_id,
         has_fenced_history=True,
-        payload_container_name=f"xcl-{job_id}",  # stale must be ignored
     )
     assert att.class_ == "attempt_owned"
     assert att.container_name == f"xcl-{job_id}-abcdef12"
-    assert att.allows_unfenced_container_command is True
+    assert att.has_live_attempt is True
 
     fh = classify_job_target(
         job_id=job_id,
@@ -271,7 +279,7 @@ def test_classify_and_attempt_container_name_match_worker():
         has_fenced_history=True,
     )
     assert fh.class_ == "fenced_history"
-    assert fh.allows_unfenced_container_command is False
+    assert fh.has_live_attempt is False
 
     assert is_fenced_history_job(active_attempt_id=None, has_fenced_history=False) is False
     assert is_fenced_history_job(active_attempt_id="a", has_fenced_history=False) is True
@@ -294,9 +302,9 @@ def test_resolve_job_command_target_real_pg(cleanup):
 
     t_leg = resolve_job_command_target(leg)
     assert t_leg is not None
-    assert t_leg.class_ == "legacy"
-    assert t_leg.container_name == f"xcl-{leg}"
-    assert t_leg.allows_unfenced_container_command is True
+    assert t_leg.class_ == "unadmitted"
+    assert t_leg.container_name == ""
+    assert t_leg.has_live_attempt is False
 
     t_att = resolve_job_command_target(att_job)
     assert t_att is not None
@@ -307,13 +315,13 @@ def test_resolve_job_command_target_real_pg(cleanup):
     t_fh = resolve_job_command_target(fh)
     assert t_fh is not None
     assert t_fh.class_ == "fenced_history"
-    assert t_fh.allows_unfenced_container_command is False
+    assert t_fh.has_live_attempt is False
 
 
 # ── SSH reinject ───────────────────────────────────────────────────────
 
 
-def test_ssh_reinject_legacy_enqueues_xcl_job_id(cleanup, monkeypatch):
+def test_ssh_reinject_unadmitted_observations_cannot_enqueue(cleanup, monkeypatch):
     from routes import ssh as ssh_mod
 
     host_id = f"h-res-ssh-l-{uuid.uuid4().hex[:6]}"
@@ -328,12 +336,8 @@ def test_ssh_reinject_legacy_enqueues_xcl_job_id(cleanup, monkeypatch):
     )
 
     n = ssh_mod._trigger_reinject_for_user(user)
-    assert n >= 1
-    cmds = _commands_for_job(job_id)
-    reinject = [c for c in cmds if c["command"] == "reinject_shell"]
-    assert len(reinject) == 1
-    assert reinject[0]["args"]["container_name"] == f"xcl-{job_id}"
-    assert reinject[0]["args"]["job_id"] == job_id
+    assert n == 0
+    assert _commands_for_job(job_id) == []
 
 
 def test_ssh_reinject_attempt_owned_uses_attempt_container_name(cleanup, monkeypatch):
@@ -424,17 +428,17 @@ def test_volume_hot_mount_unmount_legacy_and_attempt_owned(cleanup):
     att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
 
     eng = VolumeEngine()
-    eng._enqueue_hot_mount(host_id, leg, "vol-leg-1", "/workspace", "rw")
+    with pytest.raises(ValueError):
+        eng._enqueue_hot_mount(host_id, leg, "vol-leg-1", "/workspace", "rw")
     eng._enqueue_hot_mount(host_id, att_job, "vol-att-1", "/workspace", "rw")
-    eng._enqueue_hot_unmount(host_id, leg, "vol-leg-1", "/workspace")
+    with pytest.raises(ValueError):
+        eng._enqueue_hot_unmount(host_id, leg, "vol-leg-1", "/workspace")
     eng._enqueue_hot_unmount(host_id, att_job, "vol-att-1", "/workspace")
 
     leg_mount = [
         c for c in _commands_for_job(leg) if c["command"] in ("mount_volume", "unmount_volume")
     ]
-    assert len(leg_mount) == 2
-    for c in leg_mount:
-        assert c["args"]["container_name"] == f"xcl-{leg}"
+    assert leg_mount == []
 
     att_mount = [
         c for c in _commands_for_job(att_job) if c["command"] in ("mount_volume", "unmount_volume")
@@ -477,10 +481,10 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
     leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
     att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
 
-    for job_id in (leg, att_job):
+    for job_id in (att_job,):
         target = resolve_job_command_target(job_id)
         assert target is not None
-        assert target.allows_unfenced_container_command
+        assert target.has_live_attempt
         enqueue_agent_command(
             target.host_id,
             "snapshot_container",
@@ -495,8 +499,7 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
         )
 
     leg_s = [c for c in _commands_for_job(leg) if c["command"] == "snapshot_container"]
-    assert len(leg_s) == 1
-    assert leg_s[0]["args"]["container_name"] == f"xcl-{leg}"
+    assert leg_s == []
 
     att_s = [c for c in _commands_for_job(att_job) if c["command"] == "snapshot_container"]
     assert len(att_s) == 1

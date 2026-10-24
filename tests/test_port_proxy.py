@@ -198,7 +198,7 @@ def test_expose_403_when_owner_mismatch(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"bob\"') " "WHERE job_id=%s",
+            "UPDATE jobs SET owner_id='bob' " "WHERE job_id=%s",
             (seeded_job["job_id"],),
         )
         conn.commit()

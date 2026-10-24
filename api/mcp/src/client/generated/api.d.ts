@@ -2135,6 +2135,18 @@ export interface components {
             agent_version?: string | null;
             /** Worker Reported At */
             worker_reported_at?: number | null;
+            /** Capabilities */
+            capabilities?: {
+                [key: string]: unknown;
+            } | null;
+            /** Conditions */
+            conditions?: {
+                [key: string]: unknown;
+            } | null;
+            /** Gpu Inventory */
+            gpu_inventory?: {
+                [key: string]: unknown;
+            }[] | null;
         };
         /** ObservedWorkload */
         ObservedWorkload: {

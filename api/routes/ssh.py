@@ -94,22 +94,18 @@ def _trigger_reinject_for_user(user: dict) -> int:
         return 0
 
     try:
-        from control_plane.job_targets import classify_job_target
+        from control_plane.job_targets import resolve_job_command_target
 
         pool = _get_pg_pool()
         with pool.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT j.job_id, j.host_id, j.status, j.active_attempt_id,
-                       j.payload->>'container_name' AS container_name,
-                       EXISTS (
-                           SELECT 1 FROM job_attempts a WHERE a.job_id = j.job_id
-                       ) AS has_fenced_history
+                SELECT j.job_id,j.host_id
                   FROM jobs j
                  WHERE j.status = 'running'
                    AND j.host_id IS NOT NULL
-                   AND j.payload->>'owner' = ANY(%s)
-                   AND (j.payload->>'interactive')::boolean = true
+                   AND j.owner_id = ANY(%s)
+                   AND j.spec->>'interactive' = 'true'
                 """,
                 (candidates,),
             )
@@ -122,24 +118,13 @@ def _trigger_reinject_for_user(user: dict) -> int:
     for row in rows:
         job_id = row[0]
         host_id = row[1]
-        status = row[2] or "running"
-        active_attempt_id = row[3]
-        payload_cname = row[4]
-        has_fenced = bool(row[5])
-        target = classify_job_target(
-            job_id=job_id,
-            host_id=host_id,
-            status=status,
-            active_attempt_id=active_attempt_id,
-            has_fenced_history=has_fenced,
-            payload_container_name=payload_cname,
-        )
+        target = resolve_job_command_target(str(job_id))
         # Fenced-history without live attempt: do not guess legacy xcl-{job}.
-        if not target.allows_unfenced_container_command:
+        if target is None or not target.has_live_attempt:
             log.info(
                 "reinject trigger: skip job=%s class=%s (no live residual target)",
                 job_id,
-                target.class_,
+                target.class_ if target else "missing",
             )
             continue
         try:

@@ -1,10 +1,15 @@
 # Dedicated database roles: candidate and production gates
 
-This candidate prepares the dedicated-role cutover. It has **not** changed
-production logins, ownership, images or repair policies. Production remains
-at schema `125`, using `xcelsior` on PostgreSQL port `5434`. A read-only catalog
-audit found 191 application relations and 10 routines owned by that login;
-all dedicated roles were still `NOLOGIN`.
+**Executed status, 2026-10-24:** production schema **139** uses seven dedicated
+service logins on PostgreSQL port **5434**. All seven runtime-context audits
+pass; no old-owner or migrator session serves application traffic. Ownership
+transfer applied 189 scoped statements with private inverse SQL retained. The
+old login is limited to offline backups without application DML or DDL; unused
+retrieval/read-only logins remain disabled. All repairs remain `report_only`.
+See the [executed receipt](2026-10-24-executed-control-plane-data-cutover.md).
+
+The candidate description and initial catalog below are historical preparation
+evidence; their schema-125/NOLOGIN baseline is superseded by that receipt.
 
 The main push is complete at `ac1852ad`. This change follows the protected
 branch PR workflow. Dedicated-role deployment remains an explicit residual

@@ -23,7 +23,13 @@ from psycopg.types.json import Jsonb
 log = logging.getLogger("xcelsior.control_plane.observations")
 
 OBSERVED_STATES = (
-    "preparing", "running", "paused", "exited", "removing", "unmanaged", "unknown",
+    "preparing",
+    "running",
+    "paused",
+    "exited",
+    "removing",
+    "unmanaged",
+    "unknown",
 )
 
 
@@ -65,6 +71,26 @@ def ingest_observation(
     transport safe). Also enqueues the host for reconciliation and
     freshens ``hosts.last_observed_at``.
     """
+    if gpu_inventory is not None:
+        from control_plane.physical_inventory import validate_inventory
+
+        validate_inventory(gpu_inventory)
+    host = conn.execute(
+        "SELECT observation_session_id FROM hosts WHERE host_id=%s FOR UPDATE", (host_id,)
+    ).fetchone()
+    if host is None:
+        raise ValueError("observation host is not registered")
+    current_session = _get(host, "observation_session_id", 0)
+    previous = conn.execute(
+        "SELECT max(inventory_generation) FROM host_observations WHERE host_id=%s AND session_id=%s",
+        (host_id, session_id),
+    ).fetchone()
+    previous_generation = _get(previous, "max", 0) if previous else None
+    # Once a new process supersedes a known session, delayed reports from the
+    # old process remain diagnostic evidence and cannot replace current state.
+    stale = previous_generation is not None and (
+        current_session not in (None, session_id) or observation_generation <= previous_generation
+    )
     row = conn.execute(
         """
         INSERT INTO host_observations
@@ -78,10 +104,16 @@ def ingest_observation(
         RETURNING observation_id
         """,
         (
-            host_id, session_id, observation_generation, agent_version,
-            Jsonb(capabilities or {}), Jsonb(conditions or {}),
-            Jsonb(gpu_inventory or []), len(workloads),
-            worker_reported_at, worker_reported_at or 0.0,
+            host_id,
+            session_id,
+            observation_generation,
+            agent_version,
+            Jsonb(capabilities or {}),
+            Jsonb(conditions or {}),
+            Jsonb(gpu_inventory or []),
+            len(workloads),
+            worker_reported_at,
+            worker_reported_at or 0.0,
         ),
     ).fetchone()
     if row is None:
@@ -98,7 +130,9 @@ def ingest_observation(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                observation_id, host_id, session_id,
+                observation_id,
+                host_id,
+                session_id,
                 w.get("job_id") or None,
                 w.get("attempt_id") or None,
                 int(w["fencing_token"]) if w.get("fencing_token") else None,
@@ -110,11 +144,31 @@ def ingest_observation(
             ),
         )
 
-    # received_at (DB clock) is the freshness signal §12.2.
+    if stale:
+        return IngestResult(
+            observation_id=observation_id, duplicate=False, workloads=len(workloads)
+        )
+    # received_at (DB clock) is the freshness signal §12.2. Capability and
+    # condition observations confer no operator admission or execution intent.
     conn.execute(
-        "UPDATE hosts SET last_observed_at = clock_timestamp() WHERE host_id = %s",
-        (host_id,),
+        "UPDATE hosts SET last_observed_at=clock_timestamp(),observation_session_id=%s, "
+        "capabilities=COALESCE(%s::jsonb,capabilities),conditions=COALESCE(%s::jsonb,conditions), "
+        "availability_state=CASE WHEN %s THEN 'not_ready' "
+        "WHEN %s AND status='active' THEN 'ready' ELSE availability_state END "
+        "WHERE host_id=%s",
+        (
+            session_id,
+            Jsonb(capabilities) if capabilities is not None else None,
+            Jsonb(conditions) if conditions is not None else None,
+            gpu_inventory == [] or (conditions or {}).get("gpu_inventory") == "unavailable",
+            bool(gpu_inventory),
+            host_id,
+        ),
     )
+    if gpu_inventory is not None:
+        from control_plane.physical_inventory import sync_physical_inventory
+
+        sync_physical_inventory(conn, host_id=host_id, inventory=gpu_inventory)
     # PK-coalesced: one pending reconcile per host, soonest due_at wins.
     conn.execute(
         """
@@ -145,9 +199,7 @@ def ingest_observation(
         """,
         (f"agent:{session_id}", host_id),
     )
-    return IngestResult(
-        observation_id=observation_id, duplicate=False, workloads=len(workloads)
-    )
+    return IngestResult(observation_id=observation_id, duplicate=False, workloads=len(workloads))
 
 
 def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
@@ -155,9 +207,11 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
         SELECT observation_id, session_id, inventory_generation, received_at
-          FROM host_observations
-         WHERE host_id = %s
-         ORDER BY received_at DESC
+          FROM host_observations o
+         WHERE host_id = %s AND EXISTS (
+             SELECT 1 FROM hosts h WHERE h.host_id=o.host_id
+             AND (h.observation_session_id IS NULL OR h.observation_session_id=o.session_id))
+         ORDER BY inventory_generation DESC, received_at DESC
          LIMIT 1
         """,
         (host_id,),
@@ -169,8 +223,7 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
         {
             "job_id": _get(w, "job_id", 0),
             "attempt_id": (
-                str(_get(w, "attempt_id", 1))
-                if _get(w, "attempt_id", 1) is not None else None
+                str(_get(w, "attempt_id", 1)) if _get(w, "attempt_id", 1) is not None else None
             ),
             "fencing_token": _get(w, "fencing_token", 2),
             "container_name": _get(w, "container_name", 3),
@@ -197,9 +250,7 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
     }
 
 
-def prune_observations(
-    conn: Connection, *, retention_days: int = 3, limit: int = 2000
-) -> int:
+def prune_observations(conn: Connection, *, retention_days: int = 3, limit: int = 2000) -> int:
     """Observations are high-volume diagnostics; keep a short window."""
     result = conn.execute(
         """
