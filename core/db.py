@@ -767,22 +767,28 @@ class DatabaseOps:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb),
                         %s, %s)
                 ON CONFLICT(host_id) DO UPDATE SET
-                    status = EXCLUDED.status,
+                    status = CASE WHEN hosts.administrative_state IN ('draining','disabled')
+                        THEN hosts.administrative_state ELSE EXCLUDED.status END,
                     registered_at = EXCLUDED.registered_at,
                     payload = EXCLUDED.payload || jsonb_build_object(
+                        'status', CASE WHEN hosts.administrative_state IN ('draining','disabled')
+                            THEN hosts.administrative_state ELSE EXCLUDED.status END,
                         'admitted', hosts.admission_state='admitted',
                         'admission_state', hosts.admission_state,
                         'admission_version', hosts.admission_version,
                         'admission_decision_id', hosts.admission_decision_id),
                     administrative_state = CASE
+                        WHEN hosts.administrative_state IN ('draining','disabled')
+                            THEN hosts.administrative_state
                         WHEN EXCLUDED.status='disabled' THEN 'disabled'
                         WHEN hosts.admission_state='admitted' AND EXCLUDED.status='draining'
                             THEN 'draining'
                         WHEN hosts.admission_state='admitted' THEN 'admitted'
                         ELSE 'pending' END,
-                    availability_state = CASE EXCLUDED.status
-                        WHEN 'active' THEN 'ready' WHEN 'dead' THEN 'not_ready'
-                        ELSE 'unknown' END,
+                    availability_state = CASE
+                        WHEN EXCLUDED.status='dead' THEN 'not_ready'
+                        WHEN hosts.administrative_state IN ('draining','disabled') THEN 'unknown'
+                        WHEN EXCLUDED.status='active' THEN 'ready' ELSE 'unknown' END,
                     owner_id = COALESCE(EXCLUDED.owner_id, hosts.owner_id),
                     tenant_id = COALESCE(EXCLUDED.tenant_id, hosts.tenant_id),
                     region = COALESCE(EXCLUDED.region, hosts.region),

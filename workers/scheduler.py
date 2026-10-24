@@ -198,6 +198,26 @@ def _upsert_host_row(conn, host):
     DatabaseOps.upsert_host(conn, host, backend=_active_backend())
 
 
+def _append_submission_outbox(conn, job_id):
+    """Admission and its replay require one durable, immutable submission intent."""
+    from control_plane.job_specs import validate_execution_spec
+    from control_plane.outbox import append_event
+
+    row = conn.execute("SELECT spec,spec_hash FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
+    if row is None:
+        raise RuntimeError("native submission lost its admission")
+    spec, digest = (row["spec"], row["spec_hash"]) if isinstance(row, dict) else row
+    spec = validate_execution_spec(spec, digest, require_admission=True)
+    append_event(
+        _pg_conn(conn),
+        aggregate_type="job",
+        aggregate_id=str(job_id),
+        event_type="job.v1.submitted",
+        payload={"name": spec.get("name"), "tier": spec.get("tier")},
+        idempotency_key=f"job_submitted:{job_id}",
+    )
+
+
 def _get_job_by_id_conn(conn, job_id):
     return DatabaseOps.get_job(conn, job_id, backend=_active_backend())
 
@@ -1804,6 +1824,7 @@ def submit_job(
                     replay_conn, str(job_id).strip(), admission_request
                 )
                 if replay is not None:
+                    _append_submission_outbox(replay_conn, str(job_id).strip())
                     return replay
 
     pricing_mode = (pricing_mode or "on_demand").strip().lower()
@@ -1897,7 +1918,7 @@ def submit_job(
         "preferred_host_id": preferred_host_id,
     }
 
-    if serverless_config is not None:
+    if job["job_type"] == "serverless_worker" or serverless_config is not None:
         allowed = {
             "serverless_worker_id",
             "serverless_endpoint_id",
@@ -1905,8 +1926,14 @@ def submit_job(
             "volume_mounts",
             "http_port",
             "health_check_path",
+            "serverless_billing_quote",
         }
-        if job["job_type"] != "serverless_worker" or set(serverless_config) != allowed:
+        if (
+            job["job_type"] != "serverless_worker"
+            or not isinstance(serverless_config, dict)
+            or set(serverless_config) != allowed
+            or not isinstance(serverless_config["serverless_billing_quote"], dict)
+        ):
             raise ValueError("serverless execution requires a complete server-selected binding")
         job.update(serverless_config)
 
@@ -1924,18 +1951,8 @@ def submit_job(
         if admitted is not None:
             job = admitted
         if _active_backend() == "postgres":
-            from control_plane.outbox_runtime import try_append_lifecycle_outbox
-
-            outbox_enqueued = try_append_lifecycle_outbox(
-                _pg_conn(write_conn),
-                aggregate_type="job",
-                aggregate_id=str(job["job_id"]),
-                event_type="job.v1.submitted",
-                payload={"name": name, "tier": tier},
-                idempotency_key=f"job_submitted:{job['job_id']}",
-            )
-            if conn is not None and not outbox_enqueued:
-                raise RuntimeError("native serverless submission requires its transactional outbox")
+            _append_submission_outbox(write_conn, str(job["job_id"]))
+            outbox_enqueued = True
 
     # Mirror to secondary DB
     if conn is None:

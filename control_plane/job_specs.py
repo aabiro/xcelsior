@@ -28,7 +28,7 @@ EXECUTION_FIELDS = frozenset("""name vram_needed_gb num_gpus gpu_model region im
     environment volume_mounts http_port health_check_path volumes require_nfs
     encrypted_volumes require_image_signature image_signature_key required_runtime
     preferred_host_id placement_preference max_price_per_hour spot_rate_cad
-    spot preemptible scheduler""".split())
+    spot preemptible scheduler serverless_billing_quote""".split())
 
 
 def canonical_spec_hash(spec: dict[str, Any]) -> str:
