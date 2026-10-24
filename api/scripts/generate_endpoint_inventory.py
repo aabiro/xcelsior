@@ -81,6 +81,8 @@ _AUTH_CALLS = (
     "_prepare_authorization",
     "_refuse_undelegatable_scopes",
     "_authorize_instance_mutation",
+    "refresh_stream_principal",
+    "authorize_job_stream",
     "_require_human_to_weaken_mfa",
     "_require_reputation_entity_access",
     "_check_terminal_access",
