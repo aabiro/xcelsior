@@ -1,6 +1,6 @@
 # Dedicated database roles: candidate and production gates
 
-**Executed status, 2026-10-24:** production schema **139** uses seven dedicated
+**Executed status, 2026-10-24:** production schema **141** uses seven dedicated
 service logins on PostgreSQL port **5434**. All seven runtime-context audits
 pass; no old-owner or migrator session serves application traffic. Ownership
 transfer applied 189 scoped statements with private inverse SQL retained. The

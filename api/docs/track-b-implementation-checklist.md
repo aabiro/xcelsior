@@ -33,21 +33,22 @@ that has not happened; operator actions are listed separately in §B0.4 and
 at the end of each phase as **Operator residual**.
 
 **Current control-plane/data status, 2026-10-24:** the ordered production
-cutover reached schema **139**, runtime `30b3daa6`, both signed GPU workers and
-seven dedicated runtime/one-shot database logins. Native CUDA, restart adoption,
-fenced stop/restart, stale-report rejection, exact usage/wallet totals, all
-public distribution signatures, scheduled recovery jobs and a complete
-154-table logical restore passed. All eight repairs remain `report_only`.
+cutover reached schema **141**, runtime `fdaab814`, both signed GPU workers and
+seven dedicated runtime/one-shot database logins. The frozen gate passed 3,889
+tests with zero failures/errors/skips. Native CUDA, restart adoption, fencing,
+measured exit/request metadata, exact usage/wallet totals, twelve public
+signatures and a complete **155-table** post-deployment restore passed.
+All eight repairs remain `report_only`; preemption/deadline force stay disabled.
 [Executed receipt](review/2026-10-24-executed-control-plane-data-cutover.md).
 
-A subsequent read-only population scan covered all 176 physical tables and
-2,078 columns with zero scan errors and zero FK orphans. The revision-140
-candidate fixes confirmed writer gaps, native ownership reads and job-scoped
-command authority; its deployment remains separate. Remaining historical
-unknowns, Lightning float/epoch contraction, compatibility code removal and
-independent offsite/PITR/object recovery are explicit residuals. Dated progress
-notes below preserve the status at their date; this paragraph supersedes their
-old schema-125, disabled-role and unexecuted-handoff statements.
+The read-only post-cutover population scan covers 177 physical tables and 2,077
+columns with zero scan errors. Both job/host projection triggers, the Lightning
+compatibility trigger and the reviewed legacy columns are removed. Unknown
+historical facts, native fleet observation reads, remaining compatibility
+handlers, historical invoice disposition and independent offsite/PITR/object
+recovery remain explicit residuals. Dated progress notes below retain their
+historical state; this paragraph supersedes old schema-125/139, disabled-role
+and unexecuted-handoff statements.
 
 ---
 
@@ -187,7 +188,7 @@ since spent on other content. `DA§14` and `DA§22.10` both instruct the
 implementer to inspect the real head and renumber; this section is that
 renumbering, recorded once so no future item guesses.
 
-**Historical head verified 2026-10-20: `125`; production is now `139` (2026-10-24).** The ledger below records
+**Historical head verified 2026-10-20: `125`; production is now `141` (2026-10-24).** The ledger below records
 the original 2026-07-22 renumbering baseline (`069`); later landed migrations
 are recorded in their phase entries and `migrations/README.md`. Do not use
 the historical baseline to assign a new revision.
@@ -2438,7 +2439,8 @@ data disposition remain separately scoped below.
   140's runtime. Revision 141 archives/drops Lightning's six float/epoch twins,
   derives API numbers from typed values and protects canonical payment terms.
   The focused source gates pass 47 and 207 checks; generated contracts pass
-  twelve checks. Production remains 139 pending this new boundary. Historical
+  twelve checks. This boundary is now deployed at 141 with the 3,889-test gate
+  and full restore above. Historical
   unknowns and remaining compatibility handlers are explicit residuals.
   [Column qualification](review/2026-10-24-lightning-column-contraction.md).
 - [~] **B16.3 Code removal.** Remove the legacy lease table and path; the
