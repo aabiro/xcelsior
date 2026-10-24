@@ -330,7 +330,11 @@ def handle_legacy_audit(event: OutboxEvent) -> None:
 
 
 def default_handlers() -> dict:
+    from control_plane.billing_effects import handle_wallet_notice, handle_failed_cycle_stop
+
     return {
+        "billing_notice": handle_wallet_notice,
+        "billing_stop": handle_failed_cycle_stop,
         "default": handle_default,
         "agent_wake": handle_agent_wake,
         "audit": handle_legacy_audit,
