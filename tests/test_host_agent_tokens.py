@@ -126,7 +126,7 @@ def test_host_network_download_uses_its_own_identity_and_quota(hosts, monkeypatc
     assert client.get(f"/agent/network-download/{hosts[0]}", headers=headers).status_code == 429
 
 
-def test_idle_worker_poll_has_a_truly_empty_204_body(hosts, monkeypatch):
+def test_host_token_authenticates_the_retired_work_poll(hosts, monkeypatch):
     import api
 
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
@@ -136,8 +136,8 @@ def test_idle_worker_poll_has_a_truly_empty_204_body(hosts, monkeypatch):
     response = client.get(
         f"/agent/work/{hosts[0]}", headers={"Authorization": f"Bearer {issued.secret}"}
     )
-    assert response.status_code == 204, response.text
-    assert response.content == b""
+    assert response.status_code == 410, response.text
+    assert response.json()["error"]["code"] == "v2_protocol_required"
 
 
 def test_secret_is_never_stored_in_cleartext(hosts):

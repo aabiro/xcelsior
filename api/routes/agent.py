@@ -26,8 +26,6 @@ from scheduler import (
 )
 from events import Event
 from control_plane.legacy_execution import (
-    eligible_work_ids,
-    legacy_execution_allowed,
     legacy_request,
     record_use,
     require_legacy_route_enabled,
@@ -344,8 +342,6 @@ _IMAGE_PULL_PATTERNS = (
 )
 
 # Agent work state
-_agent_work: dict[str, list[dict]] = defaultdict(list)  # host_id -> [job, ...]
-_agent_lock = threading.Lock()
 _host_telemetry: dict[str, dict] = {}
 
 
@@ -390,81 +386,10 @@ def api_agent_network_download(host_id: str, request: Request):
 
 @router.get("/agent/work/{host_id}", tags=["Agent"])
 def api_agent_work(host_id: str, request: Request):
-    """Pull pending work for an agent. Returns assigned jobs."""
+    """Permanent tombstone for the removed unfenced work transport."""
     _require_agent_auth(request, host_id=host_id)
-    record_use("work_poll", "requested")
-    if not legacy_execution_allowed():
-        record_use("work_poll", "blocked")
+    with legacy_request("work_poll"):
         require_legacy_route_enabled()
-    all_jobs = list_jobs()
-    pending = [
-        j for j in all_jobs if j.get("host_id") == host_id and j.get("status") in ("assigned",)
-    ]
-    with _agent_lock:
-        queued_work = list(_agent_work.get(host_id, []))
-
-    # Cached payloads are hints, never authority to execute fenced work. Read
-    # authoritative ownership before consuming the cache; failures leave it intact.
-    candidates = {}
-    for job in pending + queued_work:
-        if job.get("job_id"):
-            candidates.setdefault(str(job["job_id"]), job)
-    try:
-        with _get_pg_pool().connection() as conn:
-            eligible = eligible_work_ids(conn, host_id, list(candidates))
-    except Exception as exc:
-        raise HTTPException(503, "Legacy work ownership could not be verified") from exc
-    from control_plane.scheduler.config import SchedulerConfig
-
-    config = SchedulerConfig.from_env()
-    jobs = [job for jid, job in candidates.items() if jid in eligible and not config.owns_job(job)]
-    record_use("work_poll", "blocked", len(candidates) - len(jobs))
-    record_use("work_poll", "used", len(jobs))
-    with _agent_lock:
-        consumed = {id(job) for job in queued_work}
-        remaining = [job for job in _agent_work.get(host_id, []) if id(job) not in consumed]
-        if remaining:
-            _agent_work[host_id] = remaining
-        else:
-            _agent_work.pop(host_id, None)
-    if not jobs:
-        # 204 must have no body. JSONResponse(None) emits four bytes (null),
-        # which Uvicorn rejects after it has sent the no-content headers.
-        return Response(status_code=204)
-
-    # Enrich each job with volume mount paths from the volume_attachments table
-    try:
-        from volumes import get_volume_engine
-
-        ve = get_volume_engine()
-        for j in jobs:
-            vol_ids = j.get("volume_ids", [])
-            if vol_ids:
-                mounts: dict[str, str] = dict(j.get("volume_mounts") or {})
-                try:
-                    for att in ve.get_instance_volumes(j["job_id"]):
-                        mounts[att["volume_id"]] = att.get("mount_path", "/workspace")
-                except Exception:
-                    pass
-                # Auto-assign paths for volumes without attachments yet
-                _idx = 0
-                for vid in vol_ids:
-                    if vid not in mounts:
-                        mounts[vid] = "/workspace" if _idx == 0 else f"/workspace/vol-{_idx}"
-                    _idx += 1
-                j["volume_mounts"] = mounts
-                if not j.get("nfs_server"):
-                    try:
-                        from volumes import NFS_SERVER as vol_nfs_server
-
-                        if vol_nfs_server:
-                            j["nfs_server"] = vol_nfs_server
-                    except Exception:
-                        pass
-    except Exception:
-        pass  # Best-effort: worker falls back to /workspace
-
-    return {"ok": True, "instances": jobs}
 
 
 @router.get("/agent/preempt/{host_id}", tags=["Agent"])
@@ -565,78 +490,19 @@ _AGENT_COMMAND_ALLOWED = {
 
 @router.get("/agent/commands/{host_id}", tags=["Agent"])
 def api_agent_commands_drain(host_id: str, request: Request):
-    """Drain pending agent commands for this host.
-
-    Returns up to 50 pending, non-expired commands and deletes them in the
-    same transaction. Also GCs rows whose expires_at has passed.
-    """
+    """Permanent tombstone; native commands require fenced claim and ACK."""
     _require_agent_auth(request, host_id=host_id)
-    if not host_id or len(host_id) > 128:
-        raise HTTPException(400, "Invalid host_id")
-    with legacy_request("command_drain") as observation:
+    with legacy_request("command_drain"):
         require_legacy_route_enabled()
-        pool = _get_pg_pool()
-        with pool.connection() as conn, conn.cursor() as cur:
-            # Drop expired rows for any host (cheap housekeeping). Attempt-
-            # bound commands are excluded: their lifecycle (claim/ACK,
-            # backoff, dead-letter, cancellation on lease expiry) is owned by
-            # the /agent/v2 protocol and control_plane.commands.
-            cur.execute(
-                "DELETE FROM agent_commands "
-                "WHERE expires_at < EXTRACT(EPOCH FROM NOW()) "
-                "AND attempt_id IS NULL"
-            )
-            # Atomically claim pending rows for this host. attempt_id IS NULL:
-            # a legacy drain must never destroy a v2 start_attempt command —
-            # v1 dispatch would refuse the unknown name and the DELETE would
-            # have already destroyed the placement's only delivery.
-            cur.execute(
-                """
-                DELETE FROM agent_commands
-                WHERE id IN (
-                    SELECT id FROM agent_commands
-                    WHERE host_id = %s AND status = 'pending'
-                      AND attempt_id IS NULL
-                    ORDER BY created_at ASC
-                    LIMIT 50
-                    FOR UPDATE SKIP LOCKED
-                )
-                RETURNING id, command, args, created_at, created_by
-                """,
-                (host_id,),
-            )
-            rows = cur.fetchall()
-        observation.effect(len(rows))
-        commands = [
-            {
-                "id": r[0],
-                "command": r[1],
-                "args": r[2] or {},
-                "created_at": float(r[3]),
-                "created_by": r[4],
-            }
-            for r in rows
-        ]
-        return {"ok": True, "commands": commands}
 
 
 def prune_expired_agent_commands(conn, *, limit: int = 5000) -> int:
     """Delete expired, non-attempt-bound commands. Returns rows removed.
 
-    **The same DELETE `api_agent_commands_drain` runs, on a timer instead of on
-    a drain.** That housekeeping only executes when an agent actually collects
-    commands — so it is coupled to fleet health, and stops running in exactly
-    the situation that produces the most garbage: a fleet that cannot reach the
-    API at all. Observed on production, where the hourly reverification sweep
-    accumulated 40 expired rows against 2 live ones while every worker was
-    locked out by the retired public agent ingress. ~48 rows/day, indefinitely.
+    This bounded sweep runs independently of worker polling. Native host
+    commands expire without requiring a destructive drain or a live worker.
 
-    The sweep itself is not at fault and is not the thing to bound: it holds at
-    most one live request per host (`hosts_with_pending_reverify`), verified on
-    production. What was missing is a consumer for the expired rows that does
-    not depend on the consumer being reachable.
-
-    `attempt_id IS NULL` is preserved from the drain, and is not incidental: a
+    `attempt_id IS NULL` is intentional: a
     v2 `start_attempt` carries its own lifecycle — claim/ACK, backoff,
     dead-letter, cancellation on lease expiry — owned by the `/agent/v2`
     protocol and `control_plane.commands`. Deleting one here would destroy a
