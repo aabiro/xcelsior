@@ -329,20 +329,31 @@ def charge_serverless_execution(billing_engine, repo, worker, endpoint, **kwargs
             "SELECT * FROM serverless_workers WHERE worker_id=%s FOR UPDATE",
             (str(worker.get("worker_id") or ""),),
         ).fetchone()
-        if current:
-            worker = {**worker, **dict(current)}
-            if worker.get("billing_exempt"):
-                return {"charged": False, "reason": "billing_exempt"}
-            if worker.get("released_at") is not None:
-                end = float(worker["released_at"])
-                kwargs["period_end"] = min(float(kwargs.get("period_end") or end), end)
-                kwargs["final"] = True
-        conn.execute(
-            "SELECT endpoint_id FROM serverless_endpoints WHERE endpoint_id=%s FOR UPDATE",
+        if current is None:
+            return {"charged": False, "reason": "native_worker_missing"}
+        worker = dict(current)
+        if worker.get("billing_exempt"):
+            return {"charged": False, "reason": "billing_exempt"}
+        if worker.get("released_at") is not None:
+            end = float(worker["released_at"])
+            kwargs["period_end"] = min(float(kwargs.get("period_end") or end), end)
+            kwargs["final"] = True
+        current_endpoint = conn.execute(
+            "SELECT * FROM serverless_endpoints WHERE endpoint_id=%s FOR UPDATE",
             (str(endpoint.get("endpoint_id") or ""),),
         ).fetchone()
+        if current_endpoint is None or current_endpoint["endpoint_id"] != worker["endpoint_id"]:
+            return {"charged": False, "reason": "native_endpoint_mismatch"}
+        endpoint = {**endpoint, **dict(current_endpoint)}
+        from serverless.billing_authority import require_execution_quote
+
+        quote = require_execution_quote(conn, worker, endpoint)
+        if quote is None:
+            return {"charged": False, "reason": "native_running_evidence_missing"}
+        if kwargs.get("token_cost_cad") is None:
+            kwargs["token_cost_cad"] = (endpoint["unbilled_token_cost_micros"] or 0) / 1_000_000
         result = _charge_serverless_execution(
-            billing_engine, repo, worker, endpoint, _conn=conn, **kwargs
+            billing_engine, repo, worker, endpoint, _conn=conn, _quote=quote, **kwargs
         )
     from db import NotificationStore
 
@@ -380,6 +391,7 @@ def _charge_serverless_execution(
     description: str | None = None,
     token_cost_cad: float | None = None,
     _conn,
+    _quote,
 ) -> dict:
     """
     Debit wallet for an unbilled worker uptime slice (incremental; no double-charge).
@@ -422,21 +434,10 @@ def _charge_serverless_execution(
 
     # Peek accrual for blended math; consume only after a successful charge (billing-critical).
     if token_cost_cad is None:
-        try:
-            if blended_on and hasattr(repo, "peek_endpoint_token_cost"):
-                token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
-            elif hasattr(repo, "peek_endpoint_token_cost"):
-                token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
-            else:
-                token_cost_cad = 0.0
-        except Exception:
-            token_cost_cad = 0.0
+        token_cost_cad = float(repo.peek_endpoint_token_cost(endpoint_id) or 0.0)
 
-    rate = get_gpu_rate_per_hour(
-        str(endpoint.get("gpu_tier") or ""),
-        str(endpoint.get("region") or "ca-east"),
-    )
-    gpu_count = int(endpoint.get("gpu_count") or 1)
+    rate = _quote["rate_per_gpu_micros"] / 1_000_000
+    gpu_count = _quote["gpu_count"]
     gpu_seconds = max(0, int(math.ceil(duration_sec)))
     gpu_amount_cad = estimate_cost_cad(gpu_seconds, rate, gpu_count)
     blended_cad = blended_period_amount(gpu_amount_cad, token_cost_cad)

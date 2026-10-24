@@ -597,6 +597,12 @@ def test_host_inventory_and_operator_decisions_need_no_projection(without_projec
             assert row[5]["admitted"] is True
             assert row[5]["admission_version"] == 1
             assert row[5]["admission_decision_id"] == admitted[4]
+            if status in ("draining", "disabled"):
+                # Only an explicit operator lifecycle request reopens a host;
+                # an incoming observation must preserve the restriction.
+                from control_plane.host_lifecycle import set_draining
+
+                run_transaction(lambda c: set_draining(c, host_id=hid, draining=False))
         ha.decide_admission(
             host_id=hid,
             actor=actor,
@@ -608,7 +614,7 @@ def test_host_inventory_and_operator_decisions_need_no_projection(without_projec
         assert state()[:4] == ("disabled", "unknown", "revoked", 2)
         with pool.connection() as conn:
             DatabaseOps.upsert_host(conn, host, backend="postgres")
-        assert state()[:4] == ("pending", "ready", "revoked", 2)
+        assert state()[:4] == ("disabled", "unknown", "revoked", 2)
         assert state()[5]["admitted"] is False
     finally:
         with pool.connection() as conn:

@@ -50,6 +50,11 @@ def controlled_local_webhook_transport(monkeypatch):
                 return SimpleNamespace(status=response.status)
         except urllib.error.HTTPError as exc:
             return SimpleNamespace(status=exc.code)
+        except urllib.error.URLError as exc:
+            # Match the production transport's typed network-failure contract.
+            from public_http import PublicHTTPError
+
+            raise PublicHTTPError("local webhook connection failed") from exc
 
     monkeypatch.setattr(webhooks, "public_request", send)
 
@@ -171,7 +176,7 @@ class TestWebhookRetry:
     def test_retry_pending_delivers_after_backoff(
         self, repo: ServerlessRepo, endpoint: dict, owner_id: str, monkeypatch
     ):
-        server, hook_url, received = self._local_hook()
+        received = []
         attempts = {"n": 0}
 
         class Handler(BaseHTTPRequestHandler):

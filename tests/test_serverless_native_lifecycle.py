@@ -41,7 +41,7 @@ def native(request):
     w = repo.create_worker(ep["endpoint_id"], scheduler_job_id=jid, allocated_at=0)
     payload = {
         "job_id": jid,
-        **({"owner": owner} if billable else {}),
+        "owner": owner,
         "name": jid,
         "image": "test/image:1",
         "gpu_model": jid,
@@ -49,6 +49,15 @@ def native(request):
         "serverless_worker_id": w["worker_id"],
         "serverless_endpoint_id": ep["endpoint_id"],
         "num_gpus": 1,
+        "serverless_billing_quote": {
+            "version": "serverless-billing/v1",
+            "owner_id": owner,
+            "endpoint_id": ep["endpoint_id"],
+            "gpu_count": 1,
+            "rate_per_gpu_micros": 3_600_000,
+            "gpu_tier": "RTX 4090",
+            "region": ep["region"],
+        },
     }
     pool = _get_pg_pool()
     with pool.connection() as conn:
@@ -56,8 +65,7 @@ def native(request):
             """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,desired_state,queued_at, effective_priority) VALUES(%s,'queued',0,%s,%s,'pending','running',clock_timestamp(), 0)""",
             (jid, time.time(), Jsonb(payload)),
         )
-        if billable:
-            conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (owner, jid))
+        conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (owner, jid))
         admit_fixture_job(conn, jid)
         conn.execute(
             "INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state) VALUES(%s,'active',%s,%s,'admitted','ready','admitted')",
@@ -100,7 +108,7 @@ def native(request):
         conn.execute("DELETE FROM outbox_events WHERE aggregate_id=%s", (jid,))
         conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (jid,))
         conn.execute("DELETE FROM serverless_jobs WHERE endpoint_id=%s", (ep["endpoint_id"],))
-        conn.execute("DELETE FROM serverless_workers WHERE worker_id=%s", (w["worker_id"],))
+        conn.execute("DELETE FROM serverless_workers WHERE endpoint_id=%s", (ep["endpoint_id"],))
         conn.execute("DELETE FROM usage_meters WHERE job_id=%s", (jid,))
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))

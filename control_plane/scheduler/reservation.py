@@ -514,6 +514,9 @@ def reserve_and_bind(
                status = 'assigned',
                host_id = %s,
                active_attempt_id = %s,
+               payload = COALESCE(payload,'{}'::jsonb)-ARRAY[
+                   'http_ports','auto_launch_ports','container_name','container_id',
+                   'public_ssh_port','ssh_info','started_at','completed_at']::text[],
                spec = %s,
                spec_hash = %s,
                reason_code = NULL,

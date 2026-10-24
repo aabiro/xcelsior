@@ -217,6 +217,8 @@ class TestDeployMaintenance:
                 == 200
             )
 
+            # A maintenance test observes a server-selected serverless binding;
+            # naked job_type flags may no longer admit unpriced execution.
             job = submit_job(
                 "serverless-sep-test",
                 vram_needed_gb=8,
@@ -224,6 +226,23 @@ class TestDeployMaintenance:
                 job_type="serverless_worker",
                 tier="on-demand",
                 pricing_mode="on_demand",
+                serverless_config={
+                    "serverless_worker_id": "maintenance-fixture-worker",
+                    "serverless_endpoint_id": "maintenance-fixture-endpoint",
+                    "environment": {},
+                    "volume_mounts": [],
+                    "http_port": 8080,
+                    "health_check_path": "/health",
+                    "serverless_billing_quote": {
+                        "version": "serverless-billing/v1",
+                        "owner_id": "maintenance-fixture",
+                        "endpoint_id": "maintenance-fixture-endpoint",
+                        "gpu_count": 1,
+                        "rate_per_gpu_micros": 3600000,
+                        "gpu_tier": "RTX 4090",
+                        "region": "ca-east",
+                    },
+                },
             )
             update_job_status(job["job_id"], "assigned", host_id=host_id)
             update_job_status(job["job_id"], "running", host_id=host_id)
