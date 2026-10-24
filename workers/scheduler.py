@@ -226,20 +226,6 @@ def _get_host_by_id_conn(conn, host_id):
     return DatabaseOps.get_host(conn, host_id, backend=_active_backend())
 
 
-def _replace_jobs_in_conn(conn, jobs):
-    conn.execute("DELETE FROM jobs")
-    for job in jobs:
-        if isinstance(job, dict):
-            _upsert_job_row(conn, job)
-
-
-def _replace_hosts_in_conn(conn, hosts):
-    conn.execute("DELETE FROM hosts")
-    for host in hosts:
-        if isinstance(host, dict):
-            _upsert_host_row(conn, host)
-
-
 def _load_jobs_from_conn(conn, status=None):
     backend = _active_backend()
     if backend == "sqlite":
@@ -1205,12 +1191,6 @@ def load_hosts(active_only=False):
         return _load_hosts_from_conn(conn, active_only=active_only)
 
 
-def save_hosts(hosts):
-    """Replace all hosts (compatibility helper)."""
-    with _atomic_mutation() as conn:
-        _replace_hosts_in_conn(conn, hosts)
-
-
 def register_host(
     host_id,
     ip,
@@ -1682,12 +1662,6 @@ def load_jobs():
     """Load jobs from SQLite-backed storage."""
     with _db_connection() as conn:
         return _load_jobs_from_conn(conn)
-
-
-def save_jobs(jobs):
-    """Replace all jobs (compatibility helper)."""
-    with _atomic_mutation() as conn:
-        _replace_jobs_in_conn(conn, jobs)
 
 
 def submit_job(
@@ -4780,32 +4754,6 @@ def identify_preemptible_jobs(spot_prices=None):
                     victims.append((victim, f"capacity for queued {job['job_id']}"))
             break
     return victims
-
-
-def preemption_cycle(*, dry_run: bool = False):
-    """Preview capacity victims without changing prices, jobs or allocations.
-
-    Execution requires the durable preemption controller (Track B B16.4).
-    The former immediate requeue path has been removed.
-    """
-    if not dry_run:
-        raise NotImplementedError("Durable preemption is not available")
-    prices = get_current_spot_prices()
-    candidates = [
-        {"job_id": job["job_id"], "host_id": job.get("host_id"), "reason": reason}
-        for job, reason in identify_preemptible_jobs(prices)
-    ]
-    for host in list_hosts(active_only=False):
-        if host.get("status") == "draining":
-            for victim in identify_drain_preemption_candidates(host["host_id"]):
-                candidates.append(
-                    {
-                        "job_id": victim["job_id"],
-                        "host_id": victim.get("host_id"),
-                        "reason": f"host drain ({host['host_id']})",
-                    }
-                )
-    return prices, candidates
 
 
 def start_spot_price_monitor(interval=None, callback=None):
