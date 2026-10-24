@@ -144,6 +144,15 @@ def configured_range() -> tuple[str, str | None]:
     """Supported range, env-overridable per §30 for staged deploys."""
     minimum = os.environ.get("XCELSIOR_DB_SCHEMA_MIN_REVISION", REQUIRED_MIN_REVISION)
     maximum = os.environ.get("XCELSIOR_DB_SCHEMA_MAX_REVISION") or REQUIRED_MAX_REVISION
+    supported = _revision_at_least(minimum, REQUIRED_MIN_REVISION)
+    if supported is None:
+        configured, required = _revision_ord(minimum), _revision_ord(REQUIRED_MIN_REVISION)
+        supported = configured is not None and required is not None and configured >= required
+    if not supported:
+        raise SchemaIncompatibleError(
+            "configured schema minimum cannot lower the runtime's required revision "
+            f"{REQUIRED_MIN_REVISION}"
+        )
     return minimum, maximum
 
 

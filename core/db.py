@@ -772,9 +772,9 @@ class DatabaseOps:
             conn.execute(
                 """
                 INSERT INTO hosts(host_id, status, registered_at, payload,
-                                  owner_id, tenant_id, region, country, province, capabilities,
+                                  owner_id, tenant_id, provider_id, region, country, province, capabilities,
                                   administrative_state, availability_state)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb),
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::jsonb,'{}'::jsonb),
                         %s, %s)
                 ON CONFLICT(host_id) DO UPDATE SET
                     status = CASE WHEN hosts.administrative_state IN ('draining','disabled')
@@ -802,6 +802,7 @@ class DatabaseOps:
                         WHEN EXCLUDED.status='active' THEN 'ready' ELSE 'unknown' END,
                     owner_id = COALESCE(hosts.owner_id, EXCLUDED.owner_id),
                     tenant_id = COALESCE(hosts.tenant_id, EXCLUDED.tenant_id),
+                    provider_id = COALESCE(hosts.provider_id, EXCLUDED.provider_id),
                     region = COALESCE(EXCLUDED.region, hosts.region),
                     country = COALESCE(EXCLUDED.country, hosts.country),
                     province = COALESCE(EXCLUDED.province, hosts.province),
@@ -814,6 +815,7 @@ class DatabaseOps:
                     Jsonb(payload),
                     host.get("owner_id") or host.get("owner") or None,
                     host.get("tenant_id") or host.get("owner_id") or host.get("owner") or None,
+                    host.get("provider_id") or None,
                     host.get("region") or None,
                     host.get("country") or None,
                     host.get("province") or None,
@@ -893,7 +895,9 @@ class DatabaseOps:
         if backend == "postgres":
             row = conn.execute(
                 "SELECT payload || jsonb_build_object('host_id',host_id,'status',status,"
-                "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id) AS payload "
+                "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id,"
+                "'region',region,'country',country,'province',province,'capabilities',capabilities,"
+                "'administrative_state',administrative_state,'availability_state',availability_state) AS payload "
                 "FROM hosts WHERE host_id=%s",
                 (host_id,),
             ).fetchone()
@@ -974,7 +978,9 @@ class DatabaseOps:
         if backend == "postgres":
             query = (
                 "SELECT payload || jsonb_build_object('host_id',host_id,'status',status,"
-                "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id) AS payload FROM hosts"
+                "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id,"
+                "'region',region,'country',country,'province',province,'capabilities',capabilities,"
+                "'administrative_state',administrative_state,'availability_state',availability_state) AS payload FROM hosts"
             )
             if active_only:
                 query += " WHERE status='active'"
