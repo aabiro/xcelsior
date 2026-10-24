@@ -557,16 +557,19 @@ class TestImageCache:
             "last_used": time.time() - 3600,
             "size_mb": 200,
             "pull_count": 1,
+            "managed": True,
         }
         worker_agent._image_cache_index["mid:1"] = {
             "last_used": time.time() - 1800,
             "size_mb": 200,
             "pull_count": 1,
+            "managed": True,
         }
         worker_agent._image_cache_index["new:1"] = {
             "last_used": time.time(),
             "size_mb": 200,
             "pull_count": 1,
+            "managed": True,
         }
 
         docker_rmi_calls = []

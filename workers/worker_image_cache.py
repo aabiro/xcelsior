@@ -13,6 +13,7 @@
 # time (worker_agent imports *this* module at its own top level) while
 # preserving the exact same shared objects/behavior as before the split.
 
+import json
 import logging
 import subprocess
 import threading
@@ -77,7 +78,66 @@ def _parse_docker_size(size_str):
 def _total_cache_size_mb():
     """Get total size of cached images in MB."""
     with _image_cache_lock:
-        return sum(entry.get("size_mb", 0) for entry in _image_cache_index.values())
+        sizes = {}
+        for reference, entry in _image_cache_index.items():
+            identity = entry.get("image_id") or reference
+            sizes[identity] = max(sizes.get(identity, 0), entry.get("size_mb", 0))
+        return sum(sizes.values())
+
+
+def _local_image_details(reference):
+    """Resolve a local tag or digest without pulling or trusting a stale index."""
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                '{"id":{{json .Id}},"size":{{.Size}},'
+                '"tags":{{json .RepoTags}},"digests":{{json .RepoDigests}}}',
+                reference,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode:
+            return None
+        details = json.loads(result.stdout)
+        if not isinstance(details.get("id"), str) or not details["id"].startswith("sha256:"):
+            return None
+        size = details.get("size")
+        if type(size) is not int or size < 0:
+            return None
+        aliases = {reference, details["id"]}
+        for field in ("tags", "digests"):
+            values = details.get(field) or []
+            if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+                return None
+            aliases.update(values)
+        return details["id"], size / (1024 * 1024), aliases
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def cache_image_available(reference):
+    """Recognize digest aliases and externally cached images before eviction."""
+    details = _local_image_details(reference)
+    with _image_cache_lock:
+        if details is None:
+            _image_cache_index.pop(reference, None)
+            return False
+        identity, size_mb, aliases = details
+        now = time.time()
+        for alias in aliases | {reference}:
+            if alias not in _image_cache_index and alias != reference:
+                continue
+            entry = _image_cache_index.setdefault(alias, {"pull_count": 0})
+            entry.update(image_id=identity, size_mb=size_mb, last_used=now)
+        _image_cache_index[reference]["pull_count"] += 1
+        _image_cache_index[reference]["managed"] = True
+    return True
 
 
 def cache_track_pull(image_tag, size_mb=0):
@@ -86,6 +146,7 @@ def cache_track_pull(image_tag, size_mb=0):
         if image_tag in _image_cache_index:
             _image_cache_index[image_tag]["last_used"] = time.time()
             _image_cache_index[image_tag]["pull_count"] += 1
+            _image_cache_index[image_tag]["managed"] = True
             if size_mb > 0:
                 _image_cache_index[image_tag]["size_mb"] = size_mb
         else:
@@ -93,6 +154,7 @@ def cache_track_pull(image_tag, size_mb=0):
                 "last_used": time.time(),
                 "size_mb": size_mb,
                 "pull_count": 1,
+                "managed": True,
             }
 
 
@@ -124,9 +186,20 @@ def cache_evict_lru(exclude_images: set | None = None):
             text=True,
             timeout=10,
         )
-        running_images = set(result.stdout.strip().split("\n")) if result.returncode == 0 else set()
+        if result.returncode:
+            return 0  # Unknown running inventory cannot authorize eviction.
+        running_images = set(result.stdout.split())
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        running_images = set()
+        return 0
+
+    protected = set(exclude_images) | running_images
+    for reference in protected.copy():
+        details = _local_image_details(reference)
+        if details is None:
+            if reference in running_images:
+                return 0
+            continue  # A not-yet-pulled excluded reference has no local aliases.
+        protected.update(details[2])
 
     # Sort by last_used ascending (oldest first)
     with _image_cache_lock:
@@ -138,7 +211,11 @@ def cache_evict_lru(exclude_images: set | None = None):
     for image_tag, entry in sorted_images:
         if total_mb <= target_mb:
             break
-        if image_tag in running_images or image_tag in exclude_images:
+        if (
+            not entry.get("managed", False)
+            or image_tag in protected
+            or entry.get("image_id") in protected
+        ):
             continue
 
         # Remove image
@@ -151,10 +228,10 @@ def cache_evict_lru(exclude_images: set | None = None):
             )
             if rm.returncode == 0:
                 size = entry.get("size_mb", 0)
-                total_mb -= size
                 evicted += 1
                 with _image_cache_lock:
                     _image_cache_index.pop(image_tag, None)
+                total_mb = _total_cache_size_mb()
                 log.info("Cache evicted: %s (%.0f MB freed)", image_tag, size)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
@@ -165,20 +242,9 @@ def cache_evict_lru(exclude_images: set | None = None):
 def cache_init():
     """Initialize cache index from locally available Docker images.
 
-    Prunes dangling (<none>:<none>) images first so the cache only
-    tracks real, reusable tagged images.
+    Ignore dangling entries. Global pruning could remove another project's
+    retained build or rollback image and is not worker cache authority.
     """
-    # Remove dangling images — they waste disk and inflate cache size
-    try:
-        subprocess.run(
-            ["docker", "image", "prune", "-f"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
     images = _get_local_images()
     with _image_cache_lock:
         for tag, size_mb in images.items():
@@ -190,6 +256,7 @@ def cache_init():
                     "last_used": time.time(),
                     "size_mb": size_mb,
                     "pull_count": 0,
+                    "managed": False,
                 }
 
 
