@@ -260,10 +260,12 @@ class TestLowBalancePause:
 class TestSpotPreemption:
     """test_spot_preemption — Spot pricing with preemption on outbid."""
 
-    def test_preemption_cycle_exists(self):
-        source = Path(__file__).resolve().parent.parent / "workers" / "scheduler.py"
-        text = source.read_text()
-        assert "preemption_cycle" in text
+    def test_preemption_is_owned_by_the_durable_controller(self):
+        from control_plane.scheduler.preemption import create_plan, reconcile_plan
+        import scheduler
+
+        assert callable(create_plan) and callable(reconcile_plan)
+        assert not hasattr(scheduler, "preemption_cycle")
 
     def test_spot_price_formula(self):
         source = Path(__file__).resolve().parent.parent / "workers" / "scheduler.py"

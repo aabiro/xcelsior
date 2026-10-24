@@ -110,6 +110,7 @@ api/docs/*
 !api/docs/pipeline-plan.md
 !docs/xcelsior-production-control-plane-mcp-blueprint.md
 !api/docs/xcelsior-production-control-plane-mcp-blueprint.md
+!api/docs/xcelsior-production-data-architecture-companion.md
 !docs/site-audit-prompt.md
 !api/docs/site-audit-prompt.md
 !docs/site-audit-report-2026-06-04.md
