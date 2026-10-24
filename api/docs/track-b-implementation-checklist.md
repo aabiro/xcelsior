@@ -2680,6 +2680,23 @@ data disposition remain separately scoped below.
   the earlier scoped fixture. Production remains 125 with eight `report_only`
   repairs; role/schema/worker handoffs and deployed acceptance remain open.
   See the [review and restore receipt](review/2026-10-23-native-review-and-full-restore.md).
+  **Control-plane/data audit, 2026-10-24:** runtime `e41f180d` closes admission
+  outbox, runtime callback/secret delivery, coordinator uncertainty, stale host/
+  preemption races and native financial interval/transaction gaps. The frozen
+  selection at test-only follow-up `c1cd32f0` passes 3,430 tests with the same
+  three explicit baseline exclusions; MCP source tests pass 293 with two
+  opt-in skips. All three immutable handoff images pass real PostgreSQL 16
+  boot/metrics/signature checks, and five bounded CUDA protocol journeys pass.
+  A fresh read-only production snapshot at 06:52 UTC restores with matching
+  counts/full-row fingerprints for 142 logical public/storage tables. Every
+  target 126–137 preserves 38 protected tables, all 364 jobs, four recovered
+  exact specs and 360 explicitly unavailable retained histories. The live
+  population/integrity audit covers 164 relations, 1,984 columns and 35 foreign
+  keys. Three historical volume-cycle overlaps remain retained for financial
+  disposition. Production remains schema 125; dedicated service logins,
+  schema/worker handoffs, deployed public/financial acceptance and operational
+  recovery gates remain open. Repairs stay `report_only`; no B16 completion
+  box is checked. See the [audit receipt](review/2026-10-24-control-plane-data-layer-audit.md).
 - **Exit gate:** one authoritative path exists for launch, placement,
   execution, transition, billing, command, and audit; legacy-path metrics
   are zero for the agreed retention period; repository architecture docs
