@@ -11,7 +11,8 @@ cannot lower it. Transition images keep their own deliberately qualified
 minimum; an environment variable cannot make a newer incompatible writer serve
 an older schema. Unknown/older configured minima fail closed.
 
-The focused isolated PostgreSQL gate passed 79 tests with zero failures,
+The focused isolated PostgreSQL gate passed 79 tests, and the expanded impacted
+writer/admission/schema selection passed 256 tests, each with zero failures,
 errors or skips. Runnable gates include `tests/test_native_host_column_contract.py`,
 `tests/test_population_writer_contracts.py`, `tests/test_host_fleet_disclosure_http.py`,
 `tests/test_control_plane_schema.py` and
