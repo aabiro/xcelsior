@@ -97,7 +97,15 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `137_allow_native_host_eviction_results.py`.**
+**Repository head: `138_billing_history_dispositions.py`.**
+
+138 adds immutable operator disposition receipts for qualified duplicate
+historical volume intervals. It changes no balances or source history. The
+separate `dispose_historical_billing.py` command previews a private evidence
+plan, requalifies it on application and commits one bounded credit with its
+ledger row and receipt. Ambiguous evidence or wallet/ledger drift refuses the
+operation. Runtime roles cannot rewrite these receipts. The runtime schema
+floor remains 137; this additive operator table is not execution authority.
 
 133 expands durable weighted scheduling policy, virtual service credit and
 preemption plan records. Default policy enables no evictions. This runtime
