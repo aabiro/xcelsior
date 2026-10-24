@@ -1,6 +1,6 @@
 """Routes: spot pricing (admin + public price feeds)."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from routes._deps import (
     _require_admin,
@@ -13,7 +13,6 @@ from spot_pricing import (
     suggested_spot_min_cents,
     update_all_spot_prices,
 )
-from scheduler import preemption_cycle
 from spot.feature import spot_feature_status
 
 router = APIRouter()
@@ -48,13 +47,3 @@ def api_spot_floor_suggestion(gpu_model: str, spot_min_cents: int | None = None)
 def api_spot_enabled():
     """Spot instance feature flag — global kill switch status for UI."""
     return {"ok": True, **spot_feature_status()}
-
-
-@router.post("/spot/preemption-cycle", tags=["Spot Pricing"])
-def api_preemption_cycle(request: Request, dry_run: bool = False):
-    """Capacity preemption cycle for ops (set ``dry_run=true`` to preview only)."""
-    _require_admin(request)
-    if not dry_run:
-        raise HTTPException(501, "Durable preemption is not available; use dry_run=true to preview")
-    prices, result = preemption_cycle(dry_run=True)
-    return {"ok": True, "dry_run": True, "candidates": result, "prices": prices}

@@ -11,7 +11,8 @@ Enforces:
   3. revision id equals the zero-padded filename prefix, for every
      migration from FIRST_NUMERIC_ENFORCED onward (one documented
      historical exception — see `migrations/README.md` §3);
-  4. contract cleanup, if present, is the head;
+  4. staged contractions retain their required predecessors; a final global
+     contract cleanup, if declared, is the head;
   5. no duplicate revision ids and no duplicate filename numbers;
   6. the head matches what the other migration gates hardcode, so a new
      migration cannot land while `test_from_empty_bootstrap` still asserts
@@ -49,9 +50,17 @@ FIRST_NUMERIC_ENFORCED = 66
 # accommodated by id rather than corrected. Do not add a second entry.
 GRANDFATHERED_REVISION_IDS = {"060": "a0985327493e"}
 
-# A contract-cleanup migration drops transitional scaffolding, so nothing
-# may land after it (blueprint §13.7, Track B §B16.2).
+# Reserved for a final global cleanup. The real cutover uses independently
+# qualified contractions; those are checked separately below.
 CONTRACT_CLEANUP_MARKERS = ("contract_cleanup", "contract_migration")
+STAGED_CONTRACTIONS = {
+    "127_archive_retired_lease_table.py": "126",
+    "130_contract_job_projection_columns.py": "129",
+    "131_retire_projection_triggers.py": "130",
+    "134_native_lifecycle_intent.py": "133",
+    "135_retire_job_placement_projections.py": "134",
+    "136_retire_unfenced_stop_task.py": "135",
+}
 
 _FILENAME_RE = re.compile(r"^(?P<num>\d+)_(?P<slug>.+)\.py$")
 # Matches both `revision = "054"` and `revision: str = 'a0985327493e'`.
@@ -239,6 +248,16 @@ def validate_contract_cleanup_is_last(migrations: list[Migration]) -> None:
     )
 
 
+def validate_staged_contractions(migrations: list[Migration]) -> None:
+    """Do not silently lose or move a qualified contraction boundary."""
+    by_name = {migration.name: migration for migration in migrations}
+    for name, predecessor in STAGED_CONTRACTIONS.items():
+        assert name in by_name, f"missing staged contraction: {name}"
+        assert (
+            by_name[name].down_revision == predecessor
+        ), f"{name} must follow qualified predecessor {predecessor}"
+
+
 # ─────────────────────── real-chain assertions ───────────────────────
 
 
@@ -287,8 +306,20 @@ def test_real_chain_revision_ids_match_filenames(migrations: list[Migration]) ->
 
 def test_real_chain_contract_cleanup_placement(migrations: list[Migration]) -> None:
     validate_contract_cleanup_is_last(migrations)
-    if not find_contract_cleanups(migrations):
-        pytest.skip("no contract-cleanup migration yet (Track B B16.2)")
+    validate_staged_contractions(migrations)
+
+
+def test_catches_missing_staged_contraction(migrations: list[Migration]) -> None:
+    with pytest.raises(AssertionError, match="missing staged contraction"):
+        validate_staged_contractions([m for m in migrations if m.revision != "135"])
+
+
+def test_catches_moved_staged_contraction(migrations: list[Migration]) -> None:
+    from dataclasses import replace
+
+    moved = [replace(m, down_revision="133") if m.revision == "135" else m for m in migrations]
+    with pytest.raises(AssertionError, match="must follow qualified predecessor"):
+        validate_staged_contractions(moved)
 
 
 def test_no_new_grandfathered_exceptions() -> None:

@@ -2191,10 +2191,6 @@
     "class": "gap",
     "notes": "P5 placement and migration need spot data as tools"
   },
-  "POST /spot/preemption-cycle": {
-    "class": "gap",
-    "notes": "Read-only capacity preview with dry_run=true; execution returns HTTP 501 until durable preemption is available. Preview tool coverage remains a P5 gap."
-  },
   "POST /ssh/keygen": {
     "class": "internal",
     "notes": "the platform's own host keypair. The public half is deliberately open because its purpose is to be pasted into authorized_keys; generating it is admin-only (see ae292c6). Never a tenant capability"

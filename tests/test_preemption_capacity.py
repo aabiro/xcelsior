@@ -102,7 +102,7 @@ class TestCapacityPreemption:
 
         od = scheduler.submit_job("od-need", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
         host = scheduler.allocate(od, scheduler.list_hosts())
-        _, candidates = scheduler.preemption_cycle(dry_run=True)
+        candidates = [job for job, _ in scheduler.identify_preemptible_jobs()]
 
         assert host is None
         assert len(candidates) == 1

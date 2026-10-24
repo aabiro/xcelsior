@@ -86,12 +86,10 @@ Check feature availability:
 GET /api/pricing/spot-enabled
 ```
 
-Ops dry-run (admin):
-
-```bash
-curl -X POST "https://xcelsior.ca/spot/preemption-cycle?dry_run=true" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
+Preemption runs through durable, policy-gated scheduler plans. The operator
+capacity-preview endpoint has been retired. A victim retains its allocation
+until the fenced attempt confirms settlement. Preemption is disabled by default;
+spot eligibility alone does not enable automatic eviction.
 
 ## Listing Instances
 

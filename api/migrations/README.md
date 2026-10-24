@@ -32,11 +32,18 @@ this ledger is required.
    becomes unreadable — see the §3 anomaly.
 3. **`down_revision` is the immediately preceding file's revision id.**
    No skipping, no reordering.
-4. **Contract cleanup is always the last revision in the chain.** The
-   blueprint assigns §13.7 to "contract cleanup"; that step drops
-   transitional columns, triggers, and legacy paths, so anything landing
-   after it would be building on removed scaffolding. If a contract-cleanup
-   migration exists, it is the head. Track B §B16 owns it.
+4. **Contract cleanup is always the last revision in the chain when it
+   declares a final global cleanup.** The reserved filename markers
+   `contract_cleanup` and `contract_migration` retain this rule. The actual
+   cutover uses staged contractions: 127 follows 126, 130 follows 129,
+   131 follows 130, 134 follows 133, 135 follows 134 and 136 follows 135.
+   Later migrations can use the resulting native schema. They must never
+   assume removed scaffolding still exists. The ledger gate requires all six
+   named boundaries and their exact predecessors; the migration/restore and
+   native-writer gates check their behavior. This replaces the old assumption
+   that every contraction must wait for one final revision. Track B §B16 and
+   [the staged handoff](../docs/review/2026-10-23-staged-control-plane-handoff.md)
+   own the writer changes and quiescence between these boundaries.
 5. **Expand-contract only** (blueprint ADR-009, §13.8; companion §4.4).
    Additive first; backfill in bounded `SKIP LOCKED` batches with hard
    verification that aborts on unmapped rows; constraints added

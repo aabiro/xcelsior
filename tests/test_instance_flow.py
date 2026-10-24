@@ -9,7 +9,7 @@ Failure scenarios:
   host offline → failover
   wallet empty → stop → start
 
-Docker compose smoke test (requires Docker — skipped in CI by default).
+Docker Compose smoke builds a disposable network-isolated application stack.
 """
 
 import json as _json
@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.test_from_empty_bootstrap import empty_db  # noqa: F401
 
 # ── Isolated environment ─────────────────────────────────────────────
 
@@ -991,92 +992,17 @@ class TestEventStoreIntegrity:
 # ══════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.skipif(
-    not os.environ.get("XCELSIOR_DOCKER_SMOKE"),
-    reason="Set XCELSIOR_DOCKER_SMOKE=1 to run Docker Compose smoke tests",
-)
 class TestDockerComposeSmoke:
-    """Build → up → health check → submit test instance.
+    """Build → isolated Compose → readiness → durable native admission."""
 
-    Requires Docker and docker-compose. Skipped unless XCELSIOR_DOCKER_SMOKE=1.
-    """
+    @pytest.mark.timeout(600)
+    def test_compose_build_and_health(self, empty_db, tmp_path):
+        from pathlib import Path
+        from tests.fixtures.compose_smoke import run_compose_smoke
+        from tests.test_migration_from_production_snapshot import _alembic
 
-    def test_compose_build_and_health(self):
-        import subprocess
-
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        compose_file = os.path.join(project_root, "docker-compose.yml")
-
-        if not os.path.exists(compose_file):
-            pytest.skip("docker-compose.yml not found")
-
-        # Build
-        result = subprocess.run(
-            ["docker", "compose", "-f", compose_file, "build"],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            cwd=project_root,
-        )
-        assert result.returncode == 0, f"Build failed: {result.stderr[:500]}"
-
-        # Start in detached mode
-        up_result = subprocess.run(
-            ["docker", "compose", "-f", compose_file, "up", "-d"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=project_root,
-        )
-        assert up_result.returncode == 0, f"Up failed: {up_result.stderr[:500]}"
-
-        try:
-            # Wait for API to be ready
-            import urllib.request
-
-            healthy = False
-            for _ in range(30):
-                try:
-                    req = urllib.request.Request("http://localhost:9500/healthz")
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        if resp.status == 200:
-                            healthy = True
-                            break
-                except Exception:
-                    pass
-                time.sleep(2)
-
-            assert healthy, "API did not become healthy within 60s"
-
-            # Submit a test instance via curl
-            import urllib.request
-
-            data = _json.dumps(
-                {
-                    "name": "smoke-test",
-                    "vram_needed_gb": 4,
-                }
-            ).encode()
-            req = urllib.request.Request(
-                "http://localhost:9500/instance",
-                data=data,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                assert resp.status == 200
-                body = _json.loads(resp.read())
-                assert body.get("ok") is True
-                assert "instance" in body
-        finally:
-            # Always clean up
-            subprocess.run(
-                ["docker", "compose", "-f", compose_file, "down", "-v"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                cwd=project_root,
-            )
+        _alembic(empty_db, "upgrade", "head")
+        run_compose_smoke(Path(__file__).resolve().parents[1], tmp_path, empty_db)
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -391,8 +391,7 @@ def _spell(n: int) -> str:
 
 def test_companion_conformance_prose_matches_the_database():
     """The companion's stated float-money debt must be the real debt."""
-    if not COMPANION_DOC.exists():
-        pytest.skip("companion document not present in this checkout")
+    assert COMPANION_DOC.is_file(), "the governed schema must retain its companion document"
     with _get_pg_pool().connection() as conn:
         columns, tables = conn.execute(r"""SELECT count(*), count(DISTINCT table_name)
                   FROM information_schema.columns

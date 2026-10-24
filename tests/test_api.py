@@ -1508,9 +1508,9 @@ class TestSpotPricingEndpoints:
         assert inst.get("pricing_mode") == "spot" or inst.get("spot") is True
 
     def test_preemption_cycle(self):
-        """Only the non-mutating capacity preview is available."""
-        assert client.post("/spot/preemption-cycle").status_code == 501
-        assert client.post("/spot/preemption-cycle?dry_run=true").status_code == 200
+        """The obsolete preemption controller has no callable route."""
+        assert client.post("/spot/preemption-cycle").status_code == 404
+        assert client.post("/spot/preemption-cycle?dry_run=true").status_code == 404
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -200,69 +200,66 @@ class TestDeployMaintenance:
         from scheduler import submit_job, update_job_status
 
         host_id = f"h-slv-{uuid.uuid4().hex[:8]}"
-        # Spot preemption cycles can evict running jobs in the shared test DB — keep this
-        # test deterministic while we assert maintenance blocking semantics.
-        with patch("scheduler.preemption_cycle", return_value=({}, [])):
-            assert (
-                client.put(
-                    "/host",
-                    json={
-                        "host_id": host_id,
-                        "ip": "10.0.0.99",
-                        "gpu_model": "RTX 4090",
-                        "total_vram_gb": 24,
-                        "free_vram_gb": 24,
-                    },
-                ).status_code
-                == 200
-            )
-
-            # A maintenance test observes a server-selected serverless binding;
-            # naked job_type flags may no longer admit unpriced execution.
-            job = submit_job(
-                "serverless-sep-test",
-                vram_needed_gb=8,
-                image="xcelsior/serverless-vllm:12.4",
-                job_type="serverless_worker",
-                tier="on-demand",
-                pricing_mode="on_demand",
-                serverless_config={
-                    "serverless_worker_id": "maintenance-fixture-worker",
-                    "serverless_endpoint_id": "maintenance-fixture-endpoint",
-                    "environment": {},
-                    "volume_mounts": [],
-                    "http_port": 8080,
-                    "health_check_path": "/health",
-                    "serverless_billing_quote": {
-                        "version": "serverless-billing/v1",
-                        "owner_id": "maintenance-fixture",
-                        "endpoint_id": "maintenance-fixture-endpoint",
-                        "gpu_count": 1,
-                        "rate_per_gpu_micros": 3600000,
-                        "gpu_tier": "RTX 4090",
-                        "region": "ca-east",
-                    },
+        assert (
+            client.put(
+                "/host",
+                json={
+                    "host_id": host_id,
+                    "ip": "10.0.0.99",
+                    "gpu_model": "RTX 4090",
+                    "total_vram_gb": 24,
+                    "free_vram_gb": 24,
                 },
-            )
-            update_job_status(job["job_id"], "assigned", host_id=host_id)
-            update_job_status(job["job_id"], "running", host_id=host_id)
+            ).status_code
+            == 200
+        )
 
-            summary = client.get(f"/host/{host_id}/maintenance")
-            assert summary.status_code == 200
-            data = summary.json()
-            assert data["active_serverless_workers"] >= 1
-            assert any(w["job_id"] == job["job_id"] for w in data["serverless_workers"])
-            assert data["safe_to_maintain"] is False
+        # A maintenance test observes a server-selected serverless binding;
+        # naked job_type flags may no longer admit unpriced execution.
+        job = submit_job(
+            "serverless-sep-test",
+            vram_needed_gb=8,
+            image="xcelsior/serverless-vllm:12.4",
+            job_type="serverless_worker",
+            tier="on-demand",
+            pricing_mode="on_demand",
+            serverless_config={
+                "serverless_worker_id": "maintenance-fixture-worker",
+                "serverless_endpoint_id": "maintenance-fixture-endpoint",
+                "environment": {},
+                "volume_mounts": [],
+                "http_port": 8080,
+                "health_check_path": "/health",
+                "serverless_billing_quote": {
+                    "version": "serverless-billing/v1",
+                    "owner_id": "maintenance-fixture",
+                    "endpoint_id": "maintenance-fixture-endpoint",
+                    "gpu_count": 1,
+                    "rate_per_gpu_micros": 3600000,
+                    "gpu_tier": "RTX 4090",
+                    "region": "ca-east",
+                },
+            },
+        )
+        update_job_status(job["job_id"], "assigned", host_id=host_id)
+        update_job_status(job["job_id"], "running", host_id=host_id)
 
-            drain = client.post(f"/host/{host_id}/drain")
-            assert drain.status_code == 200
-            assert drain.json().get("preempted", []) == []
+        summary = client.get(f"/host/{host_id}/maintenance")
+        assert summary.status_code == 200
+        data = summary.json()
+        assert data["active_serverless_workers"] >= 1
+        assert any(w["job_id"] == job["job_id"] for w in data["serverless_workers"])
+        assert data["safe_to_maintain"] is False
 
-            summary = client.get(f"/host/{host_id}/maintenance")
-            data = summary.json()
-            assert data["draining"] is True
-            assert data["active_serverless_workers"] >= 1
-            assert data["safe_to_maintain"] is False
+        drain = client.post(f"/host/{host_id}/drain")
+        assert drain.status_code == 200
+        assert drain.json().get("preempted", []) == []
+
+        summary = client.get(f"/host/{host_id}/maintenance")
+        data = summary.json()
+        assert data["draining"] is True
+        assert data["active_serverless_workers"] >= 1
+        assert data["safe_to_maintain"] is False
 
 
 class TestWorkerClientRetries:
