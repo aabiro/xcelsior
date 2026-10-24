@@ -287,6 +287,7 @@ class TestHardLeaseGate:
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=True) as report,
             mock.patch.object(worker_agent, "cache_track_pull"),
+            mock.patch.object(worker_agent, "cache_image_available", return_value=True),
             mock.patch.object(worker_agent, "_image_cache_index", {"image:test": {}}),
             mock.patch.object(worker_agent, "is_gvisor_available", return_value=False),
             mock.patch.object(worker_agent, "build_secure_docker_args") as build,
