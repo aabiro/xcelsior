@@ -74,7 +74,7 @@ def endpoint(funded):
             "source_type": "image",
             "image_ref": "xcelsior/echo:1.0",
             "docker_image": "xcelsior/echo:1.0",
-            "gpu_type": "RTX4090",
+            "gpu_type": "RTX 4090",
             "min_workers": 0,
             "max_workers": 1,
             # These routes exercise an empty queue; use supported short limits
@@ -257,7 +257,7 @@ def test_inference_compat_delete_removes_the_endpoint(funded) -> None:
             "source_type": "image",
             "image_ref": "xcelsior/echo:1.0",
             "docker_image": "xcelsior/echo:1.0",
-            "gpu_type": "RTX4090",
+            "gpu_type": "RTX 4090",
             "min_workers": 0,
             "max_workers": 1,
         },

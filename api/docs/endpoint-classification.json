@@ -1259,6 +1259,10 @@
     "class": "redundant",
     "notes": "Alias of POST /api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint — the same function object mounted under the fenced /agent/v2 prefix, which will supersede the v1 path once the worker has migrated. Counted once, on the v1 row (classed 'internal'): the tool surface asks whether a *capability* is exposed, and inheriting the label here would double-count it — for the three v1 rows classed 'gap' that would invent three missing tools that do not exist."
   },
+  "POST /agent/v2/instances/{job_id}/auto-launch/report": {
+    "class": "redundant",
+    "notes": "Alias of POST /instances/{job_id}/auto-launch/report, mounted through the agent gateway. The same handler and durable outbox; counted once on the origin capability."
+  },
   "POST /agent/v2/instances/{job_id}/http-ports/report": {
     "class": "redundant",
     "notes": "Alias of POST /instances/{job_id}/http-ports/report — the same function object mounted under the fenced /agent/v2 prefix, which will supersede the v1 path once the worker has migrated. Counted once, on the v1 row (classed 'internal'): the tool surface asks whether a *capability* is exposed, and inheriting the label here would double-count it — for the three v1 rows classed 'gap' that would invent three missing tools that do not exist."
@@ -1297,11 +1301,11 @@
   },
   "POST /agent/v2/serverless/workers/{worker_id}/exited": {
     "class": "redundant",
-    "notes": "Authenticated permanent HTTP 410 tombstone. Native /agent/v2/attempts/status projects serverless readiness and confirmed terminal release atomically; neither URL prefix grants an unfenced capacity writer."
+    "notes": "Alias of POST /api/v2/serverless/workers/{worker_id}/exited. Authenticated permanent HTTP 410 tombstone. Native /agent/v2/attempts/status projects serverless readiness and confirmed terminal release atomically; neither URL prefix grants an unfenced capacity writer."
   },
   "POST /agent/v2/serverless/workers/{worker_id}/ready": {
     "class": "redundant",
-    "notes": "Authenticated permanent HTTP 410 tombstone. Native /agent/v2/attempts/status projects serverless readiness and confirmed terminal release atomically; neither URL prefix grants an unfenced capacity writer."
+    "notes": "Alias of POST /api/v2/serverless/workers/{worker_id}/ready. Authenticated permanent HTTP 410 tombstone. Native /agent/v2/attempts/status projects serverless readiness and confirmed terminal release atomically; neither URL prefix grants an unfenced capacity writer."
   },
   "POST /agent/v2/ssh-status/{job_id}": {
     "class": "redundant",

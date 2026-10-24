@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
 import os
 import time
 import uuid
@@ -25,6 +26,14 @@ SCRATCH = os.environ.get(
     "XCELSIOR_GOAL_SCRATCH",
     "/tmp/grok-goal-6f86c7cfe9c2/implementer",
 )
+
+
+@pytest.fixture
+def priced_worker():
+    from tests.fixtures.native_serverless import running_serverless
+
+    with ExitStack() as stack:
+        yield lambda repo, endpoint_id: stack.enter_context(running_serverless(repo, endpoint_id))
 
 
 @pytest.fixture
@@ -64,7 +73,7 @@ def _write_tick_evidence(payload: dict) -> None:
 
 class TestBillingTickIntegration:
     def test_preset_llm_tick_charges_max_gpu_token_and_consumes_accrual(
-        self, repo: ServerlessRepo, owner_id: str
+        self, repo: ServerlessRepo, owner_id: str, priced_worker
     ):
         """Shipped periodic path must blend preset LLM charges and zero accrual."""
         billing = get_billing_engine()
@@ -85,10 +94,9 @@ class TestBillingTickIntegration:
         )
         ep_id = str(ep["endpoint_id"])
         sched_job = f"sched-{uuid.uuid4().hex[:8]}"
-        worker = repo.create_worker(ep_id, scheduler_job_id=sched_job)
+        worker = priced_worker(repo, ep_id)
         worker_id = str(worker["worker_id"])
         allocated = time.time() - 130.0
-        repo.update_worker(worker_id, state="ready", allocated_at=allocated)
 
         token_cost = 2.50
         repo.accrue_endpoint_token_cost(ep_id, token_cost)
@@ -126,7 +134,7 @@ class TestBillingTickIntegration:
         repo.soft_delete_endpoint(ep_id, owner_id)
 
     def test_custom_endpoint_tick_gpu_only_preserves_token_accrual(
-        self, repo: ServerlessRepo, owner_id: str
+        self, repo: ServerlessRepo, owner_id: str, priced_worker
     ):
         billing = get_billing_engine()
         billing.deposit(owner_id, 200.0, description="tick-custom")
@@ -144,10 +152,7 @@ class TestBillingTickIntegration:
             )
         )
         ep_id = str(ep["endpoint_id"])
-        worker = repo.create_worker(ep_id, scheduler_job_id=f"sched-{uuid.uuid4().hex[:8]}")
-        repo.update_worker(
-            str(worker["worker_id"]), state="ready", allocated_at=time.time() - 130.0
-        )
+        worker = priced_worker(repo, ep_id)
 
         token_cost = 1.75
         repo.accrue_endpoint_token_cost(ep_id, token_cost)

@@ -182,25 +182,62 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
 
 
 def pinned_period_rate(
-    conn, job_id: str, owner: str, host_id: str
-) -> tuple[float, str, float] | None:
-    """Wallet billing uses the same captured quote as the attempt meter."""
+    conn, job_id: str, owner: str, host_id: str, *, terminal_attempt_id=None
+) -> tuple[float, str, float, float]:
+    """Qualify the exact native attempt and bound billing to its server times."""
     from billing import resolve_compute_rate_cad
 
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
-            "SELECT j.active_attempt_id,a.host_id,a.placement_explanation,a.status,"
-            "EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at "
-            "FROM jobs j LEFT JOIN job_attempts a ON a.attempt_id=j.active_attempt_id "
-            "WHERE j.job_id=%s",
-            (job_id,),
+            """SELECT j.active_attempt_id,j.spec,j.spec_hash,j.generation,
+                a.attempt_id,a.spec_hash AS attempt_hash,a.job_generation,a.host_id,
+                a.placement_explanation,a.status,
+                EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
+                EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended_at,
+                EXTRACT(EPOCH FROM l.expires_at)::float8 AS lease_end,
+                l.status AS lease_status,l.fencing_token AS lease_fence,a.fencing_token,
+                EXTRACT(EPOCH FROM clock_timestamp())::float8 AS checked_at
+              FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
+                  AND a.attempt_id=COALESCE(%s::uuid,j.active_attempt_id)
+              LEFT JOIN placement_leases l ON l.attempt_id=a.attempt_id
+                  AND l.job_id=a.job_id AND l.host_id=a.host_id
+             WHERE j.job_id=%s""",
+            (terminal_attempt_id, job_id),
         ).fetchone()
-    if row is None or row["active_attempt_id"] is None:
-        return None
+    if row is None:
+        raise ValueError("wallet billing requires its exact native attempt")
     quote = (row["placement_explanation"] or {}).get("billing_snapshot")
-    if not isinstance(quote, dict) or quote.get("owner") != owner or row["host_id"] != host_id:
-        raise ValueError("fenced wallet billing requires its captured owner, host and rate")
-    if row["status"] != "running" or row["started_at"] is None:
-        raise ValueError("fenced wallet billing requires a running attempt with a server start")
-    rate, mode = resolve_compute_rate_cad(quote, quote["host"])
-    return rate, mode, float(row["started_at"])
+    inputs, host = bound_billing_inputs(
+        row["spec"], row["spec_hash"], row["attempt_hash"], quote, row["host_id"]
+    )
+    if (
+        inputs["owner"] != owner
+        or row["host_id"] != host_id
+        or inputs.get("job_type") == "serverless_worker"
+    ):
+        raise ValueError("wallet billing identity differs from native compute execution")
+    started = row["started_at"]
+    if started is None or started <= 0 or started > row["checked_at"]:
+        raise ValueError("wallet billing requires its server-recorded start")
+    if terminal_attempt_id is not None:
+        if (
+            row["ended_at"] is None
+            or row["status"]
+            not in ("succeeded", "failed", "cancelled", "lost", "fenced", "preempted")
+            or not started <= row["ended_at"] <= row["checked_at"]
+        ):
+            raise ValueError("final billing requires confirmed native terminal evidence")
+        end_cap = row["ended_at"]
+    else:
+        if (
+            row["active_attempt_id"] != row["attempt_id"]
+            or row["generation"] != row["job_generation"]
+            or row["status"] != "running"
+            or row["lease_status"] != "active"
+            or row["lease_fence"] != row["fencing_token"]
+            or row["lease_end"] is None
+        ):
+            raise ValueError("periodic billing requires its current claimed native lease")
+        end_cap = min(row["checked_at"], row["lease_end"])
+    rate, mode = resolve_compute_rate_cad(inputs, host)
+    return rate, mode, float(started), float(end_cap)
