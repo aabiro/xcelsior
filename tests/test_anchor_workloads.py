@@ -125,7 +125,12 @@ class TestAnchorWorkloadsHTTP:
             created = client.post(
                 "/api/v2/serverless/endpoints",
                 headers=headers,
-                json={"name": f"anc-{key}", "mode": "preset", "model_name": model_name},
+                json={
+                    "gpu_type": "RTX 4090",
+                    "name": f"anc-{key}",
+                    "mode": "preset",
+                    "model_name": model_name,
+                },
             )
             assert created.status_code == 200
             ep_id = created.json()["endpoint"]["endpoint_id"]
@@ -179,7 +184,12 @@ class TestAnchorWorkloadsHTTP:
             mac_ep = client.post(
                 "/api/v2/serverless/endpoints",
                 headers=headers,
-                json={"name": "anc-mac-remote", "mode": "preset", "model_name": "Qwen/Qwen3-8B"},
+                json={
+                    "gpu_type": "RTX 4090",
+                    "name": "anc-mac-remote",
+                    "mode": "preset",
+                    "model_name": "Qwen/Qwen3-8B",
+                },
             )
             assert mac_ep.status_code == 200
             mac_ep_id = mac_ep.json()["endpoint"]["endpoint_id"]
@@ -239,6 +249,7 @@ class TestAnchorWorkloadsHTTP:
         owner = f"custom-{uuid.uuid4().hex[:8]}"
         ep = repo.create_endpoint(
             EndpointCreate(
+                gpu_tier="RTX 4090",
                 owner_id=owner,
                 name="custom-sr",
                 mode="custom",

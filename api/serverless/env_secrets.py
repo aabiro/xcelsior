@@ -48,7 +48,7 @@ def encrypt_env_for_storage(env: dict[str, Any] | None) -> dict[str, str]:
 
 
 def decrypt_env_for_worker(env: dict[str, Any] | None) -> dict[str, str]:
-    """Decrypt env values for scheduler/worker injection."""
+    """Resolve runtime values after the API has verified execution authority."""
     if not env:
         return {}
     from security import decrypt_secret
@@ -60,9 +60,8 @@ def decrypt_env_for_worker(env: dict[str, Any] | None) -> dict[str, str]:
         if raw.startswith(_ENC_PREFIX):
             try:
                 resolved[k] = decrypt_secret(raw[len(_ENC_PREFIX) :])
-            except Exception as e:
-                log.warning("Failed to decrypt env key %s: %s", k, e)
-                resolved[k] = ""
+            except Exception:
+                raise ValueError("runtime environment decryption failed") from None
         else:
             resolved[k] = raw
     return resolved
@@ -72,7 +71,9 @@ def redact_env_for_api(env: dict[str, Any] | None) -> dict[str, str]:
     """Safe env copy for API responses (never returns decrypted secrets)."""
     if not env:
         return {}
-    plain = {str(k): str(v) if not str(v).startswith(_ENC_PREFIX) else "***" for k, v in env.items()}
+    plain = {
+        str(k): str(v) if not str(v).startswith(_ENC_PREFIX) else "***" for k, v in env.items()
+    }
     return redact_env_vars(plain)
 
 

@@ -85,21 +85,25 @@ class TestOpenAIProxyHelpers:
         assert normalize_route("v1/models") == "models"
 
     def test_embeddings_capability_gated(self):
-        ep = {"mode": "preset", "model_ref": "meta-llama/Llama-3.1-8B-Instruct"}
+        ep = {
+            "gpu_type": "RTX 4090",
+            "mode": "preset",
+            "model_ref": "meta-llama/Llama-3.1-8B-Instruct",
+        }
         with pytest.raises(OpenAIProxyError) as exc:
             capability_gate("embeddings", ep)
         assert exc.value.status_code == 400
         assert exc.value.code == "wrong_model_task"
 
     def test_custom_endpoint_rejects_chat_proxy(self):
-        ep = {"mode": "custom", "image_ref": "img"}
+        ep = {"gpu_type": "RTX 4090", "mode": "custom", "image_ref": "img"}
         with pytest.raises(OpenAIProxyError) as exc:
             capability_gate("chat/completions", ep)
         assert exc.value.status_code == 400
         assert exc.value.code == "preset_only"
 
     def test_vision_inputs_rejected(self):
-        ep = {"mode": "preset", "model_ref": "m"}
+        ep = {"gpu_type": "RTX 4090", "mode": "preset", "model_ref": "m"}
         body = {
             "messages": [
                 {
@@ -116,7 +120,7 @@ class TestOpenAIProxyHelpers:
         assert exc.value.code == "vision_not_supported"
 
     def test_unsupported_route_404(self):
-        ep = {"mode": "preset", "model_ref": "m"}
+        ep = {"gpu_type": "RTX 4090", "mode": "preset", "model_ref": "m"}
         with pytest.raises(OpenAIProxyError) as exc:
             capability_gate("fine_tuning/jobs", ep)
         assert exc.value.status_code == 404
@@ -124,12 +128,15 @@ class TestOpenAIProxyHelpers:
 
 
 class TestOpenAIChatRoute:
-    @pytest.mark.parametrize("request_body", [
-        {"messages": [{"role": "user", "content": "hi"}]},
-        {"messages": [{"role": "system", "content": "hi"}]},
-        {"messages": [{"role": "user", "content": "HI"}]},
-        {"messages": [{"role": "user", "content": "hi"}], "temperature": 0.8},
-    ])
+    @pytest.mark.parametrize(
+        "request_body",
+        [
+            {"messages": [{"role": "user", "content": "hi"}]},
+            {"messages": [{"role": "system", "content": "hi"}]},
+            {"messages": [{"role": "user", "content": "HI"}]},
+            {"messages": [{"role": "user", "content": "hi"}], "temperature": 0.8},
+        ],
+    )
     def test_legacy_prompt_cache_never_serves_inference(
         self, user_headers, fake_vllm_port, monkeypatch, request_body
     ):
@@ -144,9 +151,16 @@ class TestOpenAIChatRoute:
 
         monkeypatch.setenv("XCELSIOR_SEMANTIC_CACHE_ENABLED", "1")
         created = client.post(
-            "/api/v2/serverless/endpoints", headers=user_headers,
-            json={"name": f"cache-safety-{uuid.uuid4().hex[:8]}", "mode": "preset",
-                  "model_name": "Qwen/Qwen3-8B", "min_workers": 0, "max_workers": 1},
+            "/api/v2/serverless/endpoints",
+            headers=user_headers,
+            json={
+                "gpu_type": "RTX 4090",
+                "name": f"cache-safety-{uuid.uuid4().hex[:8]}",
+                "mode": "preset",
+                "model_name": "Qwen/Qwen3-8B",
+                "min_workers": 0,
+                "max_workers": 1,
+            },
         )
         assert created.status_code == 200, created.text[:300]
         endpoint_id = created.json()["endpoint"]["endpoint_id"]
@@ -161,20 +175,27 @@ class TestOpenAIChatRoute:
             requests_before = len(_VLLMHandler.requests_log)
             response = client.post(
                 f"/v1/serverless/{endpoint_id}/openai/v1/chat/completions",
-                headers=user_headers, json={"model": "Qwen/Qwen3-8B", **request_body},
+                headers=user_headers,
+                json={"model": "Qwen/Qwen3-8B", **request_body},
             )
             assert response.status_code == 200, response.text[:300]
             assert response.json()["choices"][0]["message"]["content"] == "Fleet ready."
             assert "x_semantic_cache_hit" not in response.json()
             assert len(_VLLMHandler.requests_log) == requests_before + 1
             with repo._conn() as conn:
-                assert conn.execute(
-                    "SELECT count(*) AS n FROM serverless_cache_savings "
-                    "WHERE endpoint_id = %s", (endpoint_id,),
-                ).fetchone()["n"] == 0
+                assert (
+                    conn.execute(
+                        "SELECT count(*) AS n FROM serverless_cache_savings "
+                        "WHERE endpoint_id = %s",
+                        (endpoint_id,),
+                    ).fetchone()["n"]
+                    == 0
+                )
         finally:
             with repo._conn() as conn:
-                conn.execute("DELETE FROM serverless_semantic_cache WHERE endpoint_id = %s", (endpoint_id,))
+                conn.execute(
+                    "DELETE FROM serverless_semantic_cache WHERE endpoint_id = %s", (endpoint_id,)
+                )
             client.delete(f"/api/v2/serverless/endpoints/{endpoint_id}", headers=user_headers)
 
     def test_chat_completions_success(self, user_headers, fake_vllm_port):
@@ -182,6 +203,7 @@ class TestOpenAIChatRoute:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"oai-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
                 "model_name": "Qwen/Qwen3-8B",
@@ -213,6 +235,7 @@ class TestOpenAIChatRoute:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"custom-{uuid.uuid4().hex[:6]}",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -243,6 +266,7 @@ class TestOpenAIChatRoute:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"stream-bill-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
                 "model_name": "Qwen/Qwen3-8B",
@@ -281,6 +305,7 @@ class TestOpenAIChatRoute:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"stream-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
                 "model_name": "Qwen/Qwen3-8B",
@@ -313,6 +338,7 @@ class TestOpenAIChatRoute:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
+                "gpu_type": "RTX 4090",
                 "name": f"err-{uuid.uuid4().hex[:6]}",
                 "mode": "preset",
                 "model_name": "Qwen/Qwen3-8B",
@@ -361,7 +387,12 @@ class TestStreamUsageParsing:
 class TestOpenAIProxyUnit:
     def test_proxy_chat_parses_upstream_json(self, monkeypatch):
         worker = {"host_ip": "10.0.0.1", "job_payload": {}}
-        ep = {"mode": "preset", "http_port": 8080, "request_timeout_sec": 30}
+        ep = {
+            "gpu_type": "RTX 4090",
+            "mode": "preset",
+            "http_port": 8080,
+            "request_timeout_sec": 30,
+        }
 
         class FakeResp:
             status_code = 200

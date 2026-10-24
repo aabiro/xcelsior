@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from control_plane.attempts import AttemptStatusRejected, report_attempt_status
@@ -226,13 +226,14 @@ class LeaseAuthorityRequest(BaseModel):
 
 
 @router.post("/agent/v2/leases/claim", tags=["AgentV2"])
-def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
+def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request, response: Response):
     """THE hard gate: no 200 here → no container start, ever."""
     _require_agent_auth(request, host_id=req.host_id)
     try:
 
         def claim_with_credential(c):
             from control_plane.serverless_credentials import mint_callback_credential
+            from control_plane.runtime_environment import claimed_environment
 
             grant = claim_lease(
                 c,
@@ -260,14 +261,16 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
                 ).fetchone()
             ):
                 raise LeaseClaimRejected("callback_credential_missing")
-            return grant, token
+            environment = claimed_environment(c, grant)
+            return grant, token, environment
 
-        grant, callback_token = run_transaction(
+        grant, callback_token, environment = run_transaction(
             claim_with_credential,
             what="v2_lease_claim",
         )
     except LeaseClaimRejected as exc:
         raise _lease_conflict(exc)
+    response.headers["Cache-Control"] = "no-store"
     return {
         "ok": True,
         "lease_id": grant.lease_id,
@@ -277,6 +280,7 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request):
         "expires_at": str(grant.expires_at),
         "renewal_ttl_sec": grant.renewal_ttl_sec,
         **({"callback_token": callback_token} if callback_token else {}),
+        **environment,
     }
 
 
