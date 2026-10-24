@@ -47,6 +47,7 @@ import threading
 import time
 from typing import Any, Optional, cast
 
+import anyio
 import docker
 from docker.errors import APIError, DockerException, NotFound
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -1954,96 +1955,102 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
         exit_code = 0
         keepalive_task = None
+        relay_tasks = []
         try:
             if _session_slot_is_shared(session_slot) and _TERMINAL_SESSION_LEASE_REFRESH_SEC > 0:
                 keepalive_task = asyncio.ensure_future(_session_slot_keepalive())
-            stdout_task = asyncio.ensure_future(_stdout_relay())
-            stdin_task = asyncio.ensure_future(_stdin_relay())
-            authority_task = asyncio.ensure_future(
-                watch_job_authorization(websocket, user, instance_id, terminal=True)
+            relay_tasks.append(asyncio.ensure_future(_stdout_relay()))
+            relay_tasks.append(asyncio.ensure_future(_stdin_relay()))
+            relay_tasks.append(
+                asyncio.ensure_future(
+                    watch_job_authorization(websocket, user, instance_id, terminal=True)
+                )
             )
-            _done, pending = await asyncio.wait(
-                {stdout_task, stdin_task, authority_task},
+            await asyncio.wait(
+                relay_tasks,
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+        except asyncio.CancelledError:
+            # A disconnect may cancel the ASGI task while relays are stopping.
+            # Finish owned resource cleanup before returning the closed session.
+            pass
         finally:
             closed = True
-            if keepalive_task is not None:
-                keepalive_task.cancel()
-                await asyncio.gather(keepalive_task, return_exceptions=True)
+            with anyio.CancelScope(shield=True):
+                owned_tasks = relay_tasks + ([keepalive_task] if keepalive_task is not None else [])
+                for task in owned_tasks:
+                    task.cancel()
+                await asyncio.gather(*owned_tasks, return_exceptions=True)
 
-            if not has_tmux and docker_cl is not None and exec_id is not None:
-                try:
-                    inspect = await asyncio.wait_for(
-                        loop.run_in_executor(None, docker_cl.api.exec_inspect, exec_id),
-                        timeout=_EXEC_INSPECT_TIMEOUT_SEC,
+                if not has_tmux and docker_cl is not None and exec_id is not None:
+                    try:
+                        inspect = await asyncio.wait_for(
+                            loop.run_in_executor(None, docker_cl.api.exec_inspect, exec_id),
+                            timeout=_EXEC_INSPECT_TIMEOUT_SEC,
+                        )
+                        exit_code = inspect.get("ExitCode") or 0
+                    except (asyncio.TimeoutError, APIError, DockerException, OSError, Exception):
+                        pass
+
+                if has_tmux and raw_sock is not None:
+                    try:
+                        await _exec_sendall(b"\x02d")
+                        await asyncio.sleep(0.1)
+                    except (OSError, ConnectionError, NameError):
+                        pass
+
+                if exec_socket is not None:
+                    try:
+                        exec_socket.close()
+                    except Exception:
+                        pass
+
+                # Pool-aware cleanup: remote clients stay in the pool (keep SSH
+                # tunnel alive for subsequent sessions). Local clients close.
+                if docker_cl is not None and not is_remote:
+                    try:
+                        docker_cl.close()
+                    except Exception:
+                        pass
+
+                if session_opened:
+                    _active_sessions.dec()  # type: ignore[attr-defined]
+                    _duration = time.monotonic() - session_start
+                    try:
+                        _session_duration.observe(_duration)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    log.info(
+                        "terminal.session.close user=%s ip=%s instance=%s "
+                        "duration=%.1fs rx=%d tx=%d exit_code=%s remote=%s tmux=%s",
+                        user.get("email", "?"),
+                        client_ip,
+                        instance_id,
+                        _duration,
+                        session_bytes["rx"],
+                        session_bytes["tx"],
+                        exit_code,
+                        is_remote,
+                        has_tmux,
                     )
-                    exit_code = inspect.get("ExitCode") or 0
-                except (asyncio.TimeoutError, APIError, DockerException, OSError, Exception):
-                    pass
-
-            if has_tmux and raw_sock is not None:
-                try:
-                    await _exec_sendall(b"\x02d")
-                    await asyncio.sleep(0.1)
-                except (OSError, ConnectionError, NameError):
-                    pass
-
-            if exec_socket is not None:
-                try:
-                    exec_socket.close()
-                except Exception:
-                    pass
-
-            # Pool-aware cleanup: remote clients stay in the pool (keep SSH
-            # tunnel alive for subsequent sessions). Local clients close.
-            if docker_cl is not None and not is_remote:
-                try:
-                    docker_cl.close()
-                except Exception:
-                    pass
-
-            if session_opened:
-                _active_sessions.dec()  # type: ignore[attr-defined]
-                _duration = time.monotonic() - session_start
-                try:
-                    _session_duration.observe(_duration)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                log.info(
-                    "terminal.session.close user=%s ip=%s instance=%s "
-                    "duration=%.1fs rx=%d tx=%d exit_code=%s remote=%s tmux=%s",
-                    user.get("email", "?"),
-                    client_ip,
-                    instance_id,
-                    _duration,
-                    session_bytes["rx"],
-                    session_bytes["tx"],
-                    exit_code,
-                    is_remote,
-                    has_tmux,
-                )
-                append_user_audit_event(
-                    "user.terminal.session_ended",
-                    "job",
-                    instance_id,
-                    user,
-                    data={
-                        "duration_sec": round(_duration, 1),
-                        "rx_bytes": session_bytes["rx"],
-                        "tx_bytes": session_bytes["tx"],
-                        "exit_code": exit_code,
-                        "container_ref": container_ref,
-                    },
-                )
+                    append_user_audit_event(
+                        "user.terminal.session_ended",
+                        "job",
+                        instance_id,
+                        user,
+                        data={
+                            "duration_sec": round(_duration, 1),
+                            "rx_bytes": session_bytes["rx"],
+                            "tx_bytes": session_bytes["tx"],
+                            "exit_code": exit_code,
+                            "container_ref": container_ref,
+                        },
+                    )
 
             try:
                 await websocket.send_json({"type": "exit", "code": exit_code})
                 await websocket.close()
-            except Exception:
+            except (Exception, asyncio.CancelledError):
                 pass
     finally:
         _release_terminal_session_slot(user, session_slot)
