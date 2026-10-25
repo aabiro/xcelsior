@@ -86,14 +86,12 @@ def fleet():
 
     with pg_transaction() as conn:
         for host_id, cost, gpu in ((cheap, 0.20, model), (good, 0.22, model)):
-            # `admission_state`, **not** `administrative_state`: a BEFORE
-            # trigger (`control_plane_project_host`) derives the latter from
-            # the former, so setting the projected column directly is silently
-            # overwritten and the host arrives at the hard filter as `pending`.
+            # The trusted fixture writes admission and capability facts into
+            # native columns; payload observations grant no placement authority.
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                      admission_state, admitted_at, administrative_state, availability_state)
-                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp(), 'admitted', 'ready')""",
+                                      admission_state, admitted_at, administrative_state, availability_state, capabilities)
+                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp(), 'admitted', 'ready', '{"egress_isolation":true}')""",
                 (
                     host_id,
                     now,
