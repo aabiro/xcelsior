@@ -69,6 +69,41 @@ def queue_wallet_notice(conn, customer_id, kind, title, body, data):
     return "notif-billing-" + event_id
 
 
+def _cell(row, key, index):
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[index]
+
+
+def queue_attempt_settlement(conn, job_id, attempt_id):
+    """Ask the API identity to settle a lease the scheduler role cannot close.
+
+    The scheduler transaction has already fenced the attempt. Settlement
+    closes that attempt's meter and serverless binding. The hold id is the
+    one on the job at expiry. A placement that lands before the API consumer
+    runs owns a different hold, and settlement must leave that hold in place.
+    """
+    held = conn.execute(
+        "SELECT wallet_hold_id FROM jobs WHERE job_id=%s",
+        (job_id,),
+    ).fetchone()
+    hold_id = _cell(held, "wallet_hold_id", 0)
+    return append_event(
+        conn,
+        aggregate_type="job",
+        aggregate_id=job_id,
+        event_type="billing.v1.attempt_settlement_requested",
+        payload={
+            "attempt_id": str(attempt_id),
+            "wallet_hold_id": None if hold_id is None else str(hold_id),
+        },
+        destination_class="attempt_settlement",
+        idempotency_key="attempt_settlement:" + str(attempt_id),
+    )
+
+
 def queue_failed_cycle_stop(conn, job, result):
     if not job.get("active_attempt_id") or job.get("generation") is None:
         raise ValueError("billing stop requires the observed native authority")
@@ -132,6 +167,27 @@ def handle_failed_cycle_stop(event: OutboxEvent):
     )
     if not result.ok and result.reason == "enqueue_failed":
         raise RuntimeError("billing stop delivery remains pending")
+
+
+def handle_attempt_settlement(event: OutboxEvent):
+    from control_plane.attempt_billing import sync_attempt_billing
+    from control_plane.serverless_workers import sync_serverless_attempt
+    from db import _get_pg_pool
+
+    if current_service() != "api":
+        raise RuntimeError("attempt settlement consumer requires the API identity")
+    if event.event_type != "billing.v1.attempt_settlement_requested":
+        raise ValueError("unexpected attempt settlement event")
+    attempt_id = str(event.payload["attempt_id"])
+    hold_id = event.payload.get("wallet_hold_id")
+    with _get_pg_pool().connection() as conn:
+        sync_attempt_billing(
+            conn,
+            attempt_id,
+            released_hold_id=None if hold_id is None else str(hold_id),
+            bind_release=True,
+        )
+        sync_serverless_attempt(conn, job_id=event.aggregate_id, attempt_id=attempt_id)
 
 
 def publish_committed_effects(*, notice_ids=(), stop_event_ids=()):

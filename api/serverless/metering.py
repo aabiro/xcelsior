@@ -507,6 +507,29 @@ def _charge_serverless_execution(
             ),
         )
 
+    if (
+        not charge_result.get("charged")
+        and charge_result.get("hard_stop")
+        and charge_result.get("reason") == "insufficient_balance"
+    ):
+        job = _conn.execute(
+            "SELECT active_attempt_id, generation FROM jobs WHERE job_id=%s",
+            (job_id,),
+        ).fetchone()
+        if job and job["active_attempt_id"] is not None and job["generation"] is not None:
+            from control_plane.billing_effects import queue_failed_cycle_stop
+
+            queue_failed_cycle_stop(
+                _conn,
+                {
+                    "job_id": job_id,
+                    "active_attempt_id": job["active_attempt_id"],
+                    "generation": job["generation"],
+                    "owner": owner_id,
+                },
+                {"cycle_id": cycle_id},
+            )
+
     if charge_result.get("charged"):
         if (
             blended_on

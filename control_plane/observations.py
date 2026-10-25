@@ -94,17 +94,39 @@ def ingest_observation(
         or observation_generation <= _get(previous, "highest_generation", 0)
     )
     if previous is None:
-        if current_session is not None:
-            retired = conn.execute(
-                "UPDATE host_observation_sessions SET retired_at=clock_timestamp() "
-                "WHERE host_id=%s AND session_id=%s AND retired_at IS NULL RETURNING session_id",
-                (host_id, current_session),
-            ).fetchone()
-            if retired is None:
-                raise RuntimeError("current host observation session has no live registry entry")
+        # A writer that predates the registry (an older runtime still serving
+        # during a handoff) can record a current session without a registry
+        # row. Register it from its retained snapshots instead of refusing
+        # every later report, so its generation fence still holds.
         conn.execute(
-            "INSERT INTO host_observation_sessions(host_id,session_id) VALUES(%s,%s)",
-            (host_id, session_id),
+            "UPDATE host_observation_sessions SET retired_at=clock_timestamp() "
+            "WHERE host_id=%s AND retired_at IS NULL AND session_id IS DISTINCT FROM %s",
+            (host_id, session_id if current_session == session_id else None),
+        )
+        if current_session is not None and current_session != session_id:
+            # Record the session the previous writer left behind even when its
+            # snapshots were already pruned. A later replay stays retired.
+            conn.execute(
+                """INSERT INTO host_observation_sessions
+                   (host_id,session_id,highest_generation,retired_at)
+                   VALUES (%s,%s,COALESCE((
+                       SELECT max(inventory_generation) FROM host_observations
+                        WHERE host_id=%s AND session_id=%s),-1),clock_timestamp())
+                   ON CONFLICT(host_id,session_id) DO NOTHING""",
+                (host_id, current_session, host_id, current_session),
+            )
+        previous = conn.execute(
+            """INSERT INTO host_observation_sessions(host_id,session_id,highest_generation)
+               VALUES (%s,%s,COALESCE((
+                   SELECT max(inventory_generation) FROM host_observations
+                    WHERE host_id=%s AND session_id=%s),-1))
+               ON CONFLICT(host_id,session_id) DO UPDATE
+                  SET highest_generation=host_observation_sessions.highest_generation
+               RETURNING highest_generation,retired_at""",
+            (host_id, session_id, host_id, session_id),
+        ).fetchone()
+        stale = _get(previous, "retired_at", 1) is not None or (
+            observation_generation <= _get(previous, "highest_generation", 0)
         )
     row = conn.execute(
         """

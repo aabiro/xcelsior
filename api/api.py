@@ -452,10 +452,24 @@ async def lifespan(app):
         stop_event=_pg_listen_stop,
     )
 
+    # Billing notices, stops, and lease settlement run only on the API
+    # identity. The scheduler dispatcher leaves those classes unclaimed.
+    _effect_thread = None
+    if (os.environ.get("XCELSIOR_SERVICE") or "").strip().lower() == "api":
+        try:
+            from control_plane.outbox_runtime import start_outbox_dispatcher
+
+            _effect_thread = start_outbox_dispatcher(audience="api")
+        except Exception:
+            log.exception("API billing-effect dispatcher failed to start")
+
     _start_background_tasks()
     try:
         yield
     finally:
+        if _effect_thread is not None:
+            _effect_thread.stop_event.set()
+            _effect_thread.join(timeout=5)
         _stop_background_tasks()
         _pg_listen_stop.set()
         if _pg_listen_thread is not None:

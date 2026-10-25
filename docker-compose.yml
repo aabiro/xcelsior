@@ -447,6 +447,7 @@ services:
       <<: *api-env
       XCELSIOR_SERVICE: api
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
+      XCELSIOR_API_EFFECT_DISPATCHER: ${XCELSIOR_API_EFFECT_DISPATCHER:-true}
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
       # Defaults to the production value; the staging runner sets 127.0.0.1.
       XCELSIOR_API_BIND: ${XCELSIOR_API_BIND:-0.0.0.0}
@@ -475,6 +476,7 @@ services:
       <<: *api-env
       XCELSIOR_SERVICE: api
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
+      XCELSIOR_API_EFFECT_DISPATCHER: ${XCELSIOR_API_EFFECT_DISPATCHER:-true}
       XCELSIOR_API_PORT: ${XCELSIOR_API_BLUE_PORT:-9501}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host

@@ -144,10 +144,19 @@ def claim_batch(
     *,
     dispatcher_id: str,
     destination_class: str | None = None,
+    include_destination_classes: tuple[str, ...] | None = None,
+    exclude_destination_classes: tuple[str, ...] | None = None,
     limit: int = 50,
     claim_ttl_sec: int = DEFAULT_CLAIM_TTL_SEC,
 ) -> list[OutboxEvent]:
-    """Claim due, unpublished, non-dead-lettered events for delivery."""
+    """Claim due, unpublished, non-dead-lettered events for delivery.
+
+    ``include_destination_classes`` and ``exclude_destination_classes`` keep
+    one replica from claiming work that only another service identity can
+    finish. A claim without a handler holds the row until the claim expires.
+    """
+    include = list(include_destination_classes or ()) or None
+    exclude = list(exclude_destination_classes or ()) or None
     rows = conn.execute(
         """
         WITH due AS (
@@ -160,6 +169,10 @@ def claim_batch(
                     OR claim_expires_at < clock_timestamp())
                AND (%(dest)s::text IS NULL
                     OR destination_class = %(dest)s)
+               AND (%(include)s::text[] IS NULL
+                    OR destination_class = ANY(%(include)s))
+               AND (%(exclude)s::text[] IS NULL
+                    OR NOT (destination_class = ANY(%(exclude)s)))
              ORDER BY available_at
              LIMIT %(limit)s
                FOR UPDATE SKIP LOCKED
@@ -177,6 +190,8 @@ def claim_batch(
         """,
         {
             "dest": destination_class,
+            "include": include,
+            "exclude": exclude,
             "limit": limit,
             "owner": dispatcher_id,
             "ttl": claim_ttl_sec,
@@ -274,11 +289,15 @@ class OutboxDispatcher:
         *,
         batch_size: int = 50,
         claim_ttl_sec: int = DEFAULT_CLAIM_TTL_SEC,
+        include_destination_classes: tuple[str, ...] | None = None,
+        exclude_destination_classes: tuple[str, ...] | None = None,
     ):
         self.dispatcher_id = dispatcher_id
         self.handlers = dict(handlers)
         self.batch_size = batch_size
         self.claim_ttl_sec = claim_ttl_sec
+        self.include_destination_classes = include_destination_classes
+        self.exclude_destination_classes = exclude_destination_classes
 
     def run_once(self) -> dict[str, int]:
         """Claim and deliver one batch. Returns delivery stats."""
@@ -287,6 +306,8 @@ class OutboxDispatcher:
             lambda conn: claim_batch(
                 conn,
                 dispatcher_id=self.dispatcher_id,
+                include_destination_classes=self.include_destination_classes,
+                exclude_destination_classes=self.exclude_destination_classes,
                 limit=self.batch_size,
                 claim_ttl_sec=self.claim_ttl_sec,
             ),
