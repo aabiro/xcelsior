@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from control_plane.db_roles import (
     RUNTIME_READ_ONLY_TABLES,
+    RUNTIME_NON_DELETABLE_TABLES,
     SERVICE_ROLES,
     domain_of,
     sequence_domains,
@@ -128,6 +129,13 @@ def role_violations(conn, service: str, *, check_session: bool = True) -> list[s
                 and not column_only
             ):
                 issues.append(f"{name} can write outside its domains: {schema}.{table}")
+            if table in RUNTIME_NON_DELETABLE_TABLES:
+                cur.execute(
+                    "SELECT has_table_privilege(%s,%s,'DELETE')",
+                    (name, f"{schema}.{table}"),
+                )
+                if cur.fetchone()[0]:
+                    issues.append(f"{name} can erase durable fences: {schema}.{table}")
             if extra:
                 issues.append(f"{name} has non-DML authority on {schema}.{table}")
         cur.execute(

@@ -97,7 +97,16 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `141_archive_lightning_compatibility_columns.py`.**
+**Repository head: `142_durable_host_observation_sessions.py`.**
+
+142 adds a durable host/session registry with monotonic generation and permanent
+retirement fences, plus the accepted observation pointer. Quiesce old observation
+writers before migration and grant the new control-domain table before starting
+the new runtime. Retained snapshots and recorded current sessions are backfilled
+in bounded locked batches; already-pruned unknown sessions are not reconstructed.
+Snapshot retention cannot delete registry entries, and runtime roles cannot
+DELETE them. The runtime schema floor is 142. Downgrade retains fencing evidence.
+
 
 138 adds immutable operator disposition receipts for qualified duplicate
 historical volume intervals. It changes no balances or source history. The
@@ -110,7 +119,7 @@ floor at revision 138 remained 137; this additive operator table is not executio
 133 expands durable weighted scheduling policy, virtual service credit and
 preemption plan records. Default policy enables no evictions. Schema 137
 introduced native lifecycle intent and completed host eviction results; the
-current runtime floor is 139 after moving Connect bootstrap into Alembic.
+runtime floor at revision 139 moved Connect bootstrap into Alembic.
 
 132 records explicit historical disposition after qualified recovery. Jobs
 with a recovered execution record or unavailable launch evidence retain their

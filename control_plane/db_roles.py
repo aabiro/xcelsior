@@ -120,6 +120,7 @@ CONTROL_TABLES = frozenset(
         "serverless_attempt_credentials",
         "node_versions",
         "host_observations",
+        "host_observation_sessions",
         "observed_workloads",
         "reconciliation_queue",
         "reconciliation_findings",
@@ -314,6 +315,11 @@ RUNTIME_READ_ONLY_TABLES = frozenset(
 )
 
 
+# Retention must not erase live host session fences. Whole-host deletion remains
+# an explicit identity removal and cascades through the host-owned registry.
+RUNTIME_NON_DELETABLE_TABLES = frozenset({"host_observation_sessions"})
+
+
 def domain_of(table: str) -> str | None:
     """Return the logical domain owning ``table`` (schema-qualified aware).
 
@@ -475,6 +481,9 @@ DENIAL_CONTRACT: tuple[tuple[str, str, str], ...] = (
     # read-only means read-only
     ("readonly", "jobs", "UPDATE"),
     ("readonly", "events", "INSERT"),
+    ("api", "host_observation_sessions", "DELETE"),
+    ("scheduler", "host_observation_sessions", "DELETE"),
+    ("reconciler", "host_observation_sessions", "DELETE"),
     ("api", "legacy_lease_archive", "UPDATE"),
     ("api", "legacy_lease_archive", "INSERT"),
     ("api", "legacy_lease_archive", "DELETE"),
@@ -594,7 +603,11 @@ def grant_statements(
             verbs = (
                 "SELECT"
                 if table in RUNTIME_READ_ONLY_TABLES and role.runtime
-                else "SELECT, INSERT, UPDATE, DELETE"
+                else (
+                    "SELECT, INSERT, UPDATE"
+                    if table in RUNTIME_NON_DELETABLE_TABLES and role.runtime
+                    else "SELECT, INSERT, UPDATE, DELETE"
+                )
             )
             stmts.append(f"GRANT {verbs} ON {_qualified(domain, table)} " f'TO "{role.name}"')
     for domain in sorted(role.read - role.write):

@@ -409,7 +409,14 @@ of the last edit to this file.
   generation) with at-least-once duplicate collapse; freshens
   `hosts.last_observed_at` (DB receipt time authoritative §12.2);
   PK-coalesced host enqueue into `reconciliation_queue`; 3-day
-  retention prune. Route: `POST /agent/v2/observations`. Worker:
+  retention prune. **2026-10-25 follow-up:** migration 142 adds durable
+  observation-session retirement, accepted-generation fences and an accepted
+  snapshot pointer independent of retention. Replayed snapshots cannot refresh
+  host state or become the reconciler's latest snapshot after pruning.
+  Gates: `tests/test_durable_observation_sessions.py`,
+  `tests/test_control_plane_reconcile.py`. Production handoff remains pending;
+  deployed runtime/schema are still 7a1aa0ee/141.
+  Route: `POST /agent/v2/observations`. Worker:
   `report_observations_v2` (docker ps over `xcl-*` with attempt/fence
   labels, 60s throttle in the main loop, v2 hosts only). ✔
 - [x] **P6.2 Reconciler (report-only)** — `control_plane/reconcile.py`:
@@ -431,14 +438,15 @@ of the last edit to this file.
   `_ENFORCEABLE` can be turned on — an operator cannot enable an action
   that doesn't exist). First enforced type `stale_fence_container`:
   `_enqueue_stop_container` writes a durable, idempotency-keyed
-  `stop_container` command (attempt_id NULL → delivered by the v1 drain,
-  since a revoked fence has no valid authority) inside the reconcile
+  `stop_container` host command (attempt_id NULL, delivered by native
+  claim/ACK with the host/session claim identity) inside the reconcile
   transaction, and records `action_taken`/`action_result` on the finding.
   Fires once per occurrence (finding dedupe gates re-action); the
   §11.5 fence-loss kill remains the primary layer, this is the backstop.
   Env passthrough in docker-compose + `.env.example`. Gate: 4 new tests
   (policy resolution incl. fail-safe, report-only default, enforce
-  enqueues-once + records action, v1-drain visibility); reconcile suite
+  enqueues-once + records action; native delivery is additionally covered by
+  `tests/test_complete_worker_cutover.py`); reconcile suite
   13 green; pyright clean. ✔
 - [x] **P6.3b Missing-container action** — second enforceable finding
   type `attempt_container_missing` (default report-only). When enabled,

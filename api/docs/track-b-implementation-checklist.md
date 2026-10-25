@@ -64,6 +64,12 @@ remain open. Dated notes below retain
 their historical state; this section supersedes older runtime and pending-handoff
 statements.
 
+**Next qualified handoff:** migration 142 and its runtime add durable
+observation-session retirement and generation fences independent of snapshot
+retention. The focused gate passes 166 checks, and the old implementation fails
+the post-retention replay regression. Full frozen qualification and production
+handoff remain pending; the deployed source/schema above are unchanged.
+
 ---
 
 ## B0 — Engineering rules
