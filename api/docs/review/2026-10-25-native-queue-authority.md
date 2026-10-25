@@ -1,5 +1,7 @@
 # Native queue authority and claim projection
 
+**Accepted follow-up:** deployed as `1a0ae249`/schema 141 after 4,064 passing checks and real spot CUDA/billing acceptance. The [executed receipt](2026-10-25-native-release-production-handoff.md) supersedes the source-candidate status and diagnostics below. Repairs remain `report_only`.
+
 The four former queue walkers no longer assign raw job rows. process_queue is
 now a thin adapter around SchedulerService; binpack/filtered/ranked walkers are
 physically removed. Paused/shadow modes create no placements, canary only claims

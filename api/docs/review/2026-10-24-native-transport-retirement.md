@@ -1,5 +1,7 @@
 # Permanent native execution transport
 
+**Accepted follow-up:** deployed as `1a0ae249`/schema 141 after 4,064 passing checks and real spot CUDA/billing acceptance. The [executed receipt](2026-10-25-native-release-production-handoff.md) supersedes the source-candidate status and diagnostics below. Repairs remain `report_only`.
+
 The v1 work poll, destructive command drain and instance status PATCH are
 permanent authenticated HTTP 410 tombstones. Their execution code, process-memory
 work cache, volume enrichment and raw status/runtime mutations are physically

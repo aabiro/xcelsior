@@ -1,5 +1,7 @@
 # Executed native worker startup handoff
 
+Historical receipt, superseded by the [1a0ae249 native release](2026-10-25-native-release-production-handoff.md).
+
 The qualified b935d694 follow-up is deployed to API, scheduler, background worker,
 SSH gateway and both signed GPU workers. Schema remains 141; this handoff ran no
 migrations. All eight repairs remain report_only and preemption/deadline force

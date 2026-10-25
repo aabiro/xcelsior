@@ -33,25 +33,33 @@ that has not happened; operator actions are listed separately in §B0.4 and
 at the end of each phase as **Operator residual**.
 
 **Current control-plane/data status, 2026-10-25:** schema **141**, runtime
-`b935d694`, both signed GPU workers and seven dedicated runtime/one-shot database
-contexts are deployed and accepted. The frozen follow-up passed 3,897 tests with
-zero failures/errors/skips. Five actual CUDA/lifecycle jobs have six meters and
-seven charged cycles/debits totaling 57,400 micro-CAD, with zero ledger mismatch.
-Twelve public signatures, public/MCP readiness, monitoring and role audits pass.
+`1a0ae249`, with API, scheduler, background worker and SSH gateway accepted under
+seven dedicated database-role contexts. Existing signed GPU agents are
+byte-identical to this release and were reused with zero restarts. The complete
+frozen regression passed **4,064 tests**, with zero failures/errors/skips and
+1,137 unchanged source hashes. Six actual CUDA/lifecycle jobs have seven meters
+and eight charged cycles/debits totaling **57,500 micro-CAD**, with zero ledger
+mismatch. The new spot job's spec, attempt quote, meter and 100-micro-CAD wallet
+debit agree. Twelve public signatures, public/MCP readiness and role audits pass.
 All eight repairs remain `report_only`; preemption/deadline force stay disabled.
-[Current runtime receipt](review/2026-10-25-native-startup-production-handoff.md).
+[Current runtime receipt](review/2026-10-25-native-release-production-handoff.md).
+Native backup, restore drill and partition maintenance executed successfully;
+all three timers remain active/enabled and fifteen prior backups are retained.
 The preceding ordered data migration, canonical metadata, Lightning contraction
 and full 155-table restore remain recorded in the
 [executed data receipt](review/2026-10-24-executed-control-plane-data-cutover.md).
 
-The read-only post-cutover population scan covers 177 physical tables and 2,077
-columns with zero scan errors. Both job/host projection triggers, the Lightning
-compatibility trigger and the reviewed legacy columns are removed. Unknown
-historical facts, native fleet observation reads, remaining compatibility
-handlers, historical invoice disposition and independent offsite/PITR/object
-recovery remain explicit residuals. Dated progress notes below retain their
-historical state; this paragraph supersedes old schema-125/139, disabled-role
-and unexecuted-handoff statements.
+Permanent v1/inline-placement tombstones and native queue ownership are deployed;
+reviewed job/host and Lightning projection triggers/columns are removed. The
+post-incident read-only population scan covers 177 physical tables and 2,077
+columns with zero scan errors. Shared VPS disk exhaustion was recovered, and
+release writes now have a tested headroom gate. Native physical fleet JSONB and
+synthetic inventory, permanent observation-session retirement, remaining unused
+helpers, historical invoice disposition and independent offsite recovery remain
+open. Two old attempts without captured billing quotes/meters still raise the
+usage-evidence alert; Tower's disk alert is also active. Dated notes below retain
+their historical state; this section supersedes older runtime and pending-handoff
+statements.
 
 ---
 
