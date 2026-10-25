@@ -49,7 +49,6 @@ from scheduler import (
     marketplace_stats,
     register_host_located,
     list_hosts_filtered,
-    process_queue_filtered,
     add_to_pool,
     remove_from_pool,
     load_autoscale_pool,
@@ -76,13 +75,7 @@ def cmd_run(args):
         f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB{gpus_str}{gpu_str} | tier={job['tier']} (priority {job['priority']})"
     )
 
-    if not args.no_assign:
-        assigned = process_queue()
-        if assigned:
-            for j, h in assigned:
-                print(f"  Assigned: {j['name']} -> {h['host_id']} ({h['gpu_model']})")
-        else:
-            print("  No host available. Job queued.")
+    print("  Job queued for the native scheduler.")
 
 
 def cmd_jobs(args):
@@ -148,7 +141,7 @@ def cmd_process(args):
         print("Nothing to assign.")
         return
     for j, h in assigned:
-        print(f"  {j['name']} ({j['job_id']}) -> {h['host_id']} ({h['gpu_model']})")
+        print(f"  {j['name']} ({j['job_id']}) -> {h['host_id']} ({h.get('gpu_model', 'unknown')})")
 
 
 def cmd_host_add(args):

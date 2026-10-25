@@ -13,10 +13,9 @@ The kill switch (``XCELSIOR_SCHEDULER_CLAIMS_ENABLED=false``) stops new
 claims while leaving active attempts, leases, and the maintenance sweeps
 untouched — exactly the Phase 4 rollback posture.
 
-The canary partition is exclusive by construction: the claim SQL only
-selects jobs :meth:`SchedulerConfig.owns_job` matches, and the legacy
-``process_queue`` skips that same set, so a job is only ever placed by
-one scheduler.
+Only this fenced pipeline creates placements. Canary scope restricts the
+admitted jobs and hosts it may claim; other work remains queued.
+
 """
 
 from __future__ import annotations

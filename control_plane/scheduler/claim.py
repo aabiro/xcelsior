@@ -128,6 +128,7 @@ def release_claim(
                updated_at = clock_timestamp()
          WHERE job_id = %(job_id)s
            AND schedule_claim_token = %(token)s
+        RETURNING generation, version, reason_details
         """,
         {
             "job_id": job_id,
@@ -137,7 +138,27 @@ def release_claim(
             "details": Jsonb(reason_details) if reason_details is not None else None,
         },
     )
-    return result.rowcount == 1
+    row = result.fetchone()
+    if row is None:
+        return False
+    # Queue state and cross-replica notification share the claim transaction.
+    # A failed append rolls back the release; there is no process-local fallback.
+    from control_plane.outbox import append_event
+
+    append_event(
+        conn,
+        aggregate_type="job",
+        aggregate_id=job_id,
+        aggregate_version=int(_row_get(row, "version", 1)),
+        event_type="job.v1.queue_blocked",
+        payload={
+            "error": reason_code,
+            "message": reason_code.replace("_", " "),
+            "details": _row_get(row, "reason_details", 2),
+        },
+        idempotency_key=f"native_queue_blocked:{job_id}:{_row_get(row, 'generation', 0)}:{reason_code}",
+    )
+    return True
 
 
 def clear_expired_claims(conn: Connection, *, limit: int = 100) -> int:

@@ -295,7 +295,7 @@ def test_historical_hash_is_never_replaced_to_hide_unqualified_evidence(native):
     assert row(native)[:2] == (None, "sha256:original")
 
 
-def test_canary_claim_scope_and_compatibility_walker_use_admitted_model(native, monkeypatch):
+def test_canary_claim_scope_uses_admitted_model(native, monkeypatch):
     import scheduler
     from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
 
@@ -315,7 +315,7 @@ def test_canary_claim_scope_and_compatibility_walker_use_admitted_model(native, 
         SchedulerConfig(mode=SchedulerMode.CANARY, canary_gpu_models=frozenset({native.jid})),
     )
     visible = next(job for job in scheduler.list_jobs() if job["job_id"] == native.jid)
-    assert scheduler._control_plane_owns_job(visible)
+    assert scheduler._cp_config.owns_job(visible)
 
 
 def test_scheduler_places_from_admission_despite_changed_payload_constraints(native):

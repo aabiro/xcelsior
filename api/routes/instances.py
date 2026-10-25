@@ -61,8 +61,6 @@ from scheduler import (
     list_jobs,
     list_tiers,
     log,
-    process_queue,
-    process_queue_binpack,
     requeue_job,
     submit_job,
     update_job_status,
@@ -1286,13 +1284,17 @@ def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Reque
 
 @router.post("/queue/process", tags=["Instances"])
 def api_process_queue(request: Request):
-    """Process the job queue — assign jobs to hosts (admin only)."""
+    """Retired inline placement; the dedicated scheduler owns reservations."""
     _require_admin(request)
-    assigned = process_queue()
-    result = [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned]
-    if result:
-        broadcast_sse("queue_processed", {"assigned_count": len(result)})
-    return {"assigned": result}
+    raise HTTPException(
+        410,
+        detail={
+            "error": {
+                "code": "scheduler_service_required",
+                "message": "Placement runs in the native scheduler service",
+            }
+        },
+    )
 
 
 @router.post("/failover", tags=["Instances"])
@@ -2348,10 +2350,17 @@ def api_list_tiers():
 
 @router.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
 def api_process_queue_binpack(request: Request, region: str = ""):
-    """Process job queue using best-fit-decreasing bin packing (admin only)."""
+    """Retired inline placement; the dedicated scheduler owns reservations."""
     _require_admin(request)
-    assigned = process_queue_binpack(region=region or None)
-    return {"ok": True, "assigned": assigned, "count": len(assigned)}
+    raise HTTPException(
+        410,
+        detail={
+            "error": {
+                "code": "scheduler_service_required",
+                "message": "Placement runs in the native scheduler service",
+            }
+        },
+    )
 
 
 @router.post("/api/instances/{job_id}/stream-ticket")

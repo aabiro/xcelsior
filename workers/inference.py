@@ -211,7 +211,6 @@ class InferenceEngine:
         try:
             from scheduler import (
                 submit_job,
-                process_queue,
                 list_jobs,
                 check_job_running,
                 list_hosts,
@@ -229,8 +228,7 @@ class InferenceEngine:
             )
             worker_job_id = job.get("job_id", "")
 
-            # Process queue to assign + start the job
-            process_queue()
+            # The dedicated scheduler places the admitted worker asynchronously.
 
             # Poll for container readiness (up to 60s, 3s interval)
             started = False

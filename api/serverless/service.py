@@ -490,17 +490,6 @@ class ServerlessService:
                 billable=billable,
                 warm_expires_at=warm_expires_at,
             )
-            if provisioned:
-                try:
-                    from scheduler import process_queue
-
-                    process_queue()
-                except Exception as exc:
-                    log.debug(
-                        "process_queue after serverless warm failed endpoint=%s: %s",
-                        endpoint_id,
-                        exc,
-                    )
 
         workers = self.repo.list_workers(endpoint_id)
         ready_count = sum(
@@ -884,13 +873,6 @@ class ServerlessService:
             for ep in self.repo.list_endpoints_for_reconcile():
                 results.append(self.reconcile_endpoint(str(ep["endpoint_id"])))
             refresh_all_gauges(self.repo)
-            if any(r.get("scaled_up") for r in results):
-                try:
-                    from scheduler import process_queue
-
-                    process_queue()
-                except Exception as e:
-                    log.warning("process_queue after scale-up failed: %s", e)
             return {
                 "reconciled": len(results),
                 "endpoints": results,

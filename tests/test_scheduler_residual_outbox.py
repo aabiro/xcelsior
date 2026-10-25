@@ -1,6 +1,6 @@
 """Scheduler residual SSE: queue-block job_error + spot_prices via outbox.
 
-Drives shipped ``_persist_queue_reason`` / ``process_queue_binpack`` skip
+Drives shipped ``_persist_queue_reason`` / native queue release
 path and ``update_spot_prices`` against real Postgres. Asserts durable
 outbox rows, projection shapes, no dual process-local emit when outbox
 wins, and LISTEN delivery for at least one type.
@@ -197,35 +197,26 @@ def test_persist_queue_reason_appends_queue_blocked_outbox(cleanup, monkeypatch)
     assert found.get("queue_reason_detail") == "Not enough free VRAM"
 
 
-def test_binpack_skip_path_uses_outbox_not_dual_emit(cleanup, monkeypatch):
-    """Shipped process_queue_binpack: unassignable job → outbox, no dual emit."""
+def test_native_queue_release_uses_durable_outbox(cleanup, monkeypatch):
     import scheduler as sched
+    from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+    from control_plane.scheduler.service import SchedulerService
 
-    # No active hosts → every queued job is skipped → job_error path.
-    job = sched.submit_job(
-        f"binpack-qb-{uuid.uuid4().hex[:6]}",
-        999.0,  # impossible VRAM so even hosts would fail
-        tier="on-demand",
-    )
+    model = "queue-outbox-" + uuid.uuid4().hex
+    job = sched.submit_job(model, 999, gpu_model=model)
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
-
-    emit_calls: list = []
-    monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
-    # Clear process-local throttle so this job is eligible.
-    sched._job_error_notified.clear()
-
-    # Ensure no hosts for a clean skip (empty list_hosts).
-    monkeypatch.setattr(sched, "list_hosts", lambda active_only=True: [])
-
-    assigned = sched.process_queue_binpack()
-    assert assigned == [] or isinstance(assigned, list)
-
+    emitted = []
+    monkeypatch.setattr(sched, "emit_event", lambda *args: emitted.append(args))
+    report = SchedulerService(
+        SchedulerConfig(
+            mode=SchedulerMode.CANARY, replica_id=model, canary_gpu_models=frozenset({model})
+        )
+    ).tick()
+    assert (job_id, "no_eligible_host") in report.released
     rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.queue_blocked"]
-    assert len(rows) >= 1, f"expected queue_blocked outbox for {job_id}"
-    assert [
-        c for c in emit_calls if c[0] == "job_error"
-    ] == [], f"dual fan-out when outbox durable: {emit_calls}"
+    assert len(rows) == 1
+    assert emitted == []
 
 
 def test_queue_blocked_outbox_dispatches_to_notify(cleanup):
