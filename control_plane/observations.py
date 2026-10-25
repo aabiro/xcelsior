@@ -82,15 +82,30 @@ def ingest_observation(
         raise ValueError("observation host is not registered")
     current_session = _get(host, "observation_session_id", 0)
     previous = conn.execute(
-        "SELECT max(inventory_generation) FROM host_observations WHERE host_id=%s AND session_id=%s",
+        "SELECT highest_generation,retired_at FROM host_observation_sessions "
+        "WHERE host_id=%s AND session_id=%s",
         (host_id, session_id),
     ).fetchone()
-    previous_generation = _get(previous, "max", 0) if previous else None
-    # Once a new process supersedes a known session, delayed reports from the
-    # old process remain diagnostic evidence and cannot replace current state.
-    stale = previous_generation is not None and (
-        current_session not in (None, session_id) or observation_generation <= previous_generation
+    # Snapshot retention cannot erase a session's retirement or accepted
+    # generation. A known non-current session is diagnostic evidence only.
+    stale = previous is not None and (
+        current_session != session_id
+        or _get(previous, "retired_at", 1) is not None
+        or observation_generation <= _get(previous, "highest_generation", 0)
     )
+    if previous is None:
+        if current_session is not None:
+            retired = conn.execute(
+                "UPDATE host_observation_sessions SET retired_at=clock_timestamp() "
+                "WHERE host_id=%s AND session_id=%s AND retired_at IS NULL RETURNING session_id",
+                (host_id, current_session),
+            ).fetchone()
+            if retired is None:
+                raise RuntimeError("current host observation session has no live registry entry")
+        conn.execute(
+            "INSERT INTO host_observation_sessions(host_id,session_id) VALUES(%s,%s)",
+            (host_id, session_id),
+        )
     row = conn.execute(
         """
         INSERT INTO host_observations
@@ -148,6 +163,11 @@ def ingest_observation(
         return IngestResult(
             observation_id=observation_id, duplicate=False, workloads=len(workloads)
         )
+    conn.execute(
+        "UPDATE host_observation_sessions SET highest_generation=%s,latest_observation_id=%s "
+        "WHERE host_id=%s AND session_id=%s AND retired_at IS NULL",
+        (observation_generation, observation_id, host_id, session_id),
+    )
     # received_at (DB clock) is the freshness signal §12.2. Capability and
     # condition observations confer no operator admission or execution intent.
     conn.execute(
@@ -206,12 +226,13 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
     """The newest snapshot header for a host, with its workloads."""
     row = conn.execute(
         """
-        SELECT observation_id, session_id, inventory_generation, received_at
+        SELECT o.observation_id, o.session_id, o.inventory_generation, o.received_at
           FROM host_observations o
-         WHERE host_id = %s AND EXISTS (
-             SELECT 1 FROM hosts h WHERE h.host_id=o.host_id
-             AND (h.observation_session_id IS NULL OR h.observation_session_id=o.session_id))
-         ORDER BY inventory_generation DESC, received_at DESC
+          JOIN host_observation_sessions s ON s.host_id=o.host_id AND s.session_id=o.session_id
+              AND s.latest_observation_id=o.observation_id
+              AND s.highest_generation=o.inventory_generation AND s.retired_at IS NULL
+          JOIN hosts h ON h.host_id=o.host_id AND h.observation_session_id=o.session_id
+         WHERE o.host_id = %s
          LIMIT 1
         """,
         (host_id,),
@@ -251,7 +272,7 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
 
 
 def prune_observations(conn: Connection, *, retention_days: int = 3, limit: int = 2000) -> int:
-    """Observations are high-volume diagnostics; keep a short window."""
+    """Prune diagnostic snapshots; durable session fences deliberately survive."""
     result = conn.execute(
         """
         DELETE FROM host_observations
