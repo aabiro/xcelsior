@@ -33,20 +33,21 @@ that has not happened; operator actions are listed separately in §B0.4 and
 at the end of each phase as **Operator residual**.
 
 **Current control-plane/data status, 2026-10-25:** schema **141**, runtime
-`1a0ae249`, with API, scheduler, background worker and SSH gateway accepted under
-seven dedicated database-role contexts. Existing signed GPU agents are
-byte-identical to this release and were reused with zero restarts. The complete
-frozen regression passed **4,064 tests**, with zero failures/errors/skips and
-1,137 unchanged source hashes. Six actual CUDA/lifecycle jobs have seven meters
-and eight charged cycles/debits totaling **57,500 micro-CAD**, with zero ledger
-mismatch. The new spot job's spec, attempt quote, meter and 100-micro-CAD wallet
-debit agree. Twelve public signatures, public/MCP readiness and role audits pass.
-All eight repairs remain `report_only`; preemption/deadline force stay disabled.
-[Current runtime receipt](review/2026-10-25-native-release-production-handoff.md).
-Native backup, restore drill and partition maintenance executed successfully;
-all three timers remain active/enabled and fifteen prior backups are retained.
-The preceding ordered data migration, canonical metadata, Lightning contraction
-and full 155-table restore remain recorded in the
+`7a1aa0ee`, with API, scheduler, background worker and SSH gateway accepted under
+seven dedicated database-role contexts. Both idle signed GPU agents were handed
+off, retained their journals and confirmed the native protocol. The frozen
+regression passed **4,121 tests**, with zero failures/errors/skips and 1,138
+unchanged source hashes. Seven actual CUDA/lifecycle jobs have eight meters and
+nine charged cycles/debits totaling **57,900 micro-CAD**, with zero ledger drift.
+The new job proved Docker's selected physical UUID and enforced environment
+match the database reservation and durable CUDA log; its normal scheduled debit
+was **400 micro-CAD**. Twelve public signatures, public/MCP readiness and role
+audits pass. All eight repairs remain `report_only`; preemption/deadline force
+stay disabled. [Current runtime receipt](review/2026-10-25-native-gpu-device-binding.md).
+Three recovery timers remain active/enabled; their last executions succeeded on
+`1a0ae249`, and fifteen prior backups are retained. The preceding ordered data
+migration, canonical metadata, Lightning contraction and full 155-table restore
+remain recorded in the
 [executed data receipt](review/2026-10-24-executed-control-plane-data-cutover.md).
 
 Permanent v1/inline-placement tombstones and native queue ownership are deployed;
@@ -57,7 +58,9 @@ release writes now have a tested headroom gate. Native physical fleet JSONB and
 synthetic inventory, permanent observation-session retirement, remaining unused
 helpers, historical invoice disposition and independent offsite recovery remain
 open. Two old attempts without captured billing quotes/meters still raise the
-usage-evidence alert; Tower's disk alert is also active. Dated notes below retain
+usage-evidence alert; Tower's disk alert is also active (about 96.8% at the
+latest check). Durable Docker stop retry and lost-claim-response replay also
+remain open. Dated notes below retain
 their historical state; this section supersedes older runtime and pending-handoff
 statements.
 
@@ -175,20 +178,23 @@ depend on them; none are Track B's to mark complete.
   and `XCELSIOR_SPIFFE_STRICT=1`.
 - Issue per-host tokens; flip `XCELSIOR_AGENT_HOST_TOKENS=require`.
 - Flip `XCELSIOR_AGENT_PUBLIC_INGRESS=deny` with the Nginx retirement snippet.
-- Run `scripts/provision_db_roles.py`; set the per-service DSNs.
 
 Completed in production on 2026-10-20: scheduler active mode and both signed
 v2 workers. The cutover audit subsequently fixed journal durability, stale
 command delivery identity and normal fenced billing; see the
 [verified follow-up](review/2026-10-20-control-plane-cutover-audit.md).
-Dedicated runtime-role deployment is now executed; see the dated 2026-10-24 receipt above.
+Dedicated runtime roles and per-service DSNs are deployed and accepted in
+seven service contexts; see the dated 2026-10-24 receipt above. They are no
+longer standing operator residuals.
 
 **2026-10-21 dedicated-role candidate:** restricted workflow qualification
 found and fixed the scheduler's missing three-column serverless binding grant.
 The candidate also supplies strict migration credentials, scoped ownership
 transfer, native partition maintenance, strict Compose wiring and restore
 qualification. [Candidate and production gates](review/2026-10-21-db-role-cutover.md).
-Production logins/ownership have not changed; this residual remains open.
+Logins and ownership were unchanged at that candidate date. The subsequent
+deployment and restricted-role acceptance are recorded in the 2026-10-24
+receipt above.
 
 ---
 
