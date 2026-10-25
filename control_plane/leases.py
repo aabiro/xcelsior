@@ -53,6 +53,12 @@ class LeaseRenewRejected(LeaseError):
     code = "lease_renew_rejected"
 
 
+class LeaseStartRejected(LeaseRenewRejected):
+    """The current attempt may settle, but its execution intent no longer runs."""
+
+    code = "lease_start_rejected"
+
+
 class FencingViolation(LeaseError):
     """A stale attempt/fence tried to act with authority it lost."""
 
@@ -223,6 +229,7 @@ def renew_lease(
     host_id: str,
     fencing_token: int,
     worker_session_id: str,
+    require_running_intent: bool = False,
 ) -> Any:
     """Extend an active lease under the exact same authority tuple.
 
@@ -243,6 +250,16 @@ def renew_lease(
            AND fencing_token = %(fence)s
            AND status = 'active'
            AND expires_at >= clock_timestamp()
+           AND (NOT %(start)s OR EXISTS (
+               SELECT 1 FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+               WHERE j.job_id=placement_leases.job_id
+                 AND a.attempt_id=placement_leases.attempt_id
+                 AND j.host_id=placement_leases.host_id
+                 AND a.host_id=placement_leases.host_id
+                 AND a.fencing_token=placement_leases.fencing_token
+                 AND a.spec_hash=j.spec_hash AND a.job_generation=j.generation
+                 AND j.desired_state='running' AND j.lifecycle_intent IS NULL
+                 AND a.status IN ('lease_claimed','starting')))
         RETURNING expires_at
         """,
         {
@@ -251,9 +268,20 @@ def renew_lease(
             "attempt_id": attempt_id,
             "host_id": host_id,
             "fence": fencing_token,
+            "start": require_running_intent,
         },
     ).fetchone()
     if row is None:
+        if (
+            require_running_intent
+            and conn.execute(
+                """SELECT 1 FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id
+               WHERE a.attempt_id=%s AND a.host_id=%s AND a.fencing_token=%s
+                 AND (j.desired_state<>'running' OR j.lifecycle_intent IS NOT NULL)""",
+                (attempt_id, host_id, fencing_token),
+            ).fetchone()
+        ):
+            raise LeaseStartRejected("execution intent changed before container start")
         raise LeaseRenewRejected(
             "lease not active under this authority (expired, fenced, or rebound)",
             lease_id=lease_id,

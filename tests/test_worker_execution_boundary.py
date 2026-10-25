@@ -13,6 +13,7 @@ FEATURES = [
     "commands.session_fencing",
     "attempts.runtime_metadata",
     "leases.gpu_device_binding",
+    "leases.start_authority",
 ]
 
 
