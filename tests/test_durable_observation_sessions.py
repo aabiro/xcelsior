@@ -184,6 +184,41 @@ def test_database_refuses_regressing_known_session_fences(host, change):
         )
 
 
+def test_missing_registry_row_keeps_the_accepted_generation(host):
+    conn, host_id = host
+    observe(conn, host_id, generation=3)
+    conn.execute("DELETE FROM host_observation_sessions WHERE host_id=%s", (host_id,))
+    replay = observe(conn, host_id, generation=3)
+    assert replay.duplicate
+    accepted = observe(conn, host_id, generation=4)
+    assert accepted.observation_id
+    assert latest_observation(conn, host_id)["observation_generation"] == 4
+    assert conn.execute(
+        "SELECT highest_generation FROM host_observation_sessions "
+        "WHERE host_id=%s AND session_id='old' AND retired_at IS NULL",
+        (host_id,),
+    ).fetchone() == (4,)
+
+
+def test_missing_registry_still_retires_the_previous_session(host):
+    conn, host_id = host
+    observe(conn, host_id, "old", 4)
+    observe(conn, host_id, "new", 1)
+    conn.execute("DELETE FROM host_observations WHERE host_id=%s AND session_id='old'", (host_id,))
+    conn.execute("DELETE FROM host_observation_sessions WHERE host_id=%s", (host_id,))
+    fresh = observe(conn, host_id, "newer", 1)
+    assert fresh.observation_id
+    assert authority(conn, host_id)[0] == "newer"
+    assert conn.execute(
+        "SELECT retired_at IS NOT NULL, highest_generation FROM host_observation_sessions "
+        "WHERE host_id=%s AND session_id='new'",
+        (host_id,),
+    ).fetchone() == (True, 1)
+    stale = observe(conn, host_id, "new", 50, capabilities={"version": "reclaimed"})
+    assert stale.observation_id
+    assert authority(conn, host_id)[0] == "newer"
+
+
 def test_database_refuses_two_live_sessions_for_one_host(host):
     conn, host_id = host
     observe(conn, host_id)

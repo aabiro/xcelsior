@@ -100,11 +100,22 @@ def capture_billing_snapshot(payload: dict, owner_id: str | None, host: dict) ->
     }
 
 
-def sync_attempt_billing(conn, attempt_id: str) -> None:
+def sync_attempt_billing(
+    conn,
+    attempt_id: str,
+    *,
+    released_hold_id: str | None = None,
+    bind_release: bool = False,
+) -> None:
     """Use bound server timestamps and the captured rate in the status transaction.
 
     Existing historical attempts without a quote are never retroactively billed.
     Previously opened meters may still settle from their own captured evidence.
+
+    ``bind_release`` settles one fenced attempt after its lease transaction has
+    committed. It releases only ``released_hold_id`` and writes job clock fields
+    only while that job is still the closed attempt. A newer placement keeps
+    its own hold and clock.
     """
     from billing import get_billing_engine, settle_attempt_meter
 
@@ -125,13 +136,34 @@ def sync_attempt_billing(conn, attempt_id: str) -> None:
             metadata["started_at"] = attempt["started"]
         if attempt["ended"] is not None:
             metadata["completed_at"] = attempt["ended"]
-        if metadata:
+        if metadata and bind_release:
+            cur.execute(
+                "UPDATE jobs SET payload=COALESCE(payload,'{}'::jsonb)||%s::jsonb "
+                "WHERE job_id=%s AND payload IS DISTINCT FROM COALESCE(payload,'{}'::jsonb)||%s::jsonb "
+                "AND (active_attempt_id IS NULL OR active_attempt_id=%s::uuid) "
+                "AND status IN ('completed','failed','terminated','cancelled','stopped','paused')",
+                (Jsonb(metadata), attempt["job_id"], Jsonb(metadata), attempt_id),
+            )
+        elif metadata:
             cur.execute(
                 "UPDATE jobs SET payload=COALESCE(payload,'{}'::jsonb)||%s::jsonb "
                 "WHERE job_id=%s AND payload IS DISTINCT FROM COALESCE(payload,'{}'::jsonb)||%s::jsonb",
                 (Jsonb(metadata), attempt["job_id"], Jsonb(metadata)),
             )
-        if attempt["ended"] is not None:
+        if attempt["ended"] is not None and bind_release:
+            if released_hold_id:
+                cur.execute(
+                    "UPDATE wallet_holds SET status='released',"
+                    "released_at=EXTRACT(EPOCH FROM clock_timestamp()),"
+                    "updated_at=EXTRACT(EPOCH FROM clock_timestamp()) "
+                    "WHERE hold_id=%s::uuid AND job_id=%s AND status='held'",
+                    (released_hold_id, attempt["job_id"]),
+                )
+                cur.execute(
+                    "UPDATE jobs SET wallet_hold_id=NULL WHERE job_id=%s AND wallet_hold_id=%s::uuid",
+                    (attempt["job_id"], released_hold_id),
+                )
+        elif attempt["ended"] is not None:
             # This is normal terminal settlement, using the already locked job
             # transaction. Do not open a second connection to release its hold.
             cur.execute(

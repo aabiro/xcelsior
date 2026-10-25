@@ -177,7 +177,8 @@ def _request_fenced_stop_attempt(
                 qualified = conn.execute(
                     """SELECT 1 FROM billing_cycles b JOIN wallets w USING(customer_id)
                    WHERE b.cycle_id=%s AND b.job_id=%s AND b.customer_id=%s
-                     AND b.resource_type='gpu' AND b.status='failed'
+                     AND b.resource_type IN ('gpu','serverless_gpu')
+                     AND b.status='failed'
                      AND b.amount_micros>0 AND w.balance_micros<b.amount_micros
                    FOR UPDATE OF w""",
                     (billing_evidence["cycle_id"], job_id, owner),
