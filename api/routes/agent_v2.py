@@ -50,6 +50,7 @@ FEATURES = (
     "commands.session_fencing",
     "attempts.runtime_metadata",
     "leases.gpu_device_binding",
+    "leases.start_authority",
 )
 
 
@@ -206,6 +207,7 @@ class LeaseAuthorityRequest(BaseModel):
     host_id: str = Field(min_length=1, max_length=128)
     fencing_token: int = Field(ge=1)
     worker_session_id: str = Field(default="", max_length=128)
+    require_running_intent: bool = Field(default=False, strict=True)
 
 
 @router.post("/agent/v2/leases/claim", tags=["AgentV2"])
@@ -282,6 +284,7 @@ def api_v2_lease_renew(req: LeaseAuthorityRequest, request: Request):
                 host_id=req.host_id,
                 fencing_token=req.fencing_token,
                 worker_session_id=req.worker_session_id,
+                require_running_intent=req.require_running_intent,
             ),
             what="v2_lease_renew",
         )
