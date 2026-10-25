@@ -82,6 +82,16 @@ def placed(request):
         from tests.native_jobs import admit_fixture_job
 
         admit_fixture_job(conn, job_id)
+        from control_plane.physical_inventory import sync_physical_inventory
+
+        sync_physical_inventory(
+            conn,
+            host_id=host_id,
+            inventory=[
+                dict(gpu_uuid=f"GPU-{marker}-{i}", device_index=i, model=model, total_vram_mb=24576)
+                for i in range(inputs.get("num_gpus", 1))
+            ],
+        )
     try:
         report = SchedulerService(
             SchedulerConfig(

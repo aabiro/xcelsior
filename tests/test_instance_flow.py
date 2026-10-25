@@ -104,6 +104,23 @@ def _register_host(host_id, vram=24.0, cost=0.50, ip="10.0.0.1", gpu="RTX 4090",
         },
     )
     assert resp.status_code == 200
+    from db import _get_pg_pool
+    from control_plane.physical_inventory import sync_physical_inventory
+
+    with _get_pg_pool().connection() as conn:
+        sync_physical_inventory(
+            conn,
+            host_id=host_id,
+            inventory=[
+                dict(
+                    gpu_uuid=f"GPU-{uuid.uuid5(uuid.NAMESPACE_URL, host_id)}-{i}",
+                    device_index=i,
+                    model=gpu,
+                    total_vram_mb=int(vram * 1024),
+                )
+                for i in range(gpu_count)
+            ],
+        )
     return resp.json()["host"]
 
 
@@ -185,14 +202,6 @@ def _start_native_attempt(job_id, host_id):
     from control_plane.leases import claim_lease
     from control_plane.attempts import report_attempt_status
 
-    with _get_pg_pool().connection() as conn:
-        conn.execute(
-            """INSERT INTO host_gpu_devices(host_id,gpu_uuid,device_index,model,
-                      total_vram_mb,allocatable_vram_mb,health)
-               VALUES(%s,%s,0,'RTX 4090',24576,24576,'healthy')
-               ON CONFLICT(host_id,gpu_uuid) DO NOTHING""",
-            (host_id, f"GPU-{host_id}"),
-        )
     replica = f"instance-flow-{uuid.uuid4().hex[:8]}"
 
     def place(conn):
