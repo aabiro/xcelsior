@@ -48,9 +48,18 @@ def mint_callback_credential(conn, *, job_id, attempt_id, host_id, fencing_token
         if worker is None:
             return None
         token = PREFIX + secrets.token_urlsafe(32)
-        cur.execute(
+        # A replayed claim (its first response was lost) rotates the digest:
+        # the earlier token never reached the worker. A revoked credential
+        # stays revoked.
+        minted = cur.execute(
             "INSERT INTO serverless_attempt_credentials(attempt_id,worker_id,tenant_id,token_hash,expires_at) "
-            "VALUES(%s,%s,%s,%s,%s)",
+            "VALUES(%s,%s,%s,%s,%s) "
+            "ON CONFLICT (attempt_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,"
+            "issued_at=clock_timestamp(),expires_at=EXCLUDED.expires_at "
+            "WHERE serverless_attempt_credentials.revoked_at IS NULL "
+            "AND serverless_attempt_credentials.worker_id=EXCLUDED.worker_id "
+            "AND serverless_attempt_credentials.tenant_id=EXCLUDED.tenant_id "
+            "RETURNING attempt_id",
             (
                 attempt_id,
                 worker["worker_id"],
@@ -58,8 +67,8 @@ def mint_callback_credential(conn, *, job_id, attempt_id, host_id, fencing_token
                 hashlib.sha256(token.encode()).hexdigest(),
                 worker["expires_at"],
             ),
-        )
-        return token
+        ).fetchone()
+        return token if minted is not None else None
 
 
 def authenticate_callback(conn, token: str, worker_id: str) -> bool:

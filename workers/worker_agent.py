@@ -2568,9 +2568,32 @@ def _v2_retry_runtime_reports(auth: dict) -> None:
             log.warning("invalid journaled runtime report retained (%s)", type(exc).__name__)
 
 
+#: Backoff between retries of a claim whose outcome is unknown.
+_V2_CLAIM_RETRY_DELAYS_SEC = (1, 2, 4)
+
+
 def v2_claim_lease_fenced(auth: dict) -> dict | None:
-    """§11.2 HARD GATE: no grant → no container start, ever."""
-    code, body = _v2_post("/agent/v2/leases/claim", _v2_auth_payload(auth))
+    """§11.2 HARD GATE: no grant → no container start, ever.
+
+    Only an unknown outcome (transport error, 429, 5xx) is retried. The API
+    replays a committed claim to this same session while the attempt has
+    done nothing since, so a lost response does not hold the reserved GPUs
+    until the lease expires. A definitive rejection is never retried.
+    """
+    payload = _v2_auth_payload(auth)
+    code, body = _v2_post("/agent/v2/leases/claim", payload)
+    for delay in _V2_CLAIM_RETRY_DELAYS_SEC:
+        if code not in (0, 429) and code < 500:
+            break
+        log.warning(
+            "v2 lease claim outcome unknown job=%s attempt=%s (HTTP %s); retrying",
+            auth["job_id"],
+            auth["attempt_id"][:8],
+            code,
+        )
+        if _shutdown.wait(delay):
+            break
+        code, body = _v2_post("/agent/v2/leases/claim", payload)
     if code == 200:
         response_matches = (
             str(body.get("lease_id") or "") == str(auth["lease_id"])
@@ -2637,24 +2660,58 @@ def _v2_stop_container(
     container_name: str | None = None,
     expected_attempt_id: str | None = None,
 ) -> None:
-    """Definitive fence-loss behavior (§11.5): authority gone → stop now."""
+    """Definitive fence-loss behavior (§11.5): authority gone → stop now.
+
+    Callers have already forgotten the attempt, so nothing else would ever
+    stop this container. An inspect or kill whose outcome is unknown is
+    journaled and retried (also after a restart) until the container is
+    gone or exited.
+    """
     container_name = container_name or f"xcl-{job_id}"
-    if expected_attempt_id:
-        state, _exit_code, observed_attempt_id = _v2_container_state(job_id, container_name)
-        if state == "missing":
-            return
-        if observed_attempt_id != expected_attempt_id:
-            log.critical(
-                "FENCE STOP REFUSED job=%s container=%s expected_attempt=%s observed_attempt=%s",
-                job_id,
-                container_name,
-                expected_attempt_id,
-                observed_attempt_id or "(unlabeled)",
-            )
-            return
+    if _v2_fence_kill(job_id, why, container_name, expected_attempt_id):
+        with _v2_attempts_lock:
+            if _v2_pending_fence_kills.pop(container_name, None) is not None:
+                _v2_journal_save()
+        return
+    with _v2_attempts_lock:
+        _v2_pending_fence_kills[container_name] = {
+            "job_id": job_id,
+            "container_name": container_name,
+            "expected_attempt_id": expected_attempt_id or "",
+            "why": why,
+            "queued_at": time.time(),
+        }
+        saved = _v2_journal_save()
+    log.critical(
+        "FENCE STOP PENDING job=%s container=%s: kill unconfirmed, retrying (journal %s)",
+        job_id,
+        container_name,
+        "saved" if saved else "unavailable",
+    )
+
+
+def _v2_fence_kill(
+    job_id: str, why: str, container_name: str, expected_attempt_id: str | None
+) -> bool:
+    """Kill an unauthorized container. True once settled, False if unknown."""
+    state, _exit_code, observed_attempt_id = _v2_container_state(job_id, container_name)
+    if state in ("missing", "exited"):
+        return True
+    if state == "unknown" and expected_attempt_id:
+        # The label cannot be proven; retry the inspect rather than kill blind.
+        return False
+    if expected_attempt_id and observed_attempt_id != expected_attempt_id:
+        log.critical(
+            "FENCE STOP REFUSED job=%s container=%s expected_attempt=%s observed_attempt=%s",
+            job_id,
+            container_name,
+            expected_attempt_id,
+            observed_attempt_id or "(unlabeled)",
+        )
+        return True
     log.error("FENCE LOST job=%s (%s) — stopping container %s", job_id, why, container_name)
     try:
-        subprocess.run(
+        killed = subprocess.run(
             ["docker", "kill", container_name],
             capture_output=True,
             text=True,
@@ -2662,6 +2719,61 @@ def _v2_stop_container(
         )
     except Exception as e:
         log.error("fence-loss docker kill failed for %s: %s", container_name, e)
+        return False
+    if killed.returncode == 0:
+        return True
+    error = (killed.stderr or "").lower()
+    if "no such container" in error or "is not running" in error:
+        return True
+    log.error(
+        "fence-loss docker kill refused for %s: %s", container_name, (killed.stderr or "")[:300]
+    )
+    return False
+
+
+def _v2_retry_fence_kills(*, background: bool = False) -> None:
+    """Retry journaled fence-loss kills until each container is gone or exited."""
+    with _v2_attempts_lock:
+        pending = list(_v2_pending_fence_kills.values())
+    if not pending:
+        return
+    if background:
+        if not _v2_fence_kill_sweep_lock.acquire(blocking=False):
+            return
+
+        def sweep():
+            try:
+                _v2_retry_fence_kills()
+            finally:
+                _v2_fence_kill_sweep_lock.release()
+
+        try:
+            threading.Thread(target=sweep, name="v2-fence-kill-retry", daemon=True).start()
+        except RuntimeError:
+            _v2_fence_kill_sweep_lock.release()
+        return
+    for entry in pending:
+        name = str(entry.get("container_name") or "")
+        expected = str(entry.get("expected_attempt_id") or "") or None
+        with _v2_attempts_lock:
+            current = _v2_attempts.get(str(entry.get("job_id") or ""))
+            regained = bool(
+                current
+                and expected
+                and current.get("attempt_id") == expected
+                and current.get("container_name") == name
+            )
+        settled = regained or _v2_fence_kill(
+            str(entry.get("job_id") or ""),
+            str(entry.get("why") or "pending fence stop"),
+            name,
+            expected,
+        )
+        if settled:
+            with _v2_attempts_lock:
+                if _v2_pending_fence_kills.get(name) is entry:
+                    _v2_pending_fence_kills.pop(name, None)
+                    _v2_journal_save()
 
 
 # §11.3 local idempotency journal: authority records persisted across
@@ -2714,6 +2826,10 @@ _V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
 _v2_completed_commands: dict[str, dict] = {}
 _V2_CLEANUP_KEY = "__pending_cleanup__"
 _v2_cleanup_pending: dict[str, dict] = {}
+_V2_FENCE_KILLS_KEY = "__pending_fence_kills__"
+_v2_pending_fence_kills: dict[str, dict] = {}
+_v2_fence_kill_sweep_lock = threading.Lock()
+_v2_starts_in_progress: set[str] = set()
 _v2_resources_lock = threading.RLock()
 _v2_cleanup_sweep_lock = threading.Lock()
 
@@ -2921,6 +3037,10 @@ def _v2_journal_save() -> bool:
                 }
                 for attempt_id, auth in _v2_cleanup_pending.items()
             }
+        if _v2_pending_fence_kills:
+            snapshot[_V2_FENCE_KILLS_KEY] = {
+                name: dict(entry) for name, entry in _v2_pending_fence_kills.items()
+            }
         temporary = None
         try:
             import tempfile
@@ -2950,7 +3070,7 @@ def _v2_journal_save() -> bool:
 
 
 def _v2_journal_load() -> dict:
-    global _v2_completed_commands, _v2_cleanup_pending
+    global _v2_completed_commands, _v2_cleanup_pending, _v2_pending_fence_kills
     try:
         with open(_V2_JOURNAL_PATH) as fh:
             data = json.load(fh)
@@ -2958,7 +3078,17 @@ def _v2_journal_load() -> dict:
             return {}
         raw_completed = data.pop(_V2_COMPLETED_COMMANDS_KEY, {})
         raw_cleanup = data.pop(_V2_CLEANUP_KEY, {})
+        raw_kills = data.pop(_V2_FENCE_KILLS_KEY, {})
         with _v2_attempts_lock:
+            _v2_pending_fence_kills = (
+                {
+                    str(name): dict(entry)
+                    for name, entry in raw_kills.items()
+                    if isinstance(entry, dict) and entry.get("container_name") == name
+                }
+                if isinstance(raw_kills, dict)
+                else {}
+            )
             _v2_cleanup_pending = (
                 {str(k): dict(v) for k, v in raw_cleanup.items() if isinstance(v, dict)}
                 if isinstance(raw_cleanup, dict)
@@ -3369,6 +3499,7 @@ def v2_adopt_attempts() -> int:
             else:
                 _v2_forget_attempt(job_id, auth)
     _v2_retry_resource_cleanup()
+    _v2_retry_fence_kills()
     _v2_journal_save()
     return adopted
 
@@ -3499,6 +3630,32 @@ def compute_spec_hash(spec: dict) -> str:
 
 
 def handle_start_attempt(cmd: dict) -> None:
+    """Run one start_attempt delivery unless this process already is.
+
+    A command redelivered while its first delivery is still between lease
+    claim and ACK must not claim again: the API replays a same-session claim,
+    so a second handler would start a second container for one attempt. The
+    running handler owns the ACK or NACK.
+    """
+    args = cmd.get("args") or {}
+    attempt_id = str(cmd.get("attempt_id") or args.get("attempt_id") or "")
+    with _v2_attempts_lock:
+        duplicate = bool(attempt_id) and attempt_id in _v2_starts_in_progress
+        if attempt_id and not duplicate:
+            _v2_starts_in_progress.add(attempt_id)
+    if duplicate:
+        log.warning(
+            "start_attempt redelivered while attempt %s is starting; ignoring", attempt_id[:8]
+        )
+        return
+    try:
+        _handle_start_attempt(cmd)
+    finally:
+        with _v2_attempts_lock:
+            _v2_starts_in_progress.discard(attempt_id)
+
+
+def _handle_start_attempt(cmd: dict) -> None:
     """Execute one fenced start_attempt command (thread body).
 
     Order is the whole point: lease claim FIRST (abort on rejection —
@@ -3974,6 +4131,7 @@ def report_observations_v2(force: bool = False) -> bool:
         return False
     _resume_pending_log_delivery()
     _v2_retry_resource_cleanup(background=True)
+    _v2_retry_fence_kills(background=True)
     now = time.monotonic()
     if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
         return False

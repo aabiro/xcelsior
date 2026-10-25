@@ -139,6 +139,18 @@ def claim_lease(
             "fence": fencing_token,
         },
     ).fetchone()
+    replayed = False
+    if row is None:
+        row = _replayable_claim(
+            conn,
+            lease_id=lease_id,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            host_id=host_id,
+            fencing_token=fencing_token,
+            worker_session_id=worker_session_id,
+        )
+        replayed = row is not None
     if row is None:
         raise LeaseClaimRejected(
             _diagnose_claim_failure(conn, lease_id, host_id, fencing_token),
@@ -179,16 +191,17 @@ def claim_lease(
         or len(set(uuids)) != len(uuids)
     ):
         raise LeaseClaimRejected("gpu_allocation_authority_missing")
-    from control_plane.attempts import report_attempt_status
+    if not replayed:
+        from control_plane.attempts import report_attempt_status
 
-    report_attempt_status(
-        conn,
-        job_id=job_id,
-        attempt_id=attempt_id,
-        host_id=host_id,
-        fencing_token=fencing_token,
-        status="lease_claimed",
-    )
+        report_attempt_status(
+            conn,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            host_id=host_id,
+            fencing_token=fencing_token,
+            status="lease_claimed",
+        )
     return LeaseGrant(
         lease_id=lease_id,
         job_id=job_id,
@@ -199,6 +212,61 @@ def claim_lease(
         renewal_ttl_sec=int(_get(row, "renewal_ttl_sec", 1)),
         gpu_device_uuids=uuids,
     )
+
+
+def _replayable_claim(
+    conn: Connection,
+    *,
+    lease_id: str,
+    job_id: str,
+    attempt_id: str,
+    host_id: str,
+    fencing_token: int,
+    worker_session_id: str,
+) -> Any:
+    """The committed claim a lost response hid from its own worker session.
+
+    A claim whose HTTP response is lost leaves the lease active with no
+    container behind it; refusing the retry would hold the reserved GPUs
+    until the lease expires. The same session may receive the grant again,
+    but only while the attempt has done nothing since the claim — any
+    progress (starting, running, terminal) means the original response
+    arrived and a second grant could start a second container.
+    """
+    if not worker_session_id:
+        return None
+    return conn.execute(
+        """
+        SELECT l.expires_at, l.renewal_ttl_sec
+          FROM placement_leases l
+          JOIN jobs j ON j.job_id = l.job_id
+                     AND j.active_attempt_id = l.attempt_id
+                     AND j.host_id = l.host_id
+          JOIN job_attempts a ON a.attempt_id = l.attempt_id
+                             AND a.fencing_token = l.fencing_token
+         WHERE l.lease_id = %(lease_id)s
+           AND l.job_id = %(job_id)s
+           AND l.attempt_id = %(attempt_id)s
+           AND l.host_id = %(host_id)s
+           AND l.fencing_token = %(fence)s
+           AND l.status = 'active'
+           AND l.expires_at > clock_timestamp()
+           AND l.last_worker_session_id = %(session)s
+           AND a.status = 'lease_claimed'
+           AND j.spec->>'execution_spec_version' = 'v1'
+           AND j.spec_hash = a.spec_hash
+           AND j.generation = a.job_generation
+           FOR UPDATE OF l
+        """,
+        {
+            "session": worker_session_id,
+            "lease_id": lease_id,
+            "job_id": job_id,
+            "attempt_id": attempt_id,
+            "host_id": host_id,
+            "fence": fencing_token,
+        },
+    ).fetchone()
 
 
 def _diagnose_claim_failure(
