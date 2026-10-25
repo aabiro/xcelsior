@@ -77,8 +77,8 @@ def _mk_host(
         # host. payload.admitted is kept only because callers assert on it.
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  admission_state, administrative_state, availability_state)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                                  admission_state, administrative_state, availability_state, capabilities)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, '{"egress_isolation":true}')""",
             (
                 host_id,
                 status,

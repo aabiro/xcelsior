@@ -47,6 +47,11 @@ def placed(request):
                         "admitted": True,
                         "last_seen": time.time(),
                         "capabilities": {"egress_isolation": True},
+                        **(
+                            {"spot_enabled": True, "spot_gpu_slots": inputs.get("num_gpus", 1)}
+                            if inputs.get("pricing_mode") == "spot"
+                            else {}
+                        ),
                     }
                 ),
             ),
