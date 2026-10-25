@@ -95,10 +95,17 @@ def read_fleet(conn: Connection, *, host_freshness_timeout_sec: int = 300) -> Sc
         raise RuntimeError("database time unavailable")
     taken_at, now_epoch = _get(now, "now_ts", 0), float(_get(now, "now_epoch", 1))
     # ── Active device allocations, independent of compatibility status ──
-    usage_rows = conn.execute("""SELECT host_id,count(DISTINCT gpu_device_id) AS allocated_gpus
-        FROM gpu_device_allocations WHERE released_at IS NULL GROUP BY host_id""").fetchall()
+    usage_rows = conn.execute(
+        """SELECT a.host_id,count(DISTINCT a.gpu_device_id) AS allocated_gpus,
+        count(DISTINCT a.gpu_device_id) FILTER (WHERE j.spec->>'pricing_mode'='spot') AS spot_gpus
+        FROM gpu_device_allocations a JOIN job_attempts t ON t.attempt_id=a.attempt_id
+        JOIN jobs j ON j.job_id=t.job_id WHERE a.released_at IS NULL GROUP BY a.host_id"""
+    ).fetchall()
     gpus_used = {
         str(_get(row, "host_id", 0)): int(_get(row, "allocated_gpus", 1)) for row in usage_rows
+    }
+    spot_gpus_used = {
+        str(_get(row, "host_id", 0)): int(_get(row, "spot_gpus", 2)) for row in usage_rows
     }
 
     # ── Host fleet: payload merged with control-plane columns ─────────
@@ -126,6 +133,7 @@ def read_fleet(conn: Connection, *, host_freshness_timeout_sec: int = 300) -> Sc
 
         gpu_count = max(1, int(host.get("gpu_count", 1) or 1))
         host["free_gpu_count"] = max(0, gpu_count - gpus_used.get(host_id, 0))
+        host["active_spot_gpu_count"] = spot_gpus_used.get(host_id, 0)
 
         last_seen = host.get("last_seen")
         if isinstance(last_seen, (int, float)) and last_seen > 0:

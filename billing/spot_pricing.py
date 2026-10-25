@@ -7,6 +7,7 @@ are combined here. History is persisted to spot_price_history (PostgreSQL).
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from collections import defaultdict
@@ -317,6 +318,7 @@ def compute_live_spot_quote(
     *,
     supply: int | None = None,
     demand: int | None = None,
+    require_catalog: bool = False,
 ) -> SpotQuote:
     """Compute a live spot quote for one GPU model."""
     gpu_model = _canonical_gpu_model(gpu_model)
@@ -324,11 +326,16 @@ def compute_live_spot_quote(
         supply, demand = get_supply_demand(gpu_model)
 
     on_demand_cad = get_platform_on_demand_base(gpu_model, tier=tier)
+    spot_base = get_platform_spot_base(gpu_model, tier=tier)
+    if require_catalog and any(
+        value is None or isinstance(value, bool) or not math.isfinite(value) or value <= 0
+        for value in (on_demand_cad, spot_base)
+    ):
+        raise ValueError("Spot admission requires active catalog prices")
     host_mins = _host_min_cost_by_gpu()
     if on_demand_cad is None:
         on_demand_cad = host_mins.get(gpu_model, 0.20)
 
-    spot_base = get_platform_spot_base(gpu_model, tier=tier)
     if spot_base is None:
         spot_base = round(on_demand_cad * 0.4, 4)
 

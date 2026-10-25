@@ -1,0 +1,20 @@
+{
+  "database": "xcelsior",
+  "port": 5434,
+  "read_only": true,
+  "collected_at": "2026-10-25T10:00:39.381293+00:00",
+  "complete": true,
+  "invoice_disposition_preflight": {
+    "total": 201386,
+    "empty_zero_cad_drafts_before_qualified_snapshot": 201301,
+    "record_set_sha256": "34afeca1c8173d7446934aa2bee28c678dfc563012e43a08b948a35913bceec4",
+    "incoming_foreign_keys": 0,
+    "rows_changed": 0,
+    "disposition_executed": false,
+    "qualification": "draft+CAD+empty_lines+zero_native_money+no_notes+known_created_before_snapshot"
+  },
+  "physical_tables": 177,
+  "columns": 2077,
+  "nonempty_tables": 93,
+  "table_scan_errors": 0
+}

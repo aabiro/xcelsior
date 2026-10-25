@@ -883,7 +883,7 @@ def api_submit_instance(j: JobIn, request: Request):
                     j.placement_preference.model_dump() if j.placement_preference else None
                 ),
             )
-        except Exception:
+        except Exception as exc:
             if hold_id:
                 try:
                     from billing import get_billing_engine
@@ -891,6 +891,10 @@ def api_submit_instance(j: JobIn, request: Request):
                     get_billing_engine().release_wallet_hold(hold_id, reason="launch_submit_failed")
                 except Exception:
                     pass
+            from control_plane.spot_admission import SpotAdmissionRejected
+
+            if isinstance(exc, SpotAdmissionRejected):
+                raise HTTPException(409, detail=str(exc)) from exc
             raise
 
         if hold_id:

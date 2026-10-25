@@ -276,6 +276,29 @@ def reserve_and_bind(
     ).fetchall()
     if not devices:
         raise CapacityConflict(f"host {host_id} has no registered GPU devices", host_id=host_id)
+    # Spot capacity is revalidated while holding the host/device locks. Native
+    # allocations, including unclaimed reservations, consume the pool; a raw
+    # compatibility status cannot release that capacity.
+    if spec.get("pricing_mode") == "spot":
+        from control_plane.scheduler.filters import FilterContext, spot_capacity
+        import json
+
+        policy = _one(host, "payload", 3)
+        policy = policy if isinstance(policy, dict) else json.loads(policy or "{}")
+        spot_used = conn.execute(
+            """SELECT count(DISTINCT a.gpu_device_id) FROM gpu_device_allocations a
+            JOIN job_attempts t ON t.attempt_id=a.attempt_id JOIN jobs j ON j.job_id=t.job_id
+            WHERE a.host_id=%s AND a.released_at IS NULL AND j.spec->>'pricing_mode'='spot'""",
+            (host_id,),
+        ).fetchone()[0]
+        reason = spot_capacity(
+            spec,
+            {**policy, "gpu_count": len(devices), "active_spot_gpu_count": spot_used},
+            FilterContext(),
+        )
+        if reason is not None:
+            raise HostNotEligible(reason.message, spot_policy_reason=reason.code)
+
     allocated = {
         str(_one(row, "gpu_device_id", 0))
         for row in conn.execute(
