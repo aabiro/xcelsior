@@ -68,7 +68,8 @@ def native(request):
         conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (owner, jid))
         admit_fixture_job(conn, jid)
         conn.execute(
-            "INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state) VALUES(%s,'active',%s,%s,'admitted','ready','admitted')",
+            """INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state,capabilities)
+               VALUES(%s,'active',%s,%s,'admitted','ready','admitted','{"egress_isolation":true}')""",
             (hid, time.time(), Jsonb({"admitted": True, "cost_per_hour": 3.6})),
         )
         conn.execute(

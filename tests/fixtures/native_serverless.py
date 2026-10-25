@@ -46,7 +46,7 @@ def running_serverless(repo, endpoint_id, *, age_sec=130):
             admit_fixture_job(conn, job_id)
             conn.execute(
                 """INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,
-              availability_state,admission_state) VALUES(%s,'active',%s,%s,'admitted','ready','admitted')""",
+              availability_state,admission_state,capabilities) VALUES(%s,'active',%s,%s,'admitted','ready','admitted','{"egress_isolation":true}')""",
                 (host_id, time.time(), Jsonb({"admitted": True, "cost_per_hour": 0})),
             )
             for index in range(endpoint["gpu_count"]):
