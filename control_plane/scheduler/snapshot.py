@@ -104,7 +104,8 @@ def read_fleet(conn: Connection, *, host_freshness_timeout_sec: int = 300) -> Sc
     # ── Host fleet: payload merged with control-plane columns ─────────
     host_rows = conn.execute("""
         SELECT host_id, status, payload,
-               administrative_state, availability_state, inventory_generation
+               administrative_state, availability_state, inventory_generation,
+               region, country, province, capabilities
           FROM hosts
         """).fetchall()
     hosts: list[dict[str, Any]] = []
@@ -123,6 +124,11 @@ def read_fleet(conn: Connection, *, host_freshness_timeout_sec: int = 300) -> Sc
         if availability:
             host["availability_state"] = availability
         host["inventory_generation"] = int(_get(row, "inventory_generation", 5) or 0)
+        # Placement must see the same normalized facts as admission and API
+        # reads. A mutable payload alias cannot move the host or grant egress.
+        for field_name, index in (("region", 6), ("country", 7), ("province", 8)):
+            host[field_name] = _get(row, field_name, index)
+        host["capabilities"] = _decode(_get(row, "capabilities", 9))
 
         gpu_count = max(1, int(host.get("gpu_count", 1) or 1))
         host["free_gpu_count"] = max(0, gpu_count - gpus_used.get(host_id, 0))
