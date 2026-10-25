@@ -92,8 +92,8 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
                                   administrative_state, availability_state,
-                                  inventory_generation, admission_state)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted')""",
+                                  inventory_generation, admission_state, capabilities)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted', '{"egress_isolation":true}')""",
             (
                 host_id,
                 time.time(),
