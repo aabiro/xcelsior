@@ -542,6 +542,7 @@ def build_secure_docker_args(
     labels=None,
     command=None,
     interactive=False,
+    gpu_device_uuids=None,
 ):
     """Build Docker run arguments with defense-in-depth security.
 
@@ -555,7 +556,7 @@ def build_secure_docker_args(
     - Memory limits
     - Optional gVisor runtime (runsc)
     - Optional GPU access (--gpus, not --privileged)
-    - Multi-GPU support (specific device selection)
+    - Fenced physical GPU UUID selection
     - Interactive mode: writable filesystem for SSH/dev use
     """
     args = ["docker", "run", "-d"]
@@ -609,12 +610,23 @@ def build_secure_docker_args(
 
     # GPU access (via --gpus, NOT --privileged)
     if gpu:
-        if num_gpus > 1:
-            # Multi-GPU: specify exact device indices
-            devices = ",".join(str(i) for i in range(num_gpus))
-            args.extend(["--gpus", f'"device={devices}"'])
-        else:
-            args.extend(["--gpus", "all"])
+        if (
+            not isinstance(gpu_device_uuids, (list, tuple))
+            or not 1 <= len(gpu_device_uuids) <= 64
+            or any(
+                not isinstance(u, str) or not re.fullmatch(r"GPU-[A-Za-z0-9-]{1,100}", u)
+                for u in gpu_device_uuids
+            )
+            or len(set(gpu_device_uuids)) != len(gpu_device_uuids)
+            or type(num_gpus) is not int
+            or num_gpus not in (0, len(gpu_device_uuids))
+        ):
+            raise ValueError("GPU access requires the exact reserved physical GPU UUIDs")
+        devices = ",".join(gpu_device_uuids)
+        # Docker parses this value as CSV even when invoked without a shell.
+        args.extend(["--gpus", f'"device={devices}"'])
+        environment = dict(environment or {})
+        environment["NVIDIA_VISIBLE_DEVICES"] = devices
 
     # Sandboxed runtime (gVisor)
     if runtime and runtime != "runc":
