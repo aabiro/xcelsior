@@ -125,9 +125,14 @@ def _place_queue():
     trigger placement explicitly here (the same `process_queue` the tick runs),
     instead of relying on the request handler to schedule inline.
     """
-    from scheduler import process_queue
+    from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+    from control_plane.scheduler.service import SchedulerService
 
-    return process_queue()
+    report = SchedulerService(
+        SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="api-test-scheduler")
+    ).tick()
+    hosts = {h["host_id"]: h for h in scheduler.list_hosts()}
+    return [(scheduler.get_job(r.job_id), hosts[r.host_id]) for r in report.placements]
 
 
 def _submit_and_place(name="llama3", vram=16, **extra):
@@ -694,21 +699,17 @@ class TestJobEndpoints:
         assert r.status_code == 410
         assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "queued"
 
-    def test_process_queue(self):
+    def test_inline_queue_endpoint_is_retired(self):
         _register_host("h1", versions=GOOD_VERSIONS)
         _authoritatively_admit("h1")
-        # B2.6: submit only enqueues; placement is the scheduler's job.
-        r = _submit_job("llama3", 16)
-        assert r.status_code == 200
-        assert r.json()["instance"]["status"] == "queued"
-        # First pass claims and assigns the queued job …
-        r1 = client.post("/queue/process")
-        assert r1.status_code == 200
-        assert len(r1.json()["assigned"]) == 1
-        # … a second pass has nothing left to assign.
-        r2 = client.post("/queue/process")
-        assert r2.status_code == 200
-        assert len(r2.json()["assigned"]) == 0
+        response = _submit_job("llama3", 16)
+        assert response.status_code == 200
+        job_id = response.json()["instance"]["job_id"]
+        response = client.post("/queue/process")
+        assert response.status_code == 410
+        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "queued"
+        assert len(_place_queue()) == 1
+        assert _place_queue() == []
 
     def test_submit_multi_gpu_job(self):
         """Multi-GPU job support (num_gpus > 1)."""

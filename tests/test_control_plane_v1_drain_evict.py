@@ -101,26 +101,92 @@ def _register_host(host_id: str, ip: str = "10.9.0.1") -> None:
     _OWNED["hosts"].add(host_id)
 
 
-def _running_job_on(host_id: str, headers: dict) -> str:
-    """Submit, place, and drive a job to running on *host_id*; return job_id."""
-    from scheduler import process_queue
+def _running_job_on(host_id: str, headers: dict, *, native=True) -> str:
+    """Submit and execute the native protocol, or explicitly seed retained history."""
+    from db import _get_pg_pool
+    from tests._db_helpers import admit_test_host
+    from control_plane.db import run_transaction
+    from control_plane.observations import ingest_observation
+    from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+    from control_plane.scheduler.service import SchedulerService
 
-    sub = client.post(
-        "/instance",
-        json={"name": f"drain-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8},
-        headers=headers,
-    )
+    admit_test_host(host_id, active=True)
+    from unittest.mock import patch
+
+    with patch("security.probe_image_exists", return_value=None):
+        sub = client.post(
+            "/instance",
+            json={
+                "name": f"drain-{uuid.uuid4().hex[:6]}",
+                "vram_needed_gb": 8,
+                "host_id": host_id,
+                "gpu_model": "RTX 4090",
+                "image": "nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+                "tier": "urgent",
+            },
+            headers=headers,
+        )
     assert sub.status_code == 200, sub.text
     job_id = sub.json()["instance"]["job_id"]
     _OWNED["jobs"].add(job_id)
-    process_queue()
-    client.patch(
-        f"/instance/{job_id}",
-        json={"status": "running", "host_id": host_id},
-        headers=_platform_headers(),
+    if not native:
+        with _get_pg_pool().connection() as conn:
+            conn.execute(
+                "UPDATE jobs SET status='running',phase='running',host_id=%s WHERE job_id=%s",
+                (host_id, job_id),
+            )
+        return job_id
+    run_transaction(
+        lambda conn: ingest_observation(
+            conn,
+            host_id=host_id,
+            session_id="native-drain-" + host_id,
+            observation_generation=1,
+            workloads=[],
+            capabilities={"egress_isolation": True},
+            gpu_inventory=[
+                {
+                    "gpu_uuid": "GPU-" + host_id,
+                    "device_index": 0,
+                    "model": "RTX 4090",
+                    "total_vram_mb": 24576,
+                    "allocatable_vram_mb": 24576,
+                    "health": "healthy",
+                }
+            ],
+        )
     )
-    detail = client.get(f"/instance/{job_id}").json()["instance"]
-    assert detail["status"] == "running", detail
+    report = SchedulerService(
+        SchedulerConfig(
+            mode=SchedulerMode.CANARY,
+            replica_id=job_id,
+            canary_gpu_models=frozenset({"rtx 4090"}),
+            canary_host_ids=frozenset({host_id}),
+        )
+    ).tick()
+    reserved = next(r for r in report.placements if r.job_id == job_id)
+    authority = {
+        key: getattr(reserved, key) for key in ["job_id", "attempt_id", "host_id", "fencing_token"]
+    }
+    response = client.post(
+        "/agent/v2/leases/claim",
+        headers=_platform_headers(),
+        json={
+            **authority,
+            "lease_id": reserved.lease_id,
+            "worker_session_id": "native-drain-" + host_id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    response = client.post(
+        "/agent/v2/attempts/status",
+        headers=_platform_headers(),
+        json={**authority, "status": "running"},
+    )
+    assert response.status_code == 200, response.text
+    assert (
+        client.get(f"/instance/{job_id}", headers=headers).json()["instance"]["status"] == "running"
+    )
     return job_id
 
 
@@ -172,7 +238,7 @@ def test_eviction_plan_refuses_workload_without_native_authority():
     admin = _admin_headers(f"evict-plan-{uuid.uuid4().hex[:6]}@xcelsior.ca")
     host_id = f"cpv1-plan-{uuid.uuid4().hex[:6]}"
     _register_host(host_id)
-    job_id = _running_job_on(host_id, admin)
+    job_id = _running_job_on(host_id, admin, native=False)
     assert client.post(f"/api/v1/hosts/{host_id}/drain", headers=admin, json={}).status_code == 200
     with _get_pg_pool().connection() as conn:
         version = int(
@@ -391,18 +457,30 @@ def test_instance_attempts_and_placement_explanation_tenant_scoped():
         assert r.status_code == 404 and r.json()["code"] == "instance_not_found"
 
 
-def test_instance_retry_requeues_a_running_job():
+def test_raw_instance_retry_cannot_discard_running_native_authority():
     owner = _admin_headers(f"retry-owner-{uuid.uuid4().hex[:6]}@xcelsior.ca")
     host_id = f"cpv1-retry-{uuid.uuid4().hex[:6]}"
     _register_host(host_id)
     job_id = _running_job_on(host_id, owner)
+    from db import _get_pg_pool
 
-    r = client.post(f"/api/v1/instances/{job_id}/retry", headers=owner)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "queued"
-    # Retrying an already-queued instance is a typed 409.
-    again = client.post(f"/api/v1/instances/{job_id}/retry", headers=owner)
-    assert again.status_code == 409 and again.json()["code"] == "already_queued"
+    with _get_pg_pool().connection() as conn:
+        before = conn.execute(
+            "SELECT active_attempt_id,generation FROM jobs WHERE job_id=%s", (job_id,)
+        ).fetchone()
+    response = client.post(f"/api/v1/instances/{job_id}/retry", headers=owner)
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "retry_failed"
+    with _get_pg_pool().connection() as conn:
+        assert (
+            conn.execute(
+                "SELECT active_attempt_id,generation FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone()
+            == before
+        )
+    assert (
+        client.get(f"/instance/{job_id}", headers=owner).json()["instance"]["status"] == "running"
+    )
 
 
 def test_instance_reconcile_enqueues_never_repairs():

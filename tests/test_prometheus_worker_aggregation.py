@@ -139,7 +139,7 @@ def test_http_scrape_keeps_requests_from_exited_workers(tmp_path, kill_before_sc
         "histogram_sum": 7,
         "callback": 42,
         "work_retired": 1,
-        "status_retired": 0,
+        "status_retired": 1,
         "aggregation": 1,
     }
 

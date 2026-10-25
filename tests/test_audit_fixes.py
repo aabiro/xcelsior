@@ -161,11 +161,11 @@ class TestThrottleEviction:
         assert "old" not in scheduler._job_error_notified
         assert "recent" in scheduler._job_error_notified
 
-    def test_process_queue_calls_eviction(self):
+    def test_throttle_pruning_does_not_require_a_queue_walker(self):
         old = time.time() - 7200
         scheduler._job_error_notified["stale-entry"] = old
 
-        scheduler.process_queue_binpack()
+        scheduler._evict_stale_throttles()
 
         assert "stale-entry" not in scheduler._job_error_notified
 
