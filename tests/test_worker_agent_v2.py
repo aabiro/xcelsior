@@ -81,7 +81,11 @@ class TestHardLeaseGate:
             mock.patch.object(
                 worker_agent,
                 "v2_claim_lease_fenced",
-                return_value={"renewal_ttl_sec": 300, "callback_token": "xsw_scoped-proof"},
+                return_value={
+                    "renewal_ttl_sec": 300,
+                    "callback_token": "xsw_scoped-proof",
+                    "gpu_device_uuids": ["GPU-test-1"],
+                },
             ),
             mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(journal)),
             mock.patch.object(worker_agent, "_v2_attempts", {}),
@@ -174,6 +178,7 @@ class TestHardLeaseGate:
                         "attempt_id": "att-1",
                         "fencing_token": 7,
                         "renewal_ttl_sec": 300,
+                        "gpu_device_uuids": ["GPU-test-1"],
                     },
                 )
             return _resp(200, {"ok": True})
@@ -234,7 +239,7 @@ class TestHardLeaseGate:
             mock.patch.object(
                 worker_agent,
                 "v2_claim_lease_fenced",
-                return_value={"renewal_ttl_sec": 300},
+                return_value={"renewal_ttl_sec": 300, "gpu_device_uuids": ["GPU-test-1"]},
             ),
             mock.patch.object(worker_agent, "v2_report_attempt_status", return_value="fenced"),
             mock.patch.object(worker_agent, "v2_nack_command") as nack,

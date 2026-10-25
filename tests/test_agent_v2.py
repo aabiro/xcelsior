@@ -105,6 +105,18 @@ def _place_one(fleet, marker, *, owner=None):
             """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}')""",
             (host_id, time.time(), json.dumps(host_payload)),
         )
+        from control_plane.physical_inventory import sync_physical_inventory
+
+        sync_physical_inventory(
+            conn,
+            host_id=host_id,
+            inventory=[
+                dict(
+                    gpu_uuid=f"GPU-{host_id}-{i}", device_index=i, model=model, total_vram_mb=49152
+                )
+                for i in range(2)
+            ],
+        )
         fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, owner_id, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'queued', 0, %s, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",

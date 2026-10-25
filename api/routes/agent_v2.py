@@ -49,6 +49,7 @@ FEATURES = (
     "commands.host_claim_ack",
     "commands.session_fencing",
     "attempts.runtime_metadata",
+    "leases.gpu_device_binding",
 )
 
 
@@ -261,6 +262,7 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request, response: R
         "fencing_token": grant.fencing_token,
         "expires_at": str(grant.expires_at),
         "renewal_ttl_sec": grant.renewal_ttl_sec,
+        "gpu_device_uuids": list(grant.gpu_device_uuids),
         **({"callback_token": callback_token} if callback_token else {}),
         **environment,
     }
