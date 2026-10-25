@@ -52,12 +52,11 @@ JOB = {"gpu_model": None, "num_gpus": 1, "vram_needed_gb": 8, "region": None}
 def _insert_host(
     conn, host_id, *, admission="admitted", status="active", vram=24.0, cost=0.20, last_seen=None
 ):
-    # `admission_state`, not `administrative_state`: a BEFORE trigger derives
-    # the latter, so writing it directly is silently overwritten.
+    # Explicit trusted fixture authority; no projection trigger supplies it.
     conn.execute(
         """INSERT INTO hosts (host_id, status, registered_at, payload,
-                              admission_state, admitted_at, administrative_state, availability_state)
-           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s)""",
+                              admission_state, admitted_at, administrative_state, availability_state, capabilities)
+           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s, '{"egress_isolation":true}')""",
         (
             host_id,
             status,
@@ -130,9 +129,8 @@ def test_a_never_admitted_host_cannot_be_reached_by_migrating_to_it(hosts):
 def test_a_host_that_lost_admission_after_launch_is_refused(hosts):
     """The check is against **current** state, not the state at launch.
 
-    This is why re-running the gate is not decorative: `administrative_state` is
-    recomputed by a trigger, so a host drained or disabled since the job started
-    genuinely answers differently now.
+    Native administrative state records revocation independently of payload
+    observations, so the target is no longer eligible after the decision.
     """
     with pg_transaction() as conn:
         assert not isinstance(
