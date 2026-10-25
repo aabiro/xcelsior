@@ -119,6 +119,77 @@ def test_a_fully_wired_override_is_left_byte_for_byte():
     assert updated == PROD_SHAPE
 
 
+JSON_WIRED = """\
+{
+  "services": {
+    "api": {
+      "environment": {
+        "XCELSIOR_POSTGRES_DSN": "postgres://example",
+        "XCELSIOR_SPIRE_SERVER_CMD": "${XCELSIOR_SPIRE_SERVER_CMD:-}",
+        "XCELSIOR_SPIRE_SERVER_SOCKET": "${XCELSIOR_SPIRE_SERVER_SOCKET:-}",
+        "XCELSIOR_SPIRE_SERVER_ADDRESS": "${XCELSIOR_SPIRE_SERVER_ADDRESS:-}",
+        "XCELSIOR_SPIRE_SERVER_PORT": "${XCELSIOR_SPIRE_SERVER_PORT:-8095}",
+        "XCELSIOR_HEADSCALE_URL": "${XCELSIOR_HEADSCALE_URL:-}",
+        "XCELSIOR_HEADSCALE_API_KEY": "${XCELSIOR_HEADSCALE_API_KEY:-}",
+        "XCELSIOR_HEADSCALE_USER_ID": "${XCELSIOR_HEADSCALE_USER_ID:-}"
+      },
+      "volumes": [
+        "/var/lib/xcelsior-spire/sock:/run/xcelsior-spire",
+        "/usr/local/lib/xcelsior/spire-server:/usr/local/bin/spire-server:ro"
+      ]
+    },
+    "api-blue": {
+      "environment": {
+        "XCELSIOR_POSTGRES_DSN": "postgres://blue",
+        "XCELSIOR_SPIRE_SERVER_CMD": "${XCELSIOR_SPIRE_SERVER_CMD:-}",
+        "XCELSIOR_SPIRE_SERVER_SOCKET": "${XCELSIOR_SPIRE_SERVER_SOCKET:-}",
+        "XCELSIOR_SPIRE_SERVER_ADDRESS": "${XCELSIOR_SPIRE_SERVER_ADDRESS:-}",
+        "XCELSIOR_SPIRE_SERVER_PORT": "${XCELSIOR_SPIRE_SERVER_PORT:-8095}",
+        "XCELSIOR_HEADSCALE_URL": "${XCELSIOR_HEADSCALE_URL:-}",
+        "XCELSIOR_HEADSCALE_API_KEY": "${XCELSIOR_HEADSCALE_API_KEY:-}",
+        "XCELSIOR_HEADSCALE_USER_ID": "${XCELSIOR_HEADSCALE_USER_ID:-}"
+      },
+      "volumes": [
+        "/var/lib/xcelsior-spire/sock:/run/xcelsior-spire",
+        "/usr/local/lib/xcelsior/spire-server:/usr/local/bin/spire-server:ro"
+      ]
+    }
+  }
+}
+"""
+
+
+def test_json_override_already_wired_is_left_unchanged():
+    updated, touched = mod.patch_override(JSON_WIRED)
+    assert touched == []
+    assert updated == JSON_WIRED
+
+
+def test_json_override_gains_the_missing_slot_and_keeps_its_dsn():
+    text = """\
+{
+  "services": {
+    "api": {
+      "environment": {"XCELSIOR_POSTGRES_DSN": "postgres://example"},
+      "volumes": []
+    },
+    "scheduler-worker": {
+      "environment": {"XCELSIOR_POSTGRES_DSN": "postgres://scheduler"}
+    }
+  }
+}
+"""
+    updated, touched = mod.patch_override(text)
+    assert touched == ["api", "api-blue"]
+    services = _services(updated)
+    _wired(services["api"])
+    _wired(services["api-blue"])
+    assert services["api"]["environment"]["XCELSIOR_POSTGRES_DSN"] == "postgres://example"
+    assert services["scheduler-worker"]["environment"] == {
+        "XCELSIOR_POSTGRES_DSN": "postgres://scheduler"
+    }
+
+
 def test_volume_lines_on_api_do_not_count_for_api_blue():
     updated, touched = mod.patch_override(API_ONLY)
     assert touched == ["api-blue"]
