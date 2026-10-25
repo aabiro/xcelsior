@@ -222,7 +222,7 @@ class TestDispatcherDelivery:
         job_id = f"j-{marker}-run"
         with _pool.connection() as conn:
             conn.execute(
-                """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
+                """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}')""",
                 (
                     host_id,
                     time.time(),
