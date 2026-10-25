@@ -310,15 +310,19 @@ of the last edit to this file.
 - [x] **A3.3 Lease expiry via fencing** — `expire_stale_leases` sweep:
   offered-past-deadline → attempt `failed` (`lease_claim_timeout`);
   active-past-renewal+grace → attempt `lost`; allocations released
-  exactly once, undelivered start command cancelled, job requeued with
-  durable reason; retry mints a higher fence and the old tuple fails the
-  fence gate (proven in tests). 15 lease tests. ✔
+  exactly once and undelivered start command cancelled. Work still desired
+  running is requeued with a durable reason and a higher fence; stop and
+  terminal intent survive expiry. Serverless scheduler jobs close so endpoint
+  reconciliation provisions a fresh worker. Gate:
+  `tests/test_control_plane_leases.py`, `tests/test_serverless_authority_loss.py`. ✔
 - [x] **A3.4 `worker_agent.py` hard gate (Track B boundary)** — Phase 5
   (see section below): `handle_start_attempt` claims the lease FIRST and
   aborts with a non-retryable NACK on rejection (container never starts);
   every attempt status report carries the full job/attempt/host/fence
   tuple; renewal rejection or a fenced status response = definitive
-  authority loss → `docker kill`. Fence on *telemetry* calls remains a
+  authority loss → request a stop of the exact attempt-labeled container.
+  Docker inspect/kill failures still need durable stop retry; this is not an
+  unconditional physical-stop guarantee. Fence on *telemetry* calls remains a
   Phase 5 follow-up (telemetry is diagnostic, not a state write). ✔
 
 ## Phase 5 — /agent/v2 fenced worker protocol
@@ -331,37 +335,41 @@ of the last edit to this file.
   + `active_attempt_id` cleared, outbox event) — all atomic. ✔
 - [x] **P5.2 `/agent/v2` routes** — `routes/agent_v2.py` (wired into
   `routes/__init__.py`): `negotiate/{host_id}` (rollout gate:
-  `XCELSIOR_AGENT_V2_HOSTS` csv or `*`), `commands/claim` (claim+ACK
-  delivery, attempt-bound commands only), `commands/{id}/ack|nack`
+  `XCELSIOR_AGENT_V2_HOSTS` csv or `*`), `commands/claim` (host/session-fenced
+  claim+ACK delivery for host commands and attempt commands), `commands/{id}/ack|nack`
   (once-only ACK with result replay; typed NACK → backoff or
   dead-letter), `leases/claim|renew|release` (claim = the §11.2 hard
   gate), `attempts/status` (fenced reports; 409 `fencing_violation` =
   stop your container). Error bodies follow the app's
   `{ok, error:{code}}` contract. ✔
-- [x] **P5.3 v1/v2 delivery partition** — v1 destructive drain
-  (`GET /agent/commands/{host}`) now excludes attempt-bound commands
-  (`attempt_id IS NULL` on GC + claim-delete): a legacy agent can no
-  longer destroy a v2 start command it doesn't understand. v2 claim
-  takes only attempt-bound commands. Proven by test. ✔
+- [x] **P5.3 Retired v1 execution transports** (updated 2026-10-25) —
+  destructive command drain, v1 work polling, raw instance status PATCH and
+  inline placement routes are authenticated permanent HTTP 410 tombstones.
+  Scheduler mode cannot re-enable them, and their execution bodies are removed.
+  Host commands and attempt commands use native fenced claim+ACK delivery.
+  Gates: `tests/test_native_transport_retirement.py`,
+  `tests/test_complete_worker_cutover.py`. ✔
 - [x] **P5.4 Worker v2 client + hard gate** — `worker_agent.py`:
-  explicit startup protocol negotiation (v1 only when the server authorizes
-  compatibility execution; negotiation errors wait and retry),
+  explicit complete-contract negotiation; errors or missing required features
+  wait and retry. Execution never downgrades to v1. It uses
   per-process `WORKER_SESSION_ID`, claim+ACK drain loop dispatching
   `start_attempt` (unknown commands NACK non-retryable). Order enforced:
   lease claim FIRST (abort on rejection — no container), then
   `lease_claimed` report, ACK (execution began; job outlives command
   claim TTL), renewal thread, then the existing `run_job` machinery.
-  The v1 `report_job_status` funnel mirrors every transition onto the
-  fenced attempt (single hook covers all of run_job's exit points);
-  fenced response or renewal rejection → `docker kill` (§11.5), with a
-  disconnected-grace window equal to the renewal TTL. ✔
-  Gate: 11 HTTP-level tests (`tests/test_agent_v2.py` — negotiation,
-  drain partition, ack replay, dead-letter, full lifecycle to terminal
-  settlement, wrong-fence everywhere, renewal-after-release, out-of-
-  order, failure recording) + 8 worker unit tests
-  (`tests/test_worker_agent_v2.py` — gate abort, ack-after-grant,
-  malformed NACK, status mirror, fence-loss kill, renewal 409 kill).
-  Affected suites 282 green; pyright clean.
+  `report_job_status` requires the exact local fenced authority for every
+  transition. Fenced responses or renewal rejection request an attempt-labeled
+  container stop (§11.5), with a disconnected-grace window equal to the renewal
+  TTL. Gates: `tests/test_agent_v2.py`, `tests/test_worker_agent_v2.py`,
+  `tests/test_worker_execution_boundary.py`, `tests/test_worker_claim_handoff.py`. ✔
+- **2026-10-25 GPU binding/start authority follow-up:** claim returns only the
+  exact reserved physical GPU UUIDs; the worker requires that negotiated
+  feature and passes those UUIDs to Docker, including an enforced
+  `NVIDIA_VISIBLE_DEVICES` override. Immediately before startup, renewal
+  rechecks running intent and the exact current authority; lost authority or
+  stop/restart intent prevents startup. Gates:
+  `tests/test_native_gpu_binding.py`, `tests/test_worker_execution_boundary.py`.
+  [Executed worker and GPU acceptance](review/2026-10-25-native-gpu-device-binding.md).
 - [x] **P5.5 Remaining Phase 5 hardening** — atomic local authority and
   command-result journal now survives restart, records pending terminal
   intent, and replays ACKs without repeating Docker side effects; restart
@@ -370,8 +378,8 @@ of the last edit to this file.
   attempt-specific names plus job/attempt/fence/spec-hash/managed labels;
   start commands verify the canonical spec hash before lease claim and do
   not re-enter the v1 lease loop. Fenced host observations are live (P6.1).
-  Legacy PATCH writes require the exact tuple and the central scheduler
-  writer independently rejects unattributed attempt-owned mutations under
+  Retired instance status PATCH writes return authenticated HTTP 410, and
+  the central scheduler writer independently rejects unattributed attempt-owned mutations under
   row lock. Billing stop and suspended-wallet paths enqueue a durable
   attempt command. **Terminate/cancel lifecycle controller landed
   (2026-07-18):** `control_plane/lifecycle.py` records
