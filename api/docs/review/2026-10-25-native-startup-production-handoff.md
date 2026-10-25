@@ -19,7 +19,10 @@ expected matrix result. It released the attempt, lease and GPU allocation. Acros
 five acceptance jobs, six usage meters, seven charged cycles and seven wallet
 debits agree at 57,400 micro-CAD, with zero ledger mismatches. Invoice preview and
 CSV agree with usage and do not create stored invoices. Public signed distribution,
-public status, MCP readiness, Prometheus and recovery-timer checks pass.
+public status, MCP readiness, Prometheus and recovery-timer checks pass. Native
+backup, direct-migrator restore drill and partition maintenance also executed
+successfully against b935d694; all three timers stay active/enabled and all
+fifteen retained prior backups remain present.
 
 The [sanitized receipt](2026-10-25-native-startup-production-receipt.json) records
 these source, image and runtime checks. The prior schema-141 full restore remains

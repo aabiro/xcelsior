@@ -173,5 +173,15 @@
     "preemption_and_force_enabled_policies": 0,
     "external_provider_transfer_tested": false,
     "source": "b935d694"
+  },
+  "native_recovery_execution": {
+    "passed": true,
+    "backup": true,
+    "restore_under_direct_migrator": true,
+    "partition_maintenance": true,
+    "timers_enabled_and_active": 3,
+    "production_port": 5434,
+    "source": "b935d694",
+    "prior_backups_preserved": 15
   }
 }
