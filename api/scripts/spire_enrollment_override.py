@@ -9,6 +9,7 @@ slot without the SPIRE socket or the `spire-server` binary.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -134,8 +135,69 @@ def _new_service(name: str) -> str:
     return f"  {name}:\n    environment:\n{env_body}    volumes:\n{vol_body}"
 
 
+def _patch_json(text: str) -> tuple[str, list[str]]:
+    """Production keeps this override as JSON. Compose accepts that form.
+
+    A YAML-only scan raises "no services: block" on `{ "services": ... }`
+    and stops the deploy before migration. Existing keys and mounts stay.
+    """
+    data = json.loads(text)
+    services = data.get("services") if isinstance(data, dict) else None
+    if not isinstance(services, dict):
+        raise SystemExit("override has no services: block")
+    touched: list[str] = []
+    for name in TARGETS:
+        service = services.get(name)
+        if not isinstance(service, dict):
+            service = {}
+            services[name] = service
+        changed = False
+        environment = service.get("environment")
+        if environment is None:
+            environment = {}
+            service["environment"] = environment
+        if isinstance(environment, dict):
+            for line in ENV_LINES:
+                key, value = line.split(":", 1)
+                key = key.strip()
+                if key not in environment:
+                    environment[key] = value.strip()
+                    changed = True
+        elif isinstance(environment, list):
+            present = {
+                item.split("=", 1)[0]
+                for item in environment
+                if isinstance(item, str) and "=" in item
+            }
+            for line in ENV_LINES:
+                key, value = line.split(":", 1)
+                key = key.strip()
+                if key not in present:
+                    environment.append(f"{key}={value.strip()}")
+                    changed = True
+        else:
+            raise SystemExit(f"override service {name} environment is not a map or list")
+        volumes = service.get("volumes")
+        if volumes is None:
+            volumes = []
+            service["volumes"] = volumes
+        if not isinstance(volumes, list):
+            raise SystemExit(f"override service {name} volumes is not a list")
+        for mount in VOL_LINES:
+            if mount not in volumes:
+                volumes.append(mount)
+                changed = True
+        if changed:
+            touched.append(name)
+    if not touched:
+        return text, []
+    return json.dumps(data, indent=2) + "\n", touched
+
+
 def patch_override(text: str) -> tuple[str, list[str]]:
     """Return the override text and the service names whose blocks changed."""
+    if text.lstrip().startswith("{"):
+        return _patch_json(text)
     preamble, services, tail = split_services(text)
     present = {name for name, _body in services}
     pieces: list[str] = []
