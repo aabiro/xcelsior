@@ -1,5 +1,7 @@
 # Native spot admission, pool reservation and quote integrity
 
+**Accepted follow-up:** deployed as `1a0ae249`/schema 141 after 4,064 passing checks and real spot CUDA/billing acceptance. The [executed receipt](2026-10-25-native-release-production-handoff.md) supersedes the source-candidate status and diagnostics below. Repairs remain `report_only`.
+
 The removed queue walker owned spot gating and set its rate after admission.
 The native engine now filters spot-disabled hosts and exhausted GPU pools, and
 revalidates that policy while holding the host/device locks. Unreleased native

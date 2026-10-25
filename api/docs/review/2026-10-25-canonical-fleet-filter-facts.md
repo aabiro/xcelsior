@@ -1,5 +1,7 @@
 # Canonical geography and capability facts for placement
 
+**Accepted follow-up:** deployed as `1a0ae249`/schema 141 after 4,064 passing checks and real spot CUDA/billing acceptance. The [executed receipt](2026-10-25-native-release-production-handoff.md) supersedes the source-candidate status and diagnostics below. Repairs remain `report_only`.
+
 The scheduler fleet snapshot now overlays canonical region, country, province
 and capabilities exactly as host API reads already do. Payload aliases cannot
 change geography or grant tenant egress isolation, and null/empty canonical

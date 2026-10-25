@@ -1,5 +1,7 @@
 # Host constraints revalidated at reservation
 
+**Accepted follow-up:** deployed as `1a0ae249`/schema 141 after 4,064 passing checks and real spot CUDA/billing acceptance. The [executed receipt](2026-10-25-native-release-production-handoff.md) supersedes the source-candidate status and diagnostics below. Repairs remain `report_only`.
+
 The reservation transaction now checks the locked host's native status, region
 and capabilities against the admitted workload before allocating any device.
 It also checks the current host price against the customer's approved ceiling.
