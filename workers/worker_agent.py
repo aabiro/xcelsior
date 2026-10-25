@@ -2402,6 +2402,7 @@ def negotiate_protocol_v2() -> bool:
             "commands.host_claim_ack",
             "commands.session_fencing",
             "attempts.runtime_metadata",
+            "leases.gpu_device_binding",
         }
         if (
             isinstance(body, dict)
@@ -2873,6 +2874,7 @@ def _v2_journal_save() -> bool:
                 "container_name": a.get("container_name")
                 or _v2_container_name(a["job_id"], a["attempt_id"]),
                 "spec_hash": a.get("spec_hash"),
+                "gpu_device_uuids": a.get("gpu_device_uuids"),
                 "interactive": bool(a.get("interactive", False)),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
                 "pending_runtime_reports": dict(a.get("pending_runtime_reports") or {}),
@@ -3213,6 +3215,7 @@ def v2_adopt_attempts() -> int:
                     or _v2_container_name(str(rec["job_id"]), str(rec["attempt_id"]))
                 ),
                 "spec_hash": rec.get("spec_hash"),
+                "gpu_device_uuids": rec.get("gpu_device_uuids"),
                 "interactive": bool(rec.get("interactive", False)),
                 "running_report_pending": bool(rec.get("running_report_pending", False)),
                 "pending_runtime_reports": dict(rec.get("pending_runtime_reports") or {}),
@@ -3562,6 +3565,24 @@ def handle_start_attempt(cmd: dict) -> None:
         _v2_abort_claimed_start(auth, "callback_credential_missing")
         v2_nack_command(command_id, "callback_credential_missing", retryable=False)
         return
+
+    devices = grant.get("gpu_device_uuids")
+    count = spec.get("num_gpus", 1)
+    if (
+        type(count) is not int
+        or not 1 <= count <= 64
+        or not isinstance(devices, list)
+        or len(devices) != count
+        or any(
+            not isinstance(u, str) or not re.fullmatch(r"GPU-[A-Za-z0-9-]{1,100}", u)
+            for u in devices
+        )
+        or len(set(devices)) != len(devices)
+    ):
+        _v2_abort_claimed_start(auth, "gpu_allocation_authority_missing")
+        v2_nack_command(command_id, "gpu_allocation_authority_missing", retryable=False)
+        return
+    auth["gpu_device_uuids"] = list(devices)
 
     runtime_environment = None
     if spec.get("job_type") == "serverless_worker" and spec.get("environment"):
@@ -5210,6 +5231,7 @@ def run_job(job):
             container_name=container_name,
             gpu=True,
             num_gpus=num_gpus,
+            gpu_device_uuids=authority.get("gpu_device_uuids"),
             runtime=runtime_name,
             environment=env_vars,
             volumes=volumes,

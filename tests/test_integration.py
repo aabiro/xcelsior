@@ -441,7 +441,9 @@ class TestSecurityAdmission:
         """security.build_secure_docker_args returns proper args."""
         from security import build_secure_docker_args
 
-        args = build_secure_docker_args("test-image:latest", "test-container")
+        args = build_secure_docker_args(
+            "test-image:latest", "test-container", gpu_device_uuids=["GPU-test-1"]
+        )
         assert isinstance(args, list)
         assert any("--security-opt" in str(a) for a in args)
 

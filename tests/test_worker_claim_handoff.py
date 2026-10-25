@@ -40,6 +40,7 @@ def old_claim(body):
         "attempt_id": grant.attempt_id,
         "fencing_token": grant.fencing_token,
         "renewal_ttl_sec": grant.renewal_ttl_sec,
+        "gpu_device_uuids": list(grant.gpu_device_uuids),
     }
 
 

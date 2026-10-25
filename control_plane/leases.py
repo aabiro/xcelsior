@@ -21,6 +21,7 @@ All functions run inside the caller's transaction
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, cast
 
 from psycopg import Connection, sql
@@ -67,6 +68,7 @@ class LeaseGrant:
     fencing_token: int
     expires_at: Any
     renewal_ttl_sec: int
+    gpu_device_uuids: tuple[str, ...]
 
 
 def _get(row: Any, key: str, index: int) -> Any:
@@ -139,6 +141,38 @@ def claim_lease(
             host_id=host_id,
             fencing_token=fencing_token,
         )
+    # The successful claim grants concrete devices, never a host-wide count.
+    # Check inside this transaction so missing/retired/foreign allocations roll
+    # back both the lease claim and its attempt projection.
+    requested = conn.execute("SELECT spec FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
+    spec = _get(requested, "spec", 0)
+    count = spec.get("num_gpus", 1)
+    devices = conn.execute(
+        """SELECT a.host_id AS allocation_host, d.host_id AS device_host,
+                  d.gpu_uuid, d.retired_at, a.allocation_mode
+           FROM gpu_device_allocations a JOIN host_gpu_devices d USING(gpu_device_id)
+           WHERE a.attempt_id=%s AND a.job_id=%s AND a.released_at IS NULL
+           ORDER BY a.gpu_device_id FOR SHARE OF a,d""",
+        (attempt_id, job_id),
+    ).fetchall()
+    uuids = tuple(_get(d, "gpu_uuid", 2) for d in devices)
+    if (
+        type(count) is not int
+        or not 1 <= count <= 64
+        or len(devices) != count
+        or any(
+            _get(d, "allocation_host", 0) != host_id
+            or _get(d, "device_host", 1) != host_id
+            or _get(d, "retired_at", 3) is not None
+            or _get(d, "allocation_mode", 4) != "exclusive"
+            for d in devices
+        )
+        or any(
+            not isinstance(u, str) or not re.fullmatch(r"GPU-[A-Za-z0-9-]{1,100}", u) for u in uuids
+        )
+        or len(set(uuids)) != len(uuids)
+    ):
+        raise LeaseClaimRejected("gpu_allocation_authority_missing")
     from control_plane.attempts import report_attempt_status
 
     report_attempt_status(
@@ -157,6 +191,7 @@ def claim_lease(
         fencing_token=fencing_token,
         expires_at=_get(row, "expires_at", 0),
         renewal_ttl_sec=int(_get(row, "renewal_ttl_sec", 1)),
+        gpu_device_uuids=uuids,
     )
 
 

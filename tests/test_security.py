@@ -136,15 +136,21 @@ class TestBuildSecureDockerArgs:
     """Verify all security flags are present in generated docker args."""
 
     def test_contains_no_new_privileges(self):
-        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc")
+        args = build_secure_docker_args(
+            "python:3.12", "test-job", runtime="runc", gpu_device_uuids=["GPU-test-1"]
+        )
         assert "--security-opt=no-new-privileges" in args or "--security-opt" in args
 
     def test_contains_cap_drop(self):
-        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc")
+        args = build_secure_docker_args(
+            "python:3.12", "test-job", runtime="runc", gpu_device_uuids=["GPU-test-1"]
+        )
         assert any("cap-drop" in a.lower() for a in args)
 
     def test_contains_gpu_flag(self):
-        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc")
+        args = build_secure_docker_args(
+            "python:3.12", "test-job", runtime="runc", gpu_device_uuids=["GPU-test-1"]
+        )
         # Should pass GPU without --privileged
         assert "--privileged" not in args
         assert any("gpus" in a.lower() for a in args)
@@ -155,24 +161,41 @@ class TestBuildSecureDockerArgs:
             "test-job",
             runtime="runc",
             labels={"xcelsior.job_id": "job-1", "xcelsior.managed": "true"},
+            gpu_device_uuids=["GPU-test-1"],
         )
         assert "--label" in args
         assert "xcelsior.job_id=job-1" in args
         assert "xcelsior.managed=true" in args
 
     def test_gvisor_overrides_image_driver_capabilities(self):
-        args = build_secure_docker_args("nvcr.io/nvidia/pytorch:24.12-py3", "test-job", runtime="runsc")
+        args = build_secure_docker_args(
+            "nvcr.io/nvidia/pytorch:24.12-py3",
+            "test-job",
+            runtime="runsc",
+            gpu_device_uuids=["GPU-test-1"],
+        )
         assert "NVIDIA_DRIVER_CAPABILITIES=compute" in args
         assert "--runtime" in args and "runsc" in args
 
     def test_gvisor_rejects_unsupported_explicit_driver_capabilities(self):
         with pytest.raises(ValueError, match="compute and utility"):
-            build_secure_docker_args("python:3.12", "test-job", runtime="runsc",
-                                     environment={"NVIDIA_DRIVER_CAPABILITIES": "all"})
+            build_secure_docker_args(
+                "python:3.12",
+                "test-job",
+                runtime="runsc",
+                environment={"NVIDIA_DRIVER_CAPABILITIES": "all"},
+                gpu_device_uuids=["GPU-test-1"],
+            )
 
     def test_native_runtime_preserves_video_driver_capabilities(self):
         env = {"NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video"}
-        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc", environment=env)
+        args = build_secure_docker_args(
+            "python:3.12",
+            "test-job",
+            runtime="runc",
+            environment=env,
+            gpu_device_uuids=["GPU-test-1"],
+        )
         assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video" in args
 
     def test_rejects_invalid_label_name(self):
@@ -182,11 +205,14 @@ class TestBuildSecureDockerArgs:
                 "test-job",
                 runtime="runc",
                 labels={"bad label": "value"},
+                gpu_device_uuids=["GPU-test-1"],
             )
 
     def test_cpus_capped_to_host(self, monkeypatch):
         monkeypatch.setattr("security.os.cpu_count", lambda: 12)
-        args = build_secure_docker_args("python:3.12", "test-job", runtime="runc")
+        args = build_secure_docker_args(
+            "python:3.12", "test-job", runtime="runc", gpu_device_uuids=["GPU-test-1"]
+        )
         idx = args.index("--cpus")
         assert args[idx + 1] == "12"
 

@@ -8,7 +8,12 @@ import requests
 
 import worker_agent as worker
 
-FEATURES = ["commands.host_claim_ack", "commands.session_fencing", "attempts.runtime_metadata"]
+FEATURES = [
+    "commands.host_claim_ack",
+    "commands.session_fencing",
+    "attempts.runtime_metadata",
+    "leases.gpu_device_binding",
+]
 
 
 @pytest.fixture

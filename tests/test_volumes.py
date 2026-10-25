@@ -409,6 +409,7 @@ class TestVolumePathSecurity:
                 image="pytorch:latest",
                 container_name="test",
                 volumes=["/mnt/xcelsior-volumes/../etc/passwd:/data:ro"],
+                gpu_device_uuids=["GPU-test-1"],
             )
 
     def test_null_byte_rejected(self):
@@ -419,6 +420,7 @@ class TestVolumePathSecurity:
                 image="pytorch:latest",
                 container_name="test",
                 volumes=["/mnt/xcelsior-volumes/vol\x00evil:/data:ro"],
+                gpu_device_uuids=["GPU-test-1"],
             )
 
     def test_prefix_bypass_rejected(self):
@@ -430,6 +432,7 @@ class TestVolumePathSecurity:
                 image="pytorch:latest",
                 container_name="test",
                 volumes=["/mnt/xcelsior-nfs-evil/malware:/data:ro"],
+                gpu_device_uuids=["GPU-test-1"],
             )
 
     def test_disallowed_prefix_rejected(self):
@@ -440,6 +443,7 @@ class TestVolumePathSecurity:
                 image="pytorch:latest",
                 container_name="test",
                 volumes=["/etc/shadow:/data:ro"],
+                gpu_device_uuids=["GPU-test-1"],
             )
 
     def test_allowed_xcelsior_volumes_prefix(self):
@@ -449,6 +453,7 @@ class TestVolumePathSecurity:
             image="pytorch:latest",
             container_name="test",
             volumes=["/mnt/xcelsior-volumes/vol-abc:/workspace:rw"],
+            gpu_device_uuids=["GPU-test-1"],
         )
         assert "-v" in args
         assert "/mnt/xcelsior-volumes/vol-abc:/workspace:rw" in args
@@ -460,6 +465,7 @@ class TestVolumePathSecurity:
             image="pytorch:latest",
             container_name="test",
             volumes=["/mnt/xcelsior-nfs/data:/data:ro"],
+            gpu_device_uuids=["GPU-test-1"],
         )
         assert "/mnt/xcelsior-nfs/data:/data:ro" in args
 
@@ -470,6 +476,7 @@ class TestVolumePathSecurity:
             image="pytorch:latest",
             container_name="test",
             volumes=["/mnt/xcelsior-volumes/vol-abc:/workspace:notamode"],
+            gpu_device_uuids=["GPU-test-1"],
         )
         # Should append :ro since mode isn't :rw or :ro
         found = [a for a in args if "vol-abc" in a]
@@ -485,6 +492,7 @@ class TestVolumePathSecurity:
                 image="pytorch:latest",
                 container_name="test",
                 volumes=["/tmp/evil"],
+                gpu_device_uuids=["GPU-test-1"],
             )
 
     def test_cross_user_volume_access_uses_404(self):
