@@ -12,11 +12,12 @@ an operator can tell which rule set produced a historical explanation.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v4"
+FILTER_POLICY_VERSION = "filters/v5"
 
 
 @dataclass(frozen=True)
@@ -185,10 +186,16 @@ def spot_capacity(job: dict, host: dict, ctx: FilterContext) -> FilterReason | N
 
 
 def price(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
-    max_price = _f(job.get("max_price_per_hour"), 0.0)
+    raw_maximum = job.get("max_price_per_hour")
+    max_price = 0.0 if raw_maximum is None else _f(raw_maximum, -1.0)
+    if isinstance(raw_maximum, bool) or not math.isfinite(max_price) or max_price < 0:
+        return FilterReason("price_approval_unqualified", "approved maximum price is invalid")
     if max_price <= 0:
         return None
-    cost = _f(host.get("cost_per_hour"), 0.0)
+    raw_cost = host.get("cost_per_hour")
+    cost = _f(raw_cost, -1.0)
+    if isinstance(raw_cost, bool) or not math.isfinite(cost) or cost < 0:
+        return FilterReason("host_price_unqualified", "host price is unavailable or invalid")
     if cost > max_price:
         return FilterReason(
             "price_exceeds_approved",
