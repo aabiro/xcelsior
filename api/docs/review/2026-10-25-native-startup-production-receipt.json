@@ -1,0 +1,177 @@
+{
+  "production_source": "b935d6940e5e9a97eb52fa70d920c5efe321a71c",
+  "schema": "141",
+  "qualification": {
+    "tests": 3897,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "source_hashes_unchanged": 1129,
+    "postgres_cleanup": true,
+    "redis_cleanup": true
+  },
+  "image": {
+    "tag": "xcelsior-api:cutover-audited-b935d694",
+    "image_id": "sha256:2bcc1c799527a69b3477b2bfa80d9f268bd452e457ed30283880575de9ddb936",
+    "schema": "141",
+    "uid": "10001:10001",
+    "network": "none",
+    "readiness": {
+      "ok": true,
+      "status": "ready",
+      "storage": {
+        "ok": true,
+        "backend": "postgresql"
+      },
+      "nfs_volumes": {
+        "ok": true,
+        "configured": false,
+        "mode": "metadata-only",
+        "reachable": false,
+        "server": "",
+        "ssh_host": "",
+        "export_base": "/exports/volumes"
+      },
+      "auth_cache": {
+        "ok": true,
+        "backend": "memory"
+      },
+      "identity": {
+        "agent_gateway": false
+      },
+      "schema": {
+        "current": "141",
+        "minimum": "141",
+        "maximum": null
+      }
+    },
+    "verified_signatures": 12,
+    "metrics_available_values": [
+      1
+    ],
+    "metrics_scraped": true,
+    "passed": true,
+    "cleanup_exit": 0
+  },
+  "handoff": {
+    "ready": true,
+    "source": "b935d694",
+    "schema": "141",
+    "image": "sha256:7a2ae671c0f84d7761cecaf79e42d08de8a2fc9dbf05c00f3dae2e7033c413ac",
+    "runtime_role_audits": [
+      {
+        "service": "api",
+        "passed": true
+      },
+      {
+        "service": "scheduler",
+        "passed": true
+      },
+      {
+        "service": "reconciler",
+        "passed": true
+      },
+      {
+        "service": "api",
+        "passed": true
+      },
+      {
+        "service": "billing",
+        "passed": true
+      },
+      {
+        "service": "projector",
+        "passed": true
+      },
+      {
+        "service": "ssh_gateway",
+        "passed": true
+      }
+    ],
+    "report_only": true,
+    "persisted": true,
+    "migrations_run": 0
+  },
+  "workers": {
+    "tuf": {
+      "activated": true,
+      "source": "b935d694",
+      "worker_sha256": "61de3c4f6233620445af93cda3469e6c705a4a9de8c0e823adbab2ef10c71323",
+      "nvml_sha256": "35b6dca88433107078bf5fd3d4bf46f4223864e7fd75342c40c6b44cbd828381",
+      "previous_pid": 747974,
+      "current_pid": 880211,
+      "active_workloads_before_handoff": 0,
+      "journal_retained": true,
+      "environment_unchanged": true
+    },
+    "tower": {
+      "activated": true,
+      "source": "b935d694",
+      "worker_sha256": "61de3c4f6233620445af93cda3469e6c705a4a9de8c0e823adbab2ef10c71323",
+      "nvml_sha256": "35b6dca88433107078bf5fd3d4bf46f4223864e7fd75342c40c6b44cbd828381",
+      "previous_pid": 715256,
+      "current_pid": 779196,
+      "active_workloads_before_handoff": 0,
+      "journal_retained": true,
+      "environment_unchanged": true
+    }
+  },
+  "cuda_job": {
+    "job_id": "9e5d8a0e",
+    "phase": "succeeded",
+    "active_attempt_id": null,
+    "host_id": "aaryn-tuf-rtx2060",
+    "preferred_host_id": "aaryn-tuf-rtx2060",
+    "spec_hash": "sha256:e3f1860566e96f7b93b88a9ffc0c182b9dbba85f02f29437a1fd6244a0089773",
+    "admission_recorded": true,
+    "attempts": [
+      [
+        "1e991915-5126-4672-897e-f74dd01e752b",
+        "succeeded",
+        10,
+        "aaryn-tuf-rtx2060"
+      ]
+    ],
+    "cuda_marker_in_http_logs": true,
+    "log_lines": 5
+  },
+  "acceptance": {
+    "passed": true,
+    "schema": "141",
+    "startup_and_readiness": true,
+    "public_signed_distributions_verified": 12,
+    "pinned_signing_key_verified": true,
+    "native_jobs": 5,
+    "attempts_and_meters": 6,
+    "charged_cycles": 7,
+    "debited_micros": 57400,
+    "meter_cycle_ledger_amounts_match": true,
+    "wallet_ledger_mismatches": 0,
+    "active_attempts_leases_allocations": 0,
+    "admission_hashes_and_host_pins_valid": true,
+    "http_log_repeats": 8,
+    "http_log_download": true,
+    "boundary_job_no_implicit_nfs_setup": true,
+    "draft_invoice_preview_and_csv_match_usage": true,
+    "invoice_preview_read_only": true,
+    "historical_dispositions": {
+      "retained_recovered": 4,
+      "retained_unavailable": 360
+    },
+    "qualified_credit_receipts": 2,
+    "qualified_credit_micros": 300,
+    "repair_policies": {
+      "attempt_container_missing": "report_only",
+      "billing_active_meter_missing": "report_only",
+      "billing_missing_meter": "report_only",
+      "billing_orphaned_meter": "report_only",
+      "job_lease_authority_missing": "report_only",
+      "job_stop_command_missing": "report_only",
+      "orphaned_allocation": "report_only",
+      "stale_fence_container": "report_only"
+    },
+    "preemption_and_force_enabled_policies": 0,
+    "external_provider_transfer_tested": false,
+    "source": "b935d694"
+  }
+}

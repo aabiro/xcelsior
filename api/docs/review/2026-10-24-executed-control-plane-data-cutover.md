@@ -1,5 +1,9 @@
 # Executed control-plane and data cutover, 2026-10-24
 
+Runtime status is superseded by the
+[executed b935d694 handoff](2026-10-25-native-startup-production-handoff.md).
+The migration and restore evidence below remains a dated receipt.
+
 Production is at schema **141**, runtime **fdaab814**, with both signed GPU
 workers activated. Seven dedicated runtime/one-shot database identities pass
 their runtime-context audits. All eight repairs remain `report_only`;
