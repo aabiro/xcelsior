@@ -325,7 +325,8 @@ def test_scheduler_places_from_admission_despite_changed_payload_constraints(nat
     initial = admit(native, preferred_host_id=native.hid, trace_id="admission-trace")
     with native.pool.connection() as conn:
         conn.execute(
-            "UPDATE hosts SET payload=payload || %s WHERE host_id=%s",
+            """UPDATE hosts SET capabilities='{"egress_isolation":true}',
+               payload=payload || %s WHERE host_id=%s""",
             (
                 Jsonb(
                     {

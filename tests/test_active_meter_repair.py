@@ -324,7 +324,7 @@ def test_concurrent_repairs_and_completion_deliveries_create_one_settled_meter(
     "native_admission_fields",
     [
         {"pricing_mode": "spot", "spot_rate_cad": 0.25, "num_gpus": 2},
-        {"preemptible": True, "spot_rate_cad": 0.25, "num_gpus": 2},
+        {"pricing_mode": "spot", "preemptible": True, "spot_rate_cad": 0.25, "num_gpus": 2},
     ],
     indirect=True,
 )

@@ -70,7 +70,7 @@ def fleet():
 def _mk_host(fleet, host_id, *, gpu_model):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}')""",
             (
                 host_id,
                 time.time(),
