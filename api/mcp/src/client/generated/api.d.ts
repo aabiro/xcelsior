@@ -1913,6 +1913,11 @@ export interface components {
              * @default
              */
             worker_session_id: string;
+            /**
+             * Require Running Intent
+             * @default false
+             */
+            require_running_intent: boolean;
         };
         /** LeaseClaimRequest */
         LeaseClaimRequest: {

@@ -2403,6 +2403,7 @@ def negotiate_protocol_v2() -> bool:
             "commands.session_fencing",
             "attempts.runtime_metadata",
             "leases.gpu_device_binding",
+            "leases.start_authority",
         }
         if (
             isinstance(body, dict)
@@ -5243,6 +5244,37 @@ def run_job(job):
 
         # 4. Start container — remove stale container with same name (e.g. requeue)
         current_stage = "starting container"
+        # Image pulls and mount setup may outlive the lease. A grant accepted
+        # before setup cannot authorize a later start after renewal/stop won.
+        with _v2_attempts_lock:
+            can_start = (
+                _v2_attempts.get(job_id) is authority
+                and not authority["stop"].is_set()
+                and not _shutdown.is_set()
+            )
+        if not can_start:
+            return
+        code, body = _v2_post(
+            "/agent/v2/leases/renew",
+            {**_v2_auth_payload(authority), "require_running_intent": True},
+        )
+        if code != 200:
+            stopped = (
+                code == 409 and (body.get("error") or {}).get("code") == "lease_start_rejected"
+            )
+            report_status(
+                job_id,
+                "stopped" if stopped else "failed",
+                policy_reason="lease_unconfirmed_before_container_start",
+            )
+            return
+        with _v2_attempts_lock:
+            if (
+                _v2_attempts.get(job_id) is not authority
+                or authority["stop"].is_set()
+                or _shutdown.is_set()
+            ):
+                return
         _remove_container(container_name)
         log.info("Starting container %s", container_name)
         _push_log_lines(
@@ -5261,6 +5293,13 @@ def run_job(job):
             text=True,
             timeout=CONTAINER_START_TIMEOUT,
         )
+        with _v2_attempts_lock:
+            lost_authority = _v2_attempts.get(job_id) is not authority or authority["stop"].is_set()
+        if lost_authority:
+            _v2_stop_container(
+                job_id, "authority lost during container start", container_name, v2_attempt_id
+            )
+            return
         if start.returncode != 0:
             err = f"Container start failed: {start.stderr.strip()}"
             log.error("%s", err)

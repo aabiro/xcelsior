@@ -242,7 +242,20 @@ def test_multi_gpu_binding_uses_uuid_set_instead_of_first_indices():
         )
 
 
-def test_real_runner_uses_claimed_devices_instead_of_job_overrides(agent, monkeypatch):
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "lease_expired",
+        "local_authority_lost",
+        "renewal_unavailable",
+        "authority_lost_during_renewal",
+        "authority_lost_during_start",
+        "shutdown_before_start",
+        "stop_during_setup",
+    ],
+)
+def test_real_runner_uses_claimed_devices_and_rechecks_start_authority(agent, monkeypatch, fault):
     import api
     import egress_isolation
     from serverless.env_secrets import encrypt_env_for_storage
@@ -256,14 +269,39 @@ def test_real_runner_uses_claimed_devices_instead_of_job_overrides(agent, monkey
     monkeypatch.setattr(worker.time, "sleep", mock.Mock())
     monkeypatch.setattr(worker, "get_gpu_info", lambda: {"gpu_model": "RTX 4090"})
     monkeypatch.setattr(worker, "build_platform_env", lambda *a: {})
-    monkeypatch.setattr(worker, "cache_image_available", lambda *a: True)
+
+    def image_available(*args):
+        if fault == "lease_expired":
+            with agent.pool.connection() as conn:
+                conn.execute(
+                    "UPDATE placement_leases SET expires_at=now()-interval '1 second' WHERE lease_id=%s",
+                    (agent.r.lease_id,),
+                )
+        elif fault == "local_authority_lost":
+            worker._v2_forget_attempt(agent.jid)
+        elif fault == "shutdown_before_start":
+            worker._shutdown.set()
+        elif fault == "stop_during_setup":
+            with agent.pool.connection() as conn:
+                conn.execute(
+                    "UPDATE jobs SET desired_state='stopped',lifecycle_intent='stop' WHERE job_id=%s",
+                    (agent.jid,),
+                )
+        return True
+
+    monkeypatch.setattr(worker, "cache_image_available", image_available)
     monkeypatch.setattr(worker, "PREFER_GVISOR", False)
     monkeypatch.setattr(egress_isolation, "launch_args", lambda job, env: ([], env))
     monkeypatch.setattr(worker, "_v2_record_and_ack", mock.Mock(return_value=True))
+    stop = mock.Mock()
+    monkeypatch.setattr(worker, "_v2_stop_container", stop)
 
     def subprocess_run(args, **kwargs):
         if args[:2] == ["docker", "run"]:
             built.append(args)
+            if fault == "authority_lost_during_start":
+                worker._v2_forget_attempt(agent.jid)
+                return mock.Mock(returncode=0, stdout="isolated-container", stderr="")
             # No real Docker execution: exercise the real runner's failure
             # settlement after capturing its complete container request.
             return mock.Mock(returncode=1, stdout="", stderr="isolated test stop")
@@ -271,12 +309,53 @@ def test_real_runner_uses_claimed_devices_instead_of_job_overrides(agent, monkey
 
     monkeypatch.setattr(worker.subprocess, "run", subprocess_run)
     with TestClient(api.app) as client:
-        monkeypatch.setattr(worker, "_v2_post", lambda path, body: client_post(client, path, body))
+
+        def post(path, body):
+            if path == "/agent/v2/leases/renew" and fault == "renewal_unavailable":
+                return 503, {}
+            code, value = client_post(client, path, body)
+            if path == "/agent/v2/leases/renew" and fault == "authority_lost_during_renewal":
+                worker._v2_forget_attempt(agent.jid)
+            return code, value
+
+        monkeypatch.setattr(worker, "_v2_post", post)
         with mock.patch.object(worker.threading, "Thread"):
             worker.handle_start_attempt(cmd)
+    if fault not in (None, "authority_lost_during_start"):
+        assert not built
+        stop.assert_not_called()
+        if fault in {"lease_expired", "renewal_unavailable", "stop_during_setup"}:
+            with agent.pool.connection() as conn:
+                assert (
+                    conn.execute(
+                        "SELECT status FROM placement_leases WHERE lease_id=%s", (agent.r.lease_id,)
+                    ).fetchone()[0]
+                    == "released"
+                )
+                assert (
+                    conn.execute(
+                        "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND released_at IS NULL",
+                        (agent.r.attempt_id,),
+                    ).fetchone()[0]
+                    == 0
+                )
+                if fault == "stop_during_setup":
+                    assert conn.execute(
+                        "SELECT status FROM jobs WHERE job_id=%s", (agent.jid,)
+                    ).fetchone() == ("stopped",)
+        return
     assert len(built) == 1
     expected = f"GPU-{agent.hid}"
     assert built[0][built[0].index("--gpus") + 1] == f'"device={expected}"'
     assert f"NVIDIA_VISIBLE_DEVICES={expected}" in built[0]
     assert "NVIDIA_VISIBLE_DEVICES=all" not in built[0]
     assert agent.jid not in worker._v2_attempts
+    if fault == "authority_lost_during_start":
+        stop.assert_called_once_with(
+            agent.jid,
+            "authority lost during container start",
+            worker._v2_container_name(agent.jid, agent.r.attempt_id),
+            agent.r.attempt_id,
+        )
+    else:
+        stop.assert_not_called()
