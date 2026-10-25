@@ -124,6 +124,12 @@ CONTRACTS: tuple[EventContract, ...] = (
         "financial",
         {"cycle_id": "internal", "attempt_id": "internal", "generation": "internal"},
     ),
+    EventContract(
+        "billing.v1.attempt_settlement_requested",
+        1,
+        "financial",
+        {"attempt_id": "internal", "wallet_hold_id": "internal"},
+    ),
     # Canonical lifecycle (§16.2 / DA§8.3)
     _job("job.v1.created"),
     _job("job.v1.placement_reserved"),

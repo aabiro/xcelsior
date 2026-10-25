@@ -496,27 +496,31 @@ def expire_stale_leases(
             # Reconciliation owns a queue row already. Runtime writers can
             # hold these rows while waiting for that queue, so fail fast and
             # let process_due roll back its savepoint instead of deadlocking.
-            for table in (
-                "job_attempts",
-                "gpu_device_allocations",
-                "agent_commands",
-                "usage_meters",
-                "serverless_workers",
-            ):
+            # Scheduler and reconciler logins cannot lock billing or serverless
+            # rows. Those identities enqueue settlement instead of taking it.
+            from control_plane.db_roles import current_service
+
+            defer_settlement = current_service() in {"scheduler", "reconciler"}
+            lock_tables = ["job_attempts", "gpu_device_allocations", "agent_commands"]
+            if not defer_settlement:
+                lock_tables.extend(["usage_meters", "serverless_workers"])
+            for table in lock_tables:
                 conn.execute(
                     sql.SQL("SELECT 1 FROM {} WHERE attempt_id = %s FOR UPDATE NOWAIT").format(
                         sql.Identifier(table)
                     ),
                     (attempt_id,),
                 ).fetchall()
-            conn.execute(
-                "SELECT 1 FROM wallet_holds WHERE job_id=%s FOR UPDATE NOWAIT", (job_id,)
-            ).fetchall()
-            conn.execute(
-                "SELECT 1 FROM serverless_jobs WHERE worker_id IN "
-                "(SELECT worker_id FROM serverless_workers WHERE attempt_id=%s) FOR UPDATE NOWAIT",
-                (attempt_id,),
-            ).fetchall()
+            if not defer_settlement:
+                conn.execute(
+                    "SELECT 1 FROM wallet_holds WHERE job_id=%s FOR UPDATE NOWAIT", (job_id,)
+                ).fetchall()
+                conn.execute(
+                    "SELECT 1 FROM serverless_jobs WHERE worker_id IN "
+                    "(SELECT worker_id FROM serverless_workers WHERE attempt_id=%s) "
+                    "FOR UPDATE NOWAIT",
+                    (attempt_id,),
+                ).fetchall()
         was = str(_get(row, "status", 5))
         terminal = "failed" if was == "offered" else "lost"
         failure_code = "lease_claim_timeout" if was == "offered" else "lease_renewal_timeout"
@@ -562,11 +566,18 @@ def expire_stale_leases(
             (terminal, failure_code, attempt_id),
         )
         if current_authority:
-            from control_plane.attempt_billing import sync_attempt_billing
-            from control_plane.serverless_workers import sync_serverless_attempt
+            from control_plane.db_roles import current_service
 
-            sync_attempt_billing(conn, attempt_id)
-            sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
+            if current_service() in {"scheduler", "reconciler"}:
+                from control_plane.billing_effects import queue_attempt_settlement
+
+                queue_attempt_settlement(conn, job_id, attempt_id)
+            else:
+                from control_plane.attempt_billing import sync_attempt_billing
+                from control_plane.serverless_workers import sync_serverless_attempt
+
+                sync_attempt_billing(conn, attempt_id)
+                sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
         conn.execute(
             """
             UPDATE gpu_device_allocations

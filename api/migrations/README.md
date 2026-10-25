@@ -97,7 +97,11 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `142_durable_host_observation_sessions.py`.**
+**Repository head: `143_grant_host_observation_session_roles.py`.**
+
+143 grants the host observation session registry to the runtime roles that
+read or ingest it, skipping any role that is not provisioned yet. Apply it
+before starting a service login against 142. Downgrade revokes those grants.
 
 142 adds a durable host/session registry with monotonic generation and permanent
 retirement fences, plus the accepted observation pointer. Quiesce old observation
