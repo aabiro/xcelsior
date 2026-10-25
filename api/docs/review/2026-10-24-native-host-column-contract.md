@@ -17,6 +17,7 @@ errors or skips. Runnable gates include `tests/test_native_host_column_contract.
 `tests/test_population_writer_contracts.py`, `tests/test_host_fleet_disclosure_http.py`,
 `tests/test_control_plane_schema.py` and
 `tests/test_schema_floor_covers_what_the_code_uses.py` through the security harness.
-This is a follow-up source candidate, separate from the frozen fdaab814 release.
+These changes are deployed in b935d694 after its 3,897-test full qualification;
+see the [current handoff](2026-10-25-native-startup-production-handoff.md).
 Fleet placement still needs its remaining JSONB observation reads converted and
 qualified; no complete JSONB-removal or production deployment claim is made.
