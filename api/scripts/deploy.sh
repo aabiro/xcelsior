@@ -794,7 +794,14 @@ EOF
 }
 
 # ── Deployment Functions ──────────────────────────────────────────────
+require_release_disk_headroom() {
+    local host="${1:-$REMOTE_HOST}"
+    ssh_cmd_host "$host" "python3 -" < "$SCRIPT_DIR/check_release_disk.py" \
+        || error "Release blocked: insufficient filesystem headroom on $host"
+}
+
 backup_current() {
+    require_release_disk_headroom
     log "Backing up current deployment..."
     
     TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
@@ -920,6 +927,7 @@ sync_code_rsync() {
 sync_code_mirror_host() {
     local host="$1"
     open_ssh_mux_host "$host" 2>/dev/null || true
+    require_release_disk_headroom "$host"
     sync_code_rsync_host "$host" 0 || warn "Mirror sync failed: $host"
 }
 
@@ -1034,6 +1042,7 @@ EOF
 }
 
 sync_code() {
+    require_release_disk_headroom
     case "$DEPLOY_SYNC_MODE" in
         rsync)
             set +e
@@ -1498,6 +1507,7 @@ ensure_prod_spire_enrollment() {
 }
 
 deploy_docker() {
+    require_release_disk_headroom
     log "Deploying with Docker Compose ($TARGET_ENV)..."
     
     # Verify .env exists on server
