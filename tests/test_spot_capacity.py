@@ -84,7 +84,7 @@ class TestSpotCapacityGating:
 
     def test_spot_pool_exhausted_skips_host(self):
         _host("h1", spot_gpu_slots=1, gpu_count=1)
-        running = scheduler.submit_job("occupier", 8, pricing_mode="spot")
+        running = scheduler.submit_job("occupier", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.update_job_status(running["job_id"], "running", host_id="h1")
         queued = scheduler.submit_job("waiter", 8, pricing_mode="spot", gpu_model="RTX 4090")
         picked = scheduler.allocate(queued, scheduler.list_hosts())
@@ -97,7 +97,15 @@ class TestSpotCapacityGating:
         assert picked is not None
         assert picked["host_id"] == "h1"
 
-    def test_process_queue_respects_spot_capacity(self):
+    def test_process_queue_respects_spot_capacity(self, monkeypatch):
+        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+
+        monkeypatch.setattr(
+            scheduler,
+            "_cp_config",
+            SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="spot-pool-test"),
+        )
+        monkeypatch.setattr(scheduler, "_cp_service", None)
         _host("good")
         _host("bad", spot_enabled=False)
         job = scheduler.submit_job("pq-spot", 8, pricing_mode="spot", gpu_model="RTX 4090")

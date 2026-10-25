@@ -1501,6 +1501,7 @@ class TestSpotPricingEndpoints:
                 "name": "spot-test",
                 "vram_needed_gb": 8,
                 "pricing_mode": "spot",
+                "gpu_model": "RTX 4090",
             },
         )
         assert r.status_code == 200
