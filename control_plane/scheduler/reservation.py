@@ -231,7 +231,8 @@ def reserve_and_bind(
     # ── Step 4-5: lock host, verify state + inventory generation ────
     host = conn.execute(
         """
-        SELECT status, administrative_state, inventory_generation, payload,availability_state
+        SELECT status, administrative_state, inventory_generation, payload, availability_state,
+               region, country, province, capabilities
           FROM hosts
          WHERE host_id = %s
            FOR UPDATE
@@ -245,6 +246,34 @@ def reserve_and_bind(
         raise HostNotEligible(f"host {host_id} is {admin_state}", administrative_state=admin_state)
     if _one(host, "availability_state", 4) != "ready":
         raise HostNotEligible("host availability changed before reservation", host_id=host_id)
+
+    # Scoring ran in another transaction. Re-read the placement constraints
+    # from this locked row so revoking network isolation or changing geography,
+    # readiness or price cannot authorize a start from an obsolete score.
+    from control_plane.scheduler.filters import (
+        FilterContext,
+        egress_isolation,
+        host_ready,
+        price,
+        region,
+    )
+
+    payload = _one(host, "payload", 3)
+    locked_host = dict(payload) if isinstance(payload, dict) else {}
+    locked_host.update(
+        host_id=host_id,
+        status=_one(host, "status", 0),
+        region=_one(host, "region", 5),
+        country=_one(host, "country", 6),
+        province=_one(host, "province", 7),
+        capabilities=_one(host, "capabilities", 8),
+    )
+    for check in (host_ready, region, egress_isolation, price):
+        reason = check(spec, locked_host, FilterContext())
+        if reason is not None:
+            raise HostNotEligible(
+                reason.message, filter_reason=reason.code, filter_details=reason.details
+            )
     inventory_generation = int(_one(host, "inventory_generation", 2))
     if (
         expected_inventory_generation is not None
