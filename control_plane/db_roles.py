@@ -609,6 +609,12 @@ def grant_statements(
                     else "SELECT, INSERT, UPDATE, DELETE"
                 )
             )
+            # REVOKE ALL, which this plan runs first, strips REFERENCES and
+            # TRIGGER from the table owner. PostgreSQL then refuses the
+            # foreign keys and triggers the migrator has to create. Put those
+            # two privileges back on the DDL role only.
+            if role.ddl:
+                verbs = f"{verbs}, REFERENCES, TRIGGER"
             stmts.append(f"GRANT {verbs} ON {_qualified(domain, table)} " f'TO "{role.name}"')
     for domain in sorted(role.read - role.write):
         tables = set(_domain_tables(domain, storage_tables))
