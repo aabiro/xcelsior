@@ -68,9 +68,9 @@ def native(request):
         conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (owner, jid))
         admit_fixture_job(conn, jid)
         conn.execute(
-            """INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state,capabilities)
-               VALUES(%s,'active',%s,%s,'admitted','ready','admitted','{"egress_isolation":true}')""",
-            (hid, time.time(), Jsonb({"admitted": True, "cost_per_hour": 3.6})),
+            """INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,availability_state,admission_state,capabilities,region)
+               VALUES(%s,'active',%s,%s,'admitted','ready','admitted','{"egress_isolation":true}',%s)""",
+            (hid, time.time(), Jsonb({"admitted": True, "cost_per_hour": 3.6}), ep["region"]),
         )
         conn.execute(
             "INSERT INTO host_gpu_devices(host_id,gpu_uuid,model,total_vram_mb,allocatable_vram_mb,health) VALUES(%s,%s,'RTX 4090',24576,24576,'healthy')",
