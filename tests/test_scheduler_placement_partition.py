@@ -172,111 +172,72 @@ def _cfg_canary(marker, hosts):
     )
 
 
-class TestLegacyQueueSkipsOwnedJobs:
-    def test_process_queue_skips_canary_owned_job(self, fleet, reset_cp_config, monkeypatch):
-        """Under canary, legacy process_queue must not assign owned jobs."""
+class TestNativeQueueOnly:
+    def test_canary_places_only_its_admitted_scope(self, fleet, reset_cp_config, monkeypatch):
+        import scheduler as sched
+
         marker = uuid.uuid4().hex[:8]
-        model = f"RTX-{marker}"
-        host_id = f"h-{marker}-1"
-        owned_job = f"j-{marker}-owned"
-        free_job = f"j-{marker}-free"
-        free_model = f"RTX-FREE-{marker}"
-
-        _mk_host(fleet, host_id, gpu_model=model)
-        free_host = f"h-{marker}-free"
-        _mk_host(fleet, free_host, gpu_model=free_model)
-        _mk_job(fleet, owned_job, gpu_model=model)
-        _mk_job(fleet, free_job, gpu_model=free_model)
-
+        model, other_model = f"RTX-{marker}", f"OTHER-{marker}"
+        hid, other_hid = f"host-{marker}", f"other-{marker}"
+        jid, other_jid = f"job-{marker}", f"other-job-{marker}"
+        _mk_host(fleet, hid, gpu_model=model)
+        _mk_host(fleet, other_hid, gpu_model=other_model)
+        _mk_job(fleet, jid, gpu_model=model)
+        _mk_job(fleet, other_jid, gpu_model=other_model)
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
         monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", model.lower())
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_HOSTS", host_id)
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_HOSTS", hid)
+        monkeypatch.setattr(sched, "allocate", lambda *a, **k: pytest.fail("raw allocator entered"))
+        assigned = sched.process_queue()
+        assert {job["job_id"] for job, _ in assigned} == {jid}
+        assert _job_row(jid)["active_attempt_id"] is not None
+        assert _job_row(other_jid)["status"] == "queued"
+        assert _job_row(other_jid)["active_attempt_id"] is None
 
+    def test_active_queue_creates_only_fenced_placements(self, fleet, reset_cp_config, monkeypatch):
         import scheduler as sched
 
-        # Ensure config reloads from env.
-        monkeypatch.setattr(sched, "_cp_config", None)
-
-        assert sched._control_plane_owns_job({"gpu_model": model, "job_id": owned_job})
-        assert not sched._control_plane_owns_job({"gpu_model": free_model, "job_id": free_job})
-
-        assigned = sched.process_queue()
-        assigned_ids = {
-            (a[0]["job_id"] if isinstance(a, tuple) else a.get("job_id")) for a in assigned
-        }
-        # owned must not appear; free may be assigned by legacy.
-        assert owned_job not in assigned_ids
-        assert _job_row(owned_job)["status"] == "queued"
-        assert _job_row(owned_job)["active_attempt_id"] is None
-
-    def test_process_queue_active_owns_everything(self, fleet, reset_cp_config, monkeypatch):
-        """Under active, every job is owned — legacy process_queue is a no-op."""
         marker = uuid.uuid4().hex[:8]
-        model = f"RTX-{marker}"
-        host_id = f"h-{marker}-1"
-        job_id = f"j-{marker}-all"
-        _mk_host(fleet, host_id, gpu_model=model)
-        _mk_job(fleet, job_id, gpu_model=model)
-
+        model, hid, jid = f"RTX-{marker}", f"host-{marker}", f"job-{marker}"
+        _mk_host(fleet, hid, gpu_model=model)
+        _mk_job(fleet, jid, gpu_model=model)
         monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
-        import scheduler as sched
-
-        monkeypatch.setattr(sched, "_cp_config", None)
-
-        assigned = sched.process_queue()
-        assert assigned == []
-        assert _job_row(job_id)["status"] == "queued"
-
-        # Transactional tick is the sole writer.
-        report = SchedulerService(
-            SchedulerConfig(
-                mode=SchedulerMode.ACTIVE,
-                replica_id=f"place-act-{marker}",
-                tick_max_placements=5,
-            )
-        ).tick()
-        assert any(p.job_id == job_id for p in report.placements), report
-        row = _job_row(job_id)
-        assert row["status"] == "assigned"
-        assert row["active_attempt_id"] is not None
-
+        monkeypatch.setattr(sched, "allocate", lambda *a, **k: pytest.fail("raw allocator entered"))
+        assert jid in {job["job_id"] for job, _ in sched.process_queue()}
+        assert _job_row(jid)["active_attempt_id"] is not None
         with _pool.connection() as conn:
-            lease = conn.execute(
-                "SELECT status FROM placement_leases WHERE job_id=%s",
-                (job_id,),
-            ).fetchone()
-            cmd = conn.execute(
-                "SELECT command, status FROM agent_commands WHERE job_id=%s",
-                (job_id,),
-            ).fetchone()
-        assert lease is not None
-        assert cmd is not None
+            assert conn.execute(
+                "SELECT status FROM placement_leases WHERE job_id=%s", (jid,)
+            ).fetchone() == ("offered",)
+            assert conn.execute(
+                "SELECT command,status,attempt_id IS NOT NULL FROM agent_commands WHERE job_id=%s",
+                (jid,),
+            ).fetchone() == ("start_attempt", "pending", True)
 
-    def test_all_legacy_walkers_skip_owned(self, fleet, reset_cp_config, monkeypatch):
-        """binpack / filtered / ranked walkers honor the same partition."""
-        marker = uuid.uuid4().hex[:8]
-        model = f"RTX-{marker}"
-        host_id = f"h-{marker}-1"
-        job_id = f"j-{marker}-walk"
-        _mk_host(fleet, host_id, gpu_model=model)
-        _mk_job(fleet, job_id, gpu_model=model, scheduler="v2")
-
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "canary")
-        # Empty GPU models — ownership comes from payload scheduler=v2.
-        monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_GPU_MODELS", "")
+    @pytest.mark.parametrize("mode", ["paused", "shadow", "typo"])
+    def test_disabled_placement_cannot_fall_back(self, fleet, reset_cp_config, monkeypatch, mode):
         import scheduler as sched
 
-        monkeypatch.setattr(sched, "_cp_config", None)
+        marker = uuid.uuid4().hex[:8]
+        hid, jid = f"host-{marker}", f"job-{marker}"
+        _mk_host(fleet, hid, gpu_model=marker)
+        _mk_job(fleet, jid, gpu_model=marker)
+        monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", mode)
+        monkeypatch.setattr(sched, "allocate", lambda *a, **k: pytest.fail("raw allocator entered"))
+        assert sched.process_queue() == []
+        assert _job_row(jid)["status"] == "queued"
+        assert _job_row(jid)["active_attempt_id"] is None
 
-        for walker in (
-            sched.process_queue,
-            sched.process_queue_binpack,
-            lambda: sched.process_queue_filtered(),
-            lambda: sched.process_queue_ranked(),
-        ):
-            walker()
-            assert _job_row(job_id)["status"] == "queued", walker
-            assert _job_row(job_id)["active_attempt_id"] is None
+    def test_old_walkers_are_physically_removed(self):
+        import scheduler as sched
+
+        for name in [
+            "process_queue_binpack",
+            "process_queue_filtered",
+            "process_queue_ranked",
+            "_control_plane_owns_job",
+        ]:
+            assert not hasattr(sched, name), name
 
 
 @pytest.mark.parametrize("mode", ["active", "canary", "paused"])
@@ -340,7 +301,7 @@ def test_unavailable_pinned_host_does_not_fall_back(fleet, reset_cp_config):
 
 @pytest.mark.parametrize("mode", ["paused", "canary"])
 @pytest.mark.parametrize("pin_available", [True, False])
-def test_non_native_queue_respects_host_pin_without_fallback(
+def test_out_of_scope_queue_never_uses_unfenced_pin_fallback(
     fleet, reset_cp_config, monkeypatch, mode, pin_available
 ):
     import scheduler as sched
@@ -363,5 +324,6 @@ def test_non_native_queue_respects_host_pin_without_fallback(
     monkeypatch.setenv("XCELSIOR_SCHEDULER_CANARY_HOSTS", "different-host")
     sched.process_queue()
     row = _job_row(jid)
-    assert row["host_id"] == (pin if pin_available else None)
-    assert row["status"] == ("assigned" if pin_available else "queued")
+    assert row["host_id"] is None
+    assert row["status"] == "queued"
+    assert row["active_attempt_id"] is None

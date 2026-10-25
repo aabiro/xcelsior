@@ -1,14 +1,13 @@
 """Scheduler runtime configuration (blueprint §30, Phase 3).
 
 One typed config object, sourced from environment variables, shared by
-the shadow runner now and the authoritative scheduler service at the
-Phase 4 cutover. ``XCELSIOR_SCHEDULER_MODE`` is the master switch:
+the shadow runner and authoritative scheduler service. ``XCELSIOR_SCHEDULER_MODE`` is the master switch:
 
-- ``paused``  — the new pipeline does nothing (default; legacy owns all).
+- ``paused``  — placement is disabled (default).
 - ``shadow``  — run the new pipeline read-only against snapshots and
   persist would-be decisions for comparison (this phase).
 - ``canary``  — new pipeline owns placement for a scoped canary pool
-  (Phase 4; exclusive vs legacy walkers).
+  (all other work stays queued).
 - ``active``  — new pipeline owns all standard placement (Phase 4).
 
 Unknown mode strings resolve to ``paused`` and log, never crash: a typo
@@ -54,9 +53,7 @@ def _bool_env(name: str, default: bool) -> bool:
 
 def _csv_env(name: str) -> frozenset[str]:
     raw = os.environ.get(name) or ""
-    return frozenset(
-        part.strip().lower() for part in raw.split(",") if part.strip()
-    )
+    return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
 
 
 def default_replica_id() -> str:
@@ -105,9 +102,8 @@ class SchedulerConfig:
     def owns_job(self, job: dict) -> bool:
         """Does the new scheduler own queued→assigned for this job?
 
-        The partition must be exclusive: the legacy queue walker skips
-        exactly the jobs this returns True for, so no job ever has two
-        schedulers racing to place it.
+        Scope determines which jobs the native service may claim. Work outside
+        a canary scope remains queued; it never enters another allocator.
         """
         if self.mode is SchedulerMode.ACTIVE:
             return True
@@ -137,12 +133,9 @@ class SchedulerConfig:
             mode = SchedulerMode.PAUSED
         return cls(
             mode=mode,
-            replica_id=os.environ.get("XCELSIOR_SCHEDULER_REPLICA_ID")
-            or default_replica_id(),
+            replica_id=os.environ.get("XCELSIOR_SCHEDULER_REPLICA_ID") or default_replica_id(),
             shadow_interval_sec=_int_env("XCELSIOR_SCHEDULER_SHADOW_INTERVAL_SEC", 15),
-            shadow_compare_grace_sec=_int_env(
-                "XCELSIOR_SCHEDULER_SHADOW_COMPARE_GRACE_SEC", 30
-            ),
+            shadow_compare_grace_sec=_int_env("XCELSIOR_SCHEDULER_SHADOW_COMPARE_GRACE_SEC", 30),
             shadow_retention_days=_int_env("XCELSIOR_SCHEDULER_SHADOW_RETENTION_DAYS", 14),
             host_freshness_timeout_sec=_int_env(
                 "XCELSIOR_SCHEDULER_HOST_FRESHNESS_TIMEOUT_SEC", 300
@@ -152,7 +145,5 @@ class SchedulerConfig:
             canary_host_ids=_csv_env("XCELSIOR_SCHEDULER_CANARY_HOSTS"),
             tick_max_placements=_int_env("XCELSIOR_SCHEDULER_TICK_MAX_PLACEMENTS", 10),
             lease_claim_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_CLAIM_TTL_SEC", 60),
-            lease_renewal_ttl_sec=_int_env(
-                "XCELSIOR_SCHEDULER_LEASE_RENEWAL_TTL_SEC", 300
-            ),
+            lease_renewal_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_RENEWAL_TTL_SEC", 300),
         )

@@ -4,7 +4,7 @@ Covers:
 - _diagnose_queue_block reason codes for each failure mode
 - _persist_queue_reason writing to job payload
 - _notify_renter_queue_block throttle + notification creation
-- process_queue_binpack emitting job_error SSE events for skipped jobs
+- Native queue release atomically persisting reasons and outbox events
 - Edge cases: no job, empty hosts, partial admission, GPU model filtering
 """
 
@@ -314,105 +314,57 @@ class TestNotifyRenterQueueBlock:
 # ── process_queue_binpack SSE emission ───────────────────────────────
 
 
-class TestProcessQueueEmitsJobError:
-    """Integration test: skipped jobs get durable job_error / queue-block fan-out."""
+class TestNativeQueueDiagnostics:
+    @pytest.fixture(autouse=True)
+    def active_scheduler(self, monkeypatch):
+        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
 
-    def test_emits_job_error_for_skipped_job(self):
-        """Submit a job with no available hosts → durable queue_blocked outbox.
+        monkeypatch.setattr(
+            scheduler,
+            "_cp_config",
+            SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="queue-diagnostics"),
+        )
+        monkeypatch.setattr(scheduler, "_cp_service", None)
 
-        Multi-replica path: process_queue_binpack persists queue_reason and
-        appends ``job.v1.queue_blocked`` (SSE ``job_error``). Process-local
-        ``emit_event`` is skipped when the outbox intent is durable.
-        """
-        from unittest.mock import patch
-
+    def test_unplaceable_job_persists_native_reason_and_outbox(self):
+        job = scheduler.submit_job("stuck-job", 8)
+        assert scheduler.process_queue() == []
         from db import _get_pg_pool
 
-        job = scheduler.submit_job("stuck-job", 8, priority=1)
-        job_id = job["job_id"]
-
-        emitted = []
-        original_emit = scheduler.emit_event
-
-        def capture_emit(event_type, data):
-            emitted.append({"type": event_type, "data": data})
-            original_emit(event_type, data)
-
-        with patch.object(scheduler, "emit_event", side_effect=capture_emit):
-            scheduler.process_queue_binpack()
-
-        # Prefer durable outbox (production multi-replica path).
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            rows = conn.execute(
-                """SELECT event_type, payload FROM outbox_events
-                    WHERE aggregate_id=%s AND event_type='job.v1.queue_blocked'
-                    ORDER BY created_at""",
-                (job_id,),
+        with _get_pg_pool().connection() as conn:
+            assert conn.execute(
+                "SELECT reason_code,active_attempt_id FROM jobs WHERE job_id=%s", (job["job_id"],)
+            ).fetchone() == ("no_hosts", None)
+            events = conn.execute(
+                "SELECT payload FROM outbox_events WHERE aggregate_id=%s AND event_type='job.v1.queue_blocked'",
+                (job["job_id"],),
             ).fetchall()
-        if rows:
-            payload = rows[-1][1] if not isinstance(rows[-1], dict) else rows[-1]["payload"]
-            if isinstance(payload, str):
-                import json as _json
+        assert len(events) == 1
+        assert events[0][0]["error"] == "no_hosts"
 
-                payload = _json.loads(payload)
-            assert payload.get("error") == "no_hosts_online"
-            # Dual fan-out must not fire when outbox won.
-            assert [e for e in emitted if e["type"] == "job_error"] == []
-        else:
-            # Fallback only when outbox is unavailable (non-Postgres / schema).
-            errors = [e for e in emitted if e["type"] == "job_error"]
-            assert len(errors) >= 1
-            assert errors[0]["data"]["job_id"] == job_id
-            assert errors[0]["data"]["error"] == "no_hosts_online"
+    def test_backoff_does_not_emit_duplicate_notification(self):
+        job = scheduler.submit_job("stuck-job", 8)
+        scheduler.process_queue()
+        scheduler.process_queue()
+        from db import _get_pg_pool
 
-    def test_persists_queue_reason_after_process_queue(self):
-        """After process_queue, skipped jobs should have queue_reason in payload."""
-        job = scheduler.submit_job("queue-reason-test", 16, priority=1)
+        with _get_pg_pool().connection() as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM outbox_events WHERE aggregate_id=%s AND event_type='job.v1.queue_blocked'",
+                (job["job_id"],),
+            ).fetchone() == (1,)
 
-        scheduler.process_queue_binpack()
-
-        jobs = scheduler.list_jobs()
-        found = next(j for j in jobs if j["job_id"] == job["job_id"])
-        assert found.get("queue_reason") == "no_hosts_online"
-        assert found.get("queue_reason_detail")
-
-    def test_throttles_job_error_within_5_minutes(self):
-        """job_error emission is throttled to once per 5 min per job."""
-        from unittest.mock import patch
-
-        scheduler.submit_job("throttle-test", 8, priority=1)
-
-        emitted = []
-
-        def capture_emit(event_type, data):
-            if event_type == "job_error":
-                emitted.append(data)
-
-        with patch.object(scheduler, "emit_event", side_effect=capture_emit):
-            scheduler.process_queue_binpack()
-            count1 = len(emitted)
-
-            # Second call within 5 min should not emit again
-            scheduler.process_queue_binpack()
-            count2 = len(emitted)
-            assert count2 == count1
-
-    def test_no_error_when_job_assigned(self):
-        """If a job is successfully assigned, no job_error should be emitted."""
-        from unittest.mock import patch
-
+    def test_assigned_native_job_has_no_queue_block_notification(self):
         scheduler.register_host("h-assign", "10.0.0.1", "RTX 4090", 24, 24)
-        _admit_host("h-assign")
-        scheduler.submit_job("assign-me", 8, priority=1)
+        from tests._db_helpers import admit_test_host
 
-        emitted = []
+        admit_test_host("h-assign", active=True)
+        job = scheduler.submit_job("assign-me", 8)
+        assert len(scheduler.process_queue()) == 1
+        from db import _get_pg_pool
 
-        def capture_emit(event_type, data):
-            if event_type == "job_error":
-                emitted.append(data)
-
-        with patch.object(scheduler, "emit_event", side_effect=capture_emit):
-            scheduler.process_queue_binpack()
-
-        assert len(emitted) == 0
+        with _get_pg_pool().connection() as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM outbox_events WHERE aggregate_id=%s AND event_type='job.v1.queue_blocked'",
+                (job["job_id"],),
+            ).fetchone() == (0,)

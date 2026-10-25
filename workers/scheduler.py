@@ -861,116 +861,6 @@ def _evict_stale_throttles():
             del d[k]
 
 
-def process_queue_binpack(region=None):
-    """Process job queue using best-fit-decreasing order.
-
-    Sorts queued jobs by vram_needed_gb descending (largest first)
-    to minimize fragmentation, then allocates using bin-pack scoring.
-
-    ``region`` narrows the fleet for latency, and is the only geographic input.
-    It is optional and has no default: the whole global fleet is eligible.
-    """
-    _evict_stale_throttles()
-    hosts = list_hosts()
-    if region:
-        hosts = [h for h in hosts if (h.get("region") or "").lower() == region.lower()]
-
-    jobs = [j for j in list_jobs() if j.get("status") == "queued"]
-    # Phase 4 partition: skip jobs the transactional scheduler owns.
-    jobs = [j for j in jobs if not _control_plane_owns_job(j)]
-    # Best-fit-decreasing: sort by VRAM descending
-    jobs.sort(key=lambda j: j.get("vram_needed_gb", 0), reverse=True)
-
-    assigned = []
-    skipped = []
-    for job in jobs:
-        # Data gravity: find hosts where this job's volumes are already mounted
-        vol_host_ids = set()
-        vol_ids = job.get("volume_ids", [])
-        if vol_ids:
-            try:
-                from volumes import get_volume_engine
-
-                ve = get_volume_engine()
-                vol_host_ids = ve.get_volume_host_ids(vol_ids)
-            except Exception:
-                pass
-        host = allocate_binpack(job, hosts, volume_host_ids=vol_host_ids)
-        if host:
-            try:
-                from host_metadata import enrich_host_for_api
-
-                host = enrich_host_for_api(host)
-            except Exception:
-                pass
-            assign_kwargs: dict = {
-                "host_gpu_model": host.get("gpu_model", ""),
-                "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
-            }
-            if job.get("pricing_mode") == "spot" or job.get("spot"):
-                from spot_pricing import lock_spot_rate_for_job
-
-                lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
-                assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-                assign_kwargs["pricing_mode"] = "spot"
-            update_job_status(job["job_id"], "assigned", host["host_id"], **assign_kwargs)
-            assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
-            # Reduce host's available VRAM for subsequent allocations (clamped)
-            host["free_vram_gb"] = max(
-                0, host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0)
-            )
-            # Lifecycle log — surface the match decision so users see "Assigned
-            # to host X" instead of a silent jump from queued → starting. Also
-            # gives admins a forensic trail for capacity planning.
-            try:
-                from routes.instances import push_job_log
-
-                push_job_log(
-                    job["job_id"],
-                    f"Assigned to host {host['host_id']} "
-                    f"({host.get('gpu_model', 'unknown GPU')}, "
-                    f"{host.get('free_vram_gb', '?')} GB free VRAM)",
-                    level="info",
-                )
-            except Exception:
-                pass
-        else:
-            skipped.append(job["job_id"])
-
-    # Notify about unassignable jobs (throttle: once per 5 minutes per job)
-    now = time.time()
-    for jid in skipped:
-        last_notified = _job_error_notified.get(jid, 0)
-        if now - last_notified < 300:
-            continue
-        _job_error_notified[jid] = now
-
-        # Diagnose WHY the job is stuck for a useful message
-        job = next((j for j in jobs if j.get("job_id") == jid), None)
-        reason, detail = _diagnose_queue_block(job, hosts)
-
-        # Durable queue_reason first; multi-replica SSE rides the same
-        # transaction. Process-local emit only when outbox is not durable
-        # (or there is no job row to attach authority to).
-        outbox_enqueued = False
-        if job:
-            outbox_enqueued = _persist_queue_reason(job, reason, detail)
-        if not outbox_enqueued:
-            emit_event(
-                "job_error",
-                {
-                    "job_id": jid,
-                    "error": reason,
-                    "message": detail,
-                },
-            )
-
-        # In-app notification to renter (once per 15 min per job)
-        _notify_renter_queue_block(jid, job, reason, detail, now)
-
-    return assigned
-
-
 # ── Queue-block diagnostics + renter notifications ───────────────────
 
 _renter_notified: dict[str, float] = {}
@@ -2406,86 +2296,23 @@ def get_job(job_id: str):
 
 
 def process_queue():
+    """Run one native scheduling pass; never assign an unfenced legacy row.
+
+    Mode, claims-enabled, canary scope, admission, fairness and reservation
+    authority are all enforced by SchedulerService. Failures propagate to the
+    caller without starting an alternate allocator.
     """
-    The loop. Walk the queue by priority. Find a host. Assign it.
-    If no host fits a job, skip it — try the next one.
-    If no hosts left, stop.
-
-    Spot and on-demand jobs share the same queue; spot capacity gating
-    is applied in allocate() (Phase 3).
-    """
-    assigned = []
-
-    queued = list_jobs(status="queued")
-    # Phase 4 partition: jobs owned by the transactional scheduler are
-    # placed by _control_plane_tick; the legacy walkers must skip them.
-    queued = [j for j in queued if not _control_plane_owns_job(j)]
-    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
-
-    jobs_snapshot = list_jobs()
-    for job in queued:
-        hosts = list_hosts()
-        if not hosts:
-            break
-
-        host = allocate(job, hosts, jobs=jobs_snapshot)
-        if not host:
-            log.info(
-                "QUEUE: no host for job=%s gpu=%s vram=%sGB",
-                job.get("job_id"),
-                job.get("gpu_model", "any"),
-                job.get("vram_needed_gb", 0),
-            )
-            jid = job.get("job_id")
-            if jid:
-                now = time.time()
-                if now - _queue_diag_logged.get(jid, 0) >= 120:
-                    reason, detail = _diagnose_queue_block(job, hosts)
-                    _persist_queue_reason(job, reason, detail)
-                    try:
-                        from routes.instances import push_job_log
-
-                        push_job_log(jid, f"Still queued — {detail}", "info")
-                    except Exception:
-                        pass
-                    _queue_diag_logged[jid] = now
-            continue  # no host for THIS job, but maybe smaller jobs fit
-
-        try:
-            from host_metadata import enrich_host_for_api
-
-            host = enrich_host_for_api(host)
-        except Exception:
-            pass
-        assign_kwargs: dict = {
-            "host_gpu_model": host.get("gpu_model", ""),
-            "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
-        }
-        if job.get("pricing_mode") == "spot" or job.get("spot"):
-            from spot_pricing import lock_spot_rate_for_job
-
-            lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
-            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
-            assign_kwargs["pricing_mode"] = "spot"
-            log.info(
-                "spot.allocated job_id=%s host_id=%s gpu_model=%s spot_rate_cad=%s",
-                job.get("job_id"),
-                host["host_id"],
-                host.get("gpu_model"),
-                job.get("spot_rate_cad"),
-            )
-
-        updated = update_job_status(
-            job["job_id"],
-            "assigned",
-            host_id=host["host_id"],
-            **assign_kwargs,
+    report = _control_plane_tick()
+    if report is None or not report.placements:
+        return []
+    hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+    return [
+        (
+            get_job(r.job_id) or {"job_id": r.job_id, "name": r.job_id},
+            hosts.get(r.host_id, {"host_id": r.host_id}),
         )
-        if not updated or updated.get("status") != "assigned":
-            continue
-        assigned.append((updated, host))
-
-    return assigned
+        for r in report.placements
+    ]
 
 
 def scheduler_tick():
@@ -2497,10 +2324,6 @@ def scheduler_tick():
     the failover monitor thread.
     """
     with _scheduler_lock:
-        try:
-            _control_plane_tick()
-        except Exception as e:
-            log.error("Control-plane scheduler tick error: %s", e)
         try:
             process_queue()
         except Exception as e:
@@ -2523,26 +2346,11 @@ def _control_plane_config():
     return _cp_config
 
 
-def _control_plane_owns_job(job: dict) -> bool:
-    """True when the transactional scheduler owns queued→assigned for job.
-
-    The legacy queue walker must skip exactly these jobs (the claim SQL
-    selects exactly them), keeping the Phase 4 partition exclusive.
-    """
-    from control_plane.scheduler.config import SchedulerMode
-
-    cfg = _control_plane_config()
-    if cfg is None or cfg.mode not in (SchedulerMode.CANARY, SchedulerMode.ACTIVE):
-        return False
-    return cfg.owns_job(job)
-
-
 def _control_plane_tick():
     """Track A Phase 4: one transactional-scheduler tick (canary/active).
 
     No-op unless XCELSIOR_SCHEDULER_MODE is canary or active on the
-    postgres backend. Failures are contained — the legacy loop must keep
-    running whatever happens here.
+    postgres backend. Failure never enables a compatibility placement path.
     """
     global _cp_service
     from control_plane.scheduler.config import SchedulerMode
@@ -2561,9 +2369,9 @@ def start_shadow_runner():
     """Track A Phase 3: start the shadow placement runner if enabled.
 
     Runs the new claim→filter→score pipeline read-only alongside this
-    legacy loop and persists would-be decisions for comparison. Requires
+    native pipeline and persists would-be decisions for comparison. Requires
     XCELSIOR_SCHEDULER_MODE=shadow, the postgres backend, and migration
-    058; anything missing logs once and leaves the legacy loop untouched.
+    058; anything missing logs once and leaves placement disabled.
     """
     try:
         from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
@@ -3325,23 +3133,16 @@ def failover_and_reassign():
     Full failover cycle:
     1. Check hosts (ping) — dead hosts trigger _requeue_dead_host_jobs which
        delegates to requeue_job() per-job (releases VRAM, increments retry counter)
-    2. Process queue (assign requeued jobs to alive hosts)
-    Returns newly_assigned list.
-
-    Uses _scheduler_lock on the assignment pass to prevent concurrent
-    process_queue calls with scheduler_tick.
+    2. Leave re-placement to the next native scheduler tick.
+    Returns the compatibility result shape without inline assignments.
     """
     check_hosts()
 
     # check_hosts() already requeues jobs from newly-dead hosts via
     # _requeue_dead_host_jobs → requeue_job(), so we only need to
     # run the assignment pass here.
-    with _scheduler_lock:
-        assigned = process_queue()
-    for j, h in assigned:
-        log.info("FAILOVER REASSIGNED job=%s -> host=%s", j["job_id"], h["host_id"])
-
-    return [], assigned
+    # Lease expiry and the next native scheduler tick own re-placement.
+    return [], []
 
 
 # ── Auto-Remediation: Checkpoint + Re-Queue ──────────────────────────
@@ -4253,34 +4054,6 @@ def list_hosts_filtered(active_only=True):
     return list_hosts(active_only=active_only)
 
 
-def process_queue_filtered():
-    """Process the queue against the whole fleet."""
-    hosts = list_hosts_filtered(active_only=True)
-    assigned = []
-
-    queued = list_jobs(status="queued")
-    # Phase 4 partition: jobs owned by the transactional scheduler are
-    # placed by _control_plane_tick; the legacy walkers must skip them.
-    queued = [j for j in queued if not _control_plane_owns_job(j)]
-    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
-
-    for job in queued:
-        if not hosts:
-            break
-
-        host = allocate(job, hosts)
-        if not host:
-            continue
-
-        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
-        if not updated or updated.get("status") != "running":
-            continue
-        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
-        assigned.append((updated, host))
-
-    return assigned
-
-
 # ── Phase 19: Auto-Scaling ───────────────────────────────────────────
 
 AUTOSCALE_ENABLED = os.environ.get("XCELSIOR_AUTOSCALE", "").lower() in ("1", "true", "yes")
@@ -4523,19 +4296,16 @@ def autoscale_cycle():
     """
     Full autoscale cycle:
     1. Scale up if jobs are queued
-    2. Process queue with new hosts
+    2. Leave placement to the dedicated scheduler
     3. Scale down idle autoscaled hosts
     Returns (provisioned, assigned, deprovisioned).
     """
     provisioned = autoscale_up()
 
-    assigned = []
-    if provisioned:
-        assigned = process_queue()
-
+    # Provisioning never claims jobs with an API/provider database role.
+    # The dedicated scheduler observes the new capacity on its next tick.
     deprovisioned = autoscale_down()
-
-    return provisioned, assigned, deprovisioned
+    return provisioned, [], deprovisioned
 
 
 def start_autoscale_monitor(interval=15, callback=None):
@@ -4943,39 +4713,6 @@ def allocate_best_host(job, hosts):
         best.get("free_vram_gb"),
     )
     return best
-
-
-def process_queue_ranked():
-    """Process the queue with verification + reputation-weighted ranking.
-
-    - Verified hosts preferred
-    - Reputation-boosted ordering
-    - Event-sourced state transitions
-    """
-    hosts = list_hosts(active_only=True)
-    assigned = []
-
-    queued = list_jobs(status="queued")
-    # Phase 4 partition: jobs owned by the transactional scheduler are
-    # placed by _control_plane_tick; the legacy walkers must skip them.
-    queued = [j for j in queued if not _control_plane_owns_job(j)]
-    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
-
-    for job in queued:
-        if not hosts:
-            break
-
-        host = allocate_best_host(job, hosts)
-        if not host:
-            continue
-
-        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
-        if not updated or updated.get("status") != "running":
-            continue
-        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
-        assigned.append((updated, host))
-
-    return assigned
 
 
 if __name__ == "__main__":

@@ -306,6 +306,17 @@ class TestJobQueue:
 
 
 class TestProcessQueue:
+    @pytest.fixture(autouse=True)
+    def native_scheduler(self, monkeypatch):
+        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+
+        monkeypatch.setattr(
+            scheduler,
+            "_cp_config",
+            SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="scheduler-tests"),
+        )
+        monkeypatch.setattr(scheduler, "_cp_service", None)
+
     def test_process_assigns_job(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
         _admit_host("h1")
@@ -331,21 +342,27 @@ class TestProcessQueue:
         assigned = scheduler.process_queue()
         assert len(assigned) == 2
 
-    def test_process_multiple_jobs_on_same_host_uses_vram_tracking(self):
+    def test_exclusive_gpu_is_not_overcommitted_by_small_jobs(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
         _admit_host("h1")
         scheduler.submit_job("job-a", 10)
         scheduler.submit_job("job-b", 8)
-
         assigned = scheduler.process_queue()
-        assert len(assigned) == 2
-
-        # VRAM is reserved when jobs move to "running", not "assigned"
-        for job, host in assigned:
-            scheduler.update_job_status(job["job_id"], "running", host_id=host["host_id"])
-
-        host = scheduler.list_hosts()[0]
-        assert host["free_vram_gb"] == 6
+        assert len(assigned) == 1
+        with scheduler._atomic_mutation() as conn:
+            assert (
+                next(
+                    iter(
+                        conn.execute(
+                            "SELECT count(*) FROM gpu_device_allocations WHERE released_at IS NULL"
+                        )
+                        .fetchone()
+                        .values()
+                    )
+                )
+                == 1
+            )
+        assert len(scheduler.list_jobs(status="queued")) == 1
 
 
 # ── Phase 7: Job status updates ──────────────────────────────────────

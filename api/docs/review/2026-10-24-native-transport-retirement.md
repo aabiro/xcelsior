@@ -19,8 +19,10 @@ The initial focused selection exposed obsolete v1 success expectations. The
 updated 426-check run had one test-only failure reading a deliberately private
 attempt ID from a public projection; 425 checks passed. That assertion now reads
 the database directly and the final 35-check authority selection passed with no
-failures/errors/skips. These diagnostic runs remain recorded. The frozen complete
-candidate gate follows this commit; this document does not claim it passed yet.
+failures/errors/skips. These diagnostic runs remain recorded. The complete bcec08cb run subsequently recorded 3,900 passing checks and 23
+failures in old v1-fixture/status-retirement expectations. That diagnostic is
+retained; the native queue follow-up converts those fixtures and requires a
+new frozen full gate before deployment.
 
 Runnable gates include `tests/test_native_transport_retirement.py`,
 `tests/test_agent_v2.py`, `tests/test_legacy_observation_gates.py`,

@@ -28,16 +28,8 @@ from control_plane.launch.canonicalize import canonicalize, spec_hash
 
 ROUTES_DIR = pathlib.Path(__file__).resolve().parent.parent / "api" / "routes"
 
-# The only request handlers permitted to run the queue walker: they *are* the
-# on-demand queue processor (admin triggers), not a launch path.
-# Adding a launch/submission handler here would be a design regression, so the
-# list is deliberately small and named.
-_QUEUE_RUNNER_ALLOWLIST = {
-    "api_process_queue",
-    "api_process_queue_binpack",
-    "api_process_queue_ca",
-    "api_process_queue_binpack",
-}
+# All inline placement endpoints are retired; API database roles never reserve.
+_QUEUE_RUNNER_ALLOWLIST = set()
 _SCHEDULER_INLINE_CALLS = {
     "process_queue",
     "process_queue_binpack",
@@ -69,7 +61,7 @@ def _all_route_functions() -> list[tuple[str, str, ast.FunctionDef]]:
 
 
 def test_no_launch_handler_schedules_inline():
-    """Only the allowlisted queue-runner endpoints may call process_queue*."""
+    """No request handler may call process_queue*."""
     offenders = []
     for filename, fnname, fn in _all_route_functions():
         if _calls_in(fn) & _SCHEDULER_INLINE_CALLS:

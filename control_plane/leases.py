@@ -93,6 +93,9 @@ def claim_lease(
     and is rejected with a diagnosis, so the worker NACKs instead of
     starting a container it has no authority to run.
     """
+    # Status reporting and expiry lock job before lease; claim follows the
+    # same order while projecting the claim and its outbox intent atomically.
+    conn.execute("SELECT job_id FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)).fetchone()
     row = conn.execute(
         """
         UPDATE placement_leases
@@ -136,15 +139,15 @@ def claim_lease(
             host_id=host_id,
             fencing_token=fencing_token,
         )
-    conn.execute(
-        """
-        UPDATE job_attempts
-           SET status = 'lease_claimed',
-               lease_claimed_at = clock_timestamp()
-         WHERE attempt_id = %s
-           AND status IN ('reserved', 'command_pending', 'lease_offered')
-        """,
-        (attempt_id,),
+    from control_plane.attempts import report_attempt_status
+
+    report_attempt_status(
+        conn,
+        job_id=job_id,
+        attempt_id=attempt_id,
+        host_id=host_id,
+        fencing_token=fencing_token,
+        status="lease_claimed",
     )
     return LeaseGrant(
         lease_id=lease_id,
