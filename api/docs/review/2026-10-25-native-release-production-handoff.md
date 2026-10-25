@@ -1,5 +1,10 @@
 # Executed native queue, transport and reservation handoff
 
+**Superseded runtime/worker state:** the
+[physical GPU binding handoff](2026-10-25-native-gpu-device-binding.md) records
+7a1aa0ee and newly activated signed agents. This receipt retains the earlier
+1a0ae249 execution, billing and recovery proof.
+
 Production API, scheduler, background worker and SSH gateway now run
 **1a0ae249**, at schema **141**. This handoff ran no migrations. Seven dedicated
 database-role contexts passed. All eight repairs remain `report_only`, and
