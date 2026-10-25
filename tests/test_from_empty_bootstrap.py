@@ -31,6 +31,7 @@ REQUIRED_AT_HEAD = (
     "hosts",
     "outbox_events",
     "job_attempts",
+    "host_observation_sessions",
     "alembic_version",
     "connect_accounts",
     "connect_products",
@@ -42,7 +43,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "141"
+EXPECTED_HEAD = "142"
 
 
 def _admin_dsn() -> str | None:

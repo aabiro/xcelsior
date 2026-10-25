@@ -60,7 +60,8 @@ from psycopg import Connection
 # 140 requires canonical Lightning payment facts and removes two unused
 # compatibility columns. Replace every writer/diagnostic reader at that boundary.
 # 141 contracts Lightning float/epoch twins after all old writers stop.
-REQUIRED_MIN_REVISION = "141"
+# 142 keeps observation session/generation fences independently of retention.
+REQUIRED_MIN_REVISION = "142"
 REQUIRED_MAX_REVISION: str | None = None
 
 
