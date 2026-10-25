@@ -23,7 +23,7 @@ def _function(name: str) -> str:
 
 
 def _run(directory: Path, failure: str) -> subprocess.CompletedProcess[str]:
-    script = r'''
+    script = r"""
 set -euo pipefail
 TARGET_ENV=prod
 DEPLOY_BUILD_API=true
@@ -37,6 +37,7 @@ warn() { :; }
 success() { :; }
 error() { printf '%s\n' "$*" >&2; exit 1; }
 ensure_remote_deploy_state_dir() { :; }
+require_release_disk_headroom() { :; }  # Capacity is covered by its own real CLI gate.
 remote_docker_build_prefix() { printf 'true;'; }
 validate_build_env() { :; }
 verify_frontend_desktop_runtime_on_remote() { :; }
@@ -56,7 +57,7 @@ wait_for_api_readiness() {
 ssh_cmd() {
     printf '%s\n' "$*" >> "$fixture/events"
     case "$*" in
-        *'alembic upgrade head'*) [[ "$failure" != migration ]] ;;
+        *'run_db_migrations.py'*) [[ "$failure" != migration ]] ;;
         *'up -d --no-deps scheduler-worker'*) [[ "$failure" != scheduler ]] ;;
         *'up -d --no-deps frontend'*) [[ "$failure" != frontend ]] ;;
         *'MemAvailable'*) echo 1024 ;;
@@ -66,14 +67,12 @@ ssh_cmd() {
         *) return 0 ;;
     esac
 }
-'''
+"""
     script += f"\nfixture={shlex.quote(str(directory))}\nfailure={shlex.quote(failure)}\n"
     script += _function("persist_deploy_inputs") + _function("deploy_docker")
     # Same order as the production callers. Failure exits before persistence.
     script += "\ndeploy_docker\npersist_deploy_inputs\n"
-    return subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, timeout=15
-    )
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=15)
 
 
 @pytest.mark.parametrize("failure", ["migration", "standby", "scheduler", "frontend", "readiness"])
@@ -86,10 +85,13 @@ def test_failed_release_keeps_previous_inputs_until_successful_retry(tmp_path, f
 
     failed = _run(tmp_path, failure)
     assert failed.returncode != 0, failed.stdout
-    assert (tmp_path / "applied").read_text() == previous, (
-        "retry would skip images/runtime whose activation did not finish"
-    )
+    assert (
+        tmp_path / "applied"
+    ).read_text() == previous, "retry would skip images/runtime whose activation did not finish"
     assert "persist\n" not in (tmp_path / "events").read_text()
+    if failure == "migration":
+        assert "run_db_migrations.py" in (tmp_path / "events").read_text()
+        assert (tmp_path / "colour").read_text() == "green"
 
     retried = _run(tmp_path, "none")
     assert retried.returncode == 0, retried.stderr
@@ -109,8 +111,9 @@ def test_code_backups_keep_environment_private_even_with_existing_directory(tmp_
     backups.mkdir(mode=0o755)
     script = (
         "set -euo pipefail\n"
-        "log() { :; }; success() { :; }; sudo() { \"$@\"; }\n"
+        'log() { :; }; success() { :; }; sudo() { "$@"; }\n'
         "ssh_cmd() { source /dev/stdin; }\n"
+        "require_release_disk_headroom() { :; }\n"
         f"DEPLOY_DIR={shlex.quote(str(source))}\n"
         f"BACKUP_DIR={shlex.quote(str(backups))}\n"
         + _function("backup_current").replace("-C /opt ", f"-C {shlex.quote(str(opt))} ")
