@@ -336,6 +336,7 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
         "spot-preempt-outbox",
         8.0,
         pricing_mode="spot",
+        gpu_model="RTX 4090",
         owner="spot-owner@test",
     )
     job_id = job["job_id"]
@@ -458,10 +459,9 @@ def test_inventory_process_local_emit_sites_classified():
     ):
         assert marker in sched_src, f"missing wired producer: {marker}"
 
-    # Still process-local (not this cutover): queue-block job_error, spot_prices.
-    assert (
-        'emit_event(\n            "job_error"' in sched_src
-        or 'emit_event(\n        "job_error"' in sched_src
-        or '"job_error"' in sched_src
-    )
+    # Native queue release appends its notification in the same transaction.
+    claim_src = (root / "control_plane" / "scheduler" / "claim.py").read_text()
+    assert 'event_type="job.v1.queue_blocked"' in claim_src
+    assert "native_queue_blocked:" in claim_src
+    assert "process_queue_binpack" not in sched_src
     assert "spot_prices" in sched_src

@@ -16,6 +16,7 @@ from control_plane.leases import LeaseRenewRejected, release_lease, renew_lease
 from control_plane.lifecycle import reconcile_fenced_stop
 from control_plane.reconcile import _expedite_lease_expiry, process_due
 from tests.test_job_reconcile_observations import placed  # noqa: F401
+from tests.test_agent_v2 import fleet  # noqa: F401
 
 pytestmark = pytest.mark.needs_db
 
@@ -155,34 +156,32 @@ def test_expired_renewal_is_refused_and_keeps_expiry_request(placed):
         assert _request(conn, placed) == ("lease_changed", True, None)
 
 
-def test_shortened_offer_and_claim_both_wake_job(placed):
+def test_shortened_offer_and_claim_both_wake_job(fleet):
+    import uuid
+    from db import _get_pg_pool
     from control_plane.leases import claim_lease
+    from tests.test_agent_v2 import _place_one, _auth
 
-    with placed["pool"].connection() as conn:
-        lease_id = _lease(conn, placed)
+    jid, hid, refs = _place_one(fleet, uuid.uuid4().hex[:8])
+    job = {"job_id": jid}
+    with _get_pg_pool().connection() as conn:
+        lease_id = conn.execute(
+            "SELECT lease_id FROM placement_leases WHERE job_id=%s AND status='offered'", (jid,)
+        ).fetchone()[0]
+        _clear(conn, job)
         conn.execute(
-            "UPDATE placement_leases SET status = 'offered', "
-            "claim_deadline = clock_timestamp() + interval '1 hour' WHERE lease_id = %s",
+            "UPDATE placement_leases SET claim_deadline=clock_timestamp()+interval '5 seconds' WHERE lease_id=%s",
             (lease_id,),
         )
-        _clear(conn, placed)
-        conn.execute(
-            "UPDATE placement_leases SET claim_deadline = clock_timestamp() + interval '5 minutes' "
-            "WHERE lease_id = %s",
-            (lease_id,),
-        )
-        assert _request(conn, placed) == ("lease_changed", True, None)
-        _clear(conn, placed)
-        claim_lease(
-            conn,
-            lease_id=lease_id,
-            job_id=placed["job_id"],
-            attempt_id=placed["attempt_id"],
-            host_id=placed["host_id"],
-            fencing_token=placed["fencing_token"],
-            worker_session_id="events-test",
-        )
-        assert _request(conn, placed) == ("lease_changed", True, None)
+        assert _request(conn, job) == ("lease_changed", True, None)
+        _clear(conn, job)
+        claim_lease(conn, **_auth(jid, hid, refs))
+        assert _request(conn, job) is not None
+        assert _request(conn, job)[1:] == (True, None)
+        assert conn.execute(
+            "SELECT j.status,a.status,l.status FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id JOIN placement_leases l ON l.attempt_id=a.attempt_id WHERE j.job_id=%s",
+            (jid,),
+        ).fetchone() == ("leased", "lease_claimed", "active")
 
 
 @pytest.mark.parametrize("field,value", [("host_id", "unrelated-host"), ("fencing_token", -1)])

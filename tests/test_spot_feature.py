@@ -38,7 +38,7 @@ class TestSpotMetrics:
 
         scheduler.register_host("m1", "127.0.0.1", "RTX 4090", 24, 24)
         scheduler._set_host_fields("m1", admitted=True)
-        job = scheduler.submit_job("spot-m", 8, pricing_mode="spot")
+        job = scheduler.submit_job("spot-m", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.update_job_status(job["job_id"], "running", host_id="m1")
 
         snap = get_spot_metrics_snapshot(scheduler.list_jobs())

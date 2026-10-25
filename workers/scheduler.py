@@ -1785,6 +1785,9 @@ def submit_job(
         job["spot"] = True
         job["preemptible"] = True
         job["pricing_mode"] = "spot"
+        from control_plane.spot_admission import lock_admission_quote
+
+        lock_admission_quote(job)
 
     outbox_enqueued = False
     with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:

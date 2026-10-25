@@ -9,6 +9,7 @@ import uuid
 
 import pytest
 from psycopg import sql
+from psycopg.types.json import Jsonb
 
 from db import DatabaseOps, _get_pg_pool
 from control_plane.attempts import report_attempt_status
@@ -350,6 +351,10 @@ def test_wallet_billing_uses_admitted_identity_and_gpu_constraints(native, perio
             backend="postgres",
         )
         admit_fixture_job(conn, native.jid)
+        conn.execute(
+            "UPDATE hosts SET payload=payload||%s WHERE host_id=%s",
+            (Jsonb({"spot_enabled": True, "spot_gpu_slots": 2}), native.hid),
+        )
         conn.execute(
             """INSERT INTO host_gpu_devices(host_id,gpu_uuid,model,total_vram_mb,
                 allocatable_vram_mb,health) VALUES(%s,%s,'RTX 4090',24576,24576,'healthy')""",

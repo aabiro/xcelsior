@@ -968,7 +968,7 @@ class TestPreemption:
         assert preemptible[0][0]["job_id"] == spot["job_id"]
 
     def test_execution_is_unavailable_without_mutation(self):
-        job = scheduler.submit_job("unchanged", 8, pricing_mode="spot")
+        job = scheduler.submit_job("unchanged", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
         before = scheduler.get_job(job["job_id"])
         assert not hasattr(scheduler, "preemption_cycle")

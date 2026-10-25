@@ -112,7 +112,7 @@ class TestCapacityPreemption:
 
     def test_identify_preemption_candidates_respects_shortfall(self):
         _host("h1", gpu_count=1, spot_gpu_slots=1)
-        spot = scheduler.submit_job("spot-only", 8, pricing_mode="spot")
+        spot = scheduler.submit_job("spot-only", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.update_job_status(spot["job_id"], "running", host_id="h1")
 
         jobs = scheduler.list_jobs()
@@ -135,7 +135,7 @@ class TestCapacityPreemption:
 
     def test_drain_preempts_spot_before_on_demand(self):
         _host("h1", gpu_count=2, spot_gpu_slots=2)
-        spot = scheduler.submit_job("drain-spot", 8, pricing_mode="spot")
+        spot = scheduler.submit_job("drain-spot", 8, pricing_mode="spot", gpu_model="RTX 4090")
         od = scheduler.submit_job("drain-od", 8, pricing_mode="on_demand")
         scheduler.update_job_status(spot["job_id"], "running", host_id="h1")
         scheduler.update_job_status(od["job_id"], "running", host_id="h1")

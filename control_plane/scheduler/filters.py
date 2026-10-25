@@ -16,7 +16,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v3"
+FILTER_POLICY_VERSION = "filters/v4"
 
 
 @dataclass(frozen=True)
@@ -158,6 +158,32 @@ def egress_isolation(job: dict, host: dict, ctx: FilterContext) -> FilterReason 
     )
 
 
+def spot_capacity(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
+    if _norm(job.get("pricing_mode")) != "spot":
+        return None
+    if host.get("spot_enabled") is not True:
+        return FilterReason("spot_disabled", "host does not enable spot workloads")
+    slots, total = host.get("spot_gpu_slots"), host.get("gpu_count")
+    if type(slots) is not int or type(total) is not int or min(slots, total) < 0:
+        return FilterReason("spot_capacity_unqualified", "host has no qualified spot pool")
+    floor_cents = host.get("spot_min_cents", 0)
+    rate = job.get("spot_rate_cad")
+    if type(floor_cents) is not int or floor_cents < 0:
+        return FilterReason("spot_capacity_unqualified", "host spot floor is unqualified")
+    if rate is None or isinstance(rate, bool) or _f(rate, -1) < floor_cents / 100:
+        return FilterReason(
+            "spot_floor_exceeds_admitted", "host spot floor exceeds the admitted rate"
+        )
+    used, needed = int(host.get("active_spot_gpu_count") or 0), int(job.get("num_gpus") or 1)
+    if used + needed > min(slots, total):
+        return FilterReason(
+            "spot_capacity_exhausted",
+            "host spot pool has no free GPU slots",
+            {"slots": min(slots, total), "allocated": used, "requested": needed},
+        )
+    return None
+
+
 def price(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     max_price = _f(job.get("max_price_per_hour"), 0.0)
     if max_price <= 0:
@@ -183,6 +209,7 @@ HARD_FILTERS: Sequence[Callable[[dict, dict, FilterContext], FilterReason | None
     vram,
     region,
     egress_isolation,
+    spot_capacity,
     price,
 )
 
