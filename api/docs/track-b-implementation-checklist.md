@@ -32,14 +32,17 @@ residual stated. `[ ]` means not built. No item claims a production deploy
 that has not happened; operator actions are listed separately in §B0.4 and
 at the end of each phase as **Operator residual**.
 
-**Current control-plane/data status, 2026-10-24:** the ordered production
-cutover reached schema **141**, runtime `fdaab814`, both signed GPU workers and
-seven dedicated runtime/one-shot database logins. The frozen gate passed 3,889
-tests with zero failures/errors/skips. Native CUDA, restart adoption, fencing,
-measured exit/request metadata, exact usage/wallet totals, twelve public
-signatures and a complete **155-table** post-deployment restore passed.
+**Current control-plane/data status, 2026-10-25:** schema **141**, runtime
+`b935d694`, both signed GPU workers and seven dedicated runtime/one-shot database
+contexts are deployed and accepted. The frozen follow-up passed 3,897 tests with
+zero failures/errors/skips. Five actual CUDA/lifecycle jobs have six meters and
+seven charged cycles/debits totaling 57,400 micro-CAD, with zero ledger mismatch.
+Twelve public signatures, public/MCP readiness, monitoring and role audits pass.
 All eight repairs remain `report_only`; preemption/deadline force stay disabled.
-[Executed receipt](review/2026-10-24-executed-control-plane-data-cutover.md).
+[Current runtime receipt](review/2026-10-25-native-startup-production-handoff.md).
+The preceding ordered data migration, canonical metadata, Lightning contraction
+and full 155-table restore remain recorded in the
+[executed data receipt](review/2026-10-24-executed-control-plane-data-cutover.md).
 
 The read-only post-cutover population scan covers 177 physical tables and 2,077
 columns with zero scan errors. Both job/host projection triggers, the Lightning

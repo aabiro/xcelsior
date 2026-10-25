@@ -25,6 +25,8 @@ Runnable gates: `tests/test_worker_signal_ownership.py`,
 `tests/test_promotion_copies_and_verifies.py` and
 `tests/test_worker_preemption_protocol.py`, through the isolated security harness.
 
-The worker distribution is re-signed. This source follow-up is separate from
-production fdaab814 at schema 141; it still requires the full candidate gate,
-image and signed-worker handoff before deployment is claimed.
+The worker distribution is re-signed. Frozen b935d694 passed 3,897 tests with
+zero failures/errors/skips and 1,129 unchanged source hashes, plus the actual
+non-root image checks. API, service and both idle signed-worker handoffs are
+executed at schema 141. Fresh CUDA, ledger and role checks pass; see the
+[current production receipt](2026-10-25-native-startup-production-handoff.md).
