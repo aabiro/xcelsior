@@ -44,7 +44,29 @@ def test_archive_retry_collision_corruption_and_private_files(tmp_path):
     assert destination.read_bytes() == before
 
 
-@pytest.mark.parametrize("name", ["../escape", "/tmp/WAL", "", "00000001.history/escape"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        SEGMENT,
+        SEGMENT + ".partial",
+        SEGMENT + ".00000028.backup",
+        "00000002.history",
+    ],
+)
+def test_archive_accepts_every_name_postgres_archives(tmp_path, name):
+    # PostgreSQL archives the old timeline's last segment as `.partial` after a
+    # recovery or promotion; refusing it stalls every later segment.
+    source = tmp_path / "source"
+    source.write_bytes(b"wal")
+    wal.archive(tmp_path / "repo", "123", source, name)
+    destination = tmp_path / "restored"
+    wal.restore(tmp_path / "repo", "123", name, destination)
+    assert destination.read_bytes() == b"wal"
+
+
+@pytest.mark.parametrize(
+    "name", ["../escape", "/tmp/WAL", "", "00000001.history/escape", SEGMENT + ".partial/x"]
+)
 def test_archive_refuses_untrusted_names(tmp_path, name):
     with pytest.raises(ValueError):
         wal.archive(tmp_path / "repo", "123", tmp_path / "source", name)
