@@ -3041,6 +3041,12 @@ def _v2_journal_save() -> bool:
                 "spec_hash": a.get("spec_hash"),
                 "gpu_device_uuids": a.get("gpu_device_uuids"),
                 "interactive": bool(a.get("interactive", False)),
+                # Absent on records from older agents: unknown, not False.
+                **(
+                    {"container_started": bool(a["container_started"])}
+                    if "container_started" in a
+                    else {}
+                ),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
                 **(
                     {
@@ -3217,6 +3223,8 @@ def _v2_auth_from_record(rec: dict, journal_mtime: float) -> dict:
         auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
     if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
         auth["pending_start_failure"] = rec["pending_start_failure"]
+    if type(rec.get("container_started")) is bool:
+        auth["container_started"] = rec["container_started"]
     metadata = rec.get("running_report_metadata")
     if isinstance(metadata, dict):
         auth["running_report_metadata"] = {
@@ -3260,7 +3268,7 @@ def _v2_restore_journal() -> bool:
 
 def _v2_may_hold_container(auth: dict) -> bool:
     """False only where the journal proves no container was ever launched."""
-    return not auth.get("pending_start_failure")
+    return not auth.get("pending_start_failure") and auth.get("container_started") is not False
 
 
 def _v2_local_recovery_loop() -> None:
@@ -3623,6 +3631,26 @@ def v2_adopt_attempts() -> int:
             _v2_abort_claimed_start(auth, auth["pending_start_failure"])
             continue
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        if (
+            auth.get("container_started") is False
+            and state in ("missing", "unknown")
+            and not auth.get("pending_terminal_report")
+            and not isinstance(auth.get("pending_command"), dict)
+        ):
+            # The previous process died during setup (typically an image
+            # pull): the journal proves `docker run` was never reached, so the
+            # name cannot exist. A terminal report would fail the user's
+            # launch for an agent restart. Instead stop renewing and release
+            # local resources; the server expires the lease (ttl + 30 s after
+            # the last renewal) and requeues the job with a new attempt.
+            log.warning(
+                "adoption: attempt %s for job %s never started a container; "
+                "leaving its lease to expire so the job is requeued",
+                auth["attempt_id"][:8],
+                job_id,
+            )
+            _v2_forget_attempt(job_id, auth)
+            continue
         if state == "unknown":
             # A Docker timeout/daemon error is not evidence of workload loss.
             # Seek exact lease authority within the existing bounded grace;
@@ -3968,6 +3996,7 @@ def _handle_start_attempt(cmd: dict) -> None:
     auth.setdefault("last_renewed_at", time.time())
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
     auth["interactive"] = bool(spec.get("interactive", False))
+    auth["container_started"] = False
     if not _v2_register_attempt(auth):
         v2_nack_command(command_id, "lease_authority_superseded", retryable=False)
         return
@@ -5810,6 +5839,18 @@ def run_job(job):
                 or _shutdown.is_set()
             ):
                 return
+            # Durable before the side effect: adoption treats an attempt whose
+            # journal says no container was started as safely requeueable.
+            authority["container_started"] = True
+            start_journaled = _v2_journal_save()
+        if not start_journaled:
+            report_status(
+                job_id,
+                "failed",
+                error_message="worker journal unavailable before container start",
+                policy_reason="journal_unavailable",
+            )
+            return
         _remove_container(container_name)
         log.info("Starting container %s", container_name)
         _push_log_lines(
