@@ -2581,6 +2581,7 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
     until the lease expires. A definitive rejection is never retried.
     """
     payload = _v2_auth_payload(auth)
+    sent_at = time.time()
     code, body = _v2_post("/agent/v2/leases/claim", payload)
     for delay in _V2_CLAIM_RETRY_DELAYS_SEC:
         if code not in (0, 429) and code < 500:
@@ -2593,6 +2594,7 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
         )
         if _shutdown.wait(delay):
             break
+        sent_at = time.time()
         code, body = _v2_post("/agent/v2/leases/claim", payload)
     if code == 200:
         response_matches = (
@@ -2602,6 +2604,8 @@ def v2_claim_lease_fenced(auth: dict) -> dict | None:
             and int(body.get("fencing_token") or 0) == int(auth["fencing_token"])
         )
         if response_matches:
+            # A claim starts the lease window exactly as a renewal does.
+            auth["last_renewed_at"] = sent_at
             return body
         log.error(
             "v2 lease claim response authority mismatch job=%s attempt=%s",
@@ -2832,6 +2836,42 @@ _v2_fence_kill_sweep_lock = threading.Lock()
 _v2_starts_in_progress: set[str] = set()
 _v2_resources_lock = threading.RLock()
 _v2_cleanup_sweep_lock = threading.Lock()
+# Nothing may rewrite the journal before this process has read it: an early
+# save would replace every surviving record with this process's empty state.
+_v2_journal_loaded = False
+_v2_journal_mtime = 0.0
+#: A survivor nobody could renew is killed this long before its lease can
+#: expire. Renewal times are taken before the request is sent, so they never
+#: post-date the server's stamp; the server then waits a further 30 s
+#: (DEFAULT_EXPIRY_GRACE_SEC) before it requeues the work elsewhere.
+_V2_LOCAL_DEADLINE_MARGIN_SEC = 15
+_v2_local_recovery_lock = threading.Lock()
+
+
+def _v2_renewal_ttl(auth: dict) -> int:
+    return max(30, int(auth.get("renewal_ttl_sec") or 300))
+
+
+def _v2_local_deadline(auth: dict) -> float:
+    """Wall-clock time by which this host must stop the attempt's container
+    unless a renewal has succeeded since ``last_renewed_at``."""
+    last = auth.get("last_renewed_at")
+    if type(last) not in (int, float):
+        last = time.time()
+        auth["last_renewed_at"] = last
+    return float(last) + _v2_renewal_ttl(auth) - _V2_LOCAL_DEADLINE_MARGIN_SEC
+
+
+def _v2_renew(auth: dict, **extra):
+    """Renew the exact lease and durably remember when the server vouched."""
+    sent_at = time.time()
+    code, body = _v2_post("/agent/v2/leases/renew", {**_v2_auth_payload(auth), **extra})
+    if code == 200:
+        with _v2_attempts_lock:
+            auth["last_renewed_at"] = sent_at
+            if _v2_attempts.get(auth["job_id"]) is auth:
+                _v2_journal_save()
+    return code, body
 
 
 def _v2_resource_intent(auth: dict, kind: str, value) -> None:
@@ -2973,6 +3013,9 @@ def _v2_retry_resource_cleanup(*, background: bool = False) -> None:
 def _v2_journal_save() -> bool:
     """Persist attempt authority and replayable command results atomically."""
     with _v2_attempts_lock:
+        if not _v2_journal_loaded and not _v2_restore_journal():
+            log.error("v2 journal unreadable; refusing to overwrite its recovery records")
+            return False
         cutoff = time.time() - _V2_COMMAND_RESULT_RETENTION_SEC
         expired = [
             command_id
@@ -2988,13 +3031,40 @@ def _v2_journal_save() -> bool:
                 "attempt_id": a["attempt_id"],
                 "fencing_token": a["fencing_token"],
                 "renewal_ttl_sec": a.get("renewal_ttl_sec", 300),
+                **(
+                    {"last_renewed_at": a["last_renewed_at"]}
+                    if type(a.get("last_renewed_at")) in (int, float)
+                    else {}
+                ),
                 "container_name": a.get("container_name")
                 or _v2_container_name(a["job_id"], a["attempt_id"]),
                 "spec_hash": a.get("spec_hash"),
                 "gpu_device_uuids": a.get("gpu_device_uuids"),
                 "interactive": bool(a.get("interactive", False)),
+                # Absent on records from older agents: unknown, not False.
+                **(
+                    {"container_started": bool(a["container_started"])}
+                    if "container_started" in a
+                    else {}
+                ),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
+                **(
+                    {
+                        "running_report_metadata": {
+                            k: v
+                            for k, v in a["running_report_metadata"].items()
+                            if k in _V2_RUNNING_METADATA
+                        }
+                    }
+                    if isinstance(a.get("running_report_metadata"), dict)
+                    else {}
+                ),
                 "pending_runtime_reports": dict(a.get("pending_runtime_reports") or {}),
+                **(
+                    {"serverless_health": dict(a["serverless_health"])}
+                    if isinstance(a.get("serverless_health"), dict)
+                    else {}
+                ),
                 **(
                     {"auto_launch_token": a["auto_launch_token"]}
                     if a.get("auto_launch_token")
@@ -3070,42 +3140,194 @@ def _v2_journal_save() -> bool:
 
 
 def _v2_journal_load() -> dict:
-    global _v2_completed_commands, _v2_cleanup_pending, _v2_pending_fence_kills
-    try:
-        with open(_V2_JOURNAL_PATH) as fh:
-            data = json.load(fh)
+    """Read the journal; return its attempt records and merge its side tables.
+
+    Entries already in memory win: they were journaled after this file was
+    read, or their save failed and memory is the only remaining copy.
+    """
+    global _v2_journal_loaded, _v2_journal_mtime
+    with _v2_attempts_lock:
+        try:
+            with open(_V2_JOURNAL_PATH) as fh:
+                mtime = os.fstat(fh.fileno()).st_mtime
+                data = json.load(fh)
+        except FileNotFoundError:
+            _v2_journal_loaded = True
+            return {}
+        except ValueError:
+            log.error("v2 journal is not valid JSON; its records cannot be recovered")
+            _v2_journal_loaded = True
+            return {}
+        except OSError as exc:
+            log.error("v2 journal unreadable (%s); recovery records retained on disk", exc)
+            return {}
+        _v2_journal_loaded = True
+        _v2_journal_mtime = mtime
         if not isinstance(data, dict):
             return {}
         raw_completed = data.pop(_V2_COMPLETED_COMMANDS_KEY, {})
         raw_cleanup = data.pop(_V2_CLEANUP_KEY, {})
         raw_kills = data.pop(_V2_FENCE_KILLS_KEY, {})
-        with _v2_attempts_lock:
-            _v2_pending_fence_kills = (
-                {
-                    str(name): dict(entry)
-                    for name, entry in raw_kills.items()
-                    if isinstance(entry, dict) and entry.get("container_name") == name
-                }
-                if isinstance(raw_kills, dict)
-                else {}
-            )
-            _v2_cleanup_pending = (
-                {str(k): dict(v) for k, v in raw_cleanup.items() if isinstance(v, dict)}
-                if isinstance(raw_cleanup, dict)
-                else {}
-            )
-            _v2_completed_commands = (
-                {
-                    str(command_id): dict(record)
-                    for command_id, record in raw_completed.items()
-                    if isinstance(record, dict)
-                }
-                if isinstance(raw_completed, dict)
-                else {}
-            )
+        if isinstance(raw_kills, dict):
+            for name, entry in raw_kills.items():
+                if isinstance(entry, dict) and entry.get("container_name") == name:
+                    _v2_pending_fence_kills.setdefault(str(name), dict(entry))
+        if isinstance(raw_cleanup, dict):
+            for attempt_id, record in raw_cleanup.items():
+                if isinstance(record, dict):
+                    _v2_cleanup_pending.setdefault(str(attempt_id), dict(record))
+        if isinstance(raw_completed, dict):
+            for command_id, record in raw_completed.items():
+                if isinstance(record, dict):
+                    _v2_completed_commands.setdefault(str(command_id), dict(record))
         return data
-    except (OSError, ValueError):
-        return {}
+
+
+def _v2_wall_time(value, fallback: float) -> float:
+    """A journaled wall-clock time, never later than now (clocks move)."""
+    if type(value) in (int, float) and value == value and abs(value) != float("inf"):
+        return min(float(value), time.time())
+    return fallback
+
+
+def _v2_auth_from_record(rec: dict, journal_mtime: float) -> dict:
+    """Rebuild one journaled authority; raises KeyError/TypeError/ValueError."""
+    ttl = int(rec.get("renewal_ttl_sec", 300))
+    # A journal written before renewals were recorded: the previous agent
+    # renewed every max(10, ttl // 3) s (each request up to 10 s) until it
+    # stopped, and it saved this file at or before that moment.
+    fallback = min(journal_mtime or time.time(), time.time()) - (max(10, ttl // 3) + 10)
+    auth = {
+        "lease_id": str(rec["lease_id"]),
+        "job_id": str(rec["job_id"]),
+        "attempt_id": str(rec["attempt_id"]),
+        "fencing_token": int(rec["fencing_token"]),
+        "renewal_ttl_sec": ttl,
+        "last_renewed_at": _v2_wall_time(rec.get("last_renewed_at"), fallback),
+        "container_name": str(
+            rec.get("container_name")
+            or _v2_container_name(str(rec["job_id"]), str(rec["attempt_id"]))
+        ),
+        "spec_hash": rec.get("spec_hash"),
+        "gpu_device_uuids": rec.get("gpu_device_uuids"),
+        "interactive": bool(rec.get("interactive", False)),
+        "running_report_pending": bool(rec.get("running_report_pending", False)),
+        "pending_runtime_reports": dict(rec.get("pending_runtime_reports") or {}),
+        **({"auto_launch_token": rec["auto_launch_token"]} if rec.get("auto_launch_token") else {}),
+        "resources": dict(rec.get("resources") or {}),
+        "stop": threading.Event(),
+    }
+    if isinstance(rec.get("pending_command"), dict):
+        auth["pending_command"] = dict(rec["pending_command"])
+    if isinstance(rec.get("pending_terminal_report"), dict):
+        auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
+    if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
+        auth["pending_start_failure"] = rec["pending_start_failure"]
+    if type(rec.get("container_started")) is bool:
+        auth["container_started"] = rec["container_started"]
+    metadata = rec.get("running_report_metadata")
+    if isinstance(metadata, dict):
+        auth["running_report_metadata"] = {
+            k: v
+            for k, v in metadata.items()
+            if k in _V2_RUNNING_METADATA and type(v) in (str, int, bool)
+        }
+    health = rec.get("serverless_health")
+    if isinstance(health, dict):
+        auth["serverless_health"] = {
+            "port": int(health["port"]),
+            "path": str(health["path"]),
+            "deadline": float(health["deadline"]),
+        }
+    return auth
+
+
+def _v2_restore_journal() -> bool:
+    """Install the on-disk journal in memory once, before anything rewrites it.
+
+    Restored attempts await adoption (which needs the negotiated protocol and
+    an exact renewal); until then they are preserved by every save and held
+    to their local lease deadline by ``_v2_local_recovery_loop``.
+    """
+    with _v2_attempts_lock:
+        if _v2_journal_loaded:
+            return True
+        records = _v2_journal_load()
+        if not _v2_journal_loaded:
+            return False
+        for job_id, rec in records.items():
+            try:
+                auth = _v2_auth_from_record(rec, _v2_journal_mtime)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if job_id not in _v2_attempts:
+                auth["_awaiting_adoption"] = True
+                _v2_attempts[job_id] = auth
+        return True
+
+
+def _v2_may_hold_container(auth: dict) -> bool:
+    """False only where the journal proves no container was ever launched."""
+    return not auth.get("pending_start_failure") and auth.get("container_started") is not False
+
+
+def _v2_local_recovery_loop() -> None:
+    """Hold restored survivors to their lease deadline while unadopted.
+
+    Before protocol negotiation (an API outage at startup) nothing renews a
+    restored attempt, yet the server expires its lease ``ttl + 30 s`` after
+    the last renewal and requeues the job elsewhere. A container this host
+    could not renew in time is fence-stopped through the durable kill path,
+    exactly as the renewal loop would have done, so the work never runs twice.
+    """
+    try:
+        while not _shutdown.is_set():
+            now = time.time()
+            expired = []
+            with _v2_attempts_lock:
+                waiting = [
+                    a
+                    for a in _v2_attempts.values()
+                    if a.get("_awaiting_adoption") and _v2_may_hold_container(a)
+                ]
+                for auth in waiting:
+                    if now >= _v2_local_deadline(auth):
+                        auth.pop("_awaiting_adoption", None)  # adoption may no longer take it
+                        expired.append(auth)
+                kills_pending = bool(_v2_pending_fence_kills)
+            for auth in expired:
+                container_name = auth.get("container_name")
+                _v2_forget_attempt(auth["job_id"], auth)
+                _v2_stop_container(
+                    auth["job_id"],
+                    "lease renewal deadline passed before adoption",
+                    container_name,
+                    auth["attempt_id"],
+                )
+            if kills_pending:
+                _v2_retry_fence_kills()
+            remaining = [a for a in waiting if a not in expired]
+            if not remaining and not _v2_pending_fence_kills:
+                return
+            next_deadline = min((_v2_local_deadline(a) for a in remaining), default=now + 5)
+            _shutdown.wait(min(5.0, max(0.1, next_deadline - time.time())))
+    finally:
+        _v2_local_recovery_lock.release()
+
+
+def _v2_start_local_recovery() -> None:
+    """Load the journal at startup, independent of API reachability."""
+    if not _v2_restore_journal():
+        log.error("v2 journal unreadable at startup; journaled work cannot be fenced locally")
+        return
+    if not _v2_local_recovery_lock.acquire(blocking=False):
+        return
+    try:
+        threading.Thread(
+            target=_v2_local_recovery_loop, name="v2-local-recovery", daemon=True
+        ).start()
+    except RuntimeError:
+        _v2_local_recovery_lock.release()
 
 
 def _v2_mark_command_complete(command_id: str, result: dict, *, strict: bool = False) -> bool:
@@ -3154,13 +3376,19 @@ def _v2_same_authority(left: dict, right: dict) -> bool:
     )
 
 
-def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
+def _v2_forget_attempt(
+    job_id: str, expected_auth: dict | None = None, *, replacement: dict | None = None
+) -> bool:
+    """Drop a job's local authority (optionally installing ``replacement`` in
+    the same step); owned resources move to cleanup-pending. True if done."""
     with _v2_attempts_lock:
         if expected_auth is not None and not _v2_same_authority(
             _v2_attempts.get(job_id) or {}, expected_auth
         ):
-            return
+            return False
         auth = _v2_attempts.pop(job_id, None)
+        if replacement is not None:
+            _v2_attempts[job_id] = replacement
         if auth is not None and auth.get("resources"):
             _v2_cleanup_pending[auth["attempt_id"]] = auth
     if auth is not None:
@@ -3176,6 +3404,42 @@ def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
                 _active_containers.pop(job_id, None)
                 _adopted_containers.discard(job_id)
         _v2_journal_save()
+    return True
+
+
+def _v2_register_attempt(auth: dict) -> bool:
+    """Make a freshly claimed attempt its job's local authority.
+
+    A successful claim proves this attempt is the job's current one, so any
+    other local record of the job is older. Overwriting it lost that record's
+    resources (mounts, LUKS volumes, the exclusive lock, paused GPU tenants)
+    from the journal, and its renewal loop then exited on the next wake
+    without stopping its container. It is retired into cleanup-pending
+    instead and its container fence-stopped. A record holding a higher fence
+    means this claim was itself overtaken; False then.
+    """
+    job_id = auth["job_id"]
+    while True:
+        with _v2_attempts_lock:
+            previous = _v2_attempts.get(job_id)
+            if previous is None or previous is auth or _v2_same_authority(previous, auth):
+                _v2_attempts[job_id] = auth
+                return True
+            if int(previous.get("fencing_token") or 0) >= int(auth["fencing_token"]):
+                return False
+        container_name = previous.get("container_name")
+        if _v2_forget_attempt(job_id, previous, replacement=auth):
+            log.warning(
+                "attempt %s for job %s superseded by attempt %s",
+                str(previous.get("attempt_id"))[:8],
+                job_id,
+                auth["attempt_id"][:8],
+            )
+            _v2_stop_container(
+                job_id, "superseded by a newer attempt", container_name, previous["attempt_id"]
+            )
+            _v2_retry_resource_cleanup(background=True)
+            return True
 
 
 def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple[str, int, str]:
@@ -3230,13 +3494,19 @@ def _v2_track_adopted(auth: dict, *, confirmed: bool = True) -> None:
 
 
 def _v2_pending_adoption_loop(auth: dict) -> None:
-    """Bound restart uncertainty; adopt only after an exact renew succeeds."""
+    """Bound restart uncertainty; adopt only after an exact renew succeeds.
+
+    The bound is the earlier of one lease window from now and the journaled
+    lease itself: the server counts from the last renewal, not from this
+    restart, so a fresh full TTL here could outlive the lease and overlap a
+    requeued run elsewhere.
+    """
     job_id = str(auth["job_id"])
-    ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
-    deadline = time.monotonic() + ttl
+    grace_deadline = time.time() + _v2_renewal_ttl(auth)
     stop: threading.Event = auth["stop"]
     while not stop.is_set() and not _shutdown.is_set():
-        code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        code, _body = _v2_renew(auth)
+        deadline = min(grace_deadline, _v2_local_deadline(auth))
         if stop.is_set():
             return
         if code == 200 and _v2_restore_resource_lock(auth):
@@ -3256,7 +3526,7 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
                 job_id,
             )
             return
-        if code == 409 or time.monotonic() >= deadline:
+        if code == 409 or time.time() >= deadline:
             reason = (
                 "adoption renewal rejected"
                 if code == 409
@@ -3271,7 +3541,7 @@ def _v2_pending_adoption_loop(auth: dict) -> None:
                 str(auth["attempt_id"]),
             )
             return
-        stop.wait(min(10.0, max(0.1, deadline - time.monotonic())))
+        stop.wait(min(10.0, max(0.1, deadline - time.time())))
 
 
 def _v2_settle_aborted_start(auth: dict) -> str:
@@ -3331,42 +3601,29 @@ def v2_adopt_attempts() -> int:
     """
     if not _v2_enabled:
         return 0
-    journal = _v2_journal_load()
-    adopted = 0
-    for job_id, rec in journal.items():
+    candidates: dict = {}
+    for job_id, rec in _v2_journal_load().items():
         try:
-            auth = {
-                "lease_id": str(rec["lease_id"]),
-                "job_id": str(rec["job_id"]),
-                "attempt_id": str(rec["attempt_id"]),
-                "fencing_token": int(rec["fencing_token"]),
-                "renewal_ttl_sec": int(rec.get("renewal_ttl_sec", 300)),
-                "container_name": str(
-                    rec.get("container_name")
-                    or _v2_container_name(str(rec["job_id"]), str(rec["attempt_id"]))
-                ),
-                "spec_hash": rec.get("spec_hash"),
-                "gpu_device_uuids": rec.get("gpu_device_uuids"),
-                "interactive": bool(rec.get("interactive", False)),
-                "running_report_pending": bool(rec.get("running_report_pending", False)),
-                "pending_runtime_reports": dict(rec.get("pending_runtime_reports") or {}),
-                **(
-                    {"auto_launch_token": rec["auto_launch_token"]}
-                    if rec.get("auto_launch_token")
-                    else {}
-                ),
-                "resources": dict(rec.get("resources") or {}),
-                "stop": threading.Event(),
-            }
-            if isinstance(rec.get("pending_command"), dict):
-                auth["pending_command"] = dict(rec["pending_command"])
-            if isinstance(rec.get("pending_terminal_report"), dict):
-                auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
-            if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
-                auth["pending_start_failure"] = rec["pending_start_failure"]
+            candidates[job_id] = _v2_auth_from_record(rec, _v2_journal_mtime)
         except (KeyError, TypeError, ValueError):
             continue
+    with _v2_attempts_lock:
+        for job_id, restored in _v2_attempts.items():
+            if restored.get("_awaiting_adoption"):
+                candidates.setdefault(job_id, restored)
+    adopted = 0
+    for job_id, auth in candidates.items():
         with _v2_attempts_lock:
+            current = _v2_attempts.get(job_id)
+            if current is not None:
+                # The record restored at startup is the one the local deadline
+                # loop watches; adopt that object. Anything else in memory is a
+                # live authority (or one the deadline already settled).
+                if not (
+                    _v2_same_authority(current, auth) and current.pop("_awaiting_adoption", False)
+                ):
+                    continue
+                auth = current
             _v2_attempts[job_id] = auth
         if auth.get("pending_start_failure"):
             # No container was launched. Retry the journaled failure directly;
@@ -3374,6 +3631,26 @@ def v2_adopt_attempts() -> int:
             _v2_abort_claimed_start(auth, auth["pending_start_failure"])
             continue
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        if (
+            auth.get("container_started") is False
+            and state in ("missing", "unknown")
+            and not auth.get("pending_terminal_report")
+            and not isinstance(auth.get("pending_command"), dict)
+        ):
+            # The previous process died during setup (typically an image
+            # pull): the journal proves `docker run` was never reached, so the
+            # name cannot exist. A terminal report would fail the user's
+            # launch for an agent restart. Instead stop renewing and release
+            # local resources; the server expires the lease (ttl + 30 s after
+            # the last renewal) and requeues the job with a new attempt.
+            log.warning(
+                "adoption: attempt %s for job %s never started a container; "
+                "leaving its lease to expire so the job is requeued",
+                auth["attempt_id"][:8],
+                job_id,
+            )
+            _v2_forget_attempt(job_id, auth)
+            continue
         if state == "unknown":
             # A Docker timeout/daemon error is not evidence of workload loss.
             # Seek exact lease authority within the existing bounded grace;
@@ -3398,7 +3675,7 @@ def v2_adopt_attempts() -> int:
             _v2_forget_attempt(job_id, auth)
             continue
         if state == "running":
-            code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+            code, _body = _v2_renew(auth)
             if code == 409:
                 _v2_forget_attempt(job_id, auth)
                 _v2_stop_container(
@@ -3507,21 +3784,21 @@ def v2_adopt_attempts() -> int:
 def _v2_renewal_loop(auth: dict) -> None:
     """Renew the lease; any definitive rejection or expiry stops the job.
 
-    Disconnected grace: transport errors are tolerated until the last
-    successful renewal is older than the lease's renewal TTL — past that
-    the worker must assume it has been fenced out (§11.5).
+    Disconnected grace: transport errors are tolerated until the local
+    deadline (last successful renewal + TTL - margin) — past that the worker
+    must assume it has been fenced out (§11.5). The loop wakes for the
+    deadline itself rather than only every ``interval``: waiting for the next
+    regular renewal could overshoot the server's expiry by a whole interval.
     """
     job_id = auth["job_id"]
-    ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
-    interval = max(10, ttl // 3)
-    last_ok = time.time()
+    interval = max(10, _v2_renewal_ttl(auth) // 3)
     stop: threading.Event = auth["stop"]
-    while not stop.wait(interval):
-        code, body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+    _v2_local_deadline(auth)  # a window without a recorded renewal starts now
+    while not stop.wait(min(interval, max(0.1, _v2_local_deadline(auth) - time.time()))):
+        code, body = _v2_renew(auth)
         if stop.is_set():
             return  # Exit reporting now owns completion and journal cleanup.
         if code == 200:
-            last_ok = time.time()
             _v2_retry_runtime_reports(auth)
             continue
         if code == 409:
@@ -3536,7 +3813,7 @@ def _v2_renewal_loop(auth: dict) -> None:
             return
         # Transport / server error: keep the container while inside the
         # authority window, but no further.
-        if time.time() - last_ok > ttl:
+        if time.time() >= _v2_local_deadline(auth):
             container_name = auth.get("container_name")
             _v2_forget_attempt(job_id, auth)
             _v2_stop_container(
@@ -3640,13 +3917,20 @@ def handle_start_attempt(cmd: dict) -> None:
     args = cmd.get("args") or {}
     attempt_id = str(cmd.get("attempt_id") or args.get("attempt_id") or "")
     with _v2_attempts_lock:
+        # The benchmark runs `--gpus all` for minutes; a tenant container
+        # started beside it would share every GPU it was granted.
+        benchmarking = _reverify_running.is_set()
         duplicate = bool(attempt_id) and attempt_id in _v2_starts_in_progress
-        if attempt_id and not duplicate:
+        if attempt_id and not duplicate and not benchmarking:
             _v2_starts_in_progress.add(attempt_id)
     if duplicate:
         log.warning(
             "start_attempt redelivered while attempt %s is starting; ignoring", attempt_id[:8]
         )
+        return
+    if benchmarking:
+        log.info("start_attempt %s deferred: host benchmark in progress", attempt_id[:8])
+        v2_nack_command(str(cmd.get("command_id") or ""), "host_benchmarking", retryable=True)
         return
     try:
         _handle_start_attempt(cmd)
@@ -3716,8 +4000,13 @@ def _handle_start_attempt(cmd: dict) -> None:
         v2_nack_command(command_id, "lease_claim_rejected", retryable=False)
         return
     auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
+    auth.setdefault("last_renewed_at", time.time())
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
     auth["interactive"] = bool(spec.get("interactive", False))
+    auth["container_started"] = False
+    if not _v2_register_attempt(auth):
+        v2_nack_command(command_id, "lease_authority_superseded", retryable=False)
+        return
 
     if spec.get("job_type") == "serverless_worker" and not grant.get("callback_token"):
         _v2_abort_claimed_start(auth, "callback_credential_missing")
@@ -3756,7 +4045,10 @@ def _handle_start_attempt(cmd: dict) -> None:
             return
 
     with _v2_attempts_lock:
-        _v2_attempts[job_id] = auth
+        registered = _v2_attempts.get(job_id) is auth
+    if not registered:
+        v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
+        return
     if not _v2_journal_save():
         _v2_abort_claimed_start(auth, "journal_unavailable")
         v2_nack_command(command_id, "journal_unavailable", retryable=False)
@@ -3878,7 +4170,7 @@ def handle_stop_attempt(cmd: dict) -> None:
     auth = local
     # Revalidate immediately before the side effect; a stale command that
     # survived re-placement must never touch the new container.
-    code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+    code, _body = _v2_renew(auth)
     if code != 200:
         v2_nack_command(
             command_id,
@@ -3898,6 +4190,11 @@ def handle_stop_attempt(cmd: dict) -> None:
 
     container_name = str(auth.get("container_name") or _v2_container_name(job_id, attempt_id))
     state, _exit_code, label = _v2_container_state(job_id, container_name)
+    if state == "unknown":
+        # A Docker timeout or daemon error has no label to compare; it is not
+        # evidence of another attempt's container. Redeliver, don't dead-letter.
+        v2_nack_command(command_id, "container_state_unknown", {"state": state}, retryable=True)
+        return
     if label != attempt_id and state != "missing":
         v2_nack_command(
             command_id,
@@ -4166,12 +4463,26 @@ def _complete_host_restart_command(command_id: str, name: str) -> None:
 
 
 def drain_v2_commands() -> int:
-    """Claim host and attempt commands without sharing delivery identity."""
+    """Claim host and attempt commands without sharing delivery identity.
+
+    start_attempt/stop_attempt only spawn their handler threads, while a host
+    directive runs inline and can take many minutes (snapshot_container,
+    promote_artifacts, prepull_image). Attempt commands of a batch therefore
+    go first, so a long directive cannot hold a start already claimed in the
+    same batch past its 60 s claim TTL. Order within each group is kept.
+
+    Directives stay inline on purpose: run on threads while this loop kept
+    claiming, every claim expiry during a long directive would redeliver it
+    and spend one of its ``max_attempts`` (10), dead-lettering directives
+    that today succeed. That needs a claim-extension endpoint first.
+    """
     if not _v2_enabled:
         return 0
-    return sum(
-        _v2_run_claimed_command(_dispatch_v2_command, command) for command in v2_claim_commands()
+    commands = sorted(
+        v2_claim_commands(),
+        key=lambda command: command.get("command") not in ("start_attempt", "stop_attempt"),
     )
+    return sum(_v2_run_claimed_command(_dispatch_v2_command, command) for command in commands)
 
 
 _V2_JOB_DIRECTIVES = frozenset(
@@ -4204,11 +4515,16 @@ def _v2_authorize_job_directive(cmd: dict) -> str:
             or (auth.get("stop") is not None and auth["stop"].is_set())
         ):
             return "fenced"
-    code, _ = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+    code, _ = _v2_renew(auth)
     if code != 200:
         return "fenced" if code in (404, 409, 410) else "error"
     state, _, label = _v2_container_state(job_id, auth["container_name"])
     with _v2_attempts_lock:
+        current = _v2_attempts.get(job_id) is auth and not (
+            auth.get("stop") is not None and auth["stop"].is_set()
+        )
+        if current and state == "unknown":
+            return "error"  # Docker could not answer; retry rather than dead-letter
         if (
             _v2_attempts.get(job_id) is not auth
             or state != "running"
@@ -4457,24 +4773,35 @@ def _start_reverification() -> bool:
     placement gate says exactly that — which is the honest answer, and better
     than a fresh stamp bought out of someone's paid run.
     """
-    if _reverify_running.is_set():
-        log.info("reverify: a verification is already running — request dropped")
-        return False
-
     with _active_lock:
-        busy = dict(_active_containers)
+        busy = set(_active_containers)
+    # Journaled attempts count too: at startup, before adoption (or while the
+    # API is unreachable) _active_containers is still empty although their
+    # containers run. Deciding under _v2_attempts_lock makes the check and
+    # the flag one step against _handle_start_attempt, which refuses new work
+    # while the flag is set.
+    with _v2_attempts_lock:
+        if _reverify_running.is_set():
+            log.info("reverify: a verification is already running — request dropped")
+            return False
+        busy |= set(_v2_attempts) | set(_v2_starts_in_progress)
+        if not busy:
+            _reverify_running.set()
     if busy:
         log.info(
-            "reverify: deferred, %d container(s) running (%s). The benchmark "
+            "reverify: deferred, %d workload(s) on this host (%s). The benchmark "
             "saturates the GPU and would corrupt a paying job's timings.",
             len(busy),
             ", ".join(sorted(busy)[:5]),
         )
         return False
 
-    _reverify_running.set()
-    thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
-    thread.start()
+    try:
+        thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
+        thread.start()
+    except RuntimeError:
+        _reverify_running.clear()
+        raise
     return True
 
 
@@ -4791,24 +5118,139 @@ def _allocate_host_port_mappings(
     return port_map, extra_args
 
 
-def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: int = 600) -> bool:
+_SERVERLESS_HEALTH_TIMEOUT_SEC = 600
+
+
+def _serverless_health_url(host_port: int, health_path: str) -> str:
     path = health_path if str(health_path).startswith("/") else f"/{health_path}"
-    url = f"http://127.0.0.1:{int(host_port)}{path}"
-    deadline = time.time() + timeout_sec
-    while time.time() < deadline and not _shutdown.is_set():
-        try:
-            resp = requests.get(url, timeout=5)
-            if 200 <= resp.status_code < 300:
-                log.info("Serverless health OK: %s → %d", url, resp.status_code)
-                return True
-        except requests.RequestException:
-            pass
-        time.sleep(3)
-    log.error("Serverless health check timed out: %s", url)
+    return f"http://127.0.0.1:{int(host_port)}{path}"
+
+
+def _serverless_health_ok(host_port: int, health_path: str) -> bool:
+    url = _serverless_health_url(host_port, health_path)
+    try:
+        resp = requests.get(url, timeout=5)
+    except requests.RequestException:
+        return False
+    if 200 <= resp.status_code < 300:
+        log.info("Serverless health OK: %s → %d", url, resp.status_code)
+        return True
     return False
 
 
+def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: int = 600) -> bool:
+    """True once healthy; False on timeout or agent shutdown (callers tell them apart)."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline and not _shutdown.is_set():
+        if _serverless_health_ok(host_port, health_path):
+            return True
+        time.sleep(3)
+    if not _shutdown.is_set():
+        log.error(
+            "Serverless health check timed out: %s", _serverless_health_url(host_port, health_path)
+        )
+    return False
+
+
+def _v2_fail_serverless_health(auth: dict, error: str) -> None:
+    """Settle a serverless worker that never became healthy.
+
+    The failed outcome is journaled before the container is removed. Without
+    it, an exit monitor finds the container missing, which is not proof of
+    failure, and waits forever while renewals keep the lease and its GPUs.
+    """
+    job_id = auth["job_id"]
+    with _v2_attempts_lock:
+        if _v2_attempts.get(job_id) is not auth:
+            return
+        auth.pop("serverless_health", None)
+        auth["pending_terminal_report"] = {
+            "status": "failed",
+            "failure_code": "serverless_health_failed",
+        }
+        if not _v2_journal_save():
+            log.error("Serverless health failure for job %s could not be journaled", job_id)
+    log.error("Serverless worker %s unhealthy: %s", job_id, error)
+    _kill_container(auth["container_name"])
+    # On a lost response the exit monitor retries the journaled failure.
+    report_job_status(
+        job_id,
+        "failed",
+        error_message=error,
+        policy_reason="serverless_health_failed",
+        expected_v2_auth=auth,
+    )
+
+
 # ── Container Lifecycle ──────────────────────────────────────────────
+
+_V2_RUNNING_METADATA = ("container_id", "container_name", "ssh_port", "interactive")
+
+
+def _v2_report_running(auth: dict, **metadata) -> bool:
+    """Report `running` with the intent journaled first, for every job type.
+
+    The server sets ``started_at``, and with it metering, only on this
+    transition. While ``running_report_pending`` is journaled the exit
+    monitor re-sends a lost report with the same runtime metadata (merged
+    across reports, so an interactive SSH port is not lost either).
+    """
+    job_id = auth["job_id"]
+    with _v2_attempts_lock:
+        if _v2_attempts.get(job_id) is not auth:
+            return False
+        auth["running_report_pending"] = True
+        auth["running_report_metadata"] = {
+            **(auth.get("running_report_metadata") or {}),
+            **{k: v for k, v in metadata.items() if k in _V2_RUNNING_METADATA and v is not None},
+        }
+        _v2_journal_save()
+    confirmed = report_job_status(job_id, "running", expected_v2_auth=auth, **metadata)
+    if confirmed:
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is auth:
+                auth["running_report_pending"] = False
+                auth.pop("running_report_metadata", None)
+                _v2_journal_save()
+    return confirmed
+
+
+#: Pauses between retries of an unconfirmed `starting` report (about 15 s).
+_V2_STARTING_RETRY_DELAYS_SEC = (1, 2, 4, 8)
+
+
+def _v2_confirm_starting(job_id: str, auth: dict) -> bool:
+    """Confirm `starting` before any setup, and never strand a claimed attempt.
+
+    An unconfirmed report is retried while the attempt is still this
+    process's authority. If it stays unconfirmed, the attempt is failed
+    through the durable terminal path (journaled pending report plus exit
+    monitor), so it settles once the API answers. Returning without either
+    left the renewal loop holding the lease and GPUs with nothing running.
+    """
+    delays = list(_V2_STARTING_RETRY_DELAYS_SEC)
+    while True:
+        if report_job_status(job_id, "starting", host_id=HOST_ID, expected_v2_auth=auth):
+            return True
+        with _v2_attempts_lock:
+            stop = auth.get("stop")
+            current = _v2_attempts.get(job_id) is auth and not (stop and stop.is_set())
+        # Fenced: the report path already stopped and forgot it. Shutdown:
+        # restart adoption owns the attempt, which never started a container.
+        if not current or _shutdown.is_set():
+            return False
+        if not delays:
+            break
+        if _shutdown.wait(delays.pop(0)):
+            return False
+    report_job_status(
+        job_id,
+        "failed",
+        error_message="starting transition could not be confirmed",
+        policy_reason="starting_unconfirmed",
+        expected_v2_auth=auth,
+    )
+    return False
 
 
 def run_job(job):
@@ -4888,8 +5330,7 @@ def run_job(job):
 
     # The start handler already claimed this attempt's lease and armed its
     # native renewal loop. Confirm the starting transition before setup.
-    starting_reported = report_status(job_id, "starting", host_id=HOST_ID)
-    if not starting_reported:
+    if not _v2_confirm_starting(job_id, authority):
         log.error("Job %s: fenced starting report failed — refusing container setup", job_id)
         return
 
@@ -5412,10 +5853,7 @@ def run_job(job):
             )
         if not can_start:
             return
-        code, body = _v2_post(
-            "/agent/v2/leases/renew",
-            {**_v2_auth_payload(authority), "require_running_intent": True},
-        )
+        code, body = _v2_renew(authority, require_running_intent=True)
         if code != 200:
             stopped = (
                 code == 409 and (body.get("error") or {}).get("code") == "lease_start_rejected"
@@ -5433,6 +5871,18 @@ def run_job(job):
                 or _shutdown.is_set()
             ):
                 return
+            # Durable before the side effect: adoption treats an attempt whose
+            # journal says no container was started as safely requeueable.
+            authority["container_started"] = True
+            start_journaled = _v2_journal_save()
+        if not start_journaled:
+            report_status(
+                job_id,
+                "failed",
+                error_message="worker journal unavailable before container start",
+                policy_reason="journal_unavailable",
+            )
+            return
         _remove_container(container_name)
         log.info("Starting container %s", container_name)
         _push_log_lines(
@@ -5515,21 +5965,29 @@ def run_job(job):
                     }
                 ],
             )
-            if not _wait_serverless_health(host_http_port, health_path):
-                err = f"health check failed on :{host_http_port}{health_path}"
-                _kill_container(container_name)
-                # Keep exact labels and journal until native exit is confirmed.
-                _monitor_container(job_id, container_name)
+            # Journal the readiness wait: an agent restart hands a warming
+            # worker to adoption, whose exit monitor resumes this same wait.
+            with _v2_attempts_lock:
+                authority["serverless_health"] = {
+                    "port": host_http_port,
+                    "path": health_path,
+                    "deadline": time.time() + _SERVERLESS_HEALTH_TIMEOUT_SEC,
+                }
+                _v2_journal_save()
+            if not _wait_serverless_health(
+                host_http_port, health_path, timeout_sec=_SERVERLESS_HEALTH_TIMEOUT_SEC
+            ):
+                if _shutdown.is_set():
+                    # Not a health verdict: the agent is restarting. Leave the
+                    # warming container and its lease for restart adoption.
+                    return
+                _v2_fail_serverless_health(
+                    authority, f"health check failed on :{host_http_port}{health_path}"
+                )
                 return
-            authority["running_report_pending"] = True
-            _v2_journal_save()
-            report_status(
-                job_id,
-                "running",
-                host_id=HOST_ID,
-                container_id=container_id,
-                container_name=container_name,
-            )
+            with _v2_attempts_lock:
+                authority.pop("serverless_health", None)
+            _v2_report_running(authority, container_id=container_id, container_name=container_name)
             _push_log_lines(
                 job_id,
                 [
@@ -5549,13 +6007,7 @@ def run_job(job):
             _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
             # 4c. SSH is either ready or has emitted a reason — flip to "running".
-            report_status(
-                job_id,
-                "running",
-                host_id=HOST_ID,
-                container_id=container_id,
-                container_name=container_name,
-            )
+            _v2_report_running(authority, container_id=container_id, container_name=container_name)
 
             # P2.2: report the final HTTP port mapping to the API so
             # `/instances/{id}/expose` and the nginx subdomain router can
@@ -5567,7 +6019,7 @@ def run_job(job):
 
             # For interactive jobs, report SSH connection info
             if is_interactive:
-                report_status(job_id, "running", ssh_port=host_port, interactive=True)
+                _v2_report_running(authority, ssh_port=host_port, interactive=True)
                 log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
                 _push_log_lines(
                     job_id,
@@ -6017,6 +6469,27 @@ def _v2_monitor_container(auth: dict) -> None:
             if _v2_attempts.get(job_id) is not auth:
                 return
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        health = auth.get("serverless_health")
+        if (
+            health
+            and not auth.get("pending_terminal_report")
+            and state == "running"
+            and label == auth["attempt_id"]
+        ):
+            # A warming serverless worker adopted after an agent restart.
+            if _serverless_health_ok(health["port"], health["path"]):
+                with _v2_attempts_lock:
+                    auth.pop("serverless_health", None)
+                    auth["running_report_pending"] = True
+                    _v2_journal_save()
+            elif time.time() >= float(health["deadline"]):
+                with _v2_attempts_lock:
+                    auth.pop("serverless_health", None)
+                    auth["pending_terminal_report"] = {
+                        "status": "failed",
+                        "failure_code": "serverless_health_failed",
+                    }
+                    _v2_journal_save()
         terminal = auth.get("pending_terminal_report")
         if terminal and state == "running" and label == auth["attempt_id"]:
             _v2_stop_container(
@@ -6045,11 +6518,15 @@ def _v2_monitor_container(auth: dict) -> None:
             and auth.get("running_report_pending")
             and not terminal
         ):
-            if report_job_status(
-                job_id, "running", container_name=auth["container_name"], expected_v2_auth=auth
-            ):
-                auth["running_report_pending"] = False
-                _v2_journal_save()
+            metadata = {
+                "container_name": auth["container_name"],
+                **(auth.get("running_report_metadata") or {}),
+            }
+            if report_job_status(job_id, "running", expected_v2_auth=auth, **metadata):
+                with _v2_attempts_lock:
+                    auth["running_report_pending"] = False
+                    auth.pop("running_report_metadata", None)
+                    _v2_journal_save()
         elif state == "exited" and label == auth["attempt_id"] and not terminal:
             # Do not let a renewal's post-completion 409 erase the journal
             # while an uncertain terminal report is still being retried.
@@ -7471,14 +7948,17 @@ def mining_detection_loop():
             )
             report_mining_alert(idx, confidence, reason)
 
-            # After sustained detection, kill only the suspect containers on this GPU
+            # After sustained detection, kill only the suspect containers on this GPU.
+            # Never under _active_lock: the terminal report settles the attempt,
+            # and forgetting it takes that (non-reentrant) lock again.
             if consecutive[idx] >= 5:
                 log.error("Sustained mining on GPU %d — killing %s", idx, sorted(suspects))
-                with _active_lock:
-                    for job_id, cname in suspects.items():
-                        _kill_container(cname)
-                        report_job_status(job_id, "terminated", policy_reason="mining_detected")
-                        _active_containers.pop(job_id, None)
+                for job_id, cname in suspects.items():
+                    _kill_container(cname)
+                    report_job_status(job_id, "terminated", policy_reason="mining_detected")
+                    with _active_lock:
+                        if _active_containers.get(job_id) == cname:
+                            _active_containers.pop(job_id, None)
                 consecutive[idx] = 0
 
 
@@ -7549,9 +8029,12 @@ def graceful_shutdown():
     """Checkpoint fenced workloads for restart without stopping their containers."""
     _shutdown.set()
     with _v2_attempts_lock:
-        pending_attempts = len(_v2_attempts)
+        # Saving first installs a journal this process has not read yet, so
+        # the count below includes work it would otherwise not know about.
         if not _v2_journal_save():
             log.error("Shutdown journal checkpoint failed; retaining existing recovery evidence")
+        # An unreadable journal may still describe surviving work.
+        pending_attempts = len(_v2_attempts) + (0 if _v2_journal_loaded else 1)
     with _active_lock:
         active = dict(_active_containers)
     log.info(
@@ -7744,82 +8227,95 @@ def reinject_shells_for_running():
 
 
 def cleanup_orphaned_volume_mounts():
-    """Clean up NFS mounts for managed volumes that have no running container.
+    """Clean up NFS mounts for managed volumes that nothing owns any more.
 
     On agent restart (or periodically), there may be stale mounts under
-    /mnt/xcelsior-volumes/ whose containers have exited. This function
-    inspects each running container's bind mounts to determine which volumes
-    are actually in use, and unmounts the rest.
+    /mnt/xcelsior-volumes/ whose containers have exited. A mount is kept when
+    a running container bind-mounts it, or when a live or cleanup-pending
+    attempt journals it as its own: an attempt mounts its volumes before a
+    long image pull, so no container can show the mount yet, and unmounting
+    it there would start the job on an empty local directory.
     """
     vol_mount_base = "/mnt/xcelsior-volumes"
     if not os.path.isdir(vol_mount_base):
         return
 
-    # Build set of volume mount paths actually used by running containers
-    active_mounts: set[str] = set()
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            for cid in result.stdout.strip().split("\n"):
-                cid = cid.strip()
-                if not cid:
-                    continue
-                # Inspect container to get bind mount sources
-                insp = subprocess.run(
-                    [
-                        "docker",
-                        "inspect",
-                        "--format",
-                        '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
-                        cid,
-                    ],
+    # Setup journals a mount's ownership under _v2_resources_lock before it
+    # mounts, so holding the lock for the whole sweep means every mount is
+    # either visible below as owned or created after this sweep finished.
+    with _v2_resources_lock:
+        with _v2_attempts_lock:
+            owned = {
+                os.path.normpath(str(mount))
+                for auth in [*_v2_attempts.values(), *_v2_cleanup_pending.values()]
+                for mount in ((auth.get("resources") or {}).get("nfs_mounts") or [])
+            }
+        # Mount paths used by running containers, plus journaled ownership
+        active_mounts: set[str] = set(owned)
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                for cid in result.stdout.strip().split("\n"):
+                    cid = cid.strip()
+                    if not cid:
+                        continue
+                    # Inspect container to get bind mount sources
+                    insp = subprocess.run(
+                        [
+                            "docker",
+                            "inspect",
+                            "--format",
+                            '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
+                            cid,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if insp.returncode == 0:
+                        for src in insp.stdout.strip().split():
+                            src = src.strip()
+                            if src.startswith(vol_mount_base):
+                                active_mounts.add(os.path.normpath(src))
+        except Exception:
+            return  # Can't determine running containers — don't clean up blindly
+
+        # Get mounted volume dirs
+        try:
+            mounted_vols = os.listdir(vol_mount_base)
+        except OSError:
+            return
+
+        cleaned = 0
+        for vol_dir in mounted_vols:
+            mount_path = os.path.join(vol_mount_base, vol_dir)
+            if os.path.normpath(mount_path) in active_mounts:
+                continue  # Volume is in use by a running container or an attempt
+
+            # Check if it's actually a mountpoint
+            try:
+                check = subprocess.run(
+                    ["mountpoint", "-q", mount_path],
                     capture_output=True,
-                    text=True,
                     timeout=5,
                 )
-                if insp.returncode == 0:
-                    for src in insp.stdout.strip().split():
-                        src = src.strip()
-                        if src.startswith(vol_mount_base):
-                            active_mounts.add(src)
-    except Exception:
-        return  # Can't determine running containers — don't clean up blindly
+            except subprocess.TimeoutExpired:
+                log.warning(
+                    "mountpoint check timed out for %s — skipping (possible stale NFS)",
+                    mount_path,
+                )
+                continue
+            if check.returncode != 0:
+                continue  # Not mounted, skip
 
-    # Get mounted volume dirs
-    try:
-        mounted_vols = os.listdir(vol_mount_base)
-    except OSError:
-        return
-
-    cleaned = 0
-    for vol_dir in mounted_vols:
-        mount_path = os.path.join(vol_mount_base, vol_dir)
-        if mount_path in active_mounts:
-            continue  # Volume is in use by a running container
-
-        # Check if it's actually a mountpoint
-        try:
-            check = subprocess.run(
-                ["mountpoint", "-q", mount_path],
-                capture_output=True,
-                timeout=5,
-            )
-        except subprocess.TimeoutExpired:
-            log.warning(
-                "mountpoint check timed out for %s — skipping (possible stale NFS)", mount_path
-            )
-            continue
-        if check.returncode != 0:
-            continue  # Not mounted, skip
-
-        _unmount_nfs(mount_path)
-        cleaned += 1
-        log.info("Cleaned up orphaned volume mount: %s", mount_path)
+            _unmount_nfs(mount_path)
+            cleaned += 1
+            log.info("Cleaned up orphaned volume mount: %s", mount_path)
 
     if cleaned:
         log.info("Cleaned up %d orphaned volume mount(s)", cleaned)
@@ -7829,6 +8325,10 @@ def main():
     """Main entry point — pull-based worker agent."""
     _install_signal_handlers()
     validate_config()
+    # Read the attempt journal first, whether or not the API is reachable:
+    # surviving containers get a local lease deadline even before protocol
+    # negotiation, and no later save can overwrite records not yet read.
+    _v2_start_local_recovery()
 
     # ── Step 0: Initialize NVML (REPORT_FEATURE_1.md §Lightweight Monitoring) ──
     nvml_ok = nvml_init()
