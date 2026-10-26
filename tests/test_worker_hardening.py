@@ -300,3 +300,53 @@ def test_sustained_mining_kill_settles_the_attempt_without_deadlock(agent, monke
     assert agent._v2_post.call_args.args[1]["failure_code"] == "mining_detected"
     assert "job-1" not in agent._v2_attempts
     assert "job-1" not in agent._active_containers
+
+
+# ── 4. The orphan-mount sweep spares mounts an attempt journals ─────────
+
+
+class _ObservedLock:
+    def __init__(self):
+        self._lock = threading.RLock()
+        self.depth = 0
+
+    def __enter__(self):
+        self._lock.acquire()
+        self.depth += 1
+        return self
+
+    def __exit__(self, *exc):
+        self.depth -= 1
+        self._lock.release()
+
+
+def test_orphan_sweep_spares_mounts_owned_by_live_and_cleanup_attempts(agent, monkeypatch):
+    base = "/mnt/xcelsior-volumes"
+    # A volume mounted for an attempt still pulling its image (no container yet)
+    agent._v2_attempts["job-1"] = live_auth(
+        resources={"host_id": "hardening-host", "nfs_mounts": [f"{base}/vol-setup"]}
+    )
+    agent._v2_cleanup_pending["att-0"] = {
+        "job_id": "job-0",
+        "attempt_id": "att-0",
+        "resources": {"host_id": "hardening-host", "nfs_mounts": [f"{base}/vol-cleanup"]},
+    }
+    real_isdir, real_listdir = os.path.isdir, os.listdir
+    monkeypatch.setattr(agent.os.path, "isdir", lambda p: p == base or real_isdir(p))
+    monkeypatch.setattr(
+        agent.os,
+        "listdir",
+        lambda p: ["vol-setup", "vol-cleanup", "vol-orphan"] if p == base else real_listdir(p),
+    )
+    docker = Docker("missing")  # `docker ps` lists no running container
+    monkeypatch.setattr(agent.subprocess, "run", docker)
+    lock = _ObservedLock()
+    monkeypatch.setattr(agent, "_v2_resources_lock", lock)
+    unmounted = []
+    monkeypatch.setattr(
+        agent, "_unmount_nfs", lambda path: unmounted.append((path, lock.depth > 0))
+    )
+
+    agent.cleanup_orphaned_volume_mounts()
+
+    assert unmounted == [(f"{base}/vol-orphan", True)]
