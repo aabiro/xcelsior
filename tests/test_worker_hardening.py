@@ -552,3 +552,57 @@ def test_persistently_unconfirmed_starting_fails_through_the_durable_path(runnab
     }
     # The exit monitor retries it (container missing + pending terminal).
     assert thread.call_args.kwargs["target"] is agent._v2_monitor_container
+
+
+# ── 7. A lost `running` report is retried for every job type ────────────
+
+
+def _monitor_once_running(agent, auth, monkeypatch):
+    seen = iter(range(100))
+
+    def state(*args):
+        if next(seen) >= 2:
+            agent._shutdown.set()
+        return ("running", 0, auth["attempt_id"])
+
+    monkeypatch.setattr(agent, "_v2_container_state", state)
+    agent._v2_monitor_container(auth)
+
+
+def test_lost_running_report_of_a_batch_job_is_retried(runnable, monkeypatch):
+    agent = runnable
+    auth = live_auth()
+    agent._v2_attempts["job-1"] = auth
+    api = Api(statuses={"running": [503, 200]})
+    monkeypatch.setattr(agent, "_v2_post", api)
+
+    agent.run_job(job_for(auth))
+
+    saved = journal(agent)["job-1"]
+    assert saved["running_report_pending"] is True
+    assert saved["running_report_metadata"]["container_name"] == auth["container_name"]
+    _monitor_once_running(agent, auth, monkeypatch)
+    assert api.sent().count("running") == 2
+    assert api.reports[-1]["runtime_metadata"]["container_name"] == auth["container_name"]
+    assert journal(agent)["job-1"]["running_report_pending"] is False
+
+
+def test_lost_interactive_ssh_report_is_retried_with_its_port(runnable, monkeypatch):
+    agent = runnable
+    auth = {**record(job_id="abcd", attempt_id="att-1"), "stop": threading.Event()}
+    agent._v2_attempts["abcd"] = auth
+    api = Api(statuses={"running": [200, 503, 200]})
+    monkeypatch.setattr(agent, "_v2_post", api)
+
+    agent.run_job(job_for(auth, interactive=True))
+
+    port = 10000 + int("abcd", 16) % 55000
+    assert journal(agent)["abcd"]["running_report_metadata"] == {
+        "ssh_port": port,
+        "interactive": True,
+    }
+    _monitor_once_running(agent, auth, monkeypatch)
+    retried = api.reports[-1]
+    assert retried["status"] == "running"
+    assert retried["runtime_metadata"]["public_ssh_port"] == port
+    assert retried["runtime_metadata"]["interactive"] is True
