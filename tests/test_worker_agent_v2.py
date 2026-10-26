@@ -268,12 +268,15 @@ class TestHardLeaseGate:
             mock.patch.object(worker_agent, "_remove_container"),
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=False) as report,
+            mock.patch.object(worker_agent, "_V2_STARTING_RETRY_DELAYS_SEC", (0, 0)),
+            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
         ):
             worker_agent.run_job(job)
         kill.assert_called_once_with("xcl-job-1-att-1")
-        report.assert_called_once_with(
-            "job-1", "starting", host_id=worker_agent.HOST_ID, expected_v2_auth=mock.ANY
-        )
+        build.assert_not_called()
+        # Bounded retries, then a durable failure instead of a stranded lease.
+        assert [c.args[1] for c in report.call_args_list] == ["starting"] * 3 + ["failed"]
+        assert report.call_args.kwargs["policy_reason"] == "starting_unconfirmed"
 
     def test_required_gvisor_missing_aborts_before_docker_start(self):
         job = {
