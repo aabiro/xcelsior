@@ -1326,6 +1326,7 @@ def api_cancel_instance(job_id: str, request: Request):
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    _refuse_serverless_worker(job)
 
     from abuse_policy import account_suspended, job_blocked
     from db import get_engine
@@ -1430,6 +1431,7 @@ def api_requeue_instance(job_id: str, request: Request):
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    _refuse_serverless_worker(job)
 
     from abuse_policy import account_suspended, job_blocked
     from db import get_engine
@@ -1493,6 +1495,27 @@ def _check_not_locked(job: dict) -> None:
         )
 
 
+def _refuse_serverless_worker(job: dict) -> None:
+    """A serverless endpoint owns its workers' scheduler jobs.
+
+    Cancelling or terminating one through the instance lifecycle settled the
+    job but left its ``serverless_workers`` row live, so the endpoint kept
+    counting capacity that no longer existed. Its endpoint scales and
+    deprovisions it instead.
+    """
+    if str(job.get("job_type") or "") != "serverless_worker":
+        return
+    endpoint_id = str(job.get("serverless_endpoint_id") or "")
+    where = f"/api/v2/serverless/endpoints/{endpoint_id}" if endpoint_id else "its endpoint"
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "This instance is a serverless endpoint worker. Scale or delete "
+            f"{where} to deprovision it."
+        ),
+    )
+
+
 def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> tuple[dict, dict]:
     """Shared owner/admin + existence + lock guard for mutating endpoints.
 
@@ -1511,6 +1534,7 @@ def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> 
 
     if not _user_owns_job(user, job):
         raise HTTPException(status_code=403, detail=f"Not authorized to {action} this instance")
+    _refuse_serverless_worker(job)
 
     from abuse_policy import account_suspended, job_blocked
     from db import get_engine

@@ -372,12 +372,16 @@ class TestFencedLeaseLifecycle:
         job_id, host_id, refs = _place_one(fleet, marker)
         auth = _auth(job_id, host_id, refs)
 
-        # Hard gate: claim succeeds exactly once.
+        # Hard gate: one session holds the claim. That session may replay a
+        # claim whose response it lost; no other session can take it.
         r = client.post("/agent/v2/leases/claim", json=auth)
         assert r.status_code == 200
         assert r.json()["fencing_token"] == refs["fencing_token"]
-        r2 = client.post("/agent/v2/leases/claim", json=auth)
-        assert r2.status_code == 409  # not 'offered' anymore
+        replay = client.post("/agent/v2/leases/claim", json=auth)
+        assert replay.status_code == 200
+        assert replay.json()["fencing_token"] == refs["fencing_token"]
+        other = _auth(job_id, host_id, refs, worker_session_id="sess-other")
+        assert client.post("/agent/v2/leases/claim", json=other).status_code == 409
 
         # Renewal works under the exact tuple.
         assert client.post("/agent/v2/leases/renew", json=auth).status_code == 200
@@ -398,6 +402,8 @@ class TestFencedLeaseLifecycle:
         with _pool.connection() as conn:
             row = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
         assert (row[0] if not isinstance(row, dict) else row["status"]) == "running"
+        # Progress proves the original response arrived: no second grant now.
+        assert client.post("/agent/v2/leases/claim", json=auth).status_code == 409
 
         # Terminal success settles everything atomically.
         r = client.post(

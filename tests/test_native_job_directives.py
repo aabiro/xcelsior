@@ -18,7 +18,6 @@ from tests.fixtures.native_runtime import running_instance
         "snapshot_container",
         "mount_volume",
         "unmount_volume",
-        "promote_artifacts",
         "fingerprint_environment",
     ],
 )
@@ -125,3 +124,20 @@ def test_worker_checks_native_command_authority_before_dispatch(monkeypatch, inv
     assert worker._dispatch_v2_command(command) == (1 if invalid is None else 0)
     assert dispatch.call_count == (1 if invalid is None else 0)
     assert nack.call_count == (0 if invalid is None else 1)
+
+
+def test_worker_runs_a_promotion_as_a_host_directive(monkeypatch):
+    """A promotion names no attempt; treating it as a job directive NACKed every one."""
+    import worker_agent as worker
+
+    command = dict(command_id="promote", command="promote_artifacts", args={"promotion_id": "p-1"})
+    dispatch, nack = Mock(return_value=1), Mock()
+    monkeypatch.setattr(worker, "_v2_completed_command_result", lambda _: None)
+    monkeypatch.setattr(worker, "_v2_mark_command_complete", lambda *a, **k: None)
+    monkeypatch.setattr(worker, "_dispatch_agent_commands", dispatch)
+    monkeypatch.setattr(worker, "v2_ack_command", lambda *a: True)
+    monkeypatch.setattr(worker, "v2_nack_command", nack)
+
+    assert worker._dispatch_v2_command(command) == 1
+    assert nack.call_count == 0
+    assert dispatch.call_args[0][0][0]["args"] == {"promotion_id": "p-1"}

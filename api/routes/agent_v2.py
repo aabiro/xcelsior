@@ -37,7 +37,7 @@ from control_plane.leases import (
     renew_lease,
 )
 from routes.agent import _require_agent_auth
-from routes._deps import _get_real_client_ip
+from routes._deps import _get_real_client_ip, otel_span
 
 router = APIRouter()
 
@@ -403,24 +403,30 @@ def api_v2_attempt_status(req: AttemptStatusRequest, request: Request):
     caller's authority is gone; it must stop its container."""
     _require_agent_auth(request, host_id=req.host_id)
     try:
-        result = run_transaction(
-            lambda c: report_attempt_status(
-                c,
-                job_id=req.job_id,
-                attempt_id=req.attempt_id,
-                host_id=req.host_id,
-                fencing_token=req.fencing_token,
-                status=req.status,
-                failure_code=req.failure_code,
-                detail=req.detail,
-                runtime_metadata=(
-                    req.runtime_metadata.model_dump(exclude_none=True)
-                    if req.runtime_metadata
-                    else None
+        # The only job status writer a worker reaches; the span the retired
+        # unfenced PATCH carried belongs here now.
+        with otel_span(
+            "job.status_update",
+            {"job.id": req.job_id, "attempt.id": req.attempt_id, "job.status": req.status},
+        ):
+            result = run_transaction(
+                lambda c: report_attempt_status(
+                    c,
+                    job_id=req.job_id,
+                    attempt_id=req.attempt_id,
+                    host_id=req.host_id,
+                    fencing_token=req.fencing_token,
+                    status=req.status,
+                    failure_code=req.failure_code,
+                    detail=req.detail,
+                    runtime_metadata=(
+                        req.runtime_metadata.model_dump(exclude_none=True)
+                        if req.runtime_metadata
+                        else None
+                    ),
                 ),
-            ),
-            what="v2_attempt_status",
-        )
+                what="v2_attempt_status",
+            )
     except LeaseError as exc:  # FencingViolation
         raise _lease_conflict(exc)
     except AttemptStatusRejected as exc:

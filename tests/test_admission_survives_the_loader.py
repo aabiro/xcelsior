@@ -84,7 +84,7 @@ def _host_dict_as_the_loader_builds_it(
     host["host_id"] = host_id
     host["status"] = status or host.get("status")
     if not administrative_state:
-        administrative_state = "admitted" if host.get("admitted") else "pending"
+        administrative_state = "pending"
     host["administrative_state"] = administrative_state
     return host
 
@@ -116,21 +116,24 @@ def test_an_admitted_host_is_accepted():
     assert host_admitted({}, host, None) is None
 
 
-def test_an_empty_column_falls_back_to_the_legacy_flag_and_still_refuses():
-    """054's projection. A row predating the column must not become admitted.
+def test_an_empty_column_is_pending_whatever_the_payload_says():
+    """A row with no administrative decision must not become admitted.
 
     This is the path where the filter's `or "admitted"` default would take over
     if the loader stopped projecting, so it is asserted separately from the
-    populated-column case above.
+    populated-column case above. Since the projection triggers were retired
+    (migration 131) the loader no longer consults the payload's `admitted`
+    flag at all: a mutable payload alias cannot admit a host.
     """
-    host = _host_dict_as_the_loader_builds_it(
-        host_id="h-legacy",
-        payload={"admitted": False},
-        administrative_state=None,
-        status="active",
-    )
-    assert host["administrative_state"] == "pending"
-    assert host_admitted({}, host, None) is not None
+    for flag in (False, True):
+        host = _host_dict_as_the_loader_builds_it(
+            host_id="h-legacy",
+            payload={"admitted": flag},
+            administrative_state=None,
+            status="active",
+        )
+        assert host["administrative_state"] == "pending"
+        assert host_admitted({}, host, None) is not None
 
 
 # ── The assumption this rests on ──────────────────────────────────────
@@ -170,7 +173,10 @@ def test_the_loader_still_sets_the_field_this_relies_on():
         "filters.host_admitted falls back to its permissive default and every "
         "host reads as admitted"
     )
-    assert '"admitted" if host.get("admitted") else "pending"' in source, (
-        "the 054 projection is gone; a row with an empty column no longer "
-        "falls back to the legacy admission flag"
+    assert (
+        'admin_state = "pending"' in source
+    ), "snapshot.py no longer treats an empty administrative_state as pending"
+    assert 'host.get("admitted")' not in source, (
+        "snapshot.py reads the payload's admission flag again; a payload alias "
+        "would decide admission instead of the operator's column"
     )

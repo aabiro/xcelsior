@@ -82,6 +82,29 @@ def refresh_stream_principal(user: dict) -> dict:
     return _merge_auth_user(current, full_user)
 
 
+def require_terminal_attempt(job: dict | None, job_id: str):
+    """The running native attempt a shell may enter, or 403.
+
+    A shell is execution inside the container, so it needs the authority
+    execution has: the job's current attempt running and holding an active,
+    unexpired lease on the job's host. The projected ``status`` keeps saying
+    ``running`` after a lease is lost or an attempt is fenced, so it is not
+    enough on its own.
+    """
+    from control_plane.job_targets import resolve_job_command_target
+
+    target = resolve_job_command_target(job_id)
+    host_id = str((job or {}).get("host_id") or "")
+    if (
+        target is None
+        or target.class_ != "attempt_owned"
+        or not target.host_id
+        or target.host_id != host_id
+    ):
+        raise HTTPException(403, "Instance has no running attempt")
+    return target
+
+
 def authorize_job_stream(user: dict, job_id: str, *, terminal: bool = False) -> dict:
     from scheduler import get_job
     from routes._deps import _require_scope, _require_team_instance_write, _user_owns_job
@@ -95,6 +118,7 @@ def authorize_job_stream(user: dict, job_id: str, *, terminal: bool = False) -> 
         _require_team_instance_write(current)
         if job.get("status") != "running":
             raise HTTPException(403, "Instance is no longer running")
+        require_terminal_attempt(job, job_id)
     return current
 
 

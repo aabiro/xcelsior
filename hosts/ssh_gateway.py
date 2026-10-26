@@ -10,12 +10,17 @@ Architecture:
 
 Port range: 10000–64999 (deterministic from job_id hash, set by worker_agent.py)
 GPU hosts are reachable via Headscale mesh (100.64.x.x)
+
+The port a host reports is a claim, not an authority: a route is relayed only
+when its port is the one derivable from its job id, and a port two live jobs
+derive is relayed for neither (see ``authorized_routes``).
 """
 
 import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import sys
@@ -208,6 +213,61 @@ async def query_running_instances() -> list[InstanceRoute]:
             return routes
     finally:
         await conn.close()
+
+
+_JOB_PORT_PREFIX = re.compile(r"[0-9a-fA-F]{4}")
+
+
+def expected_public_ssh_port(job_id: str) -> int | None:
+    """The one gateway port a job may be relayed on, derived from its id.
+
+    Mirrors the worker's ``10000 + int(job_id[:4], 16) % 55000`` mapping.
+    The host reports a port in its attempt metadata, but the host is not
+    trusted to choose it: a provider that reports another tenant's port would
+    otherwise receive that tenant's SSH sessions. An id without a hex prefix
+    has no derivable port and is not routed.
+    """
+    prefix = str(job_id or "")[:4]
+    if not _JOB_PORT_PREFIX.fullmatch(prefix):
+        return None
+    return 10000 + (int(prefix, 16) % 55000)
+
+
+def authorized_routes(routes: list[InstanceRoute]) -> dict[int, InstanceRoute]:
+    """Select the routes the gateway may listen for, keyed by port.
+
+    A route is accepted only on its job's derived port. A port that more than
+    one live instance derives (4-hex prefixes collide) is routed for none of
+    them: choosing one would hand the other tenant's sessions to it, which is
+    exactly what last-wins did.
+    """
+    claims: dict[int, list[InstanceRoute]] = {}
+    for route in routes:
+        expected = expected_public_ssh_port(route.job_id)
+        if route.ssh_port != expected:
+            log.warning(
+                "Refusing route for instance %s on host %s: reported port %s is not its port %s",
+                route.job_id[:8],
+                route.host_id,
+                route.ssh_port,
+                expected,
+            )
+            continue
+        claims.setdefault(route.ssh_port, []).append(route)
+
+    selected: dict[int, InstanceRoute] = {}
+    for port, claimants in claims.items():
+        owners = {(r.job_id, r.host_id, r.host_ip) for r in claimants}
+        if len(owners) > 1:
+            log.error(
+                "Port %d is claimed by %d live routes (%s); relaying none of them",
+                port,
+                len(owners),
+                ", ".join(sorted(f"{job[:8]}@{host}" for job, host, _ in owners)),
+            )
+            continue
+        selected[port] = claimants[0]
+    return selected
 
 
 def _abort_writers(writers: list[asyncio.StreamWriter]) -> None:
@@ -494,17 +554,23 @@ class SSHGateway:
             log.error("Failed to query instances; keeping existing relays: %s", e)
             return
 
-        desired_ports = {}
-        for r in routes:
-            desired_ports[r.ssh_port] = r
+        desired_ports = authorized_routes(routes)
 
         # Open new listeners (or retry previously-failed binds)
         for port, route in desired_ports.items():
-            if port not in self.listeners:
+            current = self.listeners.get(port)
+            if current is not None and (
+                current.route.job_id != route.job_id or current.route.host_id != route.host_id
+            ):
+                # The port now belongs to a different instance. Relays opened
+                # for the previous one must not outlive its route.
+                await self.close_listener(port, drain=False)
+                current = None
+            if current is None:
                 await self.open_listener(route)
             else:
-                # Update route (host IP might change on migration)
-                self.listeners[port].route = route
+                # Same instance; its host IP may have changed.
+                current.route = route
 
         # Close stale listeners (instances that stopped/terminated)
         stale = [p for p in self.listeners if p not in desired_ports]
