@@ -264,3 +264,39 @@ def test_a_successful_renewal_is_journaled_for_the_next_restart(agent, monkeypat
     before = time.time()
     assert agent._v2_renew(auth)[0] == 200
     assert before <= journal(agent)["job-1"]["last_renewed_at"] <= time.time()
+
+
+# ── 3. The mining kill must not deadlock on _active_lock ───────────────
+
+
+def test_sustained_mining_kill_settles_the_attempt_without_deadlock(agent, monkeypatch):
+    # The loop used to hold the non-reentrant _active_lock while the terminal
+    # report forgot the attempt, which takes that lock again: the thread froze.
+    monkeypatch.setattr(agent, "_active_lock", threading.Lock())
+    auth = live_auth()
+    agent._v2_attempts["job-1"] = auth
+    agent._active_containers["job-1"] = auth["container_name"]
+    agent._adopted_containers.add("job-1")
+    agent._v2_journal_save()
+    monkeypatch.setattr(agent, "_v2_post", mock.Mock(return_value=(200, {})))
+    for name in ("_kill_container", "report_mining_alert"):
+        monkeypatch.setattr(agent, name, mock.Mock())
+    monkeypatch.setattr(agent, "_job_containers_on_gpu", lambda idx, active: dict(active))
+    monkeypatch.setattr(agent, "MINING_CHECK_INTERVAL", 0)
+    passes = iter(range(100))
+
+    def telemetry():
+        if next(passes) >= 5:
+            agent._shutdown.set()
+            return []
+        return [{"index": 0, "utilization": 100, "memory_util": 19, "pcie_tx_mb_s": 0.5}]
+
+    monkeypatch.setattr(agent, "get_gpu_telemetry", telemetry)
+    loop = threading.Thread(target=agent.mining_detection_loop, daemon=True)
+    loop.start()
+    loop.join(10)
+    assert not loop.is_alive(), "mining loop deadlocked on _active_lock"
+    agent._kill_container.assert_called_once_with(auth["container_name"])
+    assert agent._v2_post.call_args.args[1]["failure_code"] == "mining_detected"
+    assert "job-1" not in agent._v2_attempts
+    assert "job-1" not in agent._active_containers
