@@ -3917,13 +3917,20 @@ def handle_start_attempt(cmd: dict) -> None:
     args = cmd.get("args") or {}
     attempt_id = str(cmd.get("attempt_id") or args.get("attempt_id") or "")
     with _v2_attempts_lock:
+        # The benchmark runs `--gpus all` for minutes; a tenant container
+        # started beside it would share every GPU it was granted.
+        benchmarking = _reverify_running.is_set()
         duplicate = bool(attempt_id) and attempt_id in _v2_starts_in_progress
-        if attempt_id and not duplicate:
+        if attempt_id and not duplicate and not benchmarking:
             _v2_starts_in_progress.add(attempt_id)
     if duplicate:
         log.warning(
             "start_attempt redelivered while attempt %s is starting; ignoring", attempt_id[:8]
         )
+        return
+    if benchmarking:
+        log.info("start_attempt %s deferred: host benchmark in progress", attempt_id[:8])
+        v2_nack_command(str(cmd.get("command_id") or ""), "host_benchmarking", retryable=True)
         return
     try:
         _handle_start_attempt(cmd)
@@ -4752,24 +4759,35 @@ def _start_reverification() -> bool:
     placement gate says exactly that — which is the honest answer, and better
     than a fresh stamp bought out of someone's paid run.
     """
-    if _reverify_running.is_set():
-        log.info("reverify: a verification is already running — request dropped")
-        return False
-
     with _active_lock:
-        busy = dict(_active_containers)
+        busy = set(_active_containers)
+    # Journaled attempts count too: at startup, before adoption (or while the
+    # API is unreachable) _active_containers is still empty although their
+    # containers run. Deciding under _v2_attempts_lock makes the check and
+    # the flag one step against _handle_start_attempt, which refuses new work
+    # while the flag is set.
+    with _v2_attempts_lock:
+        if _reverify_running.is_set():
+            log.info("reverify: a verification is already running — request dropped")
+            return False
+        busy |= set(_v2_attempts) | set(_v2_starts_in_progress)
+        if not busy:
+            _reverify_running.set()
     if busy:
         log.info(
-            "reverify: deferred, %d container(s) running (%s). The benchmark "
+            "reverify: deferred, %d workload(s) on this host (%s). The benchmark "
             "saturates the GPU and would corrupt a paying job's timings.",
             len(busy),
             ", ".join(sorted(busy)[:5]),
         )
         return False
 
-    _reverify_running.set()
-    thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
-    thread.start()
+    try:
+        thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
+        thread.start()
+    except RuntimeError:
+        _reverify_running.clear()
+        raise
     return True
 
 
