@@ -3042,6 +3042,17 @@ def _v2_journal_save() -> bool:
                 "gpu_device_uuids": a.get("gpu_device_uuids"),
                 "interactive": bool(a.get("interactive", False)),
                 "running_report_pending": bool(a.get("running_report_pending", False)),
+                **(
+                    {
+                        "running_report_metadata": {
+                            k: v
+                            for k, v in a["running_report_metadata"].items()
+                            if k in _V2_RUNNING_METADATA
+                        }
+                    }
+                    if isinstance(a.get("running_report_metadata"), dict)
+                    else {}
+                ),
                 "pending_runtime_reports": dict(a.get("pending_runtime_reports") or {}),
                 **(
                     {"serverless_health": dict(a["serverless_health"])}
@@ -3206,6 +3217,13 @@ def _v2_auth_from_record(rec: dict, journal_mtime: float) -> dict:
         auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
     if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
         auth["pending_start_failure"] = rec["pending_start_failure"]
+    metadata = rec.get("running_report_metadata")
+    if isinstance(metadata, dict):
+        auth["running_report_metadata"] = {
+            k: v
+            for k, v in metadata.items()
+            if k in _V2_RUNNING_METADATA and type(v) in (str, int, bool)
+        }
     health = rec.get("serverless_health")
     if isinstance(health, dict):
         auth["serverless_health"] = {
@@ -5047,6 +5065,37 @@ def _v2_fail_serverless_health(auth: dict, error: str) -> None:
 
 # ── Container Lifecycle ──────────────────────────────────────────────
 
+_V2_RUNNING_METADATA = ("container_id", "container_name", "ssh_port", "interactive")
+
+
+def _v2_report_running(auth: dict, **metadata) -> bool:
+    """Report `running` with the intent journaled first, for every job type.
+
+    The server sets ``started_at``, and with it metering, only on this
+    transition. While ``running_report_pending`` is journaled the exit
+    monitor re-sends a lost report with the same runtime metadata (merged
+    across reports, so an interactive SSH port is not lost either).
+    """
+    job_id = auth["job_id"]
+    with _v2_attempts_lock:
+        if _v2_attempts.get(job_id) is not auth:
+            return False
+        auth["running_report_pending"] = True
+        auth["running_report_metadata"] = {
+            **(auth.get("running_report_metadata") or {}),
+            **{k: v for k, v in metadata.items() if k in _V2_RUNNING_METADATA and v is not None},
+        }
+        _v2_journal_save()
+    confirmed = report_job_status(job_id, "running", expected_v2_auth=auth, **metadata)
+    if confirmed:
+        with _v2_attempts_lock:
+            if _v2_attempts.get(job_id) is auth:
+                auth["running_report_pending"] = False
+                auth.pop("running_report_metadata", None)
+                _v2_journal_save()
+    return confirmed
+
+
 #: Pauses between retries of an unconfirmed `starting` report (about 15 s).
 _V2_STARTING_RETRY_DELAYS_SEC = (1, 2, 4, 8)
 
@@ -5807,15 +5856,7 @@ def run_job(job):
                 return
             with _v2_attempts_lock:
                 authority.pop("serverless_health", None)
-            authority["running_report_pending"] = True
-            _v2_journal_save()
-            report_status(
-                job_id,
-                "running",
-                host_id=HOST_ID,
-                container_id=container_id,
-                container_name=container_name,
-            )
+            _v2_report_running(authority, container_id=container_id, container_name=container_name)
             _push_log_lines(
                 job_id,
                 [
@@ -5835,13 +5876,7 @@ def run_job(job):
             _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
             # 4c. SSH is either ready or has emitted a reason — flip to "running".
-            report_status(
-                job_id,
-                "running",
-                host_id=HOST_ID,
-                container_id=container_id,
-                container_name=container_name,
-            )
+            _v2_report_running(authority, container_id=container_id, container_name=container_name)
 
             # P2.2: report the final HTTP port mapping to the API so
             # `/instances/{id}/expose` and the nginx subdomain router can
@@ -5853,7 +5888,7 @@ def run_job(job):
 
             # For interactive jobs, report SSH connection info
             if is_interactive:
-                report_status(job_id, "running", ssh_port=host_port, interactive=True)
+                _v2_report_running(authority, ssh_port=host_port, interactive=True)
                 log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
                 _push_log_lines(
                     job_id,
@@ -6352,11 +6387,15 @@ def _v2_monitor_container(auth: dict) -> None:
             and auth.get("running_report_pending")
             and not terminal
         ):
-            if report_job_status(
-                job_id, "running", container_name=auth["container_name"], expected_v2_auth=auth
-            ):
-                auth["running_report_pending"] = False
-                _v2_journal_save()
+            metadata = {
+                "container_name": auth["container_name"],
+                **(auth.get("running_report_metadata") or {}),
+            }
+            if report_job_status(job_id, "running", expected_v2_auth=auth, **metadata):
+                with _v2_attempts_lock:
+                    auth["running_report_pending"] = False
+                    auth.pop("running_report_metadata", None)
+                    _v2_journal_save()
         elif state == "exited" and label == auth["attempt_id"] and not terminal:
             # Do not let a renewal's post-completion 409 erase the journal
             # while an uncertain terminal report is still being retried.
