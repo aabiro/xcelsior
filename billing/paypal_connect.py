@@ -49,6 +49,9 @@ _raw_cut = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 PLATFORM_CUT_FRAC = _raw_cut if _raw_cut <= 1.0 else _raw_cut / 100.0
 
 PAYPAL_ENABLED = bool(_PAYPAL_CLIENT_ID and _PAYPAL_CLIENT_SECRET)
+# Partner onboarding is not in a normal REST app's token scopes. PayPal only
+# grants this after the app is an approved partner.
+_PARTNER_REFERRAL_SCOPE = "https://uri.paypal.com/services/customer/partner-referrals/readwrite"
 
 
 def paypal_enabled() -> bool:
@@ -160,6 +163,36 @@ def _paypal_value(amount_micros: int) -> str:
     return f"{amount // 1_000_000}.{(amount // 10_000) % 100:02d}"
 
 
+def _partner_referral_failure(resp: httpx.Response) -> str:
+    """Safe onboard error. Never log the raw PayPal body."""
+    name = ""
+    issue = ""
+    debug_id = ""
+    try:
+        body = resp.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        name = str(body.get("name") or "")
+        debug_id = str(body.get("debug_id") or "")
+        details = body.get("details") or []
+        if isinstance(details, list) and details and isinstance(details[0], dict):
+            issue = str(details[0].get("issue") or "")
+    log.error(
+        "PayPal partner referral failed status=%s name=%s issue=%s debug_id=%s",
+        resp.status_code,
+        name,
+        issue,
+        debug_id,
+    )
+    if name == "NOT_AUTHORIZED" or issue == "NOT_AUTHORIZED":
+        return (
+            "PayPal refused partner referrals (NOT_AUTHORIZED). "
+            f"The app needs the scope {_PARTNER_REFERRAL_SCOPE}."
+        )
+    return "PayPal provider onboarding failed"
+
+
 class PayPalConnectManager:
     """Partner referrals, seller status, and marketplace orders with platform fees."""
 
@@ -204,9 +237,9 @@ class PayPalConnectManager:
             "onboarded_at": row.get("paypal_onboarded_at") or 0,
         }
 
-    def _referral_body(self, provider_id: str, email: str) -> dict:
+    def _referral_body(self, provider_id: str, email: str, tracking_id: str) -> dict:
         return {
-            "tracking_id": self.tracking_id(provider_id),
+            "tracking_id": tracking_id,
             "email": email,
             "preferred_language_code": "en-CA",
             "legal_country_code": "CA",
@@ -242,21 +275,24 @@ class PayPalConnectManager:
     def create_onboarding_link(self, provider_id: str, email: str) -> dict:
         if not PAYPAL_ENABLED:
             raise RuntimeError("PayPal is not configured")
-        token = _access_token()
+        try:
+            token = _access_token()
+        except httpx.HTTPError as exc:
+            log.error("PayPal token request failed: %s", type(exc).__name__)
+            raise RuntimeError("PayPal could not authorize the platform app") from exc
+        tracking_id = self.tracking_id(provider_id)
         resp = httpx.post(
             f"{_PAYPAL_BASE}/v2/customer/partner-referrals",
             headers=_headers(token),
-            json=self._referral_body(provider_id, email),
+            json=self._referral_body(provider_id, email, tracking_id),
             timeout=30,
         )
         if resp.status_code >= 400:
-            log.error("PayPal partner referral failed: %s", resp.text)
-            raise RuntimeError("PayPal provider onboarding failed")
+            raise RuntimeError(_partner_referral_failure(resp))
         links = resp.json().get("links") or []
         action_url = next((l["href"] for l in links if l.get("rel") == "action_url"), "")
         if not action_url:
             raise RuntimeError("PayPal onboarding URL missing from referral response")
-        tracking_id = self.tracking_id(provider_id)
         now = time.time()
         with self._conn() as conn:
             conn.execute(

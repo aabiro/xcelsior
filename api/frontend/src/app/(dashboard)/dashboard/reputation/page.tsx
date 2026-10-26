@@ -431,7 +431,7 @@ export default function ReputationPage() {
         <>
           {/* Stats row */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard label="Sessions Completed" value={jobsCompleted} icon={Trophy} />
+            <StatCard label="Rentals completed" value={jobsCompleted} icon={Trophy} />
             <StatCard
               label="Success Rate"
               value={`${(jobSuccessRate * 100).toFixed(1)}%`}
