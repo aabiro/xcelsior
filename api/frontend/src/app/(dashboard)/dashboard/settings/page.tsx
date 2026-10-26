@@ -855,6 +855,64 @@ export default function SettingsPage() {
   );
 }
 
+function BusinessDetails({
+  t,
+  user,
+  onSaved,
+}: {
+  t: (k: string, vars?: Record<string, string | number>) => string;
+  user: import("@/lib/auth").User;
+  onSaved: () => Promise<void>;
+}) {
+  const [businessName, setBusinessName] = useState(user.business_name || "");
+  const [gstNumber, setGstNumber] = useState(user.gst_hst_number || "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.updateProfile({
+        business_name: businessName.trim(),
+        gst_hst_number: gstNumber.trim(),
+      });
+      await onSaved();
+      toast.success(t("dash.billing.business_saved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dash.settings.profile_save_failed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 border-t border-border/50 pt-6">
+      <p className="text-xs leading-relaxed text-text-muted">{t("dash.billing.business_hint")}</p>
+      <div className="space-y-2">
+        <Label>{t("dash.billing.business_name")}</Label>
+        <Input
+          value={businessName}
+          onChange={(event) => setBusinessName(event.target.value)}
+          placeholder={t("dash.billing.business_name_placeholder")}
+          maxLength={200}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>{t("dash.billing.gst_number")}</Label>
+        <Input
+          value={gstNumber}
+          onChange={(event) => setGstNumber(event.target.value)}
+          placeholder={t("dash.billing.gst_number_placeholder")}
+          maxLength={20}
+        />
+      </div>
+      <Button size="sm" variant="outline" onClick={save} disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        {t("dash.settings.save")}
+      </Button>
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════
 // ── Profile Tab ─────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════
@@ -1027,6 +1085,7 @@ function ProfileTab({
                   </p>
                 )}
               </div>
+              <BusinessDetails t={t} user={user} onSaved={onAvatarUpdated} />
             </div>
           </SettingsSection>
         </StaggerItem>

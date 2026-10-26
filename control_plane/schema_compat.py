@@ -62,7 +62,9 @@ from psycopg import Connection
 # 141 contracts Lightning float/epoch twins after all old writers stop.
 # 142 keeps observation session/generation fences independently of retention.
 # 143 grants that registry to the runtime roles before they ingest it.
-REQUIRED_MIN_REVISION = "143"
+# 144 stores optional customer GST/HST fields and the provider seller
+# identity that payout routes query. A database at 143 is missing them.
+REQUIRED_MIN_REVISION = "144"
 REQUIRED_MAX_REVISION: str | None = None
 
 

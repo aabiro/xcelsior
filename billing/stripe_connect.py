@@ -23,6 +23,12 @@ from enum import Enum
 from typing import Any, Optional, cast
 
 from money import cad_to_micros
+from seller_identity import (
+    SellerProfileRequired,
+    normalize_seller_profile,
+    present_provider,
+    seller_profile_complete,
+)
 from provider_settlement import (
     SettlementConflict,
     claim_settlements,
@@ -370,6 +376,15 @@ class StripeConnectManager:
         onboarding_url = ""
         country_code = (country or "CA").strip().upper()[:2] or "CA"
 
+        # A brand-new payout account needs the identity the annual seller report
+        # uses. An account that already has a Stripe id can still open its link;
+        # locking that out would stop payouts for providers who joined earlier.
+        if not self._stripe_account_id(provider_id) and not self.seller_is_complete(provider_id):
+            raise SellerProfileRequired(
+                "Add your legal name, mailing address, and tax identifier "
+                "(SIN or business number) before connecting payouts."
+            )
+
         if not (STRIPE_ENABLED and stripe):
             raise RuntimeError(
                 "Stripe Connect is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
@@ -574,11 +589,14 @@ class StripeConnectManager:
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (provider_id) DO UPDATE SET
                      provider_type = EXCLUDED.provider_type, stripe_account_id = EXCLUDED.stripe_account_id,
-                     status = EXCLUDED.status, corporation_name = EXCLUDED.corporation_name,
-                     business_number = EXCLUDED.business_number, gst_hst_number = EXCLUDED.gst_hst_number,
-                     email = EXCLUDED.email, legal_name = EXCLUDED.legal_name,
-                     country = EXCLUDED.country, province = EXCLUDED.province,
-                     created_at = EXCLUDED.created_at""",
+                     status = EXCLUDED.status,
+                     corporation_name = COALESCE(NULLIF(EXCLUDED.corporation_name, ''), provider_accounts.corporation_name),
+                     business_number = COALESCE(NULLIF(EXCLUDED.business_number, ''), provider_accounts.business_number),
+                     gst_hst_number = COALESCE(NULLIF(EXCLUDED.gst_hst_number, ''), provider_accounts.gst_hst_number),
+                     email = EXCLUDED.email,
+                     legal_name = COALESCE(NULLIF(EXCLUDED.legal_name, ''), provider_accounts.legal_name),
+                     country = COALESCE(NULLIF(EXCLUDED.country, ''), provider_accounts.country),
+                     province = COALESCE(NULLIF(EXCLUDED.province, ''), provider_accounts.province)""",
                 (
                     provider_id,
                     provider_type,
@@ -615,6 +633,124 @@ class StripeConnectManager:
             )
         log.info("Incorporation file %s linked to provider %s", file_id, provider_id)
         return {"provider_id": provider_id, "incorporation_file_id": file_id}
+
+    def _stripe_account_id(self, provider_id: str) -> str:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT stripe_account_id FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+        if not row:
+            return ""
+        return str(row["stripe_account_id"] or "")
+
+    def seller_is_complete(self, provider_id: str) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT legal_name, address_line1, city, province, postal_code,
+                          country, tax_id_kind, tax_id_last4
+                   FROM provider_accounts WHERE provider_id=%s""",
+                (provider_id,),
+            ).fetchone()
+        return seller_profile_complete(dict(row) if row else None)
+
+    def save_seller_profile(self, provider_id: str, email: str, profile: dict) -> dict:
+        """Store the identity used for the annual seller report.
+
+        The tax identifier is encrypted before it is written. A later edit may
+        leave it blank to keep the value already on file.
+        """
+        from security import encrypt_secret
+
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT tax_id_kind, tax_id_last4 FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+        has_tax_id = bool(existing and str(existing["tax_id_last4"] or "").strip())
+        existing_kind = str(existing["tax_id_kind"] or "") if existing else ""
+        cleaned = normalize_seller_profile(profile, require_tax_id=not has_tax_id)
+        if (
+            not cleaned["tax_id"]
+            and has_tax_id
+            and existing_kind
+            and existing_kind != cleaned["tax_id_kind"]
+        ):
+            raise ValueError("Enter the tax identifier again when you change its type")
+        tax_id = cleaned.pop("tax_id")
+        ciphertext = encrypt_secret(tax_id) if tax_id else ""
+        last4 = tax_id[-4:] if tax_id else ""
+        provider_type = "company" if cleaned["tax_id_kind"] == "bn" else "individual"
+        business_number = tax_id if cleaned["tax_id_kind"] == "bn" and tax_id else ""
+        now = time.time()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO provider_accounts (
+                       provider_id, provider_type, email, legal_name,
+                       address_line1, address_line2, city, province, postal_code, country,
+                       tax_id_kind, tax_id_ciphertext, tax_id_last4,
+                       gst_hst_number, business_number, seller_terms_accepted_at,
+                       status, created_at
+                   ) VALUES (
+                       %s, %s, %s, %s,
+                       %s, %s, %s, %s, %s, %s,
+                       %s, %s, %s,
+                       %s, %s, %s,
+                       'pending', %s
+                   )
+                   ON CONFLICT (provider_id) DO UPDATE SET
+                     provider_type = EXCLUDED.provider_type,
+                     email = EXCLUDED.email,
+                     legal_name = EXCLUDED.legal_name,
+                     address_line1 = EXCLUDED.address_line1,
+                     address_line2 = EXCLUDED.address_line2,
+                     city = EXCLUDED.city,
+                     province = EXCLUDED.province,
+                     postal_code = EXCLUDED.postal_code,
+                     country = EXCLUDED.country,
+                     gst_hst_number = EXCLUDED.gst_hst_number,
+                     seller_terms_accepted_at = EXCLUDED.seller_terms_accepted_at,
+                     business_number = CASE
+                         WHEN EXCLUDED.business_number = '' THEN provider_accounts.business_number
+                         ELSE EXCLUDED.business_number
+                     END,
+                     tax_id_kind = CASE
+                         WHEN EXCLUDED.tax_id_ciphertext = '' THEN provider_accounts.tax_id_kind
+                         ELSE EXCLUDED.tax_id_kind
+                     END,
+                     tax_id_ciphertext = CASE
+                         WHEN EXCLUDED.tax_id_ciphertext = '' THEN provider_accounts.tax_id_ciphertext
+                         ELSE EXCLUDED.tax_id_ciphertext
+                     END,
+                     tax_id_last4 = CASE
+                         WHEN EXCLUDED.tax_id_ciphertext = '' THEN provider_accounts.tax_id_last4
+                         ELSE EXCLUDED.tax_id_last4
+                     END""",
+                (
+                    provider_id,
+                    provider_type,
+                    email,
+                    cleaned["legal_name"],
+                    cleaned["address_line1"],
+                    cleaned["address_line2"],
+                    cleaned["city"],
+                    cleaned["province"],
+                    cleaned["postal_code"],
+                    cleaned["country"],
+                    cleaned["tax_id_kind"],
+                    ciphertext,
+                    last4,
+                    cleaned["gst_hst_number"],
+                    business_number,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+        return present_provider(dict(row))
 
     def get_provider(self, provider_id: str) -> Optional[dict]:
         """Get provider account details."""
@@ -734,7 +870,7 @@ class StripeConnectManager:
                         e,
                     )
 
-            return provider
+            return present_provider(provider)
 
     def list_providers(self, status: str = "") -> list[dict]:
         """List all provider accounts, optionally filtered by status."""
@@ -755,16 +891,18 @@ class StripeConnectManager:
             # the truth here and not a placeholder — the caller who needs the
             # requirements asks for the one provider.
             return [
-                dict(
-                    r,
-                    payouts={
-                        "charges_enabled": False,
-                        "payouts_enabled": False,
-                        "currently_due": [],
-                        "past_due": [],
-                        "disabled_reason": "",
-                        "checked_live": False,
-                    },
+                present_provider(
+                    dict(
+                        r,
+                        payouts={
+                            "charges_enabled": False,
+                            "payouts_enabled": False,
+                            "currently_due": [],
+                            "past_due": [],
+                            "disabled_reason": "",
+                            "checked_live": False,
+                        },
+                    )
                 )
                 for r in rows
             ]
