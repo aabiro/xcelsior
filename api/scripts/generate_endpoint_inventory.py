@@ -83,10 +83,12 @@ _AUTH_CALLS = (
     "_authorize_instance_mutation",
     "refresh_stream_principal",
     "authorize_job_stream",
+    "require_terminal_attempt",
     "_require_human_to_weaken_mfa",
     "_require_reputation_entity_access",
     "_check_terminal_access",
     "_get_current_user",
+    "_resolve_current_user",
     "validate_key",
     # Refuses a suspended account with 403 after the session is resolved.
     # Without it, every route that merges the full user reads as unguarded.
