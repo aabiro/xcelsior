@@ -58,34 +58,36 @@ def test_b7_snapshot_distinguishes_commit_vs_push_errors():
 
 
 # ---------- B8 ----------
+# B8 hardened the unfenced host `start_container` directive (report `stopped`
+# when `docker start` failed or timed out). That directive was retired with
+# the rest of the unfenced host lifecycle (40855f8a): a stopped container is
+# now resumed only by a fresh fenced `start_attempt`, so there is no unfenced
+# start left whose failure could strand the UI. These assert the retirement.
 
 
-def test_b8_start_container_reports_failure_to_api():
-    """start_container failure must call report_job_status to unstick UI."""
-    src = SRC_WORKER.read_text()
-    idx = src.find('"start_container"')
-    assert idx >= 0
-    end = src.find('elif name == "reset_container"', idx + 1)
-    if end < 0:
-        end = src.find("elif name ==", idx + 1)
-    body = src[idx : end if end > 0 else idx + 4000]
-    # Must revert to stopped on failure (not leave at 'running')
-    assert "report_job_status" in body, "B8 missing report_job_status callback"
-    assert '"stopped"' in body, "B8 must revert to stopped on failure"
-    assert "start failed" in body.lower()
+def test_b8_start_container_is_no_longer_a_worker_directive():
+    import worker_agent as worker
+
+    assert "start_container" not in worker._AGENT_COMMAND_ALLOWED
+    assert 'name == "start_container"' not in SRC_WORKER.read_text()
 
 
-def test_b8_start_container_handles_timeout():
-    src = SRC_WORKER.read_text()
-    idx = src.find('"start_container"')
-    end = src.find('elif name == "reset_container"', idx + 1)
-    if end < 0:
-        end = src.find("elif name ==", idx + 1)
-    body = src[idx:end]
-    # Both non-zero exit AND timeout should callback
-    assert (
-        body.count("report_job_status") >= 2
-    ), "B8 must handle both non-zero rc and TimeoutExpired with callback"
+def test_b8_delivered_start_container_is_refused_without_touching_docker(monkeypatch):
+    from unittest import mock
+
+    import worker_agent as worker
+
+    docker = mock.Mock(side_effect=AssertionError("retired directive reached Docker"))
+    monkeypatch.setattr(worker.subprocess, "run", docker)
+    monkeypatch.setattr(worker, "_v2_completed_command_result", lambda _: None)
+    nack = mock.Mock()
+    monkeypatch.setattr(worker, "v2_nack_command", nack)
+    cmd = {"command_id": "old-start", "command": "start_container", "args": {"job_id": "j"}}
+    assert worker._dispatch_v2_command(cmd) == 0
+    nack.assert_called_once_with(
+        "old-start", "unsupported_command", {"command": "start_container"}, retryable=False
+    )
+    docker.assert_not_called()
 
 
 # ---------- B9 ----------

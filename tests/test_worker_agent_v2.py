@@ -268,12 +268,15 @@ class TestHardLeaseGate:
             mock.patch.object(worker_agent, "_remove_container"),
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=False) as report,
+            mock.patch.object(worker_agent, "_V2_STARTING_RETRY_DELAYS_SEC", (0, 0)),
+            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
         ):
             worker_agent.run_job(job)
         kill.assert_called_once_with("xcl-job-1-att-1")
-        report.assert_called_once_with(
-            "job-1", "starting", host_id=worker_agent.HOST_ID, expected_v2_auth=mock.ANY
-        )
+        build.assert_not_called()
+        # Bounded retries, then a durable failure instead of a stranded lease.
+        assert [c.args[1] for c in report.call_args_list] == ["starting"] * 3 + ["failed"]
+        assert report.call_args.kwargs["policy_reason"] == "starting_unconfirmed"
 
     def test_required_gvisor_missing_aborts_before_docker_start(self):
         job = {
@@ -689,10 +692,20 @@ class TestJournalAndAdoption:
         worker_agent._v2_enabled = True
         self._active = dict(worker_agent._active_containers)
         self._adopted = set(worker_agent._adopted_containers)
+        # A confirmed adoption starts a log forwarder plus renewal and exit
+        # threads. Real ones outlive the test and later post through whatever
+        # `_api_request` mock another test installed (a `docker logs` line for
+        # xcl-job-1-att-1 surfaced in test_worker_terminal_recovery).
+        self._forwarder = mock.patch.object(worker_agent, "LogForwarder", mock.Mock())
+        self._forwarder.start()
 
     def teardown_method(self):
+        self._forwarder.stop()
         worker_agent._v2_enabled = False
         with worker_agent._v2_attempts_lock:
+            for auth in worker_agent._v2_attempts.values():
+                if isinstance(auth.get("stop"), threading.Event):
+                    auth["stop"].set()  # ends any renewal loop this test started
             worker_agent._v2_attempts.clear()
             worker_agent._v2_completed_commands.clear()
         with worker_agent._active_lock:
@@ -761,6 +774,8 @@ class TestJournalAndAdoption:
         assert renews and renews[0]["attempt_id"] == "att-1"
         with worker_agent._v2_attempts_lock:
             assert "job-1" in worker_agent._v2_attempts
+        # The isolated forwarder, not a real `docker logs` tail thread.
+        worker_agent.LogForwarder.assert_called_once_with("job-1", "xcl-job-1-att-1")
 
     def test_transport_error_enters_bounded_pending_adoption(self, tmp_path):
         path = self._journal(tmp_path, self._rec())
