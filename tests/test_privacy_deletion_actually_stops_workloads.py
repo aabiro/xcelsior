@@ -1,102 +1,137 @@
-"""Privacy withdrawal explicitly sets native stop intent and observed phase.
+"""Privacy withdrawal stops the subject's compute and then lets the deletion finish.
 
-After projection-trigger contraction the deletion writer must update all three
-lifecycle fields itself. Remaining-work counts keep deletion pending until a
-terminal phase is recorded; terminal work must never be resurrected.
+Placed work stops through its fenced attempt. Unplaced work has no attempt for
+anything to stop, so it is terminated directly; marking it ``stopping`` left a
+row no controller settles and a deletion that stayed pending forever.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import time
 import uuid
 
 import pytest
+from psycopg.types.json import Jsonb
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 
 from db import _get_pg_pool
-from privacy_sinks import _stop_subject_workloads
+from privacy_sinks import _stop_subject_workloads, delete_authoritative_subject
+from tests.fixtures.native_runtime import running_instance
+from tests.native_jobs import admit_fixture_job
+from tests.test_privacy_sinks import subject  # noqa: F401
+
+
+def _insert_queued_job(customer_id: str) -> str:
+    job_id = f"j-priv-{uuid.uuid4().hex[:8]}"
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, owner_id, payload,
+                   phase, desired_state, effective_priority, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, %s, 'pending', 'running', 0,
+                   clock_timestamp())""",
+            (
+                job_id,
+                time.time(),
+                customer_id,
+                Jsonb({"job_id": job_id, "owner": customer_id, "image": "python:3.11"}),
+            ),
+        )
+        admit_fixture_job(conn, job_id)
+    return job_id
+
+
+def _delete_job(job_id: str) -> None:
+    with _get_pg_pool().connection() as conn:
+        conn.execute("DELETE FROM outbox_events WHERE aggregate_id = %s", (job_id,))
+        conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
 
 
 @pytest.fixture
-def running_job_for_subject():
+def queued_job_for_subject():
     customer_id = f"cust-priv-{uuid.uuid4().hex[:8]}"
-    job_id = f"j-priv-{uuid.uuid4().hex[:8]}"
-    pool = _get_pg_pool()
-    with pool.connection() as conn:
-        conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, owner_id, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
-            (job_id, time.time(), customer_id, json.dumps({"job_id": job_id})),
-        )
-        conn.commit()
+    job_id = _insert_queued_job(customer_id)
     yield job_id, customer_id
-    with pool.connection() as conn:
-        conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
-        conn.commit()
+    _delete_job(job_id)
 
 
 def _state(job_id: str) -> tuple:
     with _get_pg_pool().connection() as conn:
         return conn.execute(
-            "SELECT status, phase, desired_state, reason_code FROM jobs WHERE job_id = %s",
+            "SELECT status, phase, desired_state, lifecycle_intent FROM jobs WHERE job_id = %s",
             (job_id,),
         ).fetchone()
 
 
-def test_the_stop_sets_native_intent_and_phase(running_job_for_subject):
-    job_id, customer_id = running_job_for_subject
-    assert _state(job_id)[2] == "running"
-
+def _stop(customer_ids: list[str]) -> tuple[int, int]:
     with _get_pg_pool().connection() as conn:
-        _stop_subject_workloads(conn, [customer_id])
+        result = _stop_subject_workloads(conn, customer_ids)
         conn.commit()
-
-    status, phase, desired_state, reason_code = _state(job_id)
-    assert desired_state == "stopped", (
-        "the writer did not preserve its stop intent — the "
-        "deletion recorded its intent but nothing will stop the workload"
-    )
-    # Still running, but wanted stopped: that pairing is what the reconciler acts on.
-    assert phase == "running"
-    assert status == "stopping"
-    assert reason_code == "privacy_deletion_requested"
+    return result
 
 
-def test_terminal_jobs_are_left_alone(running_job_for_subject):
+def test_unplaced_work_is_terminated_not_left_stopping(queued_job_for_subject):
+    job_id, customer_id = queued_job_for_subject
+
+    assert _stop([customer_id]) == (1, 0), "nothing is running, so nothing holds the deletion"
+
+    assert _state(job_id) == ("terminated", "stopped", "stopped", None)
+
+
+def test_unplaced_work_an_earlier_pass_marked_stopping_is_settled(queued_job_for_subject):
+    """The shape the old writer left on queued work: no attempt, so nothing settled it."""
+    job_id, customer_id = queued_job_for_subject
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            """UPDATE jobs SET status='stopping', phase='running', desired_state='stopped',
+                   generation=generation+1, reason_code='privacy_deletion_requested'
+                WHERE job_id=%s""",
+            (job_id,),
+        )
+
+    assert _stop([customer_id]) == (1, 0)
+    assert _state(job_id)[:3] == ("terminated", "stopped", "stopped")
+
+
+def test_placed_work_stops_through_its_fenced_attempt():
+    owner = f"cust-priv-{uuid.uuid4().hex[:8]}"
+    with running_instance(owner=owner) as instance:
+        job_id = instance["job_id"]
+
+        assert _stop([owner]) == (1, 1), "the attempt is still running until the host reports"
+        # A retry while the stop is in flight requests nothing new.
+        assert _stop([owner]) == (0, 1)
+
+        assert _state(job_id) == ("stopping", "running", "stopped", "terminate")
+        with _get_pg_pool().connection() as conn:
+            commands = conn.execute(
+                """SELECT attempt_id::text, args->>'intent', args->'preserve'
+                     FROM agent_commands WHERE job_id=%s AND command='stop_attempt'""",
+                (job_id,),
+            ).fetchall()
+        assert commands == [(str(instance["authority"]["attempt_id"]), "terminate", False)]
+
+
+def test_terminal_jobs_are_left_alone(queued_job_for_subject):
     """A finished job is not restarted or re-marked by a deletion sweep."""
-    job_id, customer_id = running_job_for_subject
+    job_id, customer_id = queued_job_for_subject
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            """UPDATE jobs SET status='completed', desired_state='running',phase='succeeded' WHERE job_id=%s""",
+            "UPDATE jobs SET status='completed', phase='succeeded' WHERE job_id=%s",
             (job_id,),
         )
-        conn.commit()
-        _stop_subject_workloads(conn, [customer_id])
-        conn.commit()
 
-    status, phase, _desired, reason_code = _state(job_id)
-    assert (status, phase) == ("completed", "succeeded")
-    assert reason_code != "privacy_deletion_requested"
+    assert _stop([customer_id]) == (0, 0)
+    assert _state(job_id)[:2] == ("completed", "succeeded")
 
 
-def test_it_reports_no_workloads_left_once_they_stop(running_job_for_subject):
-    """`remaining` is what holds the deletion open, so it must reach zero."""
-    job_id, customer_id = running_job_for_subject
-    with _get_pg_pool().connection() as conn:
-        _stopped, remaining = _stop_subject_workloads(conn, [customer_id])
-        conn.commit()
-        assert remaining == 1, "still running, so the deletion correctly stays pending"
+def test_deletion_of_a_subject_with_queued_work_completes(subject):  # noqa: F811
+    job_id = _insert_queued_job(subject["customer_id"])
+    try:
+        outcome = delete_authoritative_subject(subject["request"], {})
 
-        # The agent acknowledges the stop.
-        conn.execute(
-            "UPDATE jobs SET status='stopped',phase='stopped',desired_state='stopped' WHERE job_id=%s",
-            (job_id,),
-        )
-        conn.commit()
-        _stopped2, remaining2 = _stop_subject_workloads(conn, [customer_id])
-        conn.commit()
-    assert remaining2 == 0
+        assert outcome.status == "completed", outcome
+        assert _state(job_id)[:2] == ("terminated", "stopped")
+    finally:
+        _delete_job(job_id)

@@ -413,17 +413,20 @@ def test_wallet_billing_uses_admitted_identity_and_gpu_constraints(native, perio
     assert 99.79 <= engine.get_wallet(native.owner)["balance_cad"] <= 99.81
 
 
-def test_privacy_stop_sets_native_phase_and_excludes_placement(native):
+def test_privacy_stop_terminates_unplaced_work_and_excludes_placement(native):
     from privacy_sinks import _stop_subject_workloads
     from control_plane.scheduler.claim import claim_next_job
 
     with native.pool.connection() as conn:
         conn.execute("UPDATE jobs SET owner_id=%s WHERE job_id=%s", (native.owner, native.jid))
-        assert _stop_subject_workloads(conn, [native.owner]) == (1, 1)
+        conn.commit()
+        # Unplaced: nothing will ever report a stop, so it is terminated now.
+        assert _stop_subject_workloads(conn, [native.owner]) == (1, 0)
         assert (
             claim_next_job(conn, replica_id="privacy-test", scope_gpu_models=[native.jid]) is None
         )
-    assert job_row(native)[:3] == ("stopping", "running", "stopped")
+        conn.rollback()
+    assert job_row(native)[:3] == ("terminated", "stopped", "stopped")
 
 
 def test_provider_deletion_drains_hosts_without_projection(
