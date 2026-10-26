@@ -64,6 +64,7 @@ class TickReport:
     leases_expired: int = 0
     commands_redelivered: int = 0
     inventory_synced: int = 0
+    sweep_errors: int = 0
 
 
 class SchedulerService:
@@ -75,21 +76,35 @@ class SchedulerService:
             "reconciler",
             replica_id=self.config.replica_id,
         )
+        self._sweep_errors = 0
 
     # ── maintenance ──────────────────────────────────────────────────
 
+    def _sweep(self, what: str, fn, default):
+        """Run one maintenance sweep; its failure never blocks the others or placement.
+
+        Row-level sweeps isolate their items themselves. This is the backstop
+        for a failure of the sweep as a whole (its batch query, a retry budget
+        exhausted by contention): log it, count it, and keep the tick going.
+        """
+        try:
+            return run_transaction(fn, what=what)
+        except Exception:
+            log.exception("%s failed; continuing the tick", what)
+            self._sweep_errors += 1
+            return default
+
     def _run_sweeps(self) -> tuple[int, int, int]:
-        claims = run_transaction(lambda c: clear_expired_claims(c), what="sched_claim_sweep")
-        leases = run_transaction(lambda c: expire_stale_leases(c), what="sched_lease_sweep")
-        commands = run_transaction(
-            lambda c: redeliver_expired_claims(c), what="sched_command_sweep"
-        )
+        self._sweep_errors = 0
+        claims = self._sweep("sched_claim_sweep", lambda c: clear_expired_claims(c), 0)
+        leases = self._sweep("sched_lease_sweep", lambda c: expire_stale_leases(c), [])
+        commands = self._sweep("sched_command_sweep", lambda c: redeliver_expired_claims(c), 0)
         from control_plane.scheduler.preemption import sweep_plans
 
-        run_transaction(lambda c: sweep_plans(c), what="sched_preemption_sweep")
+        self._sweep("sched_preemption_sweep", lambda c: sweep_plans(c), 0)
         from control_plane.host_evictions import sweep as sweep_host_evictions
 
-        run_transaction(lambda c: sweep_host_evictions(c), what="sched_host_eviction_sweep")
+        self._sweep("sched_host_eviction_sweep", lambda c: sweep_host_evictions(c), 0)
         # Phase 6: desired-vs-observed reconciliation (report-only by default),
         # for job mutations, worker observations, and periodic recovery.
         try:
@@ -344,6 +359,7 @@ class SchedulerService:
             "claims_expired": claims_swept,
             "leases_expired": leases_swept,
             "commands_redelivered": commands_redelivered,
+            "sweep_errors": self._sweep_errors,
         }
 
         if not cfg.claims_enabled:

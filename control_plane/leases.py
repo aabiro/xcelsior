@@ -27,8 +27,11 @@ from typing import Any, cast
 from psycopg import Connection, sql
 
 from control_plane.state import job_phase
+from control_plane.sweep_isolation import SweepQuarantine
 
 DEFAULT_EXPIRY_GRACE_SEC = 30.0
+
+_EXPIRY_QUARANTINE = SweepQuarantine("lease_expiry")
 
 
 class LeaseError(Exception):
@@ -458,6 +461,13 @@ def expire_stale_leases(
     then mints a *new* attempt with a higher fence via the normal
     scheduler path.
     """
+    # The general sweep isolates each lease: a row that fails (a billing
+    # period still settling, a contended lock) rolls back alone and backs off
+    # instead of failing first on every tick and blocking the whole sweep. A
+    # targeted call (one job, or the reconciler's NOWAIT repair) still raises
+    # so its caller can roll back its own savepoint.
+    quarantine = None if (lock_nowait or current_job_id is not None) else _EXPIRY_QUARANTINE
+    skip = quarantine.skipped() if quarantine is not None else []
     stale = conn.execute(
         """
         SELECT l.lease_id, l.job_id, l.attempt_id, l.host_id, l.fencing_token, l.status,
@@ -476,193 +486,206 @@ def expire_stale_leases(
                    SELECT 1 FROM job_attempts a WHERE a.attempt_id = l.attempt_id
                      AND a.job_id = j.job_id AND a.host_id = l.host_id
                      AND a.fencing_token = l.fencing_token)))
+           AND l.lease_id <> ALL(%(skip)s::uuid[])
          ORDER BY l.lease_id
          LIMIT %(limit)s
            FOR UPDATE OF j, l
         """ + (" NOWAIT" if lock_nowait else " SKIP LOCKED"),
-        {"grace": grace_sec, "limit": limit, "job": current_job_id},
+        {"grace": grace_sec, "limit": limit, "job": current_job_id, "skip": skip},
     ).fetchall()
     expired: list[dict[str, Any]] = []
     for row in stale:
-        lease_id = str(_get(row, "lease_id", 0))
-        job_id = str(_get(row, "job_id", 1))
-        attempt_id = str(_get(row, "attempt_id", 2))
-        from control_plane.billing_effects import serialize_native_period
-        from psycopg.errors import LockNotAvailable
-
-        if not serialize_native_period(conn, job_id, wait=not lock_nowait):
-            raise LockNotAvailable("billing period is settling; retry lease expiry")
-        if lock_nowait:
-            # Reconciliation owns a queue row already. Runtime writers can
-            # hold these rows while waiting for that queue, so fail fast and
-            # let process_due roll back its savepoint instead of deadlocking.
-            # Scheduler and reconciler logins cannot lock billing or serverless
-            # rows. Those identities enqueue settlement instead of taking it.
-            from control_plane.db_roles import current_service
-
-            defer_settlement = current_service() in {"scheduler", "reconciler"}
-            lock_tables = ["job_attempts", "gpu_device_allocations", "agent_commands"]
-            if not defer_settlement:
-                lock_tables.extend(["usage_meters", "serverless_workers"])
-            for table in lock_tables:
-                conn.execute(
-                    sql.SQL("SELECT 1 FROM {} WHERE attempt_id = %s FOR UPDATE NOWAIT").format(
-                        sql.Identifier(table)
-                    ),
-                    (attempt_id,),
-                ).fetchall()
-            if not defer_settlement:
-                conn.execute(
-                    "SELECT 1 FROM wallet_holds WHERE job_id=%s FOR UPDATE NOWAIT", (job_id,)
-                ).fetchall()
-                conn.execute(
-                    "SELECT 1 FROM serverless_jobs WHERE worker_id IN "
-                    "(SELECT worker_id FROM serverless_workers WHERE attempt_id=%s) "
-                    "FOR UPDATE NOWAIT",
-                    (attempt_id,),
-                ).fetchall()
-        was = str(_get(row, "status", 5))
-        terminal = "failed" if was == "offered" else "lost"
-        failure_code = "lease_claim_timeout" if was == "offered" else "lease_renewal_timeout"
-        job_status = str(_get(row, "job_status", 6))
-        desired = str(_get(row, "desired_state", 7))
-        intent = _get(row, "lifecycle_intent", 8)
-        serverless = _get(row, "job_type", 9) == "serverless_worker"
-        current_authority = bool(_get(row, "current_authority", 10))
-        if job_status not in {
-            "completed",
-            "failed",
-            "terminated",
-            "cancelled",
-            "stopped",
-            "paused",
-        }:
-            if desired == "stopped":
-                job_status = {
-                    "terminate": "terminated",
-                    "cancel": "cancelled",
-                    "restart": "queued",
-                }.get(intent, "stopped")
-            else:
-                job_status = "queued"
-        # A serverless worker represents one attempt and one billing span.
-        # Close it permanently; endpoint reconciliation creates fresh worker
-        # and scheduler-job IDs instead of lending this identity to a retry.
-        if serverless and job_status == "queued":
-            job_status = "failed"
-
-        conn.execute(
-            "UPDATE placement_leases SET status = 'expired' WHERE lease_id = %s",
-            (lease_id,),
-        )
-        conn.execute(
-            """
-            UPDATE job_attempts
-               SET status = %s, failure_code = %s, ended_at = clock_timestamp()
-             WHERE attempt_id = %s
-               AND status NOT IN ('succeeded', 'failed', 'cancelled',
-                                  'preempted', 'lost', 'fenced')
-            """,
-            (terminal, failure_code, attempt_id),
-        )
-        if current_authority:
-            from control_plane.db_roles import current_service
-
-            if current_service() in {"scheduler", "reconciler"}:
-                from control_plane.billing_effects import queue_attempt_settlement
-
-                queue_attempt_settlement(conn, job_id, attempt_id)
-            else:
-                from control_plane.attempt_billing import sync_attempt_billing
-                from control_plane.serverless_workers import sync_serverless_attempt
-
-                sync_attempt_billing(conn, attempt_id)
-                sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
-        conn.execute(
-            """
-            UPDATE gpu_device_allocations
-               SET status = 'released',
-                   released_at = clock_timestamp(),
-                   release_reason = %s
-             WHERE attempt_id = %s
-               AND status = 'active'
-            """,
-            (failure_code, attempt_id),
-        )
-        # Undelivered start command for this attempt is dead: cancel it so
-        # a late worker fetch cannot start a fenced-out attempt.
-        conn.execute(
-            """
-            UPDATE agent_commands
-               SET status = 'cancelled'
-             WHERE attempt_id = %s
-               AND status IN ('pending', 'claimed')
-            """,
-            (attempt_id,),
-        )
-        conn.execute(
-            """
-            UPDATE jobs
-               SET status = %(status)s,
-                   phase = %(phase)s,
-                   desired_state = CASE
-                       WHEN %(status)s = 'queued' THEN 'running'
-                       WHEN %(phase)s = 'stopped' THEN 'stopped'
-                       ELSE desired_state END,
-                   queued_at = CASE WHEN %(status)s = 'queued'
-                       THEN statement_timestamp() ELSE queued_at END,
-                   submitted_at = CASE WHEN %(status)s = 'queued'
-                       THEN EXTRACT(EPOCH FROM statement_timestamp()) ELSE submitted_at END,
-                   host_id = NULL,
-                   active_attempt_id = NULL,
-                   lifecycle_intent = NULL,
-                   reason_code = %(reason)s,
-                   next_schedule_at = CASE WHEN %(status)s = 'queued'
-                       THEN clock_timestamp() ELSE NULL END,
-                   schedule_claim_owner = NULL,
-                   schedule_claim_token = NULL,
-                   schedule_claim_expires_at = NULL,
-                   generation = generation + CASE WHEN %(status)s = 'queued' THEN 1 ELSE 0 END,
-                   payload = (CASE WHEN %(status)s = 'queued'
-                       THEN COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent'
-                            - 'stopped_at' - 'stop_reason' - 'stopping_at'
-                       ELSE COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent' END)
-                       || jsonb_build_object('status', %(status)s::text,
-                           'lease_expired_at', EXTRACT(EPOCH FROM clock_timestamp()))
-                       || CASE WHEN %(status)s = 'queued'
-                           THEN jsonb_build_object('submitted_at',
-                               EXTRACT(EPOCH FROM statement_timestamp()))
-                           ELSE '{}'::jsonb END,
-                   version = version + 1,
-                   updated_at = clock_timestamp()
-             WHERE job_id = %(job)s
-               AND active_attempt_id = %(attempt)s
-            """,
-            {
-                "reason": failure_code,
-                "job": job_id,
-                "attempt": attempt_id,
-                "status": job_status,
-                "phase": job_phase(job_status),
-            },
-        )
-        from control_plane.outbox import append_event
-
-        append_event(
+        if quarantine is None:
+            expired.append(_expire_lease_row(conn, row, lock_nowait=lock_nowait))
+            continue
+        ok, result = quarantine.run(
             conn,
-            aggregate_type="job",
-            aggregate_id=job_id,
-            event_type="job.v1.lease_expired",
-            payload={"attempt_id": attempt_id, "lease_id": lease_id, "reason": failure_code},
-            idempotency_key=f"lease_expired:{lease_id}",
+            str(_get(row, "lease_id", 0)),
+            lambda r=row: _expire_lease_row(conn, r, lock_nowait=False),
         )
-        expired.append(
-            {
-                "lease_id": lease_id,
-                "job_id": job_id,
-                "attempt_id": attempt_id,
-                "was": was,
-                "attempt_terminal": terminal,
-            }
-        )
+        if ok and result is not None:
+            expired.append(result)
     return expired
+
+
+def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[str, Any]:
+    """Settle one locked stale lease row; see :func:`expire_stale_leases`."""
+    lease_id = str(_get(row, "lease_id", 0))
+    job_id = str(_get(row, "job_id", 1))
+    attempt_id = str(_get(row, "attempt_id", 2))
+    from control_plane.billing_effects import serialize_native_period
+    from psycopg.errors import LockNotAvailable
+
+    if not serialize_native_period(conn, job_id, wait=not lock_nowait):
+        raise LockNotAvailable("billing period is settling; retry lease expiry")
+    if lock_nowait:
+        # Reconciliation owns a queue row already. Runtime writers can
+        # hold these rows while waiting for that queue, so fail fast and
+        # let process_due roll back its savepoint instead of deadlocking.
+        # Scheduler and reconciler logins cannot lock billing or serverless
+        # rows. Those identities enqueue settlement instead of taking it.
+        from control_plane.db_roles import current_service
+
+        defer_settlement = current_service() in {"scheduler", "reconciler"}
+        lock_tables = ["job_attempts", "gpu_device_allocations", "agent_commands"]
+        if not defer_settlement:
+            lock_tables.extend(["usage_meters", "serverless_workers"])
+        for table in lock_tables:
+            conn.execute(
+                sql.SQL("SELECT 1 FROM {} WHERE attempt_id = %s FOR UPDATE NOWAIT").format(
+                    sql.Identifier(table)
+                ),
+                (attempt_id,),
+            ).fetchall()
+        if not defer_settlement:
+            conn.execute(
+                "SELECT 1 FROM wallet_holds WHERE job_id=%s FOR UPDATE NOWAIT", (job_id,)
+            ).fetchall()
+            conn.execute(
+                "SELECT 1 FROM serverless_jobs WHERE worker_id IN "
+                "(SELECT worker_id FROM serverless_workers WHERE attempt_id=%s) "
+                "FOR UPDATE NOWAIT",
+                (attempt_id,),
+            ).fetchall()
+    was = str(_get(row, "status", 5))
+    terminal = "failed" if was == "offered" else "lost"
+    failure_code = "lease_claim_timeout" if was == "offered" else "lease_renewal_timeout"
+    job_status = str(_get(row, "job_status", 6))
+    desired = str(_get(row, "desired_state", 7))
+    intent = _get(row, "lifecycle_intent", 8)
+    serverless = _get(row, "job_type", 9) == "serverless_worker"
+    current_authority = bool(_get(row, "current_authority", 10))
+    if job_status not in {
+        "completed",
+        "failed",
+        "terminated",
+        "cancelled",
+        "stopped",
+        "paused",
+    }:
+        if desired == "stopped":
+            job_status = {
+                "terminate": "terminated",
+                "cancel": "cancelled",
+                "restart": "queued",
+            }.get(intent, "stopped")
+        else:
+            job_status = "queued"
+    # A serverless worker represents one attempt and one billing span.
+    # Close it permanently; endpoint reconciliation creates fresh worker
+    # and scheduler-job IDs instead of lending this identity to a retry.
+    if serverless and job_status == "queued":
+        job_status = "failed"
+
+    conn.execute(
+        "UPDATE placement_leases SET status = 'expired' WHERE lease_id = %s",
+        (lease_id,),
+    )
+    conn.execute(
+        """
+        UPDATE job_attempts
+           SET status = %s, failure_code = %s, ended_at = clock_timestamp()
+         WHERE attempt_id = %s
+           AND status NOT IN ('succeeded', 'failed', 'cancelled',
+                              'preempted', 'lost', 'fenced')
+        """,
+        (terminal, failure_code, attempt_id),
+    )
+    if current_authority:
+        from control_plane.db_roles import current_service
+
+        if current_service() in {"scheduler", "reconciler"}:
+            from control_plane.billing_effects import queue_attempt_settlement
+
+            queue_attempt_settlement(conn, job_id, attempt_id)
+        else:
+            from control_plane.attempt_billing import sync_attempt_billing
+            from control_plane.serverless_workers import sync_serverless_attempt
+
+            sync_attempt_billing(conn, attempt_id)
+            sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
+    conn.execute(
+        """
+        UPDATE gpu_device_allocations
+           SET status = 'released',
+               released_at = clock_timestamp(),
+               release_reason = %s
+         WHERE attempt_id = %s
+           AND status = 'active'
+        """,
+        (failure_code, attempt_id),
+    )
+    # Undelivered start command for this attempt is dead: cancel it so
+    # a late worker fetch cannot start a fenced-out attempt.
+    conn.execute(
+        """
+        UPDATE agent_commands
+           SET status = 'cancelled'
+         WHERE attempt_id = %s
+           AND status IN ('pending', 'claimed')
+        """,
+        (attempt_id,),
+    )
+    conn.execute(
+        """
+        UPDATE jobs
+           SET status = %(status)s,
+               phase = %(phase)s,
+               desired_state = CASE
+                   WHEN %(status)s = 'queued' THEN 'running'
+                   WHEN %(phase)s = 'stopped' THEN 'stopped'
+                   ELSE desired_state END,
+               queued_at = CASE WHEN %(status)s = 'queued'
+                   THEN statement_timestamp() ELSE queued_at END,
+               submitted_at = CASE WHEN %(status)s = 'queued'
+                   THEN EXTRACT(EPOCH FROM statement_timestamp()) ELSE submitted_at END,
+               host_id = NULL,
+               active_attempt_id = NULL,
+               lifecycle_intent = NULL,
+               reason_code = %(reason)s,
+               next_schedule_at = CASE WHEN %(status)s = 'queued'
+                   THEN clock_timestamp() ELSE NULL END,
+               schedule_claim_owner = NULL,
+               schedule_claim_token = NULL,
+               schedule_claim_expires_at = NULL,
+               generation = generation + CASE WHEN %(status)s = 'queued' THEN 1 ELSE 0 END,
+               payload = (CASE WHEN %(status)s = 'queued'
+                   THEN COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent'
+                        - 'stopped_at' - 'stop_reason' - 'stopping_at'
+                   ELSE COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent' END)
+                   || jsonb_build_object('status', %(status)s::text,
+                       'lease_expired_at', EXTRACT(EPOCH FROM clock_timestamp()))
+                   || CASE WHEN %(status)s = 'queued'
+                       THEN jsonb_build_object('submitted_at',
+                           EXTRACT(EPOCH FROM statement_timestamp()))
+                       ELSE '{}'::jsonb END,
+               version = version + 1,
+               updated_at = clock_timestamp()
+         WHERE job_id = %(job)s
+           AND active_attempt_id = %(attempt)s
+        """,
+        {
+            "reason": failure_code,
+            "job": job_id,
+            "attempt": attempt_id,
+            "status": job_status,
+            "phase": job_phase(job_status),
+        },
+    )
+    from control_plane.outbox import append_event
+
+    append_event(
+        conn,
+        aggregate_type="job",
+        aggregate_id=job_id,
+        event_type="job.v1.lease_expired",
+        payload={"attempt_id": attempt_id, "lease_id": lease_id, "reason": failure_code},
+        idempotency_key=f"lease_expired:{lease_id}",
+    )
+    return {
+        "lease_id": lease_id,
+        "job_id": job_id,
+        "attempt_id": attempt_id,
+        "was": was,
+        "attempt_terminal": terminal,
+    }
