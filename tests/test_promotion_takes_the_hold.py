@@ -234,9 +234,15 @@ def test_the_create_route_takes_the_hold_before_the_copy_is_enqueued():
         "the create route never *calls* take_promotion_hold — a promotion would "
         "begin with its artifacts still deletable"
     )
-    assert "enqueue_agent_command" in names, "the create route enqueues nothing"
+    # Delivery (and its retry on replay) lives in `_deliver_promotion`.
+    assert "_deliver_promotion" in names, "the create route enqueues nothing"
+    deliver = ast.parse(inspect.getsource(vol._deliver_promotion))
+    assert any(
+        isinstance(node, ast.Call) and getattr(node.func, "id", "") == "enqueue_agent_command"
+        for node in ast.walk(deliver)
+    ), "promotion delivery enqueues nothing"
     hold_line = min(ln for ln, name in calls if name == "take_promotion_hold")
-    enqueue_line = min(ln for ln, name in calls if name == "enqueue_agent_command")
+    enqueue_line = min(ln for ln, name in calls if name == "_deliver_promotion")
     assert hold_line < enqueue_line, (
         "the hold is taken after the command is enqueued — the agent can begin "
         "reading artifacts that are not yet held"
@@ -258,8 +264,7 @@ def test_the_command_carries_only_the_promotion_id():
 
     import routes.volumes as vol
 
-    src = inspect.getsource(vol.api_volume_promotion_create)
-    tree = ast.parse(inspect.cleandoc(src))
+    tree = ast.parse(inspect.getsource(vol._deliver_promotion))
     enqueue_args = None
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "enqueue_agent_command":

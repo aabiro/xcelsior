@@ -128,15 +128,35 @@ def test_instance_reset_not_running(instance_ctx):
     assert r.status_code != 500
 
 
-def test_admin_reinject_shell(instance_ctx):
-    job_id = instance_ctx["job_id"]
+def test_admin_reinject_shell():
+    """The directive targets the running native attempt's container."""
+    from db import _get_pg_pool
+    from tests.fixtures.native_runtime import running_instance
+
+    with running_instance(owner=f"reinject-{uuid.uuid4().hex[:8]}") as instance:
+        r = client.post(
+            f"/admin/instances/{instance['job_id']}/reinject-shell",
+            headers=_admin_headers(),
+        )
+        assert r.status_code == 200, r.text
+        assert r.json().get("ok") is True
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT attempt_id::text, args->>'container_name' FROM agent_commands WHERE id=%s",
+                (r.json()["command_id"],),
+            ).fetchone()
+    attempt_id = instance["authority"]["attempt_id"]
+    assert row == (str(attempt_id), f"xcl-{instance['job_id']}-{str(attempt_id)[:8]}")
+
+
+def test_admin_reinject_shell_needs_a_live_attempt(instance_ctx):
+    """A queued row with a host name but no placement has no container to touch."""
     r = client.post(
-        f"/admin/instances/{job_id}/reinject-shell",
+        f"/admin/instances/{instance_ctx['job_id']}/reinject-shell",
         headers=_admin_headers(),
     )
-    assert r.status_code == 200
-    assert r.json().get("ok") is True
-    assert r.json().get("command_id") is not None
+    assert r.status_code == 409
+    assert "fenced_residual_requires_live_authority" in r.text
 
 
 def test_admin_reinject_shell_missing_job():
