@@ -206,3 +206,113 @@ def test_the_hold_is_taken_exactly_once_across_a_replay(promotable):
 
     assert held_after_first == 2, "the first call did not hold the manifest"
     assert held_after_replay == 2, "a replay changed the hold"
+
+
+# ── Delivery: a promotion's own authority, and a failed delivery retried ────
+
+
+@pytest.fixture
+def reachable_host(promotable, monkeypatch):
+    """A real volume row and an active host in its region the copy can run on."""
+    import time
+
+    import routes.volumes as vol
+
+    tag = uuid.uuid4().hex[:10]
+    region = f"region-{tag}"
+    host_id = f"promo-host-{tag}"
+    with pg_transaction() as conn:
+        conn.execute(
+            """INSERT INTO volumes (volume_id, owner_id, name, storage_type, size_gb, region,
+                   status, created_at)
+               VALUES (%s, %s, %s, 'nfs', 10, %s, 'available', %s)""",
+            (promotable["volume_id"], promotable["tenant"], f"v-{tag}", region, time.time()),
+        )
+        conn.execute(
+            """INSERT INTO hosts (host_id, status, registered_at, payload, administrative_state,
+                   availability_state, admission_state, region)
+               VALUES (%s, 'active', %s, '{}', 'admitted', 'ready', 'admitted', %s)""",
+            (host_id, time.time(), region),
+        )
+
+    class _VE:
+        def get_volume(self, vid):
+            return {"volume_id": vid, "owner_id": promotable["tenant"], "region": region}
+
+    picked = {"host": host_id}
+    monkeypatch.setattr(vol, "get_volume_engine", lambda: _VE())
+    monkeypatch.setattr(
+        vol, "_pick_promotion_host", lambda r: picked["host"] if r == region else ""
+    )
+    yield {"host_id": host_id, "region": region, "picked": picked}
+    with pg_transaction() as conn:
+        conn.execute("DELETE FROM agent_commands WHERE host_id = %s", (host_id,))
+        conn.execute("DELETE FROM hosts WHERE host_id = %s", (host_id,))
+        conn.execute("DELETE FROM volumes WHERE volume_id = %s", (promotable["volume_id"],))
+
+
+def _promotion_commands(host_id: str) -> list:
+    with pg_transaction() as conn:
+        return conn.execute(
+            """SELECT id, args, job_id, attempt_id FROM agent_commands
+                WHERE host_id = %s AND command = 'promote_artifacts' ORDER BY id""",
+            (host_id,),
+        ).fetchall()
+
+
+def test_a_promotion_is_delivered_without_a_running_attempt(promotable, reachable_host):
+    """The producing job has finished; the promotion, not an attempt, is the authority."""
+    r = _promote(promotable)
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    commands = _promotion_commands(reachable_host["host_id"])
+    assert [(c[0], c[1], c[2], c[3]) for c in commands] == [
+        (body["command_id"], {"promotion_id": body["promotion_id"]}, None, None)
+    ]
+
+
+def test_a_failed_delivery_is_retried_by_a_replay_not_stranded(promotable, reachable_host):
+    reachable_host["picked"]["host"] = ""  # no capacity in the region yet
+    first = _promote(promotable)
+    assert first.status_code == 200, first.text
+    assert first.json()["command_id"] is None and first.json()["state"] == "pending"
+
+    reachable_host["picked"]["host"] = reachable_host["host_id"]
+    replay = _promote(promotable)
+    again = _promote(promotable)
+
+    assert replay.json()["replayed"] is True and replay.json()["command_id"] is not None
+    assert again.json()["command_id"] == replay.json()["command_id"], "one live copy, not two"
+    assert len(_promotion_commands(reachable_host["host_id"])) == 1
+
+
+@pytest.mark.parametrize("invalid", ["other_region", "terminal", "extra_args"])
+def test_promotion_directive_requires_promotion_authority(promotable, reachable_host, invalid):
+    import time
+
+    from fastapi import HTTPException
+
+    from routes.agent import enqueue_agent_command
+
+    reachable_host["picked"]["host"] = ""
+    promotion_id = _promote(promotable).json()["promotion_id"]
+    host_id = reachable_host["host_id"]
+    args: dict = {"promotion_id": promotion_id}
+    with pg_transaction() as conn:
+        if invalid == "other_region":
+            conn.execute("UPDATE hosts SET region = 'elsewhere' WHERE host_id = %s", (host_id,))
+        if invalid == "terminal":
+            conn.execute(
+                "UPDATE volume_promotions SET state = 'failed', completed_at = to_timestamp(%s)"
+                " WHERE promotion_id = %s",
+                (time.time(), promotion_id),
+            )
+    if invalid == "extra_args":
+        args["job_id"] = promotable["job_id"]
+
+    with pytest.raises(HTTPException) as refused:
+        enqueue_agent_command(host_id, "promote_artifacts", args)
+
+    assert refused.value.status_code == (400 if invalid == "extra_args" else 409)
+    assert _promotion_commands(host_id) == []

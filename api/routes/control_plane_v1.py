@@ -979,6 +979,13 @@ def api_v1_instance_retry(job_id: str, request: Request, body: _OpIn | None = No
             detail="instance changed; re-read before retrying",
             extra={"current_version": int(job.get("version") or 0)},
         )
+    if str(job.get("job_type") or "") == "serverless_worker":
+        # One worker identity is one attempt; its endpoint provisions a new one.
+        raise ProblemException(
+            status=409,
+            code="serverless_worker",
+            detail="a serverless endpoint worker is provisioned by its endpoint, not retried",
+        )
     status = str(job.get("status") or "")
     if status == "completed":
         raise ProblemException(

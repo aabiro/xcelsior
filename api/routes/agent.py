@@ -526,10 +526,44 @@ _JOB_DIRECTIVES = frozenset(
         "snapshot_container",
         "mount_volume",
         "unmount_volume",
-        "promote_artifacts",
         "fingerprint_environment",
     }
 )
+
+
+def _authorize_promotion_directive(conn, host_id: str, args: dict | None) -> None:
+    """A promotion's authority is the promotion, its volume and the host's reach.
+
+    It is not a job directive. The job that produced the artifacts has usually
+    finished, and the command carries only ``{promotion_id}`` (the agent
+    fetches the manifest and its read grants itself), so requiring a running
+    attempt refused every promotion. What has to hold instead: the promotion
+    is still waiting to be copied, and the host is active and can reach the
+    volume — in its region, or running an instance it is attached to.
+    """
+    requested = dict(args or {})
+    promotion_id = str(requested.get("promotion_id") or "")
+    if set(requested) != {"promotion_id"} or not promotion_id:
+        raise HTTPException(400, "promote_artifacts carries exactly one promotion_id")
+    reachable = conn.execute(
+        """SELECT 1
+             FROM volume_promotions p
+             JOIN volumes v ON v.volume_id = p.volume_id AND v.status <> 'deleted'
+             JOIN hosts h ON h.host_id = %s AND h.status = 'active'
+            WHERE p.promotion_id = %s
+              AND p.state IN ('pending', 'running')
+              AND (COALESCE(v.region, '') = '' OR h.region = v.region
+                   OR EXISTS (SELECT 1 FROM volume_attachments va
+                                JOIN jobs j ON j.job_id = va.instance_id
+                               WHERE va.volume_id = v.volume_id AND va.detached_at = 0
+                                 AND j.host_id = h.host_id))""",
+        (host_id, promotion_id),
+    ).fetchone()
+    if reachable is None:
+        raise HTTPException(
+            409,
+            "Promotion directive requires a pending promotion on a host that reaches its volume",
+        )
 
 
 def enqueue_agent_command(
@@ -563,6 +597,8 @@ def enqueue_agent_command(
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         authority = None
+        if command == "promote_artifacts":
+            _authorize_promotion_directive(conn, host_id, args)
         if command in _JOB_DIRECTIVES:
             from psycopg.rows import dict_row
             from control_plane.job_specs import validate_execution_spec

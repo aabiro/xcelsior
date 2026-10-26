@@ -4485,13 +4485,14 @@ def drain_v2_commands() -> int:
     return sum(_v2_run_claimed_command(_dispatch_v2_command, command) for command in commands)
 
 
+# `promote_artifacts` is a host directive: it names a promotion, not a running
+# attempt, and the API authorizes it by the promotion's volume and host.
 _V2_JOB_DIRECTIVES = frozenset(
     {
         "reinject_shell",
         "snapshot_container",
         "mount_volume",
         "unmount_volume",
-        "promote_artifacts",
         "fingerprint_environment",
     }
 )

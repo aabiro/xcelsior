@@ -17,7 +17,7 @@ BOOTING_TTL_SEC = int(os.environ.get("XCELSIOR_SERVERLESS_BOOTING_TTL_SEC", "900
 QUEUE_TTL_SEC = int(os.environ.get("XCELSIOR_SERVERLESS_QUEUE_TTL_SEC", "3600"))
 BOOT_RETRY_LIMIT = int(os.environ.get("XCELSIOR_SERVERLESS_BOOT_RETRY_LIMIT", "3"))
 BOOT_RETRY_WINDOW_SEC = int(os.environ.get("XCELSIOR_SERVERLESS_BOOT_RETRY_WINDOW_SEC", "3600"))
-TERMINAL_SCHEDULER_STATUSES = frozenset({"failed", "cancelled", "completed"})
+TERMINAL_SCHEDULER_STATUSES = frozenset({"failed", "cancelled", "completed", "terminated"})
 ACTIVE_WORKER_STATES = frozenset({"booting", "ready", "idle", "draining"})
 
 

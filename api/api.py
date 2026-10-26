@@ -468,7 +468,10 @@ async def lifespan(app):
         yield
     finally:
         if _effect_thread is not None:
-            _effect_thread.stop_event.set()
+            # The dispatcher attaches its stop event to the Thread it returns.
+            stop_event = getattr(_effect_thread, "stop_event", None)
+            if stop_event is not None:
+                stop_event.set()
             _effect_thread.join(timeout=5)
         _stop_background_tasks()
         _pg_listen_stop.set()
@@ -720,7 +723,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if not AUTH_REQUIRED:
             return await call_next(request)
 
-        api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+        # An empty override means unset, as in routes._deps; the configured
+        # token still applies.
+        api_token = os.environ.get("XCELSIOR_API_TOKEN") or API_TOKEN
         if not api_token:
             return JSONResponse(
                 status_code=500,
