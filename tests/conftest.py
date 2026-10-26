@@ -130,6 +130,13 @@ collect_ignore = ["test_e2e_live.py"]
 # modules must not be able to flip it for everyone at import time.
 _INTENDED_DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND")
 
+# The platform token this run intends. Several legacy modules assign
+# XCELSIOR_API_TOKEN="" at import; whichever module imported `scheduler` first
+# then froze that value into `API_TOKEN`, while other tests sent the default.
+# Every test sees the one intended token instead (a test that needs another
+# monkeypatches it, which wins).
+_INTENDED_API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+
 
 import pytest
 
@@ -148,6 +155,11 @@ def pytest_collection_finish(session):
     for _key, _val in _TEST_ENV_FORCE.items():
         os.environ[_key] = _val
     os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
+    os.environ["XCELSIOR_API_TOKEN"] = _INTENDED_API_TOKEN
+    for module_name in ("scheduler", "routes._deps", "api"):
+        module = sys.modules.get(module_name)
+        if module is not None and hasattr(module, "API_TOKEN"):
+            module.API_TOKEN = _INTENDED_API_TOKEN
     if _INTENDED_DB_BACKEND:
         os.environ["XCELSIOR_DB_BACKEND"] = _INTENDED_DB_BACKEND
 
@@ -266,6 +278,12 @@ def _pin_test_auth_env(monkeypatch):
     # it can monkeypatch this back down, as `auth_enforced` does for
     # AUTH_REQUIRED in test_compliance_surfaces_require_auth.py.
     monkeypatch.setattr(deps, "_AUTH_RATE_LIMIT_REQUESTS", 100_000)
+
+    monkeypatch.setenv("XCELSIOR_API_TOKEN", _INTENDED_API_TOKEN)
+    for module_name in ("scheduler", "routes._deps", "api"):
+        module = sys.modules.get(module_name)
+        if module is not None and hasattr(module, "API_TOKEN"):
+            monkeypatch.setattr(module, "API_TOKEN", _INTENDED_API_TOKEN)
 
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
     if os.environ.get("CI"):
