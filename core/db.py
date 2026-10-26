@@ -1507,6 +1507,8 @@ class UserStore:
             "is_admin",
             "country",
             "province",
+            "business_name",
+            "gst_hst_number",
             "provider_id",
             "team_id",
             "password_hash",

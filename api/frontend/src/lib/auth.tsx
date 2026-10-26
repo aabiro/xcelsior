@@ -35,6 +35,8 @@ export interface User {
   is_admin?: boolean;
   country?: string;
   province?: string;
+  business_name?: string;
+  gst_hst_number?: string;
   avatar_url?: string;
   customer_id?: string;
   provider_id?: string;

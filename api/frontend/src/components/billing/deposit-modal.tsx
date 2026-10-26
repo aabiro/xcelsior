@@ -11,6 +11,7 @@ import {
   checkPayPalEnabled,
   createPayPalOrder,
   capturePayPalOrder,
+  updateProfile,
 } from "@/lib/api";
 import { getStripeElementsOptions, STRIPE_PAYMENT_ELEMENT_OPTIONS } from "@/lib/stripe-appearance";
 import { getStripePromise } from "@/lib/stripe-client";
@@ -70,14 +71,33 @@ function AmountStep({
   minAmount?: number;
   maxAmount?: number;
 }) {
+  const { user } = useAuth();
   const [showAmountError, setShowAmountError] = useState(false);
+  const [businessName, setBusinessName] = useState(user?.business_name || "");
+  const [gstNumber, setGstNumber] = useState(user?.gst_hst_number || "");
+  const [savingProfile, setSavingProfile] = useState(false);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!isValid) {
       setShowAmountError(true);
       return;
     }
     setShowAmountError(false);
+    const nextBusiness = businessName.trim();
+    const nextGst = gstNumber.trim();
+    const savedBusiness = (user?.business_name || "").trim();
+    const savedGst = (user?.gst_hst_number || "").trim();
+    if (nextBusiness !== savedBusiness || nextGst !== savedGst) {
+      setSavingProfile(true);
+      try {
+        await updateProfile({ business_name: nextBusiness, gst_hst_number: nextGst });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not save business details");
+        setSavingProfile(false);
+        return;
+      }
+      setSavingProfile(false);
+    }
     onContinue();
   };
 
@@ -126,10 +146,39 @@ function AmountStep({
           </p>
         )}
       </div>
+      <div className="mb-6 space-y-3 rounded-xl border border-border/70 bg-background/50 p-3">
+        <p className="text-[11px] leading-relaxed text-text-muted">
+          Optional. Add these if you are buying for a business. Individuals can leave them blank.
+        </p>
+        <div>
+          <Label htmlFor="business-name" className="mb-1.5 block text-text-secondary text-xs">
+            Business name
+          </Label>
+          <Input
+            id="business-name"
+            value={businessName}
+            onChange={(event) => setBusinessName(event.target.value)}
+            placeholder="Registered business name"
+            maxLength={200}
+          />
+        </div>
+        <div>
+          <Label htmlFor="gst-number" className="mb-1.5 block text-text-secondary text-xs">
+            GST/HST number
+          </Label>
+          <Input
+            id="gst-number"
+            value={gstNumber}
+            onChange={(event) => setGstNumber(event.target.value)}
+            placeholder="123456789RT0001"
+            maxLength={20}
+          />
+        </div>
+      </div>
       <div className="flex gap-3">
-        <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
-        <Button variant="success" className="flex-1" onClick={handleContinue}>
-          {continueLabel ?? `Continue, $${isValid ? numericAmount.toFixed(2) : "0.00"}`}
+        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={savingProfile}>Cancel</Button>
+        <Button variant="success" className="flex-1" onClick={handleContinue} disabled={savingProfile}>
+          {savingProfile ? "Saving…" : (continueLabel ?? `Continue, $${isValid ? numericAmount.toFixed(2) : "0.00"}`)}
         </Button>
       </div>
     </>
