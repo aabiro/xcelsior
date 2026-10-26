@@ -27,3 +27,51 @@ def admit_fixture_job(conn, job_id):
             "UPDATE jobs SET spec=%s,spec_hash=%s WHERE job_id=%s",
             (Jsonb(spec), canonical_spec_hash(spec), job_id),
         )
+
+
+def insert_schedulable_host(
+    conn,
+    host_id,
+    *,
+    model="RTX 4090",
+    gpus=1,
+    vram_mb=24576,
+    payload=None,
+    inventory_generation=1,
+    observed=True,
+):
+    """An admitted, freshly observed host with physical (``GPU-``) devices.
+
+    This is the minimum the native scheduler will place on: operator
+    admission, ready availability, verified egress isolation, a current
+    DB-clock observation and concrete NVML-shaped device identities.
+    ``observed=False`` leaves ``last_observed_at`` empty (a host that never
+    reported through the v2 observation channel).
+    """
+    import json as _json
+    import time as _time
+
+    conn.execute(
+        """INSERT INTO hosts (host_id, status, registered_at, payload,
+                              administrative_state, availability_state, admission_state,
+                              inventory_generation, capabilities, last_observed_at)
+           VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 'admitted', %s,
+                   '{"egress_isolation":true}',
+                   CASE WHEN %s THEN clock_timestamp() ELSE NULL END)""",
+        (
+            host_id,
+            _time.time(),
+            _json.dumps({"admitted": True, "cost_per_hour": 0, **(payload or {})}),
+            inventory_generation,
+            observed,
+        ),
+    )
+    for index in range(gpus):
+        conn.execute(
+            """INSERT INTO host_gpu_devices
+                   (host_id, gpu_uuid, device_index, model, total_vram_mb,
+                    allocatable_vram_mb, health)
+               VALUES (%s, %s, %s, %s, %s, %s, 'healthy')""",
+            (host_id, f"GPU-{host_id}-{index}", index, model, vram_mb, vram_mb),
+        )
+    return host_id

@@ -21,6 +21,7 @@ from control_plane.job_specs import validate_execution_spec
 from control_plane.launch import action_plans
 from control_plane.launch.service import PlanConflict
 from control_plane.outbox import append_event
+from control_plane.sweep_isolation import SweepQuarantine
 
 ACTION = "evict_host_workloads"
 POLICY = "host-eviction/v1"
@@ -327,15 +328,30 @@ def execute(conn, plan, *, host_id, created_by):
     return {**reconcile(conn, plan), "idempotent": False}
 
 
+_SWEEP_QUARANTINE = SweepQuarantine("host_eviction")
+
+
 def sweep(conn, *, limit=100):
-    """The scheduler's existing sweep finishes plans after worker settlement."""
+    """The scheduler's existing sweep finishes plans after worker settlement.
+
+    Each plan is checked in its own savepoint. A plan that no longer validates
+    (``PlanConflict``) or fails for any other reason is logged and backed off
+    instead of failing first on every tick and taking the sweep down with it.
+    """
     with conn.cursor(row_factory=dict_row) as cur:
         plans = cur.execute(
             """SELECT * FROM action_plans WHERE action_type=%s AND status='executing'
+            AND plan_id <> ALL(%s::uuid[])
             ORDER BY consumed_at LIMIT %s FOR UPDATE SKIP LOCKED""",
-            (ACTION, limit),
+            (ACTION, _SWEEP_QUARANTINE.skipped(), limit),
         ).fetchall()
+
+    def settle(plan):
+        approved_canonical(plan, (plan["canonical_args"] or {}).get("host_id"))
+        return reconcile(conn, plan)
+
+    settled = 0
     for plan in plans:
-        approved_canonical(plan, plan["canonical_args"]["host_id"])
-        reconcile(conn, plan)
-    return len(plans)
+        ok, _ = _SWEEP_QUARANTINE.run(conn, str(plan["plan_id"]), lambda p=plan: settle(p))
+        settled += ok
+    return settled

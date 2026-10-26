@@ -17,6 +17,7 @@ from control_plane.job_specs import validate_execution_spec
 from control_plane.scheduler.fairness import lock_team_policy, require_team_quota, QuotaExceeded
 from control_plane.scheduler.filters import evaluate_host
 from control_plane.scheduler.reservation import CapacityConflict
+from control_plane.sweep_isolation import SweepQuarantine
 
 
 def is_preemptible(spec):
@@ -449,21 +450,26 @@ def reconcile_plan(conn, plan_id: str) -> str:
         return state
 
 
-def sweep_plans(conn, *, limit=100) -> int:
-    from psycopg.errors import LockNotAvailable
+_PLAN_QUARANTINE = SweepQuarantine("preemption_plan")
 
+
+def sweep_plans(conn, *, limit=100) -> int:
+    """Reconcile live plans, each in its own savepoint.
+
+    A plan whose jobs are locked (NOWAIT) or whose reconciliation raises for
+    any other reason rolls back alone and backs off; it can no longer keep the
+    rest of the batch, or the scheduler tick behind it, from running.
+    """
     rows = conn.execute(
-        "SELECT plan_id FROM preemption_plans WHERE state IN ('stopping','ready') ORDER BY updated_at LIMIT %s",
-        (limit,),
+        """SELECT plan_id FROM preemption_plans WHERE state IN ('stopping','ready')
+        AND plan_id <> ALL(%s::uuid[]) ORDER BY updated_at LIMIT %s""",
+        (_PLAN_QUARANTINE.skipped(), limit),
     ).fetchall()
     reconciled = 0
     for row in rows:
-        try:
-            with conn.transaction():
-                reconcile_plan(conn, str(row["plan_id"] if isinstance(row, dict) else row[0]))
-            reconciled += 1
-        except LockNotAvailable:
-            continue
+        plan_id = str(row["plan_id"] if isinstance(row, dict) else row[0])
+        ok, _ = _PLAN_QUARANTINE.run(conn, plan_id, lambda p=plan_id: reconcile_plan(conn, p))
+        reconciled += ok
     return reconciled
 
 
