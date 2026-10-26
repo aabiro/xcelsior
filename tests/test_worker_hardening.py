@@ -873,3 +873,44 @@ def test_restart_during_setup_requeues_the_job_on_the_control_plane(agent, monke
         ).fetchone()
     assert job == ("queued", None)
     assert attempt == ("lost",)
+
+
+# ── 11. The `--gpus all` benchmark never runs beside tenant work ────────
+
+
+@pytest.fixture
+def benchmark_flag(monkeypatch):
+    flag = threading.Event()
+    monkeypatch.setattr(worker, "_reverify_running", flag)
+    return flag
+
+
+def test_startup_benchmark_defers_to_journaled_work_not_yet_adopted(
+    agent, monkeypatch, benchmark_flag
+):
+    # Restored at startup, API unreachable: nothing in _active_containers yet.
+    agent._v2_attempts["job-1"] = live_auth(_awaiting_adoption=True)
+    with mock.patch.object(agent.threading, "Thread") as thread:
+        assert agent._start_reverification() is False
+    thread.assert_not_called()
+    assert not benchmark_flag.is_set()
+
+
+def test_benchmark_defers_to_a_start_in_progress(agent, benchmark_flag):
+    agent._v2_starts_in_progress.add("att-1")
+    with mock.patch.object(agent.threading, "Thread") as thread:
+        assert agent._start_reverification() is False
+    thread.assert_not_called()
+
+
+def test_start_attempt_during_a_benchmark_is_redelivered_later(agent, monkeypatch, benchmark_flag):
+    benchmark_flag.set()
+    inner, nack = mock.Mock(), mock.Mock()
+    monkeypatch.setattr(agent, "_handle_start_attempt", inner)
+    monkeypatch.setattr(agent, "v2_nack_command", nack)
+
+    agent.handle_start_attempt(_start_command())
+
+    inner.assert_not_called()
+    nack.assert_called_once_with("start-att-1", "host_benchmarking", retryable=True)
+    assert agent._v2_starts_in_progress == set()
