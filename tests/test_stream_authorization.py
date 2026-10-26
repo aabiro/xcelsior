@@ -14,6 +14,7 @@ import abuse_policy
 import oauth_service as oauth
 from db import UserStore, auth_connection, pg_transaction
 from routes import _deps, health, stream_auth
+from tests.fixtures.native_runtime import running_instance
 
 
 class Request:
@@ -159,11 +160,65 @@ def test_bound_ticket_continuation_rechecks_actual_credential_and_owner(principa
     )
 
 
+@pytest.mark.parametrize("invalid", [None, "projection_only", "expired_lease"])
+def test_terminal_authority_is_the_running_native_attempt(principals, invalid):
+    """`status='running'` outlives a lost lease; a shell needs the attempt itself."""
+    uid, _, request, principal = principals[0]
+    bound = stream_auth.bind_stream_principal(principal, request)
+    if invalid == "projection_only":
+        # The fixture row says running and has no placement behind it.
+        with pytest.raises(HTTPException) as refused:
+            stream_auth.authorize_job_stream(bound, uid, terminal=True)
+        assert refused.value.status_code == 403
+        return
+    with running_instance(owner=uid) as instance:
+        if invalid == "expired_lease":
+            with pg_transaction() as conn:
+                conn.execute(
+                    "UPDATE placement_leases SET expires_at=clock_timestamp()-interval '1 second'"
+                    " WHERE attempt_id=%s",
+                    (instance["authority"]["attempt_id"],),
+                )
+            with pytest.raises(HTTPException) as refused:
+                stream_auth.authorize_job_stream(bound, instance["job_id"], terminal=True)
+            assert refused.value.status_code == 403
+        else:
+            assert stream_auth.authorize_job_stream(bound, instance["job_id"], terminal=True)
+
+
+def test_terminal_socket_never_probes_a_container_without_a_running_attempt(
+    principals, monkeypatch
+):
+    from api import app
+    from routes import terminal
+
+    uid, _, request, principal = principals[0]
+    probed = []
+    monkeypatch.setattr(
+        terminal, "_container_probe", lambda ref, *a, **k: probed.append(ref) or {"found": False}
+    )
+    monkeypatch.setattr(terminal, "_CONTAINER_POLL_BUDGET_SEC", 0.05)
+    issued = _deps._issue_ws_ticket(
+        principal, request=request, purpose="terminal", target=uid, client_ip="testclient"
+    )
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/terminal/" + uid + "?ticket=" + issued["ticket"]) as ws:
+            message = ws.receive_json()
+    assert message["type"] == "error" and message["code"] == 4003
+    assert "running attempt" in message["message"]
+    assert probed == []
+
+
 @pytest.mark.asyncio
 async def test_quiet_terminal_watch_closes_on_real_suspension(principals, monkeypatch):
     uid, _, request, principal = principals[0]
     bound = stream_auth.bind_stream_principal(principal, request)
-    stream_auth.authorize_job_stream(bound, uid, terminal=True)
+    with running_instance(owner=uid) as instance:
+        await _watch_until_suspended(bound, uid, instance["job_id"])
+
+
+async def _watch_until_suspended(bound, uid, job_id):
+    stream_auth.authorize_job_stream(bound, job_id, terminal=True)
 
     class Socket:
         def __init__(self):
@@ -177,7 +232,7 @@ async def test_quiet_terminal_watch_closes_on_real_suspension(principals, monkey
 
     socket = Socket()
     task = asyncio.create_task(
-        stream_auth.watch_job_authorization(socket, bound, uid, terminal=True)
+        stream_auth.watch_job_authorization(socket, bound, job_id, terminal=True)
     )
     await asyncio.sleep(0)
     abuse_policy.suspend_account(identifier=uid, actor="test", reason="synthetic")
