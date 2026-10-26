@@ -3368,13 +3368,19 @@ def _v2_same_authority(left: dict, right: dict) -> bool:
     )
 
 
-def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
+def _v2_forget_attempt(
+    job_id: str, expected_auth: dict | None = None, *, replacement: dict | None = None
+) -> bool:
+    """Drop a job's local authority (optionally installing ``replacement`` in
+    the same step); owned resources move to cleanup-pending. True if done."""
     with _v2_attempts_lock:
         if expected_auth is not None and not _v2_same_authority(
             _v2_attempts.get(job_id) or {}, expected_auth
         ):
-            return
+            return False
         auth = _v2_attempts.pop(job_id, None)
+        if replacement is not None:
+            _v2_attempts[job_id] = replacement
         if auth is not None and auth.get("resources"):
             _v2_cleanup_pending[auth["attempt_id"]] = auth
     if auth is not None:
@@ -3390,6 +3396,42 @@ def _v2_forget_attempt(job_id: str, expected_auth: dict | None = None) -> None:
                 _active_containers.pop(job_id, None)
                 _adopted_containers.discard(job_id)
         _v2_journal_save()
+    return True
+
+
+def _v2_register_attempt(auth: dict) -> bool:
+    """Make a freshly claimed attempt its job's local authority.
+
+    A successful claim proves this attempt is the job's current one, so any
+    other local record of the job is older. Overwriting it lost that record's
+    resources (mounts, LUKS volumes, the exclusive lock, paused GPU tenants)
+    from the journal, and its renewal loop then exited on the next wake
+    without stopping its container. It is retired into cleanup-pending
+    instead and its container fence-stopped. A record holding a higher fence
+    means this claim was itself overtaken; False then.
+    """
+    job_id = auth["job_id"]
+    while True:
+        with _v2_attempts_lock:
+            previous = _v2_attempts.get(job_id)
+            if previous is None or previous is auth or _v2_same_authority(previous, auth):
+                _v2_attempts[job_id] = auth
+                return True
+            if int(previous.get("fencing_token") or 0) >= int(auth["fencing_token"]):
+                return False
+        container_name = previous.get("container_name")
+        if _v2_forget_attempt(job_id, previous, replacement=auth):
+            log.warning(
+                "attempt %s for job %s superseded by attempt %s",
+                str(previous.get("attempt_id"))[:8],
+                job_id,
+                auth["attempt_id"][:8],
+            )
+            _v2_stop_container(
+                job_id, "superseded by a newer attempt", container_name, previous["attempt_id"]
+            )
+            _v2_retry_resource_cleanup(background=True)
+            return True
 
 
 def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple[str, int, str]:
@@ -3926,6 +3968,9 @@ def _handle_start_attempt(cmd: dict) -> None:
     auth.setdefault("last_renewed_at", time.time())
     auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
     auth["interactive"] = bool(spec.get("interactive", False))
+    if not _v2_register_attempt(auth):
+        v2_nack_command(command_id, "lease_authority_superseded", retryable=False)
+        return
 
     if spec.get("job_type") == "serverless_worker" and not grant.get("callback_token"):
         _v2_abort_claimed_start(auth, "callback_credential_missing")
@@ -3964,7 +4009,10 @@ def _handle_start_attempt(cmd: dict) -> None:
             return
 
     with _v2_attempts_lock:
-        _v2_attempts[job_id] = auth
+        registered = _v2_attempts.get(job_id) is auth
+    if not registered:
+        v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
+        return
     if not _v2_journal_save():
         _v2_abort_claimed_start(auth, "journal_unavailable")
         v2_nack_command(command_id, "journal_unavailable", retryable=False)

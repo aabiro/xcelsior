@@ -662,3 +662,81 @@ def test_job_directive_with_unknown_docker_state_is_redelivered(agent, monkeypat
 
     dispatch.assert_not_called()
     nack.assert_called_once_with("directive-1", "job_directive_authority_error", retryable=True)
+
+
+# ── 9. A newer attempt retires, not overwrites, the job's older record ──
+
+
+def _start_command(attempt_id="att-1", fence=7, spec=None):
+    spec = spec or {"job_id": "job-1", "name": "job-1", "image": "image:1", "num_gpus": 1}
+    return {
+        "command_id": f"start-{attempt_id}",
+        "command": "start_attempt",
+        "job_id": "job-1",
+        "attempt_id": attempt_id,
+        "fencing_token": fence,
+        "spec_hash": worker.compute_spec_hash(spec),
+        "args": {"lease_id": f"lease-{attempt_id}", "spec": spec},
+    }
+
+
+def _grant(cmd):
+    return {
+        "lease_id": cmd["args"]["lease_id"],
+        "job_id": "job-1",
+        "attempt_id": cmd["attempt_id"],
+        "fencing_token": cmd["fencing_token"],
+        "renewal_ttl_sec": 300,
+        "gpu_device_uuids": ["GPU-hardening-0"],
+    }
+
+
+def _older_attempt(fence):
+    return {
+        **record(attempt_id="att-0", fencing_token=fence, lease_id="lease-att-0"),
+        "stop": threading.Event(),
+        "resources": {"host_id": "hardening-host", "nfs_mounts": ["/mnt/xcelsior-volumes/v"]},
+    }
+
+
+def test_newer_attempt_retires_the_older_record_into_cleanup(agent, monkeypatch):
+    older = _older_attempt(fence=6)
+    agent._v2_attempts["job-1"] = older
+    agent._v2_journal_save()
+    cmd = _start_command()
+    monkeypatch.setattr(agent, "v2_claim_lease_fenced", lambda auth: _grant(cmd))
+    monkeypatch.setattr(agent, "v2_report_attempt_status", mock.Mock(return_value="ok"))
+    monkeypatch.setattr(agent, "v2_ack_command", mock.Mock(return_value=True))
+    run = mock.Mock()
+    monkeypatch.setattr(agent, "run_job", run)
+    docker = Docker("running 0 att-0")
+    monkeypatch.setattr(agent.subprocess, "run", docker)
+
+    with mock.patch.object(agent.threading, "Thread"):
+        agent.handle_start_attempt(cmd)
+
+    run.assert_called_once()
+    assert agent._v2_attempts["job-1"]["attempt_id"] == "att-1"
+    assert older["stop"].is_set()
+    saved = journal(agent)
+    assert saved[agent._V2_CLEANUP_KEY]["att-0"]["resources"]["nfs_mounts"] == [
+        "/mnt/xcelsior-volumes/v"
+    ]
+    assert docker.ran("kill") == [["docker", "kill", "xcl-job-1-att-0"]]
+
+
+def test_an_overtaken_claim_never_replaces_a_newer_record(agent, monkeypatch):
+    newer = _older_attempt(fence=8)
+    agent._v2_attempts["job-1"] = newer
+    cmd = _start_command(fence=7)
+    monkeypatch.setattr(agent, "v2_claim_lease_fenced", lambda auth: _grant(cmd))
+    nack = mock.Mock()
+    monkeypatch.setattr(agent, "v2_nack_command", nack)
+    run = mock.Mock()
+    monkeypatch.setattr(agent, "run_job", run)
+
+    agent.handle_start_attempt(cmd)
+
+    run.assert_not_called()
+    assert agent._v2_attempts["job-1"] is newer and not newer["stop"].is_set()
+    assert nack.call_args.args[:2] == ("start-att-1", "lease_authority_superseded")
