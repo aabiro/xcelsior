@@ -914,3 +914,23 @@ def test_start_attempt_during_a_benchmark_is_redelivered_later(agent, monkeypatc
     inner.assert_not_called()
     nack.assert_called_once_with("start-att-1", "host_benchmarking", retryable=True)
     assert agent._v2_starts_in_progress == set()
+
+
+# ── 12. A long host directive cannot starve a start claimed beside it ───
+
+
+def test_attempt_commands_of_a_batch_are_dispatched_before_host_directives(agent, monkeypatch):
+    batch = [
+        {"command_id": "snap", "command": "snapshot_container"},
+        {"command_id": "pull", "command": "prepull_image"},
+        {"command_id": "start", "command": "start_attempt"},
+        {"command_id": "stop", "command": "stop_attempt"},
+    ]
+    monkeypatch.setattr(agent, "_v2_enabled", True)
+    monkeypatch.setattr(agent, "v2_claim_commands", lambda: list(batch))
+    order = []
+    monkeypatch.setattr(
+        agent, "_dispatch_v2_command", lambda cmd: order.append(cmd["command_id"]) or 1
+    )
+    assert agent.drain_v2_commands() == 4
+    assert order == ["start", "stop", "snap", "pull"]
