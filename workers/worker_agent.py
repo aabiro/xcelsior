@@ -7646,14 +7646,17 @@ def mining_detection_loop():
             )
             report_mining_alert(idx, confidence, reason)
 
-            # After sustained detection, kill only the suspect containers on this GPU
+            # After sustained detection, kill only the suspect containers on this GPU.
+            # Never under _active_lock: the terminal report settles the attempt,
+            # and forgetting it takes that (non-reentrant) lock again.
             if consecutive[idx] >= 5:
                 log.error("Sustained mining on GPU %d — killing %s", idx, sorted(suspects))
-                with _active_lock:
-                    for job_id, cname in suspects.items():
-                        _kill_container(cname)
-                        report_job_status(job_id, "terminated", policy_reason="mining_detected")
-                        _active_containers.pop(job_id, None)
+                for job_id, cname in suspects.items():
+                    _kill_container(cname)
+                    report_job_status(job_id, "terminated", policy_reason="mining_detected")
+                    with _active_lock:
+                        if _active_containers.get(job_id) == cname:
+                            _active_containers.pop(job_id, None)
                 consecutive[idx] = 0
 
 
