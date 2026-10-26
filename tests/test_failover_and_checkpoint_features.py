@@ -281,6 +281,7 @@ class TestWebSocketTerminal:
             class FakeWebSocket:
                 cookies = {}
                 query_params = {}
+                headers = {}
 
             result = _validate_ws_auth(FakeWebSocket())
             assert result is None
@@ -299,7 +300,8 @@ class TestInstanceTerminalIntegration:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -323,7 +325,8 @@ class TestInstanceTerminalIntegration:
         component_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "components",
             "terminal",
@@ -351,7 +354,8 @@ class TestSpotPricingRecharts:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -378,7 +382,8 @@ class TestSpotPricingRecharts:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -408,7 +413,8 @@ class TestMigration005Completeness:
         migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "migrations",
+            "api",
+            "migrations",
             "versions",
             "005_payment_infrastructure.py",
         )
@@ -441,7 +447,8 @@ class TestMigration005Completeness:
         migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "migrations",
+            "api",
+            "migrations",
             "versions",
             "005_payment_infrastructure.py",
         )
@@ -473,7 +480,8 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -500,7 +508,8 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -530,7 +539,8 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "app",
             "(dashboard)",
@@ -575,7 +585,8 @@ class TestFrontendErrorFixes:
         api_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api", "frontend",
+            "api",
+            "frontend",
             "src",
             "lib",
             "api.ts",
