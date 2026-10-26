@@ -142,6 +142,28 @@ pg_restore --list "$BACKUP_FILE" >/dev/null || {
     err "backup catalog verification failed"; exit 1;
 }
 
+# Under per-service roles the schema belongs to the migrator: restore every
+# object as that role, or Alembic cannot alter it and no runtime grant exists.
+# Check the restoring login may act as it before anything is dropped.
+OWNER_ROLE="${XCELSIOR_RESTORE_OWNER_ROLE:-xcelsior_migrator}"
+owner_exists="$(PGPASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-}" psql \
+    -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -Atq -v ON_ERROR_STOP=1 \
+    -v role="$OWNER_ROLE" -c "SELECT 1 FROM pg_roles WHERE rolname = :'role'")" || {
+    err "cannot inspect database roles; restore refused"; exit 1;
+}
+restore_role_args=()
+if [[ "$owner_exists" == "1" ]]; then
+    PGPASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-}" psql \
+        -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -Atq -v ON_ERROR_STOP=1 \
+        -c "SET ROLE \"${OWNER_ROLE}\"" >/dev/null || {
+        err "${DB_USER} cannot act as ${OWNER_ROLE}; restore refused before any change"; exit 1;
+    }
+    restore_role_args=(--role="$OWNER_ROLE")
+    DB_OWNER="$OWNER_ROLE"
+else
+    DB_OWNER="$DB_USER"
+fi
+
 # Every application writer must stop successfully. A failed stop is a refusal.
 cd "$PROJECT_DIR"
 if command -v docker &>/dev/null && [[ -f docker-compose.yml || -f compose.yaml ]]; then
@@ -177,7 +199,7 @@ PGPASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-}" dropdb \
 log "Creating empty database '${DB_NAME}'..."
 PGPASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-}" createdb \
     -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" \
-    -O "$DB_USER" "$DB_NAME"
+    -O "$DB_OWNER" "$DB_NAME"
 
 log "Restoring from backup..."
 if PGPASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-}" pg_restore \
@@ -187,12 +209,18 @@ if PGPASSWORD="${XCELSIOR_POSTGRES_PASSWORD:-}" pg_restore \
     -d "$DB_NAME" \
     --no-owner \
     --no-privileges \
+    "${restore_role_args[@]}" \
     --exit-on-error \
     "$BACKUP_FILE"; then
     ok "Database restored successfully"
 else
     err "pg_restore failed"
     exit 1
+fi
+if [[ ${#restore_role_args[@]} -gt 0 ]]; then
+    # --no-privileges dropped every runtime grant. Services stay stopped until
+    # the role provisioner converges them again.
+    warn "Run api/scripts/provision_db_roles.py before starting any service."
 fi
 
 # A backup may predate this runtime's required schema. Keep writers stopped;

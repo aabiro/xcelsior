@@ -181,6 +181,10 @@ def handle_attempt_settlement(event: OutboxEvent):
     attempt_id = str(event.payload["attempt_id"])
     hold_id = event.payload.get("wallet_hold_id")
     with _get_pg_pool().connection() as conn:
+        # The lease transaction that fenced this attempt held the period lock;
+        # its deferred settlement takes it too, so a concurrent billing sweep
+        # never charges a slice of this attempt while its meter is closing.
+        serialize_native_period(conn, event.aggregate_id)
         sync_attempt_billing(
             conn,
             attempt_id,
