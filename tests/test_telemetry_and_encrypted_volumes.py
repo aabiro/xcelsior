@@ -97,6 +97,8 @@ class TestOpenTelemetryIntegration:
             assert (
                 span_name in all_text
             ), f"Custom span '{span_name}' not found in routes/ or api.py"
+        # Status updates arrive only through the fenced attempt report now.
+        assert "job.status_update" in (routes_dir / "agent_v2.py").read_text()
 
     def test_otlp_exporter_conditional(self):
         """OTLP exporter only activates when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
