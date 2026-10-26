@@ -7925,82 +7925,95 @@ def reinject_shells_for_running():
 
 
 def cleanup_orphaned_volume_mounts():
-    """Clean up NFS mounts for managed volumes that have no running container.
+    """Clean up NFS mounts for managed volumes that nothing owns any more.
 
     On agent restart (or periodically), there may be stale mounts under
-    /mnt/xcelsior-volumes/ whose containers have exited. This function
-    inspects each running container's bind mounts to determine which volumes
-    are actually in use, and unmounts the rest.
+    /mnt/xcelsior-volumes/ whose containers have exited. A mount is kept when
+    a running container bind-mounts it, or when a live or cleanup-pending
+    attempt journals it as its own: an attempt mounts its volumes before a
+    long image pull, so no container can show the mount yet, and unmounting
+    it there would start the job on an empty local directory.
     """
     vol_mount_base = "/mnt/xcelsior-volumes"
     if not os.path.isdir(vol_mount_base):
         return
 
-    # Build set of volume mount paths actually used by running containers
-    active_mounts: set[str] = set()
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            for cid in result.stdout.strip().split("\n"):
-                cid = cid.strip()
-                if not cid:
-                    continue
-                # Inspect container to get bind mount sources
-                insp = subprocess.run(
-                    [
-                        "docker",
-                        "inspect",
-                        "--format",
-                        '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
-                        cid,
-                    ],
+    # Setup journals a mount's ownership under _v2_resources_lock before it
+    # mounts, so holding the lock for the whole sweep means every mount is
+    # either visible below as owned or created after this sweep finished.
+    with _v2_resources_lock:
+        with _v2_attempts_lock:
+            owned = {
+                os.path.normpath(str(mount))
+                for auth in [*_v2_attempts.values(), *_v2_cleanup_pending.values()]
+                for mount in ((auth.get("resources") or {}).get("nfs_mounts") or [])
+            }
+        # Mount paths used by running containers, plus journaled ownership
+        active_mounts: set[str] = set(owned)
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                for cid in result.stdout.strip().split("\n"):
+                    cid = cid.strip()
+                    if not cid:
+                        continue
+                    # Inspect container to get bind mount sources
+                    insp = subprocess.run(
+                        [
+                            "docker",
+                            "inspect",
+                            "--format",
+                            '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
+                            cid,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if insp.returncode == 0:
+                        for src in insp.stdout.strip().split():
+                            src = src.strip()
+                            if src.startswith(vol_mount_base):
+                                active_mounts.add(os.path.normpath(src))
+        except Exception:
+            return  # Can't determine running containers — don't clean up blindly
+
+        # Get mounted volume dirs
+        try:
+            mounted_vols = os.listdir(vol_mount_base)
+        except OSError:
+            return
+
+        cleaned = 0
+        for vol_dir in mounted_vols:
+            mount_path = os.path.join(vol_mount_base, vol_dir)
+            if os.path.normpath(mount_path) in active_mounts:
+                continue  # Volume is in use by a running container or an attempt
+
+            # Check if it's actually a mountpoint
+            try:
+                check = subprocess.run(
+                    ["mountpoint", "-q", mount_path],
                     capture_output=True,
-                    text=True,
                     timeout=5,
                 )
-                if insp.returncode == 0:
-                    for src in insp.stdout.strip().split():
-                        src = src.strip()
-                        if src.startswith(vol_mount_base):
-                            active_mounts.add(src)
-    except Exception:
-        return  # Can't determine running containers — don't clean up blindly
+            except subprocess.TimeoutExpired:
+                log.warning(
+                    "mountpoint check timed out for %s — skipping (possible stale NFS)",
+                    mount_path,
+                )
+                continue
+            if check.returncode != 0:
+                continue  # Not mounted, skip
 
-    # Get mounted volume dirs
-    try:
-        mounted_vols = os.listdir(vol_mount_base)
-    except OSError:
-        return
-
-    cleaned = 0
-    for vol_dir in mounted_vols:
-        mount_path = os.path.join(vol_mount_base, vol_dir)
-        if mount_path in active_mounts:
-            continue  # Volume is in use by a running container
-
-        # Check if it's actually a mountpoint
-        try:
-            check = subprocess.run(
-                ["mountpoint", "-q", mount_path],
-                capture_output=True,
-                timeout=5,
-            )
-        except subprocess.TimeoutExpired:
-            log.warning(
-                "mountpoint check timed out for %s — skipping (possible stale NFS)", mount_path
-            )
-            continue
-        if check.returncode != 0:
-            continue  # Not mounted, skip
-
-        _unmount_nfs(mount_path)
-        cleaned += 1
-        log.info("Cleaned up orphaned volume mount: %s", mount_path)
+            _unmount_nfs(mount_path)
+            cleaned += 1
+            log.info("Cleaned up orphaned volume mount: %s", mount_path)
 
     if cleaned:
         log.info("Cleaned up %d orphaned volume mount(s)", cleaned)
