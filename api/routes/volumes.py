@@ -555,6 +555,62 @@ def _pick_promotion_host(region: str) -> str:
     return str(row[0]) if row else ""
 
 
+def _deliver_promotion(promotion_id: str, vol: dict, *, created_by: str) -> int | None:
+    """Queue the copy for a pending promotion that has no live delivery.
+
+    Returns the command id, or ``None`` when it could not be queued. The row
+    stays ``pending`` either way and a replay of the same request delivers it
+    then; a refused enqueue must not strand a committed promotion and its
+    artifact hold. The promotion row lock serializes replays, so one promotion
+    never has two live copies queued.
+
+    An attached volume has an obvious host — the instance's, which can already
+    see the mount. An unattached one has none, and §3.4 of the promotion plan
+    calls that the genuinely open question. Its answer, chosen over "any
+    healthy host" and over a dedicated promotion worker: the least-loaded
+    active host **in the volume's region**, reusing the mount commands the
+    agent already has. No new deployable, no new network path.
+    """
+    from control_plane.db import control_plane_transaction
+    from routes.agent import enqueue_agent_command
+
+    with control_plane_transaction() as conn:
+        state = conn.execute(
+            "SELECT state FROM volume_promotions WHERE promotion_id = %s FOR UPDATE",
+            (promotion_id,),
+        ).fetchone()
+        if state is None or state[0] != "pending":
+            return None
+        live = conn.execute(
+            """SELECT id FROM agent_commands
+                WHERE command = 'promote_artifacts' AND args->>'promotion_id' = %s
+                  AND status IN ('pending', 'claimed')
+                  AND expires_at > EXTRACT(EPOCH FROM NOW())
+                ORDER BY id DESC LIMIT 1""",
+            (promotion_id,),
+        ).fetchone()
+        if live is not None:
+            return int(live[0])
+        host_id = str(vol.get("host_id") or "") or _pick_promotion_host(
+            str(vol.get("region") or "")
+        )
+        if not host_id:
+            return None
+        try:
+            return enqueue_agent_command(
+                host_id,
+                "promote_artifacts",
+                {"promotion_id": promotion_id},
+                created_by=created_by,
+                ttl_sec=3600,
+            )
+        except HTTPException as exc:
+            log.warning(
+                "promotion %s: delivery to %s deferred: %s", promotion_id, host_id, exc.detail
+            )
+            return None
+
+
 class PromotionCreate(BaseModel):
     job_id: str = Field(min_length=1, max_length=128)
     idempotency_key: str = Field(default="", max_length=160)
@@ -663,7 +719,7 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
 
     existing_id = str(row[0])
     if not created:
-        return {
+        replay = {
             "ok": True,
             "replayed": True,
             "promotion_id": existing_id,
@@ -672,30 +728,15 @@ def api_volume_promotion_create(volume_id: str, body: PromotionCreate, request: 
             "total_bytes": row[3],
             "volume_id": row[4],
         }
+        if row[1] == "pending":
+            # A pending promotion whose delivery failed is retried here rather
+            # than replayed as "pending" forever.
+            replay["command_id"] = _deliver_promotion(
+                existing_id, vol, created_by=str(user.get("user_id") or "")
+            )
+        return replay
 
-    # Enqueued only for a genuinely new row, so a replay cannot queue a second
-    # copy of the same bytes.
-    #
-    # An attached volume has an obvious host — the instance's, which can already
-    # see the mount. An unattached one has none, and §3.4 of the promotion plan
-    # calls that the genuinely open question. Its answer, chosen over "any
-    # healthy host" and over a dedicated promotion worker: the least-loaded
-    # active host **in the volume's region**, reusing the mount commands the
-    # agent already has. No new deployable, no new network path.
-    host_id = str(vol.get("host_id") or "")
-    if not host_id:
-        host_id = _pick_promotion_host(str(vol.get("region") or ""))
-    enqueued = None
-    if host_id:
-        from routes.agent import enqueue_agent_command
-
-        enqueued = enqueue_agent_command(
-            host_id,
-            "promote_artifacts",
-            {"promotion_id": existing_id},
-            created_by=str(user.get("user_id") or ""),
-            ttl_sec=3600,
-        )
+    enqueued = _deliver_promotion(existing_id, vol, created_by=str(user.get("user_id") or ""))
 
     append_user_audit_event(
         "user.volume.promotion_started",
