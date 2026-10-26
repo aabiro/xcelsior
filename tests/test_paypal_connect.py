@@ -2,10 +2,81 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 
+import pytest
+
 import paypal_connect as pc
+
+
+class _FakeConn:
+    def __init__(self):
+        self.params = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, sql, params):
+        self.params = params
+
+
+def test_onboarding_persists_the_tracking_id_paypal_saw(monkeypatch):
+    monkeypatch.setattr(pc, "PAYPAL_ENABLED", True)
+    monkeypatch.setattr(pc, "_access_token", lambda: "tok")
+    seen = {}
+
+    class Resp:
+        status_code = 201
+
+        def json(self):
+            return {"links": [{"rel": "action_url", "href": "https://paypal.example/go"}]}
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen["body"] = json
+        return Resp()
+
+    monkeypatch.setattr(pc.httpx, "post", post)
+    mgr = pc.PayPalConnectManager()
+    mgr.tracking_id = lambda provider_id: "xcelsior-prov-1-once"
+    fake = _FakeConn()
+    mgr._conn = lambda: fake
+    result = mgr.create_onboarding_link("prov-1", "seller@example.com")
+    assert seen["body"]["tracking_id"] == "xcelsior-prov-1-once"
+    assert result["tracking_id"] == "xcelsior-prov-1-once"
+    assert fake.params[2] == "xcelsior-prov-1-once"
+
+
+def test_not_authorized_names_the_partner_scope(monkeypatch, caplog):
+    monkeypatch.setattr(pc, "PAYPAL_ENABLED", True)
+    monkeypatch.setattr(pc, "_access_token", lambda: "tok")
+    raw = {
+        "name": "NOT_AUTHORIZED",
+        "debug_id": "f49ddf693ad4b",
+        "message": "Authorization failed due to insufficient permissions.",
+        "details": [{"issue": "NOT_AUTHORIZED", "description": "Authorization failed due to insufficient permissions."}],
+    }
+
+    class Resp:
+        status_code = 403
+        text = json.dumps(raw)
+
+        def json(self):
+            return raw
+
+    monkeypatch.setattr(pc.httpx, "post", lambda *args, **kwargs: Resp())
+    mgr = pc.PayPalConnectManager()
+    with caplog.at_level("ERROR", logger="xcelsior.paypal_connect"):
+        with pytest.raises(RuntimeError, match="partner-referrals/readwrite"):
+            mgr.create_onboarding_link("prov-1", "seller@example.com")
+    message = " ".join(record.getMessage() for record in caplog.records)
+    assert "f49ddf693ad4b" in message
+    assert "NOT_AUTHORIZED" in message
+    assert "insufficient permissions" not in message
 
 
 def test_auth_assertion_jwt_shape():

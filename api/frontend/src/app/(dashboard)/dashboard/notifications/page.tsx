@@ -26,7 +26,7 @@ const TYPE_META: Record<string, { icon: React.ReactNode; color: string; label: s
   billing:              { icon: <DollarSign className="h-4 w-4" />,     color: "text-yellow-400", label: "Billing" },
   security:             { icon: <Shield className="h-4 w-4" />,         color: "text-red-400",    label: "Security" },
   job_submitted:        { icon: <Cpu className="h-4 w-4" />,            color: "text-blue-400",   label: "Instance Queued" },
-  job_completed:        { icon: <Cpu className="h-4 w-4" />,            color: "text-green-400",  label: "Session Ended" },
+  job_completed:        { icon: <Cpu className="h-4 w-4" />,            color: "text-green-400",  label: "Rental ended" },
   job_failed:           { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-red-400",    label: "Instance Failed" },
   job_status:           { icon: <Cpu className="h-4 w-4" />,            color: "text-yellow-400", label: "Instance Update" },
   host_registered:      { icon: <Server className="h-4 w-4" />,         color: "text-green-400",  label: "Host Registered" },

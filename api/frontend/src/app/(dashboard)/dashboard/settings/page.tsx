@@ -19,6 +19,7 @@ import type { ConsentRecord, OAuthClientInfo, TeamInfo, TeamMember, UserSshKey }
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { DesktopAppPreferences } from "@/components/settings/DesktopAppPreferences";
 import { NativeDesktopPreferences } from "@/components/settings/NativeDesktopPreferences";
 import { OAuthClientManager } from "@/components/settings/OAuthClientManager";
@@ -48,6 +49,14 @@ import {
   getPasswordValidation,
   passwordsMatch,
 } from "@/lib/password-validation";
+
+function maskNanpPhone(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 10);
+  if (!digits) return "";
+  if (digits.length < 4) return `(${digits}`;
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
 
 // ── Tab definition ──────────────────────────────────────────────────
 
@@ -404,6 +413,12 @@ export default function SettingsPage() {
     finally { setTotpVerifying(false); }
   };
 
+  const handleTotpCancel = () => {
+    setTotpSetup(null);
+    setTotpQrDataUrl(null);
+    setTotpCode("");
+  };
+
   const handleTotpDisable = async () => {
     try {
       await api.disableTotp();
@@ -463,13 +478,18 @@ export default function SettingsPage() {
   }
 
   const handlePasskeyAdd = async () => {
+    const name = passkeyName.trim();
+    if (!name) {
+      toast.error(t("dash.settings.mfa_passkey_name_required"));
+      return false;
+    }
     if (!window.PublicKeyCredential) {
       toast.error(t("dash.settings.mfa_passkey_unsupported"));
-      return;
+      return false;
     }
     setPasskeyRegistering(true);
     try {
-      const optRes = await api.passkeyRegisterOptions(passkeyName || "Security Key");
+      const optRes = await api.passkeyRegisterOptions(name);
       const publicKey = optRes.options.publicKey as Record<string, unknown>;
 
       const createOptions: CredentialCreationOptions = {
@@ -504,10 +524,12 @@ export default function SettingsPage() {
       if (completeRes.backup_codes) setBackupCodes(completeRes.backup_codes);
       setPasskeyName("");
       loadMfa();
+      return true;
     } catch (err) {
       const message = describePasskeyRegistrationError(err);
       toast.error(message);
       if (message.includes("already added")) void loadMfa();
+      return false;
     } finally { setPasskeyRegistering(false); }
   };
 
@@ -748,13 +770,14 @@ export default function SettingsPage() {
               totpCode={totpCode} setTotpCode={setTotpCode}
               totpVerifying={totpVerifying} backupCodes={backupCodes}
               onTotpSetup={handleTotpSetup} onTotpVerify={handleTotpVerify}
+              onTotpCancel={handleTotpCancel}
               onTotpDisable={handleTotpDisable}
               smsSetup={smsSetup} setSmsSetup={setSmsSetup}
               smsPhone={smsPhone} setSmsPhone={setSmsPhone}
               smsCountryCode={smsCountryCode} setSmsCountryCode={setSmsCountryCode}
               smsCode={smsCode} setSmsCode={setSmsCode}
               smsSending={smsSending} smsVerifying={smsVerifying}
-              smsCodeSent={smsCodeSent}
+              smsCodeSent={smsCodeSent} setSmsCodeSent={setSmsCodeSent}
               onSmsSetup={handleSmsSetup} onSmsVerify={handleSmsVerify}
               onSmsDisable={handleSmsDisable}
               passkeyName={passkeyName} setPasskeyName={setPasskeyName}
@@ -1076,9 +1099,9 @@ function SecurityTab({
   showConfirmPw, setShowConfirmPw,
   mfaEnabled, mfaMethods, smsAvailable, mfaBackupRemaining, mfaLoading,
   totpSetup, totpQrDataUrl, totpCode, setTotpCode, totpVerifying, backupCodes,
-  onTotpSetup, onTotpVerify, onTotpDisable,
+  onTotpSetup, onTotpVerify, onTotpCancel, onTotpDisable,
   smsSetup, setSmsSetup, smsPhone, setSmsPhone, smsCountryCode, setSmsCountryCode,
-  smsCode, setSmsCode, smsSending, smsVerifying, smsCodeSent,
+  smsCode, setSmsCode, smsSending, smsVerifying, smsCodeSent, setSmsCodeSent,
   onSmsSetup, onSmsVerify, onSmsDisable,
   passkeyName, setPasskeyName, passkeyRegistering, passkeyRemoving,
   onPasskeyAdd, onPasskeyDelete,
@@ -1099,16 +1122,17 @@ function SecurityTab({
   totpQrDataUrl: string | null;
   totpCode: string; setTotpCode: (v: string) => void;
   totpVerifying: boolean; backupCodes: string[] | null;
-  onTotpSetup: () => void; onTotpVerify: () => void; onTotpDisable: () => void;
+  onTotpSetup: () => void; onTotpVerify: () => void; onTotpCancel: () => void; onTotpDisable: () => void;
   smsSetup: boolean; setSmsSetup: (v: boolean) => void;
   smsPhone: string; setSmsPhone: (v: string) => void;
   smsCountryCode: string; setSmsCountryCode: (v: string) => void;
   smsCode: string; setSmsCode: (v: string) => void;
   smsSending: boolean; smsVerifying: boolean; smsCodeSent: boolean;
+  setSmsCodeSent: (v: boolean) => void;
   onSmsSetup: () => void; onSmsVerify: () => void; onSmsDisable: () => void;
   passkeyName: string; setPasskeyName: (v: string) => void;
   passkeyRegistering: boolean; passkeyRemoving: number | null;
-  onPasskeyAdd: () => void; onPasskeyDelete: (id: number) => void;
+  onPasskeyAdd: () => void | Promise<boolean | void>; onPasskeyDelete: (id: number) => void;
   onRegenerateBackupCodes: () => void; onDisableAllMfa: () => void;
   sessions: api.SessionInfo[]; sessionsLoading: boolean;
   revokingSession: string | null; onRevokeSession: (p: string) => void;
@@ -1121,6 +1145,8 @@ function SecurityTab({
     | null;
   const [mfaConfirm, setMfaConfirm] = useState<MfaConfirm>(null);
   const [showBackupCodes, setShowBackupCodes] = useState(Boolean(backupCodes));
+  const [passkeyOpen, setPasskeyOpen] = useState(false);
+  const [passkeyNameError, setPasskeyNameError] = useState("");
   const [sessionPage, setSessionPage] = useState(1);
   const sessionPageSize = 5;
   const sessionPageCount = Math.max(1, Math.ceil(sessions.length / sessionPageSize));
@@ -1145,9 +1171,15 @@ function SecurityTab({
     void onChangePassword();
   };
 
-  const handlePasskeyAddSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handlePasskeyAddSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void onPasskeyAdd();
+    if (!passkeyName.trim()) {
+      setPasskeyNameError(t("dash.settings.mfa_passkey_name_required"));
+      return;
+    }
+    setPasskeyNameError("");
+    const added = await onPasskeyAdd();
+    if (added) setPasskeyOpen(false);
   };
 
   return (
@@ -1268,8 +1300,8 @@ function SecurityTab({
                 )}
               </div>
               {totpSetup && (
-                <div className="mt-3 space-y-3 rounded-lg bg-surface p-4 border border-border/40">
-                  <p className="text-sm text-text-secondary">{t("dash.settings.mfa_totp_scan")}</p>
+                <Dialog open onClose={onTotpCancel} title={t("dash.settings.mfa_totp_title")} description={t("dash.settings.mfa_totp_scan")}>
+                <div className="space-y-3">
                   <div className="flex justify-center">
                     <div className="rounded-lg bg-white p-3">
                       {totpQrDataUrl ? (
@@ -1310,6 +1342,7 @@ function SecurityTab({
                     </div>
                   </div>
                 </div>
+                </Dialog>
               )}
             </div>
 
@@ -1345,50 +1378,60 @@ function SecurityTab({
                   </span>
                 )}
               </div>
-              {smsSetup && !mfaMethods.some((m) => m.type === "sms" && m.enabled) && (
-                <div className="mt-3 space-y-3 rounded-lg bg-surface p-4 border border-border/40">
-                  {!smsCodeSent ? (
-                    <div className="space-y-2">
-                      <Label>{t("dash.settings.mfa_sms_phone")}</Label>
-                      <div className="flex gap-2">
-                        <select
-                          value={smsCountryCode}
-                          onChange={(e) => setSmsCountryCode(e.target.value)}
-                          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm min-w-[100px]"
-                        >
-                          {COUNTRY_CODES.map((c) => (
-                            <option key={`${c.code}-${c.name}`} value={c.code}>
-                              {c.flag} {c.code}
-                            </option>
-                          ))}
-                        </select>
-                        <Input type="tel" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)} placeholder="4165551234" className="flex-1 font-mono" />
-                        <Button onClick={onSmsSetup} disabled={smsSending}>
-                          {smsSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                          Send Code
-                        </Button>
-                      </div>
+              <Dialog
+                open={smsSetup && !mfaMethods.some((m) => m.type === "sms" && m.enabled)}
+                onClose={() => { setSmsSetup(false); setSmsCode(""); setSmsCodeSent(false); }}
+                title={t("dash.settings.mfa_sms_title")}
+                description={t("dash.settings.mfa_sms_desc")}
+              >
+                {!smsCodeSent ? (
+                  <div className="space-y-2">
+                    <Label>{t("dash.settings.mfa_sms_phone")}</Label>
+                    <div className="flex gap-2">
+                      <select
+                        value={smsCountryCode}
+                        onChange={(e) => setSmsCountryCode(e.target.value)}
+                        className="rounded-md border border-border bg-background px-2 py-1.5 text-sm min-w-[100px]"
+                      >
+                        {COUNTRY_CODES.map((c) => (
+                          <option key={`${c.code}-${c.name}`} value={c.code}>
+                            {c.flag} {c.code}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        type="tel"
+                        value={smsPhone}
+                        onChange={(e) => setSmsPhone(smsCountryCode === "+1" ? maskNanpPhone(e.target.value) : e.target.value.replace(/[^\d\s()-]/g, "").slice(0, 20))}
+                        placeholder={smsCountryCode === "+1" ? "(555) 555-5555" : "5555555555"}
+                        className="flex-1 font-mono"
+                        autoComplete="tel-national"
+                      />
+                      <Button onClick={onSmsSetup} disabled={smsSending}>
+                        {smsSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        Send Code
+                      </Button>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label>{t("dash.settings.mfa_sms_verify")}</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={smsCode}
-                          onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                          placeholder={t("dash.settings.mfa_code_placeholder")}
-                          className="font-mono w-32 text-center tracking-widest"
-                          maxLength={6}
-                        />
-                        <Button onClick={onSmsVerify} disabled={smsVerifying || smsCode.length !== 6}>
-                          {smsVerifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                          {t("dash.settings.mfa_verify")}
-                        </Button>
-                      </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{t("dash.settings.mfa_sms_verify")}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={smsCode}
+                        onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        placeholder={t("dash.settings.mfa_code_placeholder")}
+                        className="font-mono w-32 text-center tracking-widest"
+                        maxLength={6}
+                      />
+                      <Button onClick={onSmsVerify} disabled={smsVerifying || smsCode.length !== 6}>
+                        {smsVerifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        {t("dash.settings.mfa_verify")}
+                      </Button>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </Dialog>
             </div>
 
             {/* Passkeys */}
@@ -1423,19 +1466,37 @@ function SecurityTab({
                 </div>
               ))}
 
-              <form className="flex gap-2" onSubmit={handlePasskeyAddSubmit}>
-                <Input
-                  value={passkeyName}
-                  onChange={(e) => setPasskeyName(e.target.value)}
-                  placeholder={t("dash.settings.mfa_passkey_name_placeholder")}
-                  className="flex-1"
-                  autoComplete="off"
-                />
-                <Button type="submit" disabled={passkeyRegistering}>
-                  {passkeyRegistering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  {passkeyRegistering ? t("dash.settings.mfa_passkey_registering") : t("dash.settings.mfa_passkey_add")}
-                </Button>
-              </form>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => { setPasskeyNameError(""); setPasskeyOpen(true); }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("dash.settings.mfa_passkey_add")}
+              </Button>
+              <Dialog
+                open={passkeyOpen}
+                onClose={() => setPasskeyOpen(false)}
+                title={t("dash.settings.mfa_passkey_title")}
+                description={t("dash.settings.mfa_passkey_desc")}
+              >
+                <form className="space-y-3" onSubmit={handlePasskeyAddSubmit}>
+                  <Label>{t("dash.settings.mfa_passkey_title")}</Label>
+                  <Input
+                    value={passkeyName}
+                    onChange={(e) => { setPasskeyName(e.target.value); if (passkeyNameError) setPasskeyNameError(""); }}
+                    placeholder={t("dash.settings.mfa_passkey_name_placeholder")}
+                    autoComplete="off"
+                    autoFocus
+                  />
+                  {passkeyNameError ? <p className="text-xs text-accent-red">{passkeyNameError}</p> : null}
+                  <Button type="submit" disabled={passkeyRegistering || !passkeyName.trim()}>
+                    {passkeyRegistering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    {passkeyRegistering ? t("dash.settings.mfa_passkey_registering") : t("dash.settings.mfa_passkey_add")}
+                  </Button>
+                </form>
+              </Dialog>
             </div>
 
             {/* Backup Codes */}

@@ -9,7 +9,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from routes._deps import (
     SESSION_EXPIRY,
@@ -19,6 +19,8 @@ from routes._deps import (
     _is_interactive_human,
     _is_platform_admin,
     _require_user_grant as _deps_require_user_grant,
+    _clear_mfa_challenge_cookie,
+    _MFA_CHALLENGE_COOKIE,
     _set_session_cookies,
     log,
 )
@@ -118,6 +120,7 @@ def _complete_mfa_login(
     }
     resp = JSONResponse(content=body)
     _set_session_cookies(resp, token_bundle)
+    _clear_mfa_challenge_cookie(resp)
     return resp
 
 
@@ -513,7 +516,15 @@ def _webauthn_options_to_json(options) -> dict:
 
 
 class PasskeyRegisterRequest(BaseModel):
-    device_name: str = "Security Key"
+    device_name: str
+
+    @field_validator("device_name")
+    @classmethod
+    def device_name_required(cls, value: str) -> str:
+        name = str(value or "").strip()
+        if not name or len(name) > 64:
+            raise ValueError("Passkey name must be 1-64 characters")
+        return name
 
 
 @router.post("/api/auth/mfa/passkey/register-options", tags=["Auth - MFA"])
@@ -601,7 +612,9 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
 
     challenge_data = json.loads(challenge["challenge_data"])
     stored_state = challenge_data["state"]
-    device_name = challenge_data.get("device_name", "Security Key")
+    device_name = str(challenge_data.get("device_name") or "").strip()
+    if not device_name or len(device_name) > 64:
+        raise HTTPException(400, "Passkey name is required")
 
     # Reconstruct state — fido2 v2.x expects base64url string for challenge
     state = {
@@ -845,6 +858,35 @@ def api_mfa_passkey_authenticate_complete(
         MfaStore.update_passkey_sign_count(passkey_method["id"], passkey_method["sign_count"] + 1)
 
     return _complete_mfa_login(email, login_challenge_id, request)
+
+
+@router.get("/api/auth/mfa/pending", tags=["Auth - MFA"])
+def api_mfa_pending(request: Request):
+    """Methods for the second factor started by an OAuth callback.
+
+    The challenge id lives in an httpOnly cookie. This route does not require
+    a session: the callback clears the session until verification succeeds.
+    """
+    _check_auth_rate_limit(request)
+    challenge_id = str(request.cookies.get(_MFA_CHALLENGE_COOKIE) or "")
+    if not challenge_id:
+        raise HTTPException(401, "No pending verification")
+    challenge = MfaStore.get_challenge(challenge_id)
+    if not challenge or time.time() > float(challenge.get("expires_at") or 0):
+        raise HTTPException(401, "Verification expired. Please sign in again.")
+    methods = [
+        m["method_type"]
+        for m in MfaStore.list_methods(challenge["email"])
+        if m.get("enabled")
+    ]
+    if not methods:
+        raise HTTPException(401, "No pending verification")
+    return {
+        "ok": True,
+        "mfa_required": True,
+        "challenge_id": challenge_id,
+        "methods": methods,
+    }
 
 
 # ── Model: MfaVerifyLogin ──

@@ -1317,6 +1317,38 @@ def _set_session_cookies(response, token_bundle: dict):
     return response
 
 
+_MFA_CHALLENGE_COOKIE = "xcelsior_mfa_challenge"
+
+
+def _set_mfa_challenge_cookie(response, challenge_id: str, *, max_age: int = 300):
+    """Short-lived httpOnly cookie holding an MFA challenge id, not a session."""
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    kwargs: dict = dict(
+        key=_MFA_CHALLENGE_COOKIE,
+        value=challenge_id,
+        max_age=max_age,
+        httponly=True,
+        secure=_base.startswith("https"),
+        samesite="lax",
+        path="/",
+    )
+    _domain = _auth_cookie_domain(_base)
+    if _domain:
+        kwargs["domain"] = _domain
+    response.set_cookie(**kwargs)
+    return response
+
+
+def _clear_mfa_challenge_cookie(response):
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    _domain = _auth_cookie_domain(_base)
+    kwargs: dict = dict(key=_MFA_CHALLENGE_COOKIE, path="/")
+    if _domain:
+        kwargs["domain"] = _domain
+    response.delete_cookie(**kwargs)
+    return response
+
+
 def _clear_auth_cookie(response):
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     # Must mirror the setter exactly: a delete_cookie whose Domain differs from

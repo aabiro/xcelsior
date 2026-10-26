@@ -1126,6 +1126,22 @@ class StripeConnectManager:
             settlement_label="instant",
         )
 
+    def forget_unreachable_account(self, provider_id: str) -> None:
+        """Drop a connected-account id Stripe no longer has.
+
+        AccountSession answers resource_missing or account_invalid when the
+        stored acct_ id was deleted, or when it belongs to the other mode.
+        Sandbox and live objects are not interchangeable. Clearing the id lets
+        the next register call create a new Express account.
+        """
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE provider_accounts
+                   SET stripe_account_id='', status='pending'
+                   WHERE provider_id=%s AND stripe_account_id<>''""",
+                (provider_id,),
+            )
+
     def create_account_session(self, provider_id: str) -> dict:
         """Create a Connect AccountSession for embedded onboarding components.
 
@@ -1160,6 +1176,13 @@ class StripeConnectManager:
             if isinstance(e, stripe.PermissionError) or (
                 isinstance(e, stripe.InvalidRequestError) and e.code in _UNREACHABLE_ACCOUNT_CODES
             ):
+                try:
+                    self.forget_unreachable_account(provider_id)
+                except Exception:
+                    log.exception(
+                        "Could not clear unreachable Stripe account provider=%s",
+                        provider_id,
+                    )
                 raise AccountSessionError(
                     "Stripe no longer recognizes your connected account. "
                     "Restart Stripe onboarding to reconnect payouts.",

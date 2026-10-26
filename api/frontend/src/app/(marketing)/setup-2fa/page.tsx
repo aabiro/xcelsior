@@ -166,6 +166,11 @@ function Setup2FAPageContent() {
 
   const handlePasskeyAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    const name = passkeyName.trim();
+    if (!name) {
+      setError(t("dash.settings.mfa_passkey_name_required"));
+      return;
+    }
     if (!window.PublicKeyCredential) {
       setError(t("dash.settings.mfa_passkey_unsupported"));
       return;
@@ -173,7 +178,7 @@ function Setup2FAPageContent() {
     setLoading(true);
     setError("");
     try {
-      const optRes = await api.passkeyRegisterOptions(passkeyName || "Security Key");
+      const optRes = await api.passkeyRegisterOptions(name);
       const publicKey = optRes.options.publicKey as Record<string, unknown>;
 
       const createOptions: CredentialCreationOptions = {
@@ -339,7 +344,7 @@ function Setup2FAPageContent() {
               <input
                 value={passkeyName}
                 onChange={(e) => setPasskeyName(e.target.value)}
-                placeholder="e.g. MacBook Touch ID"
+                placeholder={t("dash.settings.mfa_passkey_name_placeholder")}
                 className="site-field site-auth-field"
                 autoFocus
               />
@@ -399,8 +404,18 @@ function Setup2FAPageContent() {
                   <span className="site-auth-prefix">+1</span>
                   <input
                     value={smsPhone}
-                    onChange={(e) => setSmsPhone(e.target.value)}
-                    placeholder="(555) 123-4567"
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      const masked = !digits
+                        ? ""
+                        : digits.length < 4
+                          ? `(${digits}`
+                          : digits.length < 7
+                            ? `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+                            : `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+                      setSmsPhone(masked);
+                    }}
+                    placeholder="(555) 555-5555"
                     className="site-field site-auth-field"
                     type="tel"
                     autoFocus

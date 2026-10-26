@@ -31,6 +31,9 @@ import * as api from "@/lib/api";
 import type { Wallet, WalletTransaction, Invoice, ReservedCommitment, SavedPaymentMethod } from "@/lib/api";
 import { toast } from "sonner";
 import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from "@/lib/recharts";
 
 const FREE_CREDIT_AMOUNT = 5;
 const FREE_CREDIT_TRANSFER_DURATION_S = 2.2;
@@ -593,6 +596,18 @@ export default function BillingPage() {
     return { compute, serverless, storage, total: compute + serverless + storage };
   }, [transactions]);
 
+  const spendSeries = useMemo(() => {
+    const byDay = new Map<string, number>();
+    for (const tx of transactions) {
+      if (tx.amount_cad >= 0) continue;
+      const day = new Date(tx.created_at * 1000).toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) || 0) + Math.abs(tx.amount_cad));
+    }
+    return [...byDay.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, amount]) => ({ date: date.slice(5), amount: Math.round(amount * 100) / 100 }));
+  }, [transactions]);
+
   // The intent named by `?resume=`, or the oldest one still waiting. Arriving
   // from a decline link resumes that payment; arriving at the wallet with a
   // challenge outstanding shows it anyway, which is the state the plan asks be
@@ -849,13 +864,47 @@ export default function BillingPage() {
             )}
           </AnimatePresence>
 
-          {spendBreakdown.total > 0 && (
-            <Card>
+          <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Spend breakdown</CardTitle>
-                <CardDescription>Debit totals from your wallet ledger</CardDescription>
+                <CardTitle className="text-lg">{t("dash.billing.spend_title")}</CardTitle>
+                <CardDescription>{t("dash.billing.spend_desc")}</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="mb-2 text-xs font-medium text-text-muted">{t("dash.billing.spend_chart")}</p>
+                  <div className="h-56">
+                    {spendSeries.length === 0 ? (
+                      <div className="relative h-full rounded-lg border border-border/60 bg-surface/30">
+                        <div className="absolute bottom-8 left-10 right-4 top-4 border-b border-l border-border" />
+                        <div className="pointer-events-none absolute bottom-8 left-10 right-4 top-4 flex flex-col justify-between">
+                          <div className="border-t border-dashed border-border/50" />
+                          <div className="border-t border-dashed border-border/50" />
+                          <div className="border-t border-dashed border-border/50" />
+                        </div>
+                        <p className="absolute inset-0 flex items-center justify-center px-12 text-center text-sm text-text-muted">
+                          {t("dash.billing.spend_empty")}
+                        </p>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%" minHeight={180} minWidth={0} debounce={1}>
+                        <BarChart data={spendSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
+                          <YAxis
+                            tick={{ fill: "#94a3b8", fontSize: 11 }}
+                            stroke="#475569"
+                            tickFormatter={(v) => `$${v}`}
+                          />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#e2e8f0" }}
+                            formatter={(value) => [`$${Number(value).toFixed(2)}`, "Spent"]}
+                          />
+                          <Bar dataKey="amount" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
                     <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
@@ -896,7 +945,6 @@ export default function BillingPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
 
           {/* Wallet & burn rate */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

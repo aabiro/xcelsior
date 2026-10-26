@@ -402,7 +402,7 @@ export default function EarningsPage() {
                           </p>
                           <p className="text-xs text-text-secondary mt-0.5">
                             {justConnected
-                              ? "Your account is connected and ready to receive payouts for completed GPU jobs."
+                              ? "Your account is connected and ready to receive payouts for rented GPU time."
                               : "Your account is connected to Stripe and ready to receive payouts."}
                           </p>
                           {provider.onboarded_at && (
@@ -502,7 +502,7 @@ export default function EarningsPage() {
                       <p className="text-sm font-semibold">Become a GPU Provider</p>
                       <p className="text-xs text-text-muted">
                         Earn money by sharing your GPU resources on the Xcelsior network.
-                        Connect Stripe to receive direct payouts for completed compute jobs.
+                        Connect Stripe to receive payouts for every second your GPU is rented.
                       </p>
                     </div>
                     <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
@@ -539,34 +539,44 @@ export default function EarningsPage() {
                 <CardDescription>{t("dash.earnings.gst_desc")}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-lg font-bold font-mono">
-                      ${(gst?.total_revenue_cad ?? 0).toLocaleString("en-CA", { minimumFractionDigits: 2 })}
-                    </p>
-                    <p className="text-xs text-text-muted">
-                      of ${(gst?.threshold_cad ?? 30000).toLocaleString()} threshold
+                {(gst?.total_revenue_cad ?? 0) <= 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/70 bg-surface/40 px-4 py-8 text-center">
+                    <p className="text-sm text-text-secondary">{t("dash.earnings.gst_empty")}</p>
+                    <p className="mt-1 text-xs text-text-muted">
+                      ${(gst?.threshold_cad ?? 30000).toLocaleString()} CAD
                     </p>
                   </div>
-                  {gst?.must_register ? (
-                    <div className="flex items-center gap-1.5 text-gold">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span className="text-sm font-medium">Registration required</span>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-lg font-bold font-mono">
+                          ${(gst?.total_revenue_cad ?? 0).toLocaleString("en-CA", { minimumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          of ${(gst?.threshold_cad ?? 30000).toLocaleString()} threshold
+                        </p>
+                      </div>
+                      {gst?.must_register ? (
+                        <div className="flex items-center gap-1.5 text-gold">
+                          <AlertTriangle className="h-4 w-4" />
+                          <span className="text-sm font-medium">Registration required</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-text-muted">
+                          <CheckCircle className="h-4 w-4" />
+                          <span className="text-sm">Exempt</span>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-text-muted">
-                      <CheckCircle className="h-4 w-4" />
-                      <span className="text-sm">Exempt</span>
+                    <div className="mt-3 h-2 rounded-full bg-background overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${gst?.must_register ? "bg-gold" : "bg-emerald"}`}
+                        style={{ width: `${Math.min(((gst?.total_revenue_cad ?? 0) / (gst?.threshold_cad ?? 30000)) * 100, 100)}%` }}
+                      />
                     </div>
-                  )}
-                </div>
-                {/* Progress bar */}
-                <div className="mt-3 h-2 rounded-full bg-background overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${gst?.must_register ? "bg-gold" : "bg-emerald"}`}
-                    style={{ width: `${Math.min(((gst?.total_revenue_cad ?? 0) / (gst?.threshold_cad ?? 30000)) * 100, 100)}%` }}
-                  />
-                </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -578,12 +588,20 @@ export default function EarningsPage() {
               <CardDescription>{t("dash.earnings.chart_desc")}</CardDescription>
             </CardHeader>
             <CardContent>
-              {chartData.length === 0 ? (
-                <p className="text-sm text-text-muted py-8 text-center">
-                  {t("dash.earnings.no_earnings")}
-                </p>
-              ) : (
-                <div className="h-64">
+              <div className="h-64">
+                {chartData.length === 0 ? (
+                  <div className="relative h-full rounded-lg border border-border/60 bg-surface/30">
+                    <div className="absolute bottom-8 left-10 right-4 top-4 border-b border-l border-border" />
+                    <div className="pointer-events-none absolute bottom-8 left-10 right-4 top-4 flex flex-col justify-between">
+                      <div className="border-t border-dashed border-border/50" />
+                      <div className="border-t border-dashed border-border/50" />
+                      <div className="border-t border-dashed border-border/50" />
+                    </div>
+                    <p className="absolute inset-0 flex items-center justify-center px-16 text-center text-sm text-text-muted">
+                      {t("dash.earnings.no_earnings")}
+                    </p>
+                  </div>
+                ) : (
                   <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -600,8 +618,8 @@ export default function EarningsPage() {
                       <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -612,14 +630,11 @@ export default function EarningsPage() {
               <CardDescription>{t("dash.earnings.payouts_desc")}</CardDescription>
             </CardHeader>
             <CardContent>
-              {payouts.length === 0 ? (
-                <p className="text-sm text-text-muted">{t("dash.earnings.no_payouts")}</p>
-              ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-text-muted">
-                        <th className="pb-2 pr-4 font-medium">Session</th>
+                        <th className="pb-2 pr-4 font-medium">{t("dash.earnings.col_rental")}</th>
                         <th className="pb-2 pr-4 font-medium">Rail</th>
                         <th className="pb-2 pr-4 font-medium">Total</th>
                         <th className="pb-2 pr-4 font-medium">Your Share</th>
@@ -629,7 +644,13 @@ export default function EarningsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {payouts.map((p) => (
+                      {payouts.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-sm text-text-muted">
+                            {t("dash.earnings.no_payouts")}
+                          </td>
+                        </tr>
+                      ) : payouts.map((p) => (
                         <tr key={`${p.job_id}-${p.created_at}`} className="border-b border-border/50">
                           <td className="py-2.5 pr-4 font-mono text-xs">{p.job_id.slice(0, 12)}…</td>
                           <td className="py-2.5 pr-4">
@@ -655,7 +676,6 @@ export default function EarningsPage() {
                     </tbody>
                   </table>
                 </div>
-              )}
             </CardContent>
           </Card>
         </>
