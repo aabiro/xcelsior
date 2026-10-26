@@ -225,6 +225,13 @@ if sys.argv[1:3]==['compose','stop'] and {stop_fails!r}:raise SystemExit(1)
         target = bins / command
         target.write_text(program)
         target.chmod(0o755)
+    # The migrator owns the schema under per-service roles; the restoring login
+    # can act as it.
+    psql = bins / "psql"
+    psql.write_text(
+        program + "if any('pg_roles' in a for a in sys.argv):print('1')\n",
+    )
+    psql.chmod(0o755)
     dump = backups / "xcelsior_fixture.dump"
     dump.write_bytes(b"fixture")
     dump.with_suffix(".dump.sha256").write_text(
@@ -248,6 +255,55 @@ if sys.argv[1:3]==['compose','stop'] and {stop_fails!r}:raise SystemExit(1)
     else:
         assert result.returncode == 0 and dropped, result.stdout + result.stderr
         assert "writers remain stopped" in result.stdout
+        created = next(cmd for cmd in commands if Path(cmd[0]).name == "createdb")
+        restored = next(
+            cmd for cmd in commands if Path(cmd[0]).name == "pg_restore" and "--list" not in cmd
+        )
+        assert created[created.index("-O") + 1] == "xcelsior_migrator"
+        assert "--role=xcelsior_migrator" in restored
+        assert "provision_db_roles.py" in result.stdout + result.stderr
+
+
+def test_restore_refuses_before_any_change_when_it_cannot_act_as_the_migrator(tmp_path):
+    import json
+    import sys
+
+    env, bins, backups = shell_env(tmp_path)
+    env["XCELSIOR_POSTGRES_PORT"] = "5434"
+    project = Path(env["XCELSIOR_PROJECT_DIR"])
+    (project / "docker-compose.yml").write_text("services: {}\n")
+    events = tmp_path / "events.jsonl"
+    program = f"""#!{sys.executable}
+import json,sys
+with open({str(events)!r},'a') as log:log.write(json.dumps(sys.argv)+'\\n')
+if sys.argv[1:]==['compose','config','--services']:print('api')
+"""
+    for command in ("docker", "dropdb", "createdb", "pg_restore"):
+        (bins / command).write_text(program)
+        (bins / command).chmod(0o755)
+    psql = bins / "psql"
+    psql.write_text(
+        program + "if any('pg_roles' in a for a in sys.argv):print('1')\n"
+        "if any(a.startswith('SET ROLE') for a in sys.argv):raise SystemExit(1)\n"
+    )
+    psql.chmod(0o755)
+    dump = backups / "xcelsior_fixture.dump"
+    dump.write_bytes(b"fixture")
+    dump.with_suffix(".dump.sha256").write_text(
+        hashlib.sha256(dump.read_bytes()).hexdigest() + "  " + dump.name + "\n"
+    )
+    result = subprocess.run(
+        ["bash", str(ROOT / "api/scripts/restore-db.sh"), str(dump)],
+        input="yes\n",
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    commands = [json.loads(line) for line in events.read_text().splitlines()]
+    assert result.returncode != 0
+    assert "cannot act as xcelsior_migrator" in result.stdout + result.stderr
+    assert not any(Path(cmd[0]).name in {"dropdb", "createdb"} for cmd in commands)
+    assert not any(cmd[1:3] == ["compose", "stop"] for cmd in commands)
 
 
 def test_terminal_compute_slice_is_settled_once_without_a_user_stop_request(compute):
