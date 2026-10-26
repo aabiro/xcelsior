@@ -63,6 +63,7 @@ DEFS = """
     </pattern>
 """
 
+
 # ── A detailed GPU card (PCB + heatsink fins + die + gold pins) ──────────────
 def gpu_card(cx, cy, s=1.0):
     return f"""
@@ -91,6 +92,7 @@ def gpu_card(cx, cy, s=1.0):
     </g>
   </g>"""
 
+
 SLIDES = {
     "hero-power.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" fill="none">
   <defs>{DEFS}</defs>
@@ -105,7 +107,6 @@ SLIDES = {
   {gpu_card(240, 160, 1.18)}
   <rect width="480" height="320" rx="28" fill="url(#brandSoft)"/>
 </svg>""",
-
     # LLM training — a smooth loss curve descending over a faint net, gradient area fill
     "workload-training.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none">
   <defs>{DEFS}
@@ -126,7 +127,6 @@ SLIDES = {
     <circle cx="46" cy="34" r="2"/><circle cx="92" cy="30" r="2"/><circle cx="138" cy="36" r="2"/>
   </g>
 </svg>""",
-
     # LLM inference — chip emitting a token stream + latency arc
     "workload-inference.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none">
   <defs>{DEFS}</defs>
@@ -148,42 +148,9 @@ SLIDES = {
   </g>
   <path d="M150,30 A40,40 0 0,1 150,90" stroke="#34d399" stroke-width="1.5" stroke-dasharray="3 6" fill="none" opacity="0.6"/>
 </svg>""",
-
-    # Pick -> Provision -> Pulse pipeline (no titles): mini card, energy gear, live heartbeat
-    "deploy-pipeline.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" fill="none">
-  <defs>{DEFS}</defs>
-  <rect width="640" height="200" rx="24" fill="url(#spot)"/>
-  <rect width="640" height="200" rx="24" fill="url(#grid)"/>
-  <circle cx="540" cy="56" r="70" fill="#10b981" filter="url(#bloom)" opacity="0.12"/>
-  <!-- energy flow -->
-  <path d="M150,100 H270 M370,100 H490" stroke="url(#brand)" stroke-width="2.5" stroke-dasharray="2 10" stroke-linecap="round" opacity="0.6" filter="url(#glow)"/>
-  <!-- node 1: pick a card -->
-  <g transform="translate(96,100)">
-    <circle r="46" fill="#0c1526" stroke="url(#brand)" stroke-width="1.5"/>
-    <circle r="46" fill="url(#glass)"/>
-    <rect x="-26" y="-17" width="52" height="34" rx="6" fill="url(#pcb)"/>
-    <rect x="-26" y="-17" width="52" height="34" rx="6" fill="url(#core)" opacity="0.75" stroke="#7cf2ff" stroke-opacity="0.4"/>
-    <rect x="-26" y="12" width="52" height="5" rx="2" fill="url(#gold)" opacity="0.85"/>
-  </g>
-  <!-- node 2: provision -->
-  <g transform="translate(320,100)" filter="url(#glow)">
-    <circle r="54" fill="#0c1526" stroke="url(#brand)" stroke-width="2"/>
-    <circle r="54" fill="url(#glass)"/>
-    <g stroke="url(#brand)" stroke-width="3" fill="none" stroke-linecap="round">
-      <circle r="18"/>
-      <path d="M0,-30 V-22 M0,30 V22 M-30,0 H-22 M30,0 H22 M-21,-21 l5,5 M21,21 l-5,-5 M21,-21 l-5,5 M-21,21 l5,-5"/>
-    </g>
-    <path d="M-6,-9 L8,-1 L-6,7 Z" fill="#eafcff"/>
-  </g>
-  <!-- node 3: live pulse -->
-  <g transform="translate(544,100)">
-    <circle r="46" fill="#0c1526" stroke="url(#emerald)" stroke-width="1.5"/>
-    <circle r="46" fill="url(#glass)"/>
-    <path d="M-28,0 H-12 L-4,-16 L6,16 L14,-6 L20,0 H28" stroke="url(#emerald)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
-    <circle cx="34" cy="-30" r="6" fill="#34d399" filter="url(#glow)"/>
-  </g>
-</svg>""",
-
+    # The Pick -> Provision -> Pulse pipeline was redrawn by hand on 2026-10-14 and
+    # renamed deploy-pipeline-v2.svg for cache busting (49d48fa3, 289f531d). That
+    # file is the source of truth now; regenerating the old drawing would revert it.
     "spot-pulse.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" fill="none">
   <defs>{DEFS}
     <linearGradient id="save" x1="0" y1="0" x2="0" y2="1">
@@ -197,7 +164,6 @@ SLIDES = {
   <path d="M40,80 L80,64 L120,70 L160,46 L200,54 L240,38 L280,50 L320,34 L360,42 L400,30 L440,36" stroke="url(#brand)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow)"/>
   <circle cx="440" cy="36" r="5" fill="#34d399" filter="url(#glow)"/>
 </svg>""",
-
     "accent-flare.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
   <defs>{DEFS}</defs>
   <circle cx="60" cy="60" r="48" fill="#22e0ff" filter="url(#bloom)" opacity="0.18"/>
