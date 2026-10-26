@@ -307,7 +307,13 @@ class TestAlembicMigrationFiles:
         import importlib.util
         import pathlib
 
-        path = pathlib.Path(__file__).resolve().parent.parent / "api" / "migrations" / "versions" / name
+        path = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "api"
+            / "migrations"
+            / "versions"
+            / name
+        )
         spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
