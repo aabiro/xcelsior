@@ -472,6 +472,15 @@ export type AuthUser = {
   team_can_write_instances?: boolean;
 };
 
+export async function fetchPendingMfa() {
+  return apiFetch<{
+    ok: boolean;
+    mfa_required: boolean;
+    challenge_id: string;
+    methods: string[];
+  }>("/api/auth/mfa/pending");
+}
+
 export async function login(email: string, password: string) {
   return apiFetch<{
     ok: boolean;
@@ -2026,7 +2035,7 @@ export async function disableSms() {
 }
 
 // Passkeys (WebAuthn)
-export async function passkeyRegisterOptions(deviceName: string = "Security Key") {
+export async function passkeyRegisterOptions(deviceName: string) {
   return apiFetch<{ ok: boolean; options: Record<string, unknown>; state_id: string }>(
     "/api/auth/mfa/passkey/register-options",
     { method: "POST", body: JSON.stringify({ device_name: deviceName }) },

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
@@ -41,13 +41,16 @@ def _admin_headers() -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_session_raising(err: Exception):
+def _create_session_raising(err: Exception, forget=None):
     mgr = StripeConnectManager.__new__(StripeConnectManager)
+    if forget is None:
+        forget = MagicMock()
     with (
         patch("stripe_connect.STRIPE_ENABLED", True),
         patch("stripe_connect.stripe", stripe),
         patch.object(StripeConnectManager, "get_provider", return_value=PROVIDER),
         patch.object(stripe.AccountSession, "create", side_effect=err),
+        patch.object(StripeConnectManager, "forget_unreachable_account", forget),
     ):
         return mgr.create_account_session("p-acs")
 
@@ -69,11 +72,13 @@ def _create_session_raising(err: Exception):
     ],
 )
 def test_unreachable_account_asks_for_onboarding(err):
+    forget = MagicMock()
     with pytest.raises(AccountSessionError) as exc:
-        _create_session_raising(err)
+        _create_session_raising(err, forget)
     assert exc.value.status_code == 409
     assert "onboarding" in str(exc.value)
     assert exc.value.__cause__ is err
+    forget.assert_called_once_with("p-acs")
 
 
 @pytest.mark.parametrize(
@@ -84,9 +89,11 @@ def test_unreachable_account_asks_for_onboarding(err):
     ],
 )
 def test_other_stripe_errors_are_upstream_failures(err):
+    forget = MagicMock()
     with pytest.raises(AccountSessionError) as exc:
-        _create_session_raising(err)
+        _create_session_raising(err, forget)
     assert exc.value.status_code == 502
+    forget.assert_not_called()
 
 
 def test_stripe_error_is_logged(caplog):

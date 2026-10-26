@@ -47,6 +47,7 @@ from routes._deps import (
     _require_team_instance_write,
     _sessions,
     _set_auth_cookie as _deps_set_auth_cookie,
+    _set_mfa_challenge_cookie,
     _set_session_cookies,
     _user_lock,
     _users_db,
@@ -1963,14 +1964,20 @@ def api_auth_oauth_initiate(provider: str, body: SocialOAuthInitBody | None = No
         "redirect_uri": redirect_uri,
         "state": state,
         "response_type": "code",
+        "scope": cfg["scopes"],
     }
-    if provider == "github":
-        params["scope"] = cfg["scopes"]
-    else:
-        params["scope"] = cfg["scopes"]
-        if provider == "google":
-            params["access_type"] = "offline"
-            params["prompt"] = "select_account"
+    # A saved browser session otherwise skips the account picker. GitHub and
+    # Google accept prompt=select_account. Hugging Face is OIDC and needs
+    # prompt=login. Facebook uses auth_type=reauthenticate.
+    if provider == "google":
+        params["access_type"] = "offline"
+        params["prompt"] = "select_account"
+    elif provider == "github":
+        params["prompt"] = "select_account"
+    elif provider == "huggingface":
+        params["prompt"] = "login"
+    elif provider == "facebook":
+        params["auth_type"] = "reauthenticate"
 
     auth_url = f"{cfg['authorize_url']}?{_urllib_parse.urlencode(params)}"
     return {"ok": True, "auth_url": auth_url}
@@ -2138,30 +2145,55 @@ def api_auth_oauth_callback(provider: str, request: Request):
             with _user_lock:
                 _users_db[email] = user
 
-    try:
-        token_bundle = issue_user_tokens(
-            user, request, client_id="xcelsior-web", session_type="browser"
-        )
-    except Exception as e:
-        log.error("OAuth token issuance failed for %s (%s): %s", email, provider, e)
-        return RedirectResponse("/dashboard?error=oauth_token_failed")
-
-    # Ensure welcome notification exists
-    try:
-        if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
-            NotificationStore.create(
-                email,
-                "system",
-                "Welcome to Xcelsior!",
-                "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
-                {"user_id": user["user_id"]},
+    mfa_challenge_id = ""
+    if _USE_PERSISTENT_AUTH:
+        try:
+            enabled_methods = [m for m in MfaStore.list_methods(email) if m.get("enabled")]
+        except Exception:
+            log.exception("OAuth MFA lookup failed for provider %s", provider)
+            return RedirectResponse("/login?error=oauth_mfa_unavailable")
+        if enabled_methods:
+            mfa_challenge_id = secrets.token_urlsafe(32)
+            MfaStore.create_challenge(
+                {
+                    "challenge_id": mfa_challenge_id,
+                    "email": email,
+                    "session_token": secrets.token_urlsafe(48),
+                    "created_at": time.time(),
+                    "expires_at": time.time() + 300,
+                }
             )
-    except Exception as e:
-        log.debug("welcome notification (OAuth) failed: %s", e)
 
-    # Set httpOnly cookie and redirect to intended destination
-    resp = RedirectResponse(redirect_path, status_code=302)
-    _set_session_cookies(resp, token_bundle)
+    if mfa_challenge_id:
+        # Do not issue a browser session until the enrolled second factor passes.
+        # Clear any leftover session so /login does not bounce past the prompt.
+        dest = "/login?mfa=1&redirect=" + _urllib_parse.quote(redirect_path, safe="")
+        resp = RedirectResponse(dest, status_code=302)
+        _deps_clear_auth_cookie(resp)
+        _set_mfa_challenge_cookie(resp, mfa_challenge_id)
+    else:
+        try:
+            token_bundle = issue_user_tokens(
+                user, request, client_id="xcelsior-web", session_type="browser"
+            )
+        except Exception as e:
+            log.error("OAuth token issuance failed for %s (%s): %s", email, provider, e)
+            return RedirectResponse("/dashboard?error=oauth_token_failed")
+
+        try:
+            if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
+                NotificationStore.create(
+                    email,
+                    "system",
+                    "Welcome to Xcelsior!",
+                    "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
+                    {"user_id": user["user_id"]},
+                )
+        except Exception as e:
+            log.debug("welcome notification (OAuth) failed: %s", e)
+
+        resp = RedirectResponse(redirect_path, status_code=302)
+        _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     _oauth_kw: dict = dict(

@@ -9,6 +9,7 @@ import { SiteAuthAlert, SiteAuthCard, SiteAuthDivider, SiteAuthHeader } from "@/
 import {
   ApiError,
   getDemoCredentials,
+  fetchPendingMfa,
   login as apiLogin,
   normalizeAuthRedirectPath,
   oauthInitiate,
@@ -43,6 +44,8 @@ function LoginPageContent() {
   });
   const [loading, setLoading] = useState(false);
 
+  const mfaFromQuery = searchParams.get("mfa") === "1";
+  const [mfaBootstrapping, setMfaBootstrapping] = useState(mfaFromQuery);
   const [mfaRequired, setMfaRequired] = useState(false);
   const [mfaChallengeId, setMfaChallengeId] = useState("");
   const [mfaMethods, setMfaMethods] = useState<string[]>([]);
@@ -53,6 +56,32 @@ function LoginPageContent() {
   const [passkeyAuthenticating, setPasskeyAuthenticating] = useState(false);
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
   const mfaAutoSubmitted = useRef(false);
+
+  useEffect(() => {
+    if (!mfaFromQuery) return;
+    let active = true;
+    fetchPendingMfa()
+      .then((res) => {
+        if (!active || !res.mfa_required || !res.challenge_id) return;
+        setMfaRequired(true);
+        setMfaChallengeId(res.challenge_id);
+        setMfaMethods(res.methods || []);
+        const methods = res.methods || [];
+        if (methods.includes("passkey")) setMfaMethod("passkey");
+        else if (methods.includes("totp")) setMfaMethod("totp");
+        else if (methods.includes("sms")) setMfaMethod("sms");
+        else setMfaMethod("backup");
+      })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : "Verification expired. Sign in again.");
+      })
+      .finally(() => {
+        if (active) setMfaBootstrapping(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mfaFromQuery]);
 
   useEffect(() => {
     if (window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -94,17 +123,17 @@ function LoginPageContent() {
     posthog.capture("demo_account_prefill");
   }
 
-  if (!authLoading && user) {
-    router.replace(redirectTarget);
-    return null;
-  }
-
-  if (authLoading) {
+  if (mfaBootstrapping || authLoading) {
     return (
       <div className="site-auth-loading">
         <Loader2 className="site-auth-spinner h-8 w-8 animate-spin" />
       </div>
     );
+  }
+
+  if (!mfaRequired && user) {
+    router.replace(redirectTarget);
+    return null;
   }
 
   async function completeBrowserLogin(method: string = "password") {
