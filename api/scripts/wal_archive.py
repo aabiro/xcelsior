@@ -17,7 +17,9 @@ import stat
 import sys
 import tempfile
 
-NAME = re.compile(r"(?:[0-9A-F]{24}(?:\.[0-9A-F]{8}\.backup)?|[0-9A-F]{8}\.history)\Z")
+# ``.partial`` is the last segment of the old timeline after a recovery or
+# promotion; refusing it would stall archiving of everything after it.
+NAME = re.compile(r"(?:[0-9A-F]{24}(?:\.[0-9A-F]{8}\.backup|\.partial)?|[0-9A-F]{8}\.history)\Z")
 
 
 def sync_directory(path):

@@ -122,7 +122,7 @@ def test_the_score_does_not_move_on_the_second_claim(claimant, all_milestones_ea
     assert before == after, f"score moved on a repeat claim: {before} -> {after}"
 
 
-def test_nothing_is_granted_when_nothing_is_earned():
+def test_nothing_is_granted_when_nothing_is_earned(monkeypatch):
     """The other direction: a claim cannot invent progress.
 
     A **fresh** account, deliberately — not the module-scoped `claimant`, which
@@ -130,9 +130,16 @@ def test_nothing_is_granted_when_nothing_is_earned():
     earned. Against that account this would pass whether or not the earned-check
     still existed, which is a false green of the exact kind this file is about.
 
+    Zero progress is supplied explicitly, mirroring `all_milestones_earned`:
+    test-mode registration auto-verifies the email and keeps the name, so what
+    a fresh account has "earned" depends on the environment, not on the route.
+
     If this ever starts granting, the check has stopped being enforced and the
     tool is a free-points button.
     """
+    import routes.reputation as rep
+
+    monkeypatch.setattr(rep, "_journey_signals", lambda user: {m["id"]: 0 for m in rep._MILESTONES})
     headers = _register_and_login(f"unearned-{uuid.uuid4().hex[:10]}@xcelsior.ca")
     response = client.post("/api/reputation/me/claim", headers=headers)
     assert response.status_code == 200, response.text

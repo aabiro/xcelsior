@@ -69,6 +69,10 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "deletion-receipt signing secret required outside dev",
     ),
     "api/serverless/limits.py::_is_production": ("enforcing", "rate-limit degradation policy"),
+    "api/serverless/webhooks.py::_webhook_secret": (
+        "enforcing",
+        "webhook signing secret required outside dev; never a known fallback key",
+    ),
     "api/routes/auth.py::deauthorize signature": (
         "enforcing",
         "social deauthorize signature failures must be rejected",
