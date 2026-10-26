@@ -5047,6 +5047,43 @@ def _v2_fail_serverless_health(auth: dict, error: str) -> None:
 
 # ── Container Lifecycle ──────────────────────────────────────────────
 
+#: Pauses between retries of an unconfirmed `starting` report (about 15 s).
+_V2_STARTING_RETRY_DELAYS_SEC = (1, 2, 4, 8)
+
+
+def _v2_confirm_starting(job_id: str, auth: dict) -> bool:
+    """Confirm `starting` before any setup, and never strand a claimed attempt.
+
+    An unconfirmed report is retried while the attempt is still this
+    process's authority. If it stays unconfirmed, the attempt is failed
+    through the durable terminal path (journaled pending report plus exit
+    monitor), so it settles once the API answers. Returning without either
+    left the renewal loop holding the lease and GPUs with nothing running.
+    """
+    delays = list(_V2_STARTING_RETRY_DELAYS_SEC)
+    while True:
+        if report_job_status(job_id, "starting", host_id=HOST_ID, expected_v2_auth=auth):
+            return True
+        with _v2_attempts_lock:
+            stop = auth.get("stop")
+            current = _v2_attempts.get(job_id) is auth and not (stop and stop.is_set())
+        # Fenced: the report path already stopped and forgot it. Shutdown:
+        # restart adoption owns the attempt, which never started a container.
+        if not current or _shutdown.is_set():
+            return False
+        if not delays:
+            break
+        if _shutdown.wait(delays.pop(0)):
+            return False
+    report_job_status(
+        job_id,
+        "failed",
+        error_message="starting transition could not be confirmed",
+        policy_reason="starting_unconfirmed",
+        expected_v2_auth=auth,
+    )
+    return False
+
 
 def run_job(job):
     """Execute a job in a hardened Docker container.
@@ -5125,8 +5162,7 @@ def run_job(job):
 
     # The start handler already claimed this attempt's lease and armed its
     # native renewal loop. Confirm the starting transition before setup.
-    starting_reported = report_status(job_id, "starting", host_id=HOST_ID)
-    if not starting_reported:
+    if not _v2_confirm_starting(job_id, authority):
         log.error("Job %s: fenced starting report failed — refusing container setup", job_id)
         return
 

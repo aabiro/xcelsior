@@ -513,3 +513,42 @@ def test_adopted_worker_past_its_readiness_deadline_is_failed(agent, monkeypatch
     assert api.sent() == ["failed"]
     assert api.reports[0]["failure_code"] == "serverless_health_failed"
     assert "job-1" not in agent._v2_attempts
+
+
+# ── 6. An unconfirmed `starting` report never strands the attempt ───────
+
+
+def test_transient_starting_failure_is_retried_and_setup_proceeds(runnable, monkeypatch):
+    agent = runnable
+    monkeypatch.setattr(agent, "_V2_STARTING_RETRY_DELAYS_SEC", (0, 0, 0, 0))
+    auth = live_auth()
+    agent._v2_attempts["job-1"] = auth
+    api = Api(statuses={"starting": [503, 200]})
+    monkeypatch.setattr(agent, "_v2_post", api)
+
+    agent.run_job(job_for(auth))
+
+    agent.build_secure_docker_args.assert_called_once()
+    assert api.sent()[:2] == ["starting", "starting"]
+    assert "running" in api.sent()
+
+
+def test_persistently_unconfirmed_starting_fails_through_the_durable_path(runnable, monkeypatch):
+    agent = runnable
+    monkeypatch.setattr(agent, "_V2_STARTING_RETRY_DELAYS_SEC", (0, 0, 0, 0))
+    auth = live_auth()
+    agent._v2_attempts["job-1"] = auth
+    api = Api(statuses={"starting": [503], "failed": [503]})
+    monkeypatch.setattr(agent, "_v2_post", api)
+
+    with mock.patch.object(agent.threading, "Thread") as thread:
+        agent.run_job(job_for(auth))
+
+    agent.build_secure_docker_args.assert_not_called()
+    assert api.sent() == ["starting"] * 5 + ["failed"]
+    assert journal(agent)["job-1"]["pending_terminal_report"] == {
+        "status": "failed",
+        "failure_code": "starting_unconfirmed",
+    }
+    # The exit monitor retries it (container missing + pending terminal).
+    assert thread.call_args.kwargs["target"] is agent._v2_monitor_container
