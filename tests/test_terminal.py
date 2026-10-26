@@ -133,6 +133,44 @@ def _bypass_tcp_preflight(monkeypatch):
         term_mod._docker_client_cache.clear()
 
 
+_FAKE_ATTEMPT_ID = "attempt-0001"
+
+
+def _attempt_container(job_id: str) -> str:
+    from control_plane.job_targets import attempt_container_name
+
+    return attempt_container_name(job_id, _FAKE_ATTEMPT_ID)
+
+
+@pytest.fixture(autouse=True)
+def _native_attempt_for_injected_jobs(monkeypatch):
+    """WebSocket tests here inject projected rows with no placement behind them.
+
+    The attempt/lease authority itself is exercised against real native rows in
+    `test_stream_authorization.py`.
+    """
+    import routes.stream_auth as stream_auth_mod
+    from control_plane.job_targets import JobCommandTarget
+    from fastapi import HTTPException
+
+    def _fake(job, job_id):
+        if not job or not job.get("host_id"):
+            raise HTTPException(403, "Instance has no running attempt")
+        return JobCommandTarget(
+            job_id=job_id,
+            host_id=job["host_id"],
+            status="running",
+            class_="attempt_owned",
+            active_attempt_id=_FAKE_ATTEMPT_ID,
+            container_name=_attempt_container(job_id),
+            has_live_attempt=True,
+        )
+
+    monkeypatch.setattr(term_mod, "require_terminal_attempt", _fake)
+    monkeypatch.setattr(stream_auth_mod, "require_terminal_attempt", _fake)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _container_probe_shim(monkeypatch):
     """Route ``_container_probe`` through ``_container_exists`` for legacy tests.
@@ -544,37 +582,23 @@ class TestWsAuthOptions:
 
 
 class TestContainerCandidates:
-    def test_priority_prefers_xcl_prefix(self):
-        instance = {
-            "job_id": "abc",
-            "container_name": "xcelsior-abc",
-            "container_id": "deadbeef12",
-        }
-        candidates = term_mod._container_candidates_for_instance(
-            instance,
-            instance_id="abc",
-        )
-        assert candidates == ["xcl-abc", "xcelsior-abc", "deadbeef12"]
+    def test_only_the_current_attempt_container_is_a_candidate(self):
+        from control_plane.job_targets import JobCommandTarget
 
-    def test_dedupes_identical_refs(self):
-        instance = {"job_id": "j1", "container_name": "xcl-j1"}
-        candidates = term_mod._container_candidates_for_instance(
-            instance,
-            instance_id="j1",
+        attempt = JobCommandTarget(
+            job_id="abc",
+            host_id="h-1",
+            status="running",
+            class_="attempt_owned",
+            active_attempt_id="0123456789abcdef",
+            container_name="xcl-abc-01234567",
+            has_live_attempt=True,
         )
-        assert candidates == ["xcl-j1", "xcelsior-j1"]
+        assert term_mod._container_candidates_for_attempt(attempt) == ["xcl-abc-01234567"]
 
-    def test_rejects_unsafe_refs(self):
-        instance = {
-            "job_id": "j1",
-            "container_name": "bad;name",
-            "container_id": "okid1234",
-        }
-        candidates = term_mod._container_candidates_for_instance(
-            instance,
-            instance_id="j1",
-        )
-        assert candidates == ["xcl-j1", "okid1234", "xcelsior-j1"]
+    def test_rejects_an_unsafe_attempt_ref(self):
+        attempt = SimpleNamespace(container_name="bad;name")
+        assert term_mod._container_candidates_for_attempt(attempt) == []
 
 
 class TestTerminalAccess:
@@ -1264,8 +1288,8 @@ class TestWsInstanceResolution:
 
 
 class TestContainerPolling:
-    def test_stale_container_name_resolves_via_candidates(self, monkeypatch):
-        """Stale DB container_name does not block attach when xcl-{id} exists."""
+    def test_legacy_container_names_are_never_entered(self, monkeypatch):
+        """Only the attempt's container is probed, even when a legacy one exists."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
             lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
@@ -1275,20 +1299,19 @@ class TestContainerPolling:
             status="running",
             owner="user-1",
             container_name="xcelsior-j-stale",
+            container_id="deadbeef12",
         )
+        probed = []
 
         def _probe(ref, host_ip=None, ssh_user=term_mod.SSH_USER):
-            if ref == "xcl-j-stale":
+            probed.append(ref)
+            if ref in ("xcl-j-stale", "xcelsior-j-stale", "deadbeef12"):
                 return {"found": True, "reason": "ok", "error": None}
             return {"found": False, "reason": "not_found", "error": None}
 
         monkeypatch.setattr(term_mod, "_container_probe", _probe)
-        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
-        from docker.errors import DockerException
-
-        mock_client = MagicMock()
-        mock_client.containers.get.side_effect = DockerException("test: no real docker")
-        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: mock_client)
+        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_BUDGET_SEC", 0.05)
+        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
 
         with client.websocket_connect("/ws/terminal/j-stale") as ws:
             msgs = []
@@ -1297,8 +1320,9 @@ class TestContainerPolling:
                     msgs.append(ws.receive_json())
             except Exception:
                 pass
-            codes = [m.get("code") for m in msgs if m.get("type") == "error"]
-            assert 4410 not in codes
+        codes = [m.get("code") for m in msgs if m.get("type") == "error"]
+        assert 4410 in codes, "no shell may open in a container the attempt does not own"
+        assert set(probed) == {_attempt_container("j-stale")}
 
     def test_container_not_found_after_max_attempts(self, monkeypatch):
         """Returns 4410 when container never starts."""
@@ -1422,7 +1446,7 @@ class _FakeDockerApi:
 class _FakeDockerClient:
     def __init__(self, *, job_id="j-1", container_name=None, container_id="cid-1"):
         if container_name is None:
-            container_name = f"xcl-{job_id}"
+            container_name = _attempt_container(job_id)
         self.exec_socket = _FakeExecSocket()
         self.api = _FakeDockerApi(self.exec_socket)
         self.containers = MagicMock()
