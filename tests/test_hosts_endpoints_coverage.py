@@ -272,8 +272,13 @@ def test_worker_oauth_registers_custom_host_id(user_headers):
     )
 
 
-def test_worker_oauth_can_patch_instance_status(user_headers):
-    """Worker agents must advance leased → starting → running via OAuth PATCH."""
+def test_worker_oauth_status_patch_is_an_authenticated_tombstone(user_headers):
+    """An authenticated worker OAuth PATCH is refused and changes nothing.
+
+    Lifecycle observations come only through the fenced attempt protocol
+    (`/agent/v2/attempts/status`, covered in `test_agent_v2.py`); the unfenced
+    PATCH is retired for every caller, including a correctly scoped worker.
+    """
     me = client.get("/api/auth/me", headers=user_headers["headers"])
     assert me.status_code == 200, me.text
     customer_id = me.json()["user"].get("customer_id") or me.json()["user"].get("user_id")
@@ -295,5 +300,9 @@ def test_worker_oauth_can_patch_instance_status(user_headers):
         json={"status": "starting", "host_id": "tower-test"},
         headers={"Authorization": f"Bearer {machine_token}"},
     )
-    assert patch.status_code == 200, patch.text
-    assert patch.json().get("status") == "starting"
+    assert patch.status_code == 410, patch.text
+    assert patch.json()["error"]["code"] == "v2_protocol_required"
+    from scheduler import get_job
+
+    job = get_job(job_id)
+    assert job["status"] == "queued" and not job.get("host_id")

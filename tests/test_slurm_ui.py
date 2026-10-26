@@ -247,22 +247,28 @@ class TestSpotInstance:
         _seed_wallet()
 
     def test_submit_spot_instance(self):
-        """Submit a spot instance via unified launch API."""
-        _register_host("spot-host-1")
-        r = client.post(
-            "/instance",
-            json={
-                "name": "spot-inference",
-                "vram_needed_gb": 16.0,
-                "pricing_mode": "spot",
-                "priority": 5,
-            },
-        )
-        assert r.status_code == 200
+        """Submit a spot instance via unified launch API.
+
+        Spot admission locks a catalog price for one GPU model, so the model is
+        part of the request; without one there is no price to lock.
+        """
+        _register_host("spot-host-1", gpu_model="RTX 4090", vram_gb=24)
+        launch = {
+            "name": "spot-inference",
+            "vram_needed_gb": 16.0,
+            "pricing_mode": "spot",
+            "priority": 5,
+        }
+        r = client.post("/instance", json={**launch, "gpu_model": "RTX 4090"})
+        assert r.status_code == 200, r.text
         d = r.json()
         assert d.get("ok") is True
         assert "instance" in d
         assert d["instance"]["name"] == "spot-inference"
+
+        unpriced = client.post("/instance", json=launch)
+        assert unpriced.status_code == 409
+        assert "explicit GPU model" in unpriced.text
 
     def test_spot_instance_missing_name(self):
         """Name is required."""

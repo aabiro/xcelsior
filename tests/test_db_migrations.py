@@ -48,7 +48,11 @@ class TestSQLiteAutoInit:
     def test_events_module_creates_tables(self):
         tables = _pg_tables()
         assert "events" in tables
-        assert "leases" in tables
+        # Migration 127 archived the v1 `leases` table and dropped it; fenced
+        # placement leases are the only lease authority.
+        assert "placement_leases" in tables
+        assert "legacy_lease_archive" in tables
+        assert "leases" not in tables
 
     def test_billing_module_creates_tables(self):
         tables = _pg_tables()
