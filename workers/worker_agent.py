@@ -4106,6 +4106,11 @@ def handle_stop_attempt(cmd: dict) -> None:
 
     container_name = str(auth.get("container_name") or _v2_container_name(job_id, attempt_id))
     state, _exit_code, label = _v2_container_state(job_id, container_name)
+    if state == "unknown":
+        # A Docker timeout or daemon error has no label to compare; it is not
+        # evidence of another attempt's container. Redeliver, don't dead-letter.
+        v2_nack_command(command_id, "container_state_unknown", {"state": state}, retryable=True)
+        return
     if label != attempt_id and state != "missing":
         v2_nack_command(
             command_id,
@@ -4417,6 +4422,11 @@ def _v2_authorize_job_directive(cmd: dict) -> str:
         return "fenced" if code in (404, 409, 410) else "error"
     state, _, label = _v2_container_state(job_id, auth["container_name"])
     with _v2_attempts_lock:
+        current = _v2_attempts.get(job_id) is auth and not (
+            auth.get("stop") is not None and auth["stop"].is_set()
+        )
+        if current and state == "unknown":
+            return "error"  # Docker could not answer; retry rather than dead-letter
         if (
             _v2_attempts.get(job_id) is not auth
             or state != "running"

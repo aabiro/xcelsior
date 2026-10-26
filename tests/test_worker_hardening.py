@@ -606,3 +606,59 @@ def test_lost_interactive_ssh_report_is_retried_with_its_port(runnable, monkeypa
     assert retried["status"] == "running"
     assert retried["runtime_metadata"]["public_ssh_port"] == port
     assert retried["runtime_metadata"]["interactive"] is True
+
+
+# ── 8. Unknown Docker state is retryable, never a dead letter ───────────
+
+
+def _stop_command(**args):
+    return {
+        "command_id": "stop-1",
+        "command": "stop_attempt",
+        "job_id": "job-1",
+        "attempt_id": "att-1",
+        "fencing_token": 7,
+        "args": {"job_id": "job-1", "preserve": True, **args},
+    }
+
+
+def test_user_stop_with_unknown_docker_state_is_redelivered(agent, monkeypatch):
+    auth = live_auth()
+    agent._v2_attempts["job-1"] = auth
+    monkeypatch.setattr(agent, "_v2_post", mock.Mock(return_value=(200, {})))
+    monkeypatch.setattr(agent, "_v2_container_state", lambda *a: ("unknown", -1, ""))
+    nack = mock.Mock()
+    monkeypatch.setattr(agent, "v2_nack_command", nack)
+    docker = Docker("error")
+    monkeypatch.setattr(agent.subprocess, "run", docker)
+
+    agent.handle_stop_attempt(_stop_command())
+
+    assert nack.call_args.args[:2] == ("stop-1", "container_state_unknown")
+    assert nack.call_args.kwargs["retryable"] is True
+    assert docker.ran("stop") == [] and "job-1" in agent._v2_attempts
+
+
+def test_job_directive_with_unknown_docker_state_is_redelivered(agent, monkeypatch):
+    auth = live_auth(spec_hash="hash")
+    agent._v2_attempts["job-1"] = auth
+    monkeypatch.setattr(agent, "_v2_post", mock.Mock(return_value=(200, {})))
+    monkeypatch.setattr(agent, "_v2_container_state", lambda *a: ("unknown", -1, ""))
+    monkeypatch.setattr(agent, "_v2_completed_command_result", lambda _: None)
+    dispatch, nack = mock.Mock(return_value=1), mock.Mock()
+    monkeypatch.setattr(agent, "_dispatch_agent_commands", dispatch)
+    monkeypatch.setattr(agent, "v2_nack_command", nack)
+    command = {
+        "command_id": "directive-1",
+        "command": "reinject_shell",
+        "job_id": "job-1",
+        "attempt_id": "att-1",
+        "fencing_token": 7,
+        "spec_hash": "hash",
+        "args": {"job_id": "job-1", "container_name": auth["container_name"]},
+    }
+
+    assert agent._dispatch_v2_command(command) == 0
+
+    dispatch.assert_not_called()
+    nack.assert_called_once_with("directive-1", "job_directive_authority_error", retryable=True)
