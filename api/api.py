@@ -720,7 +720,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if not AUTH_REQUIRED:
             return await call_next(request)
 
-        api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+        # An empty override means unset, as in routes._deps; the configured
+        # token still applies.
+        api_token = os.environ.get("XCELSIOR_API_TOKEN") or API_TOKEN
         if not api_token:
             return JSONResponse(
                 status_code=500,
