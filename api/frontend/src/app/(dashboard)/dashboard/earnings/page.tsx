@@ -23,6 +23,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
 import { PayPalConnectCard, type PayPalProviderState } from "@/components/providers/paypal-connect-card";
+import { SellerProfileCard } from "@/components/providers/seller-profile-card";
 import { StripeConnectEmbedded } from "@/components/providers/stripe-connect-embedded";
 
 /**
@@ -71,6 +72,8 @@ export default function EarningsPage() {
   const [platformPayPal, setPlatformPayPal] = useState(false);
   const [confirmStripeDisconnect, setConfirmStripeDisconnect] = useState(false);
   const [stripeDisconnecting, setStripeDisconnecting] = useState(false);
+  const [sellerSaved, setSellerSaved] = useState(false);
+  const sellerReady = sellerSaved || Boolean(provider?.seller_profile_complete);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -349,6 +352,14 @@ export default function EarningsPage() {
             </Card>
           )}
 
+          <SellerProfileCard
+            provider={provider}
+            onSaved={() => {
+              setSellerSaved(true);
+              void refreshUser();
+            }}
+          />
+
           {/* Payout methods + GST */}
           <div className="space-y-3">
             <div>
@@ -476,7 +487,7 @@ export default function EarningsPage() {
                         {provider.status === "abandoned" ? "Incomplete" : provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
                       </Badge>
                     </div>
-                    <Button variant="outline" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus}>
+                    <Button variant="outline" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus || !sellerReady}>
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
                       ) : pollingStatus ? (
@@ -489,6 +500,9 @@ export default function EarningsPage() {
                         <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
                       )}
                     </Button>
+                    {!sellerReady && (
+                      <p className="text-xs text-text-muted">{t("dash.earnings.seller_needed")}</p>
+                    )}
                     {stripeError && (
                       <div className="rounded-md border border-accent-red/30 bg-accent-red/5 px-3 py-2">
                         <p className="text-xs text-accent-red font-medium">{stripeError}</p>
@@ -505,13 +519,16 @@ export default function EarningsPage() {
                         Connect Stripe to receive payouts for every second your GPU is rented.
                       </p>
                     </div>
-                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
+                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || !sellerReady}>
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Setting up…</>
                       ) : (
                         <><LinkIcon className="h-3.5 w-3.5" /> Become a Provider, Connect Stripe</>
                       )}
                     </Button>
+                    {!sellerReady && (
+                      <p className="text-xs text-text-muted">{t("dash.earnings.seller_needed")}</p>
+                    )}
                     {stripeError && (
                       <p className="text-xs text-accent-red mt-1">{stripeError}</p>
                     )}
@@ -526,6 +543,7 @@ export default function EarningsPage() {
                 paypal={provider?.paypal}
                 platformPayPalEnabled={platformPayPal}
                 onUpdated={load}
+                connectBlocked={!sellerReady}
               />
             )}
             </div>

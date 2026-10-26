@@ -1219,6 +1219,26 @@ export async function fetchProviderEarnings(providerId: string) {
   }>(`/api/providers/${encodeURIComponent(providerId)}/earnings`);
 }
 
+export async function saveSellerProfile(data: {
+  legal_name: string;
+  address_line1: string;
+  address_line2?: string;
+  city: string;
+  province: string;
+  postal_code: string;
+  country?: string;
+  tax_id_kind: string;
+  tax_id?: string;
+  gst_hst_number?: string;
+  accepted_terms: boolean;
+}) {
+  return apiFetch<{
+    ok: boolean;
+    provider_id: string;
+    profile: ProviderAccount;
+  }>("/api/providers/seller-profile", { method: "PUT", body: JSON.stringify(data) });
+}
+
 export async function registerProvider(data: {
   provider_id: string; email: string; provider_type?: string;
   corporation_name?: string; business_number?: string; province?: string; legal_name?: string;
@@ -1279,7 +1299,17 @@ export interface ProviderAccount {
   status: string;
   corporation_name?: string;
   email: string;
+  legal_name?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  postal_code?: string;
+  country?: string;
   province?: string;
+  tax_id_kind?: string;
+  tax_id_last4?: string;
+  gst_hst_number?: string;
+  seller_profile_complete?: boolean;
   created_at: string;
   onboarded_at?: string;
   paypal?: { enabled: boolean; status: string; onboarded_at?: number };
@@ -4168,7 +4198,13 @@ export async function resendVerification(email: string) {
 
 /** Update display name (and optionally country/province). Email is changed via
  *  the verified flow below, not here. */
-export async function updateProfile(updates: { name?: string; country?: string; province?: string }) {
+export async function updateProfile(updates: {
+  name?: string;
+  country?: string;
+  province?: string;
+  business_name?: string;
+  gst_hst_number?: string;
+}) {
   return apiFetch<{ ok: boolean; name?: string }>("/api/auth/me/profile", {
     method: "PUT",
     body: JSON.stringify(updates),

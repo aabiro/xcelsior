@@ -442,6 +442,23 @@ class ProfileUpdateRequest(BaseModel):
     role: str | None = Field(None, max_length=32)
     country: str | None = Field(None, max_length=32)
     province: str | None = Field(None, max_length=32)
+    business_name: str | None = Field(None, max_length=200)
+    gst_hst_number: str | None = Field(None, max_length=20)
+
+
+def _business_profile_updates(body: ProfileUpdateRequest) -> dict:
+    """Optional business name and GST/HST number. Blank clears the field."""
+    from seller_identity import normalize_business_name, normalize_gst_hst
+
+    updates: dict = {}
+    try:
+        if body.business_name is not None:
+            updates["business_name"] = normalize_business_name(body.business_name)
+        if body.gst_hst_number is not None:
+            updates["gst_hst_number"] = normalize_gst_hst(body.gst_hst_number)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return updates
 
 
 def _parse_user_preferences(full_user: dict) -> dict:
@@ -2386,6 +2403,8 @@ def api_auth_me(request: Request):
         "provider_id": full_user.get("provider_id"),
         "country": full_user.get("country", "CA"),
         "province": full_user.get("province", "ON"),
+        "business_name": full_user.get("business_name") or "",
+        "gst_hst_number": full_user.get("gst_hst_number") or "",
         "team_id": full_user.get("team_id"),
         "oauth_provider": full_user.get("oauth_provider"),
         "created_at": full_user.get("created_at", 0),
@@ -2456,6 +2475,7 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
             updates["country"] = body.country
         if body.province is not None:
             updates["province"] = body.province
+        updates.update(_business_profile_updates(body))
         if not updates:
             return {"ok": True, "message": "No changes"}
         UserStore.update_user(user["email"], updates)
@@ -2472,6 +2492,7 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
                 full_user["country"] = body.country
             if body.province is not None:
                 full_user["province"] = body.province
+            full_user.update(_business_profile_updates(body))
 
     return {"ok": True, "message": "Profile updated"}
 
@@ -3135,6 +3156,7 @@ def api_auth_put_profile(body: ProfileUpdateRequest, request: Request):
         updates["country"] = body.country.strip()[:32]
     if body.province is not None:
         updates["province"] = body.province.strip()[:32]
+    updates.update(_business_profile_updates(body))
     if not updates:
         return {"ok": True}
     if _USE_PERSISTENT_AUTH:

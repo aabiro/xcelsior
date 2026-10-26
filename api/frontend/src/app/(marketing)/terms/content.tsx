@@ -67,6 +67,7 @@ export function TermsContent() {
               <li>{t("terms.s6_p3")}</li>
               <li>{t("terms.s6_p4")}</li>
               <li>{t("terms.s6_p5")}</li>
+              <li>{t("terms.s6_p6")}</li>
             </ul>
           </Section>
 

@@ -34,6 +34,8 @@ interface PayPalConnectCardProps {
   paypal?: PayPalProviderState | null;
   platformPayPalEnabled?: boolean;
   onUpdated?: () => void;
+  /** New PayPal payout setup waits until the seller tax profile is on file. */
+  connectBlocked?: boolean;
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -55,6 +57,7 @@ export function PayPalConnectCard({
   paypal,
   platformPayPalEnabled = true,
   onUpdated,
+  connectBlocked = false,
 }: PayPalConnectCardProps) {
   const { t } = useLocale();
   const router = useRouter();
@@ -296,12 +299,15 @@ export function PayPalConnectCard({
               })}
             </ul>
 
+            {connectBlocked && (
+              <p className="text-xs text-text-muted">{t("dash.earnings.seller_needed")}</p>
+            )}
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 size="sm"
                 className="w-full border-[#ffc439]/60 bg-[#ffc439] text-[#003087] hover:bg-[#f0b929] font-semibold shadow-sm"
                 onClick={handleConnect}
-                disabled={loading || polling}
+                disabled={loading || polling || connectBlocked}
               >
                 {loading ? (
                   <>

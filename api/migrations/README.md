@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `143_grant_host_observation_session_roles.py`.**
+**Repository head: `144_b2b_tax_identity.py`.**
+
+144 adds optional customer business-name and GST/HST columns on `users`, and the provider seller-identity columns used for annual reporting: mailing address, tax-identifier kind, encrypted tax identifier, last four characters, and the time the supplier accepted the tax terms. The runtime schema floor is 144 because profile and payout routes query those columns. Downgrade drops the new columns.
 
 143 grants the host observation session registry to the runtime roles that
 read or ingest it, skipping any role that is not provisioned yet. Apply it

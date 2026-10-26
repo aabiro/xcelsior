@@ -6,17 +6,21 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _USE_PERSISTENT_AUTH,
     _canonical_owner_id,
     _get_current_user,
     _is_platform_admin,
     _require_auth,
     _require_scope,
+    _user_lock,
+    _users_db,
     broadcast_sse,
     log,
     otel_span,
 )
 from db import UserStore
 from stripe_connect import AccountSessionError, get_stripe_manager
+from seller_identity import SellerProfileRequired
 from paypal_connect import get_paypal_manager, paypal_enabled
 from reputation import VerificationType, get_reputation_engine
 
@@ -54,6 +58,13 @@ class ProviderRegisterRequest(BaseModel):
     province: str = ""  # ON, QC, BC, AB, etc. (or region code)
     legal_name: str = ""  # Legal name of individual or entity
     country: str = "CA"  # ISO-3166 alpha-2; global cross-border providers supported
+    address_line1: str = ""
+    address_line2: str = ""
+    city: str = ""
+    postal_code: str = ""
+    tax_id_kind: str = ""  # sin, bn, or other
+    tax_id: str = ""  # Stored encrypted. Never returned.
+    accepted_seller_terms: bool = False
 
 
 # ── Model: IncorporationUploadRequest ──
@@ -121,6 +132,27 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
         raise HTTPException(400, "corporation_name required for company providers")
 
     mgr = get_stripe_manager()
+    if req.tax_id.strip() or req.address_line1.strip():
+        try:
+            mgr.save_seller_profile(
+                provider_id,
+                register_email,
+                {
+                    "legal_name": req.legal_name,
+                    "address_line1": req.address_line1,
+                    "address_line2": req.address_line2,
+                    "city": req.city,
+                    "province": req.province,
+                    "postal_code": req.postal_code,
+                    "country": req.country,
+                    "tax_id_kind": req.tax_id_kind,
+                    "tax_id": req.tax_id,
+                    "gst_hst_number": req.gst_hst_number,
+                    "accepted_terms": req.accepted_seller_terms,
+                },
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     try:
         result = mgr.create_provider_account(
             provider_id=provider_id,
@@ -133,6 +165,8 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
             legal_name=req.legal_name,
             country=(req.country or "CA").strip().upper()[:2] or "CA",
         )
+    except SellerProfileRequired as e:
+        raise HTTPException(400, str(e)) from e
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
     except Exception as e:
@@ -141,7 +175,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     # Link provider_id to user account and promote role
     from db import UserStore
 
-    UserStore.update_user(register_email, {"provider_id": provider_id, "role": "provider"})
+    _link_provider(register_email, provider_id, role="provider")
 
     # Create initial reputation record so the provider starts with a score
     try:
@@ -173,6 +207,95 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     except Exception:
         log.debug("meta host lead skipped", exc_info=True)
     return {"ok": True, **result}
+
+
+class SellerProfileRequest(BaseModel):
+    legal_name: str
+    address_line1: str
+    address_line2: str = ""
+    city: str
+    province: str
+    postal_code: str
+    country: str = "CA"
+    tax_id_kind: str
+    tax_id: str = ""
+    gst_hst_number: str = ""
+    accepted_terms: bool = False
+
+
+def _redact_seller_profile(profile: dict) -> dict:
+    """Seller responses never include payout-rail ids or the tax identifier."""
+    for key in (
+        "tax_id_ciphertext",
+        "stripe_account_id",
+        "paypal_merchant_id",
+        "paypal_payer_id",
+        "paypal_tracking_id",
+    ):
+        profile.pop(key, None)
+    return profile
+
+
+def _link_provider(email: str, provider_id: str, *, role: str | None = None) -> None:
+    """Point the signed-in account at its provider id.
+
+    Persistent auth writes Postgres. The test process keeps accounts in memory,
+    and `/api/auth/me` reads whichever store is active.
+    """
+    updates = {"provider_id": provider_id}
+    if role is not None:
+        updates["role"] = role
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(email, updates)
+        return
+    with _user_lock:
+        record = _users_db.get(email)
+        if record is not None:
+            record.update(updates)
+
+
+def _own_provider_id(user: dict) -> str:
+    provider_id = str(user.get("provider_id") or "").strip() or _canonical_owner_id(user)
+    if not provider_id:
+        raise HTTPException(400, "No provider identity for this account")
+    return provider_id
+
+
+@router.put("/api/providers/seller-profile", tags=["Providers"])
+def api_save_seller_profile(req: SellerProfileRequest, request: Request):
+    """Save the legal name, address, and tax identifier for seller reporting.
+
+    Providers are independent suppliers. The tax identifier is encrypted and is
+    not returned.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "providers:write")
+    email = str(user.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(401, "Not authenticated")
+    provider_id = _own_provider_id(user)
+    try:
+        profile = get_stripe_manager().save_seller_profile(provider_id, email, req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _link_provider(email, provider_id)
+    return {"ok": True, "provider_id": provider_id, "profile": _redact_seller_profile(profile)}
+
+
+@router.get("/api/providers/seller-profile", tags=["Providers"])
+def api_get_seller_profile(request: Request):
+    """Return this account's seller profile without the tax identifier."""
+    user = _require_auth(request)
+    _require_scope(user, "providers:read")
+    provider_id = str(user.get("provider_id") or "").strip() or _canonical_owner_id(user)
+    provider = get_stripe_manager().get_provider(provider_id) if provider_id else None
+    if not provider:
+        return {
+            "ok": True,
+            "provider_id": provider_id,
+            "profile": {"seller_profile_complete": False},
+        }
+    return {"ok": True, "provider_id": provider_id, "profile": _redact_seller_profile(provider)}
 
 
 @router.post("/api/providers/{provider_id}/abandon-onboarding", tags=["Providers"])
@@ -404,6 +527,12 @@ def api_provider_paypal_onboard(provider_id: str, request: Request):
     provider = stripe_mgr.get_provider(provider_id)
     if not provider:
         raise HTTPException(404, f"Provider {provider_id} not found")
+    if not provider.get("seller_profile_complete"):
+        raise HTTPException(
+            400,
+            "Add your legal name, mailing address, and tax identifier "
+            "(SIN or business number) before connecting payouts.",
+        )
     email = str(provider.get("email") or user.get("email") or "").strip()
     if not email:
         raise HTTPException(400, "Provider email required for PayPal onboarding")
