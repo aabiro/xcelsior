@@ -166,6 +166,79 @@ def test_unplaced_stop_settles_without_inventing_runtime(native):
         )
 
 
+def _active_capacity(x):
+    return x.repo.count_active_workers(x.ep["endpoint_id"])
+
+
+@pytest.mark.parametrize("status", ["cancelled", "terminated"])
+def test_a_worker_whose_unplaced_job_settled_elsewhere_releases_capacity(native, status):
+    """An unplaced scheduler job settled by another path leaves nothing to report."""
+    from control_plane.lifecycle import request_unplaced_termination
+    from scheduler import update_job_status
+
+    if status == "terminated":
+        assert request_unplaced_termination(job_id=native.jid, created_by="test").ok
+    else:
+        assert update_job_status(
+            native.jid, "cancelled", expected_status="queued", expected_host_id=None
+        )
+    assert _active_capacity(native) == 1
+
+    assert native.svc.deprovision_worker(native.wid) == {"requested": True, "pending": False}
+
+    w = native.repo.get_worker(native.wid)
+    assert w["state"] == "terminated" and w["released_at"] is not None
+    assert _active_capacity(native) == 0
+
+
+def test_reaper_releases_a_booting_worker_whose_job_was_terminated(native):
+    from control_plane.lifecycle import request_unplaced_termination
+    from serverless.reaper import reap_all
+
+    assert request_unplaced_termination(job_id=native.jid, created_by="test").ok
+    worker = native.repo.get_worker(native.wid)
+    repo = native.svc.repo
+    with (
+        mock.patch.object(repo, "list_requested_stops", return_value=[]),
+        mock.patch.object(repo, "list_workers_stale_heartbeat", return_value=[]),
+        mock.patch.object(repo, "list_jobs_stale_queued", return_value=[]),
+        mock.patch.object(repo, "list_jobs_past_request_timeout", return_value=[]),
+        mock.patch.object(repo, "list_stuck_booting_workers", return_value=[]),
+        mock.patch.object(repo, "list_booting_workers", return_value=[worker]),
+        mock.patch("scheduler.list_jobs", return_value=[]),
+    ):
+        stats = reap_all(native.svc)
+
+    assert stats["dead_scheduler"] == 1
+    assert native.repo.get_worker(native.wid)["released_at"] is not None
+    assert _active_capacity(native) == 0
+
+
+@pytest.mark.parametrize("action", ["cancel", "terminate", "stop", "requeue"])
+def test_instance_lifecycle_refuses_a_serverless_worker(native, action):
+    import os
+    from fastapi.testclient import TestClient
+    from api import app
+
+    path = (
+        f"/instance/{native.jid}/requeue"
+        if action == "requeue"
+        else (f"/instances/{native.jid}/{action}")
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            path, headers={"Authorization": f"Bearer {os.environ['XCELSIOR_API_TOKEN']}"}
+        )
+    assert response.status_code == 409, response.text
+    assert native.ep["endpoint_id"] in response.text
+    with native.pool.connection() as conn:
+        assert (
+            conn.execute("SELECT status FROM jobs WHERE job_id=%s", (native.jid,)).fetchone()[0]
+            == "queued"
+        )
+    assert native.repo.get_worker(native.wid)["released_at"] is None
+
+
 def test_unclaimed_offer_stop_revokes_grant_before_any_container_can_start(native):
     r = native.reserve()
     assert native.svc.deprovision_worker(native.wid)["pending"] is False
