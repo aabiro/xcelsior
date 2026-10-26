@@ -4463,12 +4463,26 @@ def _complete_host_restart_command(command_id: str, name: str) -> None:
 
 
 def drain_v2_commands() -> int:
-    """Claim host and attempt commands without sharing delivery identity."""
+    """Claim host and attempt commands without sharing delivery identity.
+
+    start_attempt/stop_attempt only spawn their handler threads, while a host
+    directive runs inline and can take many minutes (snapshot_container,
+    promote_artifacts, prepull_image). Attempt commands of a batch therefore
+    go first, so a long directive cannot hold a start already claimed in the
+    same batch past its 60 s claim TTL. Order within each group is kept.
+
+    Directives stay inline on purpose: run on threads while this loop kept
+    claiming, every claim expiry during a long directive would redeliver it
+    and spend one of its ``max_attempts`` (10), dead-lettering directives
+    that today succeed. That needs a claim-extension endpoint first.
+    """
     if not _v2_enabled:
         return 0
-    return sum(
-        _v2_run_claimed_command(_dispatch_v2_command, command) for command in v2_claim_commands()
+    commands = sorted(
+        v2_claim_commands(),
+        key=lambda command: command.get("command") not in ("start_attempt", "stop_attempt"),
     )
+    return sum(_v2_run_claimed_command(_dispatch_v2_command, command) for command in commands)
 
 
 _V2_JOB_DIRECTIVES = frozenset(
