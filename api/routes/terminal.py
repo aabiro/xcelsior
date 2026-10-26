@@ -77,6 +77,7 @@ from scheduler import (
 from routes.stream_auth import (
     bind_stream_principal,
     refresh_stream_principal,
+    require_terminal_attempt,
     watch_job_authorization,
 )
 
@@ -967,27 +968,16 @@ def _sanitize_container_ref(container_ref: object) -> str | None:
     return value
 
 
-def _container_candidates_for_instance(instance: dict, *, instance_id: str) -> list[str]:
-    """Ordered Docker refs to probe — current naming first, then stored/legacy."""
-    job_id = str(instance.get("job_id") or instance_id or "").strip()
-    raw_candidates = [
-        f"xcl-{job_id}" if job_id else "",
-        str(instance.get("container_name") or "").strip(),
-        str(instance.get("container_id") or "").strip(),
-        f"xcelsior-{job_id}" if job_id else "",
-    ]
-    seen: set[str] = set()
-    candidates: list[str] = []
-    for raw in raw_candidates:
-        ref = _sanitize_container_ref(raw)
-        if ref and ref not in seen:
-            seen.add(ref)
-            candidates.append(ref)
-    if not candidates and job_id:
-        fallback = _sanitize_container_ref(f"xcl-{job_id}")
-        if fallback:
-            candidates.append(fallback)
-    return candidates
+def _container_candidates_for_attempt(attempt: Any) -> list[str]:
+    """The one container a shell may enter: the current attempt's.
+
+    Legacy names (``xcl-{job_id}``, a stored ``container_name`` or
+    ``container_id``, ``xcelsior-{job_id}``) can name a container an earlier
+    attempt, or the host itself, left behind. Probing them first meant a shell
+    could open in a container the current attempt does not own.
+    """
+    ref = _sanitize_container_ref(str(getattr(attempt, "container_name", "") or ""))
+    return [ref] if ref else []
 
 
 def _shell_path_allowed(shell: str) -> bool:
@@ -1351,11 +1341,17 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 await websocket.close(code=4410)
                 return
 
-        host_id = instance.get("host_id", "")
-        container_candidates = _container_candidates_for_instance(
-            instance,
-            instance_id=instance_id,
-        )
+        try:
+            attempt_target = await asyncio.to_thread(
+                require_terminal_attempt, instance, instance_id
+            )
+        except HTTPException as exc:
+            await _send_error(websocket, str(exc.detail), 4003)
+            await websocket.close(code=4003)
+            _conn_errors.labels(reason="no_running_attempt").inc()  # type: ignore[attr-defined]
+            return
+        host_id = attempt_target.host_id or ""
+        container_candidates = _container_candidates_for_attempt(attempt_target)
         if not container_candidates:
             await _send_error(websocket, "Invalid container reference", 4003)
             await websocket.close(code=4003)
