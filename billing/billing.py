@@ -1824,11 +1824,19 @@ class BillingEngine:
         return float(os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0"))
 
     def maybe_warn_low_balance(self, customer_id: str, balance_cad: float) -> dict:
-        """Commit the warning watermark and durable notice intent together."""
+        """Commit the warning watermark and durable notice intent together.
+
+        Warns only when the balance the caller observed and the locked balance
+        are both at or below the threshold, at most once per six hours. This is
+        a warning, never a suspension notice: only a charge path that actually
+        suspends the wallet tells the customer it is suspended.
+        """
         from control_plane.billing_effects import publish_committed_effects
         from psycopg.rows import dict_row
 
         threshold = self.low_balance_threshold_cad(customer_id)
+        if float(balance_cad) > threshold:
+            return {"warned": False, "threshold_cad": threshold}
         with self._conn() as conn:
             conn.row_factory = dict_row
             wallet = conn.execute(
@@ -1839,11 +1847,18 @@ class BillingEngine:
             actual = micros_to_cad(wallet["balance_micros"])
             if actual > threshold:
                 return {"warned": False, "threshold_cad": threshold}
-            notices = self._record_wallet_alerts(
-                conn, customer_id, wallet, wallet["balance_micros"], job_id=""
+            notice = self._record_low_balance_notice(
+                conn, customer_id, wallet, wallet["balance_micros"]
             )
-        publish_committed_effects(notice_ids=notices)
-        return {"warned": bool(notices), "threshold_cad": threshold, "balance_cad": actual}
+        if notice is None:
+            return {
+                "warned": False,
+                "threshold_cad": threshold,
+                "balance_cad": actual,
+                "reason": "rate_limited",
+            }
+        publish_committed_effects(notice_ids=[notice])
+        return {"warned": True, "threshold_cad": threshold, "balance_cad": actual}
 
     def charge(
         self,
@@ -1877,10 +1892,8 @@ class BillingEngine:
                 "action": "account_suspended",
             }
 
-        # Pre-zero warning while still solvent.
-        if balance > 0:
-            self.maybe_warn_low_balance(customer_id, balance)
-
+        # The low-balance warning follows a successful debit (below). A refused
+        # charge sends its own insufficient-balance notice instead.
         if amount_cad <= 0:
             return {"charged": False, "reason": "invalid_amount", "balance_cad": balance}
 
@@ -2147,8 +2160,12 @@ class BillingEngine:
             except Exception as exc:
                 log.warning("committed billing meter projection pending (%s)", type(exc).__name__)
 
-    def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
-        """Persist rate-limited notices while the billing transaction owns the wallet lock."""
+    def _record_low_balance_notice(self, conn, customer_id, wallet, remaining):
+        """Queue one rate-limited low-balance notice under the caller's wallet lock.
+
+        Returns the notice id, or None when the balance is above the threshold
+        or a warning was already sent within six hours.
+        """
         from control_plane.billing_effects import queue_wallet_notice
 
         threshold = micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0)
@@ -2157,23 +2174,31 @@ class BillingEngine:
         balance_cad = micros_to_cad(remaining)
         now = time.time()
         last = float(wallet.get("low_balance_warned_at") or 0)
+        if balance_cad > threshold or (last and now - last < 6 * 3600):
+            return None
+        conn.execute(
+            "UPDATE wallets SET low_balance_warned_at=%s WHERE customer_id=%s",
+            (now, customer_id),
+        )
+        return queue_wallet_notice(
+            conn,
+            customer_id,
+            "billing_low_balance",
+            "Low balance warning",
+            f"Your wallet is ${balance_cad:.2f} CAD (warning at ${threshold:.2f} CAD). "
+            "Top up to avoid hard stop.",
+            {"balance_cad": balance_cad, "threshold_cad": threshold},
+        )
+
+    def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
+        """Persist rate-limited notices while the billing transaction owns the wallet lock."""
+        from control_plane.billing_effects import queue_wallet_notice
+
+        balance_cad = micros_to_cad(remaining)
         notices = []
-        if balance_cad <= threshold and (not last or now - last >= 6 * 3600):
-            conn.execute(
-                "UPDATE wallets SET low_balance_warned_at=%s WHERE customer_id=%s",
-                (now, customer_id),
-            )
-            notices.append(
-                queue_wallet_notice(
-                    conn,
-                    customer_id,
-                    "billing_low_balance",
-                    "Low balance warning",
-                    f"Your wallet is ${balance_cad:.2f} CAD (warning at ${threshold:.2f} CAD). "
-                    "Top up to avoid hard stop.",
-                    {"balance_cad": balance_cad, "threshold_cad": threshold},
-                )
-            )
+        low = self._record_low_balance_notice(conn, customer_id, wallet, remaining)
+        if low is not None:
+            notices.append(low)
         if remaining <= 0 and wallet["status"] != "suspended":
             notices.append(
                 queue_wallet_notice(
