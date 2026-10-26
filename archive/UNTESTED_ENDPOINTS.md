@@ -1,6 +1,6 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-10-18 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-10-26 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
 **2 of 535 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
@@ -82,7 +82,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/telemetry/all` — `api_all_telemetry`
 
 ### `routes/agent_v2.py` (0 untested)
-- [x] `POST /agent/v2/attempts/status` — `api_v2_attempt_status`
+- [x] `POST /agent/v2/attempts/status` — `api_v2_attempt_status`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /agent/v2/commands/claim` — `api_v2_commands_claim`
 - [x] `POST /agent/v2/commands/{command_id}/ack` — `api_v2_command_ack`
 - [x] `POST /agent/v2/commands/{command_id}/nack` — `api_v2_command_nack`
@@ -251,6 +251,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/v1/hosts/{host_id}/capacity` — `api_v1_host_capacity`
 - [x] `POST /api/v1/hosts/{host_id}/drain` — `api_v1_drain_host`
 - [x] `POST /api/v1/hosts/{host_id}/eviction-plans` — `api_v1_create_eviction_plan`
+- [x] `GET /api/v1/hosts/{host_id}/eviction-plans/{plan_id}` — `api_v1_read_eviction_plan`
 - [x] `POST /api/v1/hosts/{host_id}/eviction-plans/{plan_id}/execute` — `api_v1_execute_eviction_plan`
 - [x] `POST /api/v1/hosts/{host_id}/evictions` — `api_v1_evict_host_workloads`
 - [x] `GET /api/v1/hosts/{host_id}/observations` — `api_v1_host_observations`
@@ -553,7 +554,6 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/pricing/spot-floor-suggestion` — `api_spot_floor_suggestion`  ✓ test_untested_endpoints_coverage.py
 - [x] `GET /spot-prices` — `api_spot_prices`  ✓ test_marketplace_endpoints_coverage.py
 - [x] `POST /spot-prices/update` — `api_update_spot_prices`
-- [x] `POST /spot/preemption-cycle` — `api_preemption_cycle`
 
 ### `routes/ssh.py` (0 untested)
 - [x] `POST /api/ssh/keys` — `api_add_ssh_key`
