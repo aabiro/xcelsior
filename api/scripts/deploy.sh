@@ -880,6 +880,12 @@ if [ -f /opt/xcelsior_env_keep/.env ]; then
     install -m 600 /opt/xcelsior_env_keep/.env /opt/xcelsior_new/.env
     rm -f /opt/xcelsior_env_keep/.env
 fi
+# Host-only release state (staged images, rollback overrides, frozen operator
+# scripts that systemd units execute) is not in the repo. The 2026-10-25 deploy
+# deleted it with the old tree and the backup timers failed with 203/EXEC.
+if [ -d /opt/xcelsior/releases ] && [ ! -e /opt/xcelsior_new/releases ]; then
+    mv /opt/xcelsior/releases /opt/xcelsior_new/releases
+fi
 EOF
 }
 

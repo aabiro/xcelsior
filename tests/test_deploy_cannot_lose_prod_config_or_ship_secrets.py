@@ -139,6 +139,22 @@ def test_the_env_is_carried_into_the_new_tree(opt: Path) -> None:
     assert not (opt / "xcelsior_env_keep" / ".env").exists(), "a second copy was left behind"
 
 
+def test_host_release_state_survives_the_swap(opt: Path) -> None:
+    # Systemd units execute frozen operator scripts from here; the 2026-10-25
+    # deploy deleted the directory and the nightly backup failed (203/EXEC).
+    frozen = opt / "xcelsior" / "releases" / "cp" / "source" / "backup-db.sh"
+    frozen.parent.mkdir(parents=True)
+    frozen.write_text("#!/bin/sh\n")
+    frozen.chmod(0o700)
+    _run_remote("sync_code_preserve_remote_files_host", opt)
+    (opt / "xcelsior_new").mkdir()
+    _run_remote("sync_code_restore_preserved_files_host", opt)
+    shutil.rmtree(opt / "xcelsior")
+    (opt / "xcelsior_new").rename(opt / "xcelsior")
+    assert frozen.read_text() == "#!/bin/sh\n", "release state lost in the swap"
+    assert oct(frozen.stat().st_mode & 0o777) == "0o700"
+
+
 def test_the_kept_copy_is_private_while_it_exists(opt: Path) -> None:
     _run_remote("sync_code_preserve_remote_files_host", opt)
     keep = opt / "xcelsior_env_keep"
