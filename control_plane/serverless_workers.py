@@ -7,6 +7,9 @@ from psycopg.types.json import Jsonb
 
 from control_plane.db import run_transaction
 
+# Scheduler-job outcomes nothing reopens: a released worker identity is never reused.
+_SETTLED_JOB_STATUSES = frozenset({"cancelled", "terminated", "failed", "completed"})
+
 
 def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
     """Cancel only an unplaced job or an exact, still-unclaimed lease offer.
@@ -89,6 +92,33 @@ def cancel_unstarted_worker(worker_id: str, job_id: str) -> bool:
                     status="stopped",
                 )
                 return True
+            if job["status"] in _SETTLED_JOB_STATUSES:
+                # The scheduler job settled without a placement (an instance
+                # cancel, unplaced termination, a privacy deletion). Nothing
+                # will ever report on this worker, so it is released here or it
+                # holds endpoint capacity forever.
+                live = cur.execute(
+                    """SELECT EXISTS(SELECT 1 FROM job_attempts WHERE job_id=%s
+                                 AND status IN ('reserved','command_pending','lease_offered',
+                                                'lease_claimed','starting','running'))
+                           OR EXISTS(SELECT 1 FROM placement_leases WHERE job_id=%s
+                                     AND status IN ('offered','active'))
+                           OR EXISTS(SELECT 1 FROM gpu_device_allocations WHERE job_id=%s
+                                     AND released_at IS NULL) AS live""",
+                    (job_id, job_id, job_id),
+                ).fetchone()
+                if live is None or live["live"]:
+                    return False
+                released = cur.execute(
+                    """UPDATE serverless_workers SET state='terminated',current_concurrency=0,
+                              allocated_at=0,released_at=EXTRACT(EPOCH FROM clock_timestamp()),
+                              updated_at=EXTRACT(EPOCH FROM clock_timestamp()),
+                              error_message=COALESCE(error_message,%s)
+                        WHERE worker_id=%s AND scheduler_job_id=%s AND endpoint_id=%s
+                          AND attempt_id IS NULL AND released_at IS NULL""",
+                    (f"scheduler job {job['status']}", worker_id, job_id, endpoint_id),
+                ).rowcount
+                return released == 1
             if job["status"] != "queued" or job["host_id"]:
                 return False
             if cur.execute(
