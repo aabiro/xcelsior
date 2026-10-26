@@ -72,27 +72,120 @@ def _append_event(
     )
 
 
-def _stop_subject_workloads(conn: Any, customer_ids: list[str]) -> tuple[int, int]:
-    if not customer_ids:
-        return 0, 0
-    result = conn.execute(
+_PRIVACY_ACTOR = "privacy_deletion"
+_PRIVACY_REASON = "privacy_deletion_requested"
+
+
+def _reopen_unplaced_privacy_stops(conn: Any, customer_ids: list[str]) -> int:
+    """Return unplaced work an earlier deletion pass marked ``stopping`` to its queue.
+
+    That pass wrote ``stopping``/``running`` on every live job, including ones
+    with no attempt. No controller settles a stop without an attempt, and
+    unplaced termination refuses a ``stopping`` row, so those deletions could
+    never finish. The row goes back to ``queued``/``pending`` with its stop
+    intent kept, which placement skips and unplaced termination accepts.
+    """
+    return conn.execute(
         """
         UPDATE jobs
-           SET status = 'stopping',
-               phase = 'running',
-               desired_state = 'stopped',
-               generation = generation + 1,
-               updated_at = clock_timestamp(),
-               reason_code = 'privacy_deletion_requested',
-               reason_details = jsonb_build_object(
-                   'category', 'user_requested_deletion'
-               )
+           SET status = 'queued',
+               phase = 'pending',
+               payload = COALESCE(payload, '{}'::jsonb)
+                   || jsonb_build_object('status', 'queued'),
+               version = version + 1,
+               updated_at = clock_timestamp()
+         WHERE owner_id = ANY(%s)
+           AND active_attempt_id IS NULL
+           AND status = 'stopping'
+           AND phase = 'running'
+           AND desired_state = 'stopped'
+           AND lifecycle_intent IS NULL
+           AND reason_code = %s
+        """,
+        (customer_ids, _PRIVACY_REASON),
+    ).rowcount
+
+
+def _withhold_attempt_start(conn: Any, job_id: str, attempt_id: str) -> None:
+    """Keep an attempt that has no claimed lease yet from starting.
+
+    A fenced command needs a claimed lease. Until there is one, the stop
+    intent is what refuses the start; lease expiry or the reconciler's fenced
+    stop then settles the attempt.
+    """
+    conn.execute(
+        """
+        UPDATE jobs
+           SET desired_state = 'stopped',
+               reason_code = %s,
+               reason_details = jsonb_build_object('category', 'user_requested_deletion'),
+               version = version + 1,
+               updated_at = clock_timestamp()
+         WHERE job_id = %s
+           AND active_attempt_id = %s
+           AND desired_state <> 'stopped'
+        """,
+        (_PRIVACY_REASON, job_id, attempt_id),
+    )
+
+
+def _stop_subject_workloads(conn: Any, customer_ids: list[str]) -> tuple[int, int]:
+    """Withdraw the subject's compute; return (requests accepted, jobs still live).
+
+    Attempt-owned work stops through its fenced attempt. Unplaced work has no
+    attempt for anything to stop, so it is terminated directly. Both run in
+    their own control-plane transactions; ``conn`` holds no job row they lock.
+    """
+    if not customer_ids:
+        return 0, 0
+    from control_plane.db import run_transaction
+    from control_plane.lifecycle import (
+        request_fenced_stop_remove,
+        request_unplaced_termination,
+    )
+
+    run_transaction(
+        lambda c: _reopen_unplaced_privacy_stops(c, customer_ids),
+        what="privacy_reopen_unplaced_stops",
+    )
+    jobs = conn.execute(
+        """
+        SELECT job_id, active_attempt_id, lifecycle_intent
+          FROM jobs
          WHERE owner_id = ANY(%s)
            AND COALESCE(phase, '') NOT IN ('succeeded', 'failed', 'stopped')
-           AND COALESCE(desired_state, 'running') <> 'stopped'
+         ORDER BY job_id
         """,
         (customer_ids,),
-    )
+    ).fetchall()
+    accepted = 0
+    for row in jobs:
+        job_id = str(_value(row, "job_id", 0))
+        attempt_id = _value(row, "active_attempt_id", 1)
+        if attempt_id and _value(row, "lifecycle_intent", 2) in ("terminate", "cancel"):
+            continue  # removal already requested; the fenced journal settles it
+        try:
+            if attempt_id:
+                result = request_fenced_stop_remove(
+                    job_id=job_id,
+                    intent="terminate",
+                    created_by=_PRIVACY_ACTOR,
+                    reason_tag=_PRIVACY_REASON,
+                )
+                if not result.ok:
+                    run_transaction(
+                        lambda c, j=job_id, a=str(attempt_id): _withhold_attempt_start(c, j, a),
+                        what="privacy_withhold_attempt_start",
+                    )
+            else:
+                result = request_unplaced_termination(job_id=job_id, created_by=_PRIVACY_ACTOR)
+        except Exception as exc:  # the next pass retries; the job keeps the deletion open
+            log.warning("privacy stop of job %s deferred: %s", job_id, exc)
+            continue
+        if result.ok:
+            accepted += 1
+        else:
+            log.info("privacy stop of job %s deferred: %s", job_id, result.reason)
     remaining = conn.execute(
         """
         SELECT count(*)
@@ -102,7 +195,7 @@ def _stop_subject_workloads(conn: Any, customer_ids: list[str]) -> tuple[int, in
         """,
         (customer_ids,),
     ).fetchone()
-    return result.rowcount, int(_value(remaining, "count", 0))
+    return accepted, int(_value(remaining, "count", 0))
 
 
 def delete_authoritative_subject(
@@ -148,9 +241,10 @@ def delete_authoritative_subject(
         provider_id = str(_value(user, "provider_id", 3) or "").strip()
         customer_ids = sorted(set(request_customer_ids + ([customer_id] if customer_id else [])))
 
-        # Account deletion explicitly withdraws compute authorization.  The
-        # worker waits for the scheduler/reconciler to observe the stop before
-        # destroying credentials or storage.
+        # Account deletion explicitly withdraws compute authorization. Unplaced
+        # work is terminated now; placed work stops through its fenced attempt,
+        # and the deletion waits for that before destroying credentials or
+        # storage.
         stop_requested, active_jobs = _stop_subject_workloads(conn, customer_ids)
         if active_jobs:
             conn.commit()
