@@ -350,3 +350,166 @@ def test_orphan_sweep_spares_mounts_owned_by_live_and_cleanup_attempts(agent, mo
     agent.cleanup_orphaned_volume_mounts()
 
     assert unmounted == [(f"{base}/vol-orphan", True)]
+
+
+# ── run_job harness: everything but the decisions under test is isolated ─
+
+
+class Api:
+    """Scripted /agent/v2 endpoints; records every status report."""
+
+    def __init__(self, statuses=None, renew=200):
+        self.statuses = dict(statuses or {})  # status -> list of HTTP codes
+        self.renew = renew
+        self.reports = []
+
+    def __call__(self, path, body, timeout=10):
+        if path == "/agent/v2/leases/renew":
+            return self.renew, {}
+        assert path == "/agent/v2/attempts/status", path
+        self.reports.append(dict(body))
+        codes = self.statuses.get(body["status"]) or [200]
+        return (codes.pop(0) if len(codes) > 1 else codes[0]), {}
+
+    def sent(self):
+        return [r["status"] for r in self.reports]
+
+
+@pytest.fixture
+def runnable(agent, monkeypatch):
+    import egress_isolation
+
+    for name, value in {
+        "get_gpu_info": mock.Mock(return_value={"gpu_model": "RTX 2060"}),
+        "build_platform_env": mock.Mock(return_value={}),
+        "cache_image_available": mock.Mock(return_value=True),
+        "cache_track_pull": mock.Mock(),
+        "_push_log_lines": mock.Mock(),
+        "build_secure_docker_args": mock.Mock(return_value=["docker", "run", "-d", "image"]),
+        "build_egress_iptables_rules": mock.Mock(return_value=[]),
+        "_inject_ssh_keys": mock.Mock(),
+        "_run_provisioning_hooks": mock.Mock(),
+        "_run_auto_launch": mock.Mock(),
+        "_report_http_ports": mock.Mock(),
+        "_kill_container": mock.Mock(),
+        "_remove_container": mock.Mock(),
+        "_monitor_container": mock.Mock(),
+        "_monitor_interactive": mock.Mock(),
+        "get_host_ip": mock.Mock(return_value="192.0.2.10"),
+        "PREFER_GVISOR": False,
+    }.items():
+        monkeypatch.setattr(agent, name, value)
+    monkeypatch.setattr(egress_isolation, "launch_args", lambda job, env: ([], env))
+    monkeypatch.setattr(agent.time, "sleep", lambda _: None)
+    monkeypatch.setattr(agent.subprocess, "run", Docker("running 0 att-1"))
+    monkeypatch.setattr(agent, "_v2_container_state", lambda *a: ("missing", -1, ""))
+    return agent
+
+
+def job_for(auth, **spec):
+    return {
+        "job_id": auth["job_id"],
+        "name": "hardening",
+        "image": "image:1",
+        "_v2_attempt_id": auth["attempt_id"],
+        "_v2_fencing_token": auth["fencing_token"],
+        "_v2_container_name": auth["container_name"],
+        **spec,
+    }
+
+
+# ── 5. Serverless readiness failure settles; a restart preserves warmup ─
+
+
+def test_unhealthy_serverless_worker_is_failed_not_left_holding_its_gpus(runnable, monkeypatch):
+    agent = runnable
+    auth = live_auth(container_started=False)
+    agent._v2_attempts["job-1"] = auth
+    agent._v2_journal_save()
+    api = Api()
+    monkeypatch.setattr(agent, "_v2_post", api)
+    monkeypatch.setattr(agent, "_wait_serverless_health", mock.Mock(return_value=False))
+    removal = []
+
+    def kill(name):
+        if api.sent()[-1:] == ["starting"]:  # the setup guard has already run
+            removal.append(journal(agent)["job-1"].get("pending_terminal_report"))
+
+    agent._kill_container.side_effect = kill
+
+    agent.run_job(job_for(auth, job_type="serverless_worker", http_port=8080))
+
+    assert removal == [{"status": "failed", "failure_code": "serverless_health_failed"}]
+    failed = api.reports[-1]
+    assert failed["status"] == "failed"
+    assert failed["failure_code"] == "serverless_health_failed"
+    assert "health check failed" in failed["detail"]["error"]
+    assert "job-1" not in agent._v2_attempts  # settled: lease and GPUs released
+    agent._monitor_container.assert_not_called()
+
+
+def test_agent_restart_during_warmup_preserves_the_worker_for_adoption(runnable, monkeypatch):
+    agent = runnable
+    auth = live_auth(container_started=False)
+    agent._v2_attempts["job-1"] = auth
+    agent._v2_journal_save()
+    api = Api()
+    monkeypatch.setattr(agent, "_v2_post", api)
+    cleanup = mock.Mock()
+    monkeypatch.setattr(agent, "_v2_cleanup_resources", cleanup)
+
+    def restarting(*args, **kwargs):
+        agent._shutdown.set()
+        return False
+
+    monkeypatch.setattr(agent, "_wait_serverless_health", restarting)
+
+    agent.run_job(job_for(auth, job_type="serverless_worker", http_port=8080))
+
+    assert agent._kill_container.call_count == 1  # only the pre-setup name guard
+    assert "failed" not in api.sent()
+    assert journal(agent)["job-1"]["serverless_health"]["path"] == "/health"
+    cleanup.assert_not_called()  # mounts and workspace stay with the container
+
+
+def _adopted_warming(agent, monkeypatch, *, healthy, deadline):
+    auth = live_auth(serverless_health={"port": 58080, "path": "/health", "deadline": deadline})
+    agent._v2_attempts["job-1"] = auth
+    agent._v2_journal_save()
+    api = Api()
+    monkeypatch.setattr(agent, "_v2_post", api)
+    inspections = iter(["running 0 att-1"] * 3 + ["exited 137 att-1"] * 3)
+
+    def docker(argv, **kwargs):
+        if argv[:2] == ["docker", "inspect"]:
+            try:
+                state = next(inspections)
+            except StopIteration:
+                agent._shutdown.set()
+                state = "exited 137 att-1"
+            return SimpleNamespace(returncode=0, stdout=state, stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(agent.subprocess, "run", docker)
+    monkeypatch.setattr(agent.time, "sleep", lambda _: None)
+    monkeypatch.setattr(agent, "_remove_container", mock.Mock())
+    monkeypatch.setattr(
+        agent.requests,
+        "get",
+        mock.Mock(return_value=SimpleNamespace(status_code=200 if healthy else 503)),
+    )
+    agent._v2_monitor_container(auth)
+    return auth, api
+
+
+def test_adopted_warming_worker_resumes_its_readiness_wait(agent, monkeypatch):
+    auth, api = _adopted_warming(agent, monkeypatch, healthy=True, deadline=time.time() + 60)
+    assert api.sent()[0] == "running"
+    assert "serverless_health" not in auth
+
+
+def test_adopted_worker_past_its_readiness_deadline_is_failed(agent, monkeypatch):
+    auth, api = _adopted_warming(agent, monkeypatch, healthy=False, deadline=time.time() - 1)
+    assert api.sent() == ["failed"]
+    assert api.reports[0]["failure_code"] == "serverless_health_failed"
+    assert "job-1" not in agent._v2_attempts

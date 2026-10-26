@@ -3044,6 +3044,11 @@ def _v2_journal_save() -> bool:
                 "running_report_pending": bool(a.get("running_report_pending", False)),
                 "pending_runtime_reports": dict(a.get("pending_runtime_reports") or {}),
                 **(
+                    {"serverless_health": dict(a["serverless_health"])}
+                    if isinstance(a.get("serverless_health"), dict)
+                    else {}
+                ),
+                **(
                     {"auto_launch_token": a["auto_launch_token"]}
                     if a.get("auto_launch_token")
                     else {}
@@ -3201,6 +3206,13 @@ def _v2_auth_from_record(rec: dict, journal_mtime: float) -> dict:
         auth["pending_terminal_report"] = dict(rec["pending_terminal_report"])
     if isinstance(rec.get("pending_start_failure"), str) and rec["pending_start_failure"]:
         auth["pending_start_failure"] = rec["pending_start_failure"]
+    health = rec.get("serverless_health")
+    if isinstance(health, dict):
+        auth["serverless_health"] = {
+            "port": int(health["port"]),
+            "path": str(health["path"]),
+            "deadline": float(health["deadline"]),
+        }
     return auth
 
 
@@ -4969,21 +4981,68 @@ def _allocate_host_port_mappings(
     return port_map, extra_args
 
 
-def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: int = 600) -> bool:
+_SERVERLESS_HEALTH_TIMEOUT_SEC = 600
+
+
+def _serverless_health_url(host_port: int, health_path: str) -> str:
     path = health_path if str(health_path).startswith("/") else f"/{health_path}"
-    url = f"http://127.0.0.1:{int(host_port)}{path}"
+    return f"http://127.0.0.1:{int(host_port)}{path}"
+
+
+def _serverless_health_ok(host_port: int, health_path: str) -> bool:
+    url = _serverless_health_url(host_port, health_path)
+    try:
+        resp = requests.get(url, timeout=5)
+    except requests.RequestException:
+        return False
+    if 200 <= resp.status_code < 300:
+        log.info("Serverless health OK: %s → %d", url, resp.status_code)
+        return True
+    return False
+
+
+def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: int = 600) -> bool:
+    """True once healthy; False on timeout or agent shutdown (callers tell them apart)."""
     deadline = time.time() + timeout_sec
     while time.time() < deadline and not _shutdown.is_set():
-        try:
-            resp = requests.get(url, timeout=5)
-            if 200 <= resp.status_code < 300:
-                log.info("Serverless health OK: %s → %d", url, resp.status_code)
-                return True
-        except requests.RequestException:
-            pass
+        if _serverless_health_ok(host_port, health_path):
+            return True
         time.sleep(3)
-    log.error("Serverless health check timed out: %s", url)
+    if not _shutdown.is_set():
+        log.error(
+            "Serverless health check timed out: %s", _serverless_health_url(host_port, health_path)
+        )
     return False
+
+
+def _v2_fail_serverless_health(auth: dict, error: str) -> None:
+    """Settle a serverless worker that never became healthy.
+
+    The failed outcome is journaled before the container is removed. Without
+    it, an exit monitor finds the container missing, which is not proof of
+    failure, and waits forever while renewals keep the lease and its GPUs.
+    """
+    job_id = auth["job_id"]
+    with _v2_attempts_lock:
+        if _v2_attempts.get(job_id) is not auth:
+            return
+        auth.pop("serverless_health", None)
+        auth["pending_terminal_report"] = {
+            "status": "failed",
+            "failure_code": "serverless_health_failed",
+        }
+        if not _v2_journal_save():
+            log.error("Serverless health failure for job %s could not be journaled", job_id)
+    log.error("Serverless worker %s unhealthy: %s", job_id, error)
+    _kill_container(auth["container_name"])
+    # On a lost response the exit monitor retries the journaled failure.
+    report_job_status(
+        job_id,
+        "failed",
+        error_message=error,
+        policy_reason="serverless_health_failed",
+        expected_v2_auth=auth,
+    )
 
 
 # ── Container Lifecycle ──────────────────────────────────────────────
@@ -5690,12 +5749,28 @@ def run_job(job):
                     }
                 ],
             )
-            if not _wait_serverless_health(host_http_port, health_path):
-                err = f"health check failed on :{host_http_port}{health_path}"
-                _kill_container(container_name)
-                # Keep exact labels and journal until native exit is confirmed.
-                _monitor_container(job_id, container_name)
+            # Journal the readiness wait: an agent restart hands a warming
+            # worker to adoption, whose exit monitor resumes this same wait.
+            with _v2_attempts_lock:
+                authority["serverless_health"] = {
+                    "port": host_http_port,
+                    "path": health_path,
+                    "deadline": time.time() + _SERVERLESS_HEALTH_TIMEOUT_SEC,
+                }
+                _v2_journal_save()
+            if not _wait_serverless_health(
+                host_http_port, health_path, timeout_sec=_SERVERLESS_HEALTH_TIMEOUT_SEC
+            ):
+                if _shutdown.is_set():
+                    # Not a health verdict: the agent is restarting. Leave the
+                    # warming container and its lease for restart adoption.
+                    return
+                _v2_fail_serverless_health(
+                    authority, f"health check failed on :{host_http_port}{health_path}"
+                )
                 return
+            with _v2_attempts_lock:
+                authority.pop("serverless_health", None)
             authority["running_report_pending"] = True
             _v2_journal_save()
             report_status(
@@ -6192,6 +6267,27 @@ def _v2_monitor_container(auth: dict) -> None:
             if _v2_attempts.get(job_id) is not auth:
                 return
         state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        health = auth.get("serverless_health")
+        if (
+            health
+            and not auth.get("pending_terminal_report")
+            and state == "running"
+            and label == auth["attempt_id"]
+        ):
+            # A warming serverless worker adopted after an agent restart.
+            if _serverless_health_ok(health["port"], health["path"]):
+                with _v2_attempts_lock:
+                    auth.pop("serverless_health", None)
+                    auth["running_report_pending"] = True
+                    _v2_journal_save()
+            elif time.time() >= float(health["deadline"]):
+                with _v2_attempts_lock:
+                    auth.pop("serverless_health", None)
+                    auth["pending_terminal_report"] = {
+                        "status": "failed",
+                        "failure_code": "serverless_health_failed",
+                    }
+                    _v2_journal_save()
         terminal = auth.get("pending_terminal_report")
         if terminal and state == "running" and label == auth["attempt_id"]:
             _v2_stop_container(
