@@ -15,6 +15,7 @@ from unittest import mock
 import pytest
 
 import worker_agent as worker
+from tests.test_control_plane_leases import fleet  # noqa: F401  (real control-plane rows)
 
 
 @pytest.fixture
@@ -740,3 +741,135 @@ def test_an_overtaken_claim_never_replaces_a_newer_record(agent, monkeypatch):
     run.assert_not_called()
     assert agent._v2_attempts["job-1"] is newer and not newer["stop"].is_set()
     assert nack.call_args.args[:2] == ("start-att-1", "lease_authority_superseded")
+
+
+# ── 10. A restart during setup requeues the launch instead of failing it ─
+
+
+def test_restart_during_setup_releases_locally_and_reports_nothing(agent, monkeypatch):
+    mount = "/mnt/xcelsior-volumes/v"
+    write_journal(
+        agent,
+        {
+            "job-1": record(
+                container_started=False,
+                last_renewed_at=time.time(),
+                resources={"host_id": "hardening-host", "nfs_mounts": [mount]},
+            )
+        },
+    )
+    monkeypatch.setattr(agent, "_v2_enabled", True)
+    monkeypatch.setattr(agent.subprocess, "run", Docker("missing"))
+    unmount = mock.Mock()
+    monkeypatch.setattr(agent, "_unmount_nfs", unmount)
+
+    agent.v2_adopt_attempts()  # the fixture's _v2_post fails the test if called
+
+    assert "job-1" not in agent._v2_attempts
+    assert "job-1" not in journal(agent)
+    unmount.assert_called_once_with(mount)  # setup's mount is released locally
+
+
+@pytest.mark.parametrize("journaled", [{"container_started": True}, {}])
+def test_a_started_or_legacy_attempt_still_reports_its_missing_container(
+    agent, monkeypatch, journaled
+):
+    write_journal(agent, {"job-1": record(**journaled)})
+    monkeypatch.setattr(agent, "_v2_enabled", True)
+    monkeypatch.setattr(agent.subprocess, "run", Docker("missing"))
+    post = mock.Mock(return_value=(200, {}))
+    monkeypatch.setattr(agent, "_v2_post", post)
+    agent.v2_adopt_attempts()
+    assert post.call_args.args[1]["failure_code"] == "container_missing"
+
+
+def test_container_start_intent_is_durable_before_docker_run(runnable, monkeypatch):
+    agent = runnable
+    auth = live_auth(container_started=False)
+    agent._v2_attempts["job-1"] = auth
+    monkeypatch.setattr(agent, "_v2_post", Api())
+    seen = []
+
+    def docker(argv, **kwargs):
+        if argv[:2] == ["docker", "run"]:
+            seen.append(journal(agent)["job-1"].get("container_started"))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(agent.subprocess, "run", docker)
+    agent.run_job(job_for(auth))
+    assert seen == [True]
+
+
+def test_restart_during_setup_requeues_the_job_on_the_control_plane(agent, monkeypatch, fleet):
+    from control_plane.attempts import report_attempt_status
+    from control_plane.db import run_transaction
+    from control_plane.leases import FencingViolation, expire_stale_leases
+    from tests.test_control_plane_leases import _claim_grant, _pool, _reserved
+
+    resv = _reserved(fleet)
+    _claim_grant(resv, session="hardening-session")
+    authority = dict(
+        job_id=resv.job_id,
+        attempt_id=resv.attempt_id,
+        host_id=resv.host_id,
+        fencing_token=resv.fencing_token,
+    )
+    run_transaction(lambda conn: report_attempt_status(conn, **authority, status="starting"))
+    write_journal(
+        agent,
+        {
+            resv.job_id: record(
+                job_id=resv.job_id,
+                attempt_id=resv.attempt_id,
+                lease_id=resv.lease_id,
+                fencing_token=resv.fencing_token,
+                container_started=False,  # the agent died during the image pull
+            )
+        },
+    )
+
+    def post(path, body):
+        assert path == "/agent/v2/attempts/status", path
+        fields = {k: body[k] for k in ("job_id", "attempt_id", "host_id", "fencing_token")}
+        try:
+            run_transaction(
+                lambda conn: report_attempt_status(
+                    conn,
+                    **fields,
+                    status=body["status"],
+                    failure_code=body.get("failure_code"),
+                    detail=body.get("detail"),
+                )
+            )
+        except FencingViolation:
+            return 409, {}
+        return 200, {}
+
+    monkeypatch.setattr(agent, "HOST_ID", resv.host_id)
+    monkeypatch.setattr(agent, "_v2_post", post)
+    monkeypatch.setattr(agent, "_v2_enabled", True)
+    monkeypatch.setattr(agent.subprocess, "run", Docker("missing"))
+
+    agent.v2_adopt_attempts()
+
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status FROM jobs WHERE job_id=%s", (resv.job_id,)
+        ).fetchone() == ("starting",)
+        # Nothing renews it any more: the lease expires and the sweep requeues.
+        conn.execute(
+            "UPDATE placement_leases SET expires_at = clock_timestamp() - interval '10 minutes' "
+            "WHERE lease_id=%s",
+            (resv.lease_id,),
+        )
+        conn.commit()
+    run_transaction(lambda conn: expire_stale_leases(conn, grace_sec=30))
+    with _pool.connection() as conn:
+        job = conn.execute(
+            "SELECT status, active_attempt_id FROM jobs WHERE job_id=%s", (resv.job_id,)
+        ).fetchone()
+        attempt = conn.execute(
+            "SELECT status FROM job_attempts WHERE attempt_id=%s", (resv.attempt_id,)
+        ).fetchone()
+    assert job == ("queued", None)
+    assert attempt == ("lost",)
