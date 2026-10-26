@@ -195,7 +195,7 @@ class TestLocalBackend:
             with open(path, "wb") as f:
                 f.write(b"x")
 
-        objects = self.client.list_objects("api/data/")
+        objects = self.client.list_objects("data/")
         assert len(objects) == 2
         keys = [o["key"] for o in objects]
         assert "data/a.bin" in keys
