@@ -6,6 +6,7 @@
 # $SRC_DIR. Every step that can break the public site is checked, and a failure
 # restores the files that were serving a moment before:
 #
+#   0. leave out any vhost whose certificate is not issued yet;
 #   1. back up the current vhosts;
 #   2. install the new ones and run `nginx -t`;      fail -> restore
 #   3. reload, then ask nginx for xcelsior.ca/healthz; not 200 -> restore
@@ -23,7 +24,25 @@ NGINX_DIR="${NGINX_DIR:-/etc/nginx}"
 SRC_DIR="${SRC_DIR:-/tmp/xcelsior-nginx}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups}"
 HEALTH_HOST="${HEALTH_HOST:-xcelsior.ca}"
-VHOSTS="xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior"
+VHOSTS="xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior otel-xcelsior"
+
+# A vhost whose certificate has not been issued yet fails `nginx -t`, and that
+# would roll back every other vhost with it, on every deploy, until someone ran
+# certbot. Leave such a vhost out (its previous copy, if any, keeps serving) and
+# install the rest. `sudo test`: /etc/letsencrypt/live is root-only.
+ready=""
+for f in $VHOSTS; do
+  missing=""
+  for cert in $(sed -nE 's/^[[:space:]]*ssl_certificate(_key)?[[:space:]]+([^;[:space:]]+);.*/\2/p' "$SRC_DIR/$f.conf"); do
+    sudo test -e "$cert" || missing="$missing $cert"
+  done
+  if [ -n "$missing" ]; then
+    echo "Skipping $f: certificate not issued yet:$missing" >&2
+    continue
+  fi
+  ready="$ready $f"
+done
+VHOSTS="${ready# }"
 
 # Incident containment is host-owned state: never replace its IP list with a
 # repository default, and never install a vhost that disconnects an existing

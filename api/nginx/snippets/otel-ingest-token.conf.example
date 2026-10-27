@@ -1,0 +1,17 @@
+# OTLP ingest bearer token for otel.xcelsior.ca — TEMPLATE. Do not commit the real value.
+#
+# Cowork sends `Authorization: Bearer <token>`; otel-xcelsior.conf compares it
+# with this value. With no file installed the vhost answers 503 to everything.
+#
+# Write it on the host (hex, so it needs no escaping inside nginx quotes):
+#
+#     T=$(openssl rand -hex 32)
+#     printf 'set $xcelsior_otel_ingest_token "%s";\n' "$T" \
+#       | sudo install -m 0640 -o root -g www-data /dev/stdin \
+#           /etc/nginx/snippets/otel-ingest-token.conf
+#     sudo nginx -t && sudo systemctl reload nginx
+#     echo "Authorization=Bearer $T"    # paste into Admin settings > Cowork > OTLP headers
+#
+# To rotate: rewrite the file, reload nginx, update the Cowork admin setting.
+
+set $xcelsior_otel_ingest_token "REPLACE_WITH_64_HEX_CHARS";

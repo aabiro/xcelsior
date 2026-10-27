@@ -303,6 +303,26 @@ def test_a_site_that_stops_answering_is_rolled_back(host):
     assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
 
 
+def test_a_vhost_without_its_certificate_is_left_out_not_rolled_back(host, tmp_path):
+    """A new hostname's vhost lands before certbot runs; it must not block the rest."""
+    etc, src, env = host
+    issued = tmp_path / "issued.pem"
+    issued.write_text("cert\n")
+    (src / "docs-xcelsior.conf").write_text(
+        f"new docs-xcelsior\nssl_certificate {issued};\nssl_certificate_key {issued};\n"
+    )
+    (src / "otel-xcelsior.conf").write_text(
+        f"new otel-xcelsior\nssl_certificate {tmp_path}/not-issued/fullchain.pem;\n"
+    )
+    r = _install(env)
+    assert r.returncode == 0, r.stderr
+    assert "Skipping otel-xcelsior" in r.stderr
+    serving = _serving(etc)
+    assert serving.pop("otel-xcelsior") == "old otel-xcelsior"
+    assert serving.pop("docs-xcelsior").startswith("new docs-xcelsior")
+    assert serving == {n: f"new {n}" for n in rnv.VHOSTS if n not in ("otel-xcelsior", "docs-xcelsior")}
+
+
 def test_existing_abuse_policy_cannot_be_silently_disconnected(host):
     etc, _, env = host
     (etc / "conf.d").mkdir()
