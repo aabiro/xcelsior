@@ -1,6 +1,7 @@
 """Routes: auth."""
 
 import base64
+import hashlib
 import hmac
 import os
 import re
@@ -11,7 +12,7 @@ import time
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
@@ -2366,6 +2367,12 @@ def api_auth_oauth_callback(provider: str, request: Request):
     elif provider == "facebook":
         email = profile.get("email", "")
         name = profile.get("name", "")
+        facebook_subject = str(profile.get("id") or "").strip()
+    else:
+        facebook_subject = ""
+
+    if provider != "facebook":
+        facebook_subject = ""
 
     if not email:
         return RedirectResponse("/dashboard?error=oauth_no_email")
@@ -2393,12 +2400,16 @@ def api_auth_oauth_callback(provider: str, request: Request):
             "country": "CA",
             "province": "ON",
             "oauth_provider": provider,
+            "oauth_subject": facebook_subject,
             "created_at": time.time(),
         }
         if _USE_PERSISTENT_AUTH:
             UserStore.create_user(user)
             # OAuth users are auto-verified (provider verified their email)
-            UserStore.update_user(email, {"email_verified": 1})
+            verified = {"email_verified": 1}
+            if facebook_subject:
+                verified["oauth_subject"] = facebook_subject
+            UserStore.update_user(email, verified)
         else:
             user["email_verified"] = 1
             with _user_lock:
@@ -2415,11 +2426,13 @@ def api_auth_oauth_callback(provider: str, request: Request):
         # refused on the password door with "please verify your email" while
         # signing in fine through this one. The flag was not a stale cache of a
         # fact; it was a fact the system had just been told and discarded.
+        updates = {"oauth_provider": provider, "email_verified": 1}
+        if facebook_subject:
+            updates["oauth_subject"] = facebook_subject
         if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(email, {"oauth_provider": provider, "email_verified": 1})
+            UserStore.update_user(email, updates)
         else:
-            user["oauth_provider"] = provider
-            user["email_verified"] = 1
+            user.update(updates)
             with _user_lock:
                 _users_db[email] = user
 
@@ -2593,35 +2606,228 @@ async def _facebook_signed_request_from(request: Request, *, purpose: str) -> di
     return _facebook_signed_request(signed_request, purpose=purpose)
 
 
+def _public_base_url() -> str:
+    return os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+
+
+def _deletion_code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def _iso(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _user_for_facebook(fb_user_id: str) -> dict | None:
+    fb_user_id = str(fb_user_id or "").strip()
+    if not fb_user_id:
+        return None
+    if _USE_PERSISTENT_AUTH:
+        return UserStore.find_by_oauth_subject(fb_user_id)
+    with _user_lock:
+        for user in _users_db.values():
+            if str(user.get("oauth_subject") or "") == fb_user_id:
+                return user
+    return None
+
+
+def _unlink_facebook_user(fb_user_id: str) -> None:
+    fb_user_id = str(fb_user_id or "").strip()
+    if not fb_user_id:
+        return
+    if _USE_PERSISTENT_AUTH:
+        UserStore.clear_oauth_subject(fb_user_id)
+        return
+    with _user_lock:
+        for user in _users_db.values():
+            if str(user.get("oauth_subject") or "") != fb_user_id:
+                continue
+            user["oauth_subject"] = ""
+            if user.get("oauth_provider") == "facebook":
+                user["oauth_provider"] = ""
+
+
+def _remember_confirmation(code: str, request_id: str | None, outcome: str) -> None:
+    digest = _deletion_code_hash(code)
+    if not _USE_PERSISTENT_AUTH:
+        _memory_deletion_confirmations[digest] = {
+            "request_id": request_id,
+            "outcome": outcome,
+        }
+        return
+    UserStore.save_facebook_deletion_confirmation(digest, request_id, outcome)
+
+
+def _confirmation_for_code(code: str) -> dict | None:
+    digest = _deletion_code_hash(code)
+    if not _USE_PERSISTENT_AUTH:
+        return _memory_deletion_confirmations.get(digest)
+    return UserStore.get_facebook_deletion_confirmation(digest)
+
+
+def _remember_quietly(code: str, request_id: str | None, outcome: str) -> None:
+    try:
+        _remember_confirmation(code, request_id, outcome)
+    except Exception:
+        log.exception("Facebook deletion confirmation was not stored")
+
+
+def _perform_facebook_deletion(fb_user_id: str) -> dict[str, str]:
+    """Start durable deletion when this Facebook id matches an account.
+
+    The confirmation code is the deletion status token when a request exists,
+    so /delete-data can open that request without a session. A callback for an
+    unknown id still gets a code. Nothing is deleted in that case.
+    """
+    code = secrets.token_urlsafe(32)
+    try:
+        user = _user_for_facebook(fb_user_id)
+    except Exception:
+        log.exception("Facebook deletion lookup failed")
+        _remember_quietly(code, None, "unavailable")
+        return {"code": code, "request_id": ""}
+
+    if not user or not user.get("user_id") or not user.get("email"):
+        _remember_quietly(code, None, "no_account")
+        return {"code": code, "request_id": ""}
+
+    try:
+        from privacy_deletion import create_deletion_request
+
+        customer_id = str(user.get("customer_id") or "").strip()
+        receipt = create_deletion_request(
+            user_id=str(user["user_id"]),
+            email=str(user["email"]),
+            customer_ids=[customer_id] if customer_id else [],
+            idempotency_key=f"facebook-{fb_user_id}"[:128],
+            requested_by="facebook-data-deletion",
+            request_source="facebook_deletion",
+        )
+    except Exception:
+        log.exception("Facebook deletion request failed")
+        _remember_quietly(code, None, "unavailable")
+        return {"code": code, "request_id": ""}
+
+    code = receipt.status_token
+    request_id = str(receipt.request_id)
+    _remember_quietly(code, request_id, "started")
+    return {"code": code, "request_id": request_id}
+
+
+def _facebook_deletion_response(fb_user_id: str) -> dict[str, str]:
+    from urllib.parse import quote
+
+    base = _public_base_url()
+    if not fb_user_id:
+        code = secrets.token_urlsafe(32)
+        _remember_quietly(code, None, "no_account")
+        return {
+            "url": f"{base}/delete-data?code={quote(code)}",
+            "confirmation_code": code,
+        }
+    result = _perform_facebook_deletion(fb_user_id)
+    code = result["code"]
+    url = f"{base}/delete-data?code={quote(code)}"
+    if result.get("request_id"):
+        url += f"&request={quote(result['request_id'])}"
+    return {"url": url, "confirmation_code": code}
+
+
+def _public_deletion_body(request_id: str, code: str) -> dict[str, Any]:
+    from privacy_deletion import (
+        PrivacyDeletionAccessDenied,
+        PrivacyDeletionNotFound,
+        get_deletion_status,
+    )
+
+    try:
+        status = get_deletion_status(request_id, status_token=code)
+    except (PrivacyDeletionNotFound, PrivacyDeletionAccessDenied) as exc:
+        raise HTTPException(404, "Deletion confirmation was not found") from exc
+    return {
+        "ok": True,
+        "outcome": "started",
+        "request_id": status["request_id"],
+        "state": status["state"],
+        "deadline_at": _iso(status.get("deadline_at")),
+        "completed_at": _iso(status.get("completed_at")),
+    }
+
+
+# In-memory receipts for tests and the non-persistent auth mode. Production
+# writes facebook_deletion_confirmations instead.
+_memory_deletion_confirmations: dict[str, dict[str, Any]] = {}
+
+
 @router.post("/api/auth/oauth/facebook/deauthorize", tags=["Auth"])
 async def facebook_deauthorize(request: Request):
     """Facebook Deauthorize Callback.
-    Called when a user removes the Xcelsior app from Facebook.
+
+    Called when a person removes Xcelsior from their Facebook account. This
+    detaches the Facebook id. It does not delete the Xcelsior account. Data
+    deletion is the separate callback.
     """
-    log.info("Facebook Deauthorize request received")
+    log.info("Facebook deauthorize request received")
     data = await _facebook_signed_request_from(request, purpose="deauthorize")
-    fb_user_id = data.get("user_id") or "unknown"
-    log.info("Processed Facebook deauthorization for Facebook User ID: %s", fb_user_id)
-    return {"status": "success", "action": "deauthorized", "facebook_user_id": fb_user_id}
+    fb_user_id = str(data.get("user_id") or "").strip()
+    if fb_user_id:
+        try:
+            _unlink_facebook_user(fb_user_id)
+        except Exception:
+            log.exception("Facebook deauthorize could not detach the account")
+            raise HTTPException(500, "Facebook deauthorize could not be recorded") from None
+    return {"status": "success", "action": "deauthorized"}
 
 
 @router.post("/api/auth/oauth/facebook/delete-data", tags=["Auth"])
 async def facebook_delete_data(request: Request):
     """Facebook Data Deletion Callback.
-    Called when a user requests deletion of their data from Facebook settings.
+
+    Meta posts a signed_request here. The JSON response is the confirmation
+    code and the public status page. https://xcelsior.ca/delete-data posts to
+    this same handler.
     """
-    log.info("Facebook Data Deletion request received")
+    log.info("Facebook data-deletion request received")
     data = await _facebook_signed_request_from(request, purpose="delete-data")
-    fb_user_id = data.get("user_id") or "unknown"
-    confirmation_code = f"del-{uuid.uuid4().hex[:12]}"
-    log.info(
-        "Scheduled data deletion for Facebook User ID: %s. Confirmation Code: %s",
-        fb_user_id,
-        confirmation_code,
-    )
+    fb_user_id = str(data.get("user_id") or "").strip()
+    return _facebook_deletion_response(fb_user_id)
+
+
+@router.get("/api/privacy/deletion-status", tags=["Auth"])
+def api_privacy_deletion_status(
+    request: Request,
+    code: str = "",
+    request_id: str = Query("", alias="request"),
+):
+    """Public status for a deletion confirmation code. No session required."""
+    _check_auth_rate_limit(request)
+    code = str(code or "").strip()
+    request_id = str(request_id or "").strip()
+    if not code or len(code) > 200 or len(request_id) > 80:
+        raise HTTPException(400, "A confirmation code is required")
+    if request_id:
+        return _public_deletion_body(request_id, code)
+    try:
+        remembered = _confirmation_for_code(code)
+    except Exception:
+        log.exception("Deletion confirmation lookup failed")
+        raise HTTPException(404, "Deletion confirmation was not found") from None
+    if not remembered:
+        raise HTTPException(404, "Deletion confirmation was not found")
+    stored_request = str(remembered.get("request_id") or "").strip()
+    if stored_request:
+        return _public_deletion_body(stored_request, code)
     return {
-        "url": f"https://xcelsior.ca/deactivate?code={confirmation_code}",
-        "confirmation_code": confirmation_code,
+        "ok": True,
+        "outcome": remembered.get("outcome") or "no_account",
+        "request_id": None,
+        "state": None,
+        "deadline_at": None,
+        "completed_at": None,
     }
 
 

@@ -626,6 +626,8 @@ const fr: Record<string, string> = {
   "footer.legal": "Juridique",
   "footer.privacy": "Politique de confidentialité",
   "footer.terms": "Conditions d'utilisation",
+  "footer.delete_data": "Supprimer vos données",
+  "footer.deactivate": "Désactiver le compte",
   "footer.security": "Sécurité",
   "footer.status": "État",
   "footer.copyright": "© {year} Xcelsior Compute Inc. Propriété et exploitation canadiennes. Tous droits réservés.",

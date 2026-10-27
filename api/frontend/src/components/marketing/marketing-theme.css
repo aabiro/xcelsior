@@ -3249,6 +3249,80 @@
   margin-top: 16px;
 }
 
+.site-legal-panel {
+  margin-top: 18px;
+  padding: 22px 22px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
+}
+
+.site-legal-panel p {
+  margin: 0;
+}
+
+.site-legal-panel p + p,
+.site-legal-form {
+  margin-top: 14px;
+}
+
+.site-legal-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.site-legal-field {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: min(100%, 240px);
+}
+
+.site-legal-field .site-auth-label {
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-legal-field .site-field {
+  flex: none;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+}
+
+.site-legal-form .site-button {
+  height: 44px;
+  padding: 0 18px;
+}
+
+@media (max-width: 640px) {
+  .site-legal-form .site-button {
+    width: 100%;
+  }
+}
+
+.site-legal-code {
+  margin-top: 12px;
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  word-break: break-all;
+  color: var(--text-2);
+}
+
+.site-legal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
 @media (max-width: 980px) {
   .site-auth-rails {
     padding-right: 32px;
