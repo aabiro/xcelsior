@@ -1338,8 +1338,8 @@ class ArtifactManager:
 
             # Transition expired requested/uploading upload sessions to abandoned
             with control_plane_transaction() as conn:
-                expired_sessions = conn.execute("""SELECT upload_session_id, artifact_id 
-                       FROM storage.artifact_upload_sessions 
+                expired_sessions = conn.execute("""SELECT upload_session_id, artifact_id
+                       FROM storage.artifact_upload_sessions
                        WHERE completed_at IS NULL AND expires_at < clock_timestamp()""").fetchall()
 
                 abandoned_count = 0
@@ -1456,8 +1456,8 @@ class ArtifactManager:
                     except Exception as e:
                         next_attempt = time.time() + 300
                         conn.execute(
-                            """UPDATE storage.artifact_deletion_jobs 
-                               SET state = 'delete_failed', next_attempt_at = to_timestamp(%s), last_error = %s 
+                            """UPDATE storage.artifact_deletion_jobs
+                               SET state = 'delete_failed', next_attempt_at = to_timestamp(%s), last_error = %s
                                WHERE deletion_id = %s""",
                             (next_attempt, str(e), del_id),
                         )
