@@ -65,4 +65,3 @@ export interface DesktopRemoteStateSyncPayload {
 
 export const DEFAULT_DESKTOP_ROUTE: DesktopRoute = "/desktop";
 export const DEFAULT_REMOTE_ROUTE = "/dashboard";
-

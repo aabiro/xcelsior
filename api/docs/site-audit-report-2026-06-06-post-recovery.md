@@ -1,9 +1,9 @@
 <!-- residency-guard: documents-removal — dated audit of the pre-pivot site -->
 # Xcelsior — Post-Recovery Site Audit Report
 
-Date: **2026-06-06** (verification run)  
-Target: https://xcelsior.ca  
-Local `main`: `05dbb0b`  
+Date: **2026-06-06** (verification run)
+Target: https://xcelsior.ca
+Local `main`: `05dbb0b`
 Production (est.): `05dbb0b`
 
 This is the **third verification pass** — synthesizing automated script output after VPS recovery (2026-06-05). It supersedes the stale generator output in `site-audit-report-2026-06-04-reaudit.md` and consolidates:
@@ -162,4 +162,3 @@ REVERIFY_JSON=/tmp/post-deploy-check.json node scripts/generate_reaudit_report.m
 3. **F-003 target** — sub-2 s desktop TBT / acceptable mobile INP (optional further splitting)
 4. **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` (2863 passed, 6 skipped as of 2026-06-05)
 5. **Cloudflare optional** — disable Email Obfuscation if legal pages need plaintext mailto in HTML source
-

@@ -52,4 +52,3 @@ export interface DesktopPreferencesUpdate {
   updaterChannel?: "stable" | "beta";
   currentDesktopRoute?: DesktopRoute;
 }
-

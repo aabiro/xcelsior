@@ -107,7 +107,9 @@ def test_deletion_callback_points_at_the_public_page(production, monkeypatch) ->
 
 def test_deauthorize_detaches_the_facebook_subject(production, monkeypatch) -> None:
     seen: dict[str, str] = {}
-    monkeypatch.setattr(auth_mod, "_unlink_facebook_user", lambda fb_user_id: seen.update(id=fb_user_id))
+    monkeypatch.setattr(
+        auth_mod, "_unlink_facebook_user", lambda fb_user_id: seen.update(id=fb_user_id)
+    )
     r = client.post(
         "/api/auth/oauth/facebook/deauthorize",
         data={"signed_request": _signed(SECRET, _payload("fb-user-123"))},

@@ -24,10 +24,15 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has_attempt_col = _c.execute("""
+        _has_attempt_col = (
+            _c.execute(
+                """
                 SELECT 1 FROM information_schema.columns
                  WHERE table_name='usage_meters' AND column_name='attempt_id'
-                """).fetchone() is not None
+                """
+            ).fetchone()
+            is not None
+        )
         _has_job_attempts = (
             _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0] is not None
         )

@@ -65,13 +65,13 @@ def simplify_coords(coords, tolerance=0.15):
     """Douglas-Peucker line simplification."""
     if len(coords) <= 2:
         return coords
-    
+
     # Find the point with maximum distance from line between first and last
     max_dist = 0
     max_idx = 0
     p1 = coords[0]
     p2 = coords[-1]
-    
+
     for i in range(1, len(coords) - 1):
         p = coords[i]
         # Distance from point to line
@@ -88,7 +88,7 @@ def simplify_coords(coords, tolerance=0.15):
         if dist > max_dist:
             max_dist = dist
             max_idx = i
-    
+
     if max_dist > tolerance:
         left = simplify_coords(coords[:max_idx+1], tolerance)
         right = simplify_coords(coords[max_idx:], tolerance)
@@ -170,7 +170,7 @@ for feature in data["features"]:
     name = feature["properties"]["name"]
     pid = province_ids.get(name, name[:2].upper())
     geom = feature["geometry"]
-    
+
     if geom["type"] == "MultiPolygon":
         all_rings = []
         for polygon in geom["coordinates"]:
@@ -180,7 +180,7 @@ for feature in data["features"]:
         all_rings = geom["coordinates"]
     else:
         continue
-    
+
     # Sort rings by area (keep larger ones for better detail vs file size)
     def ring_area(ring):
         area = 0
@@ -189,15 +189,15 @@ for feature in data["features"]:
             area += ring[i][0] * ring[j][1]
             area -= ring[j][0] * ring[i][1]
         return abs(area) / 2
-    
+
     all_rings.sort(key=ring_area, reverse=True)
-    
+
     # Keep top N rings per province (more for large provinces)
     if pid in ("NU", "NT", "NL", "BC", "QC", "ON"):
         max_rings = 25  # These have many important islands
     else:
         max_rings = 8
-    
+
     # Also filter tiny rings
     if all_rings:
         largest_area = ring_area(all_rings[0])
@@ -207,7 +207,7 @@ for feature in data["features"]:
             if ring_area(ring) >= min_area_threshold:
                 filtered_rings.append(ring)
         all_rings = filtered_rings
-    
+
     # Use looser simplification for territories (they're huge)
     if pid in ("NU",):
         tol = 0.3
@@ -221,7 +221,7 @@ for feature in data["features"]:
         tol = 0.12
     else:
         tol = 0.1
-    
+
     path_data = coords_to_svg_path(all_rings, tolerance=tol)
     provinces[pid] = {
         "name": name,

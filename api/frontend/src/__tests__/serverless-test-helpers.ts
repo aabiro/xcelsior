@@ -44,4 +44,3 @@ export const viewerUser = {
   team_name: "Acme",
   team_can_write_instances: false,
 };
-

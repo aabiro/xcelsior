@@ -112,9 +112,9 @@ class OAuthServer:
             if token != self.broken_logout:
                 self.revoked.add(token)
             return httpx.Response(200, json={"ok": True})
-        assert "cookie" not in request.headers, (
-            "probe must authenticate with the tested bearer only"
-        )
+        assert (
+            "cookie" not in request.headers
+        ), "probe must authenticate with the tested bearer only"
         client, token = self.tokens.get(bearer, ("unknown", "unknown"))
         if token in self.revoked:
             return httpx.Response(401)

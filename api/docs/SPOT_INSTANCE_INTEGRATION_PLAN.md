@@ -1,7 +1,7 @@
 # Spot Instance Integration — Production Completion Plan
 
-*Created: 2026-06-09*  
-*Parent roadmap:* [`NEXT_PRIORITIES_ROADMAP.md`](./NEXT_PRIORITIES_ROADMAP.md)  
+*Created: 2026-06-09*
+*Parent roadmap:* [`NEXT_PRIORITIES_ROADMAP.md`](./NEXT_PRIORITIES_ROADMAP.md)
 *Related:* [`billing-money-path.md`](./billing-money-path.md), [`INSTANCE_LIFECYCLE.md`](./INSTANCE_LIFECYCLE.md)
 
 Track every task required to ship **production-ready spot (interruptible) GPU instances** alongside on-demand — with unified pricing, real billing, true preemption, and a polished dashboard experience. **Bidding is retired.** There is no max-bid, no bid gating, and no bid-based preemption.

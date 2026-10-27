@@ -75,19 +75,19 @@
   <circle cx="210" cy="230" r="100" fill="#38dbff" opacity="0.10" filter="url(#sh-bloom)"></circle>
   <circle cx="800" cy="120" r="120" fill="#34d399" opacity="0.07" filter="url(#sh-bloom)"></circle>
 
-  
+
   <g stroke="url(#sh-line)" stroke-opacity="0.32" stroke-width="1.4" fill="none">
     <path d="M198 108 C 360 40, 560 46, 726 66"></path>
     <path d="M206 132 C 420 210, 600 200, 726 176"></path>
     <path d="M206 120 C 500 132, 620 128, 796 122"></path>
   </g>
-  
+
   <circle cx="470" cy="55" r="3.2" fill="#38dbff" filter="url(#sh-node)"></circle>
   <circle cx="360" cy="60" r="2.4" fill="#9b6dff" filter="url(#sh-node)"></circle>
   <circle cx="470" cy="196" r="3.2" fill="#34d399" filter="url(#sh-node)"></circle>
   <circle cx="560" cy="126" r="3" fill="#38dbff" filter="url(#sh-node)"></circle>
 
-  
+
   <g>
     <g filter="url(#sh-cardglow)"><rect x="698" y="49" width="60" height="36" rx="7" fill="url(#sh-cardbody)" stroke="url(#sh-edge2)" stroke-width="1.7"></rect></g>
     <path d="M704 55h48" stroke="#38dbff" stroke-opacity="0.28" stroke-width="1.3" stroke-linecap="round"></path>
@@ -110,7 +110,7 @@
     <rect x="715" y="190" width="26" height="3" rx="1.5" fill="url(#sh-gold)" opacity="0.9"></rect>
   </g>
 
-  
+
   <circle cx="144" cy="120" r="104" fill="url(#sh-halo)"></circle>
   <ellipse cx="144" cy="120" rx="92" ry="62" fill="none" stroke="url(#sh-edge)" stroke-width="1.2" opacity="0.3"></ellipse>
   <g transform="translate(144,120)">
@@ -120,11 +120,11 @@
     <polygon points="0,-34 29,-17 29,17 0,34 -29,17 -29,-17" fill="none" stroke="#7cf2ff" stroke-opacity="0.45" stroke-width="1.4"></polygon>
     <text x="0" y="8" text-anchor="middle" fill="url(#sh-mcp)" font-family="ui-monospace,SFMono-Regular,monospace" font-size="20" font-weight="700" letter-spacing="1">MCP</text>
   </g>
-  
+
   <circle cx="236" cy="120" r="5" fill="#38dbff" filter="url(#sh-node)"></circle>
   <circle cx="52" cy="120" r="5" fill="#34d399" filter="url(#sh-node)"></circle>
 
-  
+
   <text x="300" y="118" fill="#eafcff" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="34" font-weight="800" letter-spacing="-0.5">Connect AI Agents</text>
   <text x="302" y="152" fill="#9fb3c8" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="18" font-weight="500">Natural language to real GPUs, in seconds</text>
 

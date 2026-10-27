@@ -9,4 +9,3 @@ Unit=xcelsior-db-backup.service
 
 [Install]
 WantedBy=timers.target
-

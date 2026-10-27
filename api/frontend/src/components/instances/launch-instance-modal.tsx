@@ -143,7 +143,7 @@ export function LaunchInstanceModal({
   const [instanceName, setInstanceName] = useState(() => generateFunName());
   const [image, setImage] = useState("");
   const [gpuModel, setGpuModel] = useState("");
-  const [vramGb, setVramGb] = useState<number | "">(""); 
+  const [vramGb, setVramGb] = useState<number | "">("");
   const [numGpus, setNumGpus] = useState("1");
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
   const [tier, setTier] = useState("standard");

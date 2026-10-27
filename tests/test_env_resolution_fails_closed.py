@@ -185,8 +185,13 @@ def test_no_security_decision_compares_the_environment_string_directly():
     `tests/test_source_tree_is_shared.py` is what caught it.
     """
     offenders: dict[str, list[str]] = {}
-    for path, rel in iter_source_files(exclude_prefixes=("api/migrations/", "api/wizard/", "archive/wizard/")):
-        if rel in ("env_config.py", "core/env_config.py"):  # the resolver is allowed to read the variable
+    for path, rel in iter_source_files(
+        exclude_prefixes=("api/migrations/", "api/wizard/", "archive/wizard/")
+    ):
+        if rel in (
+            "env_config.py",
+            "core/env_config.py",
+        ):  # the resolver is allowed to read the variable
             continue
         try:
             tree = ast.parse(read_source(path))

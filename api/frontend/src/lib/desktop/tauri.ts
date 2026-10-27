@@ -67,4 +67,3 @@ export function createBrowserDesktopState(): DesktopRuntimeState {
     recentNotifications: [],
   };
 }
-

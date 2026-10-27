@@ -226,7 +226,9 @@ esac
 def test_install_messages_match_the_shared_requirement_copy():
     shell = INSTALL_SH.read_text()
     wizard = (ROOT / "api" / "wizard" / "src" / "host-requirements.ts").read_text()
-    frontend = (ROOT / "api" / "frontend" / "src" / "lib" / "host-setup-requirements.ts").read_text()
+    frontend = (
+        ROOT / "api" / "frontend" / "src" / "lib" / "host-setup-requirements.ts"
+    ).read_text()
     assert wizard == frontend
     for sentence in (
         "This machine is macOS (Darwin), so it cannot host an Xcelsior worker yet.",
@@ -413,7 +415,8 @@ def test_privileged_helper_units_and_root_config(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     # sudo: copy installed files into out/, capture tee'd config, ignore the rest.
-    (bin_dir / "sudo").write_text(f"""#!/usr/bin/env bash
+    (bin_dir / "sudo").write_text(
+        f"""#!/usr/bin/env bash
 case "$1" in
   install) [ "$2" = -d ] && exit 0; src="${{@: -2:1}}"; dst="${{@: -1}}"; cp "$src" "{out}/$(basename "$dst")" ;;
   test) exit 1 ;;
@@ -421,7 +424,8 @@ case "$1" in
   sed) shift; sed "${{@:1:$#-1}}" "{out}/$(basename "${{@: -1}}")" ;;
 esac
 exit 0
-""")
+"""
+    )
     (bin_dir / "sudo").chmod(0o755)
     helper = ROOT / "workers" / "worker_privileged.py"
     result = subprocess.run(

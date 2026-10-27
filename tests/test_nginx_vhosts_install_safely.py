@@ -320,7 +320,9 @@ def test_a_vhost_without_its_certificate_is_left_out_not_rolled_back(host, tmp_p
     serving = _serving(etc)
     assert serving.pop("otel-xcelsior") == "old otel-xcelsior"
     assert serving.pop("docs-xcelsior").startswith("new docs-xcelsior")
-    assert serving == {n: f"new {n}" for n in rnv.VHOSTS if n not in ("otel-xcelsior", "docs-xcelsior")}
+    assert serving == {
+        n: f"new {n}" for n in rnv.VHOSTS if n not in ("otel-xcelsior", "docs-xcelsior")
+    }
 
 
 def test_existing_abuse_policy_cannot_be_silently_disconnected(host):
@@ -361,10 +363,18 @@ def test_every_public_server_must_keep_its_abuse_policy(host, missing):
     (etc / "conf.d").mkdir()
     (etc / "snippets").mkdir()
     (etc / "conf.d/xcelsior-abuse-ips.conf").write_text("geo $xcelsior_abuse_ip { default 0; }\n")
-    (etc / "snippets/xcelsior-abuse-deny.conf").write_text("if ($xcelsior_abuse_ip) { return 403; }\n")
+    (etc / "snippets/xcelsior-abuse-deny.conf").write_text(
+        "if ($xcelsior_abuse_ip) { return 403; }\n"
+    )
     directive = "include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;"
     parts = _source("xcelsior").split(directive)
-    broken = parts[0] + (directive if missing != 0 else "# " + directive) + parts[1] + (directive if missing != 1 else "# " + directive) + parts[2]
+    broken = (
+        parts[0]
+        + (directive if missing != 0 else "# " + directive)
+        + parts[1]
+        + (directive if missing != 1 else "# " + directive)
+        + parts[2]
+    )
     (src / "xcelsior.conf").write_text(broken)
     result = _install(env)
     assert result.returncode != 0

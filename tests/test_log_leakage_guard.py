@@ -26,7 +26,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Directories to skip entirely
-SKIP_DIRS = {"tests", "venv", ".venv", "env", "__pycache__", "site-packages", "node_modules", "worktrees"}
+SKIP_DIRS = {
+    "tests",
+    "venv",
+    ".venv",
+    "env",
+    "__pycache__",
+    "site-packages",
+    "node_modules",
+    "worktrees",
+}
 
 # Regex to match log-style call names
 _LOG_METHODS = re.compile(r"^(info|debug|warning|warn|error|critical|exception)$")
