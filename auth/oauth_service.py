@@ -1612,9 +1612,10 @@ MCP_QUICK_CONNECT_SCOPES = [
     # dashboard, and because a connector that can already terminate the work is
     # not meaningfully restrained by withholding the key that opens it.
     #
-    # `ssh:read` is deliberately *not* here. Nothing on the tool surface lists
-    # keys, so granting it would hand out read access to the account's key
-    # inventory for no capability. Add it with the tool that needs it.
+    # `ssh:read` is deliberately *not* here. `list_ssh_keys` needs it, and an
+    # OAuth connector can hold it because its consent card names SSH keys
+    # (`CONNECTOR_ALLOWED_SCOPES`). This key is issued without that card, so it
+    # registers its own key and does not enumerate the account's.
     "ssh:write",
     # P3. Durable state: an instance's disk dies with it, so a volume is the
     # only place work survives a relaunch. Without these the connector can start
@@ -1826,7 +1827,12 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
         "here can open a shell on your running instances, with access to the "
         "data on them."
     ),
-    "ssh:read": "See which SSH keys are on your account",
+    # Connectors can hold this (plan §8.3), so it names what is disclosed: a
+    # public key is not a secret, but it identifies you wherever you use it.
+    "ssh:read": (
+        "See the SSH keys on your account: their names, fingerprints and public "
+        "keys. A public key can identify you on other services that use it."
+    ),
     "instances:connect": (
         "Open a terminal on your running instances, and publish their ports to " "the internet"
     ),
@@ -1936,7 +1942,12 @@ def summarize_consent_scopes(scopes: list[str]) -> list[str]:
     has_operator = bool(scope_set & set(OPERATOR_SCOPES))
 
     bullets: list[str] = []
-    if read_scopes or "api" in scope_set:
+    if "ssh:read" in scope_set:
+        # Named rather than folded into "your account": connectors can hold it
+        # since plan §8.3, and it discloses public keys that identify the user
+        # elsewhere. See `CONNECTOR_ALLOWED_SCOPES`.
+        bullets.append("View your account, GPU instances, volumes, billing, and SSH keys")
+    elif read_scopes or "api" in scope_set:
         bullets.append("View your account, GPU instances, volumes, and billing")
     elif scope_set & identity_scopes:
         bullets.append("View your account profile and email address")

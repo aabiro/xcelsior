@@ -80,6 +80,20 @@ CONNECTOR_ALLOWED_SCOPES: tuple[str, ...] = (
     "artifacts:read",
     "providers:read",
     "reputation:read",
+    # Lists the account's SSH keys: names, fingerprints and public halves. It
+    # is what lets a connector check the key it registered and, with
+    # `ssh:write`, remove it (`delete_ssh_key` needs both). A public key is not
+    # a secret, but it identifies its owner on every service that uses it, so
+    # the consent card names SSH keys whenever this is requested
+    # (`summarize_consent_scopes`). Not in the default set below, and still not
+    # on the Quick Connect key, which the dashboard issues without that page.
+    #
+    # The money- and badge-moving writes stay off connectors: `billing:write`,
+    # `providers:write` and `reputation:write`. The resource metadata no longer
+    # advertises them either, so a connector is never told to ask for a scope
+    # it cannot be granted —
+    # `tests/test_advertised_scopes_match_the_connector_ceiling.py`.
+    "ssh:read",
 )
 
 #: What a client that asks for nothing in particular gets. Read-biased on
