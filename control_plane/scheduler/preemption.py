@@ -15,8 +15,14 @@ from psycopg.types.json import Jsonb
 from control_plane.commands import enqueue_current_attempt_command
 from control_plane.job_specs import validate_execution_spec
 from control_plane.scheduler.fairness import lock_team_policy, require_team_quota, QuotaExceeded
-from control_plane.scheduler.filters import evaluate_host
+from control_plane.scheduler.filters import (
+    SCHEDULABLE_DEVICE_HEALTH,
+    evaluate_host,
+    gpu_model_matches,
+    is_physical_gpu_uuid,
+)
 from control_plane.scheduler.reservation import CapacityConflict
+from control_plane.scheduler.snapshot import summarize_devices
 from control_plane.sweep_isolation import SweepQuarantine
 
 
@@ -114,16 +120,33 @@ def create_plan(
             "status": host["status"],
             "administrative_state": host["administrative_state"],
         }
-        host_view["free_gpu_count"] = host_view.get("gpu_count", needed)
-        host_view["free_vram_gb"] = host_view.get("total_vram_gb", 0)
+        host_view["availability_state"] = host["availability_state"]
+        host_view.pop("lease_claim_backoff", None)
         devices = cur.execute(
             """SELECT * FROM host_gpu_devices WHERE host_id=%s
             AND retired_at IS NULL ORDER BY gpu_uuid FOR UPDATE""",
             (host_id,),
         ).fetchall()
-        host_view["free_gpu_count"] = len(devices)
-        host_view["free_vram_gb"] = max(
-            (d["allocatable_vram_mb"] / 1024 for d in devices), default=0
+        # Hypothetical capacity: every schedulable physical device of this host
+        # as if it were free. The filters then answer "could this host ever
+        # carry the nominee", with the same per-device model/VRAM rule the
+        # reservation applies.
+        physical = [
+            d
+            for d in devices
+            if is_physical_gpu_uuid(d["gpu_uuid"]) and d["health"] in SCHEDULABLE_DEVICE_HEALTH
+        ]
+        summarize_devices(
+            host_view,
+            [
+                {
+                    "gpu_device_id": str(d["gpu_device_id"]),
+                    "model": d["model"],
+                    "allocatable_vram_mb": d["allocatable_vram_mb"],
+                    "free": True,
+                }
+                for d in physical
+            ],
         )
         if evaluate_host(spec, host_view):
             return None
@@ -158,11 +181,11 @@ def create_plan(
         requested_vram = int(float(spec.get("vram_needed_gb") or 0) * 1024)
         usable = [
             d
-            for d in devices
+            for d in physical
             if str(d["gpu_device_id"]) not in held
-            and d["health"] in ("healthy", "unknown")
             and d["allocation_mode"] == "exclusive"
             and d["allocatable_vram_mb"] >= requested_vram
+            and gpu_model_matches(spec.get("gpu_model"), d["model"])
         ]
         selected = [
             str(d["gpu_device_id"]) for d in usable if str(d["gpu_device_id"]) not in by_device
@@ -442,6 +465,30 @@ def reconcile_plan(conn, plan_id: str) -> str:
         if state == "cancelled":
             cur.execute(
                 "UPDATE preemption_plan_devices SET held=FALSE WHERE plan_id=%s", (plan_id,)
+            )
+            # A cancelled plan must not keep stopping its victims. Undelivered
+            # stops are cancelled; one already claimed by the worker is in
+            # flight and finishes (its stop still requeues the victim), but it
+            # can no longer be redelivered after a lost claim.
+            cur.execute(
+                """UPDATE agent_commands c
+                   SET status = CASE WHEN c.status = 'pending' THEN 'cancelled' ELSE c.status END,
+                       expires_at = LEAST(c.expires_at, EXTRACT(EPOCH FROM NOW()))
+                  FROM preemption_plan_victims v
+                 WHERE v.plan_id = %s
+                   AND c.command_id IN (v.stop_command_id, v.force_command_id)
+                   AND c.status IN ('pending', 'claimed')""",
+                (plan_id,),
+            )
+            # A victim whose stop never reached the worker keeps running; it
+            # must stay eligible for a later plan.
+            cur.execute(
+                """UPDATE preemption_plan_victims v SET released = TRUE
+                 WHERE v.plan_id = %s AND NOT v.released
+                   AND NOT EXISTS (SELECT 1 FROM agent_commands c
+                                    WHERE c.command_id IN (v.stop_command_id, v.force_command_id)
+                                      AND c.attempt_count > 0)""",
+                (plan_id,),
             )
         elif state == "ready":
             cur.execute(

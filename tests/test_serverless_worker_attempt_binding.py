@@ -8,7 +8,7 @@ set. This drives the real reservation authority (`reserve_and_bind`) end to end.
 
 from __future__ import annotations
 
-from tests.native_jobs import admit_fixture_job
+from tests.native_jobs import admit_fixture_job, fixture_devices_serve
 
 import json
 import time
@@ -72,8 +72,8 @@ def _mkhost(scratch, *, gpus=1):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state, inventory_generation, admission_state, capabilities)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 1, 'admitted', '{"egress_isolation":true}')""",
+                                  administrative_state, availability_state, inventory_generation, admission_state, capabilities, last_observed_at)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 1, 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
             (host_id, time.time(), json.dumps({"admitted": True})),
         )
         for i in range(gpus):
@@ -84,8 +84,9 @@ def _mkhost(scratch, *, gpus=1):
                    VALUES (%s, %s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
                 (host_id, f"GPU-{host_id}-{i}", i),
             )
+        scratch["hosts"].append(host_id)
+        fixture_devices_serve(conn, scratch["jobs"], scratch["hosts"])
         conn.commit()
-    scratch["hosts"].append(host_id)
     return host_id
 
 
@@ -123,8 +124,9 @@ def _mk_serverless_job(
             (job_id, time.time(), json.dumps(payload)),
         )
         admit_fixture_job(conn, job_id)
+        scratch["jobs"].append(job_id)
+        fixture_devices_serve(conn, scratch["jobs"], scratch["hosts"])
         conn.commit()
-    scratch["jobs"].append(job_id)
     return job_id
 
 

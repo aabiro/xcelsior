@@ -86,6 +86,7 @@ IDENTITY_TABLES = frozenset(
         "user_encryption_keys",
         "privacy_deletion_requests",
         "privacy_deletion_sink_status",
+        "facebook_deletion_confirmations",
         "fintrac_reports",
         "verification_history",
         "host_verifications",

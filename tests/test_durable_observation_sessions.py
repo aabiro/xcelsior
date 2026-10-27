@@ -35,6 +35,7 @@ def observe(conn, host_id, session="old", generation=1, **kwargs):
         session_id=session,
         observation_generation=generation,
         workloads=kwargs.pop("workloads", []),
+        handoff_silence_sec=kwargs.pop("handoff_silence_sec", 0),
         **kwargs,
     )
 
@@ -382,3 +383,29 @@ def test_competing_new_sessions_leave_one_live_identity_and_old_reports_cannot_r
         with psycopg.connect(dsn) as conn:
             conn.execute("DELETE FROM reconciliation_queue WHERE resource_id=%s", (host_id,))
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (host_id,))
+
+
+def test_live_session_retains_authority_while_successor_waits(host):
+    conn, host_id = host
+    first = observe(conn, host_id, "first", capabilities={"first": True})
+    assert first.applied
+    pending = observe(
+        conn, host_id, "successor", handoff_silence_sec=150, capabilities={"successor": True}
+    )
+    assert pending.session_state == "pending" and not pending.applied
+    assert authority(conn, host_id)[0] == "first"
+    assert conn.execute(
+        "SELECT count(*) FROM host_observation_sessions WHERE host_id=%s AND retired_at IS NULL",
+        (host_id,),
+    ).fetchone() == (1,)
+    conn.execute(
+        "UPDATE hosts SET last_observed_at=clock_timestamp()-interval '151 seconds' WHERE host_id=%s",
+        (host_id,),
+    )
+    accepted = observe(conn, host_id, "successor", generation=2, handoff_silence_sec=150)
+    assert accepted.applied and accepted.session_state == "current"
+    assert authority(conn, host_id)[0] == "successor"
+    assert conn.execute(
+        "SELECT retired_at IS NOT NULL FROM host_observation_sessions WHERE host_id=%s AND session_id='first'",
+        (host_id,),
+    ).fetchone() == (True,)

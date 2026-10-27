@@ -21,10 +21,12 @@ All functions run inside the caller's transaction
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import re
 from typing import Any, cast
 
 from psycopg import Connection, sql
+from psycopg.types.json import Jsonb
 
 from control_plane.state import job_phase
 from control_plane.sweep_isolation import SweepQuarantine
@@ -452,9 +454,12 @@ def expire_stale_leases(
       distinguishes authority loss from physical stop; restart policy is
       the reconciler's concern, here we only revoke authority).
 
-    In both cases, atomically: lease → expired, attempt → terminal,
-    allocations → released (exactly once), job authority cleared and desired
-    stop/terminal state preserved, outbox event appended. Work still desired
+    In both cases, atomically: lease → expired, attempt → terminal, job
+    authority cleared and desired stop/terminal state preserved, outbox event
+    appended. A never-claimed offer also releases its allocations and requeues
+    at once. A renewal timeout keeps the allocations and holds a requeue
+    (``next_schedule_at = infinity``, reason ``awaiting_stop_evidence``) until
+    :func:`release_stopped_attempts` finds stop evidence. Work still desired
     running is requeued with a durable reason, except serverless workers:
     their scheduler job closes and endpoint reconciliation provisions a fresh
     worker/job identity for queued requests. A normal job retry
@@ -581,16 +586,35 @@ def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[
         "UPDATE placement_leases SET status = 'expired' WHERE lease_id = %s",
         (lease_id,),
     )
-    conn.execute(
+    # An active lease that stopped renewing proves only that authority is
+    # gone, not that the container stopped: a crashed agent leaves its
+    # containers running. Its devices stay allocated, and work that would be
+    # requeued stays out of the queue, until stop evidence arrives
+    # (release_stopped_attempts). An offer that was never claimed cannot have
+    # started anything and settles at once, as before.
+    fenced = conn.execute(
         """
         UPDATE job_attempts
-           SET status = %s, failure_code = %s, ended_at = clock_timestamp()
-         WHERE attempt_id = %s
+           SET status = %(terminal)s, failure_code = %(code)s, ended_at = clock_timestamp(),
+               failure_details = CASE WHEN %(hold)s
+                   THEN COALESCE(failure_details, '{}'::jsonb) || jsonb_build_object(
+                       'awaiting_stop_evidence', true, 'fenced_at', clock_timestamp(),
+                       'lease_id', %(lease)s::text)
+                   ELSE failure_details END
+         WHERE attempt_id = %(attempt)s
            AND status NOT IN ('succeeded', 'failed', 'cancelled',
                               'preempted', 'lost', 'fenced')
         """,
-        (terminal, failure_code, attempt_id),
+        {
+            "terminal": terminal,
+            "code": failure_code,
+            "hold": was == "active",
+            "lease": lease_id,
+            "attempt": attempt_id,
+        },
     )
+    # A worker that already reported its attempt terminal proved the stop.
+    hold = was == "active" and fenced.rowcount == 1
     if current_authority:
         from control_plane.db_roles import current_service
 
@@ -604,17 +628,18 @@ def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[
 
             sync_attempt_billing(conn, attempt_id)
             sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
-    conn.execute(
-        """
-        UPDATE gpu_device_allocations
-           SET status = 'released',
-               released_at = clock_timestamp(),
-               release_reason = %s
-         WHERE attempt_id = %s
-           AND status = 'active'
-        """,
-        (failure_code, attempt_id),
-    )
+    if not hold:
+        conn.execute(
+            """
+            UPDATE gpu_device_allocations
+               SET status = 'released',
+                   released_at = clock_timestamp(),
+                   release_reason = %s
+             WHERE attempt_id = %s
+               AND status = 'active'
+            """,
+            (failure_code, attempt_id),
+        )
     # Undelivered start command for this attempt is dead: cancel it so
     # a late worker fetch cannot start a fenced-out attempt.
     conn.execute(
@@ -642,9 +667,17 @@ def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[
                host_id = NULL,
                active_attempt_id = NULL,
                lifecycle_intent = NULL,
-               reason_code = %(reason)s,
-               next_schedule_at = CASE WHEN %(status)s = 'queued'
-                   THEN clock_timestamp() ELSE NULL END,
+               reason_code = CASE WHEN %(hold)s AND %(status)s = 'queued'
+                   THEN 'awaiting_stop_evidence' ELSE %(reason)s END,
+               reason_details = CASE WHEN %(hold)s AND %(status)s = 'queued'
+                   THEN jsonb_build_object('attempt_id', %(attempt)s::text,
+                       'host_id', %(host)s::text, 'lease_id', %(lease)s::text,
+                       'fenced_at', clock_timestamp())
+                   ELSE reason_details END,
+               -- Held work is not claimable until its stop is proven.
+               next_schedule_at = CASE
+                   WHEN %(status)s = 'queued' AND %(hold)s THEN 'infinity'::timestamptz
+                   WHEN %(status)s = 'queued' THEN clock_timestamp() ELSE NULL END,
                schedule_claim_owner = NULL,
                schedule_claim_token = NULL,
                schedule_claim_expires_at = NULL,
@@ -670,6 +703,9 @@ def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[
             "attempt": attempt_id,
             "status": job_status,
             "phase": job_phase(job_status),
+            "hold": hold,
+            "host": str(_get(row, "host_id", 3)),
+            "lease": lease_id,
         },
     )
     from control_plane.outbox import append_event
@@ -679,7 +715,12 @@ def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[
         aggregate_type="job",
         aggregate_id=job_id,
         event_type="job.v1.lease_expired",
-        payload={"attempt_id": attempt_id, "lease_id": lease_id, "reason": failure_code},
+        payload={
+            "attempt_id": attempt_id,
+            "lease_id": lease_id,
+            "reason": failure_code,
+            "stop_evidence_required": hold,
+        },
         idempotency_key=f"lease_expired:{lease_id}",
     )
     return {
@@ -688,4 +729,301 @@ def _expire_lease_row(conn: Connection, row: Any, *, lock_nowait: bool) -> dict[
         "attempt_id": attempt_id,
         "was": was,
         "attempt_terminal": terminal,
+        "stop_evidence_required": hold,
     }
+
+
+# ── Stop evidence for fenced-but-unproven attempts ──────────────────────
+#
+# A renewal timeout revokes authority but leaves the attempt's GPUs allocated
+# and its requeue held. ``release_stopped_attempts`` (a scheduler sweep)
+# releases both once one of these holds, recorded on the attempt as
+# ``failure_details.stop_evidence``:
+#
+# - ``observation_exited``: a current-session observation received after the
+#   fence lists the attempt's container as exited;
+# - ``observation_absent``: such an observation lists the host's containers
+#   (a non-empty listing, or ``conditions.workloads == "reported"``) and the
+#   attempt's container is not among them;
+# - ``observation_absent_confirmed``: every current-session observation for at
+#   least ``ABSENCE_CONFIRMATION_SEC`` lacks it (an empty listing alone could
+#   be a failed ``docker ps``);
+# - ``host_removed`` / ``host_disabled``: an operator deleted the host or set
+#   it ``disabled`` — the operator's declaration that it is out of service;
+# - ``host_silent_timeout``: the escape for a permanently dead host — no
+#   current-session observation at all for ``STOP_EVIDENCE_TIMEOUT_SEC``
+#   (``XCELSIOR_LEASE_STOP_EVIDENCE_TIMEOUT_SEC``, default one hour) after the
+#   fence. A live worker self-fences within its lease TTL, so this window is
+#   only reached when the agent itself never comes back;
+# - ``operator``: ``release_unproven_stop`` for anything else (for example a
+#   container a live host keeps failing to kill), with the actor recorded.
+#
+# While a host keeps reporting the container as running nothing is released:
+# the reconciler's stale_fence_container finding is the signal and its stop
+# command the remedy.
+
+STOP_EVIDENCE_TIMEOUT_SEC = float(
+    os.environ.get("XCELSIOR_LEASE_STOP_EVIDENCE_TIMEOUT_SEC", "3600") or 3600
+)
+ABSENCE_CONFIRMATION_SEC = 300.0
+
+_STOP_EVIDENCE_QUARANTINE = SweepQuarantine("stop_evidence")
+
+
+def _workload_is_attempt(workload: dict[str, Any], *, job_id: str, attempt_id: str) -> bool:
+    """Does an observed container belong to this attempt (or cannot be ruled out)?"""
+    if workload.get("attempt_id"):
+        return str(workload["attempt_id"]) == attempt_id
+    name = str(workload.get("container_name") or "")
+    return workload.get("job_id") == job_id or name in (
+        f"xcl-{job_id}",
+        f"xcl-{job_id}-{attempt_id[:8]}",
+    )
+
+
+def _stop_evidence(
+    conn: Connection,
+    *,
+    job_id: str,
+    attempt_id: str,
+    host_id: str,
+    fenced_at: Any,
+    evidence_timeout_sec: float,
+) -> dict[str, Any] | None:
+    host = conn.execute(
+        "SELECT administrative_state, observation_session_id FROM hosts WHERE host_id=%s",
+        (host_id,),
+    ).fetchone()
+    if host is None:
+        return {"kind": "host_removed"}
+    if _get(host, "administrative_state", 0) == "disabled":
+        return {"kind": "host_disabled"}
+    session = _get(host, "observation_session_id", 1)
+    observations = (
+        conn.execute(
+            """
+            SELECT o.observation_id, o.received_at, o.conditions, o.observed_workload_count
+              FROM host_observations o
+              JOIN host_observation_sessions s
+                ON s.host_id = o.host_id AND s.session_id = o.session_id
+               AND s.retired_at IS NULL
+             WHERE o.host_id = %s AND o.session_id = %s AND o.received_at > %s
+             ORDER BY o.received_at DESC
+             LIMIT 200
+            """,
+            (host_id, session, fenced_at),
+        ).fetchall()
+        if session is not None
+        else []
+    )
+    if not observations:
+        silent = conn.execute(
+            "SELECT %s::timestamptz < clock_timestamp() - make_interval(secs => %s)",
+            (fenced_at, evidence_timeout_sec),
+        ).fetchone()
+        if silent is not None and silent[0]:
+            return {"kind": "host_silent_timeout", "timeout_sec": evidence_timeout_sec}
+        return None
+    absent_since = None
+    for index, observation in enumerate(observations):
+        observation_id = str(_get(observation, "observation_id", 0))
+        workloads = conn.execute(
+            "SELECT job_id, attempt_id, container_name, state FROM observed_workloads "
+            "WHERE observation_id = %s",
+            (observation_id,),
+        ).fetchall()
+        mine = [
+            str(_get(w, "state", 3))
+            for w in workloads
+            if _workload_is_attempt(
+                {
+                    "job_id": _get(w, "job_id", 0),
+                    "attempt_id": _get(w, "attempt_id", 1),
+                    "container_name": _get(w, "container_name", 2),
+                },
+                job_id=job_id,
+                attempt_id=attempt_id,
+            )
+        ]
+        if index == 0:
+            evidence = {
+                "observation_id": observation_id,
+                "session_id": session,
+                "received_at": str(_get(observation, "received_at", 1)),
+            }
+            if mine and all(state == "exited" for state in mine):
+                return {"kind": "observation_exited", **evidence}
+            if mine:
+                return None  # still running (or unknown) on a reporting host
+            conditions = _get(observation, "conditions", 2) or {}
+            if int(_get(observation, "observed_workload_count", 3) or 0) > 0 or (
+                isinstance(conditions, dict) and conditions.get("workloads") == "reported"
+            ):
+                return {"kind": "observation_absent", **evidence}
+        if mine:
+            break
+        absent_since = _get(observation, "received_at", 1)
+    if absent_since is not None:
+        confirmed = conn.execute(
+            "SELECT %s::timestamptz - %s::timestamptz >= make_interval(secs => %s)",
+            (_get(observations[0], "received_at", 1), absent_since, ABSENCE_CONFIRMATION_SEC),
+        ).fetchone()
+        if confirmed is not None and confirmed[0]:
+            return {
+                "kind": "observation_absent_confirmed",
+                "observation_id": str(_get(observations[0], "observation_id", 0)),
+                "session_id": session,
+                "absent_since": str(absent_since),
+            }
+    return None
+
+
+def _settle_proven_stop(
+    conn: Connection, *, job_id: str, attempt_id: str, evidence: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Release a held attempt's devices and requeue hold once, with the evidence."""
+    # Job before attempt: the lock order every lifecycle writer uses.
+    conn.execute("SELECT 1 FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)).fetchall()
+    settled = conn.execute(
+        """
+        UPDATE job_attempts
+           SET failure_details = failure_details || jsonb_build_object(
+                   'stop_evidence', %s::jsonb, 'stop_evidence_at', clock_timestamp())
+         WHERE attempt_id = %s AND status = 'lost'
+           AND failure_details->>'awaiting_stop_evidence' = 'true'
+           AND failure_details->'stop_evidence' IS NULL
+        RETURNING attempt_id
+        """,
+        (Jsonb(evidence), attempt_id),
+    ).fetchone()
+    if settled is None:
+        return None
+    released = conn.execute(
+        """
+        UPDATE gpu_device_allocations
+           SET status = 'released', released_at = clock_timestamp(),
+               release_reason = 'lease_renewal_timeout'
+         WHERE attempt_id = %s AND status = 'active'
+        """,
+        (attempt_id,),
+    ).rowcount
+    requeued = conn.execute(
+        """
+        UPDATE jobs
+           SET next_schedule_at = clock_timestamp(),
+               reason_code = 'lease_renewal_timeout',
+               reason_details = COALESCE(reason_details, '{}'::jsonb)
+                   || jsonb_build_object('stop_evidence', %s::text),
+               version = version + 1,
+               updated_at = clock_timestamp()
+         WHERE job_id = %s AND phase = 'pending'
+           AND reason_code = 'awaiting_stop_evidence'
+           AND reason_details->>'attempt_id' = %s
+        """,
+        (evidence["kind"], job_id, attempt_id),
+    ).rowcount
+    from control_plane.outbox import append_event
+
+    append_event(
+        conn,
+        aggregate_type="job",
+        aggregate_id=job_id,
+        event_type="job.v1.attempt_stop_proven",
+        payload={
+            "attempt_id": attempt_id,
+            "evidence": evidence["kind"],
+            "allocations_released": released,
+            "requeued": bool(requeued),
+        },
+        idempotency_key=f"stop_proven:{attempt_id}",
+    )
+    return {
+        "job_id": job_id,
+        "attempt_id": attempt_id,
+        "evidence": evidence["kind"],
+        "allocations_released": released,
+        "requeued": bool(requeued),
+    }
+
+
+def release_stopped_attempts(
+    conn: Connection,
+    *,
+    limit: int = 50,
+    evidence_timeout_sec: float | None = None,
+) -> list[dict[str, Any]]:
+    """Scheduler sweep: settle fenced attempts whose stop is now proven.
+
+    Candidates are the attempts still holding devices, or still holding their
+    job out of the queue, after a renewal timeout. Each is evaluated and
+    settled in its own savepoint (see ``SweepQuarantine``).
+    """
+    timeout = STOP_EVIDENCE_TIMEOUT_SEC if evidence_timeout_sec is None else evidence_timeout_sec
+    candidates = conn.execute(
+        """
+        SELECT a.attempt_id, a.job_id, a.host_id,
+               COALESCE((a.failure_details->>'fenced_at')::timestamptz, a.ended_at) AS fenced_at
+          FROM job_attempts a
+         WHERE a.attempt_id IN (
+                   SELECT g.attempt_id FROM gpu_device_allocations g WHERE g.status = 'active'
+                   UNION
+                   SELECT (j.reason_details->>'attempt_id')::uuid FROM jobs j
+                    WHERE j.phase = 'pending' AND j.reason_code = 'awaiting_stop_evidence')
+           AND a.status = 'lost'
+           AND a.failure_details->>'awaiting_stop_evidence' = 'true'
+           AND a.failure_details->'stop_evidence' IS NULL
+           AND a.attempt_id <> ALL(%s::uuid[])
+         ORDER BY fenced_at, a.attempt_id
+         LIMIT %s
+        """,
+        (_STOP_EVIDENCE_QUARANTINE.skipped(), limit),
+    ).fetchall()
+    settled: list[dict[str, Any]] = []
+    for row in candidates:
+        attempt_id = str(_get(row, "attempt_id", 0))
+        job_id = str(_get(row, "job_id", 1))
+
+        def settle(row=row, attempt_id=attempt_id, job_id=job_id):
+            evidence = _stop_evidence(
+                conn,
+                job_id=job_id,
+                attempt_id=attempt_id,
+                host_id=str(_get(row, "host_id", 2)),
+                fenced_at=_get(row, "fenced_at", 3),
+                evidence_timeout_sec=timeout,
+            )
+            if evidence is None:
+                return None
+            return _settle_proven_stop(
+                conn, job_id=job_id, attempt_id=attempt_id, evidence=evidence
+            )
+
+        ok, result = _STOP_EVIDENCE_QUARANTINE.run(conn, attempt_id, settle)
+        if ok and result is not None:
+            settled.append(result)
+    return settled
+
+
+def release_unproven_stop(
+    conn: Connection, *, attempt_id: str, actor: str, reason: str
+) -> dict[str, Any] | None:
+    """Operator escape: release a fenced attempt without physical stop evidence.
+
+    For a host that will never report again but cannot be removed, or a
+    container a live host keeps failing to kill. The operator accepts the
+    double-execution risk; ``actor`` and ``reason`` are recorded on the attempt
+    and in the outbox event.
+    """
+    if not actor.strip() or not reason.strip():
+        raise ValueError("an operator release requires an actor and a reason")
+    row = conn.execute(
+        "SELECT job_id FROM job_attempts WHERE attempt_id=%s", (attempt_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return _settle_proven_stop(
+        conn,
+        job_id=str(_get(row, "job_id", 0)),
+        attempt_id=attempt_id,
+        evidence={"kind": "operator", "actor": actor, "reason": reason},
+    )

@@ -75,3 +75,18 @@ def insert_schedulable_host(
             (host_id, f"GPU-{host_id}-{index}", index, model, vram_mb, vram_mb),
         )
     return host_id
+
+
+def fixture_devices_serve(conn, job_ids, host_ids, *, base="RTX 4090"):
+    """Name a fixture fleet's devices for every model its jobs request.
+
+    Fixture jobs request their own id as ``gpu_model``: a unique claim scope
+    that keeps a test from claiming another test's queue residue. The native
+    scheduler binds only devices whose model contains the requested one, so
+    the fleet's devices carry all of its jobs' model names.
+    """
+    if job_ids and host_ids:
+        conn.execute(
+            "UPDATE host_gpu_devices SET model=%s WHERE host_id=ANY(%s)",
+            (" ".join([base, *sorted(job_ids)]), list(host_ids)),
+        )

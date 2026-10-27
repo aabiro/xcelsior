@@ -33,11 +33,29 @@ OBSERVED_STATES = (
 )
 
 
+# An unseen (or waiting) session may take over the host only once the current
+# session has been silent this long. Workers report every 60 s, so a live
+# session is never this quiet; a restarted worker waits at most this long, which
+# stays well inside the 300 s scheduling freshness window.
+DEFAULT_SESSION_HANDOFF_SILENCE_SEC = 150.0
+
+
 @dataclass(frozen=True)
 class IngestResult:
     observation_id: str | None
     duplicate: bool
     workloads: int
+    #: ``current``: this session owns the host's observed state;
+    #: ``pending``: a newer process waiting for the current session to go
+    #: silent; ``retired``: superseded — this session can never apply state
+    #: again, so its worker should rotate to a fresh session id.
+    session_state: str = "current"
+    #: Whether this report changed the host's accepted observed state.
+    applied: bool = False
+
+    @property
+    def stale(self) -> bool:
+        return self.session_state == "retired"
 
 
 def _get(row: Any, key: str, index: int) -> Any:
@@ -63,6 +81,7 @@ def ingest_observation(
     capabilities: dict[str, Any] | None = None,
     conditions: dict[str, Any] | None = None,
     gpu_inventory: list[dict[str, Any]] | None = None,
+    handoff_silence_sec: float = DEFAULT_SESSION_HANDOFF_SILENCE_SEC,
 ) -> IngestResult:
     """Store one full-state observation inside the caller's transaction.
 
@@ -70,30 +89,59 @@ def ingest_observation(
     triple is a duplicate delivery and ingests nothing (at-least-once
     transport safe). Also enqueues the host for reconciliation and
     freshens ``hosts.last_observed_at``.
+
+    Session handoff: a session other than the host's current one may take
+    over only when the current session has been silent for
+    ``handoff_silence_sec`` (DB clock). Until then it is *pending*: its
+    snapshot is kept as evidence but applies nothing, and it takes over by
+    itself on a later report once the current session goes quiet. A delayed
+    first report from an older process therefore cannot retire the live
+    session. A superseded session is *retired* for good and the result says
+    so (``stale``) so its worker can rotate.
     """
     if gpu_inventory is not None:
         from control_plane.physical_inventory import validate_inventory
 
         validate_inventory(gpu_inventory)
     host = conn.execute(
-        "SELECT observation_session_id FROM hosts WHERE host_id=%s FOR UPDATE", (host_id,)
+        "SELECT observation_session_id,"
+        "(last_observed_at IS NULL OR last_observed_at < clock_timestamp()"
+        " - make_interval(secs => %s)) AS current_silent "
+        "FROM hosts WHERE host_id=%s FOR UPDATE",
+        (handoff_silence_sec, host_id),
     ).fetchone()
     if host is None:
         raise ValueError("observation host is not registered")
     current_session = _get(host, "observation_session_id", 0)
+    may_supersede = current_session is None or bool(_get(host, "current_silent", 1))
     previous = conn.execute(
         "SELECT highest_generation,retired_at FROM host_observation_sessions "
         "WHERE host_id=%s AND session_id=%s",
         (host_id, session_id),
     ).fetchone()
+    session_state = "current"
     # Snapshot retention cannot erase a session's retirement or accepted
-    # generation. A known non-current session is diagnostic evidence only.
-    stale = previous is not None and (
-        current_session != session_id
-        or _get(previous, "retired_at", 1) is not None
-        or observation_generation <= _get(previous, "highest_generation", 0)
-    )
-    if previous is None:
+    # generation. A known non-current session is diagnostic evidence only,
+    # unless it is a waiting successor whose predecessor has gone silent.
+    stale = False
+    takeover = False
+    if previous is not None:
+        if _get(previous, "retired_at", 1) is not None:
+            session_state, stale = "retired", True
+        elif current_session != session_id:
+            if may_supersede:
+                takeover = True
+            else:
+                session_state, stale = "pending", True
+        stale = stale or observation_generation <= _get(previous, "highest_generation", 0)
+    elif current_session not in (None, session_id) and not may_supersede:
+        # The registry permits exactly one non-retired session per host.
+        # Keep a waiting successor in the diagnostic snapshots until takeover;
+        # registering it here would collide with the live session's unique key.
+        session_state, stale = "pending", True
+    else:
+        takeover = True
+    if takeover:
         # A writer that predates the registry (an older runtime still serving
         # during a handoff) can record a current session without a registry
         # row. Register it from its retained snapshots instead of refusing
@@ -101,7 +149,7 @@ def ingest_observation(
         conn.execute(
             "UPDATE host_observation_sessions SET retired_at=clock_timestamp() "
             "WHERE host_id=%s AND retired_at IS NULL AND session_id IS DISTINCT FROM %s",
-            (host_id, session_id if current_session == session_id else None),
+            (host_id, session_id),
         )
         if current_session is not None and current_session != session_id:
             # Record the session the previous writer left behind even when its
@@ -128,6 +176,8 @@ def ingest_observation(
         stale = _get(previous, "retired_at", 1) is not None or (
             observation_generation <= _get(previous, "highest_generation", 0)
         )
+        if _get(previous, "retired_at", 1) is not None:
+            session_state = "retired"
     row = conn.execute(
         """
         INSERT INTO host_observations
@@ -154,7 +204,9 @@ def ingest_observation(
         ),
     ).fetchone()
     if row is None:
-        return IngestResult(observation_id=None, duplicate=True, workloads=0)
+        return IngestResult(
+            observation_id=None, duplicate=True, workloads=0, session_state=session_state
+        )
     observation_id = str(_get(row, "observation_id", 0))
 
     for w in workloads:
@@ -183,7 +235,10 @@ def ingest_observation(
 
     if stale:
         return IngestResult(
-            observation_id=observation_id, duplicate=False, workloads=len(workloads)
+            observation_id=observation_id,
+            duplicate=False,
+            workloads=len(workloads),
+            session_state=session_state,
         )
     conn.execute(
         "UPDATE host_observation_sessions SET highest_generation=%s,latest_observation_id=%s "
@@ -241,7 +296,9 @@ def ingest_observation(
         """,
         (f"agent:{session_id}", host_id),
     )
-    return IngestResult(observation_id=observation_id, duplicate=False, workloads=len(workloads))
+    return IngestResult(
+        observation_id=observation_id, duplicate=False, workloads=len(workloads), applied=True
+    )
 
 
 def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:

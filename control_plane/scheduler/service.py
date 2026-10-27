@@ -27,7 +27,7 @@ from typing import Any
 from control_plane.db import RetryBudgetExceeded, run_transaction
 from control_plane.commands import redeliver_expired_claims
 from control_plane.inventory import sync_host_gpu_inventory
-from control_plane.leases import expire_stale_leases
+from control_plane.leases import expire_stale_leases, release_stopped_attempts
 from control_plane.operational_metrics import ServiceHeartbeat
 from control_plane.job_specs import validate_execution_spec
 from control_plane.scheduler.claim import (
@@ -45,7 +45,7 @@ from control_plane.scheduler.reservation import (
     reserve_and_bind,
 )
 from control_plane.scheduler.scoring import rank_candidates
-from control_plane.scheduler.snapshot import take_snapshot
+from control_plane.scheduler.snapshot import take_snapshot, with_nominated_devices
 
 log = logging.getLogger("xcelsior.control_plane.scheduler.service")
 
@@ -98,6 +98,7 @@ class SchedulerService:
         self._sweep_errors = 0
         claims = self._sweep("sched_claim_sweep", lambda c: clear_expired_claims(c), 0)
         leases = self._sweep("sched_lease_sweep", lambda c: expire_stale_leases(c), [])
+        self._sweep("sched_stop_evidence_sweep", lambda c: release_stopped_attempts(c), [])
         commands = self._sweep("sched_command_sweep", lambda c: redeliver_expired_claims(c), 0)
         from control_plane.scheduler.preemption import sweep_plans
 
@@ -169,14 +170,20 @@ class SchedulerService:
         hosts = [h for h in snapshot.hosts if cfg.host_in_scope(str(h.get("host_id") or ""))]
         nomination_host = run_transaction(
             lambda c: c.execute(
-                """SELECT host_id FROM preemption_plans
+                """SELECT host_id, plan_id FROM preemption_plans
                 WHERE nominated_job_id=%s AND state IN ('stopping','ready')""",
                 (claimed.job_id,),
             ).fetchone(),
             what="sched_nomination_host",
         )
         if nomination_host:
-            hosts = [h for h in hosts if h.get("host_id") == nomination_host[0]]
+            # The nominee may bind only the devices its plan holds; everyone
+            # else sees those devices as unavailable.
+            hosts = [
+                with_nominated_devices(h, str(nomination_host[1]))
+                for h in hosts
+                if h.get("host_id") == nomination_host[0]
+            ]
         ctx = FilterContext(stale_host_ids=snapshot.stale_host_ids)
         eligible, rejections = filter_hosts(job, hosts, ctx)
         if eligible:

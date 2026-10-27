@@ -286,8 +286,62 @@ def _load_hosts_from_conn(conn, active_only=False):
     return DatabaseOps.load_hosts(conn, active_only=active_only, backend=_active_backend())
 
 
+# Fields a payload patch may never carry: they are columns (or shadow one in
+# every read) owned by admission, placement and the lease engine. A display or
+# runtime-metadata patch that wrote them back from a stale read is exactly how a
+# concurrent placement was undone.
+_JOB_PATCH_FORBIDDEN = frozenset(
+    {
+        "job_id",
+        "status",
+        "phase",
+        "desired_state",
+        "host_id",
+        "priority",
+        "submitted_at",
+        "queued_at",
+        "owner",
+        "owner_id",
+        "tenant_id",
+        "team_id",
+        "pricing_mode",
+        "spot_rate_cad",
+        "host_key_fingerprint",
+        "spec",
+        "spec_hash",
+        "active_attempt_id",
+        "generation",
+        "version",
+        "lifecycle_intent",
+        "error_message",
+        "exit_code",
+    }
+)
+
+
 def _set_job_fields(job_id, **updates):
-    """Patch fields for one job atomically."""
+    """Patch payload fields for one job atomically.
+
+    PostgreSQL: one row-locking ``UPDATE`` merges only the given payload keys,
+    so a concurrent placement, lock or rename is never overwritten from a
+    stale read. Authority columns are refused, not silently dropped.
+    """
+    if _active_backend() == "postgres":
+        forbidden = sorted(set(updates) & _JOB_PATCH_FORBIDDEN)
+        if forbidden:
+            raise ValueError(f"job payload patch cannot set authority fields: {forbidden}")
+        from psycopg.types.json import Jsonb
+
+        with _atomic_mutation() as conn:
+            row = conn.execute(
+                "UPDATE jobs SET payload = COALESCE(payload, '{}'::jsonb) || %s::jsonb, "
+                "version = version + 1, updated_at = clock_timestamp() "
+                "WHERE job_id = %s RETURNING job_id",
+                (Jsonb(json.loads(json.dumps(updates, default=str))), job_id),
+            ).fetchone()
+            if row is None:
+                return None
+            return _get_job_by_id_conn(conn, job_id)
     with _atomic_mutation() as conn:
         job = _get_job_by_id_conn(conn, job_id)
         if not job:
@@ -395,6 +449,27 @@ def _is_spot_job(job: dict) -> bool:
 
 def _host_gpu_count(host: dict) -> int:
     return max(1, int(host.get("gpu_count", 1) or 1))
+
+
+def _host_physical_gpu_count(conn, host_id: str, existing: dict | None) -> int:
+    """GPUs the host actually reported: its live physical device rows.
+
+    Nothing in production writes ``payload.gpu_count`` and the heartbeat
+    describes GPU0 only, so the payload value is a fallback for hosts whose
+    physical inventory has not arrived yet (and for the SQLite backend).
+    """
+    if _active_backend() == "postgres":
+        from control_plane.scheduler.filters import PHYSICAL_GPU_UUID_PATTERN
+
+        row = conn.execute(
+            "SELECT count(*) AS n FROM host_gpu_devices "
+            "WHERE host_id=%s AND retired_at IS NULL AND gpu_uuid ~ %s",
+            (host_id, PHYSICAL_GPU_UUID_PATTERN),
+        ).fetchone()
+        count = int((row["n"] if isinstance(row, dict) else row[0]) if row else 0)
+        if count > 0:
+            return count
+    return max(1, int((existing or {}).get("gpu_count", 1) or 1))
 
 
 def _host_spot_gpu_slots(host: dict) -> int:
@@ -1078,7 +1153,7 @@ def register_host(
     """
     with _atomic_mutation() as conn:
         existing = _get_host_by_id_conn(conn, host_id)
-        gpu_count = max(1, int(existing.get("gpu_count", 1) or 1)) if existing else 1
+        gpu_count = _host_physical_gpu_count(conn, host_id, existing)
         admitted_before_update = bool(existing and existing.get("admitted") is True)
         initial_status = (
             "pending" if pending_until_admitted and not admitted_before_update else "active"
@@ -1092,6 +1167,9 @@ def register_host(
             "cost_per_hour": cost_per_hour,
             "gpu_count": gpu_count,
             "spot_enabled": True if spot_enabled is None else bool(spot_enabled),
+            # Unspecified slots follow the host's physical GPU count on every
+            # heartbeat; a provider's explicit choice is kept (below) and the
+            # scheduler caps it by the physical device count at placement.
             "spot_gpu_slots": (
                 gpu_count if spot_gpu_slots is None else max(0, min(int(spot_gpu_slots), gpu_count))
             ),
@@ -1138,6 +1216,12 @@ def register_host(
                     entry[field] = existing[field]
             if "spot_gpu_slots" not in existing:
                 entry["spot_gpu_slots"] = _host_spot_gpu_slots(entry)
+            # The registration value is a heartbeat field; provider-set spot
+            # slots survive it.
+            if spot_gpu_slots is None and existing.get("spot_gpu_slots_set") is True:
+                entry["spot_gpu_slots"] = max(0, min(int(existing.get("spot_gpu_slots") or 0), 64))
+                entry["spot_gpu_slots_set"] = True
+            entry["gpu_count"] = gpu_count
             if existing.get("status") == "draining":
                 entry["status"] = "draining"
                 if "draining_since" in existing:
@@ -1146,6 +1230,8 @@ def register_host(
             from host_metadata import enrich_host_for_api
 
             entry = enrich_host_for_api(entry)
+        if spot_gpu_slots is not None:
+            entry["spot_gpu_slots_set"] = True
         _upsert_host_row(conn, entry)
         outbox_enqueued = False
         if _active_backend() == "postgres":
@@ -1203,8 +1289,10 @@ def update_host_spot_settings(
         if spot_enabled is not None:
             host["spot_enabled"] = bool(spot_enabled)
         if spot_gpu_slots is not None:
-            gpu_count = max(1, int(host.get("gpu_count", 1) or 1))
+            gpu_count = _host_physical_gpu_count(conn, host_id, host)
+            host["gpu_count"] = gpu_count
             host["spot_gpu_slots"] = max(0, min(int(spot_gpu_slots), gpu_count))
+            host["spot_gpu_slots_set"] = True
         if spot_min_cents is not None:
             host["spot_min_cents"] = max(0, int(spot_min_cents))
 
@@ -1791,6 +1879,10 @@ def submit_job(
 
     outbox_enqueued = False
     with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
+        # Fairness and quota policy key on the admitted spec's team/tenant.
+        # Both are resolved here from the server-selected owner, never taken
+        # from the request, and frozen into the spec with the rest of it.
+        job.update(_admission_identity(write_conn, owner))
         admitted = _upsert_job_row(
             write_conn, job, admission_spec=launch_spec, admission_request=admission_request
         )
@@ -1820,6 +1912,30 @@ def submit_job(
         priority,
     )
     return job
+
+
+def _admission_identity(conn, owner) -> dict:
+    """Tenant and team identity of an admitted job, from server-side records.
+
+    ``owner`` is the billing customer the API resolved for the caller's active
+    workspace (a team's shared wallet when acting for a team), so it is the
+    tenant. The team is the one team whose shared wallet that customer is; an
+    ambiguous or personal wallet records no team.
+    """
+    owner = str(owner or "").strip()
+    if not owner:
+        return {}
+    identity = {"tenant_id": owner}
+    if _active_backend() == "postgres":
+        rows = conn.execute(
+            "SELECT team_id FROM teams WHERE billing_customer_id = %s ORDER BY team_id LIMIT 2",
+            (owner,),
+        ).fetchall()
+        if len(rows) == 1:
+            team_id = rows[0]["team_id"] if isinstance(rows[0], dict) else rows[0][0]
+            if team_id:
+                identity["team_id"] = str(team_id)
+    return identity
 
 
 def get_next_job():

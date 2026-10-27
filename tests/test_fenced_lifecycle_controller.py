@@ -284,9 +284,10 @@ def test_cancel_rechecks_authority_after_initial_read(cleanup_ids, cancel_route,
         if race == "fenced":
             _mk_active_attempt(job_id, host_id)
         elif race == "host_only":
-            from scheduler import _set_job_fields
-
-            _set_job_fields(job_id, host_id=host_id)
+            # A competing native controller wins the row lock; payload patches
+            # are deliberately unable to assign hosts.
+            with _pool.connection() as conn:
+                conn.execute("UPDATE jobs SET host_id=%s WHERE job_id=%s", (host_id, job_id))
         else:
             update(job_id, "assigned", host_id=host_id)
         return update(*args, **kwargs)
@@ -462,3 +463,58 @@ def test_terminate_billing_cycle_once_per_attempt(cleanup_ids):
         ).fetchone()[0]
     assert n_bc == 1
     assert n_cmd == 1
+
+
+@pytest.mark.parametrize("dead", ["dead_letter", "cancelled", "expired"])
+def test_a_repeated_stop_rearms_a_command_that_died_undelivered(cleanup_ids, dead):
+    """The {intent}:{attempt} key used to return the dead command: nothing was delivered."""
+    from control_plane.commands import claim_commands
+    from control_plane.lifecycle import request_fenced_stop
+
+    host_id = f"h-life-r-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
+    _mk_active_attempt(job_id, host_id)
+
+    first = request_fenced_stop(job_id=job_id, created_by="user")
+    assert first.ok and first.command_created and not first.command_redelivered
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE agent_commands SET status=%s, attempt_count=5, "
+            "expires_at=CASE WHEN %s THEN EXTRACT(EPOCH FROM NOW())-1 ELSE expires_at END "
+            "WHERE command_id=%s",
+            ("pending" if dead == "expired" else dead, dead == "expired", first.command_id),
+        )
+        conn.commit()
+
+    again = request_fenced_stop(job_id=job_id, created_by="user")
+    assert again.ok and again.command_id == first.command_id
+    assert again.command_redelivered and not again.command_created
+    with _pool.connection() as conn:
+        delivered = claim_commands(conn, host_id=host_id, worker_session_id="rearm-test")
+        conn.commit()
+    assert [c.command_id for c in delivered] == [first.command_id]
+
+
+def test_a_repeated_stop_leaves_an_in_flight_command_alone(cleanup_ids):
+    from control_plane.lifecycle import request_fenced_stop
+
+    host_id = f"h-life-f-{uuid.uuid4().hex[:6]}"
+    _mkhost(cleanup_ids, host_id)
+    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
+    _mk_active_attempt(job_id, host_id)
+    first = request_fenced_stop(job_id=job_id, created_by="user")
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE agent_commands SET status='claimed', attempt_count=1, claim_owner=%s, "
+            "claim_expires_at=clock_timestamp()+interval '1 minute' WHERE command_id=%s",
+            (host_id, first.command_id),
+        )
+        conn.commit()
+    again = request_fenced_stop(job_id=job_id, created_by="user")
+    assert again.ok and not again.command_redelivered
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status, attempt_count FROM agent_commands WHERE command_id=%s",
+            (first.command_id,),
+        ).fetchone() == ("claimed", 1)
