@@ -2406,7 +2406,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
         if _USE_PERSISTENT_AUTH:
             UserStore.create_user(user)
             # OAuth users are auto-verified (provider verified their email)
-            verified = {"email_verified": 1}
+            verified: dict[str, Any] = {"email_verified": 1}
             if facebook_subject:
                 verified["oauth_subject"] = facebook_subject
             UserStore.update_user(email, verified)
