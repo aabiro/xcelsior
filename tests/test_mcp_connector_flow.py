@@ -563,3 +563,105 @@ def test_authorize_rejects_an_unresolvable_metadata_document_client():
     )
     assert response.status_code == 400
     assert "Untrusted application" in response.text
+
+
+def test_consent_page_generalizes_permissions_to_at_most_three_items():
+    """Full advertised scope list renders as at most 3 high-level bullets."""
+    _register_user("connector-generalized@xcelsior.ca")
+    _, challenge = _pkce()
+    advertised = client.get("/.well-known/oauth-authorization-server").json()["scopes_supported"]
+    page = client.get(
+        "/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": "xcelsior-connector",
+            "redirect_uri": "http://127.0.0.1:54321/callback",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": " ".join(advertised),
+            "resource": MCP_RESOURCE_AUDIENCE,
+        },
+        headers={"Accept": "text/html"},
+    )
+    assert page.status_code == 200
+    items = re.findall(r"<li>.*?</li>", page.text, flags=re.DOTALL)
+    assert 1 <= len(items) <= 3
+    for item in items:
+        assert "<code>" not in item
+
+
+def test_browser_approve_and_deny_render_branded_decision_screens():
+    """Browser submissions (ui=1) render dark Xcelsior Approved and Access denied screens."""
+    _register_user("connector-ui-decision@xcelsior.ca")
+    _, challenge = _pkce()
+    loopback_uri = "http://127.0.0.1:54322/callback"
+    params = {
+        "response_type": "code",
+        "client_id": "xcelsior-connector",
+        "redirect_uri": loopback_uri,
+        "state": "ui-state",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "scope": "instances:read offline_access",
+        "resource": MCP_RESOURCE_AUDIENCE,
+    }
+
+    # 1. Cancel / Deny renders the branded Access denied card + loopback error iframe + deep link
+    page = client.get("/oauth/authorize", params=params, headers={"Accept": "text/html"})
+    denied = client.post(
+        "/oauth/authorize",
+        data={"consent_key": _consent_key(page.text), "decision": "deny", "ui": "1"},
+        follow_redirects=False,
+    )
+    assert denied.status_code == 200
+    assert "#070b12" in denied.text
+    assert "Authorization cancelled" in denied.text
+    assert "Access denied" in denied.text
+    assert 'href="vscode://vscode.git"' in denied.text
+    assert 'src="http://127.0.0.1:54322/callback?error=access_denied' in denied.text
+
+    # 2. Approve renders the branded Authorization complete card + loopback code iframe + deep link
+    page2 = client.get("/oauth/authorize", params=params, headers={"Accept": "text/html"})
+    approved = client.post(
+        "/oauth/authorize",
+        data={"consent_key": _consent_key(page2.text), "decision": "approve", "ui": "1"},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 200
+    assert "#070b12" in approved.text
+    assert "Authorization complete" in approved.text
+    assert "Authentication complete." in approved.text
+    assert 'href="vscode://vscode.git"' in approved.text
+    assert "Open VS Code" in approved.text
+    assert 'src="http://127.0.0.1:54322/callback?code=' in approved.text
+
+
+def test_decision_page_links_back_to_detected_desktop_app_and_vscode():
+    """Desktop clients focus the active IDE window (via //vscode.git) without spawning a new window."""
+    from routes.auth import _oauth_decision_page
+
+    for approved, expected_heading in ((True, "Codex is connected"), (False, "Access denied")):
+        codex_html = _oauth_decision_page(
+            approved=approved,
+            client={"client_name": "Codex", "client_uri": "https://chatgpt.com/codex"},
+            callback_url="http://127.0.0.1:1455/auth/callback?code=abc",
+            is_loopback=True,
+        )
+        assert expected_heading in codex_html
+        assert 'id="open-app-btn" href="vscode://vscode.git"' in codex_html
+        assert "Open VS Code" in codex_html
+        assert 'href="codex://"' in codex_html
+        assert "Open Codex app" in codex_html
+        assert '"vscode://vscode.git"' in codex_html
+        assert "1500" in codex_html
+
+    cursor_html = _oauth_decision_page(
+        approved=True,
+        client={"client_name": "Cursor"},
+        callback_url="http://127.0.0.1:1455/auth/callback?code=abc",
+        is_loopback=True,
+    )
+    assert "Cursor is connected" in cursor_html
+    assert 'id="open-app-btn" href="cursor://vscode.git"' in cursor_html
+    assert "Open Cursor" in cursor_html
+    assert 'href="vscode://vscode.git"' in cursor_html
