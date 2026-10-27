@@ -183,8 +183,16 @@ def test_failback_onto_an_authoritative_vps_touches_nothing_but_dns(
         runner=fake_run,
     )
 
-    touched = [c for c in commands if c[0] == "scp" or any("systemctl" in a for a in c)]
+    # Only remote commands count: the standby stopping its own headscale is the
+    # demotion this test expects, not a change to the VPS.
+    touched = [
+        c for c in commands
+        if c[0] == "scp" or (c[0] == "ssh" and any("systemctl" in a for a in c))
+    ]
     assert not touched, f"failback modified a VPS that already held everything: {touched}"
+    assert ["systemctl", "disable", "--now", "headscale"] in commands, (
+        f"the standby kept serving after failback: {commands}"
+    )
     assert moved == ["45.76.3.128"], f"DNS not restored to the address it held: {moved}"
     assert state.role == "standby", "the standby was left promoted"
     assert any("Nothing pushed" in m for m in sent), f"the operator was not told why: {sent}"
