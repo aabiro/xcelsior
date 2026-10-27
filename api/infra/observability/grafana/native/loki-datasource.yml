@@ -1,0 +1,21 @@
+# Loki for the production host's native Grafana.
+#
+# Install as /etc/grafana/provisioning/datasources/xcelsior-loki.yaml, then
+# reload datasource provisioning (or restart grafana-server). Additive only:
+# unlike the Compose provisioning file, this declares no deleteDatasources, so
+# the native Prometheus datasource and Tower's provisioning are untouched.
+#
+# Loki is the Compose service, published on loopback 3110 (docker-compose.yml).
+# Cowork events arrive through otel.xcelsior.ca → collector → Loki and are
+# found with {service_name="cowork"}.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://127.0.0.1:3110
+    editable: false
+    jsonData:
+      maxLines: 1000

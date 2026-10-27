@@ -1679,6 +1679,16 @@ docker compose build $build_args frontend
         warn "Jaeger container not running — set OTEL_EXPORTER_OTLP_ENDPOINT after fixing"
     fi
 
+    # The collector is the host's OTLP ingress: the API's traces, container
+    # logs, and Cowork events arriving through otel.xcelsior.ca. Loki is also
+    # native Grafana's log datasource (127.0.0.1:3110).
+    log "Starting the OTel collector, Loki and Tempo..."
+    if ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps loki tempo otel-collector"; then
+        success "OTel collector, Loki and Tempo running"
+    else
+        warn "Observability services failed to start — Cowork events and container logs will not reach Loki"
+    fi
+
     if [[ "${XCELSIOR_DEPLOY_SKIP_MCP:-0}" == "1" ]]; then
         warn "XCELSIOR_DEPLOY_SKIP_MCP=1 — skipping MCP blue-green promotion. Previous MCP replica remains live. Run a normal deploy after minting a valid XCELSIOR_MCP_SMOKE_TOKEN."
     else

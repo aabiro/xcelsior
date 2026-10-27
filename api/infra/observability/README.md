@@ -20,6 +20,24 @@ Before production startup:
    only by the backup/restore services. It is mounted read-only into node
    exporter.
 
+Claude Cowork events (public OTLP log ingest):
+
+- Cowork's exporter runs in the Cowork VM, so it needs a public endpoint:
+  `https://otel.xcelsior.ca` (`api/nginx/otel-xcelsior.conf`). The vhost
+  accepts only `POST /v1/logs` with `Authorization: Bearer <token>` and proxies
+  to the collector's loopback OTLP/HTTP receiver, whose logs pipeline writes to
+  Loki. Tests: `tests/test_otel_ingest_vhost.py` (real nginx).
+- The token is host-owned: `/etc/nginx/snippets/otel-ingest-token.conf`
+  (see `api/nginx/snippets/otel-ingest-token.conf.example`). Without it the
+  vhost answers 503. Issue the certificate first
+  (`certbot certonly --webroot -w /var/www/certbot -d otel.xcelsior.ca`);
+  the installer skips a vhost whose certificate does not exist yet.
+- Native Grafana reads Loki through `grafana/native/loki-datasource.yml`
+  (Loki on `127.0.0.1:3110`). Query `{service_name="cowork"}`.
+- Admin settings > Cowork: endpoint `https://otel.xcelsior.ca`, protocol
+  `http/protobuf`, headers `Authorization=Bearer <token>`. Events carry
+  `user.email` and `workspace.host_paths` regardless of content capture.
+
 Local interfaces:
 
 - Grafana: `http://127.0.0.1:3001`
