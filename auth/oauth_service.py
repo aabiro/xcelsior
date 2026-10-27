@@ -1910,6 +1910,58 @@ def describe_scope(scope: str) -> str:
     return SCOPE_DESCRIPTIONS.get(scope, scope)
 
 
+def summarize_consent_scopes(scopes: list[str]) -> list[str]:
+    """Collapse a granular scope list into 2–3 high-level consent summary lines.
+
+    `SCOPE_DESCRIPTIONS` keeps one sentence per enforced scope for programmatic
+    inspection and audit, but rendering all 20 advertised MCP scopes as separate
+    rows overwhelms the interactive consent card. This groups requested scopes
+    into at most three human-readable capability statements.
+    """
+    scope_set = {str(s).strip() for s in (scopes or []) if str(s).strip()}
+    if not scope_set:
+        return ["Sign you in only"]
+
+    from oauth_delegation import OPERATOR_SCOPES
+
+    identity_scopes = {"openid", "profile", "email"}
+    read_scopes = {s for s in scope_set if s.endswith(":read")}
+    manage_scopes = {
+        s
+        for s in scope_set
+        if s.endswith((":write", ":operate", ":approve")) and s != "ssh:write"
+    } | ({"api"} & scope_set)
+    connect_scopes = {"instances:connect", "ssh:write"} & scope_set
+    has_offline = "offline_access" in scope_set
+    has_operator = bool(scope_set & set(OPERATOR_SCOPES))
+
+    bullets: list[str] = []
+    if read_scopes or "api" in scope_set:
+        bullets.append("View your account, GPU instances, volumes, and billing")
+    elif scope_set & identity_scopes:
+        bullets.append("View your account profile and email address")
+
+    if manage_scopes:
+        bullets.append("Launch and manage GPU instances, serverless jobs, and volumes")
+
+    if has_operator:
+        bullets.append(
+            "Perform platform operator actions and stay connected"
+            if has_offline
+            else "Perform platform operator actions"
+        )
+    elif connect_scopes and has_offline:
+        bullets.append("Open instance terminals, manage SSH keys, and stay connected")
+    elif connect_scopes:
+        bullets.append("Open instance terminals and manage SSH keys on your account")
+    elif has_offline:
+        bullets.append("Stay connected without asking you to sign in again")
+
+    if not bullets:
+        bullets.append("Access your Xcelsior account")
+    return bullets[:3]
+
+
 def stash_consent_request(payload: dict[str, Any]) -> str:
     """Park a validated authorization request while the user decides.
 
