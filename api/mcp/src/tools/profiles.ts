@@ -21,6 +21,22 @@ export type ToolProfile = "customer" | "operator";
 /** Scopes that mark a principal as platform-operator rather than tenant. */
 export const OPERATOR_SCOPE_PREFIXES = ["hosts:", "control_plane:"] as const;
 
+/**
+ * Tenant scopes the authorization server never grants to an OAuth connector
+ * (`CONNECTOR_ALLOWED_SCOPES` in auth/oauth_registration.py): they move money,
+ * a payout destination, or reputation badges. Their tools stay registered for
+ * credentials that carry them, but the customer profile does not advertise
+ * them, because a connector requests every advertised scope and these would be
+ * dropped from its grant every time.
+ * `tests/test_advertised_scopes_match_the_connector_ceiling.py` holds the two
+ * lists together.
+ */
+export const CONNECTOR_WITHHELD_SCOPES: ReadonlySet<string> = new Set([
+  "billing:write",
+  "providers:write",
+  "reputation:write",
+]);
+
 export function isOperatorTool(name: string): boolean {
   return TOOL_CONTRACTS[name]?.tenantClass === "operator";
 }
@@ -95,6 +111,7 @@ export function scopesForProfile(profile: ToolProfile, options: ProfileOptions =
       // `hosts:read` to every connector: a scope no connector can be granted,
       // and the one that failed the GX0 "no operator scopes" check.
       if (profile !== "operator" && OPERATOR_SCOPE_PREFIXES.some((prefix) => scope.startsWith(prefix))) continue;
+      if (profile !== "operator" && CONNECTOR_WITHHELD_SCOPES.has(scope)) continue;
       scopes.add(scope);
     }
   }

@@ -12,6 +12,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describeToolSurface } from "../src/tools/surface.js";
+import { scopesForProfile } from "../src/tools/profiles.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const target = join(here, "..", "tool-surface.json");
@@ -22,6 +23,9 @@ const snapshot = {
     "same commit as the change. A breaking change requires a toolVersion bump — " +
     "see docs/mcp-tool-versioning.md.",
   generatedFor: "customer",
+  // The resource metadata's `scopes_supported`, recorded so the API's tests
+  // can hold it to the connector scope ceiling.
+  scopesSupported: scopesForProfile("customer"),
   tools: describeToolSurface("customer"),
 };
 
