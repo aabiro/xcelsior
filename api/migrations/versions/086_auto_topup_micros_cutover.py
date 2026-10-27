@@ -65,61 +65,61 @@ def upgrade() -> None:
 
         BEGIN
             IF TG_OP = 'INSERT' THEN
-                
+
             IF NEW.balance_micros IS NULL THEN
                 NEW.balance_micros := CASE WHEN NEW.balance_cad IS NULL THEN NULL ELSE round(NEW.balance_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.balance_cad := CASE WHEN NEW.balance_micros IS NULL THEN NULL ELSE (NEW.balance_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.total_deposited_micros IS NULL THEN
                 NEW.total_deposited_micros := CASE WHEN NEW.total_deposited_cad IS NULL THEN NULL ELSE round(NEW.total_deposited_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.total_deposited_cad := CASE WHEN NEW.total_deposited_micros IS NULL THEN NULL ELSE (NEW.total_deposited_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.total_spent_micros IS NULL THEN
                 NEW.total_spent_micros := CASE WHEN NEW.total_spent_cad IS NULL THEN NULL ELSE round(NEW.total_spent_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.total_spent_cad := CASE WHEN NEW.total_spent_micros IS NULL THEN NULL ELSE (NEW.total_spent_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.total_refunded_micros IS NULL THEN
                 NEW.total_refunded_micros := CASE WHEN NEW.total_refunded_cad IS NULL THEN NULL ELSE round(NEW.total_refunded_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.total_refunded_cad := CASE WHEN NEW.total_refunded_micros IS NULL THEN NULL ELSE (NEW.total_refunded_micros::numeric / 1000000)::double precision END;
             END IF;
-            
-            
-            
+
+
+
             ELSE
-                
+
             IF NEW.balance_micros IS DISTINCT FROM OLD.balance_micros THEN
                 NEW.balance_cad := CASE WHEN NEW.balance_micros IS NULL THEN NULL ELSE (NEW.balance_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.balance_cad IS DISTINCT FROM OLD.balance_cad THEN
                 NEW.balance_micros := CASE WHEN NEW.balance_cad IS NULL THEN NULL ELSE round(NEW.balance_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.total_deposited_micros IS DISTINCT FROM OLD.total_deposited_micros THEN
                 NEW.total_deposited_cad := CASE WHEN NEW.total_deposited_micros IS NULL THEN NULL ELSE (NEW.total_deposited_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.total_deposited_cad IS DISTINCT FROM OLD.total_deposited_cad THEN
                 NEW.total_deposited_micros := CASE WHEN NEW.total_deposited_cad IS NULL THEN NULL ELSE round(NEW.total_deposited_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.total_spent_micros IS DISTINCT FROM OLD.total_spent_micros THEN
                 NEW.total_spent_cad := CASE WHEN NEW.total_spent_micros IS NULL THEN NULL ELSE (NEW.total_spent_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.total_spent_cad IS DISTINCT FROM OLD.total_spent_cad THEN
                 NEW.total_spent_micros := CASE WHEN NEW.total_spent_cad IS NULL THEN NULL ELSE round(NEW.total_spent_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.total_refunded_micros IS DISTINCT FROM OLD.total_refunded_micros THEN
                 NEW.total_refunded_cad := CASE WHEN NEW.total_refunded_micros IS NULL THEN NULL ELSE (NEW.total_refunded_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.total_refunded_cad IS DISTINCT FROM OLD.total_refunded_cad THEN
                 NEW.total_refunded_micros := CASE WHEN NEW.total_refunded_cad IS NULL THEN NULL ELSE round(NEW.total_refunded_cad::numeric * 1000000)::bigint END;
             END IF;
-            
-            
-            
+
+
+
             END IF;
             RETURN NEW;
         END
@@ -158,81 +158,81 @@ def downgrade() -> None:
 
         BEGIN
             IF TG_OP = 'INSERT' THEN
-                
+
             IF NEW.balance_micros IS NULL THEN
                 NEW.balance_micros := CASE WHEN NEW.balance_cad IS NULL THEN NULL ELSE round(NEW.balance_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.balance_cad := CASE WHEN NEW.balance_micros IS NULL THEN NULL ELSE (NEW.balance_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.total_deposited_micros IS NULL THEN
                 NEW.total_deposited_micros := CASE WHEN NEW.total_deposited_cad IS NULL THEN NULL ELSE round(NEW.total_deposited_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.total_deposited_cad := CASE WHEN NEW.total_deposited_micros IS NULL THEN NULL ELSE (NEW.total_deposited_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.total_spent_micros IS NULL THEN
                 NEW.total_spent_micros := CASE WHEN NEW.total_spent_cad IS NULL THEN NULL ELSE round(NEW.total_spent_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.total_spent_cad := CASE WHEN NEW.total_spent_micros IS NULL THEN NULL ELSE (NEW.total_spent_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.total_refunded_micros IS NULL THEN
                 NEW.total_refunded_micros := CASE WHEN NEW.total_refunded_cad IS NULL THEN NULL ELSE round(NEW.total_refunded_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.total_refunded_cad := CASE WHEN NEW.total_refunded_micros IS NULL THEN NULL ELSE (NEW.total_refunded_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.auto_topup_amount_micros IS NULL THEN
                 NEW.auto_topup_amount_micros := CASE WHEN NEW.auto_topup_amount_cad IS NULL THEN NULL ELSE round(NEW.auto_topup_amount_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.auto_topup_amount_cad := CASE WHEN NEW.auto_topup_amount_micros IS NULL THEN NULL ELSE (NEW.auto_topup_amount_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             IF NEW.auto_topup_threshold_micros IS NULL THEN
                 NEW.auto_topup_threshold_micros := CASE WHEN NEW.auto_topup_threshold_cad IS NULL THEN NULL ELSE round(NEW.auto_topup_threshold_cad::numeric * 1000000)::bigint END;
             ELSE
                 NEW.auto_topup_threshold_cad := CASE WHEN NEW.auto_topup_threshold_micros IS NULL THEN NULL ELSE (NEW.auto_topup_threshold_micros::numeric / 1000000)::double precision END;
             END IF;
-            
+
             ELSE
-                
+
             IF NEW.balance_micros IS DISTINCT FROM OLD.balance_micros THEN
                 NEW.balance_cad := CASE WHEN NEW.balance_micros IS NULL THEN NULL ELSE (NEW.balance_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.balance_cad IS DISTINCT FROM OLD.balance_cad THEN
                 NEW.balance_micros := CASE WHEN NEW.balance_cad IS NULL THEN NULL ELSE round(NEW.balance_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.total_deposited_micros IS DISTINCT FROM OLD.total_deposited_micros THEN
                 NEW.total_deposited_cad := CASE WHEN NEW.total_deposited_micros IS NULL THEN NULL ELSE (NEW.total_deposited_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.total_deposited_cad IS DISTINCT FROM OLD.total_deposited_cad THEN
                 NEW.total_deposited_micros := CASE WHEN NEW.total_deposited_cad IS NULL THEN NULL ELSE round(NEW.total_deposited_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.total_spent_micros IS DISTINCT FROM OLD.total_spent_micros THEN
                 NEW.total_spent_cad := CASE WHEN NEW.total_spent_micros IS NULL THEN NULL ELSE (NEW.total_spent_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.total_spent_cad IS DISTINCT FROM OLD.total_spent_cad THEN
                 NEW.total_spent_micros := CASE WHEN NEW.total_spent_cad IS NULL THEN NULL ELSE round(NEW.total_spent_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.total_refunded_micros IS DISTINCT FROM OLD.total_refunded_micros THEN
                 NEW.total_refunded_cad := CASE WHEN NEW.total_refunded_micros IS NULL THEN NULL ELSE (NEW.total_refunded_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.total_refunded_cad IS DISTINCT FROM OLD.total_refunded_cad THEN
                 NEW.total_refunded_micros := CASE WHEN NEW.total_refunded_cad IS NULL THEN NULL ELSE round(NEW.total_refunded_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.auto_topup_amount_micros IS DISTINCT FROM OLD.auto_topup_amount_micros THEN
                 NEW.auto_topup_amount_cad := CASE WHEN NEW.auto_topup_amount_micros IS NULL THEN NULL ELSE (NEW.auto_topup_amount_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.auto_topup_amount_cad IS DISTINCT FROM OLD.auto_topup_amount_cad THEN
                 NEW.auto_topup_amount_micros := CASE WHEN NEW.auto_topup_amount_cad IS NULL THEN NULL ELSE round(NEW.auto_topup_amount_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             IF NEW.auto_topup_threshold_micros IS DISTINCT FROM OLD.auto_topup_threshold_micros THEN
                 NEW.auto_topup_threshold_cad := CASE WHEN NEW.auto_topup_threshold_micros IS NULL THEN NULL ELSE (NEW.auto_topup_threshold_micros::numeric / 1000000)::double precision END;
             ELSIF NEW.auto_topup_threshold_cad IS DISTINCT FROM OLD.auto_topup_threshold_cad THEN
                 NEW.auto_topup_threshold_micros := CASE WHEN NEW.auto_topup_threshold_cad IS NULL THEN NULL ELSE round(NEW.auto_topup_threshold_cad::numeric * 1000000)::bigint END;
             END IF;
-            
+
             END IF;
             RETURN NEW;
         END
