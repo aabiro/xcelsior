@@ -565,6 +565,10 @@ def oauth_authorization_server_metadata(request: Request):
             "artifacts:read",
             "providers:read",
             "reputation:read",
+            # In the connector ceiling since plan §8.3. Clients that read this
+            # list instead of the resource metadata (VS Code) would otherwise
+            # never ask for it.
+            "ssh:read",
         ],
         "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
