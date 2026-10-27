@@ -234,15 +234,38 @@ Node IPs are the ones in sqlite. They do not change.
 ## First install on a standby host
 
 ```bash
-sudo install -m 0755 scripts/headscale_failover.py /usr/local/sbin/headscale-failover
 sudo mkdir -p /var/backups/headscale
 sudo chmod 700 /var/backups/headscale
-sudo cp infra/systemd/headscale-replicate.* infra/systemd/headscale-failover-watchdog.* /etc/systemd/system/
+sudo cp api/infra/systemd/headscale-replicate.* api/infra/systemd/headscale-failover-watchdog.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now headscale-replicate.timer headscale-failover-watchdog.timer
-sudo headscale-failover replicate   # requires the VPS to be up
-sudo headscale-failover status --json
+sudo api/infra/headscale/standby-setup.sh   # requires the VPS to be up
 ```
+
+`standby-setup.sh` backs up the standby, stops and disables its
+`headscale.service`, installs the **primary's** headscale binary (checksum
+verified), installs the failover tool, refreshes the replica, issues
+`hs.xcelsior.ca` by DNS-01 through Cloudflare and installs
+`api/infra/headscale/standby-nginx.conf`. Then forward TCP 443 on the home
+router to the standby (wired address, `192.168.1.127` on the ASUS).
+
+What a standby must hold, and why each one bit:
+
+- **Stopped and disabled.** `promote` enables and starts it; `failback`
+  disables it again. A running standby is a second control plane renewing DNS
+  certificates in the same zone.
+- **The primary's build.** A replica is only promotable on the build that wrote
+  it. The primary moved to a `main` build on 2026-10-25 and the standby stayed
+  on v0.28.0, which cannot open the migrated schema. Replication now records the
+  primary's build, `status --json` shows `headscale_build.match`, `promote`
+  refuses a mismatch, and the watchdog pages once when they drift. Re-run
+  `standby-setup.sh` after upgrading Headscale on the primary.
+- **Files the service can read.** Promotion installs state `headscale:headscale
+  0600` and config `root:headscale 0640`. It used to write everything
+  `root:root 0600`; the standby then crash-looped 42,000+ times on "Error loading
+  config". `promote` checks readability as the service user before starting it.
+- **A TLS front on 443.** `promote` refuses to move DNS unless this host serves
+  `/health` for the name. The front answers 502 in steady state.
 
 SSH to the Headscale VPS uses `root@46.225.20.97` and `~/.ssh/id_ed25519`
 (`XCELSIOR_HEADSCALE_HOST` / `XCELSIOR_HEADSCALE_SSH_KEY` override). Not
@@ -269,6 +292,10 @@ the existing node. `--force-reauth` is the last resort, and only against the
 same login server.
 
 ## DERP
+
+A promotion turns `derp.server.enabled` off in the installed copy of the
+primary's config: it advertises the primary's own addresses for region 999,
+which would steer clients to the host that just failed.
 
 `infra/headscale/config.yaml` sets `derp.server.enabled: false` and uses
 `https://controlplane.tailscale.com/derpmap/default`. Mesh NAT traversal then

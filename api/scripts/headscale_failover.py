@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -66,6 +67,12 @@ DEFAULT_LIVE_DATA_DIR = Path("/var/lib/headscale")
 DEFAULT_LIVE_CONFIG_DIR = Path("/etc/headscale")
 DEFAULT_FAILURE_THRESHOLD = 3
 
+#: The account headscale.service runs as. Everything a promotion installs must be
+#: readable by it: on 2026-10-19 a promotion left config.yaml `root:root 0600`
+#: and the standby crash-looped 42,000 times on "Error loading config".
+HEADSCALE_SERVICE_USER = "headscale"
+HEADSCALE_BIN = "/usr/bin/headscale"
+
 # Headscale 0.26+ stores registered machines in `nodes`. Older installs used
 # `machines`. Count whichever exists; a replica with zero of both is empty.
 _NODE_TABLES = ("nodes", "machines")
@@ -109,6 +116,8 @@ class ReplicaStatus:
     replicated_at: str | None
     promotable: bool
     reason: str
+    #: `headscale_identity` of the primary's binary when this replica was taken.
+    primary_headscale: str = ""
 
 
 @dataclass(frozen=True)
@@ -140,6 +149,8 @@ class FailoverState:
     # every-two-minutes alert storm this was written to stop.
     alert_episode: str = ""
     replicate_alert_active: bool = False
+    #: The standby's headscale build differs from the primary's (alerted once).
+    version_alert_active: bool = False
     last_replicate_ok_at: str = ""
     promoted_at: str = ""
     original_a_record: str = DEFAULT_PRIMARY_HOST
@@ -320,9 +331,12 @@ def inspect_replica(replica_dir: Path) -> ReplicaStatus:
     meta_path = replica_dir / "replica-meta.json"
     users, nodes = sqlite_counts(sqlite_path)
     replicated_at = None
+    primary_headscale = ""
     if meta_path.is_file():
         try:
-            replicated_at = json.loads(meta_path.read_text(encoding="utf-8")).get("replicated_at")
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            replicated_at = meta.get("replicated_at")
+            primary_headscale = meta.get("primary_headscale") or ""
         except (OSError, json.JSONDecodeError):
             replicated_at = None
     has_noise = noise_key_path.is_file() and noise_key_path.stat().st_size > 0
@@ -349,6 +363,7 @@ def inspect_replica(replica_dir: Path) -> ReplicaStatus:
         replicated_at=replicated_at,
         promotable=promotable,
         reason=reason,
+        primary_headscale=primary_headscale,
     )
 
 
@@ -583,13 +598,16 @@ def replica_paths(replica_dir: Path) -> dict[str, Path]:
     }
 
 
-def write_replica_meta(replica_dir: Path, users: int, nodes: int, source: str) -> None:
+def write_replica_meta(
+    replica_dir: Path, users: int, nodes: int, source: str, primary_headscale: str = ""
+) -> None:
     replica_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "replicated_at": utc_now(),
         "user_count": users,
         "node_count": nodes,
         "source": source,
+        "primary_headscale": primary_headscale,
     }
     (replica_dir / "replica-meta.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
@@ -686,6 +704,12 @@ def replicate(
     # /tmp/headscale-replica.sqlite, the run that finished first deleted the
     # file the other was about to copy, and paged "No such file or directory"
     # (2026-10-14 07:12, healed by the next tick).
+    # Which build is serving this database. The replica is only promotable on the
+    # same build: the primary was moved to a `main` build on 2026-10-25 and its
+    # schema migrated, while this standby still had v0.28.0 — which cannot open it.
+    version_out = run_cmd(ssh + ["headscale version"], timeout=30, runner=runner, check=False)
+    primary_headscale = headscale_identity(version_out.stdout or "")
+
     token = uuid.uuid4().hex
     remote_snapshot = f"/tmp/headscale-replica-{token}.sqlite"
     remote_backup = (
@@ -718,6 +742,9 @@ def replicate(
             ("/var/lib/headscale/derp_server_private.key", "derp_server_private.key", False),
             ("/etc/headscale/config.yaml", "config.yaml", False),
             ("/etc/headscale/acl.json", "acl.json", False),
+            # `dns.certificates` reads its Cloudflare token from here; a promoted
+            # standby without it cannot load the primary's config.
+            ("/etc/headscale/cloudflare.token", "cloudflare.token", False),
         )
         for remote_path, local_name, required in sources:
             dest = settings.replica_dir / local_name
@@ -748,7 +775,13 @@ def replicate(
         for part in fetched.values():
             part.unlink(missing_ok=True)
         run_cmd(ssh + [f"rm -f {remote_snapshot}"], timeout=30, runner=runner, check=False)
-    write_replica_meta(settings.replica_dir, users, nodes, source=settings.primary_host)
+    write_replica_meta(
+        settings.replica_dir,
+        users,
+        nodes,
+        source=settings.primary_host,
+        primary_headscale=primary_headscale,
+    )
     return inspect_replica(settings.replica_dir)
 
 
@@ -843,13 +876,50 @@ def telegram_send(settings: Settings, text: str) -> None:
         return
 
 
-def copy_file(src: Path, dest: Path) -> None:
+def copy_file(
+    src: Path,
+    dest: Path,
+    *,
+    mode: int = 0o600,
+    owner: str | None = None,
+    group: str | None = None,
+) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     data = src.read_bytes()
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     tmp.write_bytes(data)
-    os.chmod(tmp, 0o600)
+    os.chmod(tmp, mode)
+    if (owner or group) and os.geteuid() == 0:
+        # Only root can give a file away; tests and dry runs keep their own.
+        shutil.chown(tmp, user=owner, group=group)
     tmp.replace(dest)
+
+
+def headscale_identity(version_output: str) -> str:
+    """The build a `headscale version` printout names: its commit, else its version.
+
+    Two binaries serve the same database only if they are the same build. A
+    `main` build prints a pseudo-version (`v0.0.0-20261024134339-2d220b2eb8be`),
+    so the commit is the comparable part; releases print both.
+    """
+    version = ""
+    for line in version_output.splitlines():
+        line = line.strip()
+        if line.startswith("commit:"):
+            return line.split(":", 1)[1].strip()
+        if line.startswith("headscale version"):
+            version = line.split()[-1]
+    return version
+
+
+def local_headscale_identity(
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> str:
+    try:
+        out = run_cmd([HEADSCALE_BIN, "version"], timeout=15, check=False, runner=runner)
+    except (FailoverError, OSError):
+        return ""
+    return headscale_identity(out.stdout or "")
 
 
 def rewrite_server_url(config_path: Path, login_server: str) -> None:
@@ -873,27 +943,149 @@ def rewrite_server_url(config_path: Path, login_server: str) -> None:
 
 
 def install_replica_into_live(settings: Settings, replica: ReplicaStatus) -> None:
+    """Put the replica where headscale.service reads it, owned so that it can.
+
+    State (database, keys) is the service user's alone; configuration is
+    root-owned and group-readable, the way the primary keeps it. Everything used
+    to land `root:root 0600`, which the service cannot open.
+    """
+    user = HEADSCALE_SERVICE_USER
+    state = {"mode": 0o600, "owner": user, "group": user}
+    conf = {"mode": 0o640, "owner": "root", "group": user}
+
     live = settings.live_data_dir
     live.mkdir(parents=True, exist_ok=True)
-    copy_file(replica.sqlite_path, live / "db.sqlite")
-    copy_file(replica.noise_key_path, live / "noise_private.key")
+    # A WAL left by the previous database would be replayed into the new one.
+    for leftover in ("db.sqlite-wal", "db.sqlite-shm"):
+        (live / leftover).unlink(missing_ok=True)
+    copy_file(replica.sqlite_path, live / "db.sqlite", **state)
+    copy_file(replica.noise_key_path, live / "noise_private.key", **state)
     derp = settings.replica_dir / "derp_server_private.key"
     if derp.is_file():
-        copy_file(derp, live / "derp_server_private.key")
-    acl = settings.replica_dir / "acl.json"
-    if acl.is_file():
-        copy_file(acl, settings.live_config_dir / "acl.json")
+        copy_file(derp, live / "derp_server_private.key", **state)
+    for name in ("acl.json", "cloudflare.token"):
+        src = settings.replica_dir / name
+        if src.is_file():
+            copy_file(src, settings.live_config_dir / name, **conf)
     config = settings.replica_dir / "config.yaml"
     dest_config = settings.live_config_dir / "config.yaml"
     if config.is_file():
-        copy_file(config, dest_config)
+        copy_file(config, dest_config, **conf)
     elif not dest_config.is_file():
         template = PROJECT / "api" / "infra" / "headscale" / "config.yaml"
         if not template.is_file():
             template = PROJECT / "infra" / "headscale" / "config.yaml"
         if template.is_file():
-            copy_file(template, dest_config)
+            copy_file(template, dest_config, **conf)
     rewrite_server_url(dest_config, settings.login_server)
+    disable_embedded_derp(dest_config)
+
+
+def disable_embedded_derp(config_path: Path) -> None:
+    """Turn off the replicated config's DERP server on the standby.
+
+    The primary's config advertises its own addresses for DERP region 999
+    (`derp.server.ipv4/ipv6`). Served from here, clients would be steered to a
+    relay on the host that just failed. Without it they use the default
+    Tailscale DERP map the same config already lists, and the standby needs no
+    STUN port forwarded.
+    """
+    if not config_path.is_file():
+        return
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - python3-yaml is on every host
+        return
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    server = (data.get("derp") or {}).get("server")
+    if not isinstance(server, dict) or not server.get("enabled"):
+        return
+    server["enabled"] = False
+    # Rewrite in place so the file keeps the owner and mode copy_file gave it.
+    with config_path.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(data, fh, sort_keys=False)
+
+
+def promotion_preflight(
+    settings: Settings,
+    replica: ReplicaStatus,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> None:
+    """Refuse a promotion this standby cannot carry, before touching anything.
+
+    The standby crash-looped from 2026-10-19 on a config it could not read, and
+    from 2026-10-25 it held v0.28.0 while the primary ran a `main` build whose
+    migrations v0.28 cannot open. Either way a promotion would have stopped the
+    standby, swapped in the replica, and failed to start — reported only once
+    DNS was already in question.
+    """
+    standby = local_headscale_identity(runner)
+    primary = replica.primary_headscale
+    if standby and primary and standby != primary:
+        raise FailoverError(
+            f"refusing to promote: this standby runs headscale build {standby[:12]}, "
+            f"the replica came from {primary[:12]}. Install the primary's build "
+            f"({HEADSCALE_BIN}) on this host first; a different build may not open "
+            "its database."
+        )
+
+
+def check_service_can_read(
+    paths: list[Path],
+    *,
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> None:
+    # Asked as the service user, not stat()ed here: a missing file is as fatal
+    # to the service as an unreadable one, and only it can say which it sees.
+    unreadable = [
+        str(path)
+        for path in paths
+        if run_cmd(
+            ["runuser", "-u", HEADSCALE_SERVICE_USER, "--", "test", "-r", str(path)],
+            timeout=15,
+            check=False,
+            runner=runner,
+        ).returncode
+        != 0
+    ]
+    if unreadable:
+        raise FailoverError(
+            f"refusing to start headscale: user {HEADSCALE_SERVICE_USER!r} cannot read "
+            + ", ".join(unreadable)
+        )
+
+
+def check_build_parity(
+    settings: Settings,
+    state: FailoverState,
+    replica: ReplicaStatus,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> FailoverState:
+    """Page once when the primary moves to a build this standby does not run.
+
+    Found the hard way: the primary went to a `main` build on 2026-10-25 and the
+    standby stayed on v0.28.0 — healthy-looking replicas, and no promotion that
+    could have started. Nothing said so until someone looked.
+    """
+    standby = local_headscale_identity(runner)
+    primary = replica.primary_headscale
+    drifted = bool(standby and primary and standby != primary)
+    if drifted and not state.version_alert_active:
+        telegram_send(
+            settings,
+            f"Headscale standby cannot be promoted: it runs build {standby[:12]}, "
+            f"the primary runs {primary[:12]}. Install the primary's {HEADSCALE_BIN} here.",
+        )
+        state.version_alert_active = True
+        state.last_alert = "version_drift"
+        state.last_alert_at = utc_now()
+    elif not drifted and state.version_alert_active and standby and primary:
+        telegram_send(settings, "Headscale standby build matches the primary again")
+        state.version_alert_active = False
+        state.last_alert_at = utc_now()
+    return state
 
 
 def maybe_alert(settings: Settings, state: FailoverState, decision: Decision) -> FailoverState:
@@ -949,8 +1141,9 @@ def watchdog_tick(
     if execute:
         if decision.action == "replicate":
             try:
-                replicate(settings, runner=runner)
+                fresh = replicate(settings, runner=runner)
                 state.last_replicate_ok_at = utc_now()
+                state = check_build_parity(settings, state, fresh, runner=runner)
                 if state.replicate_alert_active:
                     # Say so once, then go quiet. A page that heals silently
                     # leaves you believing it is still broken.
@@ -1009,7 +1202,19 @@ def promote(
     replica = replica or inspect_replica(settings.replica_dir)
     if not replica.promotable:
         raise FailoverError(f"refusing to promote: {replica.reason}")
+    promotion_preflight(settings, replica, runner=runner)
+    # The standby is kept stopped; stop it anyway so nothing has the database
+    # open while it is replaced.
+    run_cmd(["systemctl", "stop", "headscale"], timeout=30, runner=runner, check=False)
     install_replica_into_live(settings, replica)
+    required = [
+        settings.live_config_dir / "config.yaml",
+        settings.live_data_dir / "db.sqlite",
+        settings.live_data_dir / "noise_private.key",
+    ]
+    if (settings.replica_dir / "acl.json").is_file():
+        required.append(settings.live_config_dir / "acl.json")
+    check_service_can_read(required, runner=runner)
     ip = public_ip or settings.standby_public_ip or detect_public_ip()
 
     # Restart Headscale *before* touching DNS, then prove this box actually
@@ -1025,6 +1230,9 @@ def promote(
     # A promotion whose DNS change cannot be served is not a promotion. Same
     # rule as `scripts/flip_headscale_dns.py`: never point a name at a host that
     # cannot answer for it.
+    # Enabled while promoted, so a reboot of this host does not drop the
+    # control plane; failback disables it again.
+    run_cmd(["systemctl", "enable", "headscale"], timeout=30, runner=runner, check=False)
     run_cmd(["systemctl", "restart", "headscale"], timeout=30, runner=runner)
 
     serving, why = standby_serves_dns_name(settings)
@@ -1259,6 +1467,9 @@ def failback(
         )
 
     _restore_dns_after_failback(settings, state=state, paths=paths, pushed=pushed, opener=opener)
+    # Standing by again: this host must not keep serving a second copy of the
+    # control plane (it would also renew DNS certificates against the same zone).
+    run_cmd(["systemctl", "disable", "--now", "headscale"], timeout=30, runner=runner, check=False)
 
 
 def _push_to_primary(
@@ -1395,6 +1606,7 @@ def status_payload(settings: Settings) -> dict:
         state=state,
         failure_threshold=settings.failure_threshold,
     )
+    standby_build = local_headscale_identity()
     return {
         "dns_name": settings.dns_name,
         "primary_host": settings.primary_host,
@@ -1406,6 +1618,13 @@ def status_payload(settings: Settings) -> dict:
             "node_count": replica.node_count,
             "replicated_at": replica.replicated_at,
             "dir": str(settings.replica_dir),
+        },
+        "headscale_build": {
+            "standby": standby_build,
+            "primary": replica.primary_headscale,
+            "match": (standby_build == replica.primary_headscale)
+            if standby_build and replica.primary_headscale
+            else None,
         },
         "state": asdict(state),
         "decision": {"action": decision.action, "reason": decision.reason},
