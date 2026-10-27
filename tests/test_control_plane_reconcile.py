@@ -70,7 +70,7 @@ def fleet():
 def _mk_host(fleet, host_id, *, gpu_model):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities, last_observed_at) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}', clock_timestamp())""",
             (
                 host_id,
                 time.time(),
@@ -91,6 +91,22 @@ def _mk_host(fleet, host_id, *, gpu_model):
         )
         conn.commit()
     fleet["hosts"].append(host_id)
+    from control_plane.physical_inventory import sync_physical_inventory
+
+    with _pool.connection() as conn:
+        sync_physical_inventory(
+            conn,
+            host_id=host_id,
+            inventory=[
+                dict(
+                    gpu_uuid=f"GPU-{host_id}-{i}",
+                    device_index=i,
+                    model=gpu_model,
+                    total_vram_mb=24576,
+                )
+                for i in range(2)
+            ],
+        )
 
 
 def _place(fleet, marker):
@@ -509,8 +525,9 @@ class TestReconcileActions:
         assert past is True
 
         # The lease controller (not the reconciler) then does the terminal
-        # settlement uniformly: attempt lost, job requeued, allocations freed.
-        from control_plane.leases import expire_stale_leases
+        # settlement uniformly: fence first, then release physical capacity
+        # only after a complete post-fence report proves the container absent.
+        from control_plane.leases import expire_stale_leases, release_stopped_attempts
 
         run_transaction(lambda c: expire_stale_leases(c, grace_sec=0), what="t")
         with _pool.connection() as conn:
@@ -531,7 +548,31 @@ class TestReconcileActions:
             )
         assert att_status == "lost"
         assert job_status == "queued"
-        assert active_allocs == 0
+        assert active_allocs == 1
+        run_transaction(
+            lambda c: ingest_observation(
+                c,
+                host_id=host_id,
+                session_id="sess-mc-en",
+                observation_generation=2,
+                workloads=[],
+                conditions={"workloads": "reported"},
+            ),
+            what="test_prove_stop",
+        )
+        settled = run_transaction(release_stopped_attempts, what="test_settle_stop")
+        assert any(row["attempt_id"] == resv.attempt_id for row in settled)
+        assert self._active_allocations(resv.attempt_id) == 0
+
+    @staticmethod
+    def _active_allocations(attempt_id):
+        with _pool.connection() as conn:
+            return _scalar(
+                conn.execute(
+                    "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND status='active'",
+                    (attempt_id,),
+                ).fetchone()
+            )
 
 
 class TestOrphanedAllocations:

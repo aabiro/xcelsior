@@ -35,8 +35,6 @@ from control_plane.job_specs import validate_execution_spec
 # the legacy 15-minute default.
 _START_COMMAND_EXPIRY_SEC = 7 * 24 * 3600
 
-_DEVICE_HEALTH_SCHEDULABLE = ("healthy", "unknown")
-
 
 class ReservationConflict(Exception):
     """Base: this candidate cannot be reserved; roll back and move on."""
@@ -232,12 +230,15 @@ def reserve_and_bind(
     host = conn.execute(
         """
         SELECT status, administrative_state, inventory_generation, payload, availability_state,
-               region, country, province, capabilities
+               region, country, province, capabilities,
+               (last_observed_at IS NOT NULL
+                AND last_observed_at >= clock_timestamp()
+                                        - make_interval(secs => %s)) AS observation_fresh
           FROM hosts
          WHERE host_id = %s
            FOR UPDATE
         """,
-        (host_id,),
+        (host_freshness_timeout_sec, host_id),
     ).fetchone()
     if host is None:
         raise HostNotEligible(f"host {host_id} no longer exists", host_id=host_id)
@@ -246,6 +247,14 @@ def reserve_and_bind(
         raise HostNotEligible(f"host {host_id} is {admin_state}", administrative_state=admin_state)
     if _one(host, "availability_state", 4) != "ready":
         raise HostNotEligible("host availability changed before reservation", host_id=host_id)
+    # Only a current observation (DB-clock receipt of the host's own report)
+    # shows a worker able to claim the lease; ICMP liveness never does.
+    if not _one(host, "observation_fresh", 9):
+        raise HostNotEligible(
+            "host has not reported a current observation",
+            host_id=host_id,
+            filter_reason="host_observation_stale",
+        )
 
     # Scoring ran in another transaction. Re-read the placement constraints
     # from this locked row so revoking network isolation or changing geography,
@@ -260,9 +269,13 @@ def reserve_and_bind(
 
     payload = _one(host, "payload", 3)
     locked_host = dict(payload) if isinstance(payload, dict) else {}
+    # Claim back-off is a snapshot heuristic; the locked row's columns are
+    # the authority for everything else this check reads.
+    locked_host.pop("lease_claim_backoff", None)
     locked_host.update(
         host_id=host_id,
         status=_one(host, "status", 0),
+        availability_state=_one(host, "availability_state", 4),
         region=_one(host, "region", 5),
         country=_one(host, "country", 6),
         province=_one(host, "province", 7),
@@ -294,7 +307,7 @@ def reserve_and_bind(
     devices = conn.execute(
         """
         SELECT d.gpu_device_id, d.gpu_uuid, d.allocation_mode, d.health,
-               d.allocatable_vram_mb
+               d.allocatable_vram_mb, d.model
           FROM host_gpu_devices d
          WHERE d.host_id = %s
            AND d.retired_at IS NULL
@@ -303,8 +316,24 @@ def reserve_and_bind(
         """,
         (host_id,),
     ).fetchall()
-    if not devices:
-        raise CapacityConflict(f"host {host_id} has no registered GPU devices", host_id=host_id)
+    # The lease claim grants only physical NVML identities, so a synthetic
+    # compatibility slot (or an unhealthy device) can never carry an offer.
+    from control_plane.scheduler.filters import (
+        SCHEDULABLE_DEVICE_HEALTH,
+        gpu_model_matches,
+        is_physical_gpu_uuid,
+    )
+
+    physical = [
+        row
+        for row in devices
+        if is_physical_gpu_uuid(_one(row, "gpu_uuid", 1))
+        and _one(row, "health", 3) in SCHEDULABLE_DEVICE_HEALTH
+    ]
+    if not physical:
+        raise CapacityConflict(
+            f"host {host_id} has no schedulable physical GPU devices", host_id=host_id
+        )
     # Spot capacity is revalidated while holding the host/device locks. Native
     # allocations, including unclaimed reservations, consume the pool; a raw
     # compatibility status cannot release that capacity.
@@ -322,7 +351,7 @@ def reserve_and_bind(
         ).fetchone()[0]
         reason = spot_capacity(
             spec,
-            {**policy, "gpu_count": len(devices), "active_spot_gpu_count": spot_used},
+            {**policy, "gpu_count": len(physical), "active_spot_gpu_count": spot_used},
             FilterContext(),
         )
         if reason is not None:
@@ -362,10 +391,12 @@ def reserve_and_bind(
         else set()
     )
     free: list[tuple[str, str]] = []
-    for row in devices:
+    wanted_model = spec.get("gpu_model")
+    for row in physical:
         device_id = str(_one(row, "gpu_device_id", 0))
-        health = _one(row, "health", 3)
-        if health not in _DEVICE_HEALTH_SCHEDULABLE:
+        # A request for a model binds only devices of that model, whatever
+        # else the host carries or whichever device sorts first.
+        if not gpu_model_matches(wanted_model, _one(row, "model", 5)):
             continue
         if (
             device_id in allocated

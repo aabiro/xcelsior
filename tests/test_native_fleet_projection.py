@@ -45,6 +45,9 @@ def test_fleet_projection_uses_canonical_geography_and_capabilities(native_capab
                     host_id,
                 ),
             )
+            from tests._db_helpers import report_test_host_inventory
+
+            report_test_host_inventory(host_id, conn=conn)
             host = next(h for h in read_fleet(conn).hosts if h["host_id"] == host_id)
             assert (host["region"], host["country"], host["province"]) == ("ca-on", "CA", "ON")
             assert host["capabilities"] == {"egress_isolation": native_capability}
@@ -63,7 +66,7 @@ def test_blank_canonical_facts_cannot_fall_back_to_payload_claims():
     with _get_pg_pool().connection() as conn:
         try:
             conn.execute(
-                "INSERT INTO hosts(host_id,status,registered_at,payload,admission_state,administrative_state,availability_state) VALUES(%s,'active',0,%s,'admitted','admitted','ready')",
+                "INSERT INTO hosts(host_id,status,registered_at,payload,admission_state,administrative_state,availability_state, last_observed_at) VALUES(%s,'active',0,%s,'admitted','admitted','ready', clock_timestamp())",
                 (
                     host_id,
                     Jsonb(
