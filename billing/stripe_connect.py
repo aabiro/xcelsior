@@ -1705,10 +1705,13 @@ class StripeConnectManager:
 
             payer = UserStore.get_user_by_customer_id(customer_id)
             meta = data.get("metadata") or {}
+            shipping_addr = (data.get("shipping") or {}).get("address")
+            stripe_addr = shipping_addr if isinstance(shipping_addr, dict) else None
             track_event(
                 "Purchase",
                 f"purchase_{si_id}",
                 user=payer,
+                billing_address=stripe_addr,
                 custom_data={"value": amount_cad, "currency": "CAD", "content_type": "product"},
                 external_id=customer_id,
                 fbp=meta.get("fbp"),
