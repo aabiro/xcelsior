@@ -204,3 +204,56 @@ groups:
       summary: The latest restore drill failed
       description: A restore failure timestamp is newer than the last successful drill.
       runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+- name: xcelsior.prod-host-disk
+  rules:
+  - alert: XcelsiorProdDiskHigh
+    expr: (1 - node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint="/"} / node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint="/"})
+      * 100 > 80
+    for: 10m
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: prod-hetzner / is over 80% full
+      description: '{{ $value | printf "%.1f" }}% used. The weekly prod-docker-gc timer trims images; check `docker system df` and the volume backing files under /exports/volumes.'
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+  - alert: XcelsiorProdDiskCritical
+    expr: (1 - node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint="/"} / node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint="/"})
+      * 100 > 90
+    for: 5m
+    labels:
+      severity: critical
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: prod-hetzner / is over 90% full
+      description: '{{ $value | printf "%.1f" }}% used. Postgres, Headscale and Docker all write to /; free space before they fail.'
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+  - alert: XcelsiorProdDiskFillsWithin24h
+    expr: predict_linear(node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint="/"}[6h], 24 * 3600) < 0
+    for: 30m
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: prod-hetzner / will fill within 24 hours at the current rate
+      description: Usage over the last 6 hours projects / to run out within a day. A sparse volume backing file or a log may be growing.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+  - alert: XcelsiorProdVolumeFull
+    expr: (1 - node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint=~"/exports/volumes/.+"} / node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint=~"/exports/volumes/.+"})
+      * 100 > 90
+    for: 10m
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: Customer volume {{ $labels.mountpoint }} is over 90% full
+      description: '{{ $value | printf "%.1f" }}% used on a volume exported from prod-hetzner.'
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
