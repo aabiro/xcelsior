@@ -48,6 +48,7 @@ MOVED = [
     "mcp-xcelsior.conf",
     "docs-xcelsior.conf",
     "downloads-xcelsior.conf",
+    "otel-xcelsior.conf",
     "headscale.conf",
     "unmatched-hosts.conf",
     "agent-xcelsior.conf",

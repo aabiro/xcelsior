@@ -31,7 +31,7 @@ import re
 import shutil
 import sys
 
-VHOSTS = ("xcelsior", "headscale", "headscale-http", "docs-xcelsior", "downloads-xcelsior")
+VHOSTS = ("xcelsior", "headscale", "headscale-http", "docs-xcelsior", "downloads-xcelsior", "otel-xcelsior")
 
 #: upstream name -> (port when green is live, port when blue is live)
 UPSTREAMS = {

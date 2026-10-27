@@ -979,6 +979,10 @@ services:
     image: grafana/loki:3.5.3
     command:
       - -config.file=/etc/loki/loki.yaml
+    # Loopback only, for the host's native Grafana. Not 3100: another service
+    # on the production host already holds it.
+    ports:
+      - "127.0.0.1:3110:3100"
     volumes:
       - ./api/infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki

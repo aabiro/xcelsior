@@ -78,6 +78,7 @@ def test_all_observability_host_ports_are_loopback_only():
     assert services["prometheus"]["ports"] == ["127.0.0.1:9091:9090"]
     assert services["grafana"]["ports"] == ["127.0.0.1:3001:3000"]
     assert services["jaeger"]["ports"] == ["127.0.0.1:16686:16686"]
+    assert services["loki"]["ports"] == ["127.0.0.1:3110:3100"]
 
 
 def test_stateful_observability_services_have_named_volumes_and_retention():
