@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TOOL_CONTRACTS } from "../../src/tools/contracts.js";
 import {
+  CONNECTOR_WITHHELD_SCOPES,
   isOperatorTool,
   principalIsOperator,
   scopesForProfile,
@@ -79,6 +80,17 @@ describe("trust-surface profiles", () => {
     const leaked = scopesForProfile("customer").filter((s) => s.startsWith("hosts:") || s.startsWith("control_plane:"));
     expect(leaked).toEqual([]);
     expect(scopesForProfile("operator")).toContain("hosts:read");
+  });
+
+  it("never advertises a scope a connector cannot be granted in the customer profile", () => {
+    // A connector requests everything in `scopes_supported`; these three are
+    // dropped from every connector grant, so advertising them only asks the
+    // user to approve something that never arrives. Their tools still exist.
+    const customer = scopesForProfile("customer");
+    for (const scope of CONNECTOR_WITHHELD_SCOPES) expect(customer).not.toContain(scope);
+    expect(customer).toContain("ssh:read");
+    expect(toolsInProfile("customer")).toContain("top_up_wallet");
+    expect(scopesForProfile("operator")).toContain("billing:write");
   });
 
   it("refuses to expose a tool with no contract", () => {
