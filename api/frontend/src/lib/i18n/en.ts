@@ -633,6 +633,8 @@ const en: Record<string, string> = {
   "footer.legal": "Legal",
   "footer.privacy": "Privacy Policy",
   "footer.terms": "Terms of Service",
+  "footer.delete_data": "Delete your data",
+  "footer.deactivate": "Deactivate account",
   "footer.security": "Security",
   "footer.status": "Status",
   "footer.copyright": "© {year} Xcelsior Compute Inc. All rights reserved.",
