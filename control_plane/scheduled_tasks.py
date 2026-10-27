@@ -22,14 +22,14 @@ def register_task(task_name: str, func: Callable, default_interval_sec: int, ena
     _task_services.pop(task_name, None)
     if service is not None:
         _task_services[task_name] = service
-    
+
     with pg_transaction() as conn:
         conn.execute(
             """
-            INSERT INTO scheduled_tasks 
+            INSERT INTO scheduled_tasks
                 (task_name, enabled, interval_seconds, next_run_at)
             VALUES (%s, %s, %s, clock_timestamp())
-            ON CONFLICT (task_name) DO UPDATE 
+            ON CONFLICT (task_name) DO UPDATE
             SET interval_seconds = EXCLUDED.interval_seconds,
                 enabled = EXCLUDED.enabled
             """,
@@ -41,7 +41,7 @@ def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
     claimed_tasks = []
     if not _registry:
         return 0
-    
+
     with pg_transaction() as conn:
         conn.row_factory = dict_row
         # Claim SKIP LOCKED
@@ -64,14 +64,14 @@ def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
             """,
             (worker_id, list(_registry), limit)
         ).fetchall()
-        
+
         claimed_tasks = [dict(r) for r in rows]
 
     executed_count = 0
     for task in claimed_tasks:
         task_name = task["task_name"]
         interval = task["interval_seconds"]
-        
+
         func = _registry.get(task_name)
         if not func:
             log.error("Scheduled task '%s' not found in registry", task_name)
