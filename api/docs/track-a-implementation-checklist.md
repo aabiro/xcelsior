@@ -508,9 +508,9 @@ of the last edit to this file.
   **Remaining residual (not claimed):** operator agent deploy and live
   canary/active env flips (P5.5). Serverless prepull and unrelated
   process-local producers remain out of scope.
-  **Durable scheduled tasks landed (2026-07-19):** `control_plane/scheduled_tasks.py` 
-  provides the `scheduled_tasks` table executor (`claim_and_run_tasks`) replacing the 
-  process-local background timers in `bg_worker.py` with `SKIP LOCKED` durable 
+  **Durable scheduled tasks landed (2026-07-19):** `control_plane/scheduled_tasks.py`
+  provides the `scheduled_tasks` table executor (`claim_and_run_tasks`) replacing the
+  process-local background timers in `bg_worker.py` with `SKIP LOCKED` durable
   execution and database-tracked run states. ✔
 
 ## A4 — Durable outbox & command ACK protocol

@@ -1,8 +1,8 @@
 <!-- residency-guard: documents-removal — dated audit of the pre-pivot site copy -->
 # Xcelsior UI / UX Audit Report
 
-Prepared for: Aaryn  
-Date: June 22, 2026  
+Prepared for: Aaryn
+Date: June 22, 2026
 Scope: Full-experience UI/UX audit of Xcelsior.ca, scored toward a 10/10 feel, with concrete fixes. Notes cover layout, hierarchy, conversion, responsiveness, theming, navigation, and trust.
 
 ## Site

@@ -458,4 +458,3 @@ describe("frameMsForMood", () => {
         expect(frameMsForMood("working")).toBeLessThan(frameMsForMood("waiting"));
     });
 });
-

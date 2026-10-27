@@ -84,7 +84,15 @@ def test_the_dashboard_actually_renders_the_lineage():
     drifted apart in the first place.
     """
     page = (
-        ROOT / "api" / "frontend" / "src" / "app" / "(dashboard)" / "dashboard" / "templates" / "page.tsx"
+        ROOT
+        / "api"
+        / "frontend"
+        / "src"
+        / "app"
+        / "(dashboard)"
+        / "dashboard"
+        / "templates"
+        / "page.tsx"
     ).read_text(encoding="utf-8")
     for field in ("base_image_ref", "source_job_id", "image_digest"):
         assert f"img.{field}" in page, (

@@ -58,7 +58,12 @@ def test_not_authorized_names_the_partner_scope(monkeypatch, caplog):
         "name": "NOT_AUTHORIZED",
         "debug_id": "f49ddf693ad4b",
         "message": "Authorization failed due to insufficient permissions.",
-        "details": [{"issue": "NOT_AUTHORIZED", "description": "Authorization failed due to insufficient permissions."}],
+        "details": [
+            {
+                "issue": "NOT_AUTHORIZED",
+                "description": "Authorization failed due to insufficient permissions.",
+            }
+        ],
     }
 
     class Resp:

@@ -49,7 +49,16 @@ def _iter_py_files():
     for path in REPO.rglob("*.py"):
         rel = path.relative_to(REPO).as_posix()
         if rel.startswith(
-            ("tests/", ".venv/", "venv/", "node_modules/", "mcp/", "api/mcp/", "artifacts/", "core/artifacts/")
+            (
+                "tests/",
+                ".venv/",
+                "venv/",
+                "node_modules/",
+                "mcp/",
+                "api/mcp/",
+                "artifacts/",
+                "core/artifacts/",
+            )
         ):
             continue
         # AppleDouble sidecars: macOS writes `._foo.py` next to `foo.py` when the

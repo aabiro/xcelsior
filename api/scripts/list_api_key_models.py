@@ -26,10 +26,10 @@ def main():
             return
 
         client = genai.Client(api_key=api_key)
-        
+
         print("Querying all available models for the provided API key...")
         models = client.models.list()
-        
+
         print("\n=== [AVAILABLE MODELS] ===")
         for model in models:
             # Let's dynamically print attributes that exist
@@ -38,7 +38,7 @@ def main():
             print(f"- Name: {name}")
             print(f"  Display Name: {display_name}")
             print("-" * 40)
-            
+
     except Exception as e:
         print(f"Failed to list models: {e}", file=sys.stderr)
 

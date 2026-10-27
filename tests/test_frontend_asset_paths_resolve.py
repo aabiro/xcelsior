@@ -55,7 +55,9 @@ def _references() -> dict[str, list[str]]:
     for suffix in SOURCE_SUFFIXES:
         # `include_prefixes` beats every exclude, so tests are dropped here.
         for f, rel in iter_source_files(suffix, include_prefixes=("api/frontend/src/",)):
-            if not rel.startswith("api/frontend/src/") or rel.startswith("api/frontend/src/__tests__/"):
+            if not rel.startswith("api/frontend/src/") or rel.startswith(
+                "api/frontend/src/__tests__/"
+            ):
                 continue
             for match in ASSET.finditer(read_source(f)):
                 path = match.group(1)

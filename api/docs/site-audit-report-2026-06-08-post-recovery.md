@@ -1,9 +1,9 @@
 <!-- residency-guard: documents-removal — dated audit of the pre-pivot site -->
 # Xcelsior — Post-Recovery Site Audit Report
 
-Date: **2026-06-08** (verification run)  
-Target: https://xcelsior.ca  
-Local `main`: `8d31915`  
+Date: **2026-06-08** (verification run)
+Target: https://xcelsior.ca
+Local `main`: `8d31915`
 Production (est.): `8d31915`
 
 This is the **third verification pass** — synthesizing automated script output after VPS recovery (2026-06-05). It supersedes the stale generator output in `site-audit-report-2026-06-04-reaudit.md` and consolidates:

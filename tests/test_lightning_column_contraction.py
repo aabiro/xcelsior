@@ -21,7 +21,8 @@ def _migration():
 def _seed(dsn):
     _alembic(dsn, "upgrade", "140")
     with _connect(dsn) as conn:
-        conn.execute("""INSERT INTO ln_deposits
+        conn.execute(
+            """INSERT INTO ln_deposits
             (deposit_id,customer_id,tenant_id,label,bolt11,payment_hash,
              amount_msat,amount_sats,amount_btc,amount_micros,amount_cad_minor,
              btc_cad_rate,btc_cad_rate_exact,status,created_at,expires_at,
@@ -29,7 +30,8 @@ def _seed(dsn):
             VALUES('contract','customer','tenant','contract','bolt','hash',
                 1000000,1000,0.000009999999,25000000,2500,123456.12345678,
                 123456.12345678,'pending',1700000000,1700000600,
-                to_timestamp(1700000000),to_timestamp(1700000600))""")
+                to_timestamp(1700000000),to_timestamp(1700000600))"""
+        )
         canonical = conn.execute(
             """SELECT amount_micros,amount_cad_minor,
             btc_cad_rate_exact,created_at_ts,expires_at_ts,paid_at_ts,credited_at_ts,
@@ -54,9 +56,11 @@ def test_archive_preserves_exact_retired_values_and_leaves_native_money_unchange
             == canonical
         )
         assert (
-            conn.execute("""SELECT record,tenant_id,tenant_attributed,
+            conn.execute(
+                """SELECT record,tenant_id,tenant_attributed,
             record_sha256=encode(sha256(convert_to(record::text,'UTF8')),'hex')
-            FROM lightning_retired_projection_archive WHERE deposit_id='contract'""").fetchone()
+            FROM lightning_retired_projection_archive WHERE deposit_id='contract'"""
+            ).fetchone()
             == (original, "tenant", True, True)
         )
         assert (

@@ -12,14 +12,14 @@
   <rect x="16" y="40" width="98" height="54" rx="10" fill="url(#gd-body)" stroke="url(#gd-edge)" stroke-width="2.4" filter="url(#gd-glow)"></rect>
   <rect x="20.5" y="44.5" width="89" height="45" rx="6" fill="#ecfeff" fill-opacity="0.05"></rect>
   <g stroke="#38dbff" stroke-opacity="0.32" stroke-width="2" stroke-linecap="round"><path d="M104 50v34M110 54v26"></path></g>
-  
+
     <circle cx="46" cy="67" r="16" stroke="url(#gd-edge)" stroke-width="2.2" fill="none"></circle>
     <g transform="translate(46,67) scale(0.6)" stroke="url(#gd-edge)" stroke-width="3" stroke-linecap="round" opacity="0.9" fill="none">
       <path d="M0 0C10 -14 24 -12 22 0"></path><path d="M0 0C14 10 12 24 0 22"></path><path d="M0 0C-14 10 -28 8 -26 -2"></path><path d="M0 0C-10 -14 -12 -26 0 -24"></path>
     </g>
     <circle cx="46" cy="67" r="4.5" fill="#38dbff"></circle>
     <circle cx="46" cy="67" r="4.5" stroke="#ecfeff" stroke-opacity="0.45" stroke-width="1"></circle>
-  
+
     <circle cx="86" cy="67" r="16" stroke="url(#gd-edge)" stroke-width="2.2" fill="none"></circle>
     <g transform="translate(86,67) scale(0.6)" stroke="url(#gd-edge)" stroke-width="3" stroke-linecap="round" opacity="0.9" fill="none">
       <path d="M0 0C10 -14 24 -12 22 0"></path><path d="M0 0C14 10 12 24 0 22"></path><path d="M0 0C-14 10 -28 8 -26 -2"></path><path d="M0 0C-10 -14 -12 -26 0 -24"></path>

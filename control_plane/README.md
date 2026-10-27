@@ -22,13 +22,13 @@ flowchart TD
 
     User((User/Client)) -->|"1. Desires Execution"| API
     API -->|"2. Persists Intent"| DB
-    
+
     SCH -->|"3. Claims Queue &\nReserves GPU"| DB
     SCH -->|"4. Writes Command"| DB
 
     WA <-->|"5. Polls Commands &\nReports Status"| API
     WA -->|"6. Executes"| GPU
-    
+
     REC -->|"7. Reads Desired vs Observed"| DB
     REC -->|"8. Repairs State / Requeues"| DB
 ```

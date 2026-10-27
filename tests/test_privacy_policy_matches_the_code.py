@@ -240,7 +240,8 @@ def test_the_cross_border_toggle_is_not_offered_in_settings():
     """
     settings = (
         pathlib.Path(__file__).resolve().parent.parent
-        / "api" / "frontend"
+        / "api"
+        / "frontend"
         / "src"
         / "app"
         / "(dashboard)"

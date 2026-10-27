@@ -702,7 +702,7 @@ check_ssh() {
 # ── First-Time Setup ──────────────────────────────────────────────────
 setup_server() {
     log "Running first-time server setup..."
-    
+
     ssh_cmd << 'EOF'
 set -e
 
@@ -728,7 +728,7 @@ EOF
 
 setup_ssl() {
     log "Setting up SSL certificates..."
-    
+
     ssh_cmd << EOF
 set -e
 
@@ -746,7 +746,7 @@ server {
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
-    
+
     location / {
         return 200 'Xcelsior is being configured...';
         add_header Content-Type text/plain;
@@ -781,11 +781,11 @@ EOF
 
 setup_systemd() {
     log "Installing systemd services..."
-    
+
     scp_file "$PROJECT_DIR/xcelsior-api.service" "/tmp/xcelsior-api.service"
     scp_file "$PROJECT_DIR/xcelsior-health.service" "/tmp/xcelsior-health.service"
     scp_file "$PROJECT_DIR/xcelsior-worker.service" "/tmp/xcelsior-worker.service"
-    
+
     ssh_cmd << 'EOF'
 sudo cp /tmp/xcelsior-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -803,7 +803,7 @@ require_release_disk_headroom() {
 backup_current() {
     require_release_disk_headroom
     log "Backing up current deployment..."
-    
+
     TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
     ssh_cmd << EOF
 set -e
@@ -1515,7 +1515,7 @@ ensure_prod_spire_enrollment() {
 deploy_docker() {
     require_release_disk_headroom
     log "Deploying with Docker Compose ($TARGET_ENV)..."
-    
+
     # Verify .env exists on server
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
     ensure_remote_deploy_state_dir
@@ -1853,7 +1853,7 @@ docker compose build $build_args frontend
 
 deploy_systemd() {
     log "Deploying with systemd..."
-    
+
     ssh_cmd << 'EOF'
 set -e
 cd /opt/xcelsior
@@ -2011,7 +2011,7 @@ health_check() {
         warn "nginx not active under systemd — attempting repair"
         repair_nginx_systemd || warn "nginx repair failed"
     fi
-    
+
     # Public check via nginx / Cloudflare with a short retry window after restarts
     local public_ok=false
     for _ in {1..10}; do
@@ -2026,7 +2026,7 @@ health_check() {
     else
         warn "Public endpoint not responding after retries"
     fi
-    
+
     # Remote internal checks (separate calls for reliability)
     log "Docker status:"
     ssh_cmd "cd /opt/xcelsior && docker compose ps" || true
@@ -2138,7 +2138,7 @@ main() {
     if [[ ${#DEPLOY_SYNC_HOSTS[@]} -gt 0 ]]; then
         log "Mirror sync hosts: ${DEPLOY_SYNC_HOSTS[*]} (code-only, parallel with primary deploy)"
     fi
-    
+
     case "${1:-}" in
         --test)
             TARGET_ENV="test"

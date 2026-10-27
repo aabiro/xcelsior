@@ -201,12 +201,14 @@ def test_no_float_money_column_survives_on_wallets():
     from db import _get_pg_pool
 
     with _get_pg_pool().connection() as conn:
-        rows = conn.execute("""SELECT column_name FROM information_schema.columns
+        rows = conn.execute(
+            """SELECT column_name FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name IN ('wallets', 'wallet_transactions',
                                      'wallet_holds', 'usage_meters',
                                      'payout_splits')
-                  AND column_name LIKE '%_cad'""").fetchall()
+                  AND column_name LIKE '%_cad'"""
+        ).fetchall()
     assert not [r[0] for r in rows], f"float money columns still present: {rows}"
 
 
@@ -215,9 +217,11 @@ def test_no_projection_trigger_survives():
     from db import _get_pg_pool
 
     with _get_pg_pool().connection() as conn:
-        rows = conn.execute("""SELECT tg.tgname FROM pg_trigger tg
+        rows = conn.execute(
+            """SELECT tg.tgname FROM pg_trigger tg
                  JOIN pg_class cl ON cl.oid = tg.tgrelid
                 WHERE NOT tg.tgisinternal
                   AND cl.relname IN ('wallets', 'wallet_transactions',
-                                     'wallet_holds', 'usage_meters')""").fetchall()
+                                     'wallet_holds', 'usage_meters')"""
+        ).fetchall()
     assert not [r[0] for r in rows], f"projection triggers still present: {rows}"
