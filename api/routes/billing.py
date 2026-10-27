@@ -261,6 +261,7 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
         event_id or f"checkout_{req.customer_id}",
         user=user,
         request=request,
+        billing_address=addr or None,
         custom_data={"value": req.amount_cad, "currency": "CAD"},
     )
     return {"ok": True, "intent": result}
