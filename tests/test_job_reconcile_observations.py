@@ -32,7 +32,7 @@ def placed(request):
     host_id, job_id, model = f"h-job-rec-{marker}", f"j-job-rec-{marker}", f"GPU-{marker}"
     with pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities, last_observed_at) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}', clock_timestamp())""",
             (
                 host_id,
                 time.time(),
@@ -159,8 +159,8 @@ def _observe(placed, *, state="running", workloads=None, **changes):
         return ingest_observation(
             conn,
             host_id=placed["host_id"],
-            session_id=uuid.uuid4().hex,
-            observation_generation=1,
+            session_id="test-session",
+            observation_generation=time.monotonic_ns(),
             workloads=[workload] if workloads is None else workloads,
             # Worker clock must not override API receipt freshness.
             worker_reported_at=time.time() + 86400,
@@ -336,6 +336,20 @@ def test_lease_expiry_cannot_undo_stop_or_terminal_state(placed, status, intent,
         ).fetchone() == ("lost",)
         assert conn.execute(
             "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id = %s AND status = 'active'",
+            (placed["attempt_id"],),
+        ).fetchone() == (1,)
+        # Lease expiry fences authority; it does not prove physical stop.
+        from control_plane.leases import release_stopped_attempts
+
+        assert not any(
+            e["attempt_id"] == placed["attempt_id"] for e in release_stopped_attempts(conn)
+        )
+    _observe(placed, state="exited")
+    with placed["pool"].connection() as conn:
+        settled = release_stopped_attempts(conn)
+        assert any(e["attempt_id"] == placed["attempt_id"] for e in settled)
+        assert conn.execute(
+            "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND status='active'",
             (placed["attempt_id"],),
         ).fetchone() == (0,)
         assert not any(

@@ -34,6 +34,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
+
 def _tier_order() -> tuple[str, ...]:
     """Tier names worst-to-best, **derived from `reputation.TIER_THRESHOLDS`**.
 
@@ -434,13 +435,12 @@ def choose_host(
         # Two separate refusals, because they call for different next steps:
         # "wait for history" is not "relax the number".
         observed = [
-            h for h in survivors
+            h
+            for h in survivors
             if float(h.get("sla_total_seconds") or 0) >= MIN_OBSERVATION_SECONDS
         ]
         if not observed:
-            longest = max(
-                (float(h.get("sla_total_seconds") or 0) for h in survivors), default=0.0
-            )
+            longest = max((float(h.get("sla_total_seconds") or 0) for h in survivors), default=0.0)
             return PlacementRefused(
                 code="insufficient_history",
                 detail=(
@@ -519,7 +519,9 @@ def choose_host(
             )
         floor = TIER_ORDER.index(want)
         rated = [(h, host_tier(h) or "") for h in survivors]
-        survivors = [h for h, tier in rated if tier in TIER_ORDER and TIER_ORDER.index(tier) >= floor]
+        survivors = [
+            h for h, tier in rated if tier in TIER_ORDER and TIER_ORDER.index(tier) >= floor
+        ]
         if not survivors:
             present = [t for _, t in rated if t in TIER_ORDER]
             best = max(present, key=TIER_ORDER.index) if present else None

@@ -219,9 +219,7 @@ def project_placement_evidence(
               AND month >= %s""",
         (ids, _cutoff_month(now, window_days)),
     ).fetchall():
-        host_id, month, total, downtime = (
-            str(record[0]), str(record[1]), record[2], record[3]
-        )
+        host_id, month, total, downtime = (str(record[0]), str(record[1]), record[2], record[3])
         try:
             begin, _end = _month_bounds(month)
         except ValueError:

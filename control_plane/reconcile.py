@@ -275,6 +275,11 @@ def _find_orphaned_allocations(
          WHERE a.host_id = %s
            AND a.status = 'active'
            AND ja.status = ANY(%s)
+           -- A renewal timeout holds its devices until stop evidence; only
+           -- the lease controller's release_stopped_attempts may free them.
+           AND NOT (ja.status = 'lost'
+                    AND ja.failure_details->>'awaiting_stop_evidence' = 'true'
+                    AND ja.failure_details->'stop_evidence' IS NULL)
          ORDER BY a.allocation_id
         """,
         (host_id, list(_TERMINAL_ATTEMPT_STATUSES)),

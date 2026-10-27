@@ -46,9 +46,7 @@ class ScoreBreakdown:
 
 def deterministic_tie_break(job_id: str, host_id: str, inventory_generation: int) -> int:
     """Stable 32-bit tie-break — sha256, never Python's seeded hash()."""
-    digest = hashlib.sha256(
-        f"{job_id}|{host_id}|{inventory_generation}".encode()
-    ).digest()
+    digest = hashlib.sha256(f"{job_id}|{host_id}|{inventory_generation}".encode()).digest()
     return int.from_bytes(digest[:4], "big")
 
 

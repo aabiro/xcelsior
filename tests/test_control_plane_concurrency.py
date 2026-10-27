@@ -33,6 +33,7 @@ else:
         pytestmark = pytest.mark.skip("test database not migrated to >= 056")
 
 from tests._concurrency_worker import run_replica
+from tests.native_jobs import admit_fixture_job
 
 N_REPLICAS = 8
 N_JOBS = 30
@@ -50,8 +51,10 @@ def stress_fleet():
         for host_id in host_ids:
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                      administrative_state, availability_state, admission_state)
-                   VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted')""",
+                                      administrative_state, availability_state, admission_state,
+                                      capabilities, last_observed_at)
+                   VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted',
+                           '{"egress_isolation": true}', clock_timestamp())""",
                 (host_id, time.time()),
             )
             for g in range(GPUS_PER_HOST):
@@ -59,8 +62,8 @@ def stress_fleet():
                     """INSERT INTO host_gpu_devices
                            (host_id, gpu_uuid, device_index, model,
                             total_vram_mb, allocatable_vram_mb, health)
-                       VALUES (%s, %s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
-                    (host_id, f"GPU-{host_id}-{g}", g),
+                       VALUES (%s, %s, %s, %s, 24576, 24576, 'healthy')""",
+                    (host_id, f"GPU-{host_id}-{g}", g, f"RTX 4090 stress-{marker}"),
                 )
         for i, job_id in enumerate(job_ids):
             conn.execute(
@@ -77,6 +80,8 @@ def stress_fleet():
                     i % 3,
                 ),
             )
+            # Placement needs a native admission (the immutable spec).
+            admit_fixture_job(conn, job_id)
         conn.commit()
     yield marker, job_ids, host_ids
     with _pool.connection() as conn:

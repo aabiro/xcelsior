@@ -368,6 +368,12 @@ def api_v2_observations(report: ObservationReport, request: Request):
         "duplicate": result.duplicate,
         "observation_id": result.observation_id,
         "workloads": result.workloads,
+        # Additive: a superseded session ("stale") can never apply state again
+        # and should rotate to a fresh worker_session_id; "pending" waits for
+        # the current session to go silent.
+        "stale": result.stale,
+        "session_state": result.session_state,
+        "applied": result.applied,
     }
 
 

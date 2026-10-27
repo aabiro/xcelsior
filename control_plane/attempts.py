@@ -263,9 +263,18 @@ def report_attempt_status(
             and intent_row is not None
             and _get(intent_row, "desired_state", 1) == "running"
         ):
+            # A cancelled plan's victim counts only if its stop was delivered
+            # (claimed at least once): the worker may have acted on it before
+            # the cancel. An undelivered stop was cancelled with the plan.
             victim = conn.execute(
-                """SELECT plan_id FROM preemption_plan_victims
-                WHERE job_id=%s AND attempt_id=%s AND fencing_token=%s""",
+                """SELECT v.plan_id FROM preemption_plan_victims v
+                JOIN preemption_plans p ON p.plan_id = v.plan_id
+                WHERE v.job_id=%s AND v.attempt_id=%s AND v.fencing_token=%s
+                  AND (p.state IN ('stopping','ready','placed')
+                       OR EXISTS (SELECT 1 FROM agent_commands c
+                                   WHERE c.command_id IN (v.stop_command_id, v.force_command_id)
+                                     AND c.attempt_count > 0))
+                ORDER BY (p.state IN ('stopping','ready','placed')) DESC LIMIT 1""",
                 (job_id, attempt_id, fencing_token),
             ).fetchone()
             if not victim:

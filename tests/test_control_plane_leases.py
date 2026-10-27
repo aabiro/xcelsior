@@ -70,16 +70,16 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
         )
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state, admission_state, capabilities)
-               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted', '{"egress_isolation":true}')""",
+                                  administrative_state, availability_state, admission_state, capabilities, last_observed_at)
+               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
             (host_id, time.time()),
         )
         conn.execute(
             """INSERT INTO host_gpu_devices
                    (host_id, gpu_uuid, model, total_vram_mb,
                     allocatable_vram_mb, health)
-               VALUES (%s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
-            (host_id, f"GPU-{host_id}"),
+               VALUES (%s, %s, %s, 24576, 24576, 'healthy')""",
+            (host_id, f"GPU-{host_id}", f"RTX 4090 {job_id}"),
         )
         admit_fixture_job(conn, job_id)
         conn.commit()

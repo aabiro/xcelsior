@@ -2856,7 +2856,7 @@ def _v2_local_deadline(auth: dict) -> float:
     """Wall-clock time by which this host must stop the attempt's container
     unless a renewal has succeeded since ``last_renewed_at``."""
     last = auth.get("last_renewed_at")
-    if type(last) not in (int, float):
+    if not isinstance(last, (int, float)) or isinstance(last, bool):
         last = time.time()
         auth["last_renewed_at"] = last
     return float(last) + _v2_renewal_ttl(auth) - _V2_LOCAL_DEADLINE_MARGIN_SEC

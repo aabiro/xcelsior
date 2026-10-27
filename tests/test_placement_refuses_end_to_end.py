@@ -90,8 +90,8 @@ def fleet():
             # native columns; payload observations grant no placement authority.
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                      admission_state, admitted_at, administrative_state, availability_state, capabilities)
-                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp(), 'admitted', 'ready', '{"egress_isolation":true}')""",
+                                      admission_state, admitted_at, administrative_state, availability_state, capabilities, last_observed_at)
+                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp(), 'admitted', 'ready', '{"egress_isolation":true}', clock_timestamp())""",
                 (
                     host_id,
                     now,
@@ -157,6 +157,10 @@ def fleet():
                 (host_id, score, score),
             )
 
+    from tests._db_helpers import report_test_host_inventory
+
+    for host_id in (cheap, good):
+        report_test_host_inventory(host_id)
     yield {"cheap": cheap, "good": good, "gpu_model": model}
 
     ids = [cheap, good]

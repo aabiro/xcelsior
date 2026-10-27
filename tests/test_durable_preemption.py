@@ -40,6 +40,11 @@ def running(claimed, host):
             fencing_token=reservation.fencing_token,
             worker_session_id="preemption-test",
         )
+        # The emulated worker consumed the start command before running.
+        conn.execute(
+            "UPDATE agent_commands SET status='acknowledged' WHERE attempt_id=%s AND command='start_attempt'",
+            (reservation.attempt_id,),
+        )
         report_attempt_status(
             conn,
             job_id=reservation.job_id,
@@ -425,3 +430,58 @@ def test_failed_user_cancel_does_not_inherit_preemption_requeue(fleet, policies)
         assert conn.execute(
             "SELECT status,active_attempt_id FROM jobs WHERE job_id=%s", (active.job_id,)
         ).fetchone() == ("failed", None)
+
+
+def _victim_command(active):
+    with _pool.connection() as conn:
+        return conn.execute(
+            """SELECT c.command_id, c.status, c.expires_at <= EXTRACT(EPOCH FROM NOW()), v.released
+                 FROM preemption_plan_victims v JOIN agent_commands c
+                   ON c.command_id = v.stop_command_id
+                WHERE v.attempt_id=%s""",
+            (active.attempt_id,),
+        ).fetchone()
+
+
+def test_cancelling_a_plan_withdraws_its_undelivered_victim_stop(fleet, policies):
+    from control_plane.commands import claim_commands
+
+    host, active, nominee, _ = setup(fleet, policies)
+    pid = plan(nominee, host)
+    with _pool.connection() as conn:
+        conn.execute("UPDATE jobs SET desired_state='stopped' WHERE job_id=%s", (nominee.job_id,))
+        conn.commit()
+    assert run_transaction(lambda c: reconcile_plan(c, pid)) == "cancelled"
+    _command_id, status, _expired, released = _victim_command(active)
+    assert status == "cancelled" and released is True
+    with _pool.connection() as conn:
+        delivered = claim_commands(conn, host_id=host, worker_session_id="victim-worker")
+        conn.commit()
+    assert delivered == []
+    # The victim keeps running and stays eligible for a later plan.
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT status FROM job_attempts WHERE attempt_id=%s", (active.attempt_id,)
+        ).fetchone() == ("running",)
+
+
+def test_a_stop_already_delivered_before_the_cancel_still_requeues_its_victim(fleet, policies):
+    from control_plane.commands import claim_commands
+
+    host, active, nominee, _ = setup(fleet, policies)
+    pid = plan(nominee, host)
+    with _pool.connection() as conn:
+        delivered = claim_commands(conn, host_id=host, worker_session_id="victim-worker")
+        conn.execute("UPDATE jobs SET desired_state='stopped' WHERE job_id=%s", (nominee.job_id,))
+        conn.commit()
+    assert len(delivered) == 1
+    assert run_transaction(lambda c: reconcile_plan(c, pid)) == "cancelled"
+    _command_id, status, expired, released = _victim_command(active)
+    # In flight: not cancelled under the worker, but never redelivered.
+    assert (status, expired, released) == ("claimed", True, False)
+    settle(active)
+    with _pool.connection() as conn:
+        assert conn.execute(
+            "SELECT phase, desired_state, reason_code FROM jobs WHERE job_id=%s",
+            (active.job_id,),
+        ).fetchone() == ("pending", "running", "preempted")

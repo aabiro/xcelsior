@@ -55,8 +55,8 @@ def _insert_host(
     # Explicit trusted fixture authority; no projection trigger supplies it.
     conn.execute(
         """INSERT INTO hosts (host_id, status, registered_at, payload,
-                              admission_state, admitted_at, administrative_state, availability_state, capabilities)
-           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s, '{"egress_isolation":true}')""",
+                              admission_state, admitted_at, administrative_state, availability_state, capabilities, last_observed_at)
+           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s, '{"egress_isolation":true}', clock_timestamp())""",
         (
             host_id,
             status,
@@ -97,6 +97,10 @@ def hosts():
         _insert_host(conn, ids["target"], cost=0.20)
         _insert_host(conn, ids["pending"], admission="pending", cost=0.10)
         _insert_host(conn, ids["small"], vram=4.0, cost=0.05)
+    from tests._db_helpers import report_test_host_inventory
+
+    for host_id in ids.values():
+        report_test_host_inventory(host_id)
     yield ids
     with pg_transaction() as conn:
         conn.execute("DELETE FROM hosts WHERE host_id = ANY(%s)", (list(ids.values()),))

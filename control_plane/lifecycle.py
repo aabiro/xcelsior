@@ -58,6 +58,11 @@ class FencedLifecycleResult:
     # idempotent collision on the same intent:attempt key). Billing anchors
     # and similar side effects must gate on this.
     command_created: bool = False
+    # True when a repeated request re-armed an earlier command for the same
+    # intent and attempt that had died undelivered (dead-lettered, cancelled,
+    # or expired while pending). It is the same row, so command_created stays
+    # False.
+    command_redelivered: bool = False
 
 
 @dataclass(frozen=True)
@@ -255,6 +260,29 @@ def _request_fenced_stop_attempt(
             created_by=created_by,
             idempotency_key=idemp_key,
         )
+        # The idempotency key returns the earlier command even when it can no
+        # longer reach the worker, so a repeated request used to deliver
+        # nothing. The attempt still holds live authority (the enqueue above
+        # verified it), so the user's repeated intent re-arms that same command
+        # with a fresh delivery budget. A command in flight or acknowledged is
+        # left alone.
+        redelivered = prior is not None and (
+            conn.execute(
+                """
+                UPDATE agent_commands
+                   SET status = 'pending', claim_owner = NULL, claim_session = NULL,
+                       claim_expires_at = NULL, next_attempt_at = NULL, attempt_count = 0,
+                       error_code = NULL, error_details = NULL,
+                       expires_at = EXTRACT(EPOCH FROM NOW()) + 900
+                 WHERE command_id = %s
+                   AND (status IN ('dead_letter', 'cancelled')
+                        OR (status = 'pending'
+                            AND expires_at < EXTRACT(EPOCH FROM NOW())))
+                """,
+                (enqueued.command_id,),
+            ).rowcount
+            == 1
+        )
 
         _mark_stopping_with_intent(
             conn,
@@ -274,6 +302,7 @@ def _request_fenced_stop_attempt(
             fencing_token=enqueued.fencing_token,
             host_id=enqueued.host_id,
             command_created=command_created,
+            command_redelivered=redelivered,
         )
 
     try:

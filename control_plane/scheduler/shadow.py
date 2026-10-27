@@ -172,6 +172,26 @@ def simulate_cycle(
             )
             # Charge the simulated placement against fleet capacity.
             for host in hosts:
+                if str(host.get("host_id")) == winner.host_id and isinstance(
+                    host.get("gpu_devices"), list
+                ):
+                    # Same per-device rule as reservation: take the first free
+                    # devices that fit this job's model and VRAM.
+                    from control_plane.scheduler.filters import device_fits
+                    from control_plane.scheduler.snapshot import summarize_devices
+
+                    devices = [dict(d) for d in host["gpu_devices"]]
+                    taken = 0
+                    for device in devices:
+                        if (
+                            taken < _job_gpus(job)
+                            and device.get("free")
+                            and device_fits(job, device)
+                        ):
+                            device["free"] = False
+                            taken += 1
+                    summarize_devices(host, devices)
+                    break
                 if str(host.get("host_id")) == winner.host_id:
                     free_gpus = int(host.get("free_gpu_count", host.get("gpu_count", 1)) or 0)
                     host["free_gpu_count"] = max(0, free_gpus - _job_gpus(job))
@@ -227,10 +247,18 @@ def persist_decisions(
             VALUES (%s, %s, %s, %s, 'v2', %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                cycle_id, replica_id, d.job_id, snapshot_at,
-                FILTER_POLICY_VERSION, d.outcome, d.queue_reason_code,
-                d.selected_host_id, d.placement_score,
-                d.eligible_host_count, d.host_count, Jsonb(d.explanation),
+                cycle_id,
+                replica_id,
+                d.job_id,
+                snapshot_at,
+                FILTER_POLICY_VERSION,
+                d.outcome,
+                d.queue_reason_code,
+                d.selected_host_id,
+                d.placement_score,
+                d.eligible_host_count,
+                d.host_count,
+                Jsonb(d.explanation),
             ),
         )
     return len(decisions)
@@ -243,9 +271,7 @@ def compare_due_decisions(
     limit: int = _COMPARE_BATCH,
 ) -> dict[str, int]:
     """Settle aged, uncompared decisions against legacy reality."""
-    rows = conn.execute(
-        _COMPARE_SQL, {"grace": grace_sec, "limit": limit}
-    ).fetchall()
+    rows = conn.execute(_COMPARE_SQL, {"grace": grace_sec, "limit": limit}).fetchall()
     counts: dict[str, int] = {}
     for row in rows:
         cls = str(_row_get(row, "comparison", 0))
@@ -253,9 +279,7 @@ def compare_due_decisions(
     return counts
 
 
-def prune_old_decisions(
-    conn: Connection, *, retention_days: int, limit: int = _PRUNE_BATCH
-) -> int:
+def prune_old_decisions(conn: Connection, *, retention_days: int, limit: int = _PRUNE_BATCH) -> int:
     result = conn.execute(
         """
         DELETE FROM scheduler_shadow_decisions
@@ -284,9 +308,7 @@ def summarize_comparisons(conn: Connection, *, since_hours: int = 24) -> dict[st
         """,
         (since_hours,),
     ).fetchall()
-    counts = {
-        str(_row_get(r, "comparison", 0)): int(_row_get(r, "n", 1)) for r in rows
-    }
+    counts = {str(_row_get(r, "comparison", 0)): int(_row_get(r, "n", 1)) for r in rows}
     total = sum(counts.values())
     matches = counts.get("match_place", 0) + counts.get("match_queue", 0)
     return {
@@ -315,9 +337,7 @@ class ShadowRunner:
         comparisons: dict[str, int] = {}
         for _ in range(_COMPARE_MAX_BATCHES):
             batch = run_transaction(
-                lambda conn: compare_due_decisions(
-                    conn, grace_sec=cfg.shadow_compare_grace_sec
-                ),
+                lambda conn: compare_due_decisions(conn, grace_sec=cfg.shadow_compare_grace_sec),
                 what="shadow_compare",
             )
             for cls, n in batch.items():
@@ -353,9 +373,7 @@ class ShadowRunner:
 
         # 5. Bounded retention.
         pruned = run_transaction(
-            lambda conn: prune_old_decisions(
-                conn, retention_days=cfg.shadow_retention_days
-            ),
+            lambda conn: prune_old_decisions(conn, retention_days=cfg.shadow_retention_days),
             what="shadow_prune",
         )
 
@@ -370,8 +388,7 @@ class ShadowRunner:
         )
         if report.jobs_considered or report.comparisons or report.pruned:
             mismatches = sum(
-                n for cls, n in comparisons.items()
-                if cls not in ("match_place", "match_queue")
+                n for cls, n in comparisons.items() if cls not in ("match_place", "match_queue")
             )
             log.info(
                 "shadow cycle %s: %d decisions (%d place / %d queue), "
