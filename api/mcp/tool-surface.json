@@ -1,6 +1,25 @@
 {
   "$comment": "Published MCP tool surface. Regenerate with `npm run surface:update` in the same commit as the change. A breaking change requires a toolVersion bump — see docs/mcp-tool-versioning.md.",
   "generatedFor": "customer",
+  "scopesSupported": [
+    "artifacts:read",
+    "billing:read",
+    "events:read",
+    "gpu:read",
+    "inference:read",
+    "inference:write",
+    "instances:connect",
+    "instances:operate",
+    "instances:read",
+    "instances:write",
+    "marketplace:read",
+    "providers:read",
+    "reputation:read",
+    "ssh:read",
+    "ssh:write",
+    "volumes:read",
+    "volumes:write"
+  ],
   "tools": [
     {
       "name": "attach_volume",

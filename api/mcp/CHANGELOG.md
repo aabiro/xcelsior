@@ -400,6 +400,19 @@ reflected here and version-bumped fails the build.
 
 ### Changed
 
+- **The resource metadata advertises only scopes a connector can be granted.**
+  `scopes_supported` drops `billing:write`, `providers:write` and
+  `reputation:write`. The authorization server never grants those to an OAuth
+  connector, so every connector asked the user to approve them and then didn't
+  receive them. The seven tools that need them (`top_up_wallet`,
+  `configure_auto_topup`, `create_crypto_deposit`, `create_lightning_deposit`,
+  `register_provider`, `request_provider_payout`,
+  `claim_reputation_milestones`) are unchanged for credentials that carry the
+  scopes. `ssh:read` stays advertised and connectors can now be granted it, so
+  `list_ssh_keys` and `delete_ssh_key` work through a connector. The consent
+  card names SSH keys when it's requested. `tool-surface.json` records the
+  advertised set as `scopesSupported`.
+
 - **`configure_auto_topup` can now raise a cap, not only lower one.** Gate P1
   clause 6 requires approval to widen unattended spending, and the API enforces
   it: a widening from a non-human caller is refused **409**, naming

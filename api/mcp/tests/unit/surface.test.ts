@@ -8,6 +8,7 @@ import {
   zodShape,
   type ToolSurfaceEntry,
 } from "../../src/tools/surface.js";
+import { scopesForProfile } from "../../src/tools/profiles.js";
 import { z } from "zod";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +37,7 @@ function regenerate(): string {
       "same commit as the change. A breaking change requires a toolVersion bump — " +
       "see docs/mcp-tool-versioning.md.",
     generatedFor: "customer",
+    scopesSupported: scopesForProfile("customer"),
     tools: describeToolSurface("customer"),
   };
   return `${JSON.stringify(fresh, null, 2)}\n`;
