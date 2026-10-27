@@ -677,7 +677,7 @@ def _oauth_consent_page(
     """
     import html as _html
 
-    from oauth_service import describe_scope
+    from oauth_service import summarize_consent_scopes
 
     def esc(value: object) -> str:
         return _html.escape(str(value or ""))
@@ -692,11 +692,11 @@ def _oauth_consent_page(
         if client_uri.lower().startswith("https://")
         else ""
     )
+    summary_items = summarize_consent_scopes(scopes)
     rows = (
         "".join(
-            f'<li><span class="dot"></span><span>{esc(describe_scope(scope))}'
-            f"<code>{esc(scope)}</code></span></li>"
-            for scope in scopes
+            f'<li><span class="dot"></span><span>{esc(item)}</span></li>'
+            for item in summary_items
         )
         or '<li><span class="dot"></span><span>Sign you in only</span></li>'
     )
@@ -761,6 +761,7 @@ def _oauth_consent_page(
   {resource_line}
   <form method="post" action="/oauth/authorize">
     <input type="hidden" name="consent_key" value="{esc(consent_key)}">
+    <input type="hidden" name="ui" value="1">
     <button class="deny" type="submit" name="decision" value="deny">Cancel</button>
     <button class="approve" type="submit" name="decision" value="approve">Approve</button>
   </form>
@@ -770,11 +771,226 @@ def _oauth_consent_page(
 </main></body></html>"""
 
 
-def _redirect_with(redirect_uri: str, state: str, **params: str):
-    """Append parameters to a client's callback, preserving any it already has."""
+def _build_callback_url(redirect_uri: str, state: str, **params: str) -> str:
+    """Append parameters to a client's callback URL, preserving any it already has."""
     sep = "&" if "?" in redirect_uri else "?"
     query = _urllib_parse.urlencode({**params, **({"state": state} if state else {})})
-    return RedirectResponse(f"{redirect_uri}{sep}{query}", status_code=302)
+    return f"{redirect_uri}{sep}{query}"
+
+
+def _redirect_with(redirect_uri: str, state: str, **params: str):
+    """Append parameters to a client's callback, preserving any it already has."""
+    return RedirectResponse(_build_callback_url(redirect_uri, state, **params), status_code=302)
+
+
+def _resolve_desktop_app_links(client: dict) -> list[tuple[str, str]]:
+    """Return `[(scheme_url, label), ...]` for focusing the originating IDE or desktop app.
+
+    For VS Code and its forks (`vscode`, `vscode-insiders`, `cursor`, `windsurf`,
+    `antigravity`), a bare scheme like `vscode://` has an empty authority —
+    Electron's `--open-url` dispatcher either falls through to `startOpenWindow`
+    (spawning a brand-new empty window) or `URLService.handleURL` returns
+    unhandled without calling `focusWindow`. Addressing the built-in trusted
+    `vscode.git` protocol handler with an empty path (`vscode://vscode.git`)
+    routes via `URLHandlerRouter.getActiveClientId()` to the exact most-recently
+    focused window, skips any trust prompt, performs a no-op in `GitProtocolHandler`,
+    and triggers `nativeHostService.focusWindow` on that existing window.
+
+    For Codex (`client_name="Codex"`, `client_uri="https://chatgpt.com/codex"`),
+    the Codex VS Code extension shares the same client metadata as the standalone
+    app, while `codex://` launches a separate ChatGPT desktop binary. We therefore
+    default to focusing the existing VS Code window first and offer `codex://`
+    as a secondary action.
+    """
+    haystack = " ".join(
+        str(client.get(key) or "")
+        for key in ("client_name", "client_uri", "software_id", "client_id")
+    ).lower()
+
+    vscode_focus_uri = "vscode://vscode.git"
+    if "insiders" in haystack and any(
+        token in haystack for token in ("vscode", "visual studio code", "vs code", "visualstudio")
+    ):
+        return [("vscode-insiders://vscode.git", "Open VS Code Insiders")]
+    if any(
+        token in haystack
+        for token in ("vscode", "visual studio code", "vs code", "code.visualstudio.com")
+    ):
+        return [(vscode_focus_uri, "Open VS Code")]
+    if "cursor" in haystack:
+        return [("cursor://vscode.git", "Open Cursor"), (vscode_focus_uri, "Open VS Code")]
+    if "windsurf" in haystack:
+        return [("windsurf://vscode.git", "Open Windsurf"), (vscode_focus_uri, "Open VS Code")]
+    if "antigravity" in haystack:
+        return [("antigravity://vscode.git", "Open Antigravity"), (vscode_focus_uri, "Open VS Code")]
+    if any(token in haystack for token in ("codex", "chatgpt", "openai")):
+        return [(vscode_focus_uri, "Open VS Code"), ("codex://", "Open Codex app")]
+    if any(token in haystack for token in ("claude", "anthropic")):
+        return [("claude://", "Open Claude"), (vscode_focus_uri, "Open VS Code")]
+    return [(vscode_focus_uri, "Open VS Code")]
+
+
+def _oauth_decision_page(
+    *, approved: bool, client: dict, callback_url: str, is_loopback: bool
+) -> str:
+    """Render a branded Xcelsior result screen for Approved / Denied OAuth decisions.
+
+    For loopback CLI callbacks (`127.0.0.1` / `localhost`), local HTTP listeners
+    like Codex CLI respond to both success and `error=access_denied` with a bare
+    plain-text `"Authentication complete. You may close this window."` page on a
+    white background. Delivering the callback via a hidden iframe notifies the
+    local CLI immediately while keeping the user's browser tab on a proper
+    Xcelsior dark-themed confirmation or cancellation screen with deep links
+    back to VS Code or the originating desktop application.
+    """
+    import html as _html
+    import json as _json
+
+    def esc(value: object) -> str:
+        return _html.escape(str(value or ""))
+
+    raw_name = str(client.get("client_name") or client.get("client_id") or "Application")
+    client_name = esc(raw_name)
+    safe_callback = esc(callback_url)
+
+    if approved:
+        page_title = f"Authorized {client_name} — Xcelsior"
+        eyebrow = "Authorization complete"
+        heading = f"{client_name} is connected"
+        detail = "Authentication complete. You can return to your application or close this window."
+        glyph_bg = "rgba(16,185,129,0.12)"
+        glyph_border = "rgba(16,185,129,0.32)"
+        glyph_stroke = "#34d399"
+        glyph_svg = '<polyline points="20 6 9 17 4 12"/>'
+    else:
+        page_title = "Access denied — Xcelsior"
+        eyebrow = "Authorization cancelled"
+        heading = "Access denied"
+        detail = (
+            f"You cancelled the authorization request. {client_name} was not granted "
+            "access to your Xcelsior account. You may close this window."
+        )
+        glyph_bg = "rgba(244,63,94,0.12)"
+        glyph_border = "rgba(244,63,94,0.3)"
+        glyph_stroke = "#fb7185"
+        glyph_svg = (
+            '<circle cx="12" cy="12" r="10"/>'
+            '<line x1="15" y1="9" x2="9" y2="15"/>'
+            '<line x1="9" y1="9" x2="15" y2="15"/>'
+        )
+
+    def _close_btn(btn_class: str = "primary") -> str:
+        return (
+            f'<button type="button" class="btn {btn_class}" id="close-btn" '
+            "onclick=\"window.close(); setTimeout(function(){ var b = document.getElementById('close-btn'); "
+            "if (b) b.textContent = 'You may close this tab'; }, 150);\">Close window</button>"
+        )
+
+    if is_loopback:
+        app_links = _resolve_desktop_app_links(client)
+        primary_href, primary_label = app_links[0]
+        app_buttons = [
+            f'<a class="btn primary" id="open-app-btn" href="{esc(primary_href)}">{esc(primary_label)}</a>'
+        ]
+        for extra_href, extra_label in app_links[1:]:
+            app_buttons.append(f'<a class="btn ghost" href="{esc(extra_href)}">{esc(extra_label)}</a>')
+        actions_html = (
+            "".join(app_buttons)
+            + _close_btn("ghost")
+            + '<a class="btn ghost" href="/dashboard">Go to dashboard</a>'
+        )
+        # Show the Accepted / Denied screen first, notify the local loopback
+        # listener via the hidden iframe, then link back to the desktop app / IDE.
+        auto_open_script = (
+            "<script>(function(){"
+            "var launched=false,cbDone=false,delayDone=false;"
+            "function tryOpen(){if(launched||!cbDone||!delayDone)return;launched=true;"
+            f"try{{window.location.href={_json.dumps(primary_href)};}}catch(e){{}}}}"
+            "var f=document.getElementById('oauth-cb');"
+            "if(f){f.addEventListener('load',function(){cbDone=true;tryOpen();});}"
+            "else{cbDone=true;}"
+            "setTimeout(function(){delayDone=true;tryOpen();},1500);"
+            "setTimeout(function(){cbDone=true;delayDone=true;tryOpen();},2200);"
+            "})();</script>"
+        )
+        callback_delivery = (
+            f'<iframe id="oauth-cb" src="{safe_callback}" style="display:none" '
+            'aria-hidden="true" tabindex="-1" title="OAuth callback"></iframe>'
+            f"{auto_open_script}"
+        )
+    elif approved:
+        actions_html = (
+            f'<a class="btn primary" id="open-app-btn" href="{safe_callback}">Continue to {client_name}</a>'
+            '<a class="btn ghost" href="/dashboard">Go to dashboard</a>'
+        )
+        callback_delivery = (
+            f"<script>setTimeout(function(){{window.location.replace({_json.dumps(callback_url)});}},1500);</script>"
+        )
+    else:
+        actions_html = (
+            f'<a class="btn primary" id="open-app-btn" href="{safe_callback}">Return to {client_name}</a>'
+            f"{_close_btn('ghost')}"
+            '<a class="btn ghost" href="/dashboard">Go to dashboard</a>'
+        )
+        callback_delivery = (
+            f"<script>setTimeout(function(){{window.location.replace({_json.dumps(callback_url)});}},1500);</script>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>{page_title}</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    color: #e6edf3; padding: 24px;
+    background: radial-gradient(1200px 600px at 50% -10%, rgba(124,58,237,0.18), transparent 60%),
+                radial-gradient(900px 500px at 80% 110%, rgba(34,211,238,0.12), transparent 55%),
+                #070b12;
+  }}
+  .card {{
+    width: 100%; max-width: 460px; padding: 36px 32px;
+    background: rgba(14,20,31,0.85); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7);
+    backdrop-filter: blur(12px);
+  }}
+  .glyph {{
+    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: {glyph_bg}; border: 1px solid {glyph_border};
+    margin-bottom: 20px;
+  }}
+  .glyph svg {{ width: 22px; height: 22px; stroke: {glyph_stroke}; }}
+  .eyebrow {{ font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+              color: #6b7689; font-weight: 600; }}
+  h1 {{ margin: 8px 0 10px; font-size: 22px; font-weight: 700; line-height: 1.3; }}
+  p {{ margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: #9aa6b8; }}
+  .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+  .btn {{
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
+    text-decoration: none; border: 0; cursor: pointer; font-family: inherit;
+    transition: transform .12s ease, filter .12s ease;
+  }}
+  .btn:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
+  .primary {{ color: #06121a; background: linear-gradient(120deg, #38bdf8, #818cf8); }}
+  .ghost {{ color: #cbd5e1; background: transparent; border: 1px solid rgba(255,255,255,0.12); }}
+  .brand {{ margin-top: 28px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #4a5568; }}
+</style></head>
+<body><main class="card">
+  <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    {glyph_svg}</svg></div>
+  <div class="eyebrow">{eyebrow}</div>
+  <h1>{heading}</h1>
+  <p>{detail}</p>
+  <div class="actions">
+    {actions_html}
+  </div>
+  <div class="brand">Xcelsior</div>
+</main>{callback_delivery}</body></html>"""
 
 
 def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[str], str]:
@@ -944,9 +1160,12 @@ def _issue_code_and_redirect(
     code_challenge_method: str,
     scopes: list[str],
     resource: str,
+    render_ui: bool = False,
 ):
     from db import ConsentStore, OAuthStore
+    from fastapi.responses import HTMLResponse
     from oauth_registration import registration_expiry
+    from oauth_service import is_loopback_redirect
 
     try:
         code = issue_authorization_code(
@@ -974,13 +1193,23 @@ def _issue_code_and_redirect(
             OAuthStore.touch_registration(str(client["client_id"]), registration_expiry())
         except Exception as exc:  # pragma: no cover - bookkeeping, never fatal
             log.warning("registration renewal failed (non-fatal): %s", exc)
+    if render_ui:
+        callback_url = _build_callback_url(redirect_uri, state, code=code)
+        return HTMLResponse(
+            content=_oauth_decision_page(
+                approved=True,
+                client=client,
+                callback_url=callback_url,
+                is_loopback=is_loopback_redirect(redirect_uri),
+            )
+        )
     return _redirect_with(redirect_uri, state, code=code)
 
 
 @router.get("/oauth/authorize", tags=["Auth"])
 def oauth_authorize(request: Request):
     from fastapi.responses import HTMLResponse
-    from oauth_service import consent_covers, stash_consent_request
+    from oauth_service import consent_covers, is_loopback_redirect, stash_consent_request
 
     params = request.query_params
     try:
@@ -993,14 +1222,21 @@ def oauth_authorize(request: Request):
     code_challenge = str(params.get("code_challenge", "")).strip()
     code_challenge_method = str(params.get("code_challenge_method", "S256")).strip()
     user_id = str(user.get("user_id") or user.get("email") or "")
+    prompt_tokens = set(str(params.get("prompt", "")).lower().split())
 
     # First-party apps are us; a consent screen between our own login page and
     # our own dashboard would be theatre. Everything else — including the
     # pre-provisioned connector client and anything CIMD or DCR produced — asks.
-    already_consented = bool(client.get("is_first_party")) or consent_covers(
-        user_id, str(client["client_id"]), resource, scopes
+    already_consented = "consent" not in prompt_tokens and (
+        bool(client.get("is_first_party"))
+        or consent_covers(user_id, str(client["client_id"]), resource, scopes)
     )
     if already_consented:
+        is_browser_loopback = (
+            not client.get("is_first_party")
+            and is_loopback_redirect(redirect_uri)
+            and request.headers.get("sec-fetch-mode", "").lower() == "navigate"
+        )
         return _issue_code_and_redirect(
             request=request,
             user=user,
@@ -1011,6 +1247,7 @@ def oauth_authorize(request: Request):
             code_challenge_method=code_challenge_method,
             scopes=scopes,
             resource=resource,
+            render_ui=is_browser_loopback,
         )
 
     consent_key = stash_consent_request(
@@ -1040,7 +1277,8 @@ def oauth_authorize(request: Request):
 @router.post("/oauth/authorize", tags=["Auth"])
 async def oauth_authorize_decision(request: Request):
     """Record the user's decision on a staged authorization request."""
-    from oauth_service import take_consent_request
+    from fastapi.responses import HTMLResponse
+    from oauth_service import is_loopback_redirect, take_consent_request
     from oauth_registration import classify_surface, new_grant_id
     from db import ConsentStore
 
@@ -1076,7 +1314,29 @@ async def oauth_authorize_decision(request: Request):
             "Incomplete request",
             "This approval is missing its callback URL. Start the connection again from your app.",
         )
+    wants_ui = (
+        str(body.get("ui", "")).strip() == "1"
+        or request.headers.get("sec-fetch-mode", "").lower() == "navigate"
+    )
     if str(body.get("decision", "")).strip().lower() != "approve":
+        if wants_ui:
+            denied_client = get_client(str(staged.get("client_id") or "")) or {
+                "client_name": staged.get("client_id") or "Application"
+            }
+            callback_url = _build_callback_url(
+                redirect_uri,
+                state,
+                error="access_denied",
+                error_description="The user declined the authorization request.",
+            )
+            return HTMLResponse(
+                content=_oauth_decision_page(
+                    approved=False,
+                    client=denied_client,
+                    callback_url=callback_url,
+                    is_loopback=is_loopback_redirect(redirect_uri),
+                )
+            )
         return _redirect_with(
             redirect_uri,
             state,
@@ -1130,6 +1390,7 @@ async def oauth_authorize_decision(request: Request):
         code_challenge_method=str(staged.get("code_challenge_method") or "S256"),
         scopes=scopes,
         resource=resource,
+        render_ui=wants_ui,
     )
 
 
