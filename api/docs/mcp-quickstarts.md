@@ -1,6 +1,6 @@
 # Connecting Xcelsior to your assistant
 
-> One connector URL, nine clients. Adoption plan X7.35 — each of these is meant
+> One connector URL, ten clients. Adoption plan X7.35 — each of these is meant
 > to be reproducible from scratch, on a clean machine, by somebody who did not
 > write it. If a step here does not work exactly as written, that is a bug in
 > the connector, not in your setup; please [tell us](https://xcelsior.ca/support).
@@ -21,8 +21,8 @@ the buttons named per client.
 
 | You are… | Use |
 |---|---|
-| A person connecting an assistant | **OAuth** — everything in §1–§7 |
-| A CI job, a script, a headless agent | **An agent key** — §8 |
+| A person connecting an assistant | **OAuth** — everything in §1–§8 |
+| A CI job, a script, a headless agent | **An agent key** — §9 |
 
 `client_credentials` is fully supported and is not going away. It is simply not
 the front door for a human, because a human should not have to hold a secret to
@@ -61,7 +61,33 @@ Verify:
 claude mcp list          # xcelsior should be listed and connected
 ```
 
-## 3. ChatGPT
+## 3. Codex
+
+Two routes. Both use the same server and the same sign-in.
+
+**With the Xcelsior plugin.** It adds skills that have Codex check prices and
+show you a launch plan to approve before it spends anything:
+
+```bash
+codex plugin marketplace add headmesh-dev/headmesh --sparse .agents/plugins --sparse plugins
+codex plugin add xcelsior@headmesh
+codex mcp login xcelsior
+```
+
+**The server on its own:**
+
+```bash
+codex mcp add xcelsior --url https://mcp.xcelsior.ca/mcp
+codex mcp login xcelsior
+```
+
+`codex mcp login` opens your browser to sign in and approve. Verify:
+
+```bash
+codex mcp list           # xcelsior should be listed
+```
+
+## 4. ChatGPT
 
 1. **Settings → Connectors → Add.**
 2. Paste `https://mcp.xcelsior.ca/mcp`, choose **OAuth**.
@@ -70,7 +96,7 @@ claude mcp list          # xcelsior should be listed and connected
 Try: *"Using Xcelsior, is there anything under $0.40 an hour with at least 24GB
 of VRAM?"*
 
-## 4. Cursor
+## 5. Cursor
 
 Cursor supports one-click installs. Use the button on
 [xcelsior.ca/mcp](https://xcelsior.ca/mcp), or add it by hand in
@@ -86,7 +112,7 @@ Cursor supports one-click installs. Use the button on
 
 No headers block: Cursor performs the OAuth flow when the server asks for it.
 
-## 5. VS Code and GitHub Copilot
+## 6. VS Code and GitHub Copilot
 
 `.vscode/mcp.json` in your workspace, or the button on
 [xcelsior.ca/mcp](https://xcelsior.ca/mcp):
@@ -105,7 +131,7 @@ VS Code prompts for authorization on first use. For **Copilot CLI**:
 copilot mcp add xcelsior --transport http --url https://mcp.xcelsior.ca/mcp
 ```
 
-## 6. Grok (Business / Enterprise)
+## 7. Grok (Business / Enterprise)
 
 A team admin adds it once:
 
@@ -114,14 +140,14 @@ A team admin adds it once:
 3. Each team member authorizes with their own Xcelsior account the first time
    they use it — the connection is shared, the account is not.
 
-## 7. Microsoft Copilot Studio
+## 8. Microsoft Copilot Studio
 
 1. In your agent: **Tools → Add a tool → Model Context Protocol.**
 2. Server URL `https://mcp.xcelsior.ca/mcp`.
 3. Choose **OAuth 2.0**; Copilot Studio discovers our authorization server and
    registers itself dynamically. No client id or secret to paste.
 
-## 8. Automation — CI, scripts, headless agents
+## 9. Automation — CI, scripts, headless agents
 
 Create a machine client in **Dashboard → Settings → Connect AI Agents**, then:
 
@@ -140,7 +166,7 @@ Then point any MCP client at the URL with `Authorization: Bearer $ACCESS_TOKEN`.
 token is bound to it, and a token minted for anything else is refused at the
 edge.
 
-## 9. Local stdio (no OAuth at all)
+## 10. Local stdio (no OAuth at all)
 
 For a local process that already holds a token:
 
@@ -178,7 +204,7 @@ without that step, that is a bug we want to hear about immediately.
 | "Couldn't connect" with no detail | The client could not discover our OAuth endpoints. | `curl -i -X POST https://mcp.xcelsior.ca/mcp` — the 401 must carry a `WWW-Authenticate` header naming `resource_metadata`. If it does not, [tell us](https://xcelsior.ca/support); that is our bug. |
 | Works once, fails on reconnect | A native client bound a different loopback port. | Should not happen — we match loopback ports RFC 8252-style. Report it. |
 | 401 on every call after it worked | Token expired, or bound to the wrong resource. | Reconnect. For automation, check `resource` is exactly `https://mcp.xcelsior.ca/mcp`. |
-| "Insufficient scope" | The connection was approved with narrower permissions than the tool needs. | Disconnect and reconnect, approving the wider set. |
+| "Insufficient scope" | The connection was approved with narrower permissions than the tool needs, or the tool moves money or payouts. | Disconnect and reconnect, approving the wider set. Wallet top-ups, auto top-up, crypto and Lightning deposits, provider registration and payouts, and reputation milestone claims are never granted to a connector: do those on the dashboard. |
 | Tools missing that you expected | Host and control-plane tools are not on the public connector, by design. | See [the security page](https://xcelsior.ca/security). |
 | Everything returns 429 | You are over 120 calls/min, or our rate-limit backend is down (we fail closed). | Back off using `Retry-After`. If it persists, check [status](https://xcelsior.ca/status). |
 
