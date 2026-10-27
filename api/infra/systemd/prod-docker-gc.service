@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Docker image and build-cache trim on prod (never volumes)
+Documentation=file:///opt/xcelsior/api/scripts/prod_docker_gc.sh
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/prod-docker-gc
+Nice=10
+IOSchedulingClass=idle

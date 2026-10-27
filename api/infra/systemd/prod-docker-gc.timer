@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly prod Docker trim (Sunday 04:00)
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
