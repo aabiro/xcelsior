@@ -64,7 +64,9 @@ from psycopg import Connection
 # 143 grants that registry to the runtime roles before they ingest it.
 # 144 stores optional customer GST/HST fields and the provider seller
 # identity that payout routes query. A database at 143 is missing them.
-REQUIRED_MIN_REVISION = "144"
+# 145 stores the Facebook user id on the account and the public deletion
+# receipt that /delete-data reads. A database at 144 is missing both.
+REQUIRED_MIN_REVISION = "145"
 REQUIRED_MAX_REVISION: str | None = None
 
 

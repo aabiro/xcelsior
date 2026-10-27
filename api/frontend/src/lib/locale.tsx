@@ -33,7 +33,7 @@ export function useLocale() {
   return useContext(LocaleContext);
 }
 
-const LEGAL_PATHS = new Set(["/privacy", "/terms"]);
+const LEGAL_PATHS = new Set(["/privacy", "/terms", "/delete-data", "/deactivate"]);
 
 function isDashboardPath(pathname: string | null | undefined): boolean {
   return Boolean(pathname?.startsWith("/dashboard"));

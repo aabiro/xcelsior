@@ -97,9 +97,11 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `144_b2b_tax_identity.py`.**
+**Repository head: `145_oauth_subject_and_deletion_confirmations.py`.**
 
-144 adds optional customer business-name and GST/HST columns on `users`, and the provider seller-identity columns used for annual reporting: mailing address, tax-identifier kind, encrypted tax identifier, last four characters, and the time the supplier accepted the tax terms. The runtime schema floor is 144 because profile and payout routes query those columns. Downgrade drops the new columns.
+144 adds optional customer business-name and GST/HST columns on `users`, and the provider seller-identity columns used for annual reporting: mailing address, tax-identifier kind, encrypted tax identifier, last four characters, and the time the supplier accepted the tax terms. Profile and payout routes query those columns. Downgrade drops the new columns.
+
+145 stores the Facebook user id used to find an account for the data-deletion callback, and the confirmation-code table the public status page reads. The runtime schema floor is 145. Downgrade drops the column, the unique index, and the confirmation table.
 
 143 grants the host observation session registry to the runtime roles that
 read or ingest it, skipping any role that is not provisioned yet. Apply it

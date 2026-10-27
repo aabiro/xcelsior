@@ -192,6 +192,10 @@ PUBLIC_PATHS = {
     # secret is configured. Nothing is trusted here that the handler does not check.
     "/api/connect/webhooks",
     "/api/v2/serverless/enabled",
+    # Facebook and the /delete-data page open a confirmation with the code
+    # itself. The code is the credential. The handler returns 404 for an
+    # unknown code and does not include account or sink evidence.
+    "/api/privacy/deletion-status",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")

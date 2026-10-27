@@ -11,6 +11,8 @@ const NO_STORE_PATHS = new Set([
   "/setup-2fa",
   "/verify-email",
   "/accept-invite",
+  "/delete-data",
+  "/deactivate",
   "/~offline",
 ]);
 
@@ -24,8 +26,37 @@ const CSP_HEADER =
   "frame-src 'self' https://js.stripe.com https://connect-js.stripe.com https://verify.walletconnect.org; " +
   "frame-ancestors 'self';";
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Meta posts the data-deletion callback to the public page URL. The page
+  // itself is the GET document. The POST is the signed callback.
+  if (
+    request.method === "POST"
+    && (pathname === "/delete-data" || pathname === "/deactivate")
+  ) {
+    const backend = (
+      process.env.INTERNAL_API_URL
+      || process.env.NEXT_PUBLIC_API_URL
+      || "https://xcelsior.ca"
+    ).replace(/\/$/, "");
+    const upstream = await fetch(`${backend}/api/auth/oauth/facebook/delete-data`, {
+      method: "POST",
+      headers: {
+        "content-type": request.headers.get("content-type") || "application/x-www-form-urlencoded",
+      },
+      body: await request.text(),
+      cache: "no-store",
+    });
+    return new NextResponse(await upstream.text(), {
+      status: upstream.status,
+      headers: {
+        "content-type": upstream.headers.get("content-type") || "application/json",
+        "cache-control": "private, no-store",
+      },
+    });
+  }
+
   const hasSession = request.cookies.has(AUTH_COOKIE);
 
   // Protect dashboard routes, redirect to login if no session cookie
