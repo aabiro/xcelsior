@@ -28,13 +28,15 @@ def test_real_script_entrypoint_defines_all_dispatch_helpers_before_startup(tmp_
     tree = ast.parse(Path(worker_agent.__file__).read_text())
     # Stop at the first startup validation boundary, before credentials, GPU
     # probing or network calls. Keep the actual main and script entrypoint.
-    checks = ast.parse("""assert callable(_promote_artifacts)
+    checks = ast.parse(
+        """assert callable(_promote_artifacts)
 assert callable(_report_environment_fingerprint)
 assert callable(_copy_promoted_artifact)
 assert callable(_cleanup_part)
 assert all(signal.getsignal(s) is _signal_handler for s in (signal.SIGINT,signal.SIGTERM))
 raise SystemExit(0)
-""").body
+"""
+    ).body
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == "validate_config":
             node.body = checks

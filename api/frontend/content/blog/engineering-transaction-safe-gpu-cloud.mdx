@@ -26,7 +26,7 @@ If two schedulers look at the same database simultaneously, they can easily doub
 Scheduler Replicas Concurrency Race:
 
 Replica A: Reads GPU 0 (Appears Free) ---> Writes Job 1 to GPU 0
-Replica B: Reads GPU 0 (Appears Free) ---> Writes Job 2 to GPU 0 
+Replica B: Reads GPU 0 (Appears Free) ---> Writes Job 2 to GPU 0
 Result: Exploding workloads and corrupted state.
 ```
 
@@ -62,7 +62,7 @@ Instead, our retrieval workers run fully localized embedding and reranking model
 * **Cohere Rerank v3.5:** Used to evaluate lexical and vector candidate fusions to ensure maximum retrieval precision before an inference pass ever fires.
 
 ```text
-Inbound Agent Prompt 
+Inbound Agent Prompt
    │
    v
 [Isolated GPU Cluster] ──> Local Voyage-3 Embeddings ──> pgvector Metadata Filter

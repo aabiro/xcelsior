@@ -44,14 +44,14 @@ def update_file(filepath):
     if not os.path.exists(filepath):
         print(f"File {filepath} does not exist.")
         return
-    
+
     with open(filepath, "r") as f:
         data = json.load(f)
-    
+
     # 1. Update customModels
     custom_models = data.setdefault("customModels", [])
     existing_model_ids = {m["model"] for m in custom_models}
-    
+
     for m in MODELS_TO_ADD:
         if m["model"] not in existing_model_ids:
             custom_models.append({
@@ -60,24 +60,24 @@ def update_file(filepath):
                 "provider": "google-ai"
             })
             existing_model_ids.add(m["model"])
-    
+
     # 2. Update modelConfigs.customAliases
     model_configs = data.setdefault("modelConfigs", {})
     custom_aliases = model_configs.setdefault("customAliases", {})
-    
+
     for m in MODELS_TO_ADD:
         if m["displayName"] not in custom_aliases:
             custom_aliases[m["displayName"]] = {
                 "extends": m["model"]
             }
-            
+
     # 3. Set default model to Gemini 3.6 Flash (unless it's workspace-specific where we don't have model at root)
     if "antigravity-cli" in filepath or "settings.json" == os.path.basename(filepath) and "/.gemini/" not in filepath:
          data["model"] = "Gemini 3.6 Flash"
     elif "settings.json" == os.path.basename(filepath) and "/.gemini/" in filepath and ".gemini/settings.json" not in filepath:
          # Under ~/.gemini/settings.json
          pass
-    
+
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
     print(f"Successfully updated {filepath}!")

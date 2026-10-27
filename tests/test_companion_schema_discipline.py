@@ -284,12 +284,17 @@ MAX_LEGACY_FLOAT_CAD_COLUMNS = 0
 def test_legacy_float_money_only_shrinks():
     """§4.4.6, applied to inherited debt as a downward ratchet."""
     with _get_pg_pool().connection() as conn:
-        offenders = [f"{r[0]}.{r[1]}" for r in conn.execute(r"""SELECT table_name, column_name
+        offenders = [
+            f"{r[0]}.{r[1]}"
+            for r in conn.execute(
+                r"""SELECT table_name, column_name
                       FROM information_schema.columns
                      WHERE table_schema = 'public'
                        AND column_name LIKE '%\_cad'
                        AND data_type IN ('double precision', 'real')
-                     ORDER BY table_name, column_name""").fetchall()]
+                     ORDER BY table_name, column_name"""
+            ).fetchall()
+        ]
     assert len(offenders) <= MAX_LEGACY_FLOAT_CAD_COLUMNS, (
         f"{len(offenders)} float CAD columns, budget is "
         f"{MAX_LEGACY_FLOAT_CAD_COLUMNS} (companion §4.4.6). New money must be "
@@ -311,7 +316,10 @@ def test_no_float_cad_column_shadows_a_micros_column():
     this fails if one is ever reintroduced.
     """
     with _get_pg_pool().connection() as conn:
-        shadows = [f"{r[0]}.{r[1]}" for r in conn.execute(r"""SELECT c.table_name, c.column_name
+        shadows = [
+            f"{r[0]}.{r[1]}"
+            for r in conn.execute(
+                r"""SELECT c.table_name, c.column_name
                       FROM information_schema.columns c
                      WHERE c.table_schema = 'public'
                        AND c.column_name LIKE '%\_cad'
@@ -324,15 +332,22 @@ def test_no_float_cad_column_shadows_a_micros_column():
                                   regexp_replace(c.column_name, '_cad$', '') || '_minor'
                               )
                        )
-                     ORDER BY 1, 2""").fetchall()]
+                     ORDER BY 1, 2"""
+            ).fetchall()
+        ]
     # 095 deliberately creates 26 such pairs as a transition: micros is mirrored
     # from the float by a BEFORE INSERT OR UPDATE trigger so the two cannot
     # diverge, which is precisely what made the 087 pairs dangerous. A shadow is
     # therefore tolerated *only* while its mirror trigger exists. 096 drops the
     # floats and the triggers together, and this list empties itself.
     with _get_pg_pool().connection() as conn:
-        mirrored = {r[0] for r in conn.execute("""SELECT REPLACE(tgname, 'trg_mirror_', '')
-                     FROM pg_trigger WHERE tgname LIKE 'trg_mirror_%'""").fetchall()}
+        mirrored = {
+            r[0]
+            for r in conn.execute(
+                """SELECT REPLACE(tgname, 'trg_mirror_', '')
+                     FROM pg_trigger WHERE tgname LIKE 'trg_mirror_%'"""
+            ).fetchall()
+        }
     unguarded = [
         s for s in shadows if s.split(".", 1)[1].removesuffix("_cad") + "_micros" not in mirrored
     ]
@@ -393,11 +408,13 @@ def test_companion_conformance_prose_matches_the_database():
     """The companion's stated float-money debt must be the real debt."""
     assert COMPANION_DOC.is_file(), "the governed schema must retain its companion document"
     with _get_pg_pool().connection() as conn:
-        columns, tables = conn.execute(r"""SELECT count(*), count(DISTINCT table_name)
+        columns, tables = conn.execute(
+            r"""SELECT count(*), count(DISTINCT table_name)
                   FROM information_schema.columns
                  WHERE table_schema = 'public'
                    AND column_name LIKE '%\_cad'
-                   AND data_type IN ('double precision', 'real')""").fetchone()
+                   AND data_type IN ('double precision', 'real')"""
+        ).fetchone()
 
     # Guard the guard: MAX_LEGACY_FLOAT_CAD_COLUMNS and the prose must not
     # drift apart from each other either.

@@ -25,17 +25,21 @@ def historical(empty_db):
     _alembic(empty_db, "upgrade", "128")
     seed(empty_db)
     with _connect(empty_db) as conn:
-        conn.execute("""INSERT INTO jobs(job_id,status,priority,submitted_at,payload)
-            VALUES('unknown','stopped',0,1,'{"image":"not-approved","private":"retained"}')""")
+        conn.execute(
+            """INSERT INTO jobs(job_id,status,priority,submitted_at,payload)
+            VALUES('unknown','stopped',0,1,'{"image":"not-approved","private":"retained"}')"""
+        )
         spec = make_execution_spec({"name": "native", "image": "python:3.12"})
         conn.execute(
             """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,spec,spec_hash)
             VALUES('native','queued',0,1,'{}',%s,%s)""",
             (Jsonb(spec), canonical_spec_hash(spec)),
         )
-        conn.execute("""INSERT INTO billing_cycles(cycle_id,customer_id,job_id,
+        conn.execute(
+            """INSERT INTO billing_cycles(cycle_id,customer_id,job_id,
             period_start,period_end,duration_seconds,rate_per_hour,amount_micros,created_at)
-            VALUES('history-cycle','customer','recorded',1,3601,3600,2.5,2500000,3601)""")
+            VALUES('history-cycle','customer','recorded',1,3601,3600,2.5,2500000,3601)"""
+        )
     _alembic(empty_db, "upgrade", "131")
     return empty_db
 
@@ -72,9 +76,11 @@ def test_disposition_preserves_all_history_money_and_native_admission(historical
             ("native", None),
         ]:
             assert current[jid] == {**prior[jid], "history_disposition": disposition}
-        receipts = conn.execute("""SELECT job_id,disposition,identity_evidence,
+        receipts = conn.execute(
+            """SELECT job_id,disposition,identity_evidence,
             recorded_row_sha256,recorded_payload_sha256
-            FROM job_history_dispositions ORDER BY job_id""").fetchall()
+            FROM job_history_dispositions ORDER BY job_id"""
+        ).fetchall()
         assert len(receipts) == 2
         for jid, disposition, identity, row_hash, payload_hash in receipts:
             assert disposition == current[jid]["history_disposition"]
@@ -186,8 +192,10 @@ def test_handoff_batches_keep_completed_history_protected_after_later_refusal(hi
             SELECT 'a-batch-'||lpad(i::text,4,'0'),'failed',0,1,'{}','failed','running'
             FROM generate_series(1,500) AS i"""
         )
-        conn.execute("""UPDATE jobs SET active_attempt_id=(SELECT attempt_id FROM job_attempts
-            WHERE job_id='recorded') WHERE job_id='recorded'""")
+        conn.execute(
+            """UPDATE jobs SET active_attempt_id=(SELECT attempt_id FROM job_attempts
+            WHERE job_id='recorded') WHERE job_id='recorded'"""
+        )
     refused = _alembic(historical, "upgrade", "132", check=False)
     assert refused.returncode != 0 and "terminal, unowned jobs" in refused.stderr
     with _connect(historical) as conn:

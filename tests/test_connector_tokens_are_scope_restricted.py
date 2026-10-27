@@ -251,7 +251,8 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
     repo = pathlib.Path(__file__).resolve().parent.parent
     src = (repo / "api" / "mcp" / "src" / "auth" / "scopes.ts").read_text(encoding="utf-8")
     published = {
-        t["name"] for t in json.loads((repo / "api" / "mcp" / "tool-surface.json").read_text())["tools"]
+        t["name"]
+        for t in json.loads((repo / "api" / "mcp" / "tool-surface.json").read_text())["tools"]
     }
     held = set(MCP_QUICK_CONNECT_SCOPES)
 

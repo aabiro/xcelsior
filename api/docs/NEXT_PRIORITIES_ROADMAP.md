@@ -1,6 +1,6 @@
 # Xcelsior — Next Priorities Roadmap
 
-*Created: 2026-06-07*  
+*Created: 2026-06-07*
 *Context: Post team-tenancy polish; volumes identified as highest-value app-wide gap.*
 
 This document records the **six highest-priority initiatives** agreed for the next engineering cycle. Each section has checkbox tasks, sub-points, acceptance criteria, dependencies, and estimated effort. Work **#1 (Volumes)** has a dedicated companion checklist: [`VOLUMES_COMPLETION_PLAN.md`](./VOLUMES_COMPLETION_PLAN.md).

@@ -789,7 +789,7 @@ export function AiResponse({ response, streaming, onDismiss, chatHistory, curren
   return (
     <Box
       flexDirection="column"
-     
+
       borderStyle="round"
       borderColor="#a78bfa"
       paddingX={1}

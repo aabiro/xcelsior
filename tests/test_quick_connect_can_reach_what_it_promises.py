@@ -115,9 +115,9 @@ def test_the_frontend_list_matches_the_backend_one():
     """
     from oauth_service import MCP_QUICK_CONNECT_SCOPES
 
-    tsx = (ROOT / "api" / "frontend" / "src" / "components" / "settings" / "McpAgentSetup.tsx").read_text(
-        encoding="utf-8"
-    )
+    tsx = (
+        ROOT / "api" / "frontend" / "src" / "components" / "settings" / "McpAgentSetup.tsx"
+    ).read_text(encoding="utf-8")
     block = tsx.split("const MCP_SCOPES = [", 1)[1].split("]", 1)[0]
     frontend = set(re.findall(r'"([a-z_]+:[a-z_]+)"', block))
 

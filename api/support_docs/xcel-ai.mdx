@@ -20,10 +20,10 @@ You can ask Xcel AI to:
 
 ## Security & Confirmations
 
-Xcel AI is incredibly powerful, but it respects your wallet. 
+Xcel AI is incredibly powerful, but it respects your wallet.
 Any action that incurs a cost (like launching an instance or provisioning storage) requires **explicit cryptographic confirmation**.
 
-When Xcel AI proposes a billable action, it will present a **Confirmation Card** in the chat UI. 
+When Xcel AI proposes a billable action, it will present a **Confirmation Card** in the chat UI.
 1. The AI generates the API payload.
 2. The payload is signed with a tamper-proof HMAC signature by the backend.
 3. You review the exact cost and parameters.
@@ -32,6 +32,6 @@ When Xcel AI proposes a billable action, it will present a **Confirmation Card**
 ## External MCP Integration
 
 If you prefer to use your own tools, Xcelsior provides a fully managed **Model Context Protocol (MCP)** server.
-You can connect the Xcelsior MCP server to Cursor, Claude Desktop, or any other MCP-compatible client. 
+You can connect the Xcelsior MCP server to Cursor, Claude Desktop, or any other MCP-compatible client.
 
 This allows your local AI agents to seamlessly orchestrate cloud GPUs on your behalf without you ever needing to open the dashboard or write an API request manually.

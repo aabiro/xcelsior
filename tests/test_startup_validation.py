@@ -66,7 +66,13 @@ def test_a_correct_configuration_produces_no_findings(clean_env):
 
 
 @pytest.mark.parametrize("mode", ["report_only", "enforce", "typo"])
-@pytest.mark.parametrize("suffix,code", [("STOP_COMMAND_MISSING", "job_stop_repair_policy"), ("LEASE_AUTHORITY_MISSING", "job_lease_repair_policy")])
+@pytest.mark.parametrize(
+    "suffix,code",
+    [
+        ("STOP_COMMAND_MISSING", "job_stop_repair_policy"),
+        ("LEASE_AUTHORITY_MISSING", "job_lease_repair_policy"),
+    ],
+)
 def test_job_repair_policy_is_validated(clean_env, mode, suffix, code):
     clean_env.setenv(f"XCELSIOR_RECONCILE_ACTION_JOB_{suffix}", mode)
     assert (code in _codes(sv.collect_findings())) is (mode == "typo")

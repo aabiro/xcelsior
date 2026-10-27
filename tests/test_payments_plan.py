@@ -166,7 +166,8 @@ class TestMeterDualWrite:
         # Ensure outbox table exists (migration 079 may not be applied in CI).
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS stripe_meter_event_outbox (
                     event_id TEXT PRIMARY KEY,
                     customer_id TEXT NOT NULL,
@@ -181,7 +182,8 @@ class TestMeterDualWrite:
                     updated_at DOUBLE PRECISION NOT NULL,
                     sent_at DOUBLE PRECISION
                 )
-                """)
+                """
+            )
             conn.commit()
 
         stripe_meters.set_outbox_backend(None)  # real Postgres path

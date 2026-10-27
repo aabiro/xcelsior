@@ -32,10 +32,10 @@ def main():
         # Instantiate Credentials with quota_project_id set to 'xcelsior-gpu'
         creds = Credentials(token, quota_project_id=project)
         print(f"Loaded explicit OAuth Credentials with quota project: {project}")
-        
+
         # Initialize Vertex GenAI client
         client = genai.Client(vertexai=True, project=project, location="us-central1", credentials=creds)
-        
+
         print("\n=== [Retrieving Vertex AI Foundational Models via GenAI SDK] ===")
         models = client.models.list()
         count = 0
@@ -46,9 +46,9 @@ def main():
             print(f"  Supported Actions: {m.supported_actions}")
             print(f"  Input Token Limit: {m.input_token_limit}")
             print("-" * 50)
-            
+
         print(f"\nSuccessfully listed {count} foundational models.")
-        
+
     except Exception as e:
         print(f"Error querying Vertex AI: {e}", file=sys.stderr)
 

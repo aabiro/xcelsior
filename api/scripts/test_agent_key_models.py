@@ -24,7 +24,7 @@ def list_models(api_key, key_label):
     if not api_key:
         print(f"Error: No API key provided for {key_label}!")
         return None
-        
+
     if DRY_RUN:
         masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "SecretKey"
         print(f"[Dry Run] Successfully validated key: {masked_key}")
@@ -54,7 +54,7 @@ def test_streaming_and_tools(api_key, key_label):
     if not api_key:
         print(f"Error: No API key provided for {key_label}!")
         return
-        
+
     if DRY_RUN:
         masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "SecretKey"
         print(f"[Dry Run] Successfully validated key: {masked_key}")
@@ -62,7 +62,7 @@ def test_streaming_and_tools(api_key, key_label):
         return
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:streamGenerateContent?key={api_key}"
-    
+
     payload = {
         "contents": [
             {
@@ -94,7 +94,7 @@ def test_streaming_and_tools(api_key, key_label):
             }
         ]
     }
-    
+
     req_data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -102,7 +102,7 @@ def test_streaming_and_tools(api_key, key_label):
         headers={"Content-Type": "application/json"},
         method="POST"
     )
-    
+
     try:
         with urllib.request.urlopen(req) as response:
             print("Streaming chunks started:")
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     # 1. List models
     list_models(GEMINI_KEY, "Gemini Key")
     list_models(AGENT_KEY, "Agent Platform Key")
-    
+
     # 2. Test streaming and tool calls
     test_streaming_and_tools(GEMINI_KEY, "Gemini Key")
     test_streaming_and_tools(AGENT_KEY, "Agent Platform Key")

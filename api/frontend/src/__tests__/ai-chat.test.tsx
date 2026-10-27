@@ -294,4 +294,3 @@ describe("useAiChat hook", () => {
     expect(fetchSpy).not.toHaveBeenCalledWith("/api/ai/chat", expect.anything());
   });
 });
-

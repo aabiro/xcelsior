@@ -79,15 +79,22 @@ class TestSemanticCache:
         prompt = "analyze trade signal"
         try:
             repo.semantic_cache_store(
-                endpoint_id, prompt,
-                response={"choices": [{"message": {"content": "legacy"}}]}, usage={},
+                endpoint_id,
+                prompt,
+                response={"choices": [{"message": {"content": "legacy"}}]},
+                usage={},
             )
             # Exact historical reads remain available for migration.
             assert repo.semantic_cache_lookup(endpoint_id, prompt) is not None
-            assert repo.semantic_cache_lookup(endpoint_id, "analyze trade signals", threshold=0) is None
+            assert (
+                repo.semantic_cache_lookup(endpoint_id, "analyze trade signals", threshold=0)
+                is None
+            )
         finally:
             with repo._conn() as conn:
-                conn.execute("DELETE FROM serverless_semantic_cache WHERE endpoint_id = %s", (endpoint_id,))
+                conn.execute(
+                    "DELETE FROM serverless_semantic_cache WHERE endpoint_id = %s", (endpoint_id,)
+                )
 
     def test_legacy_prompt_comparison_requires_exact_equality(self):
         a = extract_prompt_text({"messages": [{"role": "user", "content": "analyze trade signal"}]})

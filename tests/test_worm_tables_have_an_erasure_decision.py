@@ -64,7 +64,8 @@ def _worm_tables(conn) -> set[str]:
     every child, so counting children would list the same table four times and
     grow the set every month.
     """
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT DISTINCT c.relname
           FROM pg_trigger t
           JOIN pg_class c ON c.oid = t.tgrelid
@@ -72,7 +73,8 @@ def _worm_tables(conn) -> set[str]:
          WHERE NOT t.tgisinternal
            AND pg_get_functiondef(p.oid) ILIKE '%%append-only%%'
            AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
-        """).fetchall()
+        """
+    ).fetchall()
     return {str(r[0]) for r in rows}
 
 

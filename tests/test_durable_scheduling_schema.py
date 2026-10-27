@@ -40,8 +40,10 @@ def test_expansion_and_rollback_enable_no_preemption():
     spec.loader.exec_module(module)
     with psycopg.connect(os.environ["XCELSIOR_POSTGRES_DSN"]) as conn:
         columns = dict(
-            conn.execute("""SELECT column_name,column_default FROM information_schema.columns
-            WHERE table_name='scheduling_team_policies'""").fetchall()
+            conn.execute(
+                """SELECT column_name,column_default FROM information_schema.columns
+            WHERE table_name='scheduling_team_policies'"""
+            ).fetchall()
         )
         assert columns["preemption_enabled"] == "false"
         assert columns["force_after_deadline"] == "false"

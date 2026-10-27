@@ -10,13 +10,17 @@ from tests.test_migration_from_production_snapshot import _alembic, _connect
 
 
 def ddl(conn):
-    functions = conn.execute("""SELECT proname,pg_get_functiondef(p.oid)
+    functions = conn.execute(
+        """SELECT proname,pg_get_functiondef(p.oid)
         FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname='public' AND proname IN
-          ('control_plane_project_job','control_plane_project_host') ORDER BY proname""").fetchall()
-    triggers = conn.execute("""SELECT tgname,pg_get_triggerdef(oid) FROM pg_trigger
+          ('control_plane_project_job','control_plane_project_host') ORDER BY proname"""
+    ).fetchall()
+    triggers = conn.execute(
+        """SELECT tgname,pg_get_triggerdef(oid) FROM pg_trigger
         WHERE tgname IN ('trg_jobs_control_plane_projection','trg_hosts_control_plane_projection')
-        ORDER BY tgname""").fetchall()
+        ORDER BY tgname"""
+    ).fetchall()
     return functions, triggers
 
 

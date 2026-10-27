@@ -240,16 +240,16 @@ export default function HostsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted pointer-events-none" />
-              <Input 
-                className="pl-10 h-10" 
-                placeholder="Search by hostname or ID..." 
-                value={search} 
+              <Input
+                className="pl-10 h-10"
+                placeholder="Search by hostname or ID..."
+                value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               />
             </div>
-            <Select 
-              className="h-10 min-w-[160px]" 
-              value={statusFilter} 
+            <Select
+              className="h-10 min-w-[160px]"
+              value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             >
               <option value="all">All Statuses</option>
@@ -305,8 +305,8 @@ export default function HostsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/60 bg-gradient-to-r from-surface-hover/80 to-surface-hover/40">
-                  <th 
-                    className="h-12 px-5 text-left font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                  <th
+                    className="h-12 px-5 text-left font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
                     onClick={() => toggleSort("hostname")}
                   >
                     <span className="inline-flex items-center gap-2">
@@ -315,8 +315,8 @@ export default function HostsPage() {
                       <HostSortIcon col="hostname" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
-                  <th 
-                    className="h-12 px-4 text-left font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                  <th
+                    className="h-12 px-4 text-left font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
                     onClick={() => toggleSort("gpu_model")}
                   >
                     <span className="inline-flex items-center gap-2">
@@ -325,8 +325,8 @@ export default function HostsPage() {
                       <HostSortIcon col="gpu_model" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
-                  <th 
-                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                  <th
+                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
                     onClick={() => toggleSort("status")}
                   >
                     <span className="inline-flex items-center gap-2 justify-center">
@@ -334,8 +334,8 @@ export default function HostsPage() {
                       <HostSortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
-                  <th 
-                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                  <th
+                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
                     onClick={() => toggleSort("vram_gb")}
                   >
                     <span className="inline-flex items-center gap-2 justify-center">
@@ -344,8 +344,8 @@ export default function HostsPage() {
                       <HostSortIcon col="vram_gb" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
-                  <th 
-                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                  <th
+                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors"
                     onClick={() => toggleSort("cost_per_hour")}
                   >
                     <span className="inline-flex items-center gap-2 justify-center">
@@ -359,8 +359,8 @@ export default function HostsPage() {
               </thead>
               <tbody>
                 {pageItems.map((host, idx) => (
-                  <tr 
-                    key={host.host_id} 
+                  <tr
+                    key={host.host_id}
                     className={cn(
                       "group transition-colors hover:bg-accent-cyan/5",
                       idx !== pageItems.length - 1 && "border-b border-border/40"
@@ -371,8 +371,8 @@ export default function HostsPage() {
                         <div className="flex items-center gap-3">
                           <div className={cn(
                             "flex h-10 w-10 items-center justify-center rounded-lg ring-1 transition-colors",
-                            host.status === "active" 
-                              ? "bg-emerald/10 ring-emerald/20 text-emerald" 
+                            host.status === "active"
+                              ? "bg-emerald/10 ring-emerald/20 text-emerald"
                               : "bg-surface-hover ring-border text-text-muted"
                           )}>
                             <Server className="h-5 w-5" />
@@ -567,7 +567,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               <div className="text-sm">
                 <p className="font-medium text-text-primary mb-1">What is host registration?</p>
                 <p className="text-text-secondary leading-relaxed">
-                  Registering creates a record of your GPU machine in the Xcelsior network. 
+                  Registering creates a record of your GPU machine in the Xcelsior network.
                   Registration stays pending and unlisted. Install the worker agent so
                   Xcelsior can verify the machine before it accepts compute jobs.
                 </p>
@@ -579,10 +579,10 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
             <Label className="text-sm font-medium">
               Hostname <span className="text-accent-red">*</span>
             </Label>
-            <Input 
-              value={hostname} 
-              onChange={(e) => setHostname(e.target.value)} 
-              required 
+            <Input
+              value={hostname}
+              onChange={(e) => setHostname(e.target.value)}
+              required
               maxLength={128}
               placeholder="e.g., gpu-server-01 or my-workstation"
               className="h-10"
@@ -738,7 +738,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               <div className="text-sm">
                 <p className="font-medium text-text-primary">What happens next?</p>
                 <p className="text-text-muted mt-1">
-                  After registration, run the worker agent installer on your machine. 
+                  After registration, run the worker agent installer on your machine.
                   It will automatically connect this host and verify your GPU specs.
                 </p>
               </div>

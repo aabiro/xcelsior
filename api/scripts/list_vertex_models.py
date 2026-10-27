@@ -33,11 +33,11 @@ def list_vertex_models_with_key(api_key, project_id, region):
 
     # Vertex AI foundational models publisher URL supporting API keys on authorized projects
     url = f"https://{region}-aiplatform.googleapis.com/v1/locations/{region}/publishers/google/models?key={api_key}"
-    
+
     try:
         req = urllib.request.Request(url, method="GET")
         req.add_header("Content-Type", "application/json")
-        
+
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode())
             models = data.get("models", [])

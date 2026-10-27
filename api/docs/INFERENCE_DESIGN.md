@@ -453,4 +453,3 @@ ships; first increment is API-only for custom paths.
 ---
 
 *Next step: [SERVERLESS_IMPLEMENTATION_CHECKLIST.md](./SERVERLESS_IMPLEMENTATION_CHECKLIST.md) — scheduler integration, worker-agent callbacks, autoscaler on real hosts.*
-

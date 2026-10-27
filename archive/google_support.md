@@ -128,7 +128,7 @@
   > Thank you,
   >
   > Aaryn Biro
-  > aaryn.biro@xcelsior 
+  > aaryn.biro@xcelsior
 
   Append this:
 

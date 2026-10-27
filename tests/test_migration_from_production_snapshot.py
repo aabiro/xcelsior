@@ -399,12 +399,14 @@ def test_production_shaped_upgrade_to_native_writer_handoff(seeded_snapshot_db):
         )
 
         # ── uniqueness invariants hold over migrated data (§8.1) ──
-        dupes = conn.execute("""
+        dupes = conn.execute(
+            """
             SELECT job_id, count(*) FROM job_attempts
              WHERE status IN ('reserved','command_pending','lease_offered',
                               'lease_claimed','starting','running')
              GROUP BY job_id HAVING count(*) > 1
-            """).fetchall()
+            """
+        ).fetchall()
         assert not dupes, f"migrated data violates uq_job_one_active_attempt: {dupes}"
 
         # ── 059 trigger: host admission derived from the payload flag ──
@@ -513,11 +515,13 @@ def test_runtime_reconciliation_round_trip_preserves_work_and_money(seeded_snaps
     dsn, seeded = seeded_snapshot_db
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        command_id = conn.execute("""INSERT INTO agent_commands
+        command_id = conn.execute(
+            """INSERT INTO agent_commands
                    (host_id, job_id, attempt_id, fencing_token, command, status, args)
                SELECT host_id, job_id, attempt_id, fencing_token, 'start_attempt', 'pending', '{}'
                  FROM placement_leases WHERE job_id = 'job-running'
-               RETURNING command_id""").fetchone()[0]
+               RETURNING command_id"""
+        ).fetchone()[0]
         before = conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone()
         conn.execute("DELETE FROM reconciliation_queue WHERE resource_id = 'job-running'")
     _alembic(dsn, "upgrade", "123")

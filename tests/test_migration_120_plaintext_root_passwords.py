@@ -9,7 +9,8 @@ from db import DatabaseOps, get_engine
 
 MIGRATION = (
     Path(__file__).resolve().parent.parent
-    / "api" / "migrations"
+    / "api"
+    / "migrations"
     / "versions"
     / "120_drop_plaintext_root_passwords.py"
 )

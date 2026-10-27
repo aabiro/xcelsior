@@ -157,13 +157,15 @@ class TestMigration038:
     def test_max_queue_size_column_exists(self):
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT column_name, column_default
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name = 'serverless_endpoints'
                   AND column_name = 'max_queue_size'
-                """).fetchone()
+                """
+            ).fetchone()
         assert row is not None
         name = row["column_name"] if isinstance(row, dict) else row[0]
         assert name == "max_queue_size"

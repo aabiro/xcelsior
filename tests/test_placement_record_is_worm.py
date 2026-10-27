@@ -196,9 +196,11 @@ def test_the_table_is_partitioned_by_month():
         kind = conn.execute(
             "SELECT relkind FROM pg_class WHERE relname = 'placement_decisions'"
         ).fetchone()[0]
-        children = conn.execute("""SELECT count(*) FROM pg_inherits i
+        children = conn.execute(
+            """SELECT count(*) FROM pg_inherits i
                  JOIN pg_class p ON p.oid = i.inhparent
-                WHERE p.relname = 'placement_decisions'""").fetchone()[0]
+                WHERE p.relname = 'placement_decisions'"""
+        ).fetchone()[0]
 
     assert kind == "p", "placement_decisions is a plain table; it cannot be pruned"
     assert children >= 2, "no monthly partitions and no default partition"
@@ -213,9 +215,11 @@ def test_a_partition_can_be_dropped_even_though_a_row_cannot_be_deleted(tenant):
     """
     old = "2019-03-01"
     with pg_transaction() as conn:
-        conn.execute(f"""CREATE TABLE IF NOT EXISTS placement_decisions_201903
+        conn.execute(
+            f"""CREATE TABLE IF NOT EXISTS placement_decisions_201903
                 PARTITION OF placement_decisions
-                FOR VALUES FROM ('{old}') TO ('2019-04-01')""")
+                FOR VALUES FROM ('{old}') TO ('2019-04-01')"""
+        )
         conn.execute(
             """INSERT INTO placement_decisions
                  (tenant_id, outcome, host_id, decided_at)
@@ -261,9 +265,11 @@ def test_partition_maintenance_keeps_the_window_full():
     with pg_transaction() as conn:
         ensured = ensure_monthly_partitions(conn, "placement_decisions", months_ahead=1, today=far)
         assert ensured == ["203005", "203006"]
-        present = conn.execute("""SELECT count(*) FROM pg_class
+        present = conn.execute(
+            """SELECT count(*) FROM pg_class
                 WHERE relname IN ('placement_decisions_203005',
-                                  'placement_decisions_203006')""").fetchone()[0]
+                                  'placement_decisions_203006')"""
+        ).fetchone()[0]
         conn.execute("DROP TABLE IF EXISTS placement_decisions_203005")
         conn.execute("DROP TABLE IF EXISTS placement_decisions_203006")
     assert present == 2

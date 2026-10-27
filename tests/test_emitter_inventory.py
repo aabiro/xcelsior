@@ -55,7 +55,16 @@ def _emitter_files() -> set[str]:
     for path in REPO.rglob("*.py"):
         rel = path.relative_to(REPO).as_posix()
         if rel.startswith(
-            ("tests/", ".venv/", "venv/", "node_modules/", "mcp/", "api/mcp/", "artifacts/", "core/artifacts/")
+            (
+                "tests/",
+                ".venv/",
+                "venv/",
+                "node_modules/",
+                "mcp/",
+                "api/mcp/",
+                "artifacts/",
+                "core/artifacts/",
+            )
         ):
             continue
         # macOS AppleDouble sidecars (`._foo.py`) are binary resource forks

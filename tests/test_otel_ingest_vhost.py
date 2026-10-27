@@ -68,8 +68,22 @@ def ingest(tmp_path):
     (tmp_path / "logs").mkdir()
     cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
     subprocess.run(
-        [openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=otel.xcelsior.ca",
-         "-days", "1", "-keyout", str(key), "-out", str(cert)],
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-subj",
+            "/CN=otel.xcelsior.ca",
+            "-days",
+            "1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
         check=True,
         capture_output=True,
     )
@@ -87,7 +101,9 @@ def ingest(tmp_path):
     conf = conf.replace("127.0.0.1:4318", f"127.0.0.1:{collector.server_address[1]}")
     conf = re.sub(r"/etc/letsencrypt/live/[^;]*/fullchain\.pem", str(cert), conf)
     conf = re.sub(r"/etc/letsencrypt/live/[^;]*/privkey\.pem", str(key), conf)
-    conf = conf.replace("/etc/nginx/snippets/xcelsior-abuse-deny*.conf", f"{tmp_path}/abuse-deny*.conf")
+    conf = conf.replace(
+        "/etc/nginx/snippets/xcelsior-abuse-deny*.conf", f"{tmp_path}/abuse-deny*.conf"
+    )
     conf = conf.replace("/etc/nginx/snippets/otel-ingest-token.conf*", f"{tmp_path}/token.conf*")
     conf = re.sub(r"listen \[::\]:\d+\b[^;]*;", "", conf)
     conf = re.sub(r"listen 80\b[^;]*;", lambda _m: f"listen 127.0.0.1:{_free_port()};", conf)
@@ -103,8 +119,11 @@ def ingest(tmp_path):
     def start(token: str | None):
         if token is not None:
             (tmp_path / "token.conf").write_text(f'set $xcelsior_otel_ingest_token "{token}";\n')
-        r = subprocess.run([nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")],
-                           capture_output=True, text=True)
+        r = subprocess.run(
+            [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf")],
+            capture_output=True,
+            text=True,
+        )
         assert r.returncode == 0, r.stderr
         deadline = time.time() + 5
         while time.time() < deadline:
@@ -122,8 +141,10 @@ def ingest(tmp_path):
         if auth is not None:
             head += f"Authorization: {auth}\r\n"
         head += f"Content-Length: {len(body)}\r\n\r\n"
-        with ctx.wrap_socket(socket.create_connection(("127.0.0.1", tls), timeout=5),
-                             server_hostname="otel.xcelsior.ca") as s:
+        with ctx.wrap_socket(
+            socket.create_connection(("127.0.0.1", tls), timeout=5),
+            server_hostname="otel.xcelsior.ca",
+        ) as s:
             s.sendall(head.encode() + body)
             data = b""
             while chunk := s.recv(65536):
@@ -131,8 +152,10 @@ def ingest(tmp_path):
         return int(data.split(b"\r\n", 1)[0].split()[1])
 
     yield start, request
-    subprocess.run([nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"],
-                   capture_output=True)
+    subprocess.run(
+        [nginx, "-p", str(tmp_path), "-c", str(tmp_path / "nginx.conf"), "-s", "stop"],
+        capture_output=True,
+    )
     collector.shutdown()
 
 
@@ -165,7 +188,13 @@ def test_the_right_token_delivers_the_logs_without_the_secret(ingest):
 
 @pytest.mark.parametrize(
     "method,path",
-    [("GET", "/v1/logs"), ("POST", "/v1/traces"), ("POST", "/v1/metrics"), ("POST", "/"), ("POST", "/v1/logs/x")],
+    [
+        ("GET", "/v1/logs"),
+        ("POST", "/v1/traces"),
+        ("POST", "/v1/metrics"),
+        ("POST", "/"),
+        ("POST", "/v1/logs/x"),
+    ],
 )
 def test_only_post_v1_logs_is_served(ingest, method, path):
     start, request = ingest

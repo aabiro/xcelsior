@@ -27,10 +27,12 @@ from scripts.headscale_failover import (
 
 def _sqlite_with(path: Path, *, users: int, nodes: int) -> None:
     con = sqlite3.connect(path)
-    con.executescript("""
+    con.executescript(
+        """
         CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
         CREATE TABLE nodes (id INTEGER PRIMARY KEY, hostname TEXT);
-        """)
+        """
+    )
     for i in range(users):
         con.execute("INSERT INTO users(name) VALUES (?)", (f"user-{i}",))
     for i in range(nodes):

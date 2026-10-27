@@ -1,8 +1,8 @@
 # Xcelsior production control-plane and MCP blueprint
 
 **Repository assessed:** `xcelsior-latest` at commit `05bb0db4eacb266cffe207bfc7e145da20fba6d8`
-**Assessment date:** 2026-07-16  
-**Scope:** scheduler, GPU worker agent, reconciliation, serverless, billing, events, telemetry, MCP, auth, PostgreSQL, Redis, migrations, Nginx, deployment, CI, observability, and operator UI  
+**Assessment date:** 2026-07-16
+**Scope:** scheduler, GPU worker agent, reconciliation, serverless, billing, events, telemetry, MCP, auth, PostgreSQL, Redis, migrations, Nginx, deployment, CI, observability, and operator UI
 **Change status:** architecture and implementation plan only; no repository source files were edited
 
 **Implementation status (live cross-reference):** this blueprint is
@@ -1230,7 +1230,7 @@ To backstop critical platform invariants under distributed-systems failure modes
 
 #### 1. Stale Fence Container (`stale_fence_container`)
 - **Condition:** A managed container is observed running on a host but its associated attempt has been fenced or its fence has been revoked (§11.5).
-- **Remediation:** Enqueues a durable, idempotency-keyed `stop_container` command for the worker by container name. 
+- **Remediation:** Enqueues a durable, idempotency-keyed `stop_container` command for the worker by container name.
 - **Safety Guarantee:** Idempotent and harmless to any active authority on the host since the old fence has already been revoked.
 
 #### 2. Missing Attempt Container (`attempt_container_missing`)
@@ -1241,7 +1241,7 @@ To backstop critical platform invariants under distributed-systems failure modes
 #### 3. Orphaned Allocation (`orphaned_allocation` — P6.3c)
 - **Condition:** A `gpu_device_allocation` row is left `active` in the database after its associated attempt has already reached a terminal state (e.g., `completed`, `failed`, or `lost`). This represents a capacity leak backstopping the §8.2 capacity invariant, leaving GPUs permanently un-schedulable while no workload is running on them.
 - **Remediation:** Releases the stale allocation by setting its database status to `'released'`, stamping `released_at = clock_timestamp()`, and writing `release_reason = 'reconciler_orphan'`. This immediately frees the GPU for scheduler placement.
-- **Safety Guarantee:** 
+- **Safety Guarantee:**
   - **Authoritative DB-Internal Checks:** The detection logic relies purely on direct database-internal state checks (joining allocations with terminal attempt states) and is completely independent of the untrusted worker observation payload, preventing false releases due to stale heartbeats.
   - **Strict Idempotency:** Because the underlying attempt is already confirmed terminal in the database, releasing the allocation is entirely safe and cannot disrupt a running workload.
 

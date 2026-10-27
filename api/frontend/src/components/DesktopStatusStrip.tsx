@@ -61,4 +61,3 @@ export function DesktopStatusStrip({ className }: { className?: string }) {
     </div>
   );
 }
-

@@ -193,7 +193,7 @@ describe("ControlPlaneAdminPage", () => {
 
   it("filters findings by severity", async () => {
     render(<ControlPlaneAdminPage />);
-    
+
     await waitFor(() => {
       expect(screen.getByText("Reconciler Findings")).toBeInTheDocument();
     });
@@ -213,7 +213,7 @@ describe("ControlPlaneAdminPage", () => {
 
   it("toggles desired/observed diff inspector", async () => {
     render(<ControlPlaneAdminPage />);
-    
+
     await waitFor(() => {
       expect(screen.getByText("Reconciler Findings")).toBeInTheDocument();
     });
@@ -233,7 +233,7 @@ describe("ControlPlaneAdminPage", () => {
 
   it("displays MCP tool audit table on MCP tab", async () => {
     render(<ControlPlaneAdminPage />);
-    
+
     await waitFor(() => {
       expect(screen.getByText("MCP Activity")).toBeInTheDocument();
     });
@@ -251,7 +251,7 @@ describe("ControlPlaneAdminPage", () => {
 
   it("displays connected OAuth clients with revoke", async () => {
     render(<ControlPlaneAdminPage />);
-    
+
     await waitFor(() => {
       expect(screen.getByText("MCP Activity")).toBeInTheDocument();
     });

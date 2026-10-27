@@ -280,7 +280,9 @@ def test_no_module_builds_a_redis_key_by_hand():
 
 def test_rate_limit_store_hashes_its_bucket_key():
     """`dashboard-test:{owner_id}` composites often contain an email."""
-    source = (PROJECT_ROOT / "api" / "serverless" / "rate_limit_store.py").read_text(encoding="utf-8")
+    source = (PROJECT_ROOT / "api" / "serverless" / "rate_limit_store.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
     fn = next(
         n

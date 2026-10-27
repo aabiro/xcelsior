@@ -12,12 +12,17 @@ try:
 
     _pool = _get_pg_pool()
     with _pool.connection() as _conn:
-        _ready = all(value is not None for value in _conn.execute("""
+        _ready = all(
+            value is not None
+            for value in _conn.execute(
+                """
                 SELECT to_regclass('event_contracts'),
                        to_regclass('projection_deliveries'),
                        to_regclass('projection_checkpoints'),
                        to_regclass('audit_events_v2')
-                """).fetchone())
+                """
+            ).fetchone()
+        )
 except Exception as _exc:  # pragma: no cover - environment gate
     pytestmark = pytest.mark.skip(f"no pg pool: {_exc}")
     _pool = None

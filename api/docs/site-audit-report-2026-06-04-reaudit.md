@@ -1,6 +1,6 @@
 # Xcelsior — Site Audit Synthesis (living index)
 
-**Latest verification report:** [`site-audit-report-2026-06-08-post-recovery.md`](./site-audit-report-2026-06-08-post-recovery.md)  
+**Latest verification report:** [`site-audit-report-2026-06-08-post-recovery.md`](./site-audit-report-2026-06-08-post-recovery.md)
 Generated: 2026-06-08T06:05:21.922Z
 
 | Report | Date | Scope |

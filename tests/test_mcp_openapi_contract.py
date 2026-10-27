@@ -17,7 +17,9 @@ def test_mcp_openapi_snapshot_matches_api():
     generated["paths"] = {
         path: value for path, value in generated["paths"].items() if path.startswith("/api/v1/")
     }
-    snapshot = json.loads((Path(__file__).parents[1] / "api" / "mcp" / "openapi-v1.json").read_text())
+    snapshot = json.loads(
+        (Path(__file__).parents[1] / "api" / "mcp" / "openapi-v1.json").read_text()
+    )
     if snapshot != generated:
         # Name the exact drift — "dicts differ" on a 30k-line schema is
         # undiagnosable, and this once flaked from environment-dependent

@@ -86,12 +86,14 @@ def test_retention_drops_only_whole_months_outside_six() -> None:
 
 
 def _partitions(conn) -> set[str]:  # noqa: ANN001
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT c.relname FROM pg_inherits i
           JOIN pg_class c ON c.oid = i.inhrelid
           JOIN pg_class p ON p.oid = i.inhparent
          WHERE p.relname = 'telemetry_samples'
-        """).fetchall()
+        """
+    ).fetchall()
     return {r[0] if not isinstance(r, dict) else r["relname"] for r in rows}
 
 

@@ -195,9 +195,9 @@ function main() {
 
   const md = `# Xcelsior — Post-Recovery Site Audit Report
 
-Date: **${reportDate}** (verification run)  
-Target: https://xcelsior.ca  
-Local \`main\`: \`${localHead}\`  
+Date: **${reportDate}** (verification run)
+Target: https://xcelsior.ca
+Local \`main\`: \`${localHead}\`
 Production (est.): \`${prodCommit}\`
 
 This is the **third verification pass** — synthesizing automated script output after VPS recovery (2026-06-05). It supersedes the stale generator output in \`site-audit-report-2026-06-04-reaudit.md\` and consolidates:
@@ -334,7 +334,7 @@ ${deployed ? "" : "\n6. **Deploy** — `bash scripts/deploy.sh` with `DEPLOY_BUI
   // Keep synthesis doc as a pointer to avoid stale overwrites
   const pointer = `# Xcelsior — Site Audit Synthesis (living index)
 
-**Latest verification report:** [\`site-audit-report-${reportDate}-post-recovery.md\`](./site-audit-report-${reportDate}-post-recovery.md)  
+**Latest verification report:** [\`site-audit-report-${reportDate}-post-recovery.md\`](./site-audit-report-${reportDate}-post-recovery.md)
 Generated: ${reverify?.checkedAt || new Date().toISOString()}
 
 | Report | Date | Scope |

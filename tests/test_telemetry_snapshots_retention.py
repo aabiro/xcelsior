@@ -24,12 +24,14 @@ def test_retention_runs_against_the_real_postgres_column_type():
         conn.execute(
             "CREATE TEMP TABLE telemetry_snapshots ON COMMIT DROP AS SELECT * FROM public.telemetry_snapshots WITH NO DATA"
         )
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO telemetry_snapshots (id, recorded_at)
             VALUES (1, EXTRACT(EPOCH FROM now() - interval '20 days')),
                    (2, EXTRACT(EPOCH FROM now() - interval '16 days')),
                    (3, EXTRACT(EPOCH FROM now() - interval '1 day'))
-        """)
+        """
+        )
         assert prune_telemetry_snapshots(conn, retention_days=14, batch_limit=1) == 2
         assert conn.execute("SELECT id FROM telemetry_snapshots").fetchall() == [(3,)]
         conn.rollback()

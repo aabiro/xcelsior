@@ -1649,4 +1649,3 @@ if __name__ == "__main__":
         fpath = os.path.join(OUT_DIR, f)
         img = Image.open(fpath)
         print(f"  {f} ({img.size[0]}x{img.size[1]})")
-

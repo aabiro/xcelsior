@@ -76,7 +76,9 @@ def test_a_sin_must_pass_luhn_and_a_business_number_is_nine_digits():
     assert bn["tax_id"] == "123456789"
 
     other = normalize_seller_profile(
-        _profile(tax_id_kind="other", tax_id="ab-12 cd", country="US", province="NY", postal_code="10001"),
+        _profile(
+            tax_id_kind="other", tax_id="ab-12 cd", country="US", province="NY", postal_code="10001"
+        ),
         require_tax_id=True,
     )
     assert other["tax_id"] == "AB12CD"

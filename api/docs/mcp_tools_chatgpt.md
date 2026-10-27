@@ -474,10 +474,10 @@ The current descriptions already use a valuable three-part structure—concrete 
 
 Extend that to five required sentences:
 
-> **Purpose:** Creates a persistent GPU volume of the requested size and region.  
-> **Use when:** Use after choosing an instance region and when data must survive instance termination; do not use for temporary scratch space.  
-> **Cost:** Bills the authenticated wallet at the quoted storage rate until deletion.  
-> **Approval and effect:** This call first prepares a server-bound action plan; no volume exists and no charge begins until the exact plan is approved and executed.  
+> **Purpose:** Creates a persistent GPU volume of the requested size and region.
+> **Use when:** Use after choosing an instance region and when data must survive instance termination; do not use for temporary scratch space.
+> **Cost:** Bills the authenticated wallet at the quoted storage rate until deletion.
+> **Approval and effect:** This call first prepares a server-bound action plan; no volume exists and no charge begins until the exact plan is approved and executed.
 > **Refuses when:** Refuses if the region is unsupported, the wallet cannot cover the configured minimum runway, the principal lacks `storage:write`, or the approved plan no longer matches the request.
 
 Every description should state:

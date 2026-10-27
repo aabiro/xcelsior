@@ -18,7 +18,7 @@ def main():
         if not api_key:
             print("Error: GEMINI_API_KEY not found in environment or .env!", file=sys.stderr)
             sys.exit(1)
-            
+
         if DRY_RUN:
             masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "SecretKey"
             print(f"[Dry Run] Successfully validated GEMINI_API_KEY: {masked_key}")
@@ -27,7 +27,7 @@ def main():
 
         # Initialize Google GenAI client (Developer/AI Studio API)
         client = genai.Client(api_key=api_key)
-        
+
         print("Making exactly 1 API Test Call using the provided API Key with gemini-3.6-flash...")
         response = client.models.generate_content(
             model='gemini-3.6-flash',
@@ -36,7 +36,7 @@ def main():
         print("\n=== [API Call Response] ===")
         print(response.text.strip())
         print("============================\n")
-        
+
     except Exception as e:
         print(f"API Key test call failed: {e}", file=sys.stderr)
 

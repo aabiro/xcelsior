@@ -727,19 +727,19 @@ export default function InstanceDetailPage() {
             <AttemptTimeline attempts={attempts} lease={lease} />
           </div>
         )}
-        
+
         <div className="mt-4 border-t border-border pt-4 flex flex-col gap-4">
           <div role="status" aria-label="Instance synchronization">
             <h3 className="mb-2 text-xs font-semibold text-text-secondary">
               State Synchronization
             </h3>
-            <DesiredObservedBadge 
-              jobStatus={status} 
+            <DesiredObservedBadge
+              jobStatus={status}
               observationStatus={observationStatus}
               activeAttemptId={currentAttempt?.attempt_id ?? null}
               activeAttemptStatus={currentAttempt?.status ?? null}
               leaseAttemptId={lease?.attempt_id ?? null}
-              leaseStatus={lease?.status || null} 
+              leaseStatus={lease?.status || null}
               leaseExpiresAt={lease?.expires_at ?? null}
               leaseClaimDeadline={lease?.claim_deadline ?? null}
             />

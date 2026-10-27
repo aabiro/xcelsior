@@ -572,8 +572,12 @@ def _snapshot_paths(calls: list[list[str]]) -> tuple[str, str, str]:
 
     backup = next(" ".join(a) for a in calls if "backup" in " ".join(a))
     written = re.search(r"/tmp/headscale-replica-[0-9a-f]+\.sqlite", backup).group(0)
-    copied = next(a[-2].split(":", 1)[1] for a in calls if a[0] == "scp" and a[-2].endswith(".sqlite"))
-    removed = next(a[-1].split()[-1] for a in calls if a[-1].startswith("rm -f /tmp/headscale-replica"))
+    copied = next(
+        a[-2].split(":", 1)[1] for a in calls if a[0] == "scp" and a[-2].endswith(".sqlite")
+    )
+    removed = next(
+        a[-1].split()[-1] for a in calls if a[-1].startswith("rm -f /tmp/headscale-replica")
+    )
     return written, copied, removed
 
 

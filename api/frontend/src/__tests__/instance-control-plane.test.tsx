@@ -88,7 +88,7 @@ describe("B6.5: Instance Control Plane Enhancements", () => {
           leaseExpiresAt: "2099-01-01T00:00:00Z",
         })
       ).toBe("diverged");
-      
+
       expect(
         computeConvergence({
           jobStatus: "running",
@@ -166,13 +166,13 @@ describe("B6.5: Instance Control Plane Enhancements", () => {
 
   describe("Integration: Reconcile Button", () => {
     let apiFetchMock: any;
-    
+
     beforeEach(async () => {
       vi.clearAllMocks();
       const api = await import("@/lib/api");
       apiFetchMock = api.apiFetch;
       apiFetchMock.mockResolvedValue({ ok: true });
-      
+
       (api.fetchInstance as any).mockResolvedValue({
         instance: {
           job_id: "j-123",
@@ -187,21 +187,21 @@ describe("B6.5: Instance Control Plane Enhancements", () => {
 
     it("renders reconcile button and calls API on click", async () => {
       render(<InstanceDetailPage />);
-      
+
       // Wait for load
       await waitFor(() => {
         expect(screen.getByText("Reconcile")).toBeInTheDocument();
       });
-      
+
       fireEvent.click(screen.getByText("Reconcile"));
-      
+
       await waitFor(() => {
         expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/instances/j-123/reconcile", {
           method: "POST"
         });
       });
     });
-    
+
     it("does not render reconcile button for terminal states", async () => {
       const api = await import("@/lib/api");
       (api.fetchInstance as any).mockResolvedValue({
@@ -210,7 +210,7 @@ describe("B6.5: Instance Control Plane Enhancements", () => {
           status: "completed",
         }
       });
-      
+
       render(<InstanceDetailPage />);
       await screen.findByText("Terminal");
       await waitFor(() => {

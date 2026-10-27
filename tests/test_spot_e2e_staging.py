@@ -121,12 +121,14 @@ class TestStagingChecklistMigration040:
     def test_jobs_table_has_spot_columns(self):
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_schema = 'public' AND table_name = 'jobs'
                   AND column_name IN ('pricing_mode', 'spot_rate_micros')
-                """).fetchall()
+                """
+            ).fetchall()
         cols = {r["column_name"] if isinstance(r, dict) else r[0] for r in rows}
         assert cols == {"pricing_mode", "spot_rate_micros"}
 

@@ -156,7 +156,7 @@ human-openable URL and an internal id. Enable with
 `XCELSIOR_MCP_COMPANY_KNOWLEDGE=1`; it is deliberately not on for the base
 directory submission.
 
-**Resources:** `xcelsior://docs/llms`, `xcelsior://pricing/reference`  
+**Resources:** `xcelsior://docs/llms`, `xcelsior://pricing/reference`
 **Prompts:** `cheapest-gpu-now`, `ca-fine-tune`, `serverless-inference`
 
 `create_instance` and `create_serverless_endpoint` always create a

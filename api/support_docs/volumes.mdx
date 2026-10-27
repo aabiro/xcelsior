@@ -17,10 +17,10 @@ Because Xcelsior instances are ephemeral (especially Spot instances), you need a
 
 ## Security & LUKS Encryption
 
-All persistent volumes on Xcelsior are highly secure. You have the option to enable **LUKS2 Encryption** when creating a volume. 
+All persistent volumes on Xcelsior are highly secure. You have the option to enable **LUKS2 Encryption** when creating a volume.
 - When encrypted, the volume is created as a LUKS2 loopback image.
 - Encryption keys are stored securely in the central Xcelsior database using Fernet encryption and are **never** written to the NFS server's disk.
-- When you attach an encrypted volume to an instance, Xcelsior securely handles the `luksOpen` process on the fly. 
+- When you attach an encrypted volume to an instance, Xcelsior securely handles the `luksOpen` process on the fly.
 
 ## Attaching Volumes
 

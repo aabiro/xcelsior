@@ -6,7 +6,7 @@
 
 # Persistent Volumes — Completion Plan
 
-*Created: 2026-06-07*  
+*Created: 2026-06-07*
 *Parent roadmap:* [`NEXT_PRIORITIES_ROADMAP.md`](./NEXT_PRIORITIES_ROADMAP.md) §1
 
 Track every task required to move volumes from **metadata-only dev mode** to **production NFS-backed persistent storage** with full team tenancy, billing, UI, ops, and tests.
