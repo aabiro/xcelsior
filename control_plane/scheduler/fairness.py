@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from psycopg import sql
 from psycopg.rows import dict_row
 
 POLICY_VERSION = "fairness/v1"
@@ -164,10 +165,10 @@ def lock_team_policy(
     Policy publication takes the same state lock. A revision cannot change
     limits while an in-flight reservation checks and consumes capacity.
     """
-    key = team_key_sql()
+    key = sql.SQL(team_key_sql())
     with conn.cursor(row_factory=dict_row) as cur:
         job = cur.execute(
-            f"SELECT {key} AS team_key FROM jobs j WHERE j.job_id=%s", (job_id,)
+            sql.SQL("SELECT {} AS team_key FROM jobs j WHERE j.job_id=%s").format(key), (job_id,)
         ).fetchone()
         if job is None:
             raise ValueError("team policy requires a present job")
