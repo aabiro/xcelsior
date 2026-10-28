@@ -1158,10 +1158,20 @@ class BillingEngine:
         }
 
         if refund_amount > 0:
-            # Credit the refund to the user's wallet
-            self._credit_wallet(
-                row["owner"], refund_amount, f"Refund for job {job_id} ({classification})"
+            # One refund per job. The key is the job, not the classification:
+            # a second call with a different exit code is a second claim on
+            # the same spend, and crediting it would refund money twice.
+            credited = self._credit_wallet(
+                row["owner"],
+                refund_amount,
+                f"Refund for job {job_id} ({classification})",
+                idempotency_key=f"refund:{job_id}",
             )
+            if credited.get("dedup"):
+                result["refund"] = False
+                result["refund_amount_cad"] = 0.0
+                result["already_refunded"] = True
+                result["reason"] = "This job has already been refunded"
 
         log.info(
             "REFUND job=%s classification=%s refund=$%.4f CAD (%.0f%%)",
@@ -2213,13 +2223,38 @@ class BillingEngine:
         return notices
 
     def _credit_wallet(
-        self, customer_id: str, amount_cad: float, description: str = "Refund credit"
-    ):
-        """Internal: credit a wallet (for refunds)."""
+        self,
+        customer_id: str,
+        amount_cad: float,
+        description: str = "Refund credit",
+        idempotency_key: str = "",
+    ) -> dict:
+        """Internal: credit a wallet (for refunds).
+
+        With an ``idempotency_key``, a repeat credits nothing and returns the
+        original transaction with ``dedup=True``. The check runs under the
+        wallet row lock, so two concurrent calls cannot both miss the key.
+        """
         self._ensure_wallet_table()
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
 
         with self._conn() as conn:
+            if idempotency_key:
+                conn.execute(
+                    "SELECT customer_id FROM wallets WHERE customer_id = %s FOR UPDATE",
+                    (customer_id,),
+                ).fetchone()
+                existing = conn.execute(
+                    "SELECT tx_id, balance_after_micros FROM wallet_transactions "
+                    "WHERE idempotency_key = %s",
+                    (idempotency_key,),
+                ).fetchone()
+                if existing:
+                    return {
+                        "tx_id": existing["tx_id"],
+                        "balance_cad": micros_to_cad(existing["balance_after_micros"]),
+                        "dedup": True,
+                    }
             row = conn.execute(
                 """UPDATE wallets
                    SET balance_micros = balance_micros + %s,
@@ -2237,8 +2272,8 @@ class BillingEngine:
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_micros,
-                    balance_after_micros, description, created_at)
-                   VALUES (%s, %s, 'refund', %s, %s, %s, %s)""",
+                    balance_after_micros, description, created_at, idempotency_key)
+                   VALUES (%s, %s, 'refund', %s, %s, %s, %s, %s)""",
                 (
                     tx_id,
                     customer_id,
@@ -2246,8 +2281,10 @@ class BillingEngine:
                     cad_to_micros(new_balance),
                     description,
                     time.time(),
+                    idempotency_key or "",
                 ),
             )
+        return {"tx_id": tx_id, "balance_cad": new_balance, "dedup": False}
 
     def get_wallet_history(
         self,

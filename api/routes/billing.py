@@ -382,10 +382,50 @@ def _paypal_credit_capture(
     return credited
 
 
-def _paypal_capture_order(order_id: str, token: str | None = None) -> dict:
-    """Capture an approved PayPal order. Returns order JSON on success."""
+def _paypal_settled_cad(capture: dict) -> float | None:
+    """The CAD amount of a capture that may credit a wallet, or None.
+
+    PayPal's JS SDK can create an order with only the public client id, so an
+    order is not proof it came from `create-order`: its currency and amount are
+    whatever the buyer's browser chose. Only a COMPLETED capture in CAD is money
+    received in the unit the wallet counts. A PENDING capture has not settled;
+    PAYMENT.CAPTURE.COMPLETED credits it when it does.
+    """
+    if (capture.get("status") or "") != "COMPLETED":
+        return None
+    amount = capture.get("amount") or {}
+    if (amount.get("currency_code") or "").upper() != "CAD":
+        return None
+    try:
+        value = float(amount.get("value") or 0)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _paypal_capture_order(
+    order_id: str,
+    token: str | None = None,
+    expected_custom_id: str | None = None,
+) -> dict:
+    """Capture an approved PayPal order. Returns order JSON on success.
+
+    With ``expected_custom_id``, an order created for another wallet is refused
+    before it is captured.
+    """
     token = token or _paypal_access_token()
     order = _paypal_get_order(order_id, token)
+    if expected_custom_id is not None:
+        units = order.get("purchase_units") or []
+        custom_id = (units[0].get("custom_id") if units else "") or ""
+        if custom_id != expected_custom_id:
+            log.warning(
+                "PayPal capture refused: order %s belongs to %r, not %r",
+                order_id,
+                custom_id,
+                expected_custom_id,
+            )
+            raise HTTPException(403, "This PayPal order was not created for this wallet")
     status = order.get("status", "")
     if status == "COMPLETED":
         return order
@@ -494,9 +534,16 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
 
-    data = _paypal_capture_order(req.order_id)
+    data = _paypal_capture_order(req.order_id, expected_custom_id=req.customer_id)
     capture = data["purchase_units"][0]["payments"]["captures"][0]
-    amount_cad = float(capture["amount"]["value"])
+    amount_cad = _paypal_settled_cad(capture)
+    if amount_cad is None:
+        if (capture.get("status") or "") == "PENDING":
+            raise HTTPException(
+                409,
+                "PayPal is still processing this payment. Your wallet is credited when it completes.",
+            )
+        raise HTTPException(400, "Only completed PayPal payments in CAD can add credits")
     paypal_id = capture["id"]
     result = _paypal_credit_capture(req.customer_id, req.order_id, amount_cad, paypal_id)
     log.info("PayPal deposit: %s → $%.2f CAD (capture %s)", req.customer_id, amount_cad, paypal_id)
@@ -603,7 +650,10 @@ def _paypal_handle_order_approved(resource: dict) -> None:
             return
         raise
     capture = data["purchase_units"][0]["payments"]["captures"][0]
-    amount_cad = float(capture["amount"]["value"])
+    amount_cad = _paypal_settled_cad(capture)
+    if amount_cad is None:
+        log.warning("PayPal ORDER.APPROVED %s capture not creditable: %s", order_id, capture)
+        return
     _paypal_credit_capture(customer_id, order_id, amount_cad, capture["id"])
     log.info("PayPal webhook capture: %s → $%.2f CAD (order %s)", customer_id, amount_cad, order_id)
 
@@ -624,10 +674,8 @@ def _paypal_handle_order_completed(resource: dict) -> None:
     customer_id = custom_id
     captures = (purchase_units[0].get("payments") or {}).get("captures") or []
     for capture in captures:
-        if capture.get("status") != "COMPLETED":
-            continue
-        amount_cad = float((capture.get("amount") or {}).get("value") or 0)
-        if amount_cad <= 0:
+        amount_cad = _paypal_settled_cad(capture)
+        if amount_cad is None:
             continue
         _paypal_credit_capture(customer_id, order_id, amount_cad, capture.get("id", ""))
         log.info(
@@ -640,10 +688,9 @@ def _paypal_handle_order_completed(resource: dict) -> None:
 
 def _paypal_handle_capture_completed(resource: dict) -> None:
     capture_id = resource.get("id", "")
-    amount = resource.get("amount") or {}
-    amount_cad = float(amount.get("value") or 0)
     order_id = (resource.get("supplementary_data") or {}).get("related_ids", {}).get("order_id", "")
-    if not order_id or amount_cad <= 0:
+    amount_cad = _paypal_settled_cad(resource)
+    if not order_id or amount_cad is None:
         return
     order = _paypal_get_order(order_id)
     purchase_units = order.get("purchase_units") or []
@@ -1180,18 +1227,39 @@ class RefundRequest(BaseModel):
 
 @router.post("/api/billing/refund", tags=["Billing"])
 def api_process_refund(req: RefundRequest, request: Request):
-    """Process a refund for a failed job.
+    """Process a refund for a failed job. Platform admins only.
 
     From REPORT_FEATURE_1.md:
     - Hardware error → full refund
     - User OOM (exit 137) → zero refund
+
+    The exit code and failure reason in the body decide the refund, so whoever
+    sends them is asserting the job failed on our side. A job owner sending
+    ``exit_code=255`` had their spend handed back, and with no limit per job
+    could repeat it into a balance no payment stood behind. Only an admin may
+    make that assertion, and a job is refunded at most once.
     """
     from routes.instances import _check_job_access
 
-    user = _require_auth(request)
+    user = _require_admin(request)
     _check_job_access(user, req.job_id)
     be = get_billing_engine()
     result = be.process_refund(req.job_id, req.exit_code, req.failure_reason)
+    if result.get("refund"):
+        from routes._deps import append_user_audit_event
+
+        append_user_audit_event(
+            "admin.billing.refund",
+            "billing",
+            req.job_id,
+            user,
+            data={
+                "exit_code": req.exit_code,
+                "failure_reason": req.failure_reason,
+                "classification": result.get("classification"),
+                "refund_amount_cad": result.get("refund_amount_cad"),
+            },
+        )
     return {"ok": True, **result}
 
 

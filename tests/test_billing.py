@@ -4,6 +4,7 @@
 import os
 import tempfile
 import time
+import uuid
 
 import pytest
 
@@ -251,10 +252,13 @@ class TestRefunds:
     def test_hardware_error_full_refund(self):
         eng = _engine()
         now = time.time()
-        job = {"job_id": "j-ref-hw", "started_at": now - 60, "completed_at": now, "owner": "u1"}
+        # Unique per run: a job is refunded at most once, and the database
+        # outlives the test process.
+        job_id = f"j-ref-hw-{uuid.uuid4().hex[:8]}"
+        job = {"job_id": job_id, "started_at": now - 60, "completed_at": now, "owner": "u1"}
         host = {"host_id": "h1", "gpu_model": "A100", "cost_per_hour": 1.0}
         eng.meter_job(job, host)
-        result = eng.process_refund("j-ref-hw", exit_code=-1, failure_reason="hardware failure")
+        result = eng.process_refund(job_id, exit_code=-1, failure_reason="hardware failure")
         assert result["refund"] is True
         assert result["refund_percentage"] == 1.0
 
