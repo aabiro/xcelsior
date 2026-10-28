@@ -44,6 +44,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping
 
+from psycopg import sql
+
 # ── Logical domains (companion §4.2) ──────────────────────────────────
 #
 # One authority per fact: every relation belongs to exactly one domain.
@@ -638,11 +640,15 @@ def grant_statements(
     for qualified, columns in sorted(role.column_updates.items()):
         if present is not None and qualified not in present:
             continue
+        if not columns:
+            continue
         schema, table = qualified.split(".", 1)
-        relation = '"' + schema.replace('"', '""') + '"."' + table.replace('"', '""') + '"'
-        names = ", ".join('"' + name.replace('"', '""') + '"' for name in sorted(columns))
-        if names:
-            stmts.append(f'GRANT UPDATE ({names}) ON {relation} TO "{role.name}"')
+        names = sql.SQL(", ").join(sql.Identifier(name) for name in sorted(columns))
+        stmts.append(
+            sql.SQL("GRANT UPDATE ({}) ON {} TO {}")
+            .format(names, sql.Identifier(schema, table), sql.Identifier(role.name))
+            .as_string()
+        )
     return stmts
 
 
