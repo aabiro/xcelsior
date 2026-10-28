@@ -4,7 +4,8 @@
   },
   "tagOwners": {
     "tag:xcelsior": ["xcelsior@"],
-    "tag:admin": ["xcelsior@"]
+    "tag:admin": ["xcelsior@"],
+    "tag:hm-ops": ["xcelsior@"]
   },
   "acls": [
     { "action": "accept", "src": ["group:admin"], "dst": ["*:*"] },
