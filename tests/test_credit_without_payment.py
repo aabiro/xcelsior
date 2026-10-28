@@ -212,8 +212,14 @@ def paypal(monkeypatch):
     return state
 
 
-def _approved(custom_id: str) -> dict:
-    return {"id": "ORDER-1", "status": "APPROVED", "purchase_units": [{"custom_id": custom_id}]}
+def _approved(custom_id: str, currency: str = "CAD", value: str = "25.00") -> dict:
+    return {
+        "id": "ORDER-1",
+        "status": "APPROVED",
+        "purchase_units": [
+            {"custom_id": custom_id, "amount": {"value": value, "currency_code": currency}}
+        ],
+    }
 
 
 def _captured(status: str = "COMPLETED", currency: str = "CAD", value: str = "25.00") -> dict:
@@ -261,11 +267,36 @@ def test_paypal_capture_refuses_an_order_made_for_another_wallet(customer, paypa
     assert paypal["credited"] == []
 
 
+def test_paypal_does_not_capture_an_order_in_another_currency(customer, paypal):
+    paypal["order"] = _approved(customer["customer_id"], currency="JPY", value="10000")
+    paypal["capture"] = _captured(currency="JPY", value="10000")
+    r = _capture(customer)
+    assert r.status_code == 400, r.text
+    # Refused before capture: no credit could follow, so the buyer is not charged.
+    assert paypal["captured"] == []
+    assert paypal["credited"] == []
+
+
 def test_paypal_capture_does_not_credit_another_currency_as_cad(customer, paypal):
     paypal["order"] = _approved(customer["customer_id"])
     paypal["capture"] = _captured(currency="JPY", value="10000")
     r = _capture(customer)
     assert r.status_code == 400, r.text
+    assert paypal["credited"] == []
+
+
+def test_paypal_order_approved_webhook_does_not_capture_another_currency(paypal, monkeypatch):
+    import routes.billing as billing_mod
+
+    monkeypatch.setattr(billing_mod, "_paypal_verify_webhook_signature", lambda _r, _e: True)
+    paypal["order"] = _approved("cust-x", currency="JPY", value="10000")
+    paypal["capture"] = _captured(currency="JPY", value="10000")
+    r = client.post(
+        "/api/billing/paypal/webhook",
+        json={"event_type": "CHECKOUT.ORDER.APPROVED", "resource": paypal["order"]},
+    )
+    assert r.status_code == 200, r.text
+    assert paypal["captured"] == []
     assert paypal["credited"] == []
 
 

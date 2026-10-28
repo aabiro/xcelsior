@@ -411,7 +411,9 @@ def _paypal_capture_order(
     """Capture an approved PayPal order. Returns order JSON on success.
 
     With ``expected_custom_id``, an order created for another wallet is refused
-    before it is captured.
+    before it is captured. An order in another currency is always refused
+    before capture: no credit can follow it, so capturing it would take the
+    buyer's money for nothing.
     """
     token = token or _paypal_access_token()
     order = _paypal_get_order(order_id, token)
@@ -431,6 +433,11 @@ def _paypal_capture_order(
         return order
     if status != "APPROVED":
         raise HTTPException(400, f"PayPal order status: {status or 'unknown'}")
+    units = order.get("purchase_units") or []
+    currency = ((units[0].get("amount") or {}).get("currency_code") if units else "") or ""
+    if currency.upper() != "CAD":
+        log.warning("PayPal capture refused: order %s is in %r, not CAD", order_id, currency)
+        raise HTTPException(400, "Only PayPal orders in CAD can add credits")
     cap_resp = httpx.post(
         f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
         headers=_paypal_headers(token),
