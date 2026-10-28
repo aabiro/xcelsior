@@ -121,9 +121,11 @@ SCAN_PATTERNS = [
 ]
 
 
-def _source_files():
-    for path in REPO.rglob("*.py"):
-        parts = set(path.parts)
+def _source_files(root: pathlib.Path = REPO):
+    for path in root.rglob("*.py"):
+        # Only directories inside the checkout count. A checkout that itself
+        # lives under `artifacts/worktrees/` must still be scanned, not skipped.
+        parts = set(path.relative_to(root).parts)
         # Exclude venv, caches, third-party, tests themselves.
         if any(
             p in parts
@@ -184,6 +186,23 @@ def test_no_new_dynamic_sql_identifier_interpolation():
         )
         msg.append("     add the file to KNOWN_SAFE with a comment naming the allowlist source.")
         raise AssertionError("\n".join(msg))
+
+
+def test_a_checkout_under_a_worktrees_directory_is_still_scanned(tmp_path):
+    """Exclusions match directories inside the checkout, never the ones above it."""
+    root = tmp_path / "artifacts" / "worktrees" / "checkout"
+    for rel in (
+        "control_plane/grants.py",
+        ".venv/lib/vendored.py",
+        "tests/test_fixture.py",
+        "artifacts/worktrees/nested/control_plane/grants.py",
+    ):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("", encoding="utf-8")
+
+    scanned = {str(path.relative_to(root)) for path in _source_files(root)}
+
+    assert scanned == {"control_plane/grants.py"}
 
 
 def test_known_safe_files_still_exist():
