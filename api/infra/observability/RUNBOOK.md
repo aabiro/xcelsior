@@ -233,7 +233,7 @@ Alerts: `XcelsiorProdDiskHigh` (>80% for 10 min), `XcelsiorProdDiskCritical` (>9
 
 What keeps `/` in check without anyone cleaning by hand:
 - `prod-docker-gc.timer` (Sunday 04:00) runs `/usr/local/sbin/prod-docker-gc` (`api/scripts/prod_docker_gc.sh`). It removes unused images older than 14 days, dangling layers and build cache older than 7 days. It keeps rollback tags (`cutover-*`, `rollout-backup*`, `*preserved-live*`, `before-security-hold*`, `*-blue`), never touches volumes, and skips while a deploy or build runs. Preview with `prod-docker-gc --dry-run`.
-- journald is capped at 500 MB (`api/infra/systemd/journald-90-xcelsior.conf`).
+- journald is capped at 200 MB (`api/infra/systemd/journald-90-xcelsior.conf`, matching `/etc/systemd/journald.conf`).
 - `api/infra/docker/daemon.json` caps container logs (`local` driver, 5 × 20 MB) and turns on BuildKit GC. It takes effect only when dockerd restarts, which restarts every container, so install it in a maintenance window: validate with `dockerd --validate --config-file=...` first, then `systemctl restart docker`.
 
 When an alert fires: `docker system df`, `du -xh / --max-depth=2 | sort -h | tail`, and `du -h --apparent-size /exports/volumes/*.img` for the sparse volume backing files.
