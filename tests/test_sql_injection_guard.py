@@ -76,6 +76,28 @@ KNOWN_SAFE = {
     "api/migrations/versions/095_float_money_cutover_to_micros.py",
     #   097: same COLUMNS tuple, same closed set of identifiers
     "api/migrations/versions/097_drop_float_cad_columns.py",
+    # 128-142 also interpolate SQL fragments (column types, CHECK expressions,
+    # WHERE predicates), which no placeholder or Identifier can carry. Each one
+    # is still a literal written in the same file:
+    #   128: table, key, predicate and SET list are literal arguments in
+    #        upgrade() at L141-L168, built from the module constants at L28-L39
+    #   130: constraint names and expressions from the literal list at L65
+    #   133: column names and types from the literal list at L47
+    #   135: columns from the module-level COLUMNS dict; constraints from the
+    #        literal dict at L129
+    #   139: table names from the literal tuple at L37
+    #   140: columns from the literal tuple at L39; _retire_empty_column is
+    #        only called with literal (table, column) pairs at L69 and L72
+    #   141: columns from the module-level COLUMNS tuple
+    #   142: the module-level MISSING predicate, which interpolates nothing
+    "api/migrations/versions/128_backfill_recorded_control_plane_metadata.py",
+    "api/migrations/versions/130_contract_job_projection_columns.py",
+    "api/migrations/versions/133_durable_scheduling_policy.py",
+    "api/migrations/versions/135_retire_job_placement_projections.py",
+    "api/migrations/versions/139_connect_mapping_authority.py",
+    "api/migrations/versions/140_contract_recorded_runtime_metadata.py",
+    "api/migrations/versions/141_archive_lightning_compatibility_columns.py",
+    "api/migrations/versions/142_durable_host_observation_sessions.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real
