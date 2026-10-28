@@ -6,6 +6,8 @@
 
   "tagOwners": {
     "tag:xcelsior": ["xcelsior@"],
+    // Headmesh hm-prod-1 ops node: admins reach it, it initiates nothing.
+    "tag:hm-ops": ["xcelsior@"],
     "tag:mac-nfs": ["xcelsior@"]
   },
 
