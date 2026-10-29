@@ -95,7 +95,7 @@ class TestTokenBillingClosure:
         assert path.is_file()
         assert "blended_charge" in path.read_text(encoding="utf-8")
 
-    def test_anchor_workloads_and_discovery(self, fake_vllm_port):
+    def test_anchor_workloads_and_discovery(self, anchor_repos, fake_vllm_port):
         discovered = discover_anchor_repos(include_remote=True)
         roots_report = configured_project_roots()
         assert len(discovered) >= 3, discovered
@@ -171,7 +171,7 @@ class TestTokenBillingClosure:
         write_json_artifact("anchor-workloads.json", evidence)
         write_json_artifact("anchor-workloads.log", evidence)
 
-    def test_usage_api_proxy_traffic(self, fake_vllm_port, priced_worker):
+    def test_usage_api_proxy_traffic(self, anchor_repos, fake_vllm_port, priced_worker):
         headers, cust = register_funded_headers(client, "usage")
         repo = ServerlessRepo()
         created = client.post(
@@ -288,7 +288,7 @@ class TestTokenBillingClosure:
         client.delete(f"/api/v2/serverless/endpoints/{ep_id}", headers=headers)
 
     def test_proxy_stream_embed_worker_blended_charge(
-        self, fake_vllm_port, blended_billing_env, priced_worker
+        self, anchor_repos, fake_vllm_port, blended_billing_env, priced_worker
     ):
         headers, cust = register_funded_headers(client, "e2e")
         repo = ServerlessRepo()
@@ -382,7 +382,7 @@ class TestTokenBillingClosure:
         client.delete(f"/api/v2/serverless/endpoints/{embed_id}", headers=headers)
 
     def test_speculative_proxy_records_then_enables_flags(
-        self, fake_vllm_port, speculative_store, monkeypatch
+        self, anchor_repos, fake_vllm_port, speculative_store, monkeypatch
     ):
         model = "Qwen/Qwen3-8B"
         assert speculative_startup_flags(model) == []

@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-10-26 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-10-29 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**2 of 535 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
+**3 of 539 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -14,7 +14,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 > Re-measure with `scripts/measure_route_execution.py` after a coverage run. Prefer it to the count above whenever the two are used to decide whether something is covered.
 
-## Routes (2 untested)
+## Routes (3 untested)
 
 ### `routes/action_plans.py` (0 untested)
 - [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
@@ -148,6 +148,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/oauth/clients/{client_id}` — `api_delete_oauth_client`  ✓ test_auth_endpoints_coverage.py
 - [x] `PATCH /api/oauth/clients/{client_id}` — `api_update_oauth_client`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/oauth/clients/{client_id}/rotate-secret` — `api_rotate_oauth_client_secret`  ✓ test_auth_endpoints_coverage.py
+- [x] `GET /api/privacy/deletion-status` — `api_privacy_deletion_status`
 - [x] `GET /api/users/me/preferences` — `api_get_user_preferences`  ✓ test_auth_endpoints_coverage.py
 - [x] `PUT /api/users/me/preferences` — `api_set_user_preferences`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /oauth/authorize` — `oauth_authorize`
@@ -408,7 +409,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /marketplace/stats` — `api_marketplace_stats`  ✓ test_marketplace_endpoints_coverage.py
 - [x] `DELETE /marketplace/{host_id}` — `api_unlist_rig`  ✓ test_marketplace_endpoints_coverage.py
 
-### `routes/mfa.py` (0 untested)
+### `routes/mfa.py` (1 untested)
 - [x] `DELETE /api/auth/mfa/all` — `api_mfa_disable_all`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/backup-codes/regenerate` — `api_mfa_regenerate_backup_codes`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/mfa/methods` — `api_mfa_list_methods`
@@ -417,6 +418,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/auth/mfa/passkey/delete` — `api_mfa_passkey_delete`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/passkey/register-complete` — `api_mfa_passkey_register_complete`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/passkey/register-options` — `api_mfa_passkey_register_options`  ✓ test_auth_endpoints_coverage.py
+- [ ] `GET /api/auth/mfa/pending` — `api_mfa_pending`
 - [x] `DELETE /api/auth/mfa/sms` — `api_mfa_sms_disable`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/sms/send` — `api_mfa_sms_send_login`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/sms/setup` — `api_mfa_sms_setup`  ✓ test_auth_endpoints_coverage.py
@@ -463,6 +465,8 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ### `routes/providers.py` (0 untested)
 - [x] `GET /api/providers` — `api_list_providers`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/register` — `api_register_provider`  ✓ test_compliance_endpoints_coverage.py
+- [x] `PUT /api/providers/seller-profile` — `api_save_seller_profile`
+- [x] `GET /api/providers/seller-profile` — `api_get_seller_profile`
 - [x] `POST /api/providers/webhook` — `api_stripe_webhook`  ✓ test_providers_endpoints_coverage.py
 - [x] `GET /api/providers/{provider_id}` — `api_get_provider`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/abandon-onboarding` — `api_abandon_onboarding`  ✓ test_compliance_endpoints_coverage.py

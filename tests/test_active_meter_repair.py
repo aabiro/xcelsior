@@ -435,7 +435,9 @@ def test_runtime_api_login_can_repair_and_settle_without_broader_role_grants(
     monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", "enforce")
     dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
     with psycopg.connect(dsn, autocommit=True) as admin:
-        admin.execute("ALTER ROLE xcelsior_api LOGIN")
+        from tests._db_helpers import allow_test_login
+
+        allow_test_login(admin, "xcelsior_api", dsn)
     try:
         with psycopg.connect(make_conninfo(dsn, user="xcelsior_api")) as conn:
             assert conn.execute("SELECT current_user, session_user").fetchone() == (
@@ -454,7 +456,7 @@ def test_runtime_api_login_can_repair_and_settle_without_broader_role_grants(
                 ).fetchone()[0]
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
-            admin.execute("ALTER ROLE xcelsior_api NOLOGIN")
+            admin.execute("ALTER ROLE xcelsior_api NOLOGIN PASSWORD NULL")
 
 
 def test_observation_metadata_and_current_host_price_cannot_rewrite_repaired_usage(

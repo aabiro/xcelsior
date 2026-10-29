@@ -107,7 +107,7 @@ def _authoritatively_admit(host_id: str) -> None:
     """Model the separate trusted admission path used outside self-reports."""
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 def _submit_job(name="llama3", vram=16, **extra):
