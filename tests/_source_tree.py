@@ -33,14 +33,9 @@ DEFAULT_EXCLUDED_PREFIXES = (
     ".venv/",
     "venv/",
     "node_modules/",
-    "api/mcp/",
-    "api/mcp/",
-    "api/desktop/",
-    "api/desktop/",
-    "api/frontend/",
-    "api/frontend/",
-    "artifacts/",
-    "core/artifacts/",
+    "mcp/",
+    "desktop/",
+    "frontend/",
     "__pycache__/",
     "build/",
     "dist/",
@@ -75,7 +70,7 @@ def iter_source_files(
     exists to end.
 
     Order matters: an explicit include beats the default exclude, so
-    `include_prefixes=("api/mcp/src/",)` reaches the tool sources while `mcp/`
+    `include_prefixes=("mcp/src/",)` reaches the tool sources while `mcp/`
     stays out of the ordinary Python sweep.
     """
     excluded = DEFAULT_EXCLUDED_PREFIXES + tuple(exclude_prefixes)

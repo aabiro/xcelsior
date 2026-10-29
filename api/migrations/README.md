@@ -97,11 +97,24 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `145_oauth_subject_and_deletion_confirmations.py`.**
+**Repository head: `148_facebook_deletion_receipt_tenants.py`.**
+
+148 scopes Facebook deletion receipts to their durable privacy request's tenant,
+with an explicit system scope for callbacks that have no matching account.
+Batched backfill refuses a receipt whose request has vanished. A tenant-leading
+index and NOT NULL constraint close the schema-discipline gap left by deployed
+145; its historical migration is unchanged. The writer-compatible trigger binds
+scope before both old and new API writers insert a receipt.
+
+146 imports immutable Stripe price identities and freezes attempt billing
+snapshots. 147 records paid bids and database-owned queue-entry time. Accepted
+prices and purchased isolation live in the immutable native execution spec;
+no retired payload projection is reintroduced. The chain follows 145; deployed
+144 already owns the B2B tax identity migration.
 
 144 adds optional customer business-name and GST/HST columns on `users`, and the provider seller-identity columns used for annual reporting: mailing address, tax-identifier kind, encrypted tax identifier, last four characters, and the time the supplier accepted the tax terms. Profile and payout routes query those columns. Downgrade drops the new columns.
 
-145 stores the Facebook user id used to find an account for the data-deletion callback, and the confirmation-code table the public status page reads. The runtime schema floor is 145. Downgrade drops the column, the unique index, and the confirmation table.
+145 stores the Facebook user id used to find an account for the data-deletion callback, and the confirmation-code table the public status page reads. This migration originally set the runtime schema floor to 145; the paid queue runtime now requires 147. Downgrade drops the column, the unique index, and the confirmation table.
 
 143 grants the host observation session registry to the runtime roles that
 read or ingest it, skipping any role that is not provisioned yet. Apply it

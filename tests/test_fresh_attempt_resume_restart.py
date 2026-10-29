@@ -7,9 +7,6 @@ start_container / pause_container for fenced cases.
 
 from __future__ import annotations
 
-from control_plane.state import initial_desired_state, job_phase
-from tests.native_jobs import admit_fixture_job
-
 import json
 import time
 import uuid
@@ -76,8 +73,8 @@ def captured_enqueue(monkeypatch):
 def _mkhost(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'online', %s, %s, 'admitted', 'admitted', 'unknown')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'online', %s, %s, 'admitted')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
@@ -107,24 +104,18 @@ def _mkjob(cleanup, *, owner, host_id, status, container_name=None):
     job_id = f"job-rr-{uuid.uuid4().hex[:10]}"
     cname = container_name or f"xcl-{job_id}"
     with _pool.connection() as conn:
-        fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
+                   (job_id, status, priority, submitted_at, host_id, payload)
+               VALUES (%s, %s, 0, %s, %s, %s)""",
             (
                 job_id,
                 status,
-                fixture_submitted_at,
+                time.time(),
                 host_id,
                 json.dumps({"owner": owner, "name": job_id, "container_name": cname}),
-                job_phase(status),
-                initial_desired_state(status),
-                status,
-                fixture_submitted_at,
             ),
         )
-        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id
@@ -196,7 +187,7 @@ def test_start_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, host_id, phase, desired_state,
-                      lifecycle_intent,
+                      payload->>'lifecycle_intent',
                       payload->>'resume_kind'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -251,7 +242,7 @@ def test_restart_running_fenced_enqueues_stop_attempt(cleanup_ids, captured_enqu
             (job_id,),
         ).fetchone()
         intent = conn.execute(
-            "SELECT lifecycle_intent FROM jobs WHERE job_id=%s",
+            "SELECT payload->>'lifecycle_intent' FROM jobs WHERE job_id=%s",
             (job_id,),
         ).fetchone()[0]
     assert cmd[0] == "stop_attempt"
@@ -293,7 +284,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         conn.commit()
         row = conn.execute(
             """SELECT status, host_id, active_attempt_id, phase, desired_state,
-                      lifecycle_intent
+                      payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -327,7 +318,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         ).fetchone()[0]
         conn.execute(
             """UPDATE jobs
-                  SET status = 'running', phase='running', desired_state='running',
+                  SET status = 'running',
                       host_id = %s,
                       active_attempt_id = %s
                 WHERE job_id = %s""",
@@ -346,7 +337,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         conn.commit()
         # Normal user-stop path: intermediate stopping without restart intent.
         conn.execute(
-            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped',
+            """UPDATE jobs SET status = 'stopping',
                    payload = jsonb_set(
                        COALESCE(payload, '{}'::jsonb) - 'lifecycle_intent',
                        '{status}', '"stopping"'::jsonb, true
@@ -364,7 +355,7 @@ def test_restart_ack_projects_to_queued(cleanup_ids, captured_enqueue):
         )
         conn.commit()
         after = conn.execute(
-            """SELECT status, lifecycle_intent
+            """SELECT status, payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -390,26 +381,25 @@ def test_restart_stopped_fenced_requeues(cleanup_ids, captured_enqueue):
     assert captured_enqueue == []
 
 
-def test_start_without_fenced_history_is_refused(cleanup_ids, captured_enqueue):
+def test_legacy_start_still_uses_start_container(cleanup_ids, captured_enqueue):
     owner = "rr-leg@test"
     host = f"h-rr-l-{uuid.uuid4().hex[:6]}"
     _mkwallet(cleanup_ids, owner)
     _mkhost(cleanup_ids, host)
     job_id = _mkjob(cleanup_ids, owner=owner, host_id=host, status="stopped")
-    # Native admission alone does not authorize revival of an old container.
+    # No job_attempts rows → legacy path.
 
     from billing import BillingEngine
 
     result = BillingEngine().start_instance(job_id)
-    assert result.get("started") is False, result
-    assert result["reason"] == "native_attempt_required"
-    assert captured_enqueue == []
+    assert result.get("started") is True, result
+    assert any(c["command"] == "start_container" for c in captured_enqueue)
 
 
 def test_static_controller_reachable():
     from pathlib import Path
 
-    billing = Path("billing/billing.py").read_text(encoding="utf-8")
+    billing = Path("billing.py").read_text(encoding="utf-8")
     assert "request_fresh_attempt_resume" in billing
     assert 'intent="restart"' in billing or "intent='restart'" in billing
     assert 'reason": "fenced_resume_requires_new_attempt"' not in billing

@@ -281,37 +281,22 @@ def seeded_snapshot_db(snapshot_db):
 # ───────────────────────── the rehearsal ─────────────────────────
 
 
-def _upgrade_after_native_cutover(dsn):
-    _alembic(dsn, "upgrade", "126")
-    refused = _alembic(dsn, "upgrade", "127", check=False)
-    assert refused.returncode != 0 and "native cutover required" in refused.stderr
-    # Simulate the explicit handoff only after 055 has backfilled native
-    # authority. This closes the v1 record without inventing a new attempt.
-    with _connect(dsn) as conn:
-        conn.execute("UPDATE leases SET status='released' WHERE status='active'")
-    # This fixture includes unqualified live legacy jobs. Qualification through
-    # the native writer handoff is meaningful; historical disposition must
-    # refuse these live rows rather than invent their approved execution spec.
-    _alembic(dsn, "upgrade", "131")
-
-
-def test_production_shaped_upgrade_to_native_writer_handoff(seeded_snapshot_db):
-    """053 + live legacy rows → 131, before explicit historical disposition."""
+def test_production_shaped_upgrade_to_head(seeded_snapshot_db):
+    """053 + representative rows → head, with every §16.1 property checked."""
     dsn, seeded = seeded_snapshot_db
 
-    _upgrade_after_native_cutover(dsn)
+    _alembic(dsn, "upgrade", "head")
 
     with _connect(dsn) as conn:
         # ── head reached ──
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert (
-            rev is not None and rev[0] == "131"
-        ), f"expected native handoff 131, database is at {rev}"
+            rev is not None and rev[0] == EXPECTED_HEAD
+        ), f"expected head {EXPECTED_HEAD}, database is at {rev}"
 
         # ── no data loss or duplication ──
         for table, expected in seeded.items():
-            relation = "legacy_lease_archive" if table == "leases" else table
-            actual = conn.execute(f"SELECT count(*) FROM {relation}").fetchone()
+            actual = conn.execute(f"SELECT count(*) FROM {table}").fetchone()
             assert actual is not None and actual[0] == expected, (
                 f"{table}: seeded {expected} rows, found {actual[0]} after "
                 f"upgrade. A migration lost or duplicated production rows."
@@ -399,14 +384,12 @@ def test_production_shaped_upgrade_to_native_writer_handoff(seeded_snapshot_db):
         )
 
         # ── uniqueness invariants hold over migrated data (§8.1) ──
-        dupes = conn.execute(
-            """
+        dupes = conn.execute("""
             SELECT job_id, count(*) FROM job_attempts
              WHERE status IN ('reserved','command_pending','lease_offered',
                               'lease_claimed','starting','running')
              GROUP BY job_id HAVING count(*) > 1
-            """
-        ).fetchall()
+            """).fetchall()
         assert not dupes, f"migrated data violates uq_job_one_active_attempt: {dupes}"
 
         # ── 059 trigger: host admission derived from the payload flag ──
@@ -446,7 +429,7 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
     """
     dsn, seeded = seeded_snapshot_db
 
-    _upgrade_after_native_cutover(dsn)
+    _alembic(dsn, "upgrade", "head")
     _alembic(dsn, "downgrade", BASELINE_REVISION)
 
     with _connect(dsn) as conn:
@@ -459,11 +442,11 @@ def test_production_shaped_upgrade_is_reversible(seeded_snapshot_db):
                 actual is not None and actual[0] == expected
             ), f"{table} lost rows during downgrade to {BASELINE_REVISION}"
 
-    _alembic(dsn, "upgrade", "131")
+    _alembic(dsn, "upgrade", "head")
 
     with _connect(dsn) as conn:
         rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert rev is not None and rev[0] == "131"
+        assert rev is not None and rev[0] == EXPECTED_HEAD
         # The backfill re-derives cleanly the second time.
         unmapped = conn.execute(
             "SELECT count(*) FROM jobs WHERE phase IS NULL OR desired_state IS NULL"
@@ -480,9 +463,7 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
     _alembic(dsn, "upgrade", "121")
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        conn.execute(
-            """UPDATE jobs SET status = 'stopping', phase='running', desired_state='stopped' WHERE job_id = 'job-running'"""
-        )
+        conn.execute("UPDATE jobs SET status = 'stopping' WHERE job_id = 'job-running'")
         assert conn.execute(
             "SELECT reason FROM reconciliation_queue WHERE resource_type = 'job' "
             "AND resource_id = 'job-running'"
@@ -498,70 +479,12 @@ def test_job_reconciliation_trigger_round_trip_preserves_queued_work(seeded_snap
         ).fetchone() == ("job_changed",)
     _alembic(dsn, "upgrade", "122")
     with _connect(dsn) as conn:
-        conn.execute(
-            """UPDATE jobs SET status = 'stopped', phase='stopped', desired_state='stopped' WHERE job_id = 'job-running'"""
-        )
+        conn.execute("UPDATE jobs SET status = 'stopped' WHERE job_id = 'job-running'")
         assert conn.execute(
             "SELECT count(*) FROM reconciliation_queue WHERE resource_type = 'job' "
             "AND resource_id = 'job-running'"
         ).fetchone() == (1,)
         assert conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone() == before
-        for table, count in seeded.items():
-            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (count,)
-
-
-def test_runtime_reconciliation_round_trip_preserves_work_and_money(seeded_snapshot_db):
-    """123 up/down/up over migrated authority, commands and money-bearing rows."""
-    dsn, seeded = seeded_snapshot_db
-    _alembic(dsn, "upgrade", "122")
-    with _connect(dsn) as conn:
-        command_id = conn.execute(
-            """INSERT INTO agent_commands
-                   (host_id, job_id, attempt_id, fencing_token, command, status, args)
-               SELECT host_id, job_id, attempt_id, fencing_token, 'start_attempt', 'pending', '{}'
-                 FROM placement_leases WHERE job_id = 'job-running'
-               RETURNING command_id"""
-        ).fetchone()[0]
-        before = conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone()
-        conn.execute("DELETE FROM reconciliation_queue WHERE resource_id = 'job-running'")
-    _alembic(dsn, "upgrade", "123")
-    with _connect(dsn) as conn:
-        conn.execute(
-            "UPDATE agent_commands SET status = 'failed' WHERE command_id = %s", (command_id,)
-        )
-        assert conn.execute(
-            "SELECT reason FROM reconciliation_queue WHERE resource_type = 'job' "
-            "AND resource_id = 'job-running'"
-        ).fetchone() == ("command_changed",)
-    _alembic(dsn, "downgrade", "122")
-    with _connect(dsn) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM pg_trigger WHERE tgname IN "
-            "('agent_commands_request_reconciliation', 'placement_leases_request_reconciliation')"
-        ).fetchone() == (0,)
-        assert conn.execute(
-            "SELECT reason FROM reconciliation_queue WHERE resource_id = 'job-running'"
-        ).fetchone() == ("command_changed",)
-        conn.execute("DELETE FROM reconciliation_queue WHERE resource_id = 'job-running'")
-        conn.execute(
-            "UPDATE agent_commands SET status = 'dead_letter' WHERE command_id = %s", (command_id,)
-        )
-        assert (
-            conn.execute(
-                "SELECT 1 FROM reconciliation_queue WHERE resource_id = 'job-running'"
-            ).fetchone()
-            is None
-        )
-    _alembic(dsn, "upgrade", "123")
-    with _connect(dsn) as conn:
-        conn.execute("UPDATE placement_leases SET status = 'fenced' WHERE job_id = 'job-running'")
-        assert conn.execute(
-            "SELECT reason FROM reconciliation_queue WHERE resource_id = 'job-running'"
-        ).fetchone() == ("lease_changed",)
-        assert conn.execute("SELECT sum(amount_micros) FROM billing_cycles").fetchone() == before
-        assert conn.execute(
-            "SELECT status FROM agent_commands WHERE command_id = %s", (command_id,)
-        ).fetchone() == ("dead_letter",)
         for table, count in seeded.items():
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (count,)
 

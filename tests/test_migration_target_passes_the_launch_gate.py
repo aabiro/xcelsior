@@ -15,8 +15,6 @@ here and is not claimed. It needs two live instances that can share a volume.
 
 from __future__ import annotations
 
-from control_plane.state import host_states
-
 import json
 import os
 import time
@@ -52,11 +50,12 @@ JOB = {"gpu_model": None, "num_gpus": 1, "vram_needed_gb": 8, "region": None}
 def _insert_host(
     conn, host_id, *, admission="admitted", status="active", vram=24.0, cost=0.20, last_seen=None
 ):
-    # Explicit trusted fixture authority; no projection trigger supplies it.
+    # `admission_state`, not `administrative_state`: a BEFORE trigger derives
+    # the latter, so writing it directly is silently overwritten.
     conn.execute(
         """INSERT INTO hosts (host_id, status, registered_at, payload,
-                              admission_state, admitted_at, administrative_state, availability_state, capabilities, last_observed_at)
-           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s, '{"egress_isolation":true}', clock_timestamp())""",
+                              admission_state, admitted_at)
+           VALUES (%s, %s, %s, %s, %s, clock_timestamp())""",
         (
             host_id,
             status,
@@ -77,8 +76,6 @@ def _insert_host(
                 }
             ),
             admission,
-            host_states(status, admission)[0],
-            host_states(status, admission)[1],
         ),
     )
 
@@ -97,10 +94,6 @@ def hosts():
         _insert_host(conn, ids["target"], cost=0.20)
         _insert_host(conn, ids["pending"], admission="pending", cost=0.10)
         _insert_host(conn, ids["small"], vram=4.0, cost=0.05)
-    from tests._db_helpers import report_test_host_inventory
-
-    for host_id in ids.values():
-        report_test_host_inventory(host_id)
     yield ids
     with pg_transaction() as conn:
         conn.execute("DELETE FROM hosts WHERE host_id = ANY(%s)", (list(ids.values()),))
@@ -133,8 +126,9 @@ def test_a_never_admitted_host_cannot_be_reached_by_migrating_to_it(hosts):
 def test_a_host_that_lost_admission_after_launch_is_refused(hosts):
     """The check is against **current** state, not the state at launch.
 
-    Native administrative state records revocation independently of payload
-    observations, so the target is no longer eligible after the decision.
+    This is why re-running the gate is not decorative: `administrative_state` is
+    recomputed by a trigger, so a host drained or disabled since the job started
+    genuinely answers differently now.
     """
     with pg_transaction() as conn:
         assert not isinstance(
@@ -142,7 +136,7 @@ def test_a_host_that_lost_admission_after_launch_is_refused(hosts):
         )
     with pg_transaction() as conn:
         conn.execute(
-            "UPDATE hosts SET admission_state='revoked',administrative_state='pending' WHERE host_id=%s",
+            "UPDATE hosts SET admission_state = 'revoked' WHERE host_id = %s",
             (hosts["target"],),
         )
     with pg_transaction() as conn:

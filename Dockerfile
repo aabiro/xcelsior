@@ -40,11 +40,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:${PATH}" \
-    HOME=/home/xcelsior \
-    PYTHONPATH="/app/archive:/app/billing:/app/workers:/app/auth:/app/hosts:/app/privacy:/app/api:/app/core:/app"
+    HOME=/home/xcelsior
 
 # Ensure templates and migrations are present
-RUN test -d api/templates && test -d api/migrations
+RUN test -d templates && test -d migrations
 
 # Precompile to bytecode as root so a read-only root filesystem at runtime
 # costs nothing: without this every import would recompile on each start.
@@ -63,4 +62,4 @@ USER ${APP_UID}:${APP_GID}
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -sf http://localhost:${XCELSIOR_API_PORT:-9500}/healthz || exit 1
 
-CMD ["/bin/sh", "api/scripts/start_api.sh"]
+CMD ["gunicorn", "api:app", "-c", "gunicorn.conf.py"]

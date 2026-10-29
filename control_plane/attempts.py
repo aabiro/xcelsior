@@ -24,9 +24,6 @@ from psycopg import Connection
 from psycopg.types.json import Jsonb
 
 from control_plane.leases import require_current_fence
-from control_plane.attempt_billing import sync_attempt_billing
-from control_plane.serverless_workers import sync_serverless_attempt
-from control_plane.state import job_phase
 
 log = logging.getLogger("xcelsior.control_plane.attempts")
 
@@ -46,7 +43,8 @@ _REPORT_ORDER: dict[str, int] = {
 
 _TERMINAL = ("succeeded", "failed", "stopped")
 
-# Attempt status → compatibility jobs.status; phase is written alongside it.
+# Attempt status → legacy jobs.status projection (the 059 trigger derives
+# phase/desired_state from this, so one write keeps everything coherent).
 _JOB_PROJECTION = {
     "lease_claimed": "leased",
     "starting": "starting",
@@ -90,7 +88,6 @@ def report_attempt_status(
     status: str,
     failure_code: str | None = None,
     detail: dict[str, Any] | None = None,
-    runtime_metadata: dict[str, Any] | None = None,
 ) -> AttemptStatusResult:
     """Apply one fenced worker status report inside the caller's txn.
 
@@ -102,14 +99,9 @@ def report_attempt_status(
     if status not in _REPORT_ORDER:
         raise AttemptStatusRejected(
             "unsupported_status",
-            f"status {status!r} is not reportable " f"(expected one of {sorted(_REPORT_ORDER)})",
+            f"status {status!r} is not reportable "
+            f"(expected one of {sorted(_REPORT_ORDER)})",
         )
-
-    # Serialize metadata and lifecycle with placement on the job row.
-    conn.execute("SELECT job_id FROM jobs WHERE job_id=%s FOR UPDATE", (job_id,)).fetchone()
-    from control_plane.billing_effects import serialize_native_period
-
-    serialize_native_period(conn, job_id)
 
     # §8.1: authority first, before reading anything else.
     require_current_fence(
@@ -128,63 +120,14 @@ def report_attempt_status(
         raise AttemptStatusRejected("attempt_missing", f"attempt {attempt_id} vanished")
     current = str(_get(row, "status", 0))
 
+    if current == status:
+        return AttemptStatusResult(job_id, attempt_id, status, False, status in _TERMINAL)
     current_rank = _REPORT_ORDER.get(current, -1)  # reserved etc. rank below all
     if _REPORT_ORDER[status] < current_rank:
         raise AttemptStatusRejected(
             "out_of_order",
             f"attempt is {current}; cannot move backward to {status}",
         )
-
-    if runtime_metadata:
-        allowed = {
-            "container_id",
-            "container_name",
-            "public_ssh_port",
-            "interactive",
-            "error_message",
-            "resume_from",
-            "resumable",
-        }
-        if set(runtime_metadata).difference(allowed):
-            raise AttemptStatusRejected(
-                "invalid_runtime_metadata", "Unknown runtime metadata field"
-            )
-        port = runtime_metadata.get("public_ssh_port")
-        if port is not None and (type(port) is not int or not 10000 <= port <= 65000):
-            raise AttemptStatusRejected("invalid_runtime_metadata", "Invalid public SSH port")
-        conn.execute(
-            "UPDATE jobs SET payload=COALESCE(payload,'{}'::jsonb) || %s::jsonb, "
-            "version=version+1, updated_at=clock_timestamp() "
-            "WHERE job_id=%s AND active_attempt_id=%s "
-            "AND payload IS DISTINCT FROM COALESCE(payload,'{}'::jsonb) || %s::jsonb",
-            (Jsonb(runtime_metadata), job_id, attempt_id, Jsonb(runtime_metadata)),
-        )
-        error_message = runtime_metadata.get("error_message")
-        if error_message is not None and not isinstance(error_message, str):
-            raise AttemptStatusRejected("invalid_runtime_metadata", "Invalid error message")
-        if isinstance(error_message, str):
-            conn.execute(
-                "UPDATE jobs SET error_message=%s WHERE job_id=%s AND active_attempt_id=%s",
-                (error_message[:2000], job_id, attempt_id),
-            )
-    if detail:
-        error = detail.get("error")
-        exit_code = detail.get("exit_code")
-        if isinstance(error, str) or type(exit_code) is int:
-            conn.execute(
-                "UPDATE jobs SET error_message=COALESCE(%s,error_message), "
-                "exit_code=COALESCE(%s,exit_code) WHERE job_id=%s AND active_attempt_id=%s",
-                (
-                    error[:2000] if isinstance(error, str) else None,
-                    exit_code if type(exit_code) is int and -(2**31) <= exit_code < 2**31 else None,
-                    job_id,
-                    attempt_id,
-                ),
-            )
-    if current == status:
-        sync_attempt_billing(conn, attempt_id)
-        sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
-        return AttemptStatusResult(job_id, attempt_id, status, False, status in _TERMINAL)
 
     terminal = status in _TERMINAL
     stored_status = "cancelled" if status == "stopped" else status
@@ -221,26 +164,22 @@ def report_attempt_status(
         },
     )
 
-    # Reports change observed phase, preserving controller desired state.
-    # P5.5: when the controller
+    # Job projection: one legacy-status write; the 059 trigger keeps
+    # phase/desired_state coherent with it. P5.5: when the controller
     # recorded lifecycle_intent=terminate|cancel, a worker ``stopped``
     # report settles to that terminal status (not plain ``stopped``).
     job_status = _JOB_PROJECTION[status]
     if status == "failed" and failure_code == "mining_detected":
         from abuse_policy import record_mining_violation
-
-        row = conn.execute(
-            "SELECT spec AS payload FROM jobs WHERE job_id = %s", (job_id,)
-        ).fetchone()
+        row = conn.execute("SELECT payload FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
         job = dict(_get(row, "payload", 0) or {})
         job["job_id"] = job_id
         record_mining_violation(conn, job)
         job_status = "terminated"
-    preemption_plan_id = None
-    if terminal and status in ("stopped", "failed"):
+    if terminal and status == "stopped":
         intent_row = conn.execute(
             """
-            SELECT lifecycle_intent, desired_state, spec->>'job_type' AS job_type
+            SELECT payload->>'lifecycle_intent' AS lifecycle_intent
               FROM jobs
              WHERE job_id = %s
                AND active_attempt_id = %s
@@ -250,78 +189,19 @@ def report_attempt_status(
         intent = None
         if intent_row is not None:
             intent = _get(intent_row, "lifecycle_intent", 0)
-        if intent == "terminate" and status == "stopped":
+        if intent == "terminate":
             job_status = "terminated"
-        elif intent == "cancel" and status == "stopped":
+        elif intent == "cancel":
             job_status = "cancelled"
-        elif intent == "restart" and status == "stopped":
+        elif intent == "restart":
             # Tear-down complete → re-admit for a new placement attempt.
             job_status = "queued"
-        elif (
-            intent is None
-            and failure_code != "mining_detected"
-            and intent_row is not None
-            and _get(intent_row, "desired_state", 1) == "running"
-        ):
-            # A cancelled plan's victim counts only if its stop was delivered
-            # (claimed at least once): the worker may have acted on it before
-            # the cancel. An undelivered stop was cancelled with the plan.
-            victim = conn.execute(
-                """SELECT v.plan_id FROM preemption_plan_victims v
-                JOIN preemption_plans p ON p.plan_id = v.plan_id
-                WHERE v.job_id=%s AND v.attempt_id=%s AND v.fencing_token=%s
-                  AND (p.state IN ('stopping','ready','placed')
-                       OR EXISTS (SELECT 1 FROM agent_commands c
-                                   WHERE c.command_id IN (v.stop_command_id, v.force_command_id)
-                                     AND c.attempt_count > 0))
-                ORDER BY (p.state IN ('stopping','ready','placed')) DESC LIMIT 1""",
-                (job_id, attempt_id, fencing_token),
-            ).fetchone()
-            if not victim:
-                # The human-approved host action has no nominee/device hold.
-                # Its executing canonical snapshot binds this exact authority;
-                # user stop/cancel/restart intent above always takes precedence.
-                victim = conn.execute(
-                    """SELECT plan_id FROM action_plans
-                    WHERE action_type='evict_host_workloads' AND status='executing'
-                      AND canonical_args @> %s::jsonb LIMIT 1""",
-                    (
-                        Jsonb(
-                            {
-                                "host_id": host_id,
-                                "policy": "host-eviction/v1",
-                                "victims": [
-                                    {
-                                        "job_id": job_id,
-                                        "attempt_id": attempt_id,
-                                        "fencing_token": fencing_token,
-                                    }
-                                ],
-                            }
-                        ),
-                    ),
-                ).fetchone()
-            if victim:
-                preemption_plan_id = str(_get(victim, "plan_id", 0))
-                job_status = (
-                    "terminated"
-                    if _get(intent_row, "job_type", 2) == "serverless_worker"
-                    else "queued"
-                )
     if terminal:
         conn.execute(
             """
             UPDATE jobs
                SET status = %(job_status)s,
-                   phase = %(phase)s,
-                   desired_state = CASE
-                       WHEN %(job_status)s = 'queued' THEN 'running'
-                       WHEN %(phase)s = 'stopped' THEN 'stopped'
-                       ELSE desired_state END,
-                   queued_at = CASE WHEN %(job_status)s = 'queued'
-                       THEN statement_timestamp() ELSE queued_at END,
                    active_attempt_id = NULL,
-                   lifecycle_intent = NULL,
                    host_id = CASE
                        WHEN %(job_status)s = 'queued' THEN NULL
                        ELSE host_id END,
@@ -339,7 +219,7 @@ def report_attempt_status(
                        ELSE generation END,
                    submitted_at = CASE
                        WHEN %(job_status)s = 'queued'
-                           THEN EXTRACT(EPOCH FROM statement_timestamp())
+                           THEN EXTRACT(EPOCH FROM clock_timestamp())
                        ELSE submitted_at END,
                    payload = CASE
                        WHEN %(job_status)s = 'stopped' THEN
@@ -406,10 +286,7 @@ def report_attempt_status(
                            to_jsonb(%(job_status)s::text),
                            true
                        )
-                   END || CASE WHEN %(job_status)s = 'queued'
-                       THEN jsonb_build_object('submitted_at',
-                           EXTRACT(EPOCH FROM statement_timestamp()))
-                       ELSE '{}'::jsonb END,
+                   END,
                    reason_code = CASE
                        WHEN %(job_status)s IN ('failed', 'terminated') THEN %(failure_code)s
                        ELSE NULL END,
@@ -420,7 +297,6 @@ def report_attempt_status(
             """,
             {
                 "job_status": job_status,
-                "phase": job_phase(job_status),
                 "failure_code": failure_code or "error",
                 "job_id": job_id,
                 "attempt_id": attempt_id,
@@ -453,7 +329,6 @@ def report_attempt_status(
             """
             UPDATE jobs
                SET status = %(job_status)s,
-                   phase = %(phase)s,
                    payload = jsonb_set(
                        COALESCE(payload, '{}'::jsonb),
                        '{status}',
@@ -465,54 +340,32 @@ def report_attempt_status(
              WHERE job_id = %(job_id)s
                AND active_attempt_id = %(attempt_id)s
             """,
-            {
-                "job_status": job_status,
-                "phase": job_phase(job_status),
-                "job_id": job_id,
-                "attempt_id": attempt_id,
-            },
+            {"job_status": job_status, "job_id": job_id, "attempt_id": attempt_id},
         )
 
-    if preemption_plan_id:
-        conn.execute(
-            "UPDATE jobs SET reason_code='preempted',reason_details=%s WHERE job_id=%s",
-            (Jsonb(dict(plan_id=preemption_plan_id, attempt_id=attempt_id)), job_id),
-        )
-
-    sync_attempt_billing(conn, attempt_id)
-    sync_serverless_attempt(conn, job_id=job_id, attempt_id=attempt_id)
-
-    from control_plane.outbox import append_event
-
-    if preemption_plan_id:
-        append_event(
-            conn,
-            aggregate_type="job",
-            aggregate_id=job_id,
-            event_type="job.v1.preempted",
-            payload=dict(plan_id=preemption_plan_id, attempt_id=attempt_id),
-            idempotency_key=f"preempted:{attempt_id}",
-        )
-
-    append_event(
-        conn,
-        aggregate_type="job",
-        aggregate_id=job_id,
-        event_type="job.v1.attempt_status_changed",
-        payload={
-            "attempt_id": attempt_id,
-            "host_id": host_id,
-            "status": status,
-            "fencing_token": fencing_token,
-        },
-        idempotency_key=f"attempt_status:{attempt_id}:{status}",
+    conn.execute(
+        """
+        INSERT INTO outbox_events
+            (aggregate_type, aggregate_id, event_type, payload,
+             destination_class, idempotency_key)
+        VALUES ('job', %s, 'job.v1.attempt_status_changed',
+                jsonb_build_object(
+                    'attempt_id', %s::text,
+                    'host_id', %s::text,
+                    'status', %s::text,
+                    'fencing_token', %s::bigint
+                ),
+                'default', %s)
+        ON CONFLICT (destination_class, idempotency_key) DO NOTHING
+        """,
+        (
+            job_id, attempt_id, host_id, status, fencing_token,
+            f"attempt_status:{attempt_id}:{status}",
+        ),
     )
     log.info(
         "attempt %s (job %s): %s -> %s%s",
-        attempt_id[:8],
-        job_id,
-        current,
-        status,
+        attempt_id[:8], job_id, current, status,
         " [terminal]" if terminal else "",
     )
     return AttemptStatusResult(job_id, attempt_id, status, True, terminal)

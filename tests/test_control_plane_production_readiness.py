@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("stripe_compute_catalog")
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -17,7 +19,9 @@ from tests.test_durable_preemption import setup, plan, settle
 from tests.test_serverless_native_lifecycle import native  # noqa: F401
 
 
-def test_native_submission_cannot_commit_without_its_durable_event(native, monkeypatch):
+def test_native_submission_cannot_commit_without_its_durable_event(native, monkeypatch, paid_instance_variant):
+    model = "Outbox GPU "+native.jid
+    paid_instance_variant(model, native.owner)
     import scheduler
 
     with native.pool.connection() as conn:
@@ -26,18 +30,20 @@ def test_native_submission_cannot_commit_without_its_durable_event(native, monke
     monkeypatch.setattr(scheduler, "emit_event", emit)
     with mock.patch("control_plane.outbox.append_event", side_effect=RuntimeError("outbox down")):
         with pytest.raises(RuntimeError, match="outbox"):
-            scheduler.submit_job("atomic", 0, owner=native.owner, job_id=native.jid)
+            scheduler.submit_job("atomic", 0, owner=native.owner, job_id=native.jid, gpu_model=model)
     with native.pool.connection() as conn:
         assert conn.execute("SELECT 1 FROM jobs WHERE job_id=%s", (native.jid,)).fetchone() is None
     emit.assert_not_called()
 
 
-def test_exact_submission_retry_repairs_event_from_admission_not_observations(native):
+def test_exact_submission_retry_repairs_event_from_admission_not_observations(native, paid_instance_variant):
+    model = "Retry GPU "+native.jid
+    paid_instance_variant(model, native.owner)
     import scheduler
 
     with native.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
-    args = dict(name="original", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    args = dict(name="original", vram_needed_gb=0, owner=native.owner, job_id=native.jid, gpu_model=model)
     scheduler.submit_job(**args)
     with native.pool.connection() as conn:
         original = conn.execute(

@@ -11,7 +11,7 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_test_")
 _tmpdir = _tmp_ctx.name
 
-os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
+os.environ["XCELSIOR_API_TOKEN"] = ""
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 
@@ -241,8 +241,7 @@ class TestHostRegistry:
         scheduler.register_host("h1", "10.0.0.1", "RTX 4090", 24, 24)
         hosts = scheduler.load_hosts(active_only=False)
         hosts[0]["status"] = "dead"
-        with scheduler._atomic_mutation() as conn:
-            scheduler._upsert_host_row(conn, hosts[0])
+        scheduler.save_hosts(hosts)
         assert len(scheduler.list_hosts(active_only=True)) == 0
         assert len(scheduler.list_hosts(active_only=False)) == 1
 
@@ -259,17 +258,6 @@ class TestHostRegistry:
 
 
 class TestJobQueue:
-    def test_exclusive_gpu_request_survives_persistence_and_dispatch(self):
-        job = scheduler.submit_job("exclusive-smoke", 1, exclusive_gpu=True)
-        assert job["exclusive_gpu"] is True
-        stored = scheduler.get_job(job["job_id"])
-        assert stored["exclusive_gpu"] is True
-        assert scheduler.get_next_job()["exclusive_gpu"] is True
-
-    def test_shared_gpu_is_default(self):
-        job = scheduler.submit_job("shared-smoke", 1)
-        assert scheduler.get_job(job["job_id"])["exclusive_gpu"] is False
-
     def test_submit_and_list(self):
         job = scheduler.submit_job("llama3", 16, priority=1)
         assert job["name"] == "llama3"
@@ -306,17 +294,6 @@ class TestJobQueue:
 
 
 class TestProcessQueue:
-    @pytest.fixture(autouse=True)
-    def native_scheduler(self, monkeypatch):
-        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
-
-        monkeypatch.setattr(
-            scheduler,
-            "_cp_config",
-            SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="scheduler-tests"),
-        )
-        monkeypatch.setattr(scheduler, "_cp_service", None)
-
     def test_process_assigns_job(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
         _admit_host("h1")
@@ -342,27 +319,21 @@ class TestProcessQueue:
         assigned = scheduler.process_queue()
         assert len(assigned) == 2
 
-    def test_exclusive_gpu_is_not_overcommitted_by_small_jobs(self):
+    def test_process_multiple_jobs_on_same_host_uses_vram_tracking(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
         _admit_host("h1")
         scheduler.submit_job("job-a", 10)
         scheduler.submit_job("job-b", 8)
+
         assigned = scheduler.process_queue()
-        assert len(assigned) == 1
-        with scheduler._atomic_mutation() as conn:
-            assert (
-                next(
-                    iter(
-                        conn.execute(
-                            "SELECT count(*) FROM gpu_device_allocations WHERE released_at IS NULL"
-                        )
-                        .fetchone()
-                        .values()
-                    )
-                )
-                == 1
-            )
-        assert len(scheduler.list_jobs(status="queued")) == 1
+        assert len(assigned) == 2
+
+        # VRAM is reserved when jobs move to "running", not "assigned"
+        for job, host in assigned:
+            scheduler.update_job_status(job["job_id"], "running", host_id=host["host_id"])
+
+        host = scheduler.list_hosts()[0]
+        assert host["free_vram_gb"] == 6
 
 
 # ── Phase 7: Job status updates ──────────────────────────────────────
@@ -744,8 +715,7 @@ class TestAutoscale:
         # Mark as autoscaled
         hosts = scheduler.load_hosts(active_only=False)
         hosts[0]["autoscaled"] = True
-        with scheduler._atomic_mutation() as conn:
-            scheduler._upsert_host_row(conn, hosts[0])
+        scheduler.save_hosts(hosts)
         deprovisioned = scheduler.autoscale_down()
         assert "h1" in deprovisioned
 
@@ -788,39 +758,32 @@ class TestDockerBuilder:
 # ── Concurrency and Locking ─────────────────────────────────────────
 
 
-class TestDatabaseStateWithoutFiles:
-    def test_database_roundtrip_creates_no_file(self, tmp_path):
-        path = tmp_path / "state.json"
-        scheduler._save_state_list(str(path), [{"a": 1}])
-        assert scheduler._load_state_list(str(path)) == [{"a": 1}]
-        assert not path.exists()
+class TestSaveJsonLocking:
+    def test_save_json_creates_file(self):
+        """_save_json should create the file if it doesn't exist."""
+        path = os.path.join(_tmpdir, "lock_test.json")
+        if os.path.exists(path):
+            os.remove(path)
+        scheduler._save_json(path, [{"a": 1}])
+        assert os.path.exists(path)
+        data = scheduler._load_json(path)
+        assert data == [{"a": 1}]
 
-    def test_existing_file_is_neither_imported_nor_overwritten(self, tmp_path):
-        path = tmp_path / "state.json"
-        original = '[{"historical": true}]'
-        path.write_text(original)
-        assert scheduler._load_state_list(str(path)) == []
-        scheduler._save_state_list(str(path), [{"current": True}])
-        assert scheduler._load_state_list(str(path)) == [{"current": True}]
-        assert path.read_text() == original
+    def test_save_json_overwrites(self):
+        """_save_json should fully replace the file contents."""
+        path = os.path.join(_tmpdir, "lock_test2.json")
+        scheduler._save_json(path, [{"a": 1}])
+        scheduler._save_json(path, [{"b": 2}])
+        data = scheduler._load_json(path)
+        assert data == [{"b": 2}]
 
-    def test_empty_runtime_tables_do_not_adopt_files_or_legacy_state(self, tmp_path, monkeypatch):
-        from db import DatabaseOps
-
-        for attr, loader, rows in [
-            ("JOBS_FILE", scheduler.load_jobs, [{"job_id": "stale", "status": "running"}]),
-            ("HOSTS_FILE", scheduler.load_hosts, [{"host_id": "stale", "status": "active"}]),
-        ]:
-            path = tmp_path / attr.lower()
-            original = __import__("json").dumps(rows)
-            path.write_text(original)
-            monkeypatch.setattr(scheduler, attr, str(path))
-            with scheduler._atomic_mutation() as conn:
-                DatabaseOps.upsert_state(
-                    conn, scheduler._namespace_key(str(path)), rows, backend="postgres"
-                )
-            assert loader() == []
-            assert path.read_text() == original
+    def test_save_json_no_leftover_bytes(self):
+        """Writing shorter data should not leave old bytes behind."""
+        path = os.path.join(_tmpdir, "lock_test3.json")
+        scheduler._save_json(path, list(range(1000)))
+        scheduler._save_json(path, [1])
+        data = scheduler._load_json(path)
+        assert data == [1]
 
 
 class TestBillJobAtomic:
@@ -953,7 +916,7 @@ class TestSpotPricing:
 
 
 class TestPreemption:
-    """Preview never requeues victims or changes pricing history."""
+    """Verify preempt_job requeue and retired bid-based eviction."""
 
     def test_identify_preemptible_jobs_capacity_model(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
@@ -967,21 +930,28 @@ class TestPreemption:
         assert len(preemptible) == 1
         assert preemptible[0][0]["job_id"] == spot["job_id"]
 
-    def test_execution_is_unavailable_without_mutation(self):
-        job = scheduler.submit_job("unchanged", 8, pricing_mode="spot", gpu_model="RTX 4090")
-        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        before = scheduler.get_job(job["job_id"])
-        assert not hasattr(scheduler, "preemption_cycle")
-        assert scheduler.get_job(job["job_id"]) == before
-
-    def test_preemption_preview_does_not_update_prices(self):
+    def test_preempt_job_requeues(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
-        before = scheduler.load_spot_prices()
-        prices = scheduler.get_current_spot_prices()
-        candidates = scheduler.identify_preemptible_jobs()
+        job = scheduler.submit_job("test-preempt", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+
+        result = scheduler.preempt_job(job["job_id"])
+        assert result is not None
+        assert result["status"] == "queued"
+        assert result["host_id"] is None
+        assert result.get("preempted_at") is not None
+        assert result.get("preemption_count") == 1
+
+    def test_preempt_non_running_returns_none(self):
+        job = scheduler.submit_job("test-queued", 8)
+        result = scheduler.preempt_job(job["job_id"])
+        assert result is None
+
+    def test_preemption_cycle_runs(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        prices, preempted = scheduler.preemption_cycle()
         assert isinstance(prices, dict)
-        assert isinstance(candidates, list)
-        assert scheduler.load_spot_prices() == before
+        assert isinstance(preempted, list)
 
 
 # ── Compute Scores (XCU) ─────────────────────────────────────────────

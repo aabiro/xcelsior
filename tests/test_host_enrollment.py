@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from control_plane import host_enrollment as he
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTER_HOST_SH = ROOT / "api" / "infra" / "spire" / "register-host.sh"
+REGISTER_HOST_SH = ROOT / "infra" / "spire" / "register-host.sh"
 
 
 @pytest.fixture
@@ -23,8 +23,7 @@ def fake_spire(tmp_path, monkeypatch):
     """A spire-server stand-in that records argv and answers like the real CLI."""
     log = tmp_path / "calls.jsonl"
     script = tmp_path / "spire-server"
-    script.write_text(
-        f"""#!/usr/bin/env python3
+    script.write_text(f"""#!/usr/bin/env python3
 import json, sys
 open({str(log)!r}, "a").write(json.dumps(sys.argv[1:]) + "\\n")
 a = sys.argv[1:]
@@ -34,8 +33,7 @@ elif a[:2] == ["entry", "show"]:
     print("Found 1 entry\\nEntry ID         : e-123" if "existing" in " ".join(a) else "Found 0 entries")
 elif a[:2] == ["bundle", "show"]:
     print("-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----")
-"""
-    )
+""")
     script.chmod(0o755)
     monkeypatch.setenv("XCELSIOR_SPIRE_SERVER_CMD", str(script))
     monkeypatch.setenv("XCELSIOR_SPIRE_SERVER_ADDRESS", "100.64.0.1")

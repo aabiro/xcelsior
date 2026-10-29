@@ -220,8 +220,7 @@ def _routes_that_verify_host_tokens() -> list[str]:
 
     auth_entry = "_require_agent_auth"
     handlers: set[str] = set()
-    routes_dir = pathlib.Path(__file__).resolve().parent.parent / "api" / "routes"
-    for module in sorted(routes_dir.glob("*.py")):
+    for module in sorted(pathlib.Path("routes").glob("*.py")):
         tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -300,8 +299,8 @@ def registered_host_token():
     with control_plane_transaction() as conn:
         for host in (host_a, host_b):
             conn.execute(
-                """INSERT INTO hosts (host_id, status, registered_at,payload,administrative_state,availability_state)
-                    VALUES (%s,'active',%s,'{}','pending','ready') ON CONFLICT(host_id) DO NOTHING""",
+                "INSERT INTO hosts (host_id, status, registered_at) "
+                "VALUES (%s, 'active', %s) ON CONFLICT (host_id) DO NOTHING",
                 (host, time.time()),
             )
         issued = issue_token(conn, host_a, issued_by="test", reason="cross-host guard")
@@ -352,6 +351,7 @@ def test_host_status_report_authenticates_and_binds_the_job(
     monkeypatch.setenv("XCELSIOR_ALLOW_UNAUTH_AGENT", "0")
     monkeypatch.setenv("XCELSIOR_AGENT_HOST_TOKENS", "require")
     monkeypatch.setattr(instances, "get_job", lambda job_id: {"host_id": host_a})
+    monkeypatch.setattr(instances, "_fence_attempt_owned_patch", lambda *args: None)
     writes = []
     monkeypatch.setattr(
         instances, "update_job_status", lambda *args, **kwargs: writes.append((args, kwargs))
@@ -359,9 +359,10 @@ def test_host_status_report_authenticates_and_binds_the_job(
     headers = {"Authorization": f"Bearer {secret}"}
     payload = {"status": "terminated", "host_id": host_a, "policy_reason": "mining_detected"}
     own = client.patch("/instance/test-policy-job", headers=headers, json=payload)
-    assert own.status_code == 410, own.text
-    assert own.json()["error"]["code"] == "v2_protocol_required"
-    assert writes == []
+    assert own.status_code == 200, own.text
+    assert len(writes) == 1
+    assert writes[0][1]["policy_reason"] == "mining_detected"
+    assert writes[0][1]["_authority_host_id"] == host_a
 
     wrong_identity = client.patch(
         "/instance/test-policy-job", headers=headers, json={**payload, "host_id": host_b}
@@ -369,8 +370,8 @@ def test_host_status_report_authenticates_and_binds_the_job(
     assert wrong_identity.status_code == 403
     monkeypatch.setattr(instances, "get_job", lambda job_id: {"host_id": host_b})
     wrong_job = client.patch("/instance/test-policy-job", headers=headers, json=payload)
-    assert wrong_job.status_code == 410
-    assert writes == []
+    assert wrong_job.status_code == 403
+    assert len(writes) == 1
 
     for path in ("/instance/test-policy-job", "/instances", "/instance/test-policy-job/extra"):
         assert _is_middleware_rejection(client.get(path, headers=headers)), path

@@ -226,11 +226,9 @@ def test_the_constraint_does_not_cover_this_and_that_is_why_this_exists():
 
     pool = _get_pg_pool()
     with pool.connection() as conn:
-        row = conn.execute(
-            """SELECT pg_get_constraintdef(oid)
+        row = conn.execute("""SELECT pg_get_constraintdef(oid)
                  FROM pg_constraint
-                WHERE conname = 'ck_action_plans_state_machine'"""
-        ).fetchone()
+                WHERE conname = 'ck_action_plans_state_machine'""").fetchone()
 
     if row is None:
         pytest.skip("state machine constraint not present in this database")

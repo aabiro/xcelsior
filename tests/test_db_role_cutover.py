@@ -38,16 +38,16 @@ def test_ownership_refuses_the_wrong_database_and_unknown_relations(provisioned_
         database, owner = conn.execute("SELECT current_database(),current_user").fetchone()
         with pytest.raises(RuntimeError, match="unexpected database"):
             ownership_plan(
-                conn, expected_database="postgres", expected_port=conn.info.port, from_owner=owner
+                conn, expected_database="postgres", expected_port=int(conn.execute("SHOW port").fetchone()[0]), from_owner=owner
             )
         with pytest.raises(RuntimeError, match="unexpected PostgreSQL port"):
             ownership_plan(
-                conn, expected_database=database, expected_port=conn.info.port + 1, from_owner=owner
+                conn, expected_database=database, expected_port=int(conn.execute("SHOW port").fetchone()[0]) + 1, from_owner=owner
             )
         conn.execute("CREATE TABLE public.unclassified_ownership_probe(id int)")
         with pytest.raises(RuntimeError, match="unclassified application relation"):
             ownership_plan(
-                conn, expected_database=database, expected_port=conn.info.port, from_owner=owner
+                conn, expected_database=database, expected_port=int(conn.execute("SHOW port").fetchone()[0]), from_owner=owner
             )
         conn.rollback()
 
@@ -71,13 +71,13 @@ def test_transfer_supports_real_migrations_partitions_backups_and_owner_rollback
         try:
             with admin.transaction():
                 plan = ownership_plan(
-                    admin, expected_database=database, expected_port=admin.info.port, from_owner=old
+                    admin, expected_database=database, expected_port=int(admin.execute("SHOW port").fetchone()[0]), from_owner=old
                 )
                 assert plan
                 transfer(admin, plan, backup_owner=old)
             assert (
                 ownership_plan(
-                    admin, expected_database=database, expected_port=admin.info.port, from_owner=old
+                    admin, expected_database=database, expected_port=int(admin.execute("SHOW port").fetchone()[0]), from_owner=old
                 )
                 == []
             )

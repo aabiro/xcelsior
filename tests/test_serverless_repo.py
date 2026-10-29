@@ -16,7 +16,6 @@ from serverless.repo import (
     JOB_STATUS_QUEUED,
     EndpointCreate,
     ServerlessRepo,
-    WORKER_STATE_READY,
 )
 
 
@@ -82,7 +81,6 @@ class TestMigration037:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "migrations",
             "versions",
             "037_serverless_endpoints_workers_jobs_keys.py",
@@ -97,13 +95,7 @@ class TestMigration037:
         import pathlib
 
         def _load(name: str):
-            path = (
-                pathlib.Path(__file__).resolve().parent.parent
-                / "api"
-                / "migrations"
-                / "versions"
-                / name
-            )
+            path = pathlib.Path(__file__).resolve().parent.parent / "migrations" / "versions" / name
             spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -114,7 +106,7 @@ class TestMigration037:
         assert m037.down_revision == "036"
 
     def test_claim_query_uses_skip_locked(self):
-        path = os.path.join(os.path.dirname(__file__), "..", "api", "serverless", "repo.py")
+        path = os.path.join(os.path.dirname(__file__), "..", "serverless", "repo.py")
         with open(path) as f:
             content = f.read()
         assert "FOR UPDATE SKIP LOCKED" in content
@@ -127,7 +119,6 @@ class TestMigration038:
 
         path = (
             pathlib.Path(__file__).resolve().parent.parent
-            / "api"
             / "migrations"
             / "versions"
             / "038_serverless_limits_webhooks.py"
@@ -144,7 +135,6 @@ class TestMigration038:
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "migrations",
             "versions",
             "038_serverless_limits_webhooks.py",
@@ -157,15 +147,13 @@ class TestMigration038:
     def test_max_queue_size_column_exists(self):
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT column_name, column_default
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name = 'serverless_endpoints'
                   AND column_name = 'max_queue_size'
-                """
-            ).fetchone()
+                """).fetchone()
         assert row is not None
         name = row["column_name"] if isinstance(row, dict) else row[0]
         assert name == "max_queue_size"
@@ -231,7 +219,6 @@ class TestServerlessRepoQueue:
         assert repo.queue_depth(ep_id) == 1
 
         worker = repo.create_worker(ep_id, scheduler_job_id=f"job-{uuid.uuid4().hex[:8]}")
-        repo.update_worker(worker["worker_id"], state=WORKER_STATE_READY)
         claimed = repo.claim_next_job(ep_id, worker["worker_id"])
         assert claimed is not None
         assert claimed["job_id"] == job["job_id"]

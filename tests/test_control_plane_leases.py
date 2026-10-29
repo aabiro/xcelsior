@@ -4,8 +4,6 @@ Builds real reservations through the Stage B/E pipeline, then drives the
 worker-side lease protocol against them.
 """
 
-from tests.native_jobs import admit_fixture_job
-
 import json
 import time
 import uuid
@@ -64,24 +62,23 @@ def _reserved(fleet, *, lease_claim_ttl_sec=60, lease_renewal_ttl_sec=300):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at, effective_priority)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
+                                 phase, desired_state, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
             (job_id, time.time(), json.dumps({"name": job_id, "gpu_model": job_id})),
         )
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state, admission_state, capabilities, last_observed_at)
-               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
+                                  administrative_state, availability_state, admission_state)
+               VALUES (%s, 'active', %s, '{"admitted": true}', 'admitted', 'ready', 'admitted')""",
             (host_id, time.time()),
         )
         conn.execute(
             """INSERT INTO host_gpu_devices
                    (host_id, gpu_uuid, model, total_vram_mb,
                     allocatable_vram_mb, health)
-               VALUES (%s, %s, %s, 24576, 24576, 'healthy')""",
-            (host_id, f"GPU-{host_id}", f"RTX 4090 {job_id}"),
+               VALUES (%s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
+            (host_id, f"GPU-{host_id}"),
         )
-        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     fleet["hosts"].append(host_id)

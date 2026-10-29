@@ -11,22 +11,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add project root and package subdirectories to sys.path so `import scheduler`, `from api import app`, etc. work
+# Add project root to sys.path so `import scheduler`, `from api import app`, etc. work
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
-_PACKAGE_DIRS = [
-    os.path.join(PROJECT_ROOT, pkg)
-    for pkg in ("archive", "billing", "workers", "auth", "hosts", "privacy", "api", "core")
-]
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
-for _pkg_dir in reversed(_PACKAGE_DIRS):
-    if _pkg_dir in sys.path:
-        sys.path.remove(_pkg_dir)
-    sys.path.insert(0, _pkg_dir)
-
-_existing_pypath = os.environ.get("PYTHONPATH", "")
-_pypath_entries = _PACKAGE_DIRS + [PROJECT_ROOT] + ([_existing_pypath] if _existing_pypath else [])
-os.environ["PYTHONPATH"] = os.pathsep.join(_pypath_entries)
 
 # Load test environment BEFORE any module imports touch os.environ
 from dotenv import load_dotenv
@@ -130,13 +118,6 @@ collect_ignore = ["test_e2e_live.py"]
 # modules must not be able to flip it for everyone at import time.
 _INTENDED_DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND")
 
-# The platform token this run intends. Several legacy modules assign
-# XCELSIOR_API_TOKEN="" at import; whichever module imported `scheduler` first
-# then froze that value into `API_TOKEN`, while other tests sent the default.
-# Every test sees the one intended token instead (a test that needs another
-# monkeypatches it, which wins).
-_INTENDED_API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
-
 
 import pytest
 
@@ -155,11 +136,6 @@ def pytest_collection_finish(session):
     for _key, _val in _TEST_ENV_FORCE.items():
         os.environ[_key] = _val
     os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
-    os.environ["XCELSIOR_API_TOKEN"] = _INTENDED_API_TOKEN
-    for module_name in ("scheduler", "routes._deps", "api"):
-        module = sys.modules.get(module_name)
-        if module is not None and hasattr(module, "API_TOKEN"):
-            module.API_TOKEN = _INTENDED_API_TOKEN
     if _INTENDED_DB_BACKEND:
         os.environ["XCELSIOR_DB_BACKEND"] = _INTENDED_DB_BACKEND
 
@@ -278,12 +254,6 @@ def _pin_test_auth_env(monkeypatch):
     # it can monkeypatch this back down, as `auth_enforced` does for
     # AUTH_REQUIRED in test_compliance_surfaces_require_auth.py.
     monkeypatch.setattr(deps, "_AUTH_RATE_LIMIT_REQUESTS", 100_000)
-
-    monkeypatch.setenv("XCELSIOR_API_TOKEN", _INTENDED_API_TOKEN)
-    for module_name in ("scheduler", "routes._deps", "api"):
-        module = sys.modules.get(module_name)
-        if module is not None and hasattr(module, "API_TOKEN"):
-            monkeypatch.setattr(module, "API_TOKEN", _INTENDED_API_TOKEN)
 
     # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
     if os.environ.get("CI"):

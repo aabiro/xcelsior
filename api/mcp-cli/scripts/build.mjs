@@ -8,7 +8,7 @@
 // rule as the wizard's packageManagerEnv().
 
 import { execFileSync } from "node:child_process";
-import { cpSync, rmSync } from "node:fs";
+import { cpSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,4 +23,5 @@ run(npm, ["ci"], server);
 run(npm, ["run", "build"], server);
 rmSync(resolve(root, "dist"), { recursive: true, force: true });
 cpSync(resolve(server, "dist"), resolve(root, "dist"), { recursive: true });
+writeFileSync(resolve(root, "dist/.npmignore"), "**/*.test.*\nprotocol-smoke.*\n");
 run(process.execPath, [resolve(root, "scripts/check-runtime-deps.mjs")], root);

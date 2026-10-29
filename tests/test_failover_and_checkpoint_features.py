@@ -281,7 +281,6 @@ class TestWebSocketTerminal:
             class FakeWebSocket:
                 cookies = {}
                 query_params = {}
-                headers = {}
 
             result = _validate_ws_auth(FakeWebSocket())
             assert result is None
@@ -300,7 +299,6 @@ class TestInstanceTerminalIntegration:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "app",
@@ -325,7 +323,6 @@ class TestInstanceTerminalIntegration:
         component_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "components",
@@ -354,7 +351,6 @@ class TestSpotPricingRecharts:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "app",
@@ -382,7 +378,6 @@ class TestSpotPricingRecharts:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "app",
@@ -413,7 +408,6 @@ class TestMigration005Completeness:
         migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "migrations",
             "versions",
             "005_payment_infrastructure.py",
@@ -447,7 +441,6 @@ class TestMigration005Completeness:
         migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "migrations",
             "versions",
             "005_payment_infrastructure.py",
@@ -480,7 +473,6 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "app",
@@ -508,7 +500,6 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "app",
@@ -539,7 +530,6 @@ class TestFrontendErrorFixes:
         page_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "app",
@@ -585,7 +575,6 @@ class TestFrontendErrorFixes:
         api_path = os.path.join(
             os.path.dirname(__file__),
             "..",
-            "api",
             "frontend",
             "src",
             "lib",

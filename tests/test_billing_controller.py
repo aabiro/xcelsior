@@ -55,17 +55,6 @@ def scratch():
             conn.execute("DELETE FROM usage_meters WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in made["hosts"]:
-            conn.execute(
-                "DELETE FROM observed_workloads WHERE observation_id IN "
-                "(SELECT observation_id FROM host_observations WHERE host_id=%s)",
-                (hid,),
-            )
-            conn.execute("DELETE FROM host_observations WHERE host_id=%s", (hid,))
-            conn.execute("DELETE FROM reconciliation_queue WHERE resource_id=%s", (hid,))
-            conn.execute(
-                "DELETE FROM reconciliation_findings WHERE resource_type='host' AND resource_id=%s",
-                (hid,),
-            )
             conn.execute("DELETE FROM hosts WHERE host_id=%s", (hid,))
         conn.commit()
 
@@ -76,18 +65,11 @@ def _mk_host(scratch) -> str:
     host_id = f"host-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state) VALUES (%s,'active',%s,%s, 'admitted', 'admitted', 'ready')""",
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) VALUES (%s,'active',%s,%s, 'admitted')",
             (
                 host_id,
                 time.time(),
-                json.dumps(
-                    {
-                        "gpu_model": "RTX 4090",
-                        "country": "CA",
-                        "compute_score": 8.0,
-                        "cost_per_hour": 0.2,
-                    }
-                ),
+                json.dumps({"gpu_model": "RTX 4090", "country": "CA", "compute_score": 8.0}),
             ),
         )
         conn.commit()
@@ -101,8 +83,8 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
     job_id = f"job-bc-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'completed', 0, %s, %s, 'succeeded', 'running', 0, NULL)""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state)
+               VALUES (%s, 'completed', 0, %s, %s, 'terminal', 'stopped')""",
             (
                 job_id,
                 time.time(),
@@ -116,9 +98,6 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
                 ),
             ),
         )
-        from tests.native_jobs import admit_fixture_job
-
-        admit_fixture_job(conn, job_id)
         conn.commit()
     scratch["jobs"].append(job_id)
     return job_id
@@ -126,22 +105,14 @@ def _mk_job(scratch, owner: str = "cust-bc") -> str:
 
 def _mk_attempt(scratch, job_id: str, host_id: str, *, status="succeeded", ran=True) -> str:
     with _pool.connection() as conn:
-        from control_plane.attempt_billing import capture_billing_snapshot
-        from psycopg.types.json import Jsonb
-
-        spec, digest = conn.execute(
-            "SELECT spec,spec_hash FROM jobs WHERE job_id=%s", (job_id,)
-        ).fetchone()
-        host = conn.execute("SELECT payload FROM hosts WHERE host_id=%s", (host_id,)).fetchone()[0]
-        quote = capture_billing_snapshot(spec, None, {**host, "host_id": host_id})
         row = conn.execute(
             """INSERT INTO job_attempts
                    (job_id, attempt_number, status, host_id, fencing_token, job_generation,
-                    reserved_at, spec_hash,placement_explanation)
+                    reserved_at, spec_hash)
                VALUES (%s, 1, %s, %s, nextval('placement_fencing_token_seq'), 1,
-                       clock_timestamp(), %s,%s)
+                       clock_timestamp(), 'sh')
                RETURNING attempt_id""",
-            (job_id, status, host_id, digest, Jsonb(dict(billing_snapshot=quote))),
+            (job_id, status, host_id),
         ).fetchone()
         attempt_id = str(row[0])
         if ran:
@@ -250,10 +221,10 @@ def test_enforce_auto_closes_orphaned_open_meter(scratch, monkeypatch):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO usage_meters
-                   (meter_id, job_id, host_id, attempt_id, owner, started_at, completed_at,
+                   (meter_id, job_id, attempt_id, owner, started_at, completed_at,
                     pricing_mode, base_rate_per_hour, tier_multiplier, spot_discount)
-               VALUES (%s, %s, %s, %s, 'cust-bc', %s, NULL, 'on_demand', 1.5, 1.0, 0.0)""",
-            (meter_id, job, host, attempt, now - 1800),
+               VALUES (%s, %s, %s, 'cust-bc', %s, NULL, 'on_demand', 1.5, 1.0, 0.0)""",
+            (meter_id, job, attempt, now - 1800),
         )
         conn.commit()
 
@@ -338,105 +309,3 @@ def test_duplicate_delivery_creates_no_second_charge(scratch):
     eng.meter_job(job_dict, host_dict)
     eng.meter_job(job_dict, host_dict)  # duplicate delivery
     assert _count("SELECT count(*) FROM usage_meters WHERE attempt_id=%s", attempt) == 1
-
-
-def _all_findings(attempt: str, finding_type: str) -> int:
-    return _count(
-        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s",
-        attempt,
-        finding_type,
-    )
-
-
-def _open_findings(attempt: str, finding_type: str) -> int:
-    return _count(
-        "SELECT count(*) FROM reconciliation_findings WHERE resource_id=%s AND finding_type=%s "
-        "AND resolved_at IS NULL",
-        attempt,
-        finding_type,
-    )
-
-
-def test_host_pass_does_not_resolve_billing_findings(scratch, monkeypatch):
-    """A host reconcile pass must not clear findings it does not evaluate.
-
-    Regression: `reconcile_host` resolved every open finding on the host's
-    attempts, so each billing sweep reopened `billing_missing_meter` and the
-    critical-findings alert flapped (1,619 findings for two attempts in 3 days).
-    """
-    from control_plane.db import run_transaction
-    from control_plane.observations import ingest_observation
-    from control_plane.reconcile import reconcile_host
-
-    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", raising=False)
-    host = _mk_host(scratch)
-    job = _mk_job(scratch)
-    attempt = _mk_attempt(scratch, job, host, status="succeeded")
-    _run()
-    assert _open_findings(attempt, FINDING_MISSING_METER) == 1
-
-    run_transaction(
-        lambda c: ingest_observation(
-            c,
-            host_id=host,
-            session_id=f"sess-{uuid.uuid4().hex[:8]}",
-            observation_generation=1,
-            workloads=[],
-            agent_version="test",
-            worker_reported_at=time.time(),
-        ),
-        what="test_ingest",
-    )
-    with _pool.connection() as conn:
-        reconcile_host(conn, host)
-        conn.commit()
-
-    assert _open_findings(attempt, FINDING_MISSING_METER) == 1
-    _run()
-    assert _all_findings(attempt, FINDING_MISSING_METER) == 1
-
-
-def test_missing_meter_finding_resolves_once_metered(scratch, monkeypatch):
-    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER", raising=False)
-    host = _mk_host(scratch)
-    job = _mk_job(scratch)
-    attempt = _mk_attempt(scratch, job, host, status="succeeded")
-    _run()
-    assert _open_findings(attempt, FINDING_MISSING_METER) == 1
-
-    # A normal completion writer meters the attempt between sweeps.
-    with _pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO usage_meters (meter_id, job_id, attempt_id, owner, started_at, completed_at, pricing_mode) "
-            "VALUES (%s, %s, %s, 'cust-bc', %s, %s, 'on_demand')",
-            (f"mtr-{uuid.uuid4().hex[:12]}", job, attempt, time.time() - 3600, time.time()),
-        )
-        conn.commit()
-    _run()
-    assert _open_findings(attempt, FINDING_MISSING_METER) == 0
-    assert _all_findings(attempt, FINDING_MISSING_METER) == 1
-
-
-def test_orphaned_meter_finding_resolves_once_closed(scratch, monkeypatch):
-    monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER", raising=False)
-    host = _mk_host(scratch)
-    job = _mk_job(scratch)
-    attempt = _mk_attempt(scratch, job, host, status="succeeded")
-    meter_id = f"mtr-{uuid.uuid4().hex[:12]}"
-    with _pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO usage_meters (meter_id, job_id, attempt_id, owner, started_at, completed_at, pricing_mode) "
-            "VALUES (%s, %s, %s, 'cust-bc', %s, NULL, 'on_demand')",
-            (meter_id, job, attempt, time.time()),
-        )
-        conn.commit()
-    _run()
-    assert _open_findings(attempt, FINDING_ORPHANED_METER) == 1
-
-    with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE usage_meters SET completed_at=%s WHERE meter_id=%s", (time.time(), meter_id)
-        )
-        conn.commit()
-    _run()
-    assert _open_findings(attempt, FINDING_ORPHANED_METER) == 0

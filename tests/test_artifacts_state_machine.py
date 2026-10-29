@@ -22,9 +22,8 @@ def test_setup():
 
         # Create dummy job
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, tenant_id,
-                                 phase,desired_state,effective_priority,queued_at)
-               VALUES (%s, 'queued', 1, %s, '{}', %s,'pending','running',1,clock_timestamp())""",
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, tenant_id)
+               VALUES (%s, 'submitted', 1, %s, '{}', %s)""",
             (job_id, time.time(), tenant_id),
         )
 

@@ -3,6 +3,14 @@ api:
   specs:
     - openapi: openapi.json
       overrides: openapi-overrides.yml
+readme:
+  apiName: Xcelsior Compute API
+  apiReferenceLink: https://docs.xcelsior.ca/api-reference
+  introduction: >-
+    A typed TypeScript client for Xcelsior's public compute API. It supports
+    Node.js and browser applications, configurable authentication, retries,
+    timeouts, and custom fetch implementations.
+  exampleStyle: minimal
 default-group: local
 groups:
   local:
@@ -25,5 +33,17 @@ groups:
         config:
           bundle: true
           packageJson:
+            description: Typed TypeScript SDK for the Xcelsior Compute API
+            license: MIT
+            homepage: https://docs.xcelsior.ca
+            repository:
+              type: git
+              url: git+https://github.com/aabiro/xcelsior.git
+              directory: api/frontend/sdk
+            keywords:
+              - xcelsior
+              - gpu
+              - compute
+              - api
             publishConfig:
               access: public

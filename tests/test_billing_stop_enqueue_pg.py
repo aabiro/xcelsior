@@ -9,9 +9,6 @@ created_by tag at every billing call site.
 Skips automatically if no PG pool is available (CI without postgres service).
 """
 
-from control_plane.state import initial_desired_state, job_phase
-from tests.native_jobs import admit_fixture_job
-
 import json
 import os
 import time
@@ -50,9 +47,6 @@ def cleanup_ids():
     with _pool.connection() as conn:
         for jid in ids["jobs"]:
             conn.execute("DELETE FROM billing_cycles WHERE job_id=%s", (jid,))
-            conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (jid,))
-            conn.execute("DELETE FROM placement_leases WHERE job_id=%s", (jid,))
-            conn.execute("DELETE FROM job_attempts WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
         for hid in ids["agent_commands_hosts"]:
             conn.execute("DELETE FROM agent_commands WHERE host_id=%s", (hid,))
@@ -66,8 +60,8 @@ def cleanup_ids():
 def _mkhost(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'online', %s, %s, 'admitted', 'admitted', 'unknown')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'online', %s, %s, 'admitted')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
@@ -94,23 +88,11 @@ def _mkjob(
     if extra_payload:
         payload.update(extra_payload)
     with _pool.connection() as conn:
-        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
-            (
-                job_id,
-                status,
-                fixture_submitted_at,
-                host_id,
-                json.dumps(payload),
-                job_phase(status),
-                initial_desired_state(status),
-                status,
-                fixture_submitted_at,
-            ),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload)
+               VALUES (%s, %s, 0, %s, %s, %s)""",
+            (job_id, status, time.time(), host_id, json.dumps(payload)),
         )
-        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id
@@ -186,24 +168,35 @@ def captured_enqueue(monkeypatch):
 # ── Tests ────────────────────────────────────────────────────────────
 
 
-def test_billing_stop_enqueues_fenced_preserving_stop(cleanup_ids, captured_enqueue):
+def test_stop_instance_enqueues_pause_container_with_billing_stop_tag(
+    cleanup_ids, captured_enqueue
+):
+    """BillingService.stop_instance MUST use pause_container (NOT stop_container)
+    so the state machine STOPPED → RESTARTING → RUNNING can resume the same
+    container. Tag must be billing_stop so it can be distinguished from pause/resume."""
     _mkhost(cleanup_ids, "h-stop")
-    jid = _mkjob(cleanup_ids, owner="dan@test", host_id="h-stop", container_name="xcl-dan-1")
-    aid = _mk_attempt_history(jid, "h-stop", active=True)
-    fence = _mk_active_lease(jid, "h-stop", aid)
+    job_id = _mkjob(
+        cleanup_ids,
+        owner="dan@test",
+        host_id="h-stop",
+        status="running",
+        container_name="xcl-dan-1",
+    )
+
     from billing import BillingEngine
 
-    result = BillingEngine().stop_instance(jid, "user_stopped")
-    assert result["stopped"] and result["status"] == "stopping", result
-    assert captured_enqueue == []
-    with _pool.connection() as conn:
-        command, args, attempt, token = conn.execute(
-            "SELECT command,args,attempt_id,fencing_token FROM agent_commands WHERE job_id=%s",
-            (jid,),
-        ).fetchone()
-    assert command == "stop_attempt" and str(attempt) == aid and token == fence
-    assert args["preserve"] and args["intent"] == "stop"
-    assert args["container_name"] == "xcl-dan-1" and args["job_id"] == jid
+    svc = BillingEngine()
+    result = svc.stop_instance(job_id, "user_stopped")
+
+    assert result.get("stopped") is True, f"expected stopped=True, got {result!r}"
+    assert len(captured_enqueue) == 1
+    call = captured_enqueue[0]
+    assert call["command"] == "pause_container", (
+        "STOP must use pause_container so RESTARTING→RUNNING can `docker start` "
+        "the preserved container; stop_container would `docker rm -f` and break restart"
+    )
+    assert call["created_by"] == "billing_stop"
+    assert call["args"]["job_id"] == job_id
 
 
 def test_stop_instance_rejects_invalid_reason(cleanup_ids, captured_enqueue):
@@ -255,15 +248,10 @@ def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
     from billing import BillingEngine
 
     svc = BillingEngine()
-    aid = _mk_attempt_history(job_id, "h-shape", active=True)
-    _mk_active_lease(job_id, "h-shape", aid)
-    assert svc.stop_instance(job_id, "user_stopped")["stopped"]
+    svc.stop_instance(job_id, "user_stopped")
 
-    assert captured_enqueue == []
-    with _pool.connection() as conn:
-        args = conn.execute(
-            "SELECT args FROM agent_commands WHERE job_id=%s", (job_id,)
-        ).fetchone()[0]
+    assert len(captured_enqueue) == 1
+    args = captured_enqueue[0]["args"]
     assert (
         "container_name" in args and args["container_name"]
     ), "container_name is required by worker drain handler"
@@ -295,7 +283,7 @@ def test_start_fenced_history_requeues_without_start_container(cleanup_ids, capt
     with _pool.connection() as conn:
         row = conn.execute(
             """SELECT status, host_id, active_attempt_id,
-                      lifecycle_intent,
+                      payload->>'lifecycle_intent',
                       payload->>'resume_kind'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -332,7 +320,7 @@ def test_restart_active_fenced_attempt_enqueues_stop_with_restart_intent(
     assert captured_enqueue == []
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, lifecycle_intent
+            """SELECT status, payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -449,7 +437,7 @@ def test_terminate_active_fenced_attempt_enqueues_stop_remove(cleanup_ids, captu
 
     with _pool.connection() as conn:
         row = conn.execute(
-            """SELECT status, lifecycle_intent AS intent,
+            """SELECT status, payload->>'lifecycle_intent' AS intent,
                       active_attempt_id::text
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -540,7 +528,7 @@ def test_terminate_enqueue_refuse_leaves_job_running(cleanup_ids, captured_enque
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
         intent = conn.execute(
-            "SELECT lifecycle_intent FROM jobs WHERE job_id=%s",
+            "SELECT payload->>'lifecycle_intent' FROM jobs WHERE job_id=%s",
             (job_id,),
         ).fetchone()[0]
         n_bc = conn.execute(

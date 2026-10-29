@@ -54,18 +54,7 @@ def provider() -> dict:
     r = requests.post(
         f"{BASE}/api/providers/register",
         headers=auth(),
-        json={
-            "display_name": f"gate-p6-{tag}",
-            "country": "CA",
-            "legal_name": f"Gate Provider {tag}",
-            "address_line1": "1 Test Street",
-            "city": "London",
-            "province": "ON",
-            "postal_code": "N6A1A1",
-            "tax_id_kind": "bn",
-            "tax_id": "123456789",
-            "accepted_seller_terms": True,
-        },
+        json={"display_name": f"gate-p6-{tag}", "country": "CA"},
         timeout=60,
     )
     if r.status_code in (402, 403, 409):

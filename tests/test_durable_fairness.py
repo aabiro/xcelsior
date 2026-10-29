@@ -52,7 +52,7 @@ def policy(keys, owner, **fields):
         return publish_policy(conn, TeamPolicy(key=key, **fields), created_by="isolated-operator")
 
 
-def test_weighted_service_survives_replica_recreation(fleet, policies):
+def test_accounting_survives_replica_recreation_without_changing_fifo(fleet, policies):
     owner = "weighted-" + uuid.uuid4().hex
     other = "other-" + uuid.uuid4().hex
     policy(policies, owner, weight=Decimal(2))
@@ -70,15 +70,9 @@ def test_weighted_service_survives_replica_recreation(fleet, policies):
                 "SELECT queue_components FROM jobs WHERE job_id=%s", (chosen.job_id,)
             ).fetchone()[0]
         order.append(data["team"])
-        assert data["policy"] == "fairness/v1" and data["age_boost"] <= 20
-    assert order == [
-        "owner:" + owner,
-        "owner:" + owner,
-        "owner:" + other,
-        "owner:" + owner,
-        "owner:" + owner,
-        "owner:" + other,
-    ]
+        assert data["policy"] == "tier-bid-aging-v1" and data["aging_credit_micros"] == 0
+    # Paying the same price means FIFO; team weight only records service use.
+    assert order == ["owner:" + owner] * 4 + ["owner:" + other] * 2
     with _pool.connection() as conn:
         states = dict(
             conn.execute(
@@ -140,7 +134,7 @@ def test_two_replicas_cannot_overrun_team_limits(fleet, policies, limit):
         ).fetchone() == (1,)
 
 
-def test_age_is_capped_and_administrative_class_has_precedence(fleet, policies):
+def test_unpaid_admin_class_and_raw_priority_cannot_override_fifo(fleet, policies):
     owner = "admin-" + uuid.uuid4().hex
     policy(policies, owner, administrative_class=1)
     fresh = _mkjob(fleet, owner=owner)
@@ -151,16 +145,12 @@ def test_age_is_capped_and_administrative_class_has_precedence(fleet, policies):
             (old,),
         )
     got = claim([fresh, old])
-    assert got.job_id == fresh
-    with _pool.connection() as conn:
-        release_claim(conn, got.job_id, got.claim_token, reason_code="test", requeue_delay_sec=3600)
-    aged = claim([fresh, old])
-    assert aged.job_id == old
+    assert got.job_id == old
     with _pool.connection() as conn:
         values = conn.execute(
             "SELECT queue_components,effective_priority FROM jobs WHERE job_id=%s", (old,)
         ).fetchone()
-    assert values[0]["age_boost"] == 20 and values[1] == 999
+    assert values[0]["aging_credit_micros"] == 0 and values[1] == 1
 
 
 def test_policy_revision_and_immutable_owner_override_observation(fleet, policies):
@@ -180,7 +170,9 @@ def test_policy_revision_and_immutable_owner_override_observation(fleet, policie
         ).fetchone()[0]
     assert components["team"] == "owner:" + owner
     assert (
-        components["revision"] == 2 and components["weight"] == 3 and components["entitlement"] == 1
+        components["revision"] == 2
+        and "weight" not in components
+        and "entitlement" not in components
     )
 
 

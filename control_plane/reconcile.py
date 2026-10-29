@@ -99,11 +99,9 @@ _ENFORCEABLE: frozenset[str] = frozenset(
         "stale_fence_container",
         "attempt_container_missing",
         "orphaned_allocation",
-        "billing_active_meter_missing",
         "billing_missing_meter",
         "billing_orphaned_meter",
         "job_stop_command_missing",
-        "job_lease_authority_missing",
     }
 )
 
@@ -227,7 +225,9 @@ def _enqueue_stop_container(
     }
 
 
-def _expedite_lease_expiry(conn: Connection, *, attempt_id: str) -> dict[str, Any]:
+def _expedite_lease_expiry(
+    conn: Connection, *, attempt_id: str
+) -> dict[str, Any]:
     """Stamp this attempt's active lease as already-expired.
 
     The reconcile transaction does not settle the attempt itself — it
@@ -239,14 +239,6 @@ def _expedite_lease_expiry(conn: Connection, *, attempt_id: str) -> dict[str, An
     Reusing that path avoids duplicating settlement SQL and keeps a
     single authority for attempt failure (§12 domain controllers).
     """
-    # The host controller can already own queue rows. A lease writer may own
-    # this row while its trigger waits for the job queue; never form a cycle.
-    # process_due's savepoint rolls back and retries a contended repair.
-    conn.execute(
-        "SELECT lease_id FROM placement_leases WHERE attempt_id = %s "
-        "AND status = 'active' FOR UPDATE NOWAIT",
-        (attempt_id,),
-    ).fetchall()
     result = conn.execute(
         """
         UPDATE placement_leases
@@ -275,11 +267,6 @@ def _find_orphaned_allocations(
          WHERE a.host_id = %s
            AND a.status = 'active'
            AND ja.status = ANY(%s)
-           -- A renewal timeout holds its devices until stop evidence; only
-           -- the lease controller's release_stopped_attempts may free them.
-           AND NOT (ja.status = 'lost'
-                    AND ja.failure_details->>'awaiting_stop_evidence' = 'true'
-                    AND ja.failure_details->'stop_evidence' IS NULL)
          ORDER BY a.allocation_id
         """,
         (host_id, list(_TERMINAL_ATTEMPT_STATUSES)),
@@ -332,31 +319,18 @@ def _record_action(
     )
 
 
-# The finding types `reconcile_host` evaluates. It may only resolve these:
-# billing/job controllers also file findings on this host's attempts, and a
-# host pass that did not evaluate them must not clear them (it did, every
-# pass, so billing_missing_meter reopened and resolved every five minutes).
-_HOST_FINDING_TYPES: tuple[str, ...] = (
-    "attempt_container_missing",
-    "stale_fence_container",
-    "unmanaged_workload",
-    "orphaned_allocation",
-)
-
-
 def _resolve_findings_not_in(
     conn: Connection,
     *,
     host_id: str,
     still_open: set[tuple[str, str, str]],
 ) -> int:
-    """Resolve open host-owned findings for this host's resources that no longer hold."""
+    """Resolve open findings for this host's resources that no longer hold."""
     rows = conn.execute(
         """
         SELECT finding_id, resource_type, resource_id, finding_type
           FROM reconciliation_findings
          WHERE resolved_at IS NULL
-           AND finding_type = ANY(%(types)s)
            AND (
                 (resource_type = 'host' AND resource_id = %(host)s)
              OR (resource_type = 'attempt' AND resource_id IN (
@@ -364,7 +338,7 @@ def _resolve_findings_not_in(
                       WHERE host_id = %(host)s))
            )
         """,
-        {"host": host_id, "types": list(_HOST_FINDING_TYPES)},
+        {"host": host_id},
     ).fetchall()
     resolved = 0
     for row in rows:

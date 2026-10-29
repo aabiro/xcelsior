@@ -3597,6 +3597,49 @@
             ],
             "title": "Tier"
           },
+          "service_tier_price_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Tier Price Id"
+          },
+          "gpu_exclusive_price_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Exclusive Price Id"
+          },
+          "queue_bid_units": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Queue Bid Units",
+            "default": 0
+          },
+          "queue_bid_price_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Bid Price Id"
+          },
           "num_gpus": {
             "type": "integer",
             "maximum": 64.0,

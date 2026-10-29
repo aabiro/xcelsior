@@ -3,33 +3,22 @@ import time
 from typing import Callable, Dict, Any, Optional
 from psycopg.rows import dict_row
 from db import pg_connection, pg_transaction
-from control_plane.db_roles import roles_required, service_scope
 
 log = logging.getLogger("xcelsior.scheduled_tasks")
 
 _registry: Dict[str, Callable] = {}
-_task_services: Dict[str, str] = {}
 
-def register_task(task_name: str, func: Callable, default_interval_sec: int, enabled: bool = True, *, service: str | None = None):
+def register_task(task_name: str, func: Callable, default_interval_sec: int, enabled: bool = True):
     """Register a scheduled task for durable periodic execution."""
-    if service is not None:
-        # Validate before creating or updating the durable schedule.
-        with service_scope(service):
-            pass
-    elif roles_required():
-        raise RuntimeError(f"Scheduled task {task_name} has no qualified database identity")
     _registry[task_name] = func
-    _task_services.pop(task_name, None)
-    if service is not None:
-        _task_services[task_name] = service
-
+    
     with pg_transaction() as conn:
         conn.execute(
             """
-            INSERT INTO scheduled_tasks
+            INSERT INTO scheduled_tasks 
                 (task_name, enabled, interval_seconds, next_run_at)
             VALUES (%s, %s, %s, clock_timestamp())
-            ON CONFLICT (task_name) DO UPDATE
+            ON CONFLICT (task_name) DO UPDATE 
             SET interval_seconds = EXCLUDED.interval_seconds,
                 enabled = EXCLUDED.enabled
             """,
@@ -39,9 +28,7 @@ def register_task(task_name: str, func: Callable, default_interval_sec: int, ena
 def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
     """Claim and execute due tasks."""
     claimed_tasks = []
-    if not _registry:
-        return 0
-
+    
     with pg_transaction() as conn:
         conn.row_factory = dict_row
         # Claim SKIP LOCKED
@@ -53,7 +40,7 @@ def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
                 updated_at = clock_timestamp()
             WHERE task_name IN (
                 SELECT task_name FROM scheduled_tasks
-                WHERE enabled AND task_name = ANY(%s)
+                WHERE enabled
                   AND next_run_at <= clock_timestamp()
                   AND (claim_owner IS NULL OR claim_expires_at < clock_timestamp())
                 ORDER BY next_run_at ASC
@@ -62,16 +49,16 @@ def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
             )
             RETURNING task_name, interval_seconds, payload
             """,
-            (worker_id, list(_registry), limit)
+            (worker_id, limit)
         ).fetchall()
-
+        
         claimed_tasks = [dict(r) for r in rows]
 
     executed_count = 0
     for task in claimed_tasks:
         task_name = task["task_name"]
         interval = task["interval_seconds"]
-
+        
         func = _registry.get(task_name)
         if not func:
             log.error("Scheduled task '%s' not found in registry", task_name)
@@ -91,14 +78,7 @@ def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
             continue
 
         try:
-            service = _task_services.get(task_name)
-            if service is not None:
-                with service_scope(service):
-                    func()
-            elif roles_required():
-                raise RuntimeError("Scheduled task has no qualified database identity")
-            else:
-                func()
+            func()
             with pg_transaction() as conn:
                 conn.execute(
                     """
@@ -132,3 +112,4 @@ def claim_and_run_tasks(worker_id: str, limit: int = 10) -> int:
                 )
 
     return executed_count
+

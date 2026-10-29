@@ -125,5 +125,4 @@ def test_serverless_env_keys_when_job_type_set(monkeypatch):
     assert env["XCELSIOR_ENDPOINT_ID"] == "sep-xyz"
     assert env["XCELSIOR_HTTP_PORT"] == "9090"
     assert env["XCELSIOR_HEALTH_CHECK_PATH"] == "/healthz"
-    assert env["XCELSIOR_API_TOKEN"] == ""
-    assert env["XCELSIOR_WORKER_CALLBACK_TOKEN"] == ""
+    assert env["XCELSIOR_API_TOKEN"] == "agent-token"

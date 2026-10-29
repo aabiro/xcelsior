@@ -34,10 +34,17 @@ from control_plane.scheduler.reservation import TeamQuotaConflict, reserve_and_b
 
 
 @pytest.fixture
-def team():
+def team(paid_instance_variant):
     marker = uuid.uuid4().hex[:10]
     team_id, wallet = f"team-{marker}", f"team-wallet-{marker}"
-    state = {"team_id": team_id, "wallet": wallet, "jobs": [], "hosts": [], "keys": []}
+    state = {
+        "team_id": team_id,
+        "wallet": wallet,
+        "jobs": [],
+        "hosts": [],
+        "keys": [],
+        "prepare": paid_instance_variant,
+    }
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO teams (team_id, name, owner_email, created_at, plan, max_members,
@@ -63,6 +70,7 @@ def team():
 
 
 def _submit(state, model, owner):
+    state["prepare"](model, owner)
     job = scheduler.submit_job(
         name=f"quota-{uuid.uuid4().hex[:8]}", vram_needed_gb=1, gpu_model=model, owner=owner
     )
@@ -100,6 +108,10 @@ def test_a_published_team_quota_limits_the_teams_admitted_jobs(team):
     host_id = f"h-quota-{uuid.uuid4().hex[:10]}"
     with _pool.connection() as conn:
         insert_schedulable_host(conn, host_id, model=model, gpus=2)
+        conn.execute(
+            "UPDATE hosts SET capabilities=capabilities||jsonb_build_object('gpu_uuid_binding',true) WHERE host_id=%s",
+            (host_id,),
+        )
         conn.commit()
     team["hosts"].append(host_id)
 

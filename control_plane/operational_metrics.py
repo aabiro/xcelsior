@@ -73,12 +73,6 @@ _SNAPSHOT_COLUMNS = (
     "scheduled_task_failures",
     "maintenance_heartbeat_fresh",
     "maintenance_heartbeat_age_seconds",
-    "commands_pending",
-    "commands_claimed",
-    "commands_dead_lettered",
-    "active_attempts",
-    "active_gpu_allocations",
-    "ready_hosts",
 )
 
 
@@ -236,17 +230,6 @@ scheduled_state AS (
             0
         )::double precision AS maintenance_heartbeat_age_seconds
     FROM scheduled_tasks
-),
-execution_state AS (
-    SELECT
-        (SELECT count(*) FROM agent_commands WHERE status='pending' AND expires_at >= EXTRACT(EPOCH FROM clock_timestamp())) AS commands_pending,
-        (SELECT count(*) FROM agent_commands WHERE status='claimed') AS commands_claimed,
-        (SELECT count(*) FROM agent_commands WHERE status='dead_letter') AS commands_dead_lettered,
-        (SELECT count(*) FROM job_attempts WHERE status IN ('reserved','command_pending','lease_offered','lease_claimed','starting','running')) AS active_attempts,
-        (SELECT count(*) FROM gpu_device_allocations WHERE status='active') AS active_gpu_allocations,
-        (SELECT count(*) FROM hosts WHERE status='active' AND administrative_state='admitted'
-            AND admission_state='admitted' AND availability_state='ready'
-            AND last_observed_at >= clock_timestamp() - make_interval(secs => %s)) AS ready_hosts
 )
 SELECT
     queue_state.queue_depth,
@@ -268,13 +251,7 @@ SELECT
     outbox_state.outbox_dead_letters,
     scheduled_state.scheduled_task_failures,
     scheduled_state.maintenance_heartbeat_fresh,
-    scheduled_state.maintenance_heartbeat_age_seconds,
-    execution_state.commands_pending,
-    execution_state.commands_claimed,
-    execution_state.commands_dead_lettered,
-    execution_state.active_attempts,
-    execution_state.active_gpu_allocations,
-    execution_state.ready_hosts
+    scheduled_state.maintenance_heartbeat_age_seconds
 FROM queue_state
 CROSS JOIN billing_state
 CROSS JOIN lease_state
@@ -283,7 +260,6 @@ CROSS JOIN reconciliation_state
 CROSS JOIN finding_state
 CROSS JOIN outbox_state
 CROSS JOIN scheduled_state
-CROSS JOIN execution_state
 """
 
 
@@ -310,7 +286,6 @@ def collect_operational_snapshot(
         (
             max(1, int(observation_stale_seconds)),
             max(1, int(heartbeat_fresh_seconds)),
-            max(1, int(observation_stale_seconds)),
         ),
     ).fetchone()
     snapshot = _row_dict(row, _SNAPSHOT_COLUMNS)
@@ -402,32 +377,6 @@ def render_operational_metrics(snapshot: Mapping[str, Any]) -> list[str]:
     )
 
     definitions = (
-        (
-            "xcelsior_commands_pending",
-            "Pending non-expired durable worker commands",
-            "commands_pending",
-        ),
-        (
-            "xcelsior_commands_claimed",
-            "Durable worker commands awaiting acknowledgement",
-            "commands_claimed",
-        ),
-        (
-            "xcelsior_commands_dead_lettered",
-            "Worker commands that exhausted delivery or failed permanently",
-            "commands_dead_lettered",
-        ),
-        ("xcelsior_active_attempts", "Nonterminal fenced placement attempts", "active_attempts"),
-        (
-            "xcelsior_active_gpu_allocations",
-            "GPU devices reserved by active placement allocations",
-            "active_gpu_allocations",
-        ),
-        (
-            "xcelsior_ready_hosts",
-            "Admitted ready hosts with a recent v2 observation",
-            "ready_hosts",
-        ),
         (
             "xcelsior_queue_oldest_age_seconds",
             "Age of the oldest queued job",
@@ -580,13 +529,12 @@ def heartbeat_once(
         conn.execute(
             """
             INSERT INTO service_heartbeats (
-                service, replica_id, service_version, schema_revision, details
+                service, replica_id, service_version, details
             )
-            VALUES (%s, %s, %s, (SELECT version_num FROM alembic_version LIMIT 1), %s::jsonb)
+            VALUES (%s, %s, %s, %s::jsonb)
             ON CONFLICT (service, replica_id) DO UPDATE
             SET last_heartbeat_at = clock_timestamp(),
                 service_version = EXCLUDED.service_version,
-                schema_revision = EXCLUDED.schema_revision,
                 details = EXCLUDED.details
             """,
             (service, resolved_replica, service_version, payload),

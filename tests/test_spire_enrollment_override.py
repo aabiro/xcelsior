@@ -12,9 +12,7 @@ from pathlib import Path
 
 import yaml
 
-MODULE_PATH = (
-    Path(__file__).resolve().parent.parent / "api" / "scripts" / "spire_enrollment_override.py"
-)
+MODULE_PATH = Path(__file__).resolve().parent.parent / "scripts" / "spire_enrollment_override.py"
 spec = importlib.util.spec_from_file_location("spire_enrollment_override", MODULE_PATH)
 assert spec is not None and spec.loader is not None
 mod = importlib.util.module_from_spec(spec)
@@ -119,77 +117,6 @@ def test_a_fully_wired_override_is_left_byte_for_byte():
     updated, touched = mod.patch_override(PROD_SHAPE)
     assert touched == []
     assert updated == PROD_SHAPE
-
-
-JSON_WIRED = """\
-{
-  "services": {
-    "api": {
-      "environment": {
-        "XCELSIOR_POSTGRES_DSN": "postgres://example",
-        "XCELSIOR_SPIRE_SERVER_CMD": "${XCELSIOR_SPIRE_SERVER_CMD:-}",
-        "XCELSIOR_SPIRE_SERVER_SOCKET": "${XCELSIOR_SPIRE_SERVER_SOCKET:-}",
-        "XCELSIOR_SPIRE_SERVER_ADDRESS": "${XCELSIOR_SPIRE_SERVER_ADDRESS:-}",
-        "XCELSIOR_SPIRE_SERVER_PORT": "${XCELSIOR_SPIRE_SERVER_PORT:-8095}",
-        "XCELSIOR_HEADSCALE_URL": "${XCELSIOR_HEADSCALE_URL:-}",
-        "XCELSIOR_HEADSCALE_API_KEY": "${XCELSIOR_HEADSCALE_API_KEY:-}",
-        "XCELSIOR_HEADSCALE_USER_ID": "${XCELSIOR_HEADSCALE_USER_ID:-}"
-      },
-      "volumes": [
-        "/var/lib/xcelsior-spire/sock:/run/xcelsior-spire",
-        "/usr/local/lib/xcelsior/spire-server:/usr/local/bin/spire-server:ro"
-      ]
-    },
-    "api-blue": {
-      "environment": {
-        "XCELSIOR_POSTGRES_DSN": "postgres://blue",
-        "XCELSIOR_SPIRE_SERVER_CMD": "${XCELSIOR_SPIRE_SERVER_CMD:-}",
-        "XCELSIOR_SPIRE_SERVER_SOCKET": "${XCELSIOR_SPIRE_SERVER_SOCKET:-}",
-        "XCELSIOR_SPIRE_SERVER_ADDRESS": "${XCELSIOR_SPIRE_SERVER_ADDRESS:-}",
-        "XCELSIOR_SPIRE_SERVER_PORT": "${XCELSIOR_SPIRE_SERVER_PORT:-8095}",
-        "XCELSIOR_HEADSCALE_URL": "${XCELSIOR_HEADSCALE_URL:-}",
-        "XCELSIOR_HEADSCALE_API_KEY": "${XCELSIOR_HEADSCALE_API_KEY:-}",
-        "XCELSIOR_HEADSCALE_USER_ID": "${XCELSIOR_HEADSCALE_USER_ID:-}"
-      },
-      "volumes": [
-        "/var/lib/xcelsior-spire/sock:/run/xcelsior-spire",
-        "/usr/local/lib/xcelsior/spire-server:/usr/local/bin/spire-server:ro"
-      ]
-    }
-  }
-}
-"""
-
-
-def test_json_override_already_wired_is_left_unchanged():
-    updated, touched = mod.patch_override(JSON_WIRED)
-    assert touched == []
-    assert updated == JSON_WIRED
-
-
-def test_json_override_gains_the_missing_slot_and_keeps_its_dsn():
-    text = """\
-{
-  "services": {
-    "api": {
-      "environment": {"XCELSIOR_POSTGRES_DSN": "postgres://example"},
-      "volumes": []
-    },
-    "scheduler-worker": {
-      "environment": {"XCELSIOR_POSTGRES_DSN": "postgres://scheduler"}
-    }
-  }
-}
-"""
-    updated, touched = mod.patch_override(text)
-    assert touched == ["api", "api-blue"]
-    services = _services(updated)
-    _wired(services["api"])
-    _wired(services["api-blue"])
-    assert services["api"]["environment"]["XCELSIOR_POSTGRES_DSN"] == "postgres://example"
-    assert services["scheduler-worker"]["environment"] == {
-        "XCELSIOR_POSTGRES_DSN": "postgres://scheduler"
-    }
 
 
 def test_volume_lines_on_api_do_not_count_for_api_blue():

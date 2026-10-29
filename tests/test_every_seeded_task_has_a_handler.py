@@ -25,8 +25,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATIONS = ROOT / "api" / "migrations" / "versions"
-BG_WORKER = ROOT / "workers" / "bg_worker.py"
+MIGRATIONS = ROOT / "migrations" / "versions"
+BG_WORKER = ROOT / "bg_worker.py"
 
 _SEED = re.compile(r"INSERT\s+INTO\s+scheduled_tasks\b(.*?)(?:ON\s+CONFLICT|;|\"\"\")", re.I | re.S)
 

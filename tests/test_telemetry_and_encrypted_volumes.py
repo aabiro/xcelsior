@@ -66,14 +66,14 @@ class TestOpenTelemetryIntegration:
 
     def test_fastapi_instrumentor_import_attempted(self):
         """api.py source references FastAPIInstrumentor."""
-        source = Path(__file__).resolve().parent.parent / "api" / "api.py"
+        source = Path(__file__).resolve().parent.parent / "api.py"
         text = source.read_text()
         assert "FastAPIInstrumentor" in text
         assert "instrument_app" in text
 
     def test_w3c_trace_context_propagation(self):
         """api.py sets up W3C Trace Context propagation."""
-        source = Path(__file__).resolve().parent.parent / "api" / "api.py"
+        source = Path(__file__).resolve().parent.parent / "api.py"
         text = source.read_text()
         assert "TraceContextTextMapPropagator" in text
         assert "W3CBaggagePropagator" in text
@@ -83,8 +83,8 @@ class TestOpenTelemetryIntegration:
     def test_custom_spans_in_endpoints(self):
         """Key endpoints have otel_span() calls."""
         base = Path(__file__).resolve().parent.parent
-        routes_dir = base / "api" / "routes"
-        all_text = (base / "api" / "api.py").read_text()
+        routes_dir = base / "routes"
+        all_text = (base / "api.py").read_text()
         for py in routes_dir.glob("*.py"):
             all_text += py.read_text()
         for span_name in [
@@ -97,19 +97,17 @@ class TestOpenTelemetryIntegration:
             assert (
                 span_name in all_text
             ), f"Custom span '{span_name}' not found in routes/ or api.py"
-        # Status updates arrive only through the fenced attempt report now.
-        assert "job.status_update" in (routes_dir / "agent_v2.py").read_text()
 
     def test_otlp_exporter_conditional(self):
         """OTLP exporter only activates when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
-        source = Path(__file__).resolve().parent.parent / "api" / "api.py"
+        source = Path(__file__).resolve().parent.parent / "api.py"
         text = source.read_text()
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" in text
         assert "OTLPSpanExporter" in text
 
     def test_service_name_resource(self):
         """OpenTelemetry resource sets service name to xcelsior-api."""
-        source = Path(__file__).resolve().parent.parent / "api" / "api.py"
+        source = Path(__file__).resolve().parent.parent / "api.py"
         text = source.read_text()
         assert "xcelsior-api" in text
 
@@ -133,7 +131,7 @@ class TestOpenTelemetryGracefulDegradation:
 
     def test_api_source_has_import_error_handler(self):
         """api.py wraps OTel imports in try/except ImportError."""
-        source = Path(__file__).resolve().parent.parent / "api" / "api.py"
+        source = Path(__file__).resolve().parent.parent / "api.py"
         text = source.read_text()
         assert "except ImportError" in text
 
@@ -251,7 +249,7 @@ class TestRunJobEncryptedVolumes:
 
     def test_source_references_attach_detach(self):
         """run_job source calls attach_encrypted_volume and detach_encrypted_volume."""
-        source = Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py"
+        source = Path(__file__).resolve().parent.parent / "worker_agent.py"
         text = source.read_text()
         assert "attach_encrypted_volume" in text
         assert "detach_encrypted_volume" in text
