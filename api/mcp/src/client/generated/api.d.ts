@@ -1276,10 +1276,7 @@ export interface components {
         };
         /** Body_api_auth_upload_avatar_api_auth_me_avatar_post */
         Body_api_auth_upload_avatar_api_auth_me_avatar_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BuildIn */
@@ -2207,10 +2204,7 @@ export interface components {
         };
         /** PasskeyRegisterRequest */
         PasskeyRegisterRequest: {
-            /**
-             * Device Name
-             * @default Security Key
-             */
+            /** Device Name */
             device_name: string;
         };
         /** PasswordResetConfirm */
@@ -2440,6 +2434,10 @@ export interface components {
             country?: string | null;
             /** Province */
             province?: string | null;
+            /** Business Name */
+            business_name?: string | null;
+            /** Gst Hst Number */
+            gst_hst_number?: string | null;
         };
         /** PromotionCreate */
         PromotionCreate: {
@@ -2548,6 +2546,41 @@ export interface components {
              * @default CA
              */
             country: string;
+            /**
+             * Address Line1
+             * @default
+             */
+            address_line1: string;
+            /**
+             * Address Line2
+             * @default
+             */
+            address_line2: string;
+            /**
+             * City
+             * @default
+             */
+            city: string;
+            /**
+             * Postal Code
+             * @default
+             */
+            postal_code: string;
+            /**
+             * Tax Id Kind
+             * @default
+             */
+            tax_id_kind: string;
+            /**
+             * Tax Id
+             * @default
+             */
+            tax_id: string;
+            /**
+             * Accepted Seller Terms
+             * @default false
+             */
+            accepted_seller_terms: boolean;
         };
         /** RefundRequest */
         RefundRequest: {
@@ -2748,6 +2781,46 @@ export interface components {
              * @default 0
              */
             monthly_spend_cad: number;
+        };
+        /** SellerProfileRequest */
+        SellerProfileRequest: {
+            /** Legal Name */
+            legal_name: string;
+            /** Address Line1 */
+            address_line1: string;
+            /**
+             * Address Line2
+             * @default
+             */
+            address_line2: string;
+            /** City */
+            city: string;
+            /** Province */
+            province: string;
+            /** Postal Code */
+            postal_code: string;
+            /**
+             * Country
+             * @default CA
+             */
+            country: string;
+            /** Tax Id Kind */
+            tax_id_kind: string;
+            /**
+             * Tax Id
+             * @default
+             */
+            tax_id: string;
+            /**
+             * Gst Hst Number
+             * @default
+             */
+            gst_hst_number: string;
+            /**
+             * Accepted Terms
+             * @default false
+             */
+            accepted_terms: boolean;
         };
         /** ServerlessEndpointCreate */
         ServerlessEndpointCreate: {
