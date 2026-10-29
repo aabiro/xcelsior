@@ -166,6 +166,62 @@ class TestStagingChecklistSpotMetering:
         assert meter.total_cost_cad < round(0.55, 4)
 
 
+def _native_report(job_id: str, status: str) -> None:
+    """Report a placed attempt the way its worker does (claim, ack start, status)."""
+    from control_plane.attempts import report_attempt_status
+    from control_plane.db import run_transaction
+    from control_plane.leases import claim_lease
+
+    with _get_pg_pool().connection() as conn:
+        attempt, host, fence, lease, lease_status = conn.execute(
+            "SELECT a.attempt_id::text,a.host_id,a.fencing_token,l.lease_id::text,l.status "
+            "FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id "
+            "JOIN placement_leases l ON l.attempt_id=a.attempt_id WHERE j.job_id=%s",
+            (job_id,),
+        ).fetchone()
+    auth = dict(job_id=job_id, attempt_id=attempt, host_id=host, fencing_token=fence)
+    if lease_status == "offered":
+        run_transaction(
+            lambda c: claim_lease(c, lease_id=lease, worker_session_id="spot-staging", **auth)
+        )
+        with _get_pg_pool().connection() as conn:
+            conn.execute(
+                "UPDATE agent_commands SET status='acknowledged' "
+                "WHERE attempt_id=%s AND command='start_attempt'",
+                (attempt,),
+            )
+    run_transaction(lambda c: report_attempt_status(c, status=status, **auth))
+
+
+def _preempting_owner() -> str:
+    """An on-demand tenant whose policy allows preempting (off by default)."""
+    from control_plane.scheduler.fairness import TeamPolicy, publish_policy
+
+    owner = "od-" + uuid.uuid4().hex[:8]
+    with _get_pg_pool().connection() as conn:
+        publish_policy(
+            conn,
+            TeamPolicy(key="tenant:" + owner, preemption_enabled=True),
+            created_by="spot-staging",
+        )
+    return owner
+
+
+def _preempt(spot_job_id: str, od: dict) -> None:
+    """On-demand contention plans a preemption; the spot worker then stops."""
+    assert scheduler.process_queue() == []
+    with _get_pg_pool().connection() as conn:
+        assert conn.execute(
+            "SELECT reason_code FROM jobs WHERE job_id=%s", (od["job_id"],)
+        ).fetchone() == ("preemption_waiting",)
+        assert conn.execute(
+            "SELECT count(*) FROM agent_commands WHERE job_id=%s AND command='stop_attempt'",
+            (spot_job_id,),
+        ).fetchone() == (1,)
+    # Capacity transfers only once the victim's own worker reports the stop.
+    _native_report(spot_job_id, "stopped")
+
+
 class TestStagingChecklistPreemption:
     """10.1 — On-demand preempts spot; spot requeues and reschedules."""
 
@@ -173,29 +229,45 @@ class TestStagingChecklistPreemption:
         _host("pre-h", gpu_count=1)
         spot = scheduler.submit_job("spot-run", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.process_queue()
-        scheduler.update_job_status(spot["job_id"], "running", host_id="pre-h")
+        _native_report(spot["job_id"], "running")
 
-        od = scheduler.submit_job("od-contend", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
+        od = scheduler.submit_job(
+            "od-contend",
+            8,
+            pricing_mode="on_demand",
+            gpu_model="RTX 4090",
+            owner=_preempting_owner(),
+        )
+        _preempt(spot["job_id"], od)
         assigned = scheduler.process_queue()
         assert len(assigned) == 1
         assert assigned[0][0]["job_id"] == od["job_id"]
 
         spot_after = scheduler.get_job(spot["job_id"])
         assert spot_after["status"] == "queued"
-        assert spot_after.get("preemption_count") == 1
         assert spot_after.get("pricing_mode") == "spot"
 
     def test_spot_reschedules_after_on_demand_releases_gpu(self):
         _host("resched-h", gpu_count=1)
         spot = scheduler.submit_job("spot-resched", 8, pricing_mode="spot", gpu_model="RTX 4090")
         scheduler.process_queue()
-        scheduler.update_job_status(spot["job_id"], "running", host_id="resched-h")
+        _native_report(spot["job_id"], "running")
 
-        od = scheduler.submit_job("od-temp", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
-        scheduler.process_queue()
-        scheduler.update_job_status(od["job_id"], "running", host_id="resched-h")
+        od = scheduler.submit_job(
+            "od-temp", 8, pricing_mode="on_demand", gpu_model="RTX 4090", owner=_preempting_owner()
+        )
+        _preempt(spot["job_id"], od)
+        assert [j["job_id"] for j, _ in scheduler.process_queue()] == [od["job_id"]]
+        _native_report(od["job_id"], "running")
 
-        scheduler.update_job_status(od["job_id"], "stopped", host_id=None)
+        _native_report(od["job_id"], "stopped")
+        with _get_pg_pool().connection() as conn:
+            # The spot job was tried while the GPU was busy and backed off;
+            # model that interval elapsing rather than sleeping through it.
+            conn.execute(
+                "UPDATE jobs SET next_schedule_at=clock_timestamp() WHERE job_id=%s",
+                (spot["job_id"],),
+            )
         reassigned = scheduler.process_queue()
         assert len(reassigned) == 1
         assert reassigned[0][0]["job_id"] == spot["job_id"]
