@@ -5,11 +5,11 @@ name: Gates (sandboxed runner)
 # ── Why there is no `pull_request` trigger ─────────────────────────────────────
 # This repository is **public**. On a public repository, a `pull_request` trigger
 # plus a self-hosted runner means an outside contributor's branch can run code on
-# that runner. The runner is sandboxed (see scripts/ci-runner/), but defence in
+# that runner. The runner is sandboxed (see api/scripts/ci-runner/), but defence in
 # depth starts with not inviting the code in: `push` requires write access to this
 # repository, and a fork cannot push a branch here.
 #
-# `scripts/ci-runner/run-runner.sh` refuses to start if a `pull_request` trigger
+# `api/scripts/ci-runner/run-runner.sh` refuses to start if a `pull_request` trigger
 # appears below, so this constraint is enforced rather than remembered.
 #
 # ── Why only the static gates ─────────────────────────────────────────────────

@@ -40,7 +40,7 @@ RUNNER_DIR=/home/runner/actions-runner
 if [[ "$(stat -c %d "$RUNNER_DIR")" == "$(stat -c %d /home/runner)" ]]; then
     echo "REFUSING TO START: $RUNNER_DIR is not a separate mount." >&2
     echo "It shares a device with /home/runner, so it is the read-only root and" >&2
-    echo "registration will fail partway. Launch via scripts/ci-runner/run-runner.sh," >&2
+    echo "registration will fail partway. Launch via api/scripts/ci-runner/run-runner.sh," >&2
     echo "which supplies the mount." >&2
     exit 1
 fi
