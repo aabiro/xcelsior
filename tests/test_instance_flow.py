@@ -60,6 +60,9 @@ def _reset_state():
     with scheduler._atomic_mutation() as conn:
         conn.execute("DELETE FROM hosts")
         conn.execute("DELETE FROM jobs")
+        # Commands outlive the hosts and jobs deleted above, so a fixed fixture
+        # host id would otherwise claim every earlier run's start_attempt.
+        conn.execute("DELETE FROM agent_commands")
         conn.execute("DELETE FROM state")
         conn.execute("DELETE FROM billing_cycles")
         conn.execute("DELETE FROM job_logs")
@@ -158,39 +161,16 @@ def _process_queue():
 
 def _set_status(job_id, status, host_id=None):
     """Claim and report the real native authority through the worker API."""
-    from db import _get_pg_pool
+    from tests.native_jobs import report_native_status
 
-    with _get_pg_pool().connection() as conn:
-        row = conn.execute(
-            "SELECT a.attempt_id,a.host_id,a.fencing_token,l.lease_id,l.status FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id JOIN placement_leases l ON l.attempt_id=a.attempt_id WHERE j.job_id=%s",
-            (job_id,),
-        ).fetchone()
-    assert row is not None, "fixture must create an actual native placement first"
-    attempt, assigned_host, fence, lease, lease_status = row
-    assert host_id is None or host_id == assigned_host
-    authority = {
-        "job_id": job_id,
-        "attempt_id": str(attempt),
-        "host_id": assigned_host,
-        "fencing_token": fence,
-    }
-    if lease_status == "offered":
-        claimed = client.post(
-            "/agent/v2/leases/claim",
-            json={**authority, "lease_id": str(lease), "worker_session_id": "instance-flow"},
-            headers=_worker_auth_headers(),
-        )
-        assert claimed.status_code == 200, claimed.text
-    response = client.post(
-        "/agent/v2/attempts/status",
-        json={
-            **authority,
-            "status": {"completed": "succeeded", "leased": "lease_claimed"}.get(status, status),
-        },
+    return report_native_status(
+        client,
+        job_id,
+        status,
         headers=_worker_auth_headers(),
+        host_id=host_id,
+        session="instance-flow",
     )
-    assert response.status_code == 200, response.text
-    return response
 
 
 def _start_native_attempt(job_id, host_id):
@@ -516,6 +496,16 @@ class TestHostOfflineFailover:
             )
             expired = expire_stale_leases(conn, current_job_id=job_id)
             assert len(expired) == 1
+            # Expiry alone holds the requeue until the old attempt is proven
+            # stopped, so a silent host cannot double-run it. Disabling the dead
+            # host is that proof.
+            conn.execute(
+                "UPDATE hosts SET administrative_state='disabled' WHERE host_id=%s",
+                (chosen_host,),
+            )
+            from control_plane.leases import release_stopped_attempts
+
+            assert len(release_stopped_attempts(conn)) == 1
         assert _get_instance(job_id)["status"] == "queued"
 
         # Re-process queue — should go to fo-h2
