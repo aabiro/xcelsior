@@ -28,9 +28,9 @@ def main():
         # Initialize Google GenAI client (Developer/AI Studio API)
         client = genai.Client(api_key=api_key)
         
-        print("Making exactly 1 API Test Call using the provided API Key with gemini-3.6-flash...")
+        print("Making exactly 1 API Test Call using the provided API Key with gemini-3.8-flash...")
         response = client.models.generate_content(
-            model='gemini-3.6-flash',
+            model='gemini-3.8-flash',
             contents='Hello! This is a test call verifying connection with the provided API key. Respond with "API Key Connection verified successfully!".',
         )
         print("\n=== [API Call Response] ===")
