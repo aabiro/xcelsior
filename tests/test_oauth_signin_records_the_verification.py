@@ -97,11 +97,30 @@ def test_both_storage_paths_are_covered():
     tests themselves run on — disagreeing with production about a security flag.
     """
     _, existing_account = _callback_branches()
-    branches_setting_it = sum(
-        1
-        for node in ast.walk(ast.parse(existing_account))
-        if isinstance(node, ast.Constant) and node.value == "email_verified"
-    )
+    body = ast.parse(existing_account).body
+
+    def sets_it(node: ast.AST) -> bool:
+        return any(
+            isinstance(n, ast.Constant) and n.value == "email_verified" for n in ast.walk(node)
+        )
+
+    # Either each storage arm sets it, or it is built once (an `updates` dict)
+    # before the split and that one name is what both arms write.
+    shared = {
+        target.id
+        for stmt in body
+        if isinstance(stmt, ast.Assign) and sets_it(stmt.value)
+        for target in stmt.targets
+        if isinstance(target, ast.Name)
+    }
+    branches_setting_it = 0
+    for stmt in body:
+        if isinstance(stmt, ast.If) and "_USE_PERSISTENT_AUTH" in ast.unparse(stmt.test):
+            for arm in (stmt.body, stmt.orelse):
+                module = ast.Module(body=arm, type_ignores=[])
+                names = {n.id for n in ast.walk(module) if isinstance(n, ast.Name)}
+                if sets_it(module) or shared & names:
+                    branches_setting_it += 1
     assert branches_setting_it >= 2, (
         f"email_verified is set on only {branches_setting_it} of the two storage "
         "paths in the existing-account branch"

@@ -102,9 +102,19 @@ _TEST_ENV_DEFAULTS = {
     "XCELSIOR_MAX_TOTAL_STORAGE_GB": "100",
     "XCELSIOR_MAX_VOLUME_GB": "2000",
     "XCELSIOR_SERVERLESS_ENABLED": "true",
+    # Production runs the native scheduler active. The code default is
+    # `paused`, so a run without `.env.test` (CI, a fresh clone) never placed
+    # anything and every test that submits and expects an assignment failed.
+    "XCELSIOR_SCHEDULER_MODE": "active",
 }
 for _key, _val in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
+
+# Tests that open their own connection (alembic engines, restricted-role logins)
+# read XCELSIOR_TEST_POSTGRES_DSN, which only `.env.test` set. It is the same
+# database the suite already uses.
+if os.environ.get("XCELSIOR_POSTGRES_DSN"):
+    os.environ.setdefault("XCELSIOR_TEST_POSTGRES_DSN", os.environ["XCELSIOR_POSTGRES_DSN"])
 
 # Scheduler/serverless integration tests must never append generated host scores
 # to a tracked repository fixture.
@@ -325,6 +335,26 @@ def fake_vllm_port(monkeypatch):
     monkeypatch.delenv("XCELSIOR_TEST_FAKE_VLLM_PORT", raising=False)
     server.shutdown()
     thread.join(timeout=2)
+
+
+@pytest.fixture
+def anchor_repos():
+    """The developer's own anchor project checkouts, or a skip where they are absent.
+
+    The anchor workloads import code from sibling repositories (pixelenhance-labs,
+    phantom-trades-mvp, ara-code) under the project roots or over SSH to the Mac.
+    A fresh clone or CI has none of them, which is a missing input rather than a
+    regression; where they exist the tests are exactly as strict as before.
+    """
+    from serverless.anchor_workloads import discover_anchor_repos
+
+    discovered = discover_anchor_repos(include_remote=True)
+    if len(discovered) < 3:
+        pytest.skip(
+            f"anchor repos not present here ({len(discovered)} found); set "
+            "XCELSIOR_PROJECTS_ROOTS or XCELSIOR_MAC_HOST to run them"
+        )
+    return discovered
 
 
 @pytest.fixture

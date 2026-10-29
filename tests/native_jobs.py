@@ -90,3 +90,47 @@ def fixture_devices_serve(conn, job_ids, host_ids, *, base="RTX 4090"):
             "UPDATE host_gpu_devices SET model=%s WHERE host_id=ANY(%s)",
             (" ".join([base, *sorted(job_ids)]), list(host_ids)),
         )
+
+
+def report_native_status(
+    client, job_id, status, *, headers, host_id=None, session="native-fixture"
+):
+    """Claim and report a placed job's native authority through the worker API.
+
+    The raw ``PATCH /instance`` lifecycle write is fenced out once a job has an
+    attempt, so a fixture that wants a job running or completed reports it the
+    way a worker does: claim the offered lease, then post the attempt status.
+    """
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT a.attempt_id,a.host_id,a.fencing_token,l.lease_id,l.status FROM jobs j JOIN job_attempts a ON a.attempt_id=j.active_attempt_id JOIN placement_leases l ON l.attempt_id=a.attempt_id WHERE j.job_id=%s",
+            (job_id,),
+        ).fetchone()
+    assert row is not None, "fixture must create an actual native placement first"
+    attempt, assigned_host, fence, lease, lease_status = row
+    assert host_id is None or host_id == assigned_host
+    authority = {
+        "job_id": job_id,
+        "attempt_id": str(attempt),
+        "host_id": assigned_host,
+        "fencing_token": fence,
+    }
+    if lease_status == "offered":
+        claimed = client.post(
+            "/agent/v2/leases/claim",
+            json={**authority, "lease_id": str(lease), "worker_session_id": session},
+            headers=headers,
+        )
+        assert claimed.status_code == 200, claimed.text
+    response = client.post(
+        "/agent/v2/attempts/status",
+        json={
+            **authority,
+            "status": {"completed": "succeeded", "leased": "lease_claimed"}.get(status, status),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response

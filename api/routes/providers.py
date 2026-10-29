@@ -344,6 +344,8 @@ def api_resume_onboarding(provider_id: str, request: Request):
             province=provider.get("province", ""),
             legal_name=provider.get("legal_name", ""),
         )
+    except SellerProfileRequired as e:
+        raise HTTPException(400, str(e)) from e
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
     return {"ok": True, **result}

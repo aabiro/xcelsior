@@ -70,7 +70,7 @@ def _admit_host(host_id):
     """Mark a registered host as admitted and active so allocate() will pick it."""
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 def test_job_lifecycle_and_billing_via_api():
@@ -100,17 +100,12 @@ def test_job_lifecycle_and_billing_via_api():
         "running",
     )
 
-    client.patch(
-        f"/instance/{job_id}",
-        json={"status": "running", "host_id": "h-int-1"},
-        headers=_worker_auth_headers(),
-    )
+    from tests.native_jobs import report_native_status
+
+    headers = _worker_auth_headers()
+    report_native_status(client, job_id, "running", headers=headers, host_id="h-int-1")
     time.sleep(1.1)
-    client.patch(
-        f"/instance/{job_id}",
-        json={"status": "completed", "host_id": "h-int-1"},
-        headers=_worker_auth_headers(),
-    )
+    report_native_status(client, job_id, "completed", headers=headers, host_id="h-int-1")
 
     billed = client.post(f"/billing/bill/{job_id}")
     assert billed.status_code == 200
@@ -184,17 +179,12 @@ class TestFullJobLifecycle:
         )
 
         # Run and complete
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "running", "host_id": "lc-h1"},
-            headers=_worker_auth_headers(),
-        )
+        from tests.native_jobs import report_native_status
+
+        headers = _worker_auth_headers()
+        report_native_status(client, job_id, "running", headers=headers, host_id="lc-h1")
         time.sleep(1.1)
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "completed", "host_id": "lc-h1"},
-            headers=_worker_auth_headers(),
-        )
+        report_native_status(client, job_id, "completed", headers=headers, host_id="lc-h1")
 
         # Bill
         bill = client.post(f"/billing/bill/{job_id}")

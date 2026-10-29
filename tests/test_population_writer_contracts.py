@@ -86,6 +86,9 @@ def test_physical_observations_populate_native_fields_and_retire_synthetic_slots
         observation_generation=1,
         workloads=[],
         gpu_inventory=[device("GPU-new-proof")],
+        # A new session takes over only once the current one is silent; this
+        # models the restarted worker after that silence.
+        handoff_silence_sec=0,
     )
     ingest_observation(
         conn,
@@ -282,11 +285,11 @@ def test_docs_refresh_works_under_real_api_role_without_truncate_rights(
         assert ai_assistant.search_docs("physical GPU")[0]["source"] == "support_docs/proof.md"
 
 
-def test_active_allocation_blocks_inventory_replacement(native):
+def test_active_allocation_keeps_its_device_through_inventory_replacement(native):
     native.reserve()
     with native.pool.connection() as conn:
         before = conn.execute(
-            "SELECT to_jsonb(d) FROM host_gpu_devices d WHERE host_id=%s ORDER BY gpu_uuid",
+            "SELECT gpu_device_id,gpu_uuid FROM host_gpu_devices WHERE host_id=%s",
             (native.hid,),
         ).fetchall()
         ingest_observation(
@@ -297,13 +300,23 @@ def test_active_allocation_blocks_inventory_replacement(native):
             workloads=[],
             gpu_inventory=[device()],
         )
-        assert (
-            conn.execute(
-                "SELECT to_jsonb(d) FROM host_gpu_devices d WHERE host_id=%s ORDER BY gpu_uuid",
-                (native.hid,),
-            ).fetchall()
-            == before
-        )
+        # The allocated device keeps its row (the attempt's authority points at
+        # it) but, missing from a complete report, is never offered again. The
+        # reported device is added alongside it rather than replacing it.
+        busy = before[0][0]
+        assert conn.execute(
+            "SELECT gpu_uuid,retired_at IS NULL,health FROM host_gpu_devices WHERE gpu_device_id=%s",
+            (busy,),
+        ).fetchone() == (before[0][1], True, "unhealthy")
+        assert conn.execute(
+            "SELECT count(*) FROM gpu_device_allocations WHERE gpu_device_id=%s AND released_at IS NULL",
+            (busy,),
+        ).fetchone() == (1,)
+        assert conn.execute(
+            "SELECT gpu_uuid FROM host_gpu_devices WHERE host_id=%s AND gpu_device_id<>%s "
+            "AND retired_at IS NULL",
+            (native.hid, busy),
+        ).fetchall() == [(device()["gpu_uuid"],)]
         assert conn.execute(
             "SELECT gpu_inventory FROM host_observations WHERE host_id=%s AND session_id='inventory-proof'",
             (native.hid,),

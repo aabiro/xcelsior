@@ -123,8 +123,13 @@ class TestClaimOrdering:
         behind = _mkjob(cleanup_jobs, scope, priority=5, fair_share=100)
         ahead = _mkjob(cleanup_jobs, scope, priority=5, fair_share=1)
         with _pool.connection() as conn:
+            # Virtual start is max(team finish, global virtual clock), and the
+            # clock advances with every placement the suite makes, so finishes
+            # are set above it or both would tie on the clock.
             conn.execute(
-                "INSERT INTO scheduling_team_state(team_key,virtual_finish) VALUES(%s,100),(%s,1)",
+                "INSERT INTO scheduling_team_state(team_key,virtual_finish) "
+                "SELECT %s, virtual_time + 100 FROM scheduling_virtual_clock "
+                "UNION ALL SELECT %s, virtual_time + 1 FROM scheduling_virtual_clock",
                 ("job:" + behind, "job:" + ahead),
             )
         got = _claim(scope)

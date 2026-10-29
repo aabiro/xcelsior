@@ -335,6 +335,10 @@
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
   },
+  "GET /api/auth/mfa/pending": {
+    "class": "internal",
+    "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); the second-factor step of a first-party OAuth sign-in, never an agent capability"
+  },
   "GET /api/auth/oauth/providers": {
     "class": "internal",
     "notes": "First-party login and registration provider discovery; public authentication UI configuration rather than a customer MCP tool."
@@ -571,6 +575,10 @@
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
   },
+  "GET /api/privacy/deletion-status": {
+    "class": "internal",
+    "notes": "Public receipt page for a Facebook data-deletion confirmation code; no session by design (Meta links the visitor here), so never an agent capability."
+  },
   "GET /api/privacy/retention-policies": {
     "class": "internal",
     "notes": "retention configuration and reporting — the policy, its current state, and the expiry sweep. Operator and compliance surface"
@@ -582,6 +590,10 @@
   "GET /api/providers": {
     "class": "covered",
     "notes": "list_providers. The only source of provider_id, which the other provider tools require."
+  },
+  "GET /api/providers/seller-profile": {
+    "class": "internal",
+    "notes": "Seller identity for annual marketplace reporting (legal name, address, masked tax identifier); first-party dashboard only, so a tax identifier never passes through an agent."
   },
   "GET /api/providers/{provider_id}": {
     "class": "covered",
@@ -2266,6 +2278,10 @@
   "PUT /api/auth/me/profile": {
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PUT /api/providers/seller-profile": {
+    "class": "internal",
+    "notes": "Saves the legal name, address and tax identifier for seller reporting; first-party dashboard only, so a tax identifier never passes through an agent."
   },
   "PUT /api/users/me/preferences": {
     "class": "internal",

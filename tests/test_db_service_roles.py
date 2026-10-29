@@ -21,6 +21,7 @@ import os
 import pytest
 
 from control_plane import db_roles
+from tests._db_helpers import allow_test_login
 
 try:
     import psycopg
@@ -628,7 +629,7 @@ def test_strict_scheduled_task_executes_with_its_own_login(provisioned_roles, mo
     with psycopg.connect(dsn, autocommit=True) as admin:
         for service in ("billing", "reconciler"):
             role = db_roles.SERVICE_ROLES[service].name
-            admin.execute(f'ALTER ROLE "{role}" LOGIN')
+            allow_test_login(admin, role, dsn)
             monkeypatch.setenv(db_roles.service_dsn_env_var(service), make_conninfo(dsn, user=role))
 
     def task():
@@ -653,7 +654,9 @@ def test_strict_scheduled_task_executes_with_its_own_login(provisioned_roles, mo
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute("DELETE FROM scheduled_tasks WHERE task_name='identity-proof'")
             for service in ("billing", "reconciler"):
-                admin.execute(f'ALTER ROLE "{db_roles.SERVICE_ROLES[service].name}" NOLOGIN')
+                admin.execute(
+                    f'ALTER ROLE "{db_roles.SERVICE_ROLES[service].name}" NOLOGIN PASSWORD NULL'
+                )
 
 
 def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provisioned_roles):
@@ -668,7 +671,7 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
             "SELECT nspname, pg_get_userbyid(nspowner) FROM pg_namespace "
             "WHERE nspname IN ('public', 'storage')"
         ).fetchall()
-        admin.execute("ALTER ROLE xcelsior_migrator LOGIN")
+        allow_test_login(admin, "xcelsior_migrator", dsn)
         # The disposable cluster's bootstrap role also owns system objects;
         # transfer only application schemas/tables, as a real cutover must.
         for schema, _ in schema_owners:
@@ -719,7 +722,7 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
                     sql.Identifier(original_owner)
                 )
             )
-            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN")
+            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN PASSWORD NULL")
 
 
 def test_only_control_writers_can_advance_the_placement_fence(provisioned_roles):
@@ -751,7 +754,7 @@ async def test_ssh_gateway_uses_real_restricted_login(provisioned_roles, monkeyp
         "XCELSIOR_POSTGRES_DSN_SSH_GATEWAY", make_conninfo(dsn, user="xcelsior_ssh_gateway")
     )
     with psycopg.connect(dsn, autocommit=True) as admin:
-        admin.execute("ALTER ROLE xcelsior_ssh_gateway LOGIN")
+        allow_test_login(admin, "xcelsior_ssh_gateway", dsn)
         admin.execute(
             """
             INSERT INTO state (namespace, payload)
@@ -788,7 +791,7 @@ async def test_ssh_gateway_uses_real_restricted_login(provisioned_roles, monkeyp
                 "DELETE FROM state WHERE namespace IN "
                 "('security.suspended.ssh-test-user', 'security.note.ssh-test-user')"
             )
-            admin.execute("ALTER ROLE xcelsior_ssh_gateway NOLOGIN")
+            admin.execute("ALTER ROLE xcelsior_ssh_gateway NOLOGIN PASSWORD NULL")
 
 
 def test_restricted_api_can_observe_another_roles_connection_identity(provisioned_roles):

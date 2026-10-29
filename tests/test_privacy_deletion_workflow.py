@@ -42,10 +42,34 @@ def made_requests(monkeypatch):
         "unit-test-privacy-reference-secret-with-enough-entropy",
     )
     request_ids: list[str] = []
+    # Requests other modules left due (a Facebook deletion callback, for one)
+    # would be claimed by the worker under test and change its counts. Push
+    # them just out of reach and restore their exact times afterwards.
+    deferred = []
+    if _pool is not None:
+        with _pool.connection() as conn:
+            deferred = conn.execute(
+                """
+                UPDATE privacy_deletion_requests r
+                   SET next_attempt_at = r.next_attempt_at + interval '1 day'
+                  FROM (SELECT request_id, next_attempt_at FROM privacy_deletion_requests
+                         WHERE state NOT IN ('completed', 'cancelled', 'failed')
+                           AND next_attempt_at <= clock_timestamp() + interval '1 hour'
+                           FOR UPDATE) old
+                 WHERE r.request_id = old.request_id
+                RETURNING r.request_id, old.next_attempt_at
+                """
+            ).fetchall()
+            conn.commit()
     yield request_ids
     if _pool is None:
         return
     with _pool.connection() as conn:
+        for request_id, next_attempt_at in deferred:
+            conn.execute(
+                "UPDATE privacy_deletion_requests SET next_attempt_at=%s WHERE request_id=%s",
+                (next_attempt_at, request_id),
+            )
         if request_ids:
             conn.execute(
                 """

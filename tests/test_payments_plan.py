@@ -428,6 +428,8 @@ class TestConnectContracts:
             patch("stripe_connect.STRIPE_ENABLED", True),
             patch("stripe_connect.stripe", mock_stripe),
             patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
+            # A new payout account requires a complete seller profile first.
+            patch.object(StripeConnectManager, "seller_is_complete", return_value=True),
         ):
             result = mgr.create_provider_account(
                 provider_id="prov-us-1",

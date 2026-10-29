@@ -67,7 +67,9 @@ def test_transfer_supports_real_migrations_partitions_backups_and_owner_rollback
             "SELECT relowner FROM pg_class WHERE oid='pg_class'::regclass"
         ).fetchone()
         before = admin.execute("SELECT version_num FROM alembic_version").fetchall()
-        admin.execute("ALTER ROLE xcelsior_migrator LOGIN")
+        from tests._db_helpers import allow_test_login
+
+        allow_test_login(admin, "xcelsior_migrator", dsn)
         try:
             with admin.transaction():
                 plan = ownership_plan(
@@ -157,7 +159,7 @@ def test_transfer_supports_real_migrations_partitions_backups_and_owner_rollback
                 )
             for step in reversed(plan):
                 admin.execute(step["rollback"])
-            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN")
+            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN PASSWORD NULL")
 
 
 def test_strict_restore_without_credential_stops_before_any_database_command(tmp_path):

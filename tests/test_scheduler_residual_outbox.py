@@ -206,6 +206,15 @@ def test_native_queue_release_uses_durable_outbox(cleanup, monkeypatch):
     job = sched.submit_job(model, 999, gpu_model=model)
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
+    # A fleet with no host at all releases as `no_hosts`; give it one that
+    # cannot carry the job, whatever earlier tests left in the table.
+    from db import _get_pg_pool
+    from tests.native_jobs import insert_schedulable_host
+
+    host_id = "queue-outbox-host-" + uuid.uuid4().hex[:8]
+    with _get_pg_pool().connection() as conn:
+        insert_schedulable_host(conn, host_id)
+    cleanup["hosts"].append(host_id)
     emitted = []
     monkeypatch.setattr(sched, "emit_event", lambda *args: emitted.append(args))
     report = SchedulerService(

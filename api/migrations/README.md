@@ -97,11 +97,13 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `145_oauth_subject_and_deletion_confirmations.py`.**
+**Repository head: `146_deletion_confirmations_tenant.py`.**
 
 144 adds optional customer business-name and GST/HST columns on `users`, and the provider seller-identity columns used for annual reporting: mailing address, tax-identifier kind, encrypted tax identifier, last four characters, and the time the supplier accepted the tax terms. Profile and payout routes query those columns. Downgrade drops the new columns.
 
-145 stores the Facebook user id used to find an account for the data-deletion callback, and the confirmation-code table the public status page reads. The runtime schema floor is 145. Downgrade drops the column, the unique index, and the confirmation table.
+145 stores the Facebook user id used to find an account for the data-deletion callback, and the confirmation-code table the public status page reads. Downgrade drops the column, the unique index, and the confirmation table.
+
+146 adds the companion's `tenant_id` to that confirmation table (§4.4.10): the deletion request's tenant when the receipt names one, otherwise the receipt's own code hash, following 090's rule for privacy rows. A `BEFORE INSERT` trigger applies the same rule to rows that arrive without a tenant, so the 145 writer still serving during a blue-green deploy keeps storing receipts; it can be dropped once no 145 writer is deployed. The runtime schema floor is 146. Downgrade drops the index, the trigger and its function, and the column.
 
 143 grants the host observation session registry to the runtime roles that
 read or ingest it, skipping any role that is not provisioned yet. Apply it

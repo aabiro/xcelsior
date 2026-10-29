@@ -79,7 +79,7 @@ def _reset_state():
 def _admit_host(host_id):
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 # ── 7.6.1 — Dashboard loads ─────────────────────────────────────────
@@ -283,18 +283,12 @@ class TestFullJobLifecycleE2E:
         )
 
         # Run → Complete
+        from tests.native_jobs import report_native_status
+
         wh = _platform_headers()
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "running", "host_id": "e2e-lc-h1"},
-            headers=wh,
-        )
+        report_native_status(client, job_id, "running", headers=wh, host_id="e2e-lc-h1")
         time.sleep(1.1)
-        client.patch(
-            f"/instance/{job_id}",
-            json={"status": "completed", "host_id": "e2e-lc-h1"},
-            headers=wh,
-        )
+        report_native_status(client, job_id, "completed", headers=wh, host_id="e2e-lc-h1")
 
         # Verify completed
         detail = client.get(f"/instance/{job_id}")

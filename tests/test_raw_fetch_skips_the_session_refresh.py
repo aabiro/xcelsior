@@ -54,6 +54,9 @@ STREAMING = {
 #: the wrong reason is the thing this whole session kept finding.
 PUBLIC_UNAUTHENTICATED = {
     "api/frontend/src/app/(marketing)/status/content.tsx",
+    # The data-deletion receipt Facebook links to; `/api/privacy/deletion-status`
+    # is in PUBLIC_PATHS and the visitor holding the code has no session.
+    "api/frontend/src/components/marketing/account-removal.tsx",
 }
 
 EXEMPT = STREAMING | PUBLIC_UNAUTHENTICATED

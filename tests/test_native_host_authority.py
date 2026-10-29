@@ -62,7 +62,9 @@ def restricted_gateway(provisioned_roles, monkeypatch):
         "XCELSIOR_POSTGRES_DSN_SSH_GATEWAY", make_conninfo(dsn, user="xcelsior_ssh_gateway")
     )
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute("ALTER ROLE xcelsior_ssh_gateway LOGIN")
+        from tests._db_helpers import allow_test_login
+
+        allow_test_login(conn, "xcelsior_ssh_gateway", dsn)
     try:
         yield
     finally:
