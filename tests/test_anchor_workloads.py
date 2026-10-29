@@ -66,7 +66,9 @@ def _headers():
 
 
 class TestAnchorWorkloadsHTTP:
-    def test_pixelenhance_and_phantom_via_proxy(self, fake_vllm_port, mac_reachable_api):
+    def test_pixelenhance_and_phantom_via_proxy(
+        self, anchor_repos, fake_vllm_port, mac_reachable_api
+    ):
         headers = _headers()
         discovered = discover_anchor_repos(include_remote=True)
         evidence: dict = {

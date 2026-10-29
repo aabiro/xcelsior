@@ -25,6 +25,17 @@ from scripts.headscale_failover import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _not_root(monkeypatch):
+    """Promotion chowns to the `headscale` user only as root; that user exists
+    only on the Headscale hosts. A suite run as root elsewhere (a container)
+    would try the chown, so these run as the unprivileged operator they model.
+    The root path is covered with its own patched euid and chown."""
+    import os
+
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+
+
 def _sqlite_with(path: Path, *, users: int, nodes: int) -> None:
     con = sqlite3.connect(path)
     con.executescript(
