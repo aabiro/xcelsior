@@ -1586,13 +1586,22 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO facebook_deletion_confirmations (code_hash, request_id, outcome)
-                VALUES (%s, %s, %s)
+                INSERT INTO facebook_deletion_confirmations
+                    (code_hash, request_id, outcome, tenant_id)
+                VALUES (
+                    %s, %s, %s,
+                    COALESCE(
+                        (SELECT tenant_id FROM privacy_deletion_requests
+                          WHERE request_id = %s::uuid),
+                        %s
+                    )
+                )
                 ON CONFLICT (code_hash) DO UPDATE
                     SET request_id = EXCLUDED.request_id,
-                        outcome = EXCLUDED.outcome
+                        outcome = EXCLUDED.outcome,
+                        tenant_id = EXCLUDED.tenant_id
                 """,
-                (code_hash, request_id, outcome),
+                (code_hash, request_id, outcome, request_id, code_hash),
             )
 
     @staticmethod

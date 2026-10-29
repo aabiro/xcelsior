@@ -66,7 +66,8 @@ from psycopg import Connection
 # identity that payout routes query. A database at 143 is missing them.
 # 145 stores the Facebook user id on the account and the public deletion
 # receipt that /delete-data reads. A database at 144 is missing both.
-REQUIRED_MIN_REVISION = "145"
+# 146 gives that receipt a tenant, which the receipt writer now stores.
+REQUIRED_MIN_REVISION = "146"
 REQUIRED_MAX_REVISION: str | None = None
 
 
