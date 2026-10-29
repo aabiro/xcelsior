@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Start one ephemeral, sandboxed Actions runner. Re-run for each job, or loop it.
 #
-#     ./scripts/ci-runner/run-runner.sh            # one job, then exit
-#     ./scripts/ci-runner/run-runner.sh --loop     # keep serving jobs
+#     ./api/scripts/ci-runner/run-runner.sh            # one job, then exit
+#     ./api/scripts/ci-runner/run-runner.sh --loop     # keep serving jobs
 #
 # The registration token is fetched fresh from the API each time and expires in an
 # hour. It is not a repository secret and is never written to disk.
 #
-# READ scripts/ci-runner/README.md BEFORE ENABLING THIS. It is safe only in
+# READ api/scripts/ci-runner/README.md BEFORE ENABLING THIS. It is safe only in
 # combination with a workflow that fork pull requests cannot trigger.
 set -euo pipefail
 
