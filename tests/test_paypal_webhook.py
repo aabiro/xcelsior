@@ -58,6 +58,7 @@ def test_paypal_webhook_capture_completed_credits_wallet(monkeypatch):
             "event_type": "PAYMENT.CAPTURE.COMPLETED",
             "resource": {
                 "id": "CAP-123",
+                "status": "COMPLETED",
                 "amount": {"value": "25.00", "currency_code": "CAD"},
                 "supplementary_data": {"related_ids": {"order_id": "ORDER-9"}},
             },
