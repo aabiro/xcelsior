@@ -173,7 +173,10 @@ SLIDES = {
 }
 
 for name, svg in SLIDES.items():
-    (OUT / name).write_text(svg.strip() + "\n", encoding="utf-8")
+    # Trailing whitespace is stripped by the pre-commit hook, so emitting it
+    # made every committed asset drift from a fresh generation.
+    body = "\n".join(line.rstrip() for line in svg.strip().splitlines())
+    (OUT / name).write_text(body + "\n", encoding="utf-8")
     print(f"Wrote {OUT / name}")
 
 print(f"Done — {len(SLIDES)} assets in {OUT}")
