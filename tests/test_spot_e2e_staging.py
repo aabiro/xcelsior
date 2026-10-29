@@ -326,6 +326,8 @@ class TestStagingChecklistApiSurface:
                     "name": "spot-no-bid",
                     "vram_needed_gb": 8.0,
                     "pricing_mode": "spot",
+                    # Spot admission requires an explicit model.
+                    "gpu_model": "RTX 4090",
                     "max_bid": 0.99,
                 },
             )
