@@ -19,8 +19,7 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE facebook_deletion_confirmations ADD COLUMN IF NOT EXISTS tenant_id TEXT"
     )
-    op.execute(
-        """
+    op.execute("""
         UPDATE facebook_deletion_confirmations c
            SET tenant_id = COALESCE(
                    (SELECT r.tenant_id FROM privacy_deletion_requests r
@@ -28,15 +27,12 @@ def upgrade() -> None:
                    c.code_hash
                )
          WHERE c.tenant_id IS NULL
-        """
-    )
+        """)
     op.execute("ALTER TABLE facebook_deletion_confirmations ALTER COLUMN tenant_id SET NOT NULL")
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS facebook_deletion_confirmations_tenant
             ON facebook_deletion_confirmations (tenant_id, created_at)
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
