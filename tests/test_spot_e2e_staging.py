@@ -65,7 +65,7 @@ def _admit(host_id: str, **extra):
     # a payload write alone leaves the host pending and unplaceable.
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 def _host(

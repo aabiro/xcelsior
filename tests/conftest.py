@@ -102,9 +102,19 @@ _TEST_ENV_DEFAULTS = {
     "XCELSIOR_MAX_TOTAL_STORAGE_GB": "100",
     "XCELSIOR_MAX_VOLUME_GB": "2000",
     "XCELSIOR_SERVERLESS_ENABLED": "true",
+    # Production runs the native scheduler active. The code default is
+    # `paused`, so a run without `.env.test` (CI, a fresh clone) never placed
+    # anything and every test that submits and expects an assignment failed.
+    "XCELSIOR_SCHEDULER_MODE": "active",
 }
 for _key, _val in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
+
+# Tests that open their own connection (alembic engines, restricted-role logins)
+# read XCELSIOR_TEST_POSTGRES_DSN, which only `.env.test` set. It is the same
+# database the suite already uses.
+if os.environ.get("XCELSIOR_POSTGRES_DSN"):
+    os.environ.setdefault("XCELSIOR_TEST_POSTGRES_DSN", os.environ["XCELSIOR_POSTGRES_DSN"])
 
 # Scheduler/serverless integration tests must never append generated host scores
 # to a tracked repository fixture.

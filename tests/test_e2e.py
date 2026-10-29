@@ -79,7 +79,7 @@ def _reset_state():
 def _admit_host(host_id):
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 # ── 7.6.1 — Dashboard loads ─────────────────────────────────────────

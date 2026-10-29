@@ -128,7 +128,7 @@ def _admit_host(host_id):
     """Admit a host so it can receive jobs."""
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 def _submit_job(name="test-job", vram=8, tier="on-demand", host_id=None):
