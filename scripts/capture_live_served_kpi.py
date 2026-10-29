@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.live_vllm_common import (
     DEFAULT_BASE_URL,
+    prefix_cache_from_metrics,
     resolve_hf_model_name,
     resolve_live_model_id,
     server_ready as _server_ready_common,
@@ -79,15 +80,19 @@ def main() -> int:
     # Warm once, then repeat an identical turn so prefix cache hits accrue.
     warm_msg = "Status check: report fleet readiness in one sentence."
     for i in range(6):
+        before_pc = prefix_cache_from_metrics(BASE_URL)
         try:
             payload = _chat(warm_msg, model_id)
         except (urllib.error.URLError, TimeoutError, ConnectionResetError, json.JSONDecodeError) as exc:
             evidence["error"] = str(exc)
             break
+        after_pc = prefix_cache_from_metrics(BASE_URL)
         usage = payload.get("usage") or {}
         prompt = int(usage.get("prompt_tokens") or 0)
         details = usage.get("prompt_tokens_details") or {}
         cached = int(details.get("cached_tokens") or 0)
+        if cached == 0 and after_pc and before_pc:
+            cached = int(max(0.0, after_pc.get("hits_tokens", 0.0) - before_pc.get("hits_tokens", 0.0)))
         total_in += prompt
         total_cached += cached
         evidence["requests"].append(
