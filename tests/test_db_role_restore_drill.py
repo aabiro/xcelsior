@@ -10,6 +10,7 @@ import sys
 import psycopg
 from sqlalchemy.engine import make_url
 
+from tests._db_helpers import allow_test_login
 from tests.test_db_service_roles import provisioned_roles
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,7 +71,7 @@ def test_real_strict_role_restore_is_disposable_and_never_migrates_the_source(
             "SELECT datname FROM pg_database ORDER BY datname"
         ).fetchall()
         before_jobs = admin.execute("SELECT count(*) FROM jobs").fetchone()
-        admin.execute("ALTER ROLE xcelsior_migrator LOGIN")
+        allow_test_login(admin, "xcelsior_migrator", dsn)
         try:
             result = subprocess.run(
                 ["bash", str(ROOT / "api/scripts/restore-db-drill.sh")],
@@ -98,4 +99,4 @@ def test_real_strict_role_restore_is_disposable_and_never_migrates_the_source(
             assert "XCELSIOR_POSTGRES_DSN_MIGRATOR" in json.loads(observed.read_text())
             assert env["XCELSIOR_POSTGRES_DSN_MIGRATOR"] not in observed.read_text()
         finally:
-            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN")
+            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN PASSWORD NULL")

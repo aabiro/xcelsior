@@ -153,3 +153,25 @@ def foreign_scheduled_tasks_deferred(owned_tasks, defer_minutes: int = 30):
                     (ts, name),
                 )
             conn.commit()
+
+
+def allow_test_login(admin, role: str, dsn: str) -> None:
+    """Let a service role log in with the suite's own DSN password.
+
+    Tests connect as a restricted role with ``make_conninfo(dsn, user=role)``,
+    which keeps the DSN's password. That only worked on a server that trusts
+    local connections; under password auth (CI's postgres image) the role
+    needs the same password. Restore with ``NOLOGIN PASSWORD NULL``.
+    """
+    from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict
+
+    password = conninfo_to_dict(dsn).get("password")
+    if password:
+        admin.execute(
+            sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
+                sql.Identifier(role), sql.Literal(password)
+            )
+        )
+    else:
+        admin.execute(sql.SQL("ALTER ROLE {} LOGIN").format(sql.Identifier(role)))

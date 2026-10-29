@@ -52,13 +52,13 @@ def test_expiry_closes_worker_and_requeues_requests_without_asserting_physical_e
             (native.r.attempt_id,),
         ).fetchone()
         assert row == ("failed", None, "lost" if claimed else "failed", w["released_at"])
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND status='active'",
-                (native.r.attempt_id,),
-            ).fetchone()[0]
-            == 0
-        )
+        # A never-claimed offer frees its devices at once. A claimed one may
+        # still have a container, so its devices wait for proof of stop; the
+        # worker and its requests are released without that proof.
+        assert conn.execute(
+            "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND status='active'",
+            (native.r.attempt_id,),
+        ).fetchone()[0] == (1 if claimed else 0)
         assert (
             conn.execute(
                 "SELECT count(*) FROM agent_commands WHERE job_id=%s AND command='stop_attempt' "
@@ -119,6 +119,13 @@ def test_single_requeued_request_gets_fresh_worker_job_and_fence(native):
     request = native.repo.enqueue_job(native.ep["endpoint_id"], native.owner, {"task": 1})
     assert native.svc.worker_claim_job(native.wid)
     expire(native)
+    # The host reports no workload, which proves the old attempt stopped and
+    # releases the device it held for the replacement below.
+    from control_plane.leases import release_stopped_attempts
+    from tests._db_helpers import report_test_host_inventory
+
+    report_test_host_inventory(native.hid)
+    assert run_transaction(release_stopped_attempts)
     get_billing_engine().deposit(native.owner, 50)
     import scheduler
 

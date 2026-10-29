@@ -46,9 +46,15 @@ def instance_ctx():
         headers=headers,
     ).json()["instance"]
     job_id = job["job_id"]
-    from scheduler import _set_job_fields
+    # host_id is an authority column a payload patch may not set.
+    from psycopg.types.json import Jsonb
+    from db import _get_pg_pool
 
-    _set_job_fields(job_id, host_id="cov-host-1", status="queued")
+    with _get_pg_pool().connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET host_id=%s, status='queued', payload=payload||%s WHERE job_id=%s",
+            ("cov-host-1", Jsonb({"host_id": "cov-host-1", "status": "queued"}), job_id),
+        )
     return {"email": email, "customer_id": customer_id, "headers": headers, "job_id": job_id}
 
 

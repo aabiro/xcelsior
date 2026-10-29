@@ -46,6 +46,17 @@ def _host(host_id: str, *, spot_enabled: bool = True, spot_gpu_slots: int = 1, g
     _admit(host_id, spot_enabled=spot_enabled, spot_gpu_slots=spot_gpu_slots, gpu_count=gpu_count)
 
 
+def _set_priority(job_id: str, priority: int):
+    """Priority is an authority column; a payload patch is refused for it."""
+    from psycopg.types.json import Jsonb
+
+    with scheduler._atomic_mutation() as conn:
+        conn.execute(
+            "UPDATE jobs SET priority=%s, payload=payload||%s WHERE job_id=%s",
+            (priority, Jsonb({"priority": priority}), job_id),
+        )
+
+
 @pytest.fixture(autouse=True)
 def clean_data():
     with scheduler._atomic_mutation() as conn:
@@ -95,8 +106,8 @@ class TestCapacityPreemption:
         _host("h1", gpu_count=2, spot_gpu_slots=2)
         low = scheduler.submit_job("spot-low", 8, pricing_mode="spot", gpu_model="RTX 4090")
         high = scheduler.submit_job("spot-high", 8, pricing_mode="spot", gpu_model="RTX 4090")
-        scheduler._set_job_fields(low["job_id"], priority=0)
-        scheduler._set_job_fields(high["job_id"], priority=2)
+        _set_priority(low["job_id"], 0)
+        _set_priority(high["job_id"], 2)
         scheduler.update_job_status(low["job_id"], "running", host_id="h1")
         scheduler.update_job_status(high["job_id"], "running", host_id="h1")
 

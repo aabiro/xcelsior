@@ -2579,7 +2579,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File"
           }
         },
@@ -4784,11 +4784,13 @@
         "properties": {
           "device_name": {
             "type": "string",
-            "title": "Device Name",
-            "default": "Security Key"
+            "title": "Device Name"
           }
         },
         "type": "object",
+        "required": [
+          "device_name"
+        ],
         "title": "PasskeyRegisterRequest"
       },
       "PasswordResetConfirm": {
@@ -5291,6 +5293,30 @@
               }
             ],
             "title": "Province"
+          },
+          "business_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Name"
+          },
+          "gst_hst_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gst Hst Number"
           }
         },
         "type": "object",
@@ -5451,6 +5477,41 @@
             "type": "string",
             "title": "Country",
             "default": "CA"
+          },
+          "address_line1": {
+            "type": "string",
+            "title": "Address Line1",
+            "default": ""
+          },
+          "address_line2": {
+            "type": "string",
+            "title": "Address Line2",
+            "default": ""
+          },
+          "city": {
+            "type": "string",
+            "title": "City",
+            "default": ""
+          },
+          "postal_code": {
+            "type": "string",
+            "title": "Postal Code",
+            "default": ""
+          },
+          "tax_id_kind": {
+            "type": "string",
+            "title": "Tax Id Kind",
+            "default": ""
+          },
+          "tax_id": {
+            "type": "string",
+            "title": "Tax Id",
+            "default": ""
+          },
+          "accepted_seller_terms": {
+            "type": "boolean",
+            "title": "Accepted Seller Terms",
+            "default": false
           }
         },
         "type": "object",
@@ -5879,6 +5940,69 @@
           "month"
         ],
         "title": "SLAEnforceRequest"
+      },
+      "SellerProfileRequest": {
+        "properties": {
+          "legal_name": {
+            "type": "string",
+            "title": "Legal Name"
+          },
+          "address_line1": {
+            "type": "string",
+            "title": "Address Line1"
+          },
+          "address_line2": {
+            "type": "string",
+            "title": "Address Line2",
+            "default": ""
+          },
+          "city": {
+            "type": "string",
+            "title": "City"
+          },
+          "province": {
+            "type": "string",
+            "title": "Province"
+          },
+          "postal_code": {
+            "type": "string",
+            "title": "Postal Code"
+          },
+          "country": {
+            "type": "string",
+            "title": "Country",
+            "default": "CA"
+          },
+          "tax_id_kind": {
+            "type": "string",
+            "title": "Tax Id Kind"
+          },
+          "tax_id": {
+            "type": "string",
+            "title": "Tax Id",
+            "default": ""
+          },
+          "gst_hst_number": {
+            "type": "string",
+            "title": "Gst Hst Number",
+            "default": ""
+          },
+          "accepted_terms": {
+            "type": "boolean",
+            "title": "Accepted Terms",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "legal_name",
+          "address_line1",
+          "city",
+          "province",
+          "postal_code",
+          "tax_id_kind"
+        ],
+        "title": "SellerProfileRequest"
       },
       "ServerlessEndpointCreate": {
         "properties": {
