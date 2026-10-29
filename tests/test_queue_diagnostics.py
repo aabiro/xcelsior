@@ -358,7 +358,7 @@ class TestNativeQueueDiagnostics:
         scheduler.register_host("h-assign", "10.0.0.1", "RTX 4090", 24, 24)
         from tests._db_helpers import admit_test_host
 
-        admit_test_host("h-assign", active=True)
+        admit_test_host("h-assign", active=True, report_inventory=True)
         job = scheduler.submit_job("assign-me", 8)
         assert len(scheduler.process_queue()) == 1
         from db import _get_pg_pool

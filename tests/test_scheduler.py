@@ -46,7 +46,7 @@ def _admit_host(host_id):
 
     # Since 082 the projection reads the admission_state column rather than
     # payload.admitted, so writing the payload alone leaves the host pending.
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 @pytest.fixture(autouse=True)

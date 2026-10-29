@@ -70,7 +70,7 @@ def _admit_host(host_id):
     """Mark a registered host as admitted and active so allocate() will pick it."""
     from tests._db_helpers import admit_test_host
 
-    admit_test_host(host_id, active=True)
+    admit_test_host(host_id, active=True, report_inventory=True)
 
 
 def test_job_lifecycle_and_billing_via_api():

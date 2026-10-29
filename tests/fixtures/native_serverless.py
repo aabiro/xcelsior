@@ -46,14 +46,14 @@ def running_serverless(repo, endpoint_id, *, age_sec=130):
             admit_fixture_job(conn, job_id)
             conn.execute(
                 """INSERT INTO hosts(host_id,status,registered_at,payload,administrative_state,
-              availability_state,admission_state,capabilities) VALUES(%s,'active',%s,%s,'admitted','ready','admitted','{"egress_isolation":true}')""",
+              availability_state,admission_state,capabilities,last_observed_at) VALUES(%s,'active',%s,%s,'admitted','ready','admitted','{"egress_isolation":true}',clock_timestamp())""",
                 (host_id, time.time(), Jsonb({"admitted": True, "cost_per_hour": 0})),
             )
             for index in range(endpoint["gpu_count"]):
                 conn.execute(
                     """INSERT INTO host_gpu_devices(host_id,gpu_uuid,model,total_vram_mb,
-                  allocatable_vram_mb,health) VALUES(%s,%s,'RTX 4090',24576,24576,'healthy')""",
-                    (host_id, f"GPU-{host_id}-{index}"),
+                  allocatable_vram_mb,health) VALUES(%s,%s,%s,24576,24576,'healthy')""",
+                    (host_id, f"GPU-{host_id}-{index}", f"RTX 4090 {job_id}"),
                 )
 
         def reserve(conn):
