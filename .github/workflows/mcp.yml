@@ -23,7 +23,7 @@ on:
 # `gates-sandboxed.yml` documents at length and the reason it has no such
 # trigger.
 #
-# `scripts/ci-runner/run-runner.sh` refuses to start while any workflow on the
+# `api/scripts/ci-runner/run-runner.sh` refuses to start while any workflow on the
 # runner can be triggered from a fork, and it did its job: the runner exited on
 # startup 1,865 times. But a runner that refuses to start is indistinguishable
 # from one that is merely offline, and a job waiting for it reads as "queued",
