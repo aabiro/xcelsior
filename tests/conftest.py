@@ -236,7 +236,16 @@ def _clear_shared_runtime_limits() -> None:
 
     Resetting each namespace separately would require two transactions per
     namespace per test. Batch the resets to avoid that overhead.
+
+    Skipped outright when there is no database: `get_engine()` would spend
+    about two and a half minutes retrying, before *and* after every test, and
+    the sandboxed runner has no database by design.
     """
+    from tests._db_helpers import postgres_is_reachable
+
+    if not postgres_is_reachable():
+        return
+
     from db import DatabaseOps, get_engine
 
     empty = {"buckets": {}, "sessions": {}, "updated_at": 0.0}
