@@ -16,7 +16,7 @@
 #
 # Install:
 #     mkdir -p ~/.config/systemd/user
-#     ln -sf /mnt/storage/projects/xcelsior/scripts/ci-runner/xcelsior-ci-runner.service \
+#     ln -sf /mnt/storage/projects/xcelsior/api/scripts/ci-runner/xcelsior-ci-runner.service \
 #            ~/.config/systemd/user/
 #     systemctl --user daemon-reload
 #     systemctl --user enable --now xcelsior-ci-runner
@@ -32,14 +32,18 @@
 
 [Unit]
 Description=Xcelsior sandboxed GitHub Actions runner
-Documentation=https://github.com/aabiro/xcelsior/blob/main/scripts/ci-runner/README.md
+Documentation=https://github.com/aabiro/xcelsior/blob/main/api/scripts/ci-runner/README.md
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/mnt/storage/projects/xcelsior
-ExecStart=/mnt/storage/projects/xcelsior/scripts/ci-runner/run-runner.sh --loop
+# Under `api/` since the package extraction on 2026-10-18. The unit still named
+# the old top-level `scripts/` path, so after that pull systemd had nothing to
+# exec, restarted every 30s, and the `sandboxed` runner showed Offline. Re-link
+# the unit (see Install above) after any move of this directory.
+ExecStart=/mnt/storage/projects/xcelsior/api/scripts/ci-runner/run-runner.sh --loop
 
 # The script already loops, so an exit means it could not start at all — a
 # missing `gh` credential, docker down, or the fork-trigger refusal firing.
