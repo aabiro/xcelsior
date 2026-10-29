@@ -338,6 +338,26 @@ def fake_vllm_port(monkeypatch):
 
 
 @pytest.fixture
+def anchor_repos():
+    """The developer's own anchor project checkouts, or a skip where they are absent.
+
+    The anchor workloads import code from sibling repositories (pixelenhance-labs,
+    phantom-trades-mvp, ara-code) under the project roots or over SSH to the Mac.
+    A fresh clone or CI has none of them, which is a missing input rather than a
+    regression; where they exist the tests are exactly as strict as before.
+    """
+    from serverless.anchor_workloads import discover_anchor_repos
+
+    discovered = discover_anchor_repos(include_remote=True)
+    if len(discovered) < 3:
+        pytest.skip(
+            f"anchor repos not present here ({len(discovered)} found); set "
+            "XCELSIOR_PROJECTS_ROOTS or XCELSIOR_MAC_HOST to run them"
+        )
+    return discovered
+
+
+@pytest.fixture
 def mac_reachable_api(fake_vllm_port):
     """Expose FastAPI on Tailscale/LAN so Mac SSH can POST real inference requests."""
     import socket

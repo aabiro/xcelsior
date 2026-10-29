@@ -24,6 +24,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api" / "scripts"))
 
 import headscale_failover as hf  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _not_root(monkeypatch):
+    """Promotion chowns to the `headscale` user only as root; that user exists
+    only on the Headscale hosts. A suite run as root elsewhere (a container)
+    would try the chown, so these run as the unprivileged operator they model.
+    The root path is covered with its own patched euid and chown."""
+    import os
+
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+
 PRIMARY_CONFIG = {
     "server_url": "https://hs.xcelsior.ca",
     "listen_addr": "127.0.0.1:8443",

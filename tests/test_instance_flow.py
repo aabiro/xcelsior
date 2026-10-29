@@ -1063,7 +1063,14 @@ class TestDockerComposeSmoke:
         from pathlib import Path
         from tests.fixtures.compose_smoke import run_compose_smoke
         from tests.test_migration_from_production_snapshot import _alembic
+        from psycopg.conninfo import conninfo_to_dict
 
+        # Compose may mount only the security runner's disposable socket, never a
+        # TCP DSN. That runner fails any run with a skip, so this cannot skip there.
+        if not Path(conninfo_to_dict(empty_db).get("host") or "").parent.name.startswith(
+            "xcl-sec-pg-"
+        ):
+            pytest.skip("runs only under api/scripts/run_security_gates.py")
         _alembic(empty_db, "upgrade", "head")
         run_compose_smoke(Path(__file__).resolve().parents[1], tmp_path, empty_db)
 
