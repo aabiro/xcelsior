@@ -1,0 +1,2088 @@
+# routes/_deps.py — shared cross-cutting helpers for all route modules
+"""Authentication helpers, SSE bus, constants, and rate-limit utilities."""
+
+import asyncio
+import hmac
+import hashlib as _hashlib
+import json
+import os
+import secrets
+import time
+import threading as _threading
+import urllib.parse
+from collections import defaultdict, deque
+from typing import Any
+
+from fastapi import HTTPException, Request, WebSocket
+from starlette.requests import HTTPConnection
+
+import env_config
+from db import DatabaseOps, UserStore, NotificationStore, get_engine
+from oauth_service import (
+    ACCESS_TOKEN_TTL_SEC,
+    AuthCacheUnavailableError,
+    REFRESH_COOKIE_NAME,
+    REFRESH_TOKEN_TTL_SEC,
+    build_deprecation_headers,
+    is_oauth_access_token,
+    looks_like_agent_key,
+    validate_agent_api_key,
+    resolve_opaque_access_token,
+    validate_client_credentials_jwt,
+)
+from scheduler import list_jobs, API_TOKEN, log
+
+try:
+    from prometheus_client import Counter as _PromCounter
+
+    _deprecated_api_key_requests = _PromCounter(
+        "xcelsior_deprecated_api_key_requests_total",
+        "Requests authenticated with deprecated API keys",
+        ["key_type"],
+    )
+except Exception:
+
+    class _NoopCounter:
+        def labels(self, *a, **kw):
+            return self
+
+        def inc(self, *a, **kw):
+            pass
+
+    _deprecated_api_key_requests = _NoopCounter()
+
+
+# ── Environment & Auth Config ─────────────────────────────────────────
+
+# Resolved through `env_config`, which treats an unset, empty, or unrecognised
+# value as production. It was `os.environ.get("XCELSIOR_ENV", "dev")`, so a
+# missing variable meant `AUTH_REQUIRED = False`, and `_require_auth` then
+# handed every anonymous caller a principal with `is_admin: True`.
+XCELSIOR_ENV = env_config.resolve_env()
+AUTH_REQUIRED = not env_config.is_relaxed_env()
+RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
+RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
+#: Deliberately per-process, unlike every other limiter in this module. This one
+#: runs in the middleware on *every* request, and `_shared_state_update` is a
+#: database transaction taking a row lock — paying that per request to make a
+#: coarse 300/min/IP flood guard exact would cost far more than the precision is
+#: worth. The effective ceiling is `RATE_LIMIT_REQUESTS * GUNICORN_WORKERS`,
+#: which is the intended trade rather than an oversight. The limiters that are
+#: *enforcement* rather than flood control — auth, billing, snapshots, WS
+#: connects — are low-volume and go through shared state.
+_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+
+_AUTH_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "10"))
+_AUTH_RATE_LIMIT_WINDOW_SEC = 300
+#: Per-process fallback only; see `_check_auth_rate_limit`.
+_AUTH_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+_AUTH_RATE_LOCK = _threading.Lock()
+_AUTH_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_AUTH_RATE_STATE_NAMESPACE",
+    "runtime.auth_rate_limit",
+)
+
+_BILLING_PAYMENT_RATE_LIMIT_REQUESTS = int(
+    os.environ.get("XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_REQUESTS", "20")
+)
+_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC = int(
+    os.environ.get("XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC", "300")
+)
+#: Per-process fallback only; see `_check_billing_payment_rate_limit`.
+_BILLING_PAYMENT_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+_BILLING_PAYMENT_RATE_LOCK = _threading.Lock()
+_BILLING_PAYMENT_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_BILLING_PAYMENT_RATE_STATE_NAMESPACE",
+    "runtime.billing_payment_rate_limit",
+)
+
+#: Each enrollment mints a SPIRE join token and a mesh key; a retry needs one or two.
+_HOST_ENROLL_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_HOST_ENROLL_RATE_LIMIT", "6"))
+_HOST_ENROLL_RATE_LIMIT_WINDOW_SEC = 3600
+_HOST_ENROLL_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+_HOST_ENROLL_RATE_LOCK = _threading.Lock()
+_HOST_ENROLL_RATE_STATE_NAMESPACE = "runtime.host_enroll_rate_limit"
+
+_WS_CONNECT_RATE_LIMIT_REQUESTS = int(
+    os.environ.get("XCELSIOR_WS_CONNECT_RATE_LIMIT_REQUESTS", "60")
+)
+_WS_CONNECT_RATE_LIMIT_WINDOW_SEC = int(
+    os.environ.get("XCELSIOR_WS_CONNECT_RATE_LIMIT_WINDOW_SEC", "60")
+)
+_USE_SHARED_RUNTIME_LIMITS = os.environ.get(
+    "XCELSIOR_SHARED_RUNTIME_LIMITS",
+    "true",
+).lower() not in {"0", "false", "no", "off"}
+_WS_CONNECT_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_WS_CONNECT_STATE_NAMESPACE",
+    "runtime.ws_connect_rate_limit",
+)
+_WS_TICKET_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_WS_TICKET_STATE_NAMESPACE",
+    "runtime.ws_tickets",
+)
+_WS_CONNECT_BUCKETS: dict[str, deque] = defaultdict(deque)
+_WS_CONNECT_LOCK = _threading.Lock()
+_WS_TICKET_TTL_SEC = int(os.environ.get("XCELSIOR_WS_TICKET_TTL_SEC", "60"))
+_WS_TICKETS: dict[str, dict] = {}
+_WS_TICKET_LOCK = _threading.Lock()
+
+_USE_PERSISTENT_AUTH = os.environ.get("XCELSIOR_PERSISTENT_AUTH", "true").lower() != "false"
+
+SESSION_EXPIRY = 86400 * 30  # 30 days
+MAX_SESSION_LIFETIME = 86400 * 30  # 30 days (must match SESSION_EXPIRY)
+
+_AUTH_COOKIE_NAME = "xcelsior_session"
+
+VALID_ACCOUNT_ROLES = {"submitter", "provider"}
+
+PUBLIC_PATHS = {
+    "/",
+    # `curl -fsSL https://xcelsior.ca/install.sh | bash` runs before the host has
+    # any credential; everything it downloads is under /static/ (public too) and
+    # is checked against signed hashes by the installer itself.
+    "/install.sh",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/llms.txt",
+    "/dashboard",
+    "/legacy",
+    "/healthz",
+    "/livez",
+    "/readyz",
+    "/startupz",
+    "/metrics",
+    "/metrics/prometheus",
+    "/api/stream",
+    # The status page and the pre-sign-in CLI preflight. The handler serves
+    # anonymous callers a cached, detail-free view; see `service_status`.
+    "/api/status",
+    "/api/transparency/report",
+    "/api/providers/webhook",
+    "/.well-known/oauth-authorization-server",
+    # JWKS must be publicly fetchable — clients and the MCP server verify
+    # RS256 access tokens against it without presenting a token themselves.
+    "/.well-known/jwks.json",
+    # GPU / pricing / hosts — non-sensitive inventory data needed by dropdowns
+    "/api/v2/gpu/available",
+    "/hosts",
+    "/api/pricing/reference",
+    "/api/pricing/rates",
+    "/api/pricing/spot",
+    "/api/pricing/spot-enabled",
+    "/api/pricing/spot-floor-suggestion",
+    "/spot-prices",
+    # Crypto / Lightning service-status checks (no sensitive data)
+    "/api/billing/crypto/enabled",
+    "/api/billing/crypto/rate",
+    "/api/billing/lightning/enabled",
+    "/api/billing/lightning/rate",
+    "/api/billing/paypal/enabled",
+    "/api/billing/paypal/webhook",
+    # Stripe Connect thin events. Stripe sends no bearer, so demanding one meant
+    # every delivery got 401 from this middleware before the handler ran — the
+    # endpoint has been unreachable for as long as it has existed, which the
+    # missing signing secret masked (a 503 nobody saw, behind a 401 nobody saw).
+    #
+    # Safe for the same reason the two webhooks above are: the signature *is* the
+    # credential. `routes/stripe_connect_v2.py` refuses without a
+    # `stripe-signature` header (400), verifies it against the endpoint secret via
+    # `parse_event_notification`, and answers 503 rather than proceeding if no
+    # secret is configured. Nothing is trusted here that the handler does not check.
+    "/api/connect/webhooks",
+    "/api/v2/serverless/enabled",
+}
+PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
+AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
+
+
+# ── In-Memory Auth Stores ─────────────────────────────────────────────
+
+_users_db: dict[str, dict] = {}
+_sessions: dict[str, dict] = {}
+_api_keys: dict[str, dict] = {}
+_user_lock = _threading.Lock()
+
+
+# ── SSE Infrastructure ───────────────────────────────────────────────
+
+_sse_subscribers: list[asyncio.Queue] = []
+_sse_lock = _threading.Lock()
+
+
+def _sse_message_text(event_type: str, data: dict) -> str:
+    _templates = {
+        "host_update": "Host {host_id} registered with {gpu_model}",
+        "host_removed": "Host {host_id} removed",
+        "job_submitted": "Instance {name} submitted (ID: {job_id})",
+        "job_status": "Instance {job_id} is now {status}",
+        "job_cancelled": "Instance {job_id} cancelled",
+        "job_log": "Log entry for instance {job_id}",
+        "queue_processed": "{assigned_count} instance(s) assigned to hosts",
+        "user_registered": "New user registered: {email}",
+        "team_created": "Team {name} created",
+        "team_member_added": "Member {email} added to team {team_id}",
+        "team_deleted": "Team {team_id} deleted",
+        "preemption_scheduled": "Preemption scheduled on host {host_id} for instance {job_id}",
+        "spot_prices_updated": "Spot prices updated",
+    }
+    template = _templates.get(event_type)
+    if template:
+        try:
+            return template.format(**data)
+        except (KeyError, IndexError):
+            pass
+    return event_type.replace("_", " ").title()
+
+
+_NOTIF_EVENT_MAP = {
+    "user_registered": {
+        "notif_type": "system",
+        "title": "New User Registered",
+        "body": "{email} has joined the platform.",
+    },
+    "job_submitted": {
+        "notif_type": "instance",
+        "title": "Instance Submitted",
+        "body": "Your instance {name} has been submitted.",
+        "action_url": "/dashboard/instances/{job_id}",
+        "entity_type": "job",
+        "entity_id": "{job_id}",
+    },
+    "job_status": {
+        "notif_type": "instance",
+        "title": "Instance {status}",
+        "body": "Instance {job_id} is now {status}.",
+        "action_url": "/dashboard/instances/{job_id}",
+        "entity_type": "job",
+        "entity_id": "{job_id}",
+    },
+    "host_registered": {
+        "notif_type": "host",
+        "title": "Host Registered",
+        "body": "A new host has been registered.",
+        "action_url": "/dashboard/hosts/{host_id}",
+        "entity_type": "host",
+        "entity_id": "{host_id}",
+    },
+    "host_removed": {
+        "notif_type": "host",
+        "title": "Host Removed",
+        "body": "Host {host_id} has been removed.",
+        "action_url": "/dashboard/hosts/{host_id}",
+        "entity_type": "host",
+        "entity_id": "{host_id}",
+        "priority": 1,
+    },
+    "job_completed": {
+        "notif_type": "instance",
+        "title": "Instance Completed",
+        "body": "Instance {job_id} completed successfully.",
+        "action_url": "/dashboard/instances/{job_id}",
+        "entity_type": "job",
+        "entity_id": "{job_id}",
+    },
+    "job_failed": {
+        "notif_type": "instance",
+        "title": "Instance Failed",
+        "body": "Instance {job_id} has failed.",
+        "action_url": "/dashboard/instances/{job_id}",
+        "entity_type": "job",
+        "entity_id": "{job_id}",
+        "priority": 1,
+    },
+    "preemption_scheduled": {
+        "notif_type": "instance",
+        "title": "Preemption Scheduled",
+        "body": "Instance {job_id} is being preempted.",
+        "action_url": "/dashboard/instances/{job_id}",
+        "entity_type": "job",
+        "entity_id": "{job_id}",
+        "priority": 1,
+    },
+}
+
+
+def _format_notif_value(template: str, data: dict) -> str:
+    return template.format_map(defaultdict(str, **data))
+
+
+def _build_notification_payload(event_type: str, data: dict) -> dict | None:
+    config = _NOTIF_EVENT_MAP.get(event_type)
+    if not config:
+        return None
+
+    notif_data = dict(data)
+    notif_data.setdefault("source_event", event_type)
+
+    return {
+        "notif_type": config["notif_type"],
+        "title": _format_notif_value(config["title"], data),
+        "body": _format_notif_value(config["body"], data),
+        "data": notif_data,
+        "action_url": _format_notif_value(config.get("action_url", ""), data),
+        "entity_type": _format_notif_value(config.get("entity_type", ""), data),
+        "entity_id": _format_notif_value(config.get("entity_id", ""), data),
+        "priority": int(config.get("priority", 0)),
+    }
+
+
+def _deliver_notifications(event_type: str, data: dict):
+    notification = _build_notification_payload(event_type, data)
+    if not notification:
+        return
+    try:
+        if _USE_PERSISTENT_AUTH:
+            if event_type in (
+                "job_submitted",
+                "job_status",
+                "job_completed",
+                "job_failed",
+                "preemption_scheduled",
+            ):
+                job_id = data.get("job_id", "")
+                jobs = list_jobs()
+                job = next((j for j in jobs if j.get("job_id") == job_id), None)
+                owner_email = job.get("owner_email", job.get("user_email", "")) if job else ""
+                if owner_email:
+                    user = UserStore.get_user(owner_email)
+                    if user and user.get("notifications_enabled", 1):
+                        NotificationStore.create(owner_email, **notification)
+                if event_type == "job_failed":
+                    for u in UserStore.list_users():
+                        if u.get("role") == "admin" and u["email"] != owner_email:
+                            if u.get("notifications_enabled", 1):
+                                NotificationStore.create(u["email"], **notification)
+            else:
+                for u in UserStore.list_users():
+                    if u.get("role") == "admin" and u.get("notifications_enabled", 1):
+                        NotificationStore.create(u["email"], **notification)
+    except Exception as e:
+        log.debug("Notification delivery error: %s", e)
+
+
+def broadcast_sse(event_type: str, data: dict, *, cursor: str | None = None):
+    """Push an event to all connected SSE clients."""
+    message = {
+        "event": event_type,
+        "data": data,
+        "timestamp": time.time(),
+        "message": _sse_message_text(event_type, data),
+    }
+    if cursor is not None:
+        message["cursor"] = str(cursor)
+    with _sse_lock:
+        dead = []
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(message)
+            except asyncio.QueueFull:
+                dead.append(q)
+        for q in dead:
+            _sse_subscribers.remove(q)
+    _threading.Thread(target=_deliver_notifications, args=(event_type, data), daemon=True).start()
+
+
+# ── Auth Helpers ──────────────────────────────────────────────────────
+
+
+def _get_real_client_ip(request: HTTPConnection) -> str:
+    # Uvicorn resolves X-Forwarded-For only for configured trusted proxy peers
+    # (Gunicorn defaults to loopback, where our nginx ingress connects).
+    # Re-reading arbitrary headers here bypasses that trust boundary and lets
+    # callers choose their quota bucket, audit address, or WebSocket IP pin.
+    return request.client.host if request.client else "unknown"
+
+
+def _mutate_shared_rate_buckets(
+    state: dict, key: str, now: float, *, limit: int, window_sec: float
+) -> tuple[dict, bool]:
+    """Prune a rolling window of timestamps and take a slot if one is free.
+
+    Shared by every limiter that counts across workers, because four
+    hand-written copies of "drop the expired entries, compare, append" is four
+    places for the comparison to drift from the pruning.
+
+    Returns the new state and whether the caller is allowed through.
+    """
+    cutoff = now - window_sec
+    buckets = state.get("buckets", {}) or {}
+    keep = max(1, limit)
+    pruned: dict[str, list[float]] = {}
+    for bucket_key, entries in buckets.items():
+        cleaned = [float(ts) for ts in (entries or []) if float(ts) > cutoff]
+        if cleaned:
+            pruned[bucket_key] = cleaned[-keep:]
+
+    history = pruned.get(key, [])
+    if len(history) >= limit:
+        return {"buckets": pruned, "updated_at": now}, False
+
+    history.append(now)
+    pruned[key] = history[-keep:]
+    return {"buckets": pruned, "updated_at": now}, True
+
+
+def _take_local_rate_slot(
+    buckets: dict, lock, key: str, now: float, *, limit: int, window_sec: float
+) -> bool:
+    """The per-process fallback for when shared state is unavailable.
+
+    Correct for a single worker and approximate for several, which is the best
+    that can be done without the shared store — but it is only reached when
+    that store is down, not in normal operation.
+    """
+    with lock:
+        bucket = buckets[key]
+        while bucket and bucket[0] <= now - window_sec:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+    return True
+
+
+def _take_shared_rate_slot(
+    namespace: str,
+    key: str,
+    now: float,
+    *,
+    limit: int,
+    window_sec: float,
+    buckets: dict,
+    lock,
+) -> bool:
+    """Use the shared rolling window, with a locked local fallback on outage."""
+    shared_ok, allowed = _shared_state_update(
+        namespace,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state, key, now, limit=limit, window_sec=window_sec
+        ),
+    )
+    if shared_ok:
+        return bool(allowed)
+    return _take_local_rate_slot(buckets, lock, key, now, limit=limit, window_sec=window_sec)
+
+
+def _check_auth_rate_limit(request: Request) -> None:
+    """Throttle authentication attempts per client IP.
+
+    Counted in shared state rather than in this worker's memory, because it is
+    the *only* brute-force control on `/api/auth/login` — there is no
+    account-level lockout anywhere in the codebase. Per-process, a client's
+    attempts round-robin and each worker counted only the ones it served, so the
+    real budget was the configured one times `GUNICORN_WORKERS`. Measured
+    against the two-worker stack with the limit set to 10, the fifteenth attempt
+    was still answered 401.
+
+    Affordable here in a way it is not for `_RATE_BUCKETS`: this runs on the
+    handful of auth endpoints rather than on every request, and the WS connect
+    limiter already pays the same cost on an equally unauthenticated path.
+    """
+    now = time.time()
+    client_ip = _get_real_client_ip(request)
+
+    shared_ok, allowed = _shared_state_update(
+        _AUTH_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state,
+            client_ip,
+            now,
+            limit=_AUTH_RATE_LIMIT_REQUESTS,
+            window_sec=_AUTH_RATE_LIMIT_WINDOW_SEC,
+        ),
+    )
+    if not shared_ok:
+        allowed = _take_local_rate_slot(
+            _AUTH_RATE_BUCKETS,
+            _AUTH_RATE_LOCK,
+            client_ip,
+            now,
+            limit=_AUTH_RATE_LIMIT_REQUESTS,
+            window_sec=_AUTH_RATE_LIMIT_WINDOW_SEC,
+        )
+    if not allowed:
+        raise HTTPException(429, "Too many attempts. Please try again later.")
+
+
+def _check_host_enroll_rate_limit(host_id: str) -> None:
+    """Throttle enrollment per host, in shared state like the other enforcement limiters."""
+    now = time.time()
+    shared_ok, allowed = _shared_state_update(
+        _HOST_ENROLL_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state,
+            host_id,
+            now,
+            limit=_HOST_ENROLL_RATE_LIMIT_REQUESTS,
+            window_sec=_HOST_ENROLL_RATE_LIMIT_WINDOW_SEC,
+        ),
+    )
+    if not shared_ok:
+        allowed = _take_local_rate_slot(
+            _HOST_ENROLL_RATE_BUCKETS,
+            _HOST_ENROLL_RATE_LOCK,
+            host_id,
+            now,
+            limit=_HOST_ENROLL_RATE_LIMIT_REQUESTS,
+            window_sec=_HOST_ENROLL_RATE_LIMIT_WINDOW_SEC,
+        )
+    if not allowed:
+        raise HTTPException(429, "Too many enrollments for this host. Try again in an hour.")
+
+
+def _check_billing_payment_rate_limit(customer_id: str, action: str) -> None:
+    """Per-customer rate limit for deposit/payment intent endpoints.
+
+    Shared for the same reason as the auth limiter: each call that gets through
+    creates a real payment object at a payment provider, so a quota that is
+    silently multiplied by the worker count is a quota on nothing.
+    """
+    if _BILLING_PAYMENT_RATE_LIMIT_REQUESTS <= 0:
+        return
+    now = time.time()
+    key = f"{customer_id}:{action}"
+
+    shared_ok, allowed = _shared_state_update(
+        _BILLING_PAYMENT_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_rate_buckets(
+            state,
+            key,
+            now,
+            limit=_BILLING_PAYMENT_RATE_LIMIT_REQUESTS,
+            window_sec=_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC,
+        ),
+    )
+    if not shared_ok:
+        allowed = _take_local_rate_slot(
+            _BILLING_PAYMENT_RATE_BUCKETS,
+            _BILLING_PAYMENT_RATE_LOCK,
+            key,
+            now,
+            limit=_BILLING_PAYMENT_RATE_LIMIT_REQUESTS,
+            window_sec=_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC,
+        )
+    if not allowed:
+        log.warning(
+            "billing.payment_rate_limited customer_id=%s action=%s window_sec=%s limit=%s",
+            customer_id,
+            action,
+            _BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC,
+            _BILLING_PAYMENT_RATE_LIMIT_REQUESTS,
+        )
+        raise HTTPException(
+            429,
+            "Too many payment attempts. Please wait a few minutes and try again.",
+        )
+
+
+def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    hashed = _hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
+    return hashed, salt
+
+
+def _admin_flag(value) -> int:
+    if isinstance(value, str):
+        return 1 if value.strip().lower() in {"1", "true", "yes", "on"} else 0
+    return 1 if value else 0
+
+
+def _is_platform_admin(user: dict | None) -> bool:
+    if not user:
+        return False
+    return _admin_flag(user.get("is_admin")) == 1 or user.get("role") == "admin"
+
+
+def _lookup_user_by_email(email: str) -> dict | None:
+    """Resolve a user record by email from persistent or in-memory auth stores."""
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return None
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(normalized)
+        if user:
+            return user
+    with _user_lock:
+        return _users_db.get(normalized)
+
+
+def _caller_owner_ids(user: dict) -> set[str]:
+    """Identifiers that may match resource owner fields (customer, user, email, provider)."""
+    owned: set[str] = set()
+    for key in ("customer_id", "user_id", "email", "provider_id"):
+        v = str(user.get(key) or "").strip()
+        if v:
+            owned.add(v)
+    return owned
+
+
+def _canonical_owner_id(user: dict) -> str:
+    """Primary billing identity for job ownership (customer_id, else user_id)."""
+    cid = (user.get("customer_id") or "").strip()
+    if cid:
+        return cid
+    return (user.get("user_id") or "").strip()
+
+
+def _user_team_id(user: dict) -> str | None:
+    """Active team context for the caller (users.team_id).
+
+    When ``users.team_id`` is explicitly NULL/empty, the caller is in personal
+    workspace mode and we do not auto-select their only team.
+    """
+    team_id = str(user.get("team_id") or "").strip()
+    if team_id:
+        return team_id
+    email = str(user.get("email") or "").strip()
+    if _USE_PERSISTENT_AUTH and email:
+        full_user = UserStore.get_user(email)
+        if full_user is not None:
+            stored = full_user.get("team_id")
+            if stored is not None and str(stored).strip():
+                return str(stored).strip()
+            if "team_id" in full_user:
+                return None
+        teams = UserStore.get_user_teams(email)
+        if len(teams) == 1:
+            return str(teams[0].get("team_id") or "").strip() or None
+    return None
+
+
+def _team_billing_customer_id(team_id: str) -> str | None:
+    """Shared wallet customer_id for a team (falls back to owner profile)."""
+    team = UserStore.get_team(team_id)
+    if not team:
+        return None
+    bcid = str(team.get("billing_customer_id") or "").strip()
+    if bcid:
+        return bcid
+    owner = UserStore.get_user(str(team.get("owner_email") or "").strip())
+    if owner:
+        return (
+            str(
+                owner.get("customer_id") or owner.get("user_id") or owner.get("email") or ""
+            ).strip()
+            or None
+        )
+    return str(team.get("owner_email") or "").strip() or None
+
+
+def _team_member_role(user: dict, team_id: str) -> str | None:
+    email = str(user.get("email") or "").strip().lower()
+    if not email:
+        return None
+    for member in UserStore.list_team_members(team_id):
+        if str(member.get("email") or "").strip().lower() == email:
+            return str(member.get("role") or "").strip().lower() or None
+    return None
+
+
+def _effective_billing_customer_id(user: dict) -> str:
+    """Billing customer for jobs/wallet when acting personally or on a team."""
+    team_id = _user_team_id(user)
+    if team_id:
+        team_bcid = _team_billing_customer_id(team_id)
+        if team_bcid:
+            return team_bcid
+    return _canonical_owner_id(user)
+
+
+def _customer_ids_accessible_by_user(user: dict) -> set[str]:
+    """Customer IDs the caller may read (own wallet + team wallet when a member)."""
+    ids = set(_caller_owner_ids(user))
+    canonical = _canonical_owner_id(user)
+    if canonical:
+        ids.add(canonical)
+    team_ids: set[str] = set()
+    active_team = _user_team_id(user)
+    if active_team:
+        team_ids.add(active_team)
+    email = str(user.get("email") or "").strip()
+    if _USE_PERSISTENT_AUTH and email:
+        for team in UserStore.get_user_teams(email):
+            tid = str(team.get("team_id") or "").strip()
+            if tid:
+                team_ids.add(tid)
+    for team_id in team_ids:
+        bcid = _team_billing_customer_id(team_id)
+        if bcid:
+            ids.add(bcid)
+    ids.discard("")
+    return ids
+
+
+def _team_can_write_instances(user: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    team_id = _user_team_id(user)
+    if not team_id:
+        return True
+    role = _team_member_role(user, team_id)
+    return role in {"admin", "member"}
+
+
+def _team_can_manage_billing(user: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    team_id = _user_team_id(user)
+    if not team_id:
+        return True
+    return _team_member_role(user, team_id) == "admin"
+
+
+def _require_team_instance_write(user: dict) -> None:
+    if not _team_can_write_instances(user):
+        raise HTTPException(403, "Team viewers cannot modify instances")
+
+
+def _require_team_billing_write(user: dict, customer_id: str) -> None:
+    team_id = _user_team_id(user)
+    if not team_id:
+        return
+    bcid = _team_billing_customer_id(team_id)
+    if bcid and customer_id == bcid and not _team_can_manage_billing(user):
+        raise HTTPException(403, "Only team admins can manage team billing")
+
+
+def _volume_owner_ids_readable(user: dict) -> set[str]:
+    """Volume owner_id values visible to the caller (mirrors job read scope)."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _volume_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created volumes in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_volume(user: dict, vol: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(vol.get("owner_id") or "").strip()
+    return owner in _volume_owner_ids_readable(user)
+
+
+def _require_volume_read(user: dict, vol: dict) -> None:
+    if not _user_can_access_volume(user, vol):
+        raise HTTPException(404, "Volume not found")
+
+
+def _require_volume_write_role(user: dict, vol: dict | None = None) -> None:
+    """Block team viewers from volume mutations (any team wallet volume)."""
+    if _is_platform_admin(user):
+        return
+    email = str(user.get("email") or "").strip().lower()
+    owner = str((vol or {}).get("owner_id") or "").strip()
+    if _USE_PERSISTENT_AUTH and email:
+        for team in UserStore.get_user_teams(email):
+            tid = str(team.get("team_id") or "").strip()
+            if not tid:
+                continue
+            bcid = _team_billing_customer_id(tid)
+            if bcid and (not owner or owner == bcid):
+                role = str(team.get("member_role") or "").lower()
+                if role == "viewer":
+                    raise HTTPException(403, "Team viewers cannot modify volumes")
+    _require_team_instance_write(user)
+
+
+def _require_volume_write(user: dict, vol: dict) -> None:
+    if _is_platform_admin(user):
+        return
+    _require_volume_read(user, vol)
+    _require_volume_write_role(user, vol)
+
+
+def _team_context_for_user(user: dict) -> dict:
+    """Serializable team tenancy fields for auth/me and UI."""
+    billing_customer_id = _effective_billing_customer_id(user)
+    ctx: dict = {
+        "billing_customer_id": billing_customer_id,
+        "team_can_manage_billing": _team_can_manage_billing(user),
+        "team_can_write_instances": _team_can_write_instances(user),
+    }
+    team_id = _user_team_id(user)
+    if team_id:
+        team = UserStore.get_team(team_id)
+        ctx["team_id"] = team_id
+        ctx["team_role"] = _team_member_role(user, team_id)
+        if team:
+            ctx["team_name"] = team.get("name")
+            ctx["team_plan"] = team.get("plan")
+    return ctx
+
+
+def _audit_metadata_for_user(user: dict) -> dict:
+    """Team/workspace context attached to user-initiated audit events."""
+    meta: dict = {
+        "billing_customer_id": _effective_billing_customer_id(user),
+        "user_id": str(user.get("user_id") or "").strip(),
+        "email": str(user.get("email") or "").strip().lower(),
+    }
+    team_id = _user_team_id(user)
+    if team_id:
+        meta["team_id"] = team_id
+        role = _team_member_role(user, team_id)
+        if role:
+            meta["team_role"] = role
+    return meta
+
+
+def append_user_audit_event(
+    event_type: str,
+    entity_type: str,
+    entity_id: str,
+    user: dict,
+    *,
+    data: dict | None = None,
+) -> None:
+    """Best-effort tamper-evident audit event for customer mutations."""
+    try:
+        from events import Event, get_event_store
+
+        actor_id = str(user.get("user_id") or user.get("email") or "unknown").strip()
+        get_event_store().append(
+            Event(
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                actor=f"user:{actor_id}",
+                data=data or {},
+                metadata=_audit_metadata_for_user(user),
+            )
+        )
+    except Exception as exc:
+        log.warning("Failed to append user audit event %s: %s", event_type, exc)
+
+
+def _require_customer_access(
+    request: Request,
+    customer_id: str,
+    *,
+    billing_write: bool = False,
+) -> dict:
+    """Authn, scope, and ownership guard for customer-scoped billing routes.
+
+    The three questions are separate and all three have to be asked:
+
+    * **Who is calling?** — `_get_current_user`, 401 if nobody.
+    * **May this *credential* touch billing at all?** — `_require_scope`. This
+      was missing, so eleven routes in `routes/billing.py` were authenticated
+      and ownership-checked but not authorized: a machine credential narrowed to
+      `instances:read` could still read a customer's balance, transaction
+      history, burn rate, usage and invoices, and could create a reserved
+      pricing commitment. Scope reduction is something users perform
+      deliberately — Quick Connect ships a narrowed set — and it did nothing
+      here. Same defect as the six write levers fixed in `239643b`, on the read
+      side of the same surface.
+    * **Whose data is it?** — ownership, or platform admin.
+
+    **Scope is checked before the admin bypass, deliberately.** Being an admin
+    says whose records you may see; it does not widen what a *token* may do. An
+    admin whose machine credential excludes billing should still be refused, or
+    narrowing an admin's token would be decorative. Interactive sessions are
+    unaffected either way: `_require_scope` is a no-op for anything that is not
+    a machine credential, so the dashboard and the admin console keep working.
+
+    `billing_write` already marks the routes that move or commit money, so the
+    scope follows it rather than being restated per route — a list of route
+    names to keep in sync is how the original gap survived.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write" if billing_write else "billing:read")
+    if _is_platform_admin(user):
+        return user
+    if customer_id not in _customer_ids_accessible_by_user(user):
+        raise HTTPException(403, "Forbidden")
+    if billing_write:
+        _require_team_billing_write(user, customer_id)
+    return user
+
+
+def _job_access_owner_ids(user: dict) -> set[str]:
+    """All identifiers that may match job.owner."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _user_owns_job(user: dict, job: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    job_owner = (job.get("owner") or "").strip()
+    if not job_owner:
+        return False
+    return job_owner in _job_access_owner_ids(user)
+
+
+def _check_job_access(user: dict, job_id: str) -> None:
+    """Verify user owns the job or is platform admin."""
+    if _is_platform_admin(user):
+        return
+    from scheduler import get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"Instance {job_id} not found")
+    if not _user_owns_job(user, job):
+        raise HTTPException(403, "Not authorized to access this instance")
+
+
+def _check_job_write_access(user: dict, job_id: str) -> None:
+    """Ownership guard plus team viewer block for mutating instance endpoints."""
+    _check_job_access(user, job_id)
+    _require_team_instance_write(user)
+
+
+def _filter_jobs_for_user(jobs: list[dict], user: dict) -> list[dict]:
+    """Return jobs visible to the caller (admins see all)."""
+    if _is_platform_admin(user):
+        return jobs
+    allowed = _job_access_owner_ids(user)
+    return [j for j in jobs if (j.get("owner") or "").strip() in allowed]
+
+
+def _is_platform_worker(user: dict) -> bool:
+    return _is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")
+
+
+def _require_platform_worker(user: dict) -> None:
+    if not _is_platform_worker(user):
+        raise HTTPException(403, "Forbidden")
+
+
+def _require_entity_event_access(user: dict, entity_type: str, entity_id: str) -> None:
+    """Ownership guard for GET /api/events/{entity_type}/{entity_id}."""
+    if _is_platform_admin(user):
+        return
+    et = (entity_type or "").strip().lower()
+    eid = (entity_id or "").strip()
+    if et in ("job", "instance"):
+        _check_job_access(user, eid)
+        return
+    if et == "host":
+        if eid in _caller_owner_ids(user):
+            return
+        raise HTTPException(403, "Forbidden")
+    raise HTTPException(403, "Forbidden")
+
+
+def _require_inference_job_access(user: dict, job_id: str) -> None:
+    if _is_platform_admin(user):
+        return
+    from inference_store import get_inference_job
+
+    meta = get_inference_job(job_id)
+    if meta:
+        cid = str(meta.get("customer_id") or "").strip()
+        if cid and cid not in _customer_ids_accessible_by_user(user):
+            raise HTTPException(403, "Forbidden")
+        return
+    _check_job_access(user, job_id)
+
+
+def _inference_owner_ids_readable(user: dict) -> set[str]:
+    """Inference endpoint owner_id values visible to the caller."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _inference_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created inference endpoints in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_inference_endpoint(user: dict, ep: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(ep.get("owner_id") or "").strip()
+    return owner in _inference_owner_ids_readable(user)
+
+
+def _require_inference_endpoint_access(user: dict, ep: dict) -> None:
+    if not _user_can_access_inference_endpoint(user, ep):
+        raise HTTPException(403, "Forbidden")
+
+
+def _require_inference_endpoint_write(user: dict, ep: dict) -> None:
+    _require_inference_endpoint_access(user, ep)
+    _require_team_instance_write(user)
+
+
+def _serverless_owner_ids_readable(user: dict) -> set[str]:
+    """Serverless endpoint owner_id values visible to the caller."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _serverless_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created serverless endpoints in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_serverless_endpoint(user: dict, ep: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(ep.get("owner_id") or "").strip()
+    return owner in _serverless_owner_ids_readable(user)
+
+
+def _require_serverless_endpoint_access(user: dict, ep: dict) -> None:
+    if not _user_can_access_serverless_endpoint(user, ep):
+        raise HTTPException(404, "Endpoint not found")
+
+
+def _require_serverless_endpoint_write(user: dict, ep: dict) -> None:
+    _require_serverless_endpoint_access(user, ep)
+    _require_team_instance_write(user)
+
+
+def _user_has_serverless_feature(user: dict | None) -> bool:
+    from serverless.feature import serverless_enabled_for_owner
+
+    if user and _is_platform_admin(user):
+        return True
+    if not user:
+        return serverless_enabled_for_owner("")
+    return serverless_enabled_for_owner(_serverless_scope_owner_id(user))
+
+
+def _require_serverless_feature(
+    *,
+    user: dict | None = None,
+    owner_id: str | None = None,
+) -> None:
+    from serverless.feature import serverless_enabled_for_owner
+
+    if user and _is_platform_admin(user):
+        return
+    oid = (owner_id or "").strip()
+    if not oid and user:
+        oid = _serverless_scope_owner_id(user)
+    if not serverless_enabled_for_owner(oid):
+        raise HTTPException(404, "Endpoint not found")
+
+
+def _resolve_serverless_endpoint_auth(
+    request: Request,
+    endpoint_id: str,
+    *,
+    write: bool = False,
+) -> tuple[dict | None, dict | None, dict]:
+    """
+    Resolve session user and/or per-endpoint API key.
+    Returns (user, api_key_row, endpoint_row). Raises HTTPException on failure.
+    """
+    from serverless.repo import ServerlessRepo
+    from serverless.keys import KEY_PREFIX, validate_key
+
+    repo = ServerlessRepo()
+    ep = repo.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+
+    _require_serverless_feature(user=_get_current_user(request), owner_id=str(ep["owner_id"]))
+
+    auth = request.headers.get("Authorization", "")
+    key_row = None
+    if auth.startswith("Bearer "):
+        from oauth_service import looks_like_agent_key
+
+        token = auth[7:].strip()
+        # An agent key (`xcel_ai_…`) also starts with the serverless key prefix
+        # (`xcel_`), so a prefix test alone misroutes every Quick Connect
+        # credential into the serverless-key validator, which rejects it — and
+        # this branch raised 401 before the session path below was ever tried.
+        # The effect was that the whole serverless surface (`run_serverless_job`,
+        # `get_serverless_job_status`) returned "Invalid API key" for exactly
+        # the credential we tell MCP users to paste. Match the more specific
+        # prefix first and fall through, which is the same order the main
+        # bearer path already uses.
+        if token.startswith(KEY_PREFIX) and not looks_like_agent_key(token):
+            key_row = validate_key(repo, token)
+            if not key_row:
+                raise HTTPException(401, "Invalid API key")
+            if key_row.get("endpoint_id") and str(key_row["endpoint_id"]) != endpoint_id:
+                raise HTTPException(404, "Endpoint not found")
+            if write:
+                from serverless.keys import key_has_scope
+
+                if not key_has_scope(key_row, "inference:write"):
+                    raise HTTPException(403, "Insufficient API key scope")
+
+    user = _get_current_user(request)
+    if user:
+        # The inversion this closes: the endpoint API key above — the *narrower*
+        # credential, minted for one endpoint — was held to `inference:write`,
+        # while a user credential that can reach every endpoint on the account
+        # was held to none. The broader credential must not be the freer one.
+        #
+        # `MCP_QUICK_CONNECT_SCOPES` carries both inference scopes, so this
+        # cannot reproduce the `instances:connect` failure — a scope enforced on
+        # routes and absent from the token users are told to paste. Asserted in
+        # `tests/test_serverless_refuses_narrowed_credentials.py` rather than
+        # reasoned about here.
+        _require_scope(user, "inference:write" if write else "inference:read")
+        _require_serverless_endpoint_access(user, ep)
+        if write:
+            _require_serverless_endpoint_write(user, ep)
+        return user, key_row, ep
+
+    if key_row:
+        return None, key_row, ep
+
+    raise HTTPException(401, "Not authenticated")
+
+
+def _user_image_owner_ids_readable(user: dict) -> set[str]:
+    """User image template owner_id values visible to the caller."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _user_image_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created templates in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_user_image(user: dict, image_owner_id: str) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(image_owner_id or "").strip()
+    return owner in _user_image_owner_ids_readable(user)
+
+
+def _require_user_image_read(user: dict, image_owner_id: str) -> None:
+    if not _user_can_access_user_image(user, image_owner_id):
+        raise HTTPException(404, "Image not found")
+
+
+def _require_user_image_write(user: dict, image_owner_id: str) -> None:
+    _require_user_image_read(user, image_owner_id)
+    _require_team_instance_write(user)
+
+
+def _oauth_workspace_customer_id(user: dict) -> str:
+    """Billing customer for OAuth clients created in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _oauth_workspace_team_id(user: dict) -> str | None:
+    return _user_team_id(user)
+
+
+def _user_can_access_oauth_client(user: dict, client: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    if int(client.get("is_first_party") or 0):
+        return False
+    email = str(user.get("email") or "").strip().lower()
+    owner = str(client.get("created_by_email") or "").strip().lower()
+    if not email:
+        return False
+    scope = _oauth_workspace_customer_id(user)
+    personal = _canonical_owner_id(user)
+    client_ws = str(client.get("workspace_customer_id") or "").strip()
+    if not client_ws:
+        return scope == personal and owner == email
+    if client_ws not in _customer_ids_accessible_by_user(user):
+        return False
+    if client_ws == personal:
+        return owner == email
+    return client_ws == scope
+
+
+def _require_oauth_client_access(user: dict, client: dict) -> None:
+    if not _user_can_access_oauth_client(user, client):
+        raise HTTPException(404, "OAuth client not found")
+
+
+def _require_oauth_client_write(user: dict, client: dict) -> None:
+    _require_oauth_client_access(user, client)
+    _require_team_instance_write(user)
+
+
+def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
+    merged = dict(base or {})
+    if full_user:
+        merged["role"] = full_user.get("role", merged.get("role", "submitter"))
+        merged["name"] = full_user.get("name", merged.get("name", ""))
+        merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
+        merged["provider_id"] = full_user.get("provider_id", merged.get("provider_id"))
+        merged["team_id"] = full_user.get("team_id", merged.get("team_id"))
+        merged["mfa_enabled"] = bool(full_user.get("mfa_enabled"))
+        merged["email_verified"] = bool(
+            full_user.get("email_verified", merged.get("email_verified"))
+        )
+        merged["is_admin"] = True if _is_platform_admin(full_user) else False
+    else:
+        merged["is_admin"] = True if _is_platform_admin(merged) else False
+    from abuse_policy import account_suspended
+
+    if account_suspended(merged):
+        raise HTTPException(403, "Account suspended")
+    return merged
+
+
+def _auth_cookie_domain(base_url: str) -> str | None:
+    """The `Domain` attribute for auth cookies, or None for a host-only cookie.
+
+    This was the literal `".xcelsior.ca"` whenever `XCELSIOR_BASE_URL` began
+    with `https`, which is a scheme test standing in for an identity test. Any
+    other HTTPS origin — a staging deploy, a preview URL, a tunnel — was sent a
+    cookie scoped to a domain it is not on, and browsers drop those silently:
+    login returns 200, sets a cookie, and the next request has no session.
+
+    Locally the same rule bit differently. `http://127.0.0.1` skipped the domain
+    and worked, but any dev pointed at an https base could not hold a session at
+    all, and neither could curl: the observed `Set-Cookie:
+    xcelsior_session=…; Domain=.xcelsior.ca` is discarded by a client talking to
+    127.0.0.1, so the Quick Connect page — which needs an interactive session —
+    was unreachable outside production.
+
+    Production behaviour is unchanged: an `xcelsior.ca` origin still gets the
+    shared parent domain, which is what lets the dashboard and API subdomains
+    see one session. Anything else gets a host-only cookie, which is correct
+    everywhere and requires no configuration. `XCELSIOR_COOKIE_DOMAIN` overrides
+    both for a deployment that genuinely needs cross-subdomain on its own name.
+    """
+    explicit = os.environ.get("XCELSIOR_COOKIE_DOMAIN", "").strip()
+    if explicit:
+        return explicit
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").strip().lower()
+    if host == "xcelsior.ca" or host.endswith(".xcelsior.ca"):
+        return ".xcelsior.ca"
+    return None
+
+
+def _set_auth_cookie(response, token: str, *, max_age: int = SESSION_EXPIRY):
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    is_prod = _base.startswith("https")
+    kwargs: dict = dict(
+        key=_AUTH_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        path="/",
+    )
+    _domain = _auth_cookie_domain(_base)
+    if _domain:
+        kwargs["domain"] = _domain
+    response.set_cookie(**kwargs)
+    return response
+
+
+def _set_refresh_cookie(response, token: str, *, max_age: int = REFRESH_TOKEN_TTL_SEC):
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    is_prod = _base.startswith("https")
+    kwargs: dict = dict(
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        path="/",
+    )
+    _domain = _auth_cookie_domain(_base)
+    if _domain:
+        kwargs["domain"] = _domain
+    response.set_cookie(**kwargs)
+    return response
+
+
+def _set_session_cookies(response, token_bundle: dict):
+    _set_auth_cookie(
+        response,
+        str(token_bundle.get("access_token", "")),
+        max_age=int(token_bundle.get("expires_in", ACCESS_TOKEN_TTL_SEC) or ACCESS_TOKEN_TTL_SEC),
+    )
+    refresh_token = str(token_bundle.get("refresh_token", "")).strip()
+    if refresh_token:
+        _set_refresh_cookie(
+            response,
+            refresh_token,
+            max_age=int(
+                token_bundle.get("refresh_expires_in", REFRESH_TOKEN_TTL_SEC)
+                or REFRESH_TOKEN_TTL_SEC
+            ),
+        )
+    return response
+
+
+def _clear_auth_cookie(response):
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    # Must mirror the setter exactly: a delete_cookie whose Domain differs from
+    # the one it was set with does not clear anything, so logout would appear to
+    # work and leave the session live.
+    _domain = _auth_cookie_domain(_base)
+    kwargs: dict = dict(key=_AUTH_COOKIE_NAME, path="/")
+    if _domain:
+        kwargs["domain"] = _domain
+    response.delete_cookie(**kwargs)
+    refresh_kwargs: dict = dict(key=REFRESH_COOKIE_NAME, path="/")
+    if _domain:
+        refresh_kwargs["domain"] = _domain
+    response.delete_cookie(**refresh_kwargs)
+    return response
+
+
+def _create_session(email: str, user: dict, request: Request | None = None) -> dict:
+    token = secrets.token_urlsafe(48)
+    now = time.time()
+    session = {
+        "token": token,
+        "email": email,
+        "user_id": user.get("user_id", email),
+        "role": user.get("role", "submitter"),
+        "is_admin": True if _is_platform_admin(user) else False,
+        "name": user.get("name", ""),
+        "created_at": now,
+        "expires_at": now + SESSION_EXPIRY,
+        "ip_address": _get_real_client_ip(request) if request else None,
+        "user_agent": request.headers.get("user-agent", "")[:512] if request else None,
+        "last_active": now,
+    }
+    if _USE_PERSISTENT_AUTH:
+        UserStore.create_session(session)
+    else:
+        with _user_lock:
+            _sessions[token] = session
+    return session
+
+
+def _get_current_user(request: Request) -> dict | None:
+    auth = request.headers.get("authorization", "")
+    token = ""
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    if not token:
+        token = request.cookies.get(_AUTH_COOKIE_NAME, "")
+    if not token:
+        return None
+    # Treat empty env override (many tests set XCELSIOR_API_TOKEN="") as "use default token".
+    master = os.environ.get("XCELSIOR_API_TOKEN") or API_TOKEN
+    if not master and XCELSIOR_ENV == "test":
+        master = "test-token-not-for-production"
+    if master and hmac.compare_digest(token, master):
+        return {
+            "email": "api-token@xcelsior.ca",
+            "user_id": "api-admin",
+            "role": "admin",
+            "is_admin": True,
+            "name": "API Token",
+            "auth_type": "master_token",
+        }
+
+    if is_oauth_access_token(token):
+        try:
+            oauth_user = resolve_opaque_access_token(token)
+        except AuthCacheUnavailableError as exc:
+            log.error("oauth.auth_cache.unavailable token_lookup_failed: %s", exc)
+            raise HTTPException(503, "Dedicated auth cache unavailable") from exc
+        if oauth_user:
+            full_user = UserStore.get_user(oauth_user["email"]) if oauth_user.get("email") else None
+            merged = _merge_auth_user(dict(oauth_user), full_user)
+            merged["auth_type"] = "oauth_access_token"
+            merged["scopes"] = list(oauth_user.get("scopes") or [])
+            merged["client_id"] = oauth_user.get("client_id")
+            merged["session_token"] = oauth_user.get("session_token")
+            merged["session_type"] = oauth_user.get("session_type", "browser")
+            merged["audience"] = oauth_user.get("audience")
+            return merged
+
+    # Agent keys (MCP + Agent Skill). Checked before the JWT path because the
+    # prefix test is a string comparison, and because these are the only
+    # credentials that survive an auth-cache flush.
+    if looks_like_agent_key(token):
+        agent_principal = validate_agent_api_key(token)
+        if agent_principal:
+            full_user = (
+                UserStore.get_user(agent_principal["email"])
+                if agent_principal.get("email")
+                else None
+            )
+            return _merge_auth_user(dict(agent_principal), full_user)
+
+    machine_principal = validate_client_credentials_jwt(token)
+    if machine_principal:
+        return machine_principal
+
+    if _USE_PERSISTENT_AUTH:
+        session = UserStore.get_session(token)
+        if session:
+            created = session.get("created_at") or 0
+            if time.time() - created > MAX_SESSION_LIFETIME:
+                UserStore.delete_session(token)
+                return None
+            try:
+                last = session.get("last_active") or 0
+                if time.time() - last > 300:
+                    UserStore.update_session_last_active(token)
+            except Exception as e:
+                log.debug("session last_active update failed: %s", e)
+            full_user = UserStore.get_user(session["email"])
+            merged = _merge_auth_user(dict(session), full_user)
+            merged["auth_type"] = "legacy_session"
+            return merged
+        api_key = UserStore.get_api_key(token)
+        if api_key:
+            _deprecated_api_key_requests.labels("legacy_api_key").inc()
+            log.warning(
+                "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
+                api_key["email"],
+                api_key.get("name", "unknown"),
+            )
+            raise HTTPException(
+                401,
+                "API keys have been permanently disabled. Migrate to OAuth 2.0: "
+                "POST /oauth/clients to create a client, then use client_credentials grant.",
+            )
+    else:
+        with _user_lock:
+            session = _sessions.get(token)
+            full_user = _users_db.get(session["email"]) if session else None
+        if session and session["expires_at"] > time.time():
+            merged = _merge_auth_user(session, full_user)
+            merged["auth_type"] = "legacy_session"
+            return merged
+        with _user_lock:
+            api_key = _api_keys.get(token)
+        if api_key:
+            _deprecated_api_key_requests.labels("legacy_api_key").inc()
+            log.warning(
+                "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
+                api_key["email"],
+                api_key.get("name", "unknown"),
+            )
+            raise HTTPException(
+                401,
+                "API keys have been permanently disabled. Migrate to OAuth 2.0: "
+                "POST /oauth/clients to create a client, then use client_credentials grant.",
+            )
+    return None
+
+
+def _require_auth(request: Request) -> dict:
+    user = _get_current_user(request)
+    if user:
+        return user
+    if not AUTH_REQUIRED:
+        return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": True}
+    raise HTTPException(401, "Authentication required")
+
+
+def _require_admin(request: Request) -> dict:
+    user = _require_auth(request)
+    if not _is_platform_admin(user):
+        raise HTTPException(403, "Admin access required")
+    return user
+
+
+def _require_provider_or_admin(request: Request) -> dict:
+    user = _require_auth(request)
+    if user.get("role") != "provider" and not _is_platform_admin(user):
+        raise HTTPException(403, "Provider or admin access required")
+    return user
+
+
+#: Credential classes that are API keys rather than interactive sessions.
+#:
+#: This used to be the bare literal ``"api_key"``, tested inline. Agent keys are
+#: minted with ``auth_type: "agent_api_key"`` (``oauth_service.py``), so the
+#: literal never matched one and every ``allow_api_key=False`` caller admitted
+#: them — the thirty routes whose entire purpose is to require an interactive
+#: session, including MFA, password change, privacy consent and account
+#: deletion. The same "one definition, two spellings" shape as
+#: ``_MACHINE_AUTH_TYPES``, so it is a named set here rather than a literal
+#: there.
+_API_KEY_AUTH_TYPES = frozenset({"api_key", "agent_api_key"})
+
+
+def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dict:
+    """Require an interactive user session.
+
+    Rejects client_credentials (machine) tokens outright and rejects
+    API-key tokens unless *allow_api_key* is True.  This should guard
+    every endpoint that mutates user-owned state: MFA, password, profile,
+    sessions, preferences, privacy/consent, and account deletion.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    auth_type = str(user.get("auth_type", ""))
+    if auth_type == "client_credentials":
+        raise HTTPException(403, "Interactive user authentication required")
+    if auth_type in _API_KEY_AUTH_TYPES and not allow_api_key:
+        raise HTTPException(403, "Interactive session authentication required")
+    return user
+
+
+# Credential classes whose scopes are an authorization restriction rather than
+# an OIDC identity claim. `master_token` is deliberately absent: it is the
+# break-glass admin credential and is gated by admin checks, not scopes.
+_MACHINE_AUTH_TYPES = frozenset({"client_credentials", "agent_api_key"})
+
+#: The first-party web app's OAuth client id. `oauth_service._issue_access_token`
+#: already uses exactly this pair — `session_type == "browser" and client_id ==
+#: "xcelsior-web"` — to decide who gets the long browser TTL, noting that
+#: third-party agents "keep the short access-token TTL even though they also
+#: carry session_type=browser". So `session_type` alone does not separate them
+#: and `client_id` does. The same distinction that decides token lifetime
+#: decides whether scopes are an authorization restriction.
+_FIRST_PARTY_WEB_CLIENT_ID = "xcelsior-web"
+
+#: `enforce` (default) treats a third-party connector token as the scoped
+#: credential it is. `shadow` records what would be refused and enforces
+#: nothing. `off` disables both. Named for `XCELSIOR_SCHEDULER_MODE=shadow`.
+#:
+#: **Why this defaults to `enforce` rather than staging through `shadow`.**
+#: The first draft defaulted to `shadow` on the strength of a count: routes
+#: demand 36 distinct scopes and a Quick Connect token carries 14, so enforcing
+#: looked like it would reproduce the `instances:connect` 403 across every
+#: connector at once. That count was wrong in two ways. It read scopes out of a
+#: TypeScript *type union* rather than out of tool requirements, and it treated
+#: `anyOf` as if it were `allOf`, so a tool satisfied by any one of three scopes
+#: was counted as needing all three.
+#:
+#: Measured correctly, exactly two published tools cannot be satisfied by a
+#: Quick Connect token — `top_up_wallet` and `configure_auto_topup`, both
+#: needing `billing:write`, which Quick Connect withholds deliberately. Both are
+#: **already** refused at the MCP layer by `scopeDenied`, so enforcement here
+#: takes away nothing a connector can do today; it closes the same door on the
+#: direct-REST path, which is the one route scoping never covered. The operator
+#: tools that also fail (`drain_host`, `evict_host_workloads`) are supposed to
+#: fail: a customer connector holding operator authority is the thing
+#: `tests/live/test_scope_refusals_live.py` exists to prevent.
+#:
+#: `shadow` remains available for a deployment that wants evidence before
+#: committing, and the escape hatch is one environment variable.
+_CONNECTOR_SCOPE_MODE = os.environ.get("XCELSIOR_CONNECTOR_SCOPE_MODE", "enforce").strip().lower()
+
+
+def _is_delegated_connector_token(user: dict) -> bool:
+    """True for a third-party authorization-code token, false for a browser session.
+
+    Both arrive as ``auth_type == "oauth_access_token"``. The browser session is
+    an *identity* — its scopes are OIDC claims (`profile`, `email`) that say
+    nothing about API authority, which is why `_require_scope` must never gate
+    it. A connector token is a *delegation*, carrying the API scopes a user
+    ticked on a consent screen.
+    """
+    if user.get("auth_type") != "oauth_access_token":
+        return False
+    return not (
+        user.get("session_type", "browser") == "browser"
+        and str(user.get("client_id") or _FIRST_PARTY_WEB_CLIENT_ID) == _FIRST_PARTY_WEB_CLIENT_ID
+    )
+
+
+def _is_interactive_human(user: dict) -> bool:
+    """True when a person is actually present at this request.
+
+    A first-party dashboard session or legacy session is a human at a keyboard;
+    a client-credentials token, an agent key, and a third-party connector token
+    are not, however faithfully they relay someone's intent.
+
+    This is the predicate for "the approval already happened" — a human clicking
+    save *is* the approval, and asking them to approve their own click is
+    ceremony. It is deliberately **not** `routes.action_plans._is_human`, which
+    tests only `auth_type != "client_credentials"` and therefore counts a
+    connector token as a person.
+    """
+    if user.get("grant_type") == "client_credentials":
+        return False
+    if user.get("auth_type") in _MACHINE_AUTH_TYPES:
+        return False
+    return not _is_delegated_connector_token(user)
+
+
+def _record_connector_scope_shadow(user: dict, required: tuple[str, ...]) -> None:
+    """Log what `enforce` mode would have refused. Never raises.
+
+    A shadow that can break the request it observes is worse than no shadow, so
+    every failure here is swallowed — the caller's outcome must be byte-identical
+    to the mode being off.
+    """
+    try:
+        granted = set(user.get("scopes") or ())
+        if not granted:
+            return  # Pre-scope credential; `enforce` would let it through too.
+        missing = [s for s in required if s not in granted]
+        if not missing:
+            return
+        log.info(
+            "connector_scope.shadow would_refuse client_id=%s missing=%s granted=%s",
+            user.get("client_id") or "unknown",
+            ",".join(sorted(missing)),
+            ",".join(sorted(granted)),
+        )
+    except Exception:  # pragma: no cover - observation must never break traffic
+        pass
+
+
+def _require_scope(user: dict, *required: str) -> None:
+    """Raise 403 if *user* is a scoped machine principal missing any of *required*.
+
+    No-op for interactive user sessions (browser, authorization_code), legacy
+    sessions, admin tokens, and principals without explicit scopes. **Every
+    machine credential** is checked — client-credentials tokens and agent API
+    keys alike.
+
+    This used to gate on ``grant_type == "client_credentials"`` alone. An
+    agent-key principal has no ``grant_type`` field at all (see
+    ``validate_agent_api_key``), so enforcement was skipped entirely for it —
+    including for the Quick Connect keys our own quickstarts tell users to
+    paste, which are issued with a deliberately *narrowed* scope set. The
+    reduction was real; the enforcement was not.
+
+    The gate is *machine credential*, not merely "carries scopes". An
+    interactive session authenticated through ``authorization_code`` carries
+    OIDC identity scopes — ``profile``, ``email``, ``offline_access`` — which
+    say nothing about API authority. Treating their presence as "scope
+    restricted" would deny every browser request for lacking API scopes it was
+    never meant to hold.
+    """
+    is_machine = (
+        user.get("grant_type") == "client_credentials"
+        or user.get("auth_type") in _MACHINE_AUTH_TYPES
+    )
+    if not is_machine and _is_delegated_connector_token(user):
+        # A third-party authorization-code token: the scopes on it are an
+        # authorization restriction the user chose at a consent screen, exactly
+        # like a client-credentials token's. Enforcing that is the whole point
+        # of showing them the list.
+        #
+        # **The default is `enforce`.** This comment said `shadow` long after
+        # the cutover, which is the dangerous direction to be stale in: a
+        # reader here would conclude connector scopes are recorded and not
+        # applied, and go looking for a production 403 somewhere else entirely.
+        # The constant is a hundred lines above and says so correctly; this did
+        # not, and `tests/test_connector_tokens_are_scope_restricted.py` pins
+        # `enforce` besides.
+        #
+        # The caution it recorded was real and was resolved rather than
+        # abandoned: routes demanded scopes a Quick Connect token did not hold,
+        # so enforcing would have 403'd every connector at once. The sets were
+        # reconciled instead — `test_quick_connect_carries_every_scope_the_
+        # connection_routes_demand` derives the requirement from the routes, so
+        # a scope added to one is carried by the token or that test fails.
+        # `shadow` remains available for a deployment that wants evidence
+        # first.
+        #
+        # The shadow log is what turns this into a decision someone can make:
+        # it names the client and the missing scope, so the real required set
+        # can be read off production traffic instead of guessed at.
+        if _CONNECTOR_SCOPE_MODE == "enforce":
+            is_machine = True
+        elif _CONNECTOR_SCOPE_MODE == "shadow":
+            _record_connector_scope_shadow(user, required)
+
+    if not is_machine:
+        return
+
+    scopes = user.get("scopes")
+    # `None`/empty means the credential predates scope recording; denying it
+    # would lock out existing keys for a bug that is not theirs.
+    if not scopes:
+        return
+    granted = set(scopes)
+    # No wildcard. `api` used to short-circuit this check entirely, which made
+    # every narrowed credential — including Quick Connect keys — able to do
+    # anything. It is removed from the scope vocabulary rather than narrowed, so
+    # there is no value a caller can hold that means "everything".
+    missing = [s for s in required if s not in granted]
+    if missing:
+        raise HTTPException(
+            403,
+            f"Insufficient scope — required: {', '.join(required)}; "
+            f"granted: {', '.join(sorted(granted))}",
+        )
+
+
+def _require_write_access(request: Request):
+    user = _get_current_user(request)
+    if (
+        user
+        and user.get("scope") == "read-only"
+        and request.method not in ("GET", "HEAD", "OPTIONS")
+    ):
+        raise HTTPException(403, "This API key has read-only scope")
+    return user
+
+
+# ── WebSocket Auth ────────────────────────────────────────────────────
+
+
+def _get_ws_client_ip(websocket: WebSocket) -> str:
+    """Use the same trusted ASGI client identity as HTTP ticket issuance."""
+    return _get_real_client_ip(websocket)
+
+
+def _lock_shared_state(
+    conn,
+    namespace: str,
+    default_state: dict,
+    *,
+    backend: str,
+) -> dict:
+    """Load a shared state namespace under transaction/row lock."""
+    if backend == "postgres":
+        from psycopg.types.json import Jsonb
+
+        conn.execute(
+            """
+            INSERT INTO state(namespace, payload) VALUES (%s, %s)
+            ON CONFLICT(namespace) DO NOTHING
+            """,
+            (namespace, Jsonb(default_state)),
+        )
+        row = conn.execute(
+            "SELECT payload FROM state WHERE namespace = %s FOR UPDATE",
+            (namespace,),
+        ).fetchone()
+    else:
+        conn.execute(
+            "INSERT OR IGNORE INTO state(namespace, payload) VALUES (?, ?)",
+            (namespace, json.dumps(default_state)),
+        )
+        row = conn.execute(
+            "SELECT payload FROM state WHERE namespace = ?",
+            (namespace,),
+        ).fetchone()
+    payload = row["payload"] if isinstance(row, dict) else row[0]
+    return DatabaseOps.decode_payload(payload) or {}
+
+
+def _shared_state_update(namespace: str, default_factory, mutator) -> tuple[bool, Any]:
+    """Atomically mutate shared runtime state, mirrored in dual-write mode."""
+    if not _USE_SHARED_RUNTIME_LIMITS:
+        return False, None
+
+    engine = get_engine()
+    try:
+        with engine.transaction() as (conn, backend):
+            state = _lock_shared_state(
+                conn,
+                namespace,
+                default_factory(),
+                backend=backend,
+            )
+            new_state, result = mutator(state)
+            DatabaseOps.upsert_state(conn, namespace, new_state, backend=backend)
+        engine.mirror_to_secondary(DatabaseOps.upsert_state, namespace, new_state)
+        return True, result
+    except Exception as exc:
+        log.warning("shared.state.update_failed namespace=%s error=%s", namespace, exc)
+        return False, None
+
+
+def _purge_ws_tickets_locked(now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    expired = [
+        token for token, payload in _WS_TICKETS.items() if payload.get("expires_at", 0) <= now
+    ]
+    for token in expired:
+        _WS_TICKETS.pop(token, None)
+
+
+def _purge_shared_ws_tickets(
+    tickets: dict[str, dict] | None,
+    now: float,
+) -> dict[str, dict]:
+    pruned: dict[str, dict] = {}
+    for token, payload in (tickets or {}).items():
+        expires_at = float((payload or {}).get("expires_at", 0) or 0)
+        if expires_at > now:
+            pruned[token] = dict(payload or {})
+    return pruned
+
+
+def _issue_ws_ticket(
+    user: dict,
+    *,
+    request: Request | None = None,
+    purpose: str = "websocket",
+    target: str = "",
+    ttl_sec: int | None = None,
+    client_ip: str | None = None,
+) -> dict:
+    """Create a short-lived one-time WebSocket ticket."""
+    now = time.time()
+    ticket = secrets.token_urlsafe(32)
+    payload = {
+        "ticket": ticket,
+        "purpose": purpose,
+        "target": target,
+        "user": dict(user),
+        "ip_address": client_ip or (_get_real_client_ip(request) if request else "unknown"),
+        "expires_at": now + max(1, ttl_sec or _WS_TICKET_TTL_SEC),
+    }
+    shared_ok, shared_payload = _shared_state_update(
+        _WS_TICKET_STATE_NAMESPACE,
+        lambda: {"tickets": {}},
+        lambda state: _mutate_shared_ws_tickets_issue(state, payload, now),
+    )
+    if shared_ok:
+        return dict(shared_payload)
+    with _WS_TICKET_LOCK:
+        _purge_ws_tickets_locked(now)
+        _WS_TICKETS[ticket] = payload
+    return payload
+
+
+def _consume_ws_ticket(
+    ticket: str,
+    websocket: WebSocket,
+    *,
+    purpose: str = "websocket",
+    target: str = "",
+) -> dict | None:
+    """Consume a previously issued WebSocket ticket exactly once."""
+    now = time.time()
+    ws_ip = _get_ws_client_ip(websocket)
+    shared_ok, shared_user = _shared_state_update(
+        _WS_TICKET_STATE_NAMESPACE,
+        lambda: {"tickets": {}},
+        lambda state: _mutate_shared_ws_tickets_consume(
+            state,
+            ticket,
+            purpose=purpose,
+            target=target,
+            ws_ip=ws_ip,
+            now=now,
+        ),
+    )
+    res_user = None
+    if shared_ok:
+        res_user = dict(shared_user or {}) or None
+    else:
+        with _WS_TICKET_LOCK:
+            _purge_ws_tickets_locked(now)
+            payload = _WS_TICKETS.get(ticket)
+            if not payload:
+                return None
+            if payload.get("purpose") != purpose:
+                return None
+            if target and payload.get("target") not in ("", target):
+                return None
+            pinned_ip = payload.get("ip_address", "unknown")
+            if pinned_ip not in ("", "unknown", ws_ip):
+                return None
+            _WS_TICKETS.pop(ticket, None)
+            res_user = dict(payload.get("user") or {})
+    if not res_user:
+        return None
+    from abuse_policy import account_suspended
+
+    if account_suspended(res_user):
+        return None
+    return res_user
+
+
+def _mutate_shared_ws_tickets_issue(
+    state: dict,
+    payload: dict,
+    now: float,
+) -> tuple[dict, dict]:
+    tickets = _purge_shared_ws_tickets(state.get("tickets"), now)
+    tickets[payload["ticket"]] = dict(payload)
+    return {"tickets": tickets, "updated_at": now}, payload
+
+
+def _mutate_shared_ws_tickets_consume(
+    state: dict,
+    ticket: str,
+    *,
+    purpose: str,
+    target: str,
+    ws_ip: str,
+    now: float,
+) -> tuple[dict, dict | None]:
+    tickets = _purge_shared_ws_tickets(state.get("tickets"), now)
+    payload = tickets.get(ticket)
+    if not payload:
+        return {"tickets": tickets, "updated_at": now}, None
+    if payload.get("purpose") != purpose:
+        return {"tickets": tickets, "updated_at": now}, None
+    if target and payload.get("target") not in ("", target):
+        return {"tickets": tickets, "updated_at": now}, None
+    pinned_ip = payload.get("ip_address", "unknown")
+    if pinned_ip not in ("", "unknown", ws_ip):
+        return {"tickets": tickets, "updated_at": now}, None
+    tickets.pop(ticket, None)
+    return {"tickets": tickets, "updated_at": now}, dict(payload.get("user") or {})
+
+
+def _ws_has_explicit_query_auth(
+    websocket: WebSocket,
+    *,
+    allow_query_token: bool = True,
+) -> bool:
+    return bool(
+        websocket.query_params.get("ticket", "").strip()
+        or (allow_query_token and websocket.query_params.get("token", "").strip())
+    )
+
+
+def _get_ws_allowed_origin_hosts() -> set[str]:
+    origins = [
+        origin.strip()
+        for origin in os.environ.get(
+            "XCELSIOR_CORS_ORIGINS",
+            "https://xcelsior.ca,https://www.xcelsior.ca",
+        ).split(",")
+        if origin.strip()
+    ]
+    return {
+        urllib.parse.urlparse(origin).netloc
+        for origin in origins
+        if urllib.parse.urlparse(origin).netloc
+    }
+
+
+def _validate_ws_origin(
+    websocket: WebSocket,
+    *,
+    require_for_cookie_auth: bool = False,
+    allow_query_token: bool = True,
+) -> bool:
+    """Allow only configured browser origins when required by the auth mode."""
+    origin = websocket.headers.get("origin", "").strip()
+    if not origin:
+        if not require_for_cookie_auth:
+            return True
+        cookie_auth = bool(websocket.cookies.get(_AUTH_COOKIE_NAME, "").strip())
+        return not (
+            cookie_auth
+            and not _ws_has_explicit_query_auth(
+                websocket,
+                allow_query_token=allow_query_token,
+            )
+        )
+    origin_host = urllib.parse.urlparse(origin).netloc
+    if not origin_host:
+        return False
+    return origin_host in _get_ws_allowed_origin_hosts()
+
+
+def _check_ws_connect_rate_limit(websocket: WebSocket, *, bucket: str = "default") -> bool:
+    """Simple in-memory connection throttling per IP and WebSocket bucket."""
+    if _WS_CONNECT_RATE_LIMIT_REQUESTS <= 0:
+        return True
+
+    key = f"{bucket}:{_get_ws_client_ip(websocket)}"
+    now = time.time()
+
+    shared_ok, shared_allowed = _shared_state_update(
+        _WS_CONNECT_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_ws_connect_buckets(state, key, now),
+    )
+    if shared_ok:
+        return bool(shared_allowed)
+
+    return _take_local_rate_slot(
+        _WS_CONNECT_BUCKETS,
+        _WS_CONNECT_LOCK,
+        key,
+        now,
+        limit=_WS_CONNECT_RATE_LIMIT_REQUESTS,
+        window_sec=_WS_CONNECT_RATE_LIMIT_WINDOW_SEC,
+    )
+
+
+def _mutate_shared_ws_connect_buckets(state: dict, key: str, now: float) -> tuple[dict, bool]:
+    """Prune + update shared per-IP connection buckets."""
+    return _mutate_shared_rate_buckets(
+        state,
+        key,
+        now,
+        limit=_WS_CONNECT_RATE_LIMIT_REQUESTS,
+        window_sec=_WS_CONNECT_RATE_LIMIT_WINDOW_SEC,
+    )
+
+
+def _validate_ws_auth(
+    websocket: WebSocket,
+    *,
+    allow_query_token: bool = True,
+) -> dict | None:
+    """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware).
+
+    Checks (in order):
+    1. Cookie ``xcelsior_session``
+    2. Query param ``?token=``
+    3. Master API token (constant-time compare)
+    4. Persistent session / API key lookup
+
+    Returns the user dict on success, ``None`` on failure.
+    """
+    if not AUTH_REQUIRED:
+        return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": True}
+    api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    token: str = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
+    if not token and allow_query_token:
+        token = websocket.query_params.get("token", "")
+    if not token:
+        return None
+    if api_token and hmac.compare_digest(token, api_token):
+        return {"email": "api-token", "user_id": "api-token", "role": "admin", "is_admin": True}
+    if _USE_PERSISTENT_AUTH:
+        session = UserStore.get_session(token)
+        if session:
+            full_user = UserStore.get_user(session["email"])
+            try:
+                return _merge_auth_user(dict(session), full_user)
+            except HTTPException:
+                return None
+        api_key = UserStore.get_api_key(token)
+        if api_key:
+            full_user = UserStore.get_user(api_key["email"])
+            u = {
+                "email": api_key["email"],
+                "user_id": api_key["user_id"],
+                "role": api_key.get("role", "submitter"),
+                "is_admin": api_key.get("is_admin", False),
+            }
+            try:
+                return _merge_auth_user(u, full_user)
+            except HTTPException:
+                return None
+    else:
+        with _user_lock:
+            if token in _sessions and _sessions[token]["expires_at"] > time.time():
+                try:
+                    return _merge_auth_user(dict(_sessions[token]))
+                except HTTPException:
+                    return None
+            if token in _api_keys:
+                try:
+                    return _merge_auth_user(dict(_api_keys[token]))
+                except HTTPException:
+                    return None
+    return None
+
+
+# ── OpenTelemetry Span Helper ─────────────────────────────────────────
+# _otel_tracer is set by api.py after OTEL setup completes.
+# Route modules import otel_span from here to avoid circular imports.
+
+_otel_tracer = None  # populated by api.py
+
+
+def otel_span(name: str, attributes: dict | None = None):
+    """Create a custom OpenTelemetry span (context manager)."""
+    if _otel_tracer is None:
+        from contextlib import nullcontext
+
+        return nullcontext()
+    span = _otel_tracer.start_as_current_span(name, attributes=attributes or {})
+    return span

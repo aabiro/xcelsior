@@ -1,0 +1,73 @@
+# syntax=docker/dockerfile:1
+# ── Stage 1: Dependencies ────────────────────────────────────────────
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts
+
+# ── Stage 2: Build ───────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+ARG NEXT_PUBLIC_API_URL=https://xcelsior.ca
+ARG NEXT_PUBLIC_APP_URL=https://xcelsior.ca
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=
+ARG NEXT_PUBLIC_GA_MEASUREMENT_ID=
+ARG NEXT_PUBLIC_REOWN_PROJECT_ID=
+ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=
+ARG NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+ENV NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION}
+ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
+ENV NEXT_PUBLIC_REOWN_PROJECT_ID=${NEXT_PUBLIC_REOWN_PROJECT_ID}
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN}
+ENV NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST}
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV DOCKER_BUILD=1
+
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
+
+# ── Stage 3: Production ─────────────────────────────────────────────
+FROM node:22-alpine AS runner
+
+LABEL org.opencontainers.image.title="Xcelsior Frontend" \
+      org.opencontainers.image.description="Next.js frontend for Xcelsior — global GPU marketplace" \
+      org.opencontainers.image.url="https://xcelsior.ca" \
+      org.opencontainers.image.source="https://github.com/aabiro/xcelsior" \
+      org.opencontainers.image.vendor="Xcelsior" \
+      org.opencontainers.image.licenses="MIT"
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy standalone output (nextjs needs writable .next/cache for RSC flight)
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# Copy blog content for dynamic reads
+COPY --from=builder --chown=nextjs:nodejs /app/content ./content
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/ || exit 1
+
+CMD ["node", "server.js"]

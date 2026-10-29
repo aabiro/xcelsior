@@ -1,0 +1,44 @@
+api.pixelenhance.com -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+api.pixelenhance.com -> (no cert)
+api.pixelenhancelabs.ai -> (no cert)
+app.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+b2.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+cdn.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+dashboard.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+deploy.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+developer.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+docs.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+docs.pixelenhancelabs.ai -> (no cert)
+docs.xcelsior.ca -> /etc/letsencrypt/live/docs.xcelsior.ca/fullchain.pem
+docs.xcelsior.ca -> (no cert)
+downloads.xcelsior.ca -> /etc/letsencrypt/live/downloads.xcelsior.ca/fullchain.pem
+downloads.xcelsior.ca -> (no cert)
+forum.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+grafana.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+grafana.xcelsior.ca -> /etc/letsencrypt/live/grafana.xcelsior.ca/fullchain.pem
+grafana.xcelsior.ca -> (no cert)
+help.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+hs.xcelsior.ca -> /etc/nginx/ssl/hs-internal.crt
+hs.xcelsior.ca -> (no cert)
+mcp.xcelsior.ca -> /etc/letsencrypt/live/xcelsior.ca/fullchain.pem
+mcp.xcelsior.ca -> (no cert)
+media.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+monitoring.pixelenhance.com -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+_ -> (no cert)
+pagerduty.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+pixelenhancelabs.ai -> (no cert)
+pixelspark.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+pixelspark.pixelenhancelabs.ai -> (no cert)
+rollout.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+secure.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+test-api.pixelenhancelabs.ai -> (no cert)
+test.pixelenhancelabs.ai -> (no cert)
+test.pixelspark.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+test.pixelspark.pixelenhancelabs.ai -> (no cert)
+webhooks.pixelenhance.com -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+www.pixelenhancelabs.ai -> /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem
+www.xcelsior.ca -> /etc/letsencrypt/live/xcelsior.ca/fullchain.pem
+www.xcelsior.ca -> (no cert)
+xcelsior.ca -> /etc/letsencrypt/live/xcelsior.ca/fullchain.pem
+xcelsior.ca -> (no cert)

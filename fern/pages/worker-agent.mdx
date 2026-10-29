@@ -1,0 +1,105 @@
+---
+title: Worker Agent
+subtitle: GPU host agent for telemetry, job execution, and security.
+slug: worker-agent
+---
+
+## Overview
+
+The worker agent runs on each GPU host machine. It handles host registration, version reporting, telemetry, and job execution within sandboxed containers.
+
+## Installation
+
+Register your machine in the dashboard (**Hosts → Register Host**) and create an API key under **Settings → API & SSH**. Then run this on the GPU machine:
+
+```bash
+curl -fsSL https://xcelsior.ca/install.sh | bash
+```
+
+No Node.js on the machine? Use `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --agent-only` instead; it skips the guided setup.
+
+The installer checks your GPU driver and Docker, asks for your Host ID and API key, installs the Xcelsior worker as a background service, and connects your machine to Xcelsior securely. There is nothing else to configure. When it finishes, your host shows as **pending** while we review it.
+
+The worker runs as its own restricted user, never as root or as you.
+
+To update later, or to reconnect a machine that has been off for more than a month, run `curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --update`.
+
+## Configuration
+
+The installer saves your settings in `~/.xcelsior/worker.env`. You normally never need to touch it. If you change your API key, edit that file and run `sudo systemctl restart xcelsior-worker`:
+
+```bash
+XCELSIOR_HOST_ID=my-gpu-01
+# Option A: API key
+XCELSIOR_API_TOKEN=your-api-key
+# Option B: OAuth machine client
+XCELSIOR_OAUTH_CLIENT_ID=your-client-id
+XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
+```
+
+## Checking the Agent
+
+```bash
+systemctl status xcelsior-worker
+journalctl -u xcelsior-worker -f
+```
+
+On start, the agent will:
+1. Detect local GPU hardware via NVML
+2. Register with the scheduler (`PUT /host`)
+3. Report software versions (`POST /agent/versions`)
+4. Begin telemetry loop (every 5 seconds)
+5. Poll for assigned jobs
+
+## Telemetry
+
+The agent reports these metrics every 5 seconds:
+
+| Metric | Unit | Description |
+|--------|------|-------------|
+| `gpu_utilization` | % | Current GPU compute usage |
+| `temperature` | °C | GPU die temperature |
+| `memory_used` | GB | GPU memory in use |
+| `memory_total` | GB | Total GPU memory |
+| `power_draw` | W | Current power consumption |
+| `ecc_errors` | count | ECC memory error count |
+| `pcie_tx` | MB/s | PCIe transmit bandwidth |
+| `pcie_rx` | MB/s | PCIe receive bandwidth |
+
+## Job Execution
+
+When a job is assigned:
+
+1. Agent pulls the job specification
+2. Downloads any required artifacts
+3. Starts a Docker container with GPU passthrough
+4. Applies isolation based on job tier:
+   - `community` → standard runc
+   - `secure`/`dedicated` → gVisor (runsc)
+5. Monitors execution, streams logs
+6. Uploads output artifacts on completion
+
+## Security Features
+
+### Mining Detection
+
+The agent watches for cryptocurrency mining. When it finds it, it stops the container at once, and the instance can't be restarted.
+
+### Network Protection for Rented Containers
+
+The installer sets this up and keeps it in place:
+- Rented containers can reach package and model registries only, through a proxy on your machine.
+- They can't reach your other services, your local network, or each other.
+- Your machine receives rentals only while this protection is verified. It's re-checked every two minutes.
+
+To check it yourself: `sudo python3 /usr/local/lib/xcelsior/egress_isolation.py verify`
+
+### Version Gating
+
+The scheduler enforces minimum versions:
+- NVIDIA Driver ≥ 535.0
+- Docker ≥ 24.0
+- runc ≥ 1.1.14
+- nvidia-ctk ≥ 1.17.8
+
+Hosts failing version checks remain in `pending` state and cannot receive jobs.

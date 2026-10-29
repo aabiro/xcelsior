@@ -1,0 +1,15 @@
+{
+  "document_type": "partner_letter_of_intent",
+  "program": "ISED AI Sovereign Compute Infrastructure Program (SCIP)",
+  "status": "submitted",
+  "submitted_at": "2026-06-15T18:00:00Z",
+  "submitted_by": "Xcelsior Inc.",
+  "partner": {
+    "name": "Canadian Partner DC (LOI on file)",
+    "role": "H100-class attested host capacity",
+    "contact_status": "active_discussions"
+  },
+  "scope": "Attestation-ready GPU host partnership for marketplace inference mesh",
+  "attestation_schema_version": "1.0",
+  "notes": "Formal SCIP application package references this LOI; product positioning is commodity + attested tiers without residency marketing."
+}

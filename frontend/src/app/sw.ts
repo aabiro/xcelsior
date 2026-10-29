@@ -1,0 +1,213 @@
+/// <reference no-default-lib="true" />
+/// <reference lib="esnext" />
+/// <reference lib="webworker" />
+
+import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
+import { NetworkOnly, Serwist } from "serwist";
+import { desktopRuntimeCaching } from "@/lib/pwa/runtime-caching";
+import {
+  DEFAULT_NOTIFICATION_URL,
+  WEB_PUSH_LIFECYCLE_MESSAGE_TYPE,
+  markNotificationReadInBackground,
+  sanitizeNotificationUrl,
+  syncPushSubscriptionWithServer,
+} from "@/lib/pwa/web-push";
+import { SITE_ASSETS } from "@/lib/brand-assets";
+
+declare global {
+  interface WorkerGlobalScope extends SerwistGlobalConfig {
+    __SW_MANIFEST: (PrecacheEntry | string)[] | undefined;
+  }
+}
+
+declare const self: ServiceWorkerGlobalScope;
+
+type PushPayload = {
+  title?: string;
+  body?: string;
+  icon?: string;
+  badge?: string;
+  tag?: string;
+  url?: string;
+  data?: Record<string, unknown>;
+};
+
+const EXCLUDED_PRECACHE_PATHS = new Set([
+  "/oauth/callback",
+]);
+
+function shouldExcludePrecachePath(pathname: string): boolean {
+  if (EXCLUDED_PRECACHE_PATHS.has(pathname)) return true;
+  if (pathname.includes("/site-assets/reference/")) return true;
+  if (pathname.includes("/public/site-assets/reference/")) return true;
+  if (pathname.includes("/brand-system/")) return true;
+  if (pathname.includes("/public/brand-system/")) return true;
+  if (/\.dc(\.html)?$/i.test(pathname)) return true;
+  if (/\/site-system(\.dc)?$/i.test(pathname)) return true;
+  if (/\/logo-system(\.dc)?$/i.test(pathname)) return true;
+  return false;
+}
+
+function getFilteredPrecacheEntries(entries: (PrecacheEntry | string)[] | undefined) {
+  return entries?.filter((entry) => {
+    const url = typeof entry === "string" ? entry : entry.url;
+    const pathname = new URL(url, self.location.origin).pathname;
+    return !shouldExcludePrecachePath(pathname);
+  });
+}
+
+const IS_PROD = process.env.NODE_ENV === "production";
+
+const serwist = new Serwist({
+  precacheEntries: getFilteredPrecacheEntries(self.__SW_MANIFEST),
+  skipWaiting: IS_PROD,
+  clientsClaim: true,
+  navigationPreload: true,
+  runtimeCaching: desktopRuntimeCaching,
+  fallbacks: {
+    entries: [
+      {
+        url: "/~offline",
+        matcher({ request }) {
+          return request.destination === "document";
+        },
+      },
+    ],
+  },
+});
+
+// Catch-all for any request that doesn't match a runtime caching rule
+// (e.g. cross-origin scripts like Stripe.js), clean network fetch.
+serwist.setDefaultHandler(new NetworkOnly());
+
+function parsePushPayload(data: PushMessageData | null): PushPayload {
+  if (!data) return {};
+
+  try {
+    return data.json() as PushPayload;
+  } catch {
+    const body = data.text();
+    return body ? { body } : {};
+  }
+}
+
+async function broadcastWebPushLifecycleEvent(eventType: "received" | "clicked", payload: {
+  notificationId: string | null;
+  url: string;
+  data?: Record<string, unknown>;
+}) {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+
+  for (const client of clients) {
+    client.postMessage({
+      type: WEB_PUSH_LIFECYCLE_MESSAGE_TYPE,
+      event: eventType,
+      timestamp: Date.now(),
+      notificationId: payload.notificationId,
+      url: payload.url,
+      data: payload.data,
+    });
+  }
+}
+
+async function focusOrOpenWindow(url: string) {
+  const targetPath = sanitizeNotificationUrl(url, self.location.origin);
+  const targetUrl = new URL(targetPath, self.location.origin).href;
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+
+  const sameOriginClients = clients.filter((client) => new URL(client.url).origin === self.location.origin);
+  const exactClient = sameOriginClients.find((client) => client.url === targetUrl);
+  if (exactClient) {
+    await exactClient.focus();
+    return;
+  }
+
+  await self.clients.openWindow(targetUrl);
+}
+
+self.addEventListener("push", (event) => {
+  const payload = parsePushPayload(event.data);
+  const url = sanitizeNotificationUrl(payload.url ?? DEFAULT_NOTIFICATION_URL, self.location.origin);
+  const notificationData: Record<string, unknown> & { url: string } = {
+    ...(payload.data ?? {}),
+    url,
+  };
+
+  event.waitUntil(
+    (self.registration.showNotification(payload.title ?? "Xcelsior", {
+      body: payload.body ?? "You have a new Xcelsior notification.",
+      icon: payload.icon ?? SITE_ASSETS.appGradientRounded512,
+      badge: payload.badge ?? SITE_ASSETS.iconGradient512,
+      tag: payload.tag ?? "xcelsior-notification",
+      data: notificationData,
+      requireInteraction: false,
+      // @ts-expect-error -- actions is valid in ServiceWorker NotificationOptions
+      actions: [
+        { action: "open", title: "Open" },
+        { action: "dismiss", title: "Dismiss" },
+      ],
+    }) as Promise<void>).then(() =>
+      broadcastWebPushLifecycleEvent("received", {
+        notificationId:
+          typeof notificationData.notification_id === "string" ? notificationData.notification_id : null,
+        url,
+        data: payload.data,
+      }),
+    ),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  // "Dismiss" action, just close the notification, no navigation
+  if (event.action === "dismiss") {
+    return;
+  }
+
+  const url =
+    typeof event.notification.data?.url === "string" ? event.notification.data.url : DEFAULT_NOTIFICATION_URL;
+  const notificationId = event.notification.data?.notification_id;
+
+  event.waitUntil(
+    Promise.allSettled([
+      focusOrOpenWindow(url),
+      markNotificationReadInBackground(notificationId),
+      broadcastWebPushLifecycleEvent("clicked", {
+        notificationId: typeof notificationId === "string" ? notificationId : null,
+        url,
+        data:
+          event.notification.data && typeof event.notification.data === "object"
+            ? { ...(event.notification.data as Record<string, unknown>) }
+            : undefined,
+      }),
+    ]).then(() => undefined),
+  );
+});
+
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    syncPushSubscriptionWithServer({
+      registration: self.registration,
+      existingSubscription: event.newSubscription,
+      createIfMissing: true,
+      fetchImpl: fetch,
+    }).catch((error) => {
+      console.warn("Failed to refresh web push subscription", error);
+    }),
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
+});
+
+serwist.addEventListeners();

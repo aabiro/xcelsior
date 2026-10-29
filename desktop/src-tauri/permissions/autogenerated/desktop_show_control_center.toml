@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-show-control-center"
+description = "Enables the desktop_show_control_center command without any pre-configured scope."
+commands.allow = ["desktop_show_control_center"]
+
+[[permission]]
+identifier = "deny-desktop-show-control-center"
+description = "Denies the desktop_show_control_center command without any pre-configured scope."
+commands.deny = ["desktop_show_control_center"]

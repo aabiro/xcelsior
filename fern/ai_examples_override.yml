@@ -1,0 +1,355 @@
+paths:
+  /api/v2/serverless/endpoints/endpoint_id/keys:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            name: analytics-key-01
+            scopes: inference:write
+            rate_limit_rpm: 500
+  /api/billing/paypal/capture-order:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cst_9f8e7d6c5b4a3
+            order_id: 5O190127TN364715T
+  /api/v2/volumes:
+    post:
+      x-fern-examples:
+        - request:
+            name: ml-training-data-volume
+            size_gb: 500
+            region: ca-on
+            encrypted: true
+  /api/billing/wallet/customer_id/deposit:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            customer_id: customer_id
+          request:
+            amount_cad: 150.75
+            description: Deposit for GPU usage credits
+  /api/artifacts/upload:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: a3f47b9e-8c2d-4f1a-9b7e-2d5c9f1a7e3b
+            filename: model_checkpoint_v12.pt
+  /api/v2/volumes/volume_id/attach:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            volume_id: volume_id
+          request:
+            instance_id: i-0a1b2c3d4e5f67890
+            mount_path: /workspace
+            mode: rw
+  /api/billing/paypal/create-order:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cst_9f8e7d6c5b4a3e2d1f0a
+            amount_cad: 150.75
+  /api/billing/payment-intent:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cus_7Gq9X2bL4f8ZpQ
+            amount_cad: 150.75
+            description: Deposit for compute credits
+          response:
+            body:
+              client_secret: pi_3Kq9X2bL4f8ZpQ_secret_4Jk8Y1mN7vTqRz
+  /api/v2/billing/auto-topup:
+    post:
+      x-fern-examples:
+        - request:
+            enabled: true
+            amount_cad: 50
+            threshold_cad: 10
+            stripe_payment_method_id: pm_1JH2Y2Lz0qyl6XeW8a7b9XcD
+  /v1/serverless/endpoint_id/run:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            input:
+              task: image-classification
+              image_url: https://example.com/images/cat.jpg
+              parameters:
+                confidence_threshold: 0.75
+                max_results: 5
+            webhook: https://webhook.site/unique-callback-url
+  /api/v2/marketplace/reservations:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA A100
+            gpu_count: 4
+            period_months: 12
+  /v1/serverless/endpoint_id/runsync:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            input:
+              task: image-classification
+              parameters:
+                model: resnet50
+                top_k: 5
+                confidence_threshold: 0.75
+              data:
+                image_url: https://example.com/images/cat.jpg
+            webhook: https://hooks.example.com/job-complete
+  /api/v2/marketplace/search:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA RTX 4090
+            min_vram_gb: 24
+            max_price_cents: 15000
+            region: 'ON'
+            sort_by: price
+            limit: 25
+  /api/inference:
+    post:
+      x-fern-examples:
+        - request:
+            model: distilbert-base-uncased-finetuned-sst-2-english
+            inputs:
+              - The movie was fantastic and I really enjoyed it!
+            gpu_model: any
+            max_tokens: 512
+            temperature: 0.7
+            timeout_sec: 300
+          response:
+            body:
+              job_id: a3f1c9e2-7b4d-4f8a-9d2e-1c2b3a4d5e6f
+  /v1/inference/async:
+    post:
+      x-fern-examples:
+        - request:
+            model: gpt-4-xcelsior
+            inputs:
+              - Explain the benefits of distributed GPU orchestration for AI workloads.
+            max_tokens: 1024
+            temperature: 0.7
+            stream: false
+          response:
+            body:
+              job_id: a3f1c9d2-7b4e-4f8a-9d3e-2b5f6c7d8e9f
+  /api/pricing/estimate:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA RTX 4090
+            duration_hours: 5.5
+            spot: true
+          response:
+            body:
+              estimated_cost_cad: 42.75
+              rebate_cad: 10.5
+              total_cost_after_rebate_cad: 32.25
+              currency: CAD
+              duration_hours: 5.5
+              gpu_model: NVIDIA RTX 4090
+              spot: true
+              rebate_applied: true
+              timestamp: '2024-06-15T12:00:00Z'
+  /api/v2/serverless/endpoints/endpoint_id:
+    patch:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            name: ImageProcessingEndpoint
+            min_workers: 2
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 300
+            scaling_policy_type: cpu_utilization
+            scaling_policy_value: 75
+            request_timeout_sec: 120
+            max_queue_size: 500
+            keep_warm: true
+  /api/auth/register:
+    post:
+      x-fern-examples:
+        - request:
+            email: jane.doe@example.com
+            password: Str0ngP@ssw0rd!
+  /api/artifacts/download:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: job_9f8b7c6d5e4a3b2c1d0e
+            filename: model_checkpoint_v12.pt
+          response:
+            body:
+              url: https://storage.xcelsior.ca/downloads/job_9f8b7c6d5e4a3b2c1d0e/model_checkpoint_v12.pt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20240601%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240601T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+  /api/v2/inference/endpoints:
+    post:
+      x-fern-examples:
+        - request:
+            name: image-classification-endpoint
+            mode: preset
+            model_name: resnet50
+            model_ref: resnet50-v1.0
+            image_ref: xcelsior/resnet50:latest
+            docker_image: xcelsior/resnet50:latest
+            gpu_type: NVIDIA A100
+            gpu_tier: premium
+            gpu_count: 2
+            region: ca-east
+            min_workers: 1
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 600
+            scaledown_window_sec: 300
+            scaling_policy_type: queue_request_count
+            scaling_policy_value: 5
+            startup_command: /start.sh
+            http_port: 8080
+            health_check_path: /healthz
+            health_endpoint: /healthz
+            cuda_version: '12.4'
+            request_timeout_sec: 180
+            max_request_bytes: 20971520
+            env:
+              LOG_LEVEL: info
+              MODEL_CACHE_DIR: /models/cache
+  /api/auth/login:
+    post:
+      x-fern-examples:
+        - request:
+            email: jane.doe@example.com
+            password: S3cur3P@ssw0rd!
+          response:
+            body:
+              access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkphbmUgRG9lIiwiaWF0IjoxNjg2MjQ4MDAwfQ.4f7X9v1Q2xYz8J9kL5mN3pTqWvR6bXyZ0aBcDeFgHiJ
+              token_type: Bearer
+              expires_in: 2592000
+  /v1/serverless/endpoint_id/openai/v1/chat/completions:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            model: gpt-4o-mini
+            messages:
+              - role: system
+                content: You are a helpful assistant specialized in cloud GPU orchestration.
+              - role: user
+                content: Explain how to deploy a machine learning model using Xcelsior.
+            max_tokens: 1024
+            temperature: 0.7
+            stream: false
+          response:
+            body:
+              id: chatcmpl-7aXcelsiorExample123456
+              object: chat.completion
+              created: 1712345678
+              model: gpt-4o-mini
+              choices:
+                - index: 0
+                  message:
+                    role: assistant
+                    content: To deploy a machine learning model using Xcelsior, first package your model container, then upload it to the platform. Next, configure your endpoint with the desired GPU resources and region, and finally, launch the deployment. Xcelsior handles orchestration and scaling automatically.
+                  finish_reason: stop
+              usage:
+                prompt_tokens: 45
+                completion_tokens: 65
+                total_tokens: 110
+  /api/v2/serverless/endpoints:
+    post:
+      x-fern-examples:
+        - request:
+            name: image-classification-endpoint
+            mode: preset
+            model_name: resnet50
+            model_ref: resnet50-v1.0
+            image_ref: xcelsior/resnet50:latest
+            docker_image: xcelsior/resnet50:latest
+            gpu_type: nvidia-a100
+            gpu_tier: premium
+            gpu_count: 2
+            region: ca-east
+            min_workers: 1
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 600
+            scaledown_window_sec: 300
+            scaling_policy_type: queue_request_count
+            scaling_policy_value: 5
+            startup_command: python app.py
+            http_port: 8080
+            health_check_path: /healthz
+            health_endpoint: /healthz
+            cuda_version: '12.4'
+            request_timeout_sec: 180
+            max_request_bytes: 20971520
+            env:
+              LOG_LEVEL: info
+              MODEL_CACHE_DIR: /models/cache
+  /instance:
+    post:
+      x-fern-examples:
+        - request:
+            name: Image Classification Training
+            vram_needed_gb: 16
+            priority: 5
+            tier: standard
+            num_gpus: 4
+            host_id: null
+            gpu_model: NVIDIA A100
+            nfs_server: 10.0.0.5
+            nfs_path: /mnt/data/datasets
+            nfs_mount_point: /data
+            image: xcelsior/ml-training:2.3.0
+            interactive: true
+            command: python train.py --epochs 50
+            ssh_port: 2222
+            pricing_mode: on_demand
+            volume_ids:
+              - vol-123abc
+              - vol-456def
+            encrypted_workspace: true
+            init_script: |-
+              #!/bin/bash
+              apt-get update && apt-get install -y htop
+            git_repo: https://github.com/xcelsior/ml-project.git
+            auto_launch:
+              - jupyter
+              - tensorboard
+            exposed_ports:
+              - 8888
+              - 6006
+            template_image_id: tmpl-789xyz
+  /v1/inference:
+    post:
+      x-fern-examples:
+        - request:
+            model: gpt-4-xcelsior
+            inputs:
+              - Explain the benefits of distributed GPU orchestration for AI workloads.
+            max_tokens: 256
+            temperature: 0.7
+            stream: false
+          response:
+            body:
+              id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+              object: text_completion
+              created: 1712345678
+              model: gpt-4-xcelsior
+              choices:
+                - text: Distributed GPU orchestration enables efficient allocation and scaling of GPU resources across multiple nodes, improving performance and reducing latency for AI workloads. It also enhances fault tolerance and resource utilization, allowing AI models to train and infer faster while keeping costs predictable.
+                  index: 0
+                  logprobs: null
+                  finish_reason: stop
+              usage:
+                prompt_tokens: 15
+                completion_tokens: 60
+                total_tokens: 75

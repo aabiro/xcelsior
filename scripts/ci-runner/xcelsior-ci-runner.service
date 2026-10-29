@@ -1,0 +1,64 @@
+# Sandboxed self-hosted Actions runner, as a service.
+#
+# Until this existed the runner was started by hand — `run-runner.sh --loop` in
+# the foreground of a terminal — so it died with whatever shell launched it, and
+# a push would sit `queued` with nothing to serve it. That is a poor property for
+# the only CI this repository actually has (see README.md §1: hosted runners are
+# blocked at the account level).
+#
+# Installed as a **user** unit rather than a system one, deliberately:
+#
+#   * `run-runner.sh` mints its registration token with `gh`, which reads the
+#     credentials in this user's `~/.config/gh`. A system unit running as root
+#     has no such credentials, and copying them there to satisfy systemd would
+#     put a GitHub token somewhere it is harder to revoke and easier to forget.
+#   * Docker access comes from this user's membership of the `docker` group.
+#
+# Install:
+#     mkdir -p ~/.config/systemd/user
+#     ln -sf /mnt/storage/projects/xcelsior/scripts/ci-runner/xcelsior-ci-runner.service \
+#            ~/.config/systemd/user/
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now xcelsior-ci-runner
+#
+#     # Survive logout and reboot. Without this the unit stops when the last
+#     # session for this user ends, which reintroduces exactly the problem it
+#     # was written to fix.
+#     sudo loginctl enable-linger "$USER"
+#
+# Status and logs:
+#     systemctl --user status xcelsior-ci-runner
+#     journalctl --user -u xcelsior-ci-runner -f
+
+[Unit]
+Description=Xcelsior sandboxed GitHub Actions runner
+Documentation=https://github.com/aabiro/xcelsior/blob/main/scripts/ci-runner/README.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/storage/projects/xcelsior
+ExecStart=/mnt/storage/projects/xcelsior/scripts/ci-runner/run-runner.sh --loop
+
+# The script already loops, so an exit means it could not start at all — a
+# missing `gh` credential, docker down, or the fork-trigger refusal firing.
+# Restart rather than give up, but slowly enough that a permanent failure is
+# visible in the journal as a repeating message instead of a flood.
+Restart=always
+RestartSec=30
+
+# No hardening directives beyond this point, and that is a considered choice
+# rather than an oversight: the workload *is* `docker run`, so ProtectSystem,
+# PrivateTmp and ProtectHome would either break the socket or provide the
+# illusion of confinement around a process that can start containers anyway.
+# The isolation that matters is applied to the container in run-runner.sh —
+# --cap-drop ALL, --security-opt no-new-privileges, --pids-limit, --memory,
+# --cpus, --ephemeral — where it actually constrains the job.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xcelsior-ci-runner
+
+[Install]
+WantedBy=default.target

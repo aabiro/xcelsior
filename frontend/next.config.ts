@@ -1,0 +1,125 @@
+import type { NextConfig } from "next";
+import bundleAnalyzer from "@next/bundle-analyzer";
+
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+});
+
+// INTERNAL_API_URL: server-side only (rewrites/SSR), never shipped to browser.
+// Falls back to NEXT_PUBLIC_API_URL (baked into client JS at build time).
+const BACKEND = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com https://static.cloudflareinsights.com wss://xcelsior.ca https://api.web3modal.org https://*.walletconnect.org wss://relay.walletconnect.org https://pulse.walletconnect.org https://api.stripe.com https://js.stripe.com https://connect-js.stripe.com https://us.i.posthog.com https://us-assets.i.posthog.com",
+  "frame-src 'self' https://js.stripe.com https://connect-js.stripe.com https://verify.walletconnect.org",
+  "frame-ancestors 'self'",
+].join("; ");
+
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
+];
+
+const nextConfig: NextConfig = {
+  output: "standalone",
+  compress: true,
+  poweredByHeader: false,
+  typescript: {
+    // Type-checking runs in CI; skip in Docker builds where Fern SDK .js imports
+    // fail under Node's module resolution despite working locally with bundler.
+    ignoreBuildErrors: !!process.env.DOCKER_BUILD,
+  },
+  async headers() {
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+      {
+        source: "/manifest.webmanifest",
+        headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
+      },
+      {
+        source: "/:path*.svg",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/:path*.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/:path*.woff2",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/_next/static/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      {
+        source: "/docs",
+        destination: "https://docs.xcelsior.ca",
+        permanent: false,
+      },
+      {
+        source: "/docs/:path*",
+        destination: "https://docs.xcelsior.ca/:path*",
+        permanent: false,
+      },
+    ];
+  },
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return [
+      {
+        source: "/ingest/static/:path*",
+        destination: "https://us-assets.i.posthog.com/static/:path*",
+      },
+      {
+        source: "/ingest/array/:path*",
+        destination: "https://us-assets.i.posthog.com/array/:path*",
+      },
+      {
+        source: "/ingest/:path*",
+        destination: "https://us.i.posthog.com/:path*",
+      },
+      { source: "/api/:path*", destination: `${BACKEND}/api/:path*` },
+      { source: "/oauth/:path*", destination: `${BACKEND}/oauth/:path*` },
+      { source: "/.well-known/:path*", destination: `${BACKEND}/.well-known/:path*` },
+      { source: "/hosts", destination: `${BACKEND}/hosts` },
+      { source: "/host", destination: `${BACKEND}/host` },
+      { source: "/host/:path*", destination: `${BACKEND}/host/:path*` },
+      { source: "/jobs", destination: `${BACKEND}/jobs` },
+      { source: "/jobs/:path*", destination: `${BACKEND}/jobs/:path*` },
+      { source: "/job", destination: `${BACKEND}/job` },
+      { source: "/job/:path*", destination: `${BACKEND}/job/:path*` },
+      { source: "/instance", destination: `${BACKEND}/instance` },
+      { source: "/instance/:path*", destination: `${BACKEND}/instance/:path*` },
+      { source: "/instances/:path*", destination: `${BACKEND}/instances/:path*` },
+      { source: "/marketplace", destination: `${BACKEND}/marketplace` },
+      { source: "/marketplace/:path*", destination: `${BACKEND}/marketplace/:path*` },
+      { source: "/billing", destination: `${BACKEND}/billing` },
+      { source: "/spot-prices", destination: `${BACKEND}/spot-prices` },
+      { source: "/spot/:path*", destination: `${BACKEND}/spot/:path*` },
+      { source: "/compute-score/:path*", destination: `${BACKEND}/compute-score/:path*` },
+      { source: "/compute-scores", destination: `${BACKEND}/compute-scores` },
+      { source: "/healthz", destination: `${BACKEND}/healthz` },
+    ];
+  },
+};
+
+export default withBundleAnalyzer(nextConfig);

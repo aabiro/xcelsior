@@ -1,0 +1,3045 @@
+"""Routes: billing."""
+
+import base64
+import hashlib
+import httpx
+import io
+import json
+import os
+import time
+
+import env_config
+
+from money import cad_to_micros, micros_to_cad
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Literal, cast
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
+
+from routes._deps import (
+    XCELSIOR_ENV,
+    _USE_PERSISTENT_AUTH,
+    _canonical_owner_id,
+    _effective_billing_customer_id,
+    _get_current_user,
+    _get_real_client_ip,
+    _is_interactive_human,
+    _is_platform_admin,
+    _user_team_id,
+    _merge_auth_user,
+    _require_admin,
+    _require_auth,
+    _require_customer_access,
+    _require_scope,
+    _check_billing_payment_rate_limit,
+    _users_db,
+    broadcast_sse,
+    log,
+    otel_span,
+)
+from scheduler import (
+    bill_all_completed,
+    bill_job,
+    get_total_revenue,
+    load_billing,
+    log,
+)
+from db import UserStore
+from stripe_connect import get_stripe_manager
+from billing import get_billing_engine, get_tax_rate_for_province
+from pricing_reference import (
+    build_gpu_pricing_reference,
+    build_reference_list,
+    get_on_demand_rate,
+    get_reserved_rate,
+)
+from reputation import GPU_REFERENCE_PRICING_CAD, estimate_job_cost
+
+router = APIRouter()
+
+# Billing constants
+_FREE_CREDIT_AMOUNT = 5.0  # CAD
+_MIN_TOPUP_CAD = 5.0
+_MAX_TOPUP_CAD = 10000.0
+from reserved_pricing import RESERVED_TIERS as _RESERVED_TIERS
+
+# Derived from the one schedule rather than restated. This module and
+# `marketplace.py` each carried their own table, agreeing at one and three
+# months and diverging after — so a customer could be quoted a different price
+# depending on which endpoint they reached. See `reserved_pricing.py`.
+RESERVED_PRICING_TIERS = {
+    tier["key"]: {
+        "commitment": tier["commitment"],
+        "discount_pct": tier["discount_pct"],
+        "description": (
+            f"{tier['discount_pct']}% off on-demand rates for " f"{tier['commitment']} commitment"
+        ),
+        "min_hours_per_day": tier["min_hours_per_day"],
+    }
+    for tier in _RESERVED_TIERS.values()
+}
+# Commitment term length in days, keyed by commitment_type.
+_RESERVED_TERM_DAYS = {tier["key"]: tier["term_days"] for tier in _RESERVED_TIERS.values()}
+try:
+    import bitcoin as _btc_mod
+except ImportError:
+    _btc_mod = None  # type: ignore[assignment]
+
+try:
+    import lightning as _ln_mod
+except ImportError:
+    _ln_mod = None  # type: ignore[assignment]
+
+
+def _analytics_customer_scope(user: dict) -> str:
+    """Return the billing owner identifier for the authenticated user."""
+    return _effective_billing_customer_id(user)
+
+
+def _allow_direct_wallet_deposit(user: dict) -> bool:
+    """Credit wallet without payment proof — test/dev sandboxes and platform admins only."""
+    # Was a hand-rolled copy of the relaxed-environment set, which had already
+    # drifted: it omits "local", so a `XCELSIOR_ENV=local` machine could not
+    # deposit. Ask the resolver rather than restating its contents.
+    if env_config.is_relaxed_env():
+        return True
+    return _is_platform_admin(user)
+
+
+def _validate_topup_amount(amount_cad: float, user: dict) -> None:
+    """Enforce wallet top-up bounds. Platform admins may deposit below the minimum."""
+    if amount_cad <= 0:
+        raise HTTPException(400, "Amount must be greater than zero")
+    if amount_cad > _MAX_TOPUP_CAD:
+        raise HTTPException(400, f"Amount cannot exceed ${_MAX_TOPUP_CAD:,.0f} CAD")
+    if not _is_platform_admin(user) and amount_cad < _MIN_TOPUP_CAD:
+        raise HTTPException(400, f"Minimum top-up is ${_MIN_TOPUP_CAD:.2f} CAD")
+
+
+@router.post("/billing/bill/{job_id}", tags=["Billing"])
+def api_bill_instance(job_id: str, request: Request):
+    """Bill a specific completed job."""
+    from routes._deps import _require_platform_worker
+
+    user = _require_auth(request)
+    _require_scope(user, "billing:write")
+    _require_platform_worker(user)
+    with otel_span("billing.bill_job", {"job.id": job_id}):
+        record = bill_job(job_id)
+        if not record:
+            raise HTTPException(status_code=400, detail=f"Could not bill job {job_id}")
+        return {"ok": True, "bill": record}
+
+
+@router.post("/billing/bill-all", tags=["Billing"])
+def api_bill_all(request: Request):
+    """Bill all unbilled completed jobs."""
+    _require_admin(request)
+    try:
+        bills = bill_all_completed()
+    except Exception as exc:
+        log.error("bill_all_completed failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Billing run failed") from exc
+    return {"billed": len(bills), "bills": bills}
+
+
+@router.get("/billing", tags=["Billing"])
+def api_billing(request: Request):
+    """Get all billing records and total revenue (platform admin only)."""
+    _require_admin(request)
+    records = load_billing()
+    return {
+        "records": records,
+        "total_revenue": get_total_revenue(),
+    }
+
+
+@router.get("/api/billing/wallet/{customer_id}", tags=["Billing"])
+def api_get_wallet(customer_id: str, request: Request):
+    """Get credit wallet balance and status."""
+    _require_customer_access(request, customer_id)
+    be = get_billing_engine()
+    wallet = be.get_wallet(customer_id)
+    return {"ok": True, "wallet": wallet}
+
+
+# ── Model: DepositRequest ──
+
+
+class DepositRequest(BaseModel):
+    amount_cad: float = Field(gt=0, le=10000)
+    description: str = Field(default="Credit deposit", max_length=500)
+
+
+class AdminCreditRequest(BaseModel):
+    amount_cad: float = Field(gt=0, le=10000, multiple_of=0.01, allow_inf_nan=False)
+    # Shown to the customer in their transaction history and kept in the audit
+    # event, so a grant always says why it exists.
+    reason: str = Field(min_length=3, max_length=200)
+    # Client-generated per submit: a double click or a retried request grants once.
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+# ── Model: PaymentIntentRequest ──
+
+
+class PaymentIntentRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
+    description: str = Field(default="Compute credits", max_length=500)
+
+
+def _client_ip(request: Request) -> str:
+    """Server-verified client IP for Stripe Tax IP estimation fallback."""
+    client_ip = _get_real_client_ip(request)
+    return "" if client_ip == "unknown" else client_ip
+
+
+def _account_tax_address(user: dict) -> dict:
+    """Tax location from the user account (country/province), like provider profiles."""
+    country = str(user.get("country") or "").strip()
+    province = str(user.get("province") or "").strip()
+    # Prefer full user row from DB when auth payload is thin.
+    if not country or not province:
+        try:
+            from db import UserStore
+
+            email = str(user.get("email") or "").strip()
+            if email:
+                full = UserStore.get_user(email) or {}
+                country = country or str(full.get("country") or "").strip()
+                province = province or str(full.get("province") or "").strip()
+        except Exception:
+            pass
+    out: dict = {}
+    if country:
+        out["country"] = country
+    if province:
+        out["province"] = province
+        out["state"] = province
+    return out
+
+
+@router.post("/api/billing/payment-intent", tags=["Billing"])
+def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
+    """Create a Stripe PaymentIntent for depositing compute credits.
+
+    ``amount_cad`` is pretax wallet credit. Stripe Tax uses the **account**
+    country/province (settings/profile) — no deposit province picker. IP is a
+    fallback when the account has no location. Wallet is credited pretax only.
+    """
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "payment-intent")
+    _validate_topup_amount(req.amount_cad, user)
+    mgr = get_stripe_manager()
+    addr = _account_tax_address(user)
+    email = str(user.get("email") or "")
+    result = mgr.create_credit_deposit(
+        req.customer_id,
+        req.amount_cad,
+        req.description,
+        address=addr or None,
+        ip_address=_client_ip(request),
+        email=email,
+    )
+    return {"ok": True, "intent": result}
+
+
+# ── PayPal ───────────────────────────────────────────────────────────────
+
+_PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
+_PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
+_PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID", "")
+_PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox")  # sandbox | live
+# Platform Complete Payments: partner BN code from Developer Dashboard (not merchant_id).
+_PAYPAL_PARTNER_ATTRIBUTION_ID = os.environ.get("PAYPAL_PARTNER_ATTRIBUTION_ID", "")
+# Platform merchant_id (live). Live-only — sandbox rejects live merchant IDs.
+_PAYPAL_PLATFORM_MERCHANT_ID = os.environ.get("PAYPAL_PLATFORM_MERCHANT_ID", "")
+# Platform business PayPal email (sandbox + live fallback).
+_PAYPAL_PLATFORM_PAYEE_EMAIL = os.environ.get("PAYPAL_PLATFORM_PAYEE_EMAIL", "")
+_PAYPAL_BASE = (
+    "https://api-m.paypal.com" if _PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
+)
+
+
+def _paypal_payee() -> dict[str, str] | None:
+    """Payee for platform/marketplace orders — credits land on the platform merchant account."""
+    merchant_id = _PAYPAL_PLATFORM_MERCHANT_ID.strip()
+    email = _PAYPAL_PLATFORM_PAYEE_EMAIL.strip()
+    if merchant_id and merchant_id.isdigit() and len(merchant_id) > 15:
+        log.warning(
+            "PAYPAL_PLATFORM_MERCHANT_ID looks like a partner app ID; "
+            "use PAYPAL_PARTNER_ATTRIBUTION_ID instead"
+        )
+        merchant_id = ""
+    if _PAYPAL_MODE == "live":
+        if merchant_id:
+            return {"merchant_id": merchant_id}
+        if email:
+            return {"email_address": email}
+        return None
+    # Sandbox: live merchant_ids are invalid; prefer platform email payee.
+    if email:
+        return {"email_address": email}
+    if merchant_id:
+        return {"merchant_id": merchant_id}
+    return None
+
+
+def _paypal_purchase_unit(customer_id: str, amount_cad: float) -> dict:
+    unit: dict = {
+        "amount": {
+            "currency_code": "CAD",
+            "value": f"{amount_cad:.2f}",
+        },
+        "description": f"Xcelsior compute credits — {customer_id}",
+        "custom_id": customer_id,
+    }
+    payee = _paypal_payee()
+    if payee:
+        unit["payee"] = payee
+    return unit
+
+
+def _paypal_headers(token: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if _PAYPAL_PARTNER_ATTRIBUTION_ID:
+        headers["PayPal-Partner-Attribution-Id"] = _PAYPAL_PARTNER_ATTRIBUTION_ID
+    return headers
+
+
+def _paypal_get_order(order_id: str, token: str | None = None) -> dict:
+    token = token or _paypal_access_token()
+    resp = httpx.get(
+        f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}",
+        headers=_paypal_headers(token),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _paypal_is_marketplace_custom_id(custom_id: str) -> bool:
+    return ":" in custom_id and not custom_id.startswith("cust-")
+
+
+def _paypal_credit_capture(
+    customer_id: str,
+    order_id: str,
+    amount_cad: float,
+    capture_id: str,
+) -> dict:
+    if _paypal_is_marketplace_custom_id(customer_id):
+        log.info("Skipping wallet credit for marketplace PayPal order %s", order_id)
+        return {"balance_cad": 0.0, "skipped": True}
+    be = get_billing_engine()
+    return be.deposit(
+        customer_id,
+        amount_cad,
+        f"PayPal deposit ({capture_id})",
+        idempotency_key=f"paypal-{order_id}",
+    )
+
+
+def _paypal_capture_order(order_id: str, token: str | None = None) -> dict:
+    """Capture an approved PayPal order. Returns order JSON on success."""
+    token = token or _paypal_access_token()
+    order = _paypal_get_order(order_id, token)
+    status = order.get("status", "")
+    if status == "COMPLETED":
+        return order
+    if status != "APPROVED":
+        raise HTTPException(400, f"PayPal order status: {status or 'unknown'}")
+    cap_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
+        headers=_paypal_headers(token),
+        timeout=15,
+    )
+    if cap_resp.status_code >= 400:
+        log.error("PayPal capture failed for %s: %s", order_id, cap_resp.text)
+        raise HTTPException(502, "PayPal capture failed")
+    data = cap_resp.json()
+    if data.get("status") != "COMPLETED":
+        raise HTTPException(400, f"PayPal order status: {data.get('status', 'unknown')}")
+    return data
+
+
+def _paypal_access_token() -> str:
+    """Get a PayPal OAuth2 access token (short-lived, not cached)."""
+    resp = httpx.post(
+        f"{_PAYPAL_BASE}/v1/oauth2/token",
+        data={"grant_type": "client_credentials"},
+        auth=(_PAYPAL_CLIENT_ID, _PAYPAL_CLIENT_SECRET),
+        headers={"Accept": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+class PayPalCreateOrderRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
+
+
+class PayPalCaptureRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    order_id: str = Field(min_length=1, max_length=128)
+
+
+class PayPalMarketplaceCreateRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    provider_id: str = Field(min_length=1, max_length=128)
+    job_id: str = Field(min_length=1, max_length=128)
+
+
+class PayPalMarketplaceCaptureRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    provider_id: str = Field(min_length=1, max_length=128)
+    order_id: str = Field(min_length=1, max_length=128)
+
+
+@router.get("/api/billing/paypal/enabled", tags=["Billing"])
+def api_paypal_enabled():
+    """Check whether PayPal is configured."""
+    return {
+        "enabled": bool(_PAYPAL_CLIENT_ID and _PAYPAL_CLIENT_SECRET),
+        "platform_mode": bool(
+            _PAYPAL_PARTNER_ATTRIBUTION_ID
+            or _PAYPAL_PLATFORM_MERCHANT_ID
+            or _PAYPAL_PLATFORM_PAYEE_EMAIL
+        ),
+    }
+
+
+@router.post("/api/billing/paypal/create-order", tags=["Billing"])
+def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
+    """Create a PayPal order for depositing compute credits."""
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-create-order")
+    if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
+        raise HTTPException(503, "PayPal is not configured")
+    _validate_topup_amount(req.amount_cad, user)
+
+    token = _paypal_access_token()
+    order_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v2/checkout/orders",
+        headers=_paypal_headers(token),
+        json={
+            "intent": "CAPTURE",
+            "purchase_units": [_paypal_purchase_unit(req.customer_id, req.amount_cad)],
+            "application_context": {
+                "brand_name": "Xcelsior",
+                "shipping_preference": "NO_SHIPPING",
+            },
+        },
+        timeout=15,
+    )
+    if order_resp.status_code >= 400:
+        log.error("PayPal create-order failed: %s", order_resp.text)
+        raise HTTPException(502, "PayPal order creation failed")
+
+    data = order_resp.json()
+    return {"ok": True, "order_id": data["id"]}
+
+
+@router.post("/api/billing/paypal/capture-order", tags=["Billing"])
+def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
+    """Capture a PayPal order and credit the wallet."""
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-capture-order")
+    if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
+        raise HTTPException(503, "PayPal is not configured")
+
+    data = _paypal_capture_order(req.order_id)
+    capture = data["purchase_units"][0]["payments"]["captures"][0]
+    amount_cad = float(capture["amount"]["value"])
+    paypal_id = capture["id"]
+    result = _paypal_credit_capture(req.customer_id, req.order_id, amount_cad, paypal_id)
+    log.info("PayPal deposit: %s → $%.2f CAD (capture %s)", req.customer_id, amount_cad, paypal_id)
+    return {"ok": True, "balance_cad": result["balance_cad"], "amount_cad": amount_cad}
+
+
+@router.post("/api/billing/paypal/marketplace/create-order", tags=["Billing"])
+def api_paypal_marketplace_create_order(req: PayPalMarketplaceCreateRequest, request: Request):
+    """Create a provider order using the exact PostgreSQL-settled job amount."""
+    from paypal_connect import get_paypal_manager
+    from provider_settlement import SettlementError
+
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-marketplace-create")
+    mgr = get_paypal_manager()
+    if not mgr.get_paypal_profile(req.provider_id):
+        raise HTTPException(404, f"Provider {req.provider_id} not found")
+    try:
+        result = mgr.create_marketplace_order(
+            req.provider_id,
+            req.job_id,
+            expected_customer_id=req.customer_id,
+        )
+    except SettlementError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **result}
+
+
+@router.post("/api/billing/paypal/marketplace/capture-order", tags=["Billing"])
+def api_paypal_marketplace_capture_order(req: PayPalMarketplaceCaptureRequest, request: Request):
+    """Capture a marketplace PayPal order and record the provider/platform split."""
+    from paypal_connect import get_paypal_manager
+    from provider_settlement import SettlementError
+
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-marketplace-capture")
+    mgr = get_paypal_manager()
+    try:
+        result = mgr.capture_marketplace_order(
+            req.provider_id,
+            req.order_id,
+            expected_customer_id=req.customer_id,
+        )
+    except SettlementError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **result}
+
+
+def _paypal_verify_webhook_signature(request: Request, event: dict) -> bool:
+    """Verify PayPal webhook via REST verify-webhook-signature."""
+    if not _PAYPAL_WEBHOOK_ID:
+        log.warning("PAYPAL_WEBHOOK_ID unset — rejecting webhook")
+        return False
+    transmission_id = request.headers.get("paypal-transmission-id", "")
+    transmission_time = request.headers.get("paypal-transmission-time", "")
+    transmission_sig = request.headers.get("paypal-transmission-sig", "")
+    cert_url = request.headers.get("paypal-cert-url", "")
+    auth_algo = request.headers.get("paypal-auth-algo", "")
+    if not all((transmission_id, transmission_time, transmission_sig, cert_url, auth_algo)):
+        return False
+    token = _paypal_access_token()
+    verify_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v1/notifications/verify-webhook-signature",
+        headers=_paypal_headers(token),
+        json={
+            "auth_algo": auth_algo,
+            "cert_url": cert_url,
+            "transmission_id": transmission_id,
+            "transmission_sig": transmission_sig,
+            "transmission_time": transmission_time,
+            "webhook_id": _PAYPAL_WEBHOOK_ID,
+            "webhook_event": event,
+        },
+        timeout=15,
+    )
+    if verify_resp.status_code >= 400:
+        log.error(
+            "PayPal webhook verify HTTP %s: %s", verify_resp.status_code, verify_resp.text[:300]
+        )
+        return False
+    return verify_resp.json().get("verification_status") == "SUCCESS"
+
+
+def _paypal_handle_order_approved(resource: dict) -> None:
+    order_id = resource.get("id", "")
+    if not order_id or resource.get("status") != "APPROVED":
+        return
+    purchase_units = resource.get("purchase_units") or []
+    customer_id = (purchase_units[0].get("custom_id") if purchase_units else "") or ""
+    if not customer_id:
+        log.warning("PayPal ORDER.APPROVED missing custom_id for order %s", order_id)
+        return
+    try:
+        data = _paypal_capture_order(order_id)
+    except HTTPException as exc:
+        if exc.status_code == 400:
+            log.info("PayPal order %s not capturable (status may have advanced)", order_id)
+            return
+        raise
+    capture = data["purchase_units"][0]["payments"]["captures"][0]
+    amount_cad = float(capture["amount"]["value"])
+    _paypal_credit_capture(customer_id, order_id, amount_cad, capture["id"])
+    log.info("PayPal webhook capture: %s → $%.2f CAD (order %s)", customer_id, amount_cad, order_id)
+
+
+def _paypal_handle_order_completed(resource: dict) -> None:
+    """CHECKOUT.ORDER.COMPLETED — order finished; credit from embedded captures."""
+    order_id = resource.get("id", "")
+    purchase_units = resource.get("purchase_units") or []
+    if not purchase_units:
+        return
+    custom_id = purchase_units[0].get("custom_id", "") or ""
+    if not custom_id:
+        log.warning("PayPal ORDER.COMPLETED missing custom_id for order %s", order_id)
+        return
+    if _paypal_is_marketplace_custom_id(custom_id):
+        log.info("PayPal ORDER.COMPLETED marketplace order %s — wallet credit skipped", order_id)
+        return
+    customer_id = custom_id
+    captures = (purchase_units[0].get("payments") or {}).get("captures") or []
+    for capture in captures:
+        if capture.get("status") != "COMPLETED":
+            continue
+        amount_cad = float((capture.get("amount") or {}).get("value") or 0)
+        if amount_cad <= 0:
+            continue
+        _paypal_credit_capture(customer_id, order_id, amount_cad, capture.get("id", ""))
+        log.info(
+            "PayPal ORDER.COMPLETED credit: %s → $%.2f CAD (order %s)",
+            customer_id,
+            amount_cad,
+            order_id,
+        )
+
+
+def _paypal_handle_capture_completed(resource: dict) -> None:
+    capture_id = resource.get("id", "")
+    amount = resource.get("amount") or {}
+    amount_cad = float(amount.get("value") or 0)
+    order_id = (resource.get("supplementary_data") or {}).get("related_ids", {}).get("order_id", "")
+    if not order_id or amount_cad <= 0:
+        return
+    order = _paypal_get_order(order_id)
+    purchase_units = order.get("purchase_units") or []
+    custom_id = (purchase_units[0].get("custom_id") if purchase_units else "") or ""
+    if not custom_id:
+        log.warning("PayPal CAPTURE.COMPLETED missing custom_id for order %s", order_id)
+        return
+    if _paypal_is_marketplace_custom_id(custom_id):
+        log.info("PayPal CAPTURE.COMPLETED marketplace order %s — wallet credit skipped", order_id)
+        return
+    _paypal_credit_capture(custom_id, order_id, amount_cad, capture_id)
+    log.info(
+        "PayPal webhook credit: %s → $%.2f CAD (capture %s order %s)",
+        custom_id,
+        amount_cad,
+        capture_id,
+        order_id,
+    )
+
+
+@router.post("/api/billing/paypal/webhook", tags=["Billing"])
+async def api_paypal_webhook(request: Request):
+    """PayPal webhook receiver — backup capture/credit when client capture fails."""
+    if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
+        raise HTTPException(503, "PayPal is not configured")
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+    if not _paypal_verify_webhook_signature(request, event):
+        raise HTTPException(400, "Invalid PayPal webhook signature")
+
+    event_type = event.get("event_type", "")
+    resource = event.get("resource") or {}
+    try:
+        if event_type == "CHECKOUT.ORDER.APPROVED":
+            _paypal_handle_order_approved(resource)
+        elif event_type == "CHECKOUT.ORDER.COMPLETED":
+            _paypal_handle_order_completed(resource)
+        elif event_type == "PAYMENT.CAPTURE.COMPLETED":
+            _paypal_handle_capture_completed(resource)
+        elif event_type in (
+            "MERCHANT.ONBOARDING.COMPLETED",
+            "CUSTOMER.MERCHANT-INTEGRATION.PRODUCT-SUBSCRIPTION.UPDATED",
+        ):
+            from paypal_connect import get_paypal_manager
+
+            tracking_id = resource.get("tracking_id") or resource.get("trackingId") or ""
+            merchant_id = resource.get("merchant_id") or resource.get("merchantId") or ""
+            payer_id = resource.get("payer_id") or resource.get("payerId") or ""
+            get_paypal_manager().complete_onboarding_from_webhook(
+                tracking_id=tracking_id,
+                merchant_id=merchant_id,
+                payer_id=payer_id,
+            )
+            log.info(
+                "PayPal provider onboarding webhook %s tracking=%s merchant=%s",
+                event_type,
+                tracking_id,
+                merchant_id,
+            )
+        elif event_type in (
+            "PAYMENT.CAPTURE.DENIED",
+            "PAYMENT.CAPTURE.REFUNDED",
+            "PAYMENT.CAPTURE.REVERSED",
+            "CHECKOUT.ORDER.CANCELLED",
+            "CHECKOUT.PAYMENT-APPROVAL.REVERSED",
+        ):
+            log.info("PayPal webhook %s resource_id=%s", event_type, resource.get("id", ""))
+        else:
+            log.debug("PayPal webhook ignored: %s", event_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("PayPal webhook handler failed (%s): %s", event_type, exc)
+        raise HTTPException(500, "Webhook processing failed") from exc
+    return {"ok": True}
+
+
+@router.post("/api/billing/wallet/{customer_id}/deposit", tags=["Billing"])
+def api_deposit(customer_id: str, req: DepositRequest, request: Request):
+    """Deposit credits into a customer wallet.
+
+    Production deposits must flow through Stripe webhooks, PayPal capture, or
+    crypto/Lightning — not this direct credit endpoint.
+    """
+    user = _require_customer_access(request, customer_id, billing_write=True)
+    _check_billing_payment_rate_limit(customer_id, "wallet-deposit")
+    if not _allow_direct_wallet_deposit(user):
+        log.warning(
+            "billing.direct_deposit_blocked customer_id=%s user_id=%s amount_cad=%.2f",
+            customer_id,
+            user.get("user_id", ""),
+            req.amount_cad,
+        )
+        raise HTTPException(
+            403,
+            "Direct wallet deposits are disabled. Use Stripe, PayPal, or crypto to add credits.",
+        )
+    be = get_billing_engine()
+    result = be.deposit(customer_id, req.amount_cad, req.description)
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "user.billing.deposit",
+        "billing",
+        customer_id,
+        user,
+        data={"amount_cad": req.amount_cad, "description": req.description},
+    )
+    return {"ok": True, **result}
+
+
+@router.post("/api/billing/wallet/{customer_id}/reset-testing", tags=["Billing"])
+def api_reset_wallet_testing_state(customer_id: str, request: Request):
+    """Reset wallet balance and promo state for admin testing."""
+    _require_admin(request)
+    be = get_billing_engine()
+    result = be.reset_wallet_testing_state(customer_id)
+    return {"ok": True, **result}
+
+
+@router.post("/api/billing/wallet/{customer_id}/admin-credit", tags=["Billing"])
+def api_admin_credit(customer_id: str, req: AdminCreditRequest, request: Request):
+    """Credit a wallet without a payment. Platform admins only, in every environment.
+
+    For exercising paid flows end to end on production without a card, and for
+    goodwill credits. Recorded as an admin credit (``tx_type='credit'``), not a
+    deposit, so it never reads as cash received; every grant is audited with who
+    made it and why.
+    """
+    user = _require_customer_access(request, customer_id, billing_write=True)
+    if not _is_platform_admin(user):
+        raise HTTPException(403, "Admin access required")
+    be = get_billing_engine()
+    be._ensure_wallet_table()
+    with be._conn() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM wallets WHERE customer_id = %s", (customer_id,)
+        ).fetchone()
+    # Every account gets a wallet at registration. Crediting an id with none
+    # would mint an orphan wallet from a typo instead of reaching anyone.
+    if not exists:
+        raise HTTPException(404, "No wallet exists for that customer")
+    reason = req.reason.strip()
+    amount = float(req.amount_cad)
+    try:
+        result = be.grant_credit(
+            customer_id,
+            amount,
+            f"Admin credit: {reason}",
+            idempotency_key=f"admin-credit:{customer_id}:{req.idempotency_key}",
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    from routes._deps import append_user_audit_event
+
+    if not result.get("dedup"):
+        append_user_audit_event(
+            "admin.billing.credit",
+            "billing",
+            customer_id,
+            user,
+            data={"amount_cad": amount, "reason": reason, "tx_id": result["tx_id"]},
+        )
+    return {"ok": True, "amount_cad": amount, **result}
+
+
+@router.post("/api/billing/free-credits/{customer_id}", tags=["Billing"])
+def api_claim_free_credits(customer_id: str, request: Request):
+    """Claim a one-time $5 CAD bonus after a saved card and $5 CAD card top-up.
+
+    Uses an idempotency key derived from the customer_id so the bonus
+    can only be claimed once per customer.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    # Resolve customer_id from full user profile (session may lack it)
+    full_user = (
+        UserStore.get_user(user["email"])
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
+    uid = (
+        (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    )
+    if uid != customer_id:
+        raise HTTPException(403, "You can only claim credits for your own account")
+
+    idempotency_key = f"free-credits-{customer_id}"
+    be = get_billing_engine()
+    _check_billing_payment_rate_limit(customer_id, "welcome-bonus")
+    # Preserve idempotent retries, including bonuses issued under the old policy.
+    be._ensure_wallet_table()
+    with be._conn() as conn:
+        existing = conn.execute(
+            "SELECT tx_id, amount_micros FROM wallet_transactions WHERE customer_id = %s "
+            "AND idempotency_key = %s",
+            (customer_id, idempotency_key),
+        ).fetchone()
+    if existing:
+        return {
+            "ok": True,
+            "amount_cad": micros_to_cad(existing["amount_micros"]),
+            "balance_cad": be.get_wallet(customer_id)["balance_cad"],
+            "already_claimed": True,
+        }
+    try:
+        eligible = be.welcome_bonus_eligible(customer_id)
+    except Exception:
+        log.exception("Welcome bonus payment verification failed for %s", customer_id)
+        raise HTTPException(503, "Could not verify your card payment. Please try again later.")
+    if not eligible:
+        raise HTTPException(
+            403,
+            "Save a card and complete a card top-up of at least $5 CAD before claiming "
+            "your $5 welcome bonus. Refunded or disputed payments do not qualify.",
+        )
+    result = be.grant_credit(
+        customer_id,
+        _FREE_CREDIT_AMOUNT,
+        "Welcome bonus — $5 free credits",
+        idempotency_key=idempotency_key,
+    )
+    already_claimed = result.get("dedup", False)
+    return {
+        "ok": True,
+        "amount_cad": _FREE_CREDIT_AMOUNT,
+        "balance_cad": result["balance_cad"],
+        "already_claimed": already_claimed,
+    }
+
+
+@router.get("/api/billing/free-credits/{customer_id}/status", tags=["Billing"])
+def api_free_credits_status(customer_id: str, request: Request):
+    """Check whether the customer has already claimed the free signup bonus."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    # Resolve customer_id from full user profile (session may lack it)
+    full_user = (
+        UserStore.get_user(user["email"])
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
+    uid = (
+        (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    )
+    if uid != customer_id:
+        raise HTTPException(403, "Forbidden")
+    be = get_billing_engine()
+    be._ensure_wallet_table()
+    with be._conn() as conn:
+        row = conn.execute(
+            "SELECT tx_id FROM wallet_transactions WHERE idempotency_key = %s",
+            (f"free-credits-{customer_id}",),
+        ).fetchone()
+    return {"ok": True, "claimed": row is not None}
+
+
+def _wallet_transaction_for_api(row: dict) -> dict:
+    """One wallet transaction as the API states money: in CAD.
+
+    `get_wallet_history` returns the stored row, and since money moved to
+    integer micros that row carries `amount_micros` and `balance_after_micros`
+    and nothing in CAD. The route passed it through, so the dashboard read
+    `tx.amount_cad` as undefined: the billing page crashed on `.toFixed` for
+    every account with a transaction, and analytics summed undefined into
+    `$NaN` — both seen on production on 2026-10-06. CAD is the unit at the API
+    boundary everywhere else; it is derived here, once. The micros fields stay,
+    because MCP clients already receive them.
+    """
+    out = dict(row)
+    if row.get("amount_micros") is not None:
+        out["amount_cad"] = micros_to_cad(int(row["amount_micros"]))
+    if row.get("balance_after_micros") is not None:
+        out["balance_after_cad"] = micros_to_cad(int(row["balance_after_micros"]))
+    return out
+
+
+def _history_cursor(row: dict) -> str:
+    """An opaque cursor naming the last row of a page."""
+    raw = json.dumps([float(row["created_at"]), str(row["tx_id"])], separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def _parse_history_cursor(cursor: str) -> tuple[float, str]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        created_at, tx_id = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        return float(created_at), str(tx_id)
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid history cursor") from None
+
+
+@router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
+def api_wallet_history(
+    customer_id: str,
+    request: Request,
+    limit: int = Query(50, ge=1, le=1000),
+    before: str | None = Query(
+        None, max_length=256, description="`next_cursor` from the previous page"
+    ),
+):
+    """Transaction history for a wallet, newest first, one page at a time.
+
+    Pass the response's `next_cursor` as `before` for the next (older) page;
+    it is null on the last page. `total` counts every transaction, so a client
+    can say where a page sits. Callers that send only `limit` get exactly what
+    they always did: the newest `limit` transactions.
+    """
+    _require_customer_access(request, customer_id)
+    be = get_billing_engine()
+    cursor = _parse_history_cursor(before) if before else None
+    rows = be.get_wallet_history(customer_id, limit + 1, before=cursor)
+    page, more = rows[:limit], len(rows) > limit
+    return {
+        "ok": True,
+        "customer_id": customer_id,
+        "transactions": [_wallet_transaction_for_api(r) for r in page],
+        "next_cursor": _history_cursor(page[-1]) if more and page else None,
+        "total": be.count_wallet_history(customer_id),
+    }
+
+
+@router.get("/api/billing/wallet/{customer_id}/depletion", tags=["Billing"])
+def api_wallet_depletion(customer_id: str, request: Request):
+    """Get real-time balance depletion projection.
+
+    Returns burn rate, seconds-to-zero, per-instance cost breakdown,
+    and alert thresholds (T-30min, T-5min, T-0).
+    """
+    _require_customer_access(request, customer_id)
+    be = get_billing_engine()
+    return {"ok": True, **be.time_to_zero(customer_id)}
+
+
+@router.get("/api/billing/usage/{customer_id}", tags=["Billing"])
+def api_usage_summary(
+    customer_id: str, request: Request, period_start: float = 0, period_end: float = 0
+):
+    """Get usage summary for a customer."""
+    _require_customer_access(request, customer_id)
+    if period_end == 0:
+        period_end = time.time()
+    if period_start == 0:
+        period_start = period_end - 30 * 86400  # Last 30 days
+    be = get_billing_engine()
+    summary = be.get_usage_summary(customer_id, period_start, period_end)
+    return {"ok": True, **summary}
+
+
+def _invoice_period(period_start: float, period_end: float) -> tuple[float, float]:
+    period_end = period_end or time.time()
+    period_start = period_start or max(0, period_end - 30 * 86400)
+    if period_start >= period_end:
+        raise HTTPException(status_code=422, detail="period_start must be before period_end")
+    return period_start, period_end
+
+
+@router.get("/api/billing/invoice/{customer_id}", tags=["Billing"])
+def api_generate_invoice(
+    customer_id: str,
+    request: Request,
+    customer_name: str = "",
+    period_start: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    period_end: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    tax_rate: float = Query(0.13, ge=0, le=1, allow_inf_nan=False),
+):
+    """Preview an itemized draft invoice without persisting a billing record."""
+    _require_customer_access(request, customer_id)
+    period_start, period_end = _invoice_period(period_start, period_end)
+    be = get_billing_engine()
+    invoice = be.generate_invoice(
+        customer_id, customer_name, period_start, period_end, tax_rate, persist=False
+    )
+    return {"ok": True, "invoice": invoice.to_dict()}
+
+
+@router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
+def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12, ge=1, le=1000)):
+    """Preview usage summaries for the current and preceding UTC calendar months."""
+    _require_customer_access(request, customer_id)
+    be = get_billing_engine()
+    month = datetime.fromtimestamp(time.time(), timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    invoices = []
+    for _ in range(limit):
+        next_month = (
+            month.replace(year=month.year + 1, month=1)
+            if month.month == 12
+            else month.replace(month=month.month + 1)
+        )
+        period_start, period_end = month.timestamp(), next_month.timestamp()
+        inv = be.generate_invoice(customer_id, "", period_start, period_end, 0.13, persist=False)
+        if inv.line_items:
+            invoices.append(
+                {
+                    "invoice_id": inv.invoice_id,
+                    "period_start": period_start,
+                    "period_end": period_end,
+                    "total_cad": inv.total_cad,
+                    "subtotal_cad": inv.subtotal_cad,
+                    "tax_cad": inv.tax_amount_cad,
+                    "tax_rate": inv.tax_rate,
+                    "line_items": len(inv.line_items),
+                    "status": inv.status,
+                }
+            )
+        month = (
+            month.replace(year=month.year - 1, month=12)
+            if month.month == 1
+            else month.replace(month=month.month - 1)
+        )
+    return {"ok": True, "invoices": invoices, "count": len(invoices)}
+
+
+@router.get("/api/billing/invoice/{customer_id}/download", tags=["Billing"])
+def api_download_invoice(
+    customer_id: str,
+    request: Request,
+    format: Literal["csv", "txt"] = "csv",
+    period_start: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    period_end: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
+    tax_rate: float = Query(0.13, ge=0, le=1, allow_inf_nan=False),
+    customer_name: str = "",
+):
+    """Download a draft invoice as CSV or a plain-text receipt.
+
+    Formats: csv (spreadsheet-ready), txt (printable receipt).
+    """
+    _require_customer_access(request, customer_id)
+    import io
+    import csv as csv_mod
+
+    period_start, period_end = _invoice_period(period_start, period_end)
+
+    be = get_billing_engine()
+    inv = be.generate_invoice(
+        customer_id, customer_name, period_start, period_end, tax_rate, persist=False
+    )
+    date_str = datetime.fromtimestamp(period_end, timezone.utc).strftime("%Y-%m-%d")
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv_mod.writer(output)
+        writer.writerow(["Xcelsior Invoice", inv.invoice_id, date_str])
+        writer.writerow([])
+        writer.writerow(
+            ["Description", "GPU", "Quantity", "Unit", "Rate (CAD/unit)", "Amount (CAD)"]
+        )
+        for item in inv.line_items:
+            writer.writerow(
+                [
+                    item["description"],
+                    item["gpu_model"],
+                    f"{item['quantity']:.4f}",
+                    item["unit"],
+                    f"{item['unit_price_cad']:.6f}",
+                    f"{item['subtotal_cad']:.6f}",
+                ]
+            )
+        writer.writerow([])
+        writer.writerow(["Subtotal", "", "", "", "", f"{inv.subtotal_cad:.2f}"])
+        writer.writerow(["Tax", "", "", "", "", f"{inv.tax_amount_cad:.2f}"])
+        writer.writerow(["Total (CAD)", "", "", "", "", f"{inv.total_cad:.2f}"])
+        csv_data = output.getvalue()
+        return StreamingResponse(
+            iter([csv_data]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=xcelsior-invoice-{inv.invoice_id}.csv"
+            },
+        )
+
+    # Plain-text receipt format
+    lines = [
+        "=" * 60,
+        "XCELSIOR — GPU COMPUTE INVOICE",
+        "=" * 60,
+        f"Invoice ID:  {inv.invoice_id}",
+        f"Status:      {inv.status}",
+        f"Customer:    {customer_name or customer_id}",
+        f"Date:        {date_str}",
+        f"Period:      {datetime.fromtimestamp(period_start, timezone.utc).strftime('%Y-%m-%d')} to {date_str} (end exclusive)",
+        "-" * 60,
+    ]
+    for item in inv.line_items:
+        lines.extend(
+            [
+                item["description"],
+                f"  {item['quantity']:.4f} {item['unit']} at "
+                f"${item['unit_price_cad']:.6f}/unit: ${item['subtotal_cad']:.6f} CAD",
+            ]
+        )
+    lines += [
+        "-" * 60,
+        f"Subtotal: ${inv.subtotal_cad:.2f}",
+        f"Tax ({inv.tax_rate * 100:g}%): ${inv.tax_amount_cad:.2f}",
+        f"TOTAL (CAD): ${inv.total_cad:.2f}",
+        "",
+        "=" * 60,
+        "Xcelsior Inc. | xcelsior.ca | Built in Canada 🍁",
+    ]
+    from fastapi.responses import PlainTextResponse
+
+    return PlainTextResponse(
+        content="\n".join(lines),
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f"attachment; filename=xcelsior-invoice-{inv.invoice_id}.txt"
+        },
+    )
+
+
+@router.get("/api/billing/attestation", tags=["Billing"])
+def api_provider_attestation():
+    """Get the Xcelsior supplier attestation bundle for procurement review."""
+    be = get_billing_engine()
+    attestation = be.generate_attestation()
+    return {"ok": True, "attestation": attestation.to_dict()}
+
+
+# ── Model: RefundRequest ──
+
+
+class RefundRequest(BaseModel):
+    job_id: str = Field(min_length=1, max_length=128)
+    exit_code: int = Field(ge=0, le=255)
+    failure_reason: str = Field(default="", max_length=1000)
+
+
+@router.post("/api/billing/refund", tags=["Billing"])
+def api_process_refund(req: RefundRequest, request: Request):
+    """Process a refund for a failed job.
+
+    From REPORT_FEATURE_1.md:
+    - Hardware error → full refund
+    - User OOM (exit 137) → zero refund
+    """
+    from routes.instances import _check_job_access
+
+    user = _require_auth(request)
+    _check_job_access(user, req.job_id)
+    be = get_billing_engine()
+    result = be.process_refund(req.job_id, req.exit_code, req.failure_reason)
+    return {"ok": True, **result}
+
+
+# ── Model: CryptoDepositRequest ──
+
+
+class CryptoDepositRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
+
+
+@router.post("/api/billing/crypto/deposit", tags=["Billing"])
+def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
+    """Create a BTC deposit request. Returns address, amount, and QR data."""
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "crypto-deposit")
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    service_status = _btc_mod.get_service_status()
+    if not service_status.get("available", False):
+        raise HTTPException(
+            503,
+            service_status.get("reason") or "Bitcoin service is currently unavailable",
+        )
+    _validate_topup_amount(req.amount_cad, user)
+
+    # Gate P1 clause 2's third rail. The header is the convention already used
+    # by the privacy and serverless routes; both casings are read because a
+    # client that sets it lowercase is not making a mistake.
+    idem = (
+        request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key") or ""
+    ).strip()[:200]
+
+    try:
+        result = _btc_mod.create_deposit(req.customer_id, req.amount_cad, idem)
+        return {"ok": True, **result}
+    except _btc_mod.DepositKeyConflict as e:
+        # 409, not 503. The service is fine; the caller contradicted itself by
+        # reusing a key for a different amount, and a 503 would invite the retry
+        # that cannot succeed.
+        raise HTTPException(409, str(e)) from e
+    except Exception as e:
+        log.error("Crypto deposit error: %s", e)
+        detail = _btc_mod.describe_service_error(e)
+        raise HTTPException(503, detail)
+
+
+@router.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
+def api_crypto_deposit_status(deposit_id: str, request: Request):
+    """Poll deposit confirmation status."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    dep = _btc_mod.get_deposit(deposit_id)
+    if not dep:
+        raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, dep["customer_id"])
+    return {"ok": True, **dep}
+
+
+@router.get("/api/billing/crypto/rate", tags=["Billing"])
+def api_crypto_rate():
+    """Get current BTC/CAD exchange rate."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    try:
+        rate = _btc_mod.get_btc_cad_rate()
+        return {"ok": True, "btc_cad": rate, "currency": "CAD"}
+    except Exception as e:
+        raise HTTPException(502, f"Unable to fetch rate: {e}")
+
+
+@router.post("/api/billing/crypto/refresh/{deposit_id}", tags=["Billing"])
+def api_crypto_refresh(deposit_id: str, request: Request):
+    """Refresh an expired deposit with a new BTC/CAD rate."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    existing = _btc_mod.get_deposit(deposit_id)
+    if not existing:
+        raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, existing["customer_id"], billing_write=True)
+    dep = _btc_mod.refresh_deposit(deposit_id)
+    if not dep:
+        raise HTTPException(404, "Deposit not found")
+    return {"ok": True, **dep}
+
+
+@router.get("/api/billing/crypto/enabled", tags=["Billing"])
+def api_crypto_enabled():
+    """Check if Bitcoin deposits are enabled."""
+    if not _btc_mod:
+        return {
+            "ok": True,
+            "enabled": False,
+            "available": False,
+            "reason": "Bitcoin deposits are not enabled",
+        }
+    return {"ok": True, **_btc_mod.get_service_status()}
+
+
+# ── Lightning Network Deposits ────────────────────────────────────────
+
+
+class LnDepositRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
+
+
+@router.get("/api/billing/lightning/enabled", tags=["Billing"])
+def api_ln_enabled():
+    """Check if Lightning deposits are enabled and node is reachable."""
+    if not _ln_mod:
+        return {
+            "ok": True,
+            "enabled": False,
+            "available": False,
+            "reason": "Lightning module not available",
+        }
+    return {"ok": True, **_ln_mod.get_service_status()}
+
+
+@router.post("/api/billing/lightning/deposit", tags=["Billing"])
+def api_ln_create_deposit(req: LnDepositRequest, request: Request):
+    """Create a Lightning invoice for depositing CAD credits."""
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "lightning-deposit")
+    if not _ln_mod or not _ln_mod.LN_ENABLED:
+        raise HTTPException(503, "Lightning deposits are not enabled")
+    _validate_topup_amount(req.amount_cad, user)
+    idem = (
+        request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key") or ""
+    ).strip()[:200]
+    try:
+        result = _ln_mod.create_deposit(req.customer_id, req.amount_cad, idem)
+        broadcast_sse(
+            "ln_deposit_created",
+            {"deposit_id": result["deposit_id"], "customer_id": req.customer_id},
+        )
+        return {"ok": True, **result}
+    except _ln_mod.DepositKeyConflict as e:
+        # Before ValueError: DepositKeyConflict is not a ValueError, but keeping
+        # it first makes the ordering intentional rather than incidental. 409,
+        # not 400 — the request is well-formed, it contradicts an earlier one.
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+@router.get("/api/billing/lightning/deposit/{deposit_id}", tags=["Billing"])
+def api_ln_check_deposit(deposit_id: str, request: Request):
+    """Check the status of a Lightning deposit."""
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    if not _ln_mod or not _ln_mod.LN_ENABLED:
+        raise HTTPException(503, "Lightning deposits are not enabled")
+    dep = _ln_mod.check_deposit(deposit_id)
+    if not dep:
+        raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, dep.get("customer_id", ""))
+    return {"ok": True, **dep}
+
+
+@router.get("/api/billing/lightning/rate", tags=["Billing"])
+def api_ln_rate():
+    """Get current BTC/CAD rate for Lightning deposits."""
+    if not _ln_mod:
+        raise HTTPException(503, "Lightning module not available")
+    try:
+        rate = _ln_mod.get_btc_cad_rate()
+        return {"ok": True, "btc_cad": rate, "currency": "CAD"}
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+# ── Model: EstimateRequest ──
+
+
+class EstimateRequest(BaseModel):
+    gpu_model: str = Field(default="RTX 4090", max_length=64)
+    duration_hours: float = Field(default=1.0, ge=0.0, le=8760)  # max 1 year
+    spot: bool = False
+
+
+@router.post("/api/pricing/estimate", tags=["Billing"])
+def api_estimate_cost(req: EstimateRequest):
+    """Estimate what a job will cost, in CAD, before launching it."""
+    estimate = estimate_job_cost(
+        req.gpu_model,
+        req.duration_hours,
+        spot=req.spot,
+    )
+    return {"ok": True, **estimate}
+
+
+@router.get("/api/pricing/reference", tags=["Billing"])
+def api_reference_pricing():
+    """Get reference GPU pricing table in CAD from live ``gpu_pricing``."""
+    pricing = build_gpu_pricing_reference()
+    source = "gpu_pricing"
+    if not pricing:
+        pricing = GPU_REFERENCE_PRICING_CAD
+        source = "static_fallback"
+    return {
+        "ok": True,
+        "currency": "CAD",
+        "source": source,
+        "pricing": pricing,
+        "reference": build_reference_list(pricing) if source == "gpu_pricing" else [],
+    }
+
+
+def _estimate_province(request: Request, supplied: str) -> str:
+    """The province a tax *estimate* should use, matching what Stripe will charge.
+
+    Stripe Tax is the merchant-of-record calculation for real money, and it reads
+    the **account** country/province — `api_create_payment_intent` says so, and
+    `_account_tax_address` above is where it gets it. These two endpoints are
+    only estimates for the launch UI, but an estimate that disagrees with the
+    charge is worse than no estimate.
+
+    They defaulted to `province="ON"`, and the launch modal sent `province || "ON"`
+    because `/api/compliance/detect-province` — a route that does not exist —
+    404ed into a `.catch` that hard-coded Ontario. So every customer outside
+    Ontario was quoted 13% HST and then charged their own rate.
+
+    An explicit query value still wins, for callers that are pricing a location
+    rather than their own next launch. Otherwise this follows the account, and
+    falls back to empty — which `get_tax_rate_for_province` renders as
+    "GST 5% (province unknown)" rather than quietly picking a province.
+    """
+    if supplied.strip():
+        return supplied.strip()
+    try:
+        user = _get_current_user(request)
+    except Exception:
+        return ""
+    if not user:
+        return ""
+    return str(_account_tax_address(user).get("province") or "")
+
+
+@router.get("/api/pricing/rates", tags=["Billing"])
+def api_pricing_rates(
+    request: Request,
+    gpu_model: str = "RTX 4090",
+    tier: str = "standard",
+    mode: str = "on_demand",
+    priority: str = "normal",
+    num_gpus: int = 1,
+    province: str = "",
+):
+    """Compute effective GPU rate with all pricing variables.
+
+    Returns a full breakdown: base rate, priority multiplier,
+    premium, multi-GPU discount, tax rate, and final per-hour total.
+    Volume (storage) costs are calculated at runtime in billing — not here.
+    """
+    from db import pg_connection, GPU_PRIORITY_MULTIPLIERS
+
+    # Validate priority
+    priority = priority.lower()
+    pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
+
+    live_spot_quote = None
+    if mode == "spot":
+        from spot_pricing import compute_live_spot_quote
+
+        live_spot_quote = compute_live_spot_quote(gpu_model, tier=tier)
+
+    with pg_connection() as conn:
+        cur = conn.execute(
+            """SELECT base_rate_micros::double precision / 1000000.0 AS base_rate_cad,
+                      multi_gpu_discount_4, multi_gpu_discount_8, vram_gb
+               FROM gpu_pricing
+               WHERE gpu_model = %s AND tier = %s AND pricing_mode = %s
+                     AND active = TRUE
+               LIMIT 1""",
+            (gpu_model, tier, mode),
+        )
+        row = cur.fetchone()
+
+    if not row and live_spot_quote is None:
+        raise HTTPException(status_code=404, detail=f"No pricing for {gpu_model}/{tier}/{mode}")
+
+    if row:
+        base_rate = row[0]
+        mg4_disc = row[1]
+        mg8_disc = row[2]
+        vram_gb = row[3]
+    else:
+        # The guard above returns 404 when both row and quote are absent,
+        # so reaching this branch means the live quote exists.
+        assert live_spot_quote is not None
+        base_rate = live_spot_quote.rate_cad
+        mg4_disc = 0.05
+        mg8_disc = 0.10
+        vram_gb = 0
+
+    if live_spot_quote is not None:
+        base_rate = live_spot_quote.rate_cad
+
+    # Multi-GPU discount
+    if num_gpus >= 8:
+        multi_gpu_discount = mg8_disc
+    elif num_gpus >= 4:
+        multi_gpu_discount = mg4_disc
+    else:
+        multi_gpu_discount = 0.0
+
+    # Effective per-GPU rate
+    effective_rate = base_rate * pri_mult * (1 - multi_gpu_discount)
+    effective_rate = round(effective_rate, 4)
+
+    # Per-hour total across all GPUs
+    total_per_hour = round(effective_rate * num_gpus, 4)
+
+    # Tax
+    province = _estimate_province(request, province)
+    tax_rate, tax_desc = get_tax_rate_for_province(province)
+    tax_amount = round(total_per_hour * tax_rate, 4)
+    total_with_tax = round(total_per_hour + tax_amount, 4)
+
+    result = {
+        "ok": True,
+        "currency": "CAD",
+        "gpu_model": gpu_model,
+        "vram_gb": vram_gb,
+        "tier": tier,
+        "pricing_mode": mode,
+        "priority": priority,
+        "num_gpus": num_gpus,
+        "base_rate_cad": base_rate,
+        "priority_multiplier": pri_mult,
+        "multi_gpu_discount": multi_gpu_discount,
+        "effective_rate_per_gpu": effective_rate,
+        "total_per_hour": total_per_hour,
+        "province": province,
+        "tax_rate": tax_rate,
+        "tax_description": tax_desc,
+        "tax_amount": tax_amount,
+        "total_with_tax": total_with_tax,
+    }
+    if live_spot_quote is not None:
+        result["on_demand_cad"] = live_spot_quote.on_demand_cad
+        result["savings_pct"] = live_spot_quote.savings_pct
+        result["spot_supply"] = live_spot_quote.supply
+        result["spot_demand"] = live_spot_quote.demand
+    return result
+
+
+@router.get("/api/pricing/spot-quote", tags=["Billing"])
+def api_spot_quote(
+    request: Request,
+    gpu_model: str = "RTX 4090",
+    tier: str = "standard",
+    num_gpus: int = 1,
+    province: str = "",
+    priority: str = "normal",
+):
+    """Live spot quote with tax breakdown for launch UI."""
+    from db import GPU_PRIORITY_MULTIPLIERS
+    from spot_pricing import compute_live_spot_quote
+
+    priority = priority.lower()
+    pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
+    quote = compute_live_spot_quote(gpu_model, tier=tier)
+
+    effective_rate = round(quote.rate_cad * pri_mult, 4)
+    total_per_hour = round(effective_rate * num_gpus, 4)
+    province = _estimate_province(request, province)
+    tax_rate, tax_desc = get_tax_rate_for_province(province)
+    tax_amount = round(total_per_hour * tax_rate, 4)
+    total_with_tax = round(total_per_hour + tax_amount, 4)
+
+    return {
+        "ok": True,
+        "currency": "CAD",
+        "gpu_model": gpu_model,
+        "tier": tier,
+        "pricing_mode": "spot",
+        "num_gpus": num_gpus,
+        "priority": priority,
+        "rate_cad": quote.rate_cad,
+        "on_demand_cad": quote.on_demand_cad,
+        "savings_pct": quote.savings_pct,
+        "spot_cents": quote.spot_cents,
+        "supply": quote.supply,
+        "demand": quote.demand,
+        "provider_floor_cents": quote.provider_floor_cents,
+        "priority_multiplier": pri_mult,
+        "effective_rate_per_gpu": effective_rate,
+        "total_per_hour": total_per_hour,
+        "province": province,
+        "tax_rate": tax_rate,
+        "tax_description": tax_desc,
+        "tax_amount": tax_amount,
+        "total_with_tax": total_with_tax,
+        "as_of": quote.as_of,
+    }
+
+
+@router.get("/api/pricing/models", tags=["Billing"])
+def api_pricing_models():
+    """List all available GPU models with on-demand standard pricing."""
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        cur = conn.execute("""SELECT DISTINCT gpu_model, vram_gb,
+                                     base_rate_micros::double precision / 1000000.0 AS base_rate_cad
+               FROM gpu_pricing
+               WHERE active = TRUE AND tier = 'standard' AND pricing_mode = 'on_demand'
+               ORDER BY base_rate_cad ASC""")
+        rows = cur.fetchall()
+
+    models = [{"gpu_model": r[0], "vram_gb": r[1], "base_rate_cad": r[2]} for r in rows]
+    return {"ok": True, "models": models}
+
+
+# ── Model: ReservedCommitmentRequest ──
+
+
+class ReservedCommitmentRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    gpu_model: str = Field(default="RTX 4090", max_length=64)
+    commitment_type: str = Field(default="1_month", pattern="^(1_month|3_month|1_year)$")
+    quantity: int = Field(default=1, ge=1, le=1000)  # number of GPU slots reserved
+    province: str = Field(default="ON", max_length=10)
+
+
+@router.get("/api/pricing/reserved-plans", tags=["Billing"])
+def api_reserved_plans():
+    """List available reserved pricing tiers with discount percentages.
+
+    Three commitment levels:
+    - **1_month**: 20% discount, minimum 4 hrs/day usage
+    - **3_month**: 30% discount, minimum 4 hrs/day usage
+    - **1_year**: 45% discount, no minimum daily usage
+
+    Compare with on-demand (`POST /instance`) and spot (`POST /instance` with `pricing_mode=spot`).
+    """
+    live = build_gpu_pricing_reference()
+    enriched = {}
+    for tier_key, tier in RESERVED_PRICING_TIERS.items():
+        samples = {}
+        if live:
+            for gpu in live:
+                rate = get_reserved_rate(gpu, tier_key)
+                if rate > 0:
+                    samples[gpu] = round(rate, 4)
+        else:
+            for gpu, ref in GPU_REFERENCE_PRICING_CAD.items():
+                base = (
+                    ref.get("base_rate_cad", ref.get("cad_per_hour", 0))
+                    if isinstance(ref, dict)
+                    else ref
+                )
+                samples[gpu] = round(base * (1 - tier["discount_pct"] / 100), 4)
+        enriched[tier_key] = {**tier, "sample_hourly_rates_cad": samples}
+    return {"ok": True, "currency": "CAD", "reserved_tiers": enriched}
+
+
+@router.post("/api/pricing/reserve", tags=["Billing"])
+def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
+    """Create a reserved pricing commitment for a customer.
+
+    Reserved instances are 20-45% cheaper than on-demand, depending on
+    commitment length. The customer pre-commits to a term and receives
+    a guaranteed discount on all GPU hours consumed during that period.
+    """
+    _require_customer_access(request, req.customer_id, billing_write=True)
+    tier = RESERVED_PRICING_TIERS.get(req.commitment_type)
+    if not tier:
+        raise HTTPException(
+            400,
+            f"Invalid commitment_type: {req.commitment_type}. "
+            f"Valid: {list(RESERVED_PRICING_TIERS.keys())}",
+        )
+
+    base_rate = get_on_demand_rate(req.gpu_model)
+    discounted_rate = get_reserved_rate(req.gpu_model, req.commitment_type)
+    if discounted_rate <= 0 and base_rate > 0:
+        discounted_rate = round(base_rate * (1 - tier["discount_pct"] / 100), 4)
+    if base_rate <= 0 and discounted_rate <= 0:
+        raise HTTPException(400, f"Unknown GPU model: {req.gpu_model}")
+    tax_rate, tax_desc = get_tax_rate_for_province(req.province)
+
+    now = time.time()
+    term_days = _RESERVED_TERM_DAYS.get(req.commitment_type, 30)
+    start_at = now
+    end_at = now + term_days * 86400
+
+    commitment = {
+        "commitment_id": str(uuid.uuid4()),
+        "customer_id": req.customer_id,
+        "commitment_type": req.commitment_type,
+        "gpu_model": req.gpu_model,
+        "quantity": req.quantity,
+        "base_rate_cad": base_rate,
+        "discounted_rate_cad": discounted_rate,
+        "discount_pct": tier["discount_pct"],
+        "province": req.province,
+        "tax_rate": tax_rate,
+        "tax_description": tax_desc,
+        "commitment_description": tier["description"],
+        "min_hours_per_day": tier["min_hours_per_day"],
+        "created_at": now,
+        "start_at": start_at,
+        "end_at": end_at,
+        "start_date": datetime.fromtimestamp(start_at, tz=timezone.utc).isoformat(),
+        "end_date": datetime.fromtimestamp(end_at, tz=timezone.utc).isoformat(),
+        "status": "active",
+    }
+
+    # Charge upfront or set up recurring billing via Stripe
+    billing = get_billing_engine()
+    monthly_estimate = discounted_rate * req.quantity * 24 * 30
+    commitment["monthly_estimate_cad"] = round(monthly_estimate, 2)
+    commitment["monthly_estimate_with_tax_cad"] = round(monthly_estimate * (1 + tax_rate), 2)
+    # Total value of the commitment over its full term (at 24h/day utilization).
+    commitment["total_commitment_value_cad"] = round(
+        discounted_rate * req.quantity * 24 * term_days, 2
+    )
+
+    # Persist so the customer can later see active commitments + realized
+    # savings (GET /api/pricing/reservations). Best-effort: a storage hiccup
+    # should not fail the reservation the customer just paid for.
+    try:
+        billing.record_reservation(
+            {
+                "commitment_id": commitment["commitment_id"],
+                "customer_id": commitment["customer_id"],
+                "commitment_type": commitment["commitment_type"],
+                "gpu_model": commitment["gpu_model"],
+                "quantity": commitment["quantity"],
+                "province": commitment["province"],
+                "base_rate_cad": commitment["base_rate_cad"],
+                "discounted_rate_cad": commitment["discounted_rate_cad"],
+                "discount_pct": commitment["discount_pct"],
+                "min_hours_per_day": commitment["min_hours_per_day"],
+                "status": "active",
+                "created_at": now,
+                "start_at": start_at,
+                "end_at": end_at,
+            }
+        )
+    except Exception as e:  # pragma: no cover - storage failure path
+        log.warning(
+            "reserve: failed to persist commitment %s: %s",
+            commitment["commitment_id"],
+            e,
+        )
+
+    broadcast_sse(
+        "reservation_created",
+        {
+            "commitment_id": commitment["commitment_id"],
+            "customer_id": req.customer_id,
+            "type": req.commitment_type,
+        },
+    )
+    return {"ok": True, **commitment}
+
+
+@router.get("/api/pricing/reservations", tags=["Billing"])
+def api_list_reservations(request: Request, customer_id: str = ""):
+    """List the authenticated customer's reserved commitments + savings.
+
+    Returns each commitment with realized savings (computed from GPU-hours
+    actually consumed on the committed GPU model during the commitment
+    window) plus a summary: count of active commitments, total realized
+    savings to date, and projected monthly savings at the committed
+    minimum daily usage.
+
+    Non-admin callers are always scoped to their own commitments; the
+    `customer_id` query param is honoured only for admins.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    if not bool(user.get("is_admin")) or not customer_id:
+        customer_id = _analytics_customer_scope(user)
+
+    empty_summary = {
+        "active_count": 0,
+        "total_count": 0,
+        "realized_savings_cad": 0.0,
+        "projected_monthly_savings_cad": 0.0,
+    }
+    if not customer_id:
+        return {"ok": True, "customer_id": "", "reservations": [], "summary": empty_summary}
+
+    billing = get_billing_engine()
+    try:
+        reservations = billing.list_reservations(customer_id)
+    except Exception as e:
+        # `ok: True` with an empty list tells a customer they hold no reserved
+        # instances, which is a different statement from "we could not load
+        # them" and the more alarming one to be wrong about. The shape is kept
+        # so the dashboard still renders, with `degraded` so it can say so.
+        log.warning("reservations: failed to load for %s: %s", customer_id, e)
+        return {
+            "ok": True,
+            "degraded": True,
+            "customer_id": customer_id,
+            "reservations": [],
+            "summary": empty_summary,
+        }
+
+    active = [r for r in reservations if r.get("is_active")]
+    realized = round(sum(float(r.get("realized_savings_cad", 0)) for r in reservations), 2)
+    projected_monthly = round(
+        sum(
+            max(0.0, float(r["base_rate_cad"]) - float(r["discounted_rate_cad"]))
+            * float(r["min_hours_per_day"])
+            * 30
+            * int(r["quantity"])
+            for r in active
+        ),
+        2,
+    )
+    return {
+        "ok": True,
+        "customer_id": customer_id,
+        "reservations": reservations,
+        "summary": {
+            "active_count": len(active),
+            "total_count": len(reservations),
+            "realized_savings_cad": realized,
+            "projected_monthly_savings_cad": projected_monthly,
+        },
+    }
+
+
+@router.get("/api/analytics/usage", tags=["Billing"])
+def api_usage_analytics(
+    request: Request,
+    customer_id: str = "",
+    provider_id: str = "",
+    days: int = 30,
+    offset_days: int = 0,
+    group_by: str = "day",  # day | week | gpu_model | province
+):
+    """Usage analytics for both providers and submitters.
+
+    Provides cost breakdowns, GPU utilization trends, and hardware health
+    aggregates over time. Supports grouping by day, week, GPU model,
+    or province for detailed reporting.
+
+    Non-admin users are automatically scoped to their own data.
+
+    Query params:
+    - `customer_id` — filter to one customer (submitter view, admin only)
+    - `provider_id` — filter to one provider (earnings view, admin only)
+    - `days` — lookback window (default 30)
+    - `group_by` — aggregation: `day`, `week`, `gpu_model`, `province`
+    """
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+
+    # Non-admin users are scoped to their own data automatically
+    is_admin = bool(user.get("is_admin"))
+    if not is_admin:
+        customer_id = _analytics_customer_scope(user)
+        provider_id = ""  # provider filtering requires admin
+
+    billing = get_billing_engine()
+    now = time.time()
+    safe_days = max(1, min(days, 3650))
+    safe_offset_days = max(0, min(offset_days, 3650))
+    window_end = now - (safe_offset_days * 86400)
+    since = window_end - (safe_days * 86400)
+
+    _GROUP_SQL = {
+        "day": "to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS period",
+        "week": "to_char(to_timestamp(started_at), 'IYYY-\"W\"IW') AS period",
+        "gpu_model": "gpu_model AS period",
+        "province": "province AS period",
+    }
+    if group_by not in _GROUP_SQL:
+        group_by = "day"
+    group_sql = _GROUP_SQL[group_by]
+
+    where_clauses = ["started_at >= %s", "started_at < %s"]
+    params: list = [since, window_end]
+    if customer_id:
+        where_clauses.append("owner = %s")
+        params.append(customer_id)
+    # Provider filter: use payout ownership instead of assuming provider_id == host_id.
+    if provider_id:
+        where_clauses.append("job_id IN (SELECT job_id FROM payout_splits WHERE provider_id = %s)")
+        params.append(provider_id)
+
+    where_sql = " AND ".join(where_clauses)
+
+    try:
+        with billing._conn() as conn:
+            rows = conn.execute(
+                cast(
+                    Any,
+                    f"SELECT {group_sql}, "
+                    "COUNT(*) AS job_count, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost_cad, "
+                    "ROUND(COALESCE(SUM(gpu_seconds), 0)::numeric, 0) AS total_gpu_seconds, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY period ORDER BY period",
+                ),
+                params,
+            ).fetchall()
+
+            analytics = [
+                {
+                    "period": r["period"],
+                    "job_count": r["job_count"],
+                    "total_cost_cad": float(r["total_cost_cad"] or 0),
+                    "total_gpu_hours": (
+                        round(float(r["total_gpu_seconds"] or 0) / 3600, 2)
+                        if r["total_gpu_seconds"]
+                        else 0
+                    ),
+                    "avg_gpu_utilization_pct": float(r["avg_gpu_util_pct"] or 0),
+                }
+                for r in rows
+            ]
+
+            # Summary
+            summary_row = conn.execute(
+                cast(
+                    Any,
+                    "SELECT COUNT(*) AS total_jobs, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_spend, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
+                    "ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot' "
+                    "THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS spot_spend, "
+                    "ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot' "
+                    "THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS on_demand_spend "
+                    f"FROM usage_meters WHERE {where_sql}",
+                ),
+                params,
+            ).fetchone()
+    except Exception:
+        # Logged, never returned. `str(e)` on a psycopg error quotes the
+        # offending value and names the column — the same reason the
+        # `psycopg.DataError` handler in `api.py` logs its message instead of
+        # sending it. This route is reachable by any signed-in user (non-admins
+        # are scoped to their own data), so the message went to them.
+        log.exception("usage analytics query failed")
+        return {
+            "ok": False,
+            "error": "Usage analytics are temporarily unavailable.",
+            "analytics": [],
+            "summary": {},
+        }
+
+    return {
+        "ok": True,
+        "days": safe_days,
+        "offset_days": safe_offset_days,
+        "group_by": group_by,
+        "analytics": analytics,
+        "summary": {
+            "total_jobs": summary_row["total_jobs"] if summary_row else 0,
+            "total_spend_cad": float(summary_row["total_spend"] or 0) if summary_row else 0,
+            "total_gpu_hours": float(summary_row["total_gpu_hours"] or 0) if summary_row else 0,
+            "avg_gpu_utilization_pct": float(summary_row["avg_util"] or 0) if summary_row else 0,
+            "spot_spend_cad": float(summary_row["spot_spend"] or 0) if summary_row else 0,
+            "on_demand_spend_cad": float(summary_row["on_demand_spend"] or 0) if summary_row else 0,
+        },
+    }
+
+
+@router.get("/api/analytics/enhanced", tags=["Billing"])
+def api_analytics_enhanced(
+    request: Request,
+    days: int = 30,
+):
+    """Enhanced analytics endpoint for the rich analytics dashboard.
+
+    Returns aggregated data including cost-per-hour trends, cumulative spend,
+    duration histograms, job status breakdowns, wallet trends, top hosts,
+    and hourly heatmap data.
+
+    Non-admin users are automatically scoped to their own data.
+    Providers get both provider and customer views.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    if user.get("email"):
+        full_user = (
+            UserStore.get_user(user["email"])
+            if _USE_PERSISTENT_AUTH
+            else _users_db.get(user["email"], {})
+        )
+        user = _merge_auth_user(user, full_user)
+
+    is_admin = bool(user.get("is_admin"))
+    customer_id = _analytics_customer_scope(user)
+    provider_id = user.get("provider_id", "")
+
+    billing = get_billing_engine()
+    now = time.time()
+    safe_days = max(1, min(days, 3650))
+    since = now - (safe_days * 86400)
+
+    # Build WHERE clause based on role
+    if is_admin:
+        where_clauses = ["started_at >= %s", "started_at < %s"]
+        params: list = [since, now]
+    else:
+        where_clauses = ["started_at >= %s", "started_at < %s", "owner = %s"]
+        params = [since, now, customer_id]
+
+    where_sql = " AND ".join(where_clauses)
+
+    result: dict = {
+        "ok": True,
+        "days": safe_days,
+        "role": "admin" if is_admin else ("provider" if provider_id else "customer"),
+        "customer_id": customer_id,
+        "provider_id": provider_id,
+    }
+
+    try:
+        with billing._conn() as conn:
+            # ── 1. Cost-per-hour trend (daily avg cost per GPU hour) ──
+            cph_rows = conn.execute(
+                cast(
+                    Any,
+                    "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                    "CASE WHEN SUM(gpu_seconds) > 0 "
+                    "  THEN ROUND((SUM(total_cost_micros) / 1000000.0 / (SUM(gpu_seconds) / 3600.0))::numeric, 4) "
+                    "  ELSE 0 END AS cost_per_hour, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS spend "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY date ORDER BY date",
+                ),
+                params,
+            ).fetchall()
+            result["cost_per_hour_trend"] = [
+                {
+                    "date": r["date"],
+                    "cost_per_hour": float(r["cost_per_hour"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                    "spend": float(r["spend"]),
+                }
+                for r in cph_rows
+            ]
+
+            # ── 2. Cumulative spend ──
+            running = 0.0
+            cumulative = []
+            for r in cph_rows:
+                running += float(r["spend"])
+                cumulative.append({"date": r["date"], "total": round(running, 2)})
+            result["cumulative_spend"] = cumulative
+
+            # ── 3. Duration histogram (job duration buckets) ──
+            dur_rows = conn.execute(
+                cast(
+                    Any,
+                    "SELECT "
+                    "CASE "
+                    "  WHEN duration_sec < 60 THEN '< 1 min' "
+                    "  WHEN duration_sec < 300 THEN '1-5 min' "
+                    "  WHEN duration_sec < 1800 THEN '5-30 min' "
+                    "  WHEN duration_sec < 3600 THEN '30-60 min' "
+                    "  WHEN duration_sec < 14400 THEN '1-4 hr' "
+                    "  ELSE '4+ hr' "
+                    "END AS bucket, "
+                    "COUNT(*) AS count, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY bucket ORDER BY MIN(duration_sec)",
+                ),
+                params,
+            ).fetchall()
+            result["duration_histogram"] = [
+                {
+                    "bucket": r["bucket"],
+                    "count": int(r["count"]),
+                    "total_cost": float(r["total_cost"]),
+                }
+                for r in dur_rows
+            ]
+
+            # ── 4. GPU hours by day (dedicated chart) ──
+            result["daily_gpu_hours"] = [
+                {"date": r["date"], "hours": float(r["gpu_hours"])} for r in cph_rows
+            ]
+
+            # ── 5. Hourly heatmap (jobs by day-of-week + hour) ──
+            heat_rows = conn.execute(
+                cast(
+                    Any,
+                    "SELECT EXTRACT(DOW FROM to_timestamp(started_at)) AS dow, "
+                    "EXTRACT(HOUR FROM to_timestamp(started_at)) AS hour, "
+                    "COUNT(*) AS count "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY dow, hour ORDER BY dow, hour",
+                ),
+                params,
+            ).fetchall()
+            result["hourly_heatmap"] = [
+                {"dow": int(r["dow"]), "hour": int(r["hour"]), "count": int(r["count"])}
+                for r in heat_rows
+            ]
+
+            # ── 6. Top hosts used (or top customers if admin) ──
+            if is_admin:
+                top_rows = conn.execute(
+                    cast(
+                        Any,
+                        "SELECT owner AS entity, COUNT(*) AS job_count, "
+                        "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost, "
+                        "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
+                        f"FROM usage_meters WHERE {where_sql} "
+                        "GROUP BY owner ORDER BY total_cost DESC LIMIT 10",
+                    ),
+                    params,
+                ).fetchall()
+            else:
+                top_rows = conn.execute(
+                    cast(
+                        Any,
+                        "SELECT host_id AS entity, COUNT(*) AS job_count, "
+                        "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost, "
+                        "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
+                        f"FROM usage_meters WHERE {where_sql} "
+                        "GROUP BY host_id ORDER BY job_count DESC LIMIT 10",
+                    ),
+                    params,
+                ).fetchall()
+            result["top_entities"] = [
+                {
+                    "entity": r["entity"],
+                    "job_count": int(r["job_count"]),
+                    "total_cost": float(r["total_cost"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
+                for r in top_rows
+            ]
+
+            # ── 8. GPU model performance breakdown ──
+            gpu_perf_rows = conn.execute(
+                cast(
+                    Any,
+                    "SELECT gpu_model, COUNT(*) AS jobs, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
+                    "ROUND(COALESCE(AVG(duration_sec / 60.0), 0)::numeric, 1) AS avg_duration_min, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS total_cost, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                    "ROUND(COALESCE(AVG(CASE WHEN gpu_seconds > 0 "
+                    "  THEN total_cost_micros / 1000000.0 / (gpu_seconds / 3600.0) ELSE 0 END), 0)::numeric, 4) AS avg_cost_per_hour "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY gpu_model ORDER BY total_cost DESC LIMIT 12",
+                ),
+                params,
+            ).fetchall()
+            result["gpu_performance"] = [
+                {
+                    "gpu_model": r["gpu_model"],
+                    "jobs": int(r["jobs"]),
+                    "avg_util": float(r["avg_util"]),
+                    "avg_duration_min": float(r["avg_duration_min"]),
+                    "total_cost": float(r["total_cost"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                    "avg_cost_per_hour": float(r["avg_cost_per_hour"]),
+                }
+                for r in gpu_perf_rows
+            ]
+
+            # ── 9. Provider earnings (if user is a provider) ──
+            if provider_id:
+                prov_rows = conn.execute(
+                    "SELECT to_char(COALESCE(to_timestamp(um.completed_at), ps.created_at), 'YYYY-MM-DD') AS date, "
+                    "COUNT(DISTINCT ps.job_id) AS jobs_served, "
+                    "ROUND(COALESCE(SUM(ps.provider_share_micros) / 1000000.0, 0)::numeric, 2) AS total_revenue, "
+                    "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
+                    "FROM payout_splits ps "
+                    "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
+                    "WHERE ps.provider_id = %s AND ps.created_at >= to_timestamp(%s) AND ps.created_at < to_timestamp(%s) "
+                    "GROUP BY date ORDER BY date",
+                    (provider_id, since, now),
+                ).fetchall()
+                result["provider_daily"] = [
+                    {
+                        "date": r["date"],
+                        "jobs_served": int(r["jobs_served"]),
+                        "total_revenue": float(r["total_revenue"]),
+                        "avg_util": float(r["avg_util"]),
+                    }
+                    for r in prov_rows
+                ]
+
+                prov_summary = conn.execute(
+                    "SELECT COUNT(DISTINCT ps.job_id) AS total_jobs_served, "
+                    "ROUND(COALESCE(SUM(ps.provider_share_micros) / 1000000.0, 0)::numeric, 2) AS total_revenue, "
+                    "ROUND((COALESCE(SUM(um.gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
+                    "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
+                    "FROM payout_splits ps "
+                    "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
+                    "WHERE ps.provider_id = %s AND ps.created_at >= to_timestamp(%s) AND ps.created_at < to_timestamp(%s)",
+                    (provider_id, since, now),
+                ).fetchone()
+                result["provider_summary"] = {
+                    "total_jobs_served": (
+                        int(prov_summary["total_jobs_served"]) if prov_summary else 0
+                    ),
+                    "total_revenue": float(prov_summary["total_revenue"]) if prov_summary else 0,
+                    "total_gpu_hours": (
+                        float(prov_summary["total_gpu_hours"]) if prov_summary else 0
+                    ),
+                    "avg_util": float(prov_summary["avg_util"]) if prov_summary else 0,
+                }
+
+            # ── 10. Wallet balance trend (from wallet_transactions) ──
+            try:
+                wallet_rows = conn.execute(
+                    "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS date, "
+                    "tx_type, "
+                    "SUM(amount_micros) / 1000000.0 AS total_amount, "
+                    "COUNT(*) AS tx_count "
+                    "FROM wallet_transactions "
+                    "WHERE customer_id = %s AND created_at >= %s "
+                    "GROUP BY date, tx_type ORDER BY date",
+                    [customer_id, since],
+                ).fetchall()
+                result["wallet_activity"] = [
+                    {
+                        "date": r["date"],
+                        "tx_type": r["tx_type"],
+                        "total_amount": float(r["total_amount"]),
+                        "tx_count": int(r["tx_count"]),
+                    }
+                    for r in wallet_rows
+                ]
+            except Exception:
+                result["wallet_activity"] = []
+
+            # ── 11. Peak usage periods ──
+            peak_rows = conn.execute(
+                cast(
+                    Any,
+                    "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                    "COUNT(*) AS jobs, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                    "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0, 0)::numeric, 2) AS spend, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY date ORDER BY jobs DESC LIMIT 5",
+                ),
+                params,
+            ).fetchall()
+            result["peak_days"] = [
+                {
+                    "date": r["date"],
+                    "jobs": int(r["jobs"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                    "spend": float(r["spend"]),
+                    "avg_util": float(r["avg_util"]),
+                }
+                for r in peak_rows
+            ]
+
+    except Exception as e:
+        log.error("Enhanced analytics query failed: %s", e)
+        return {"ok": False, "error": "An error occurred while loading analytics"}
+
+    return result
+
+
+# ── Model: AutoTopupConfig ──
+
+
+class AutoTopupConfig(BaseModel):
+    enabled: bool = True
+    amount_cad: float = 25.0
+    threshold_cad: float = 5.0
+    stripe_payment_method_id: str = ""
+
+
+#: Stripe decline codes that mean "the cardholder must authenticate", as
+#: distinct from "the charge failed". Taken from Stripe's decline-code table;
+#: `authentication_not_handled` is the one returned when someone retries
+#: without completing the challenge, which is exactly what a user does after
+#: ignoring the first prompt.
+_AUTHENTICATION_DECLINES = frozenset(
+    {
+        "authentication_required",
+        "authentication_not_handled",
+        "mobile_device_authentication_required",
+    }
+)
+
+
+class ManualTopupRequest(BaseModel):
+    """A one-off top-up on a card already saved to the account.
+
+    The card selector is human-shaped on purpose. Nobody says `pm_1QxYz...`;
+    they say "my Visa" or "the one ending 4242". All three selectors are
+    optional — omitting them uses the account's default card, which is the
+    sensible reading of "top up my account".
+    """
+
+    amount_cad: float = Field(gt=0, le=10_000, description="Amount to charge, in CAD")
+    payment_method_id: str = ""
+    card_last4: str = ""
+    card_brand: str = ""
+
+
+@router.get("/api/v2/billing/pending-verification", tags=["Billing"])
+def api_billing_pending_verification(request: Request, customer_id: str = ""):
+    """Charges stopped waiting for the cardholder to satisfy their bank.
+
+    An off-session charge refused with `authentication_required` is not failed
+    and not complete. Stripe created the PaymentIntent, `charge_saved_card`
+    registered it so the credit lands if the challenge is ever satisfied, and
+    then nothing else happens — no retry will help, because the bank is waiting
+    for the human, not for us.
+
+    Until now there was no way to ask which those were. `_register_payment_intent`
+    recorded every intent as `created`, so a charge stopped dead pending
+    verification looked exactly like one in flight. The wallet UI had nothing to
+    render an SCA-pending state from, and an agent had no way to tell the user
+    "one of your top-ups needs you".
+
+    Read-only, and it deliberately returns **no `client_secret`**. Completing
+    the challenge needs one, but a secret that confirms a payment does not
+    belong in a list endpoint — it belongs in the single-intent resume call
+    that is still to be built. What this returns is enough to *say* what is
+    waiting and for how much.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    cid = (customer_id or user.get("customer_id") or user.get("user_id") or "").strip()
+    if not cid:
+        raise HTTPException(400, "customer_id required")
+    _require_customer_access(request, cid)
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        rows = conn.execute(
+            """SELECT intent_id, stripe_intent_id, amount_cents, description,
+                      created_at
+                 FROM payment_intents
+                WHERE customer_id = %s AND status = 'requires_action'
+                ORDER BY created_at DESC
+                LIMIT 20""",
+            (cid,),
+        ).fetchall()
+
+    base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+    pending = [
+        {
+            "stripe_intent_id": row["stripe_intent_id"],
+            "amount_cad": round(int(row["amount_cents"] or 0) / 100, 2),
+            "description": row["description"],
+            "created_at": row["created_at"],
+            "resume_url": f"{base}/dashboard/billing?resume={row['stripe_intent_id']}",
+        }
+        for row in rows
+    ]
+    return {
+        "ok": True,
+        "customer_id": cid,
+        "pending": pending,
+        "count": len(pending),
+        "message": (
+            "These charges were NOT completed — the bank asked the cardholder to "
+            "verify and is still waiting. No retry will complete them; the person "
+            "has to open the link. Nothing has been charged for any of them."
+            if pending
+            else "No charges are waiting on cardholder verification."
+        ),
+    }
+
+
+@router.post(
+    "/api/v2/billing/pending-verification/{stripe_intent_id}/resume",
+    tags=["Billing"],
+)
+def api_billing_resume_verification(stripe_intent_id: str, request: Request):
+    """Hand back the credential that lets the cardholder finish a challenge.
+
+    The last piece of the SCA recovery. `charge_saved_card` catches the decline
+    and registers the intent; `pending-verification` lists what is waiting; this
+    returns the `client_secret` the browser needs for `stripe.handleNextAction`.
+    Without it the resume link points at a page that cannot resume anything.
+
+    **POST, not GET, for a response that contains a bearer credential.** A
+    `client_secret` confirms a payment. GET responses get cached by
+    intermediaries, logged with their URLs, and retried by well-meaning clients;
+    none of that is appropriate for something that can complete a charge.
+
+    **`billing:write`, not `billing:read`.** This does not move money by itself,
+    but it hands over the only thing standing between a stopped charge and a
+    completed one. A credential narrowed to reading balances must not produce
+    it.
+
+    **Only for intents already waiting.** The secret is returned solely for a
+    row this customer owns whose status is `requires_action`. A succeeded or
+    cancelled intent yields nothing — there is no challenge left to satisfy, and
+    a secret for one would be a credential with no purpose and a real blast
+    radius.
+
+    The secret is fetched from Stripe rather than stored: we never keep it, and
+    `log_pii_filter` redacts it from anything that tries to log it.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    intent_id = (stripe_intent_id or "").strip()
+    if not intent_id:
+        raise HTTPException(400, "stripe_intent_id required")
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        row = conn.execute(
+            """SELECT customer_id, amount_cents, description, status
+                 FROM payment_intents
+                WHERE stripe_intent_id = %s""",
+            (intent_id,),
+        ).fetchone()
+
+    # Not-found rather than forbidden for an intent that is not this customer's:
+    # a 403 would confirm the id exists, which is a probe for other people's
+    # payments. Same reasoning as `_require_host_visible`.
+    if row is None:
+        raise HTTPException(404, "No such pending payment")
+
+    # Ownership and scope, before anything about the intent is revealed.
+    _require_customer_access(request, str(row["customer_id"]), billing_write=True)
+
+    if row["status"] != "requires_action":
+        raise HTTPException(
+            409,
+            {
+                "resumable": False,
+                "reason": row["status"],
+                "message": (
+                    "This payment is not waiting on verification, so there is "
+                    "nothing to confirm."
+                ),
+            },
+        )
+
+    # Same access pattern `charge_saved_card` uses, rather than a helper on the
+    # manager: there isn't one, and inventing a method name that happens to read
+    # well is how a route ships an AttributeError.
+    from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+    if not STRIPE_ENABLED or not _stripe_mod:
+        raise HTTPException(503, "Stripe is not enabled on this deployment")
+
+    try:
+        intent = _stripe_mod.PaymentIntent.retrieve(intent_id)
+    except Exception as exc:  # pragma: no cover - depends on the processor
+        # `str(exc)` can carry the intent and its secret; the scrubber redacts
+        # both, but the message is kept out of the response regardless.
+        log.error("Could not retrieve intent for resume: %s", exc)
+        raise HTTPException(502, "Could not reach the payment processor") from exc
+
+    # Stripe's object is dict-like at runtime and a typed model to the checker,
+    # which is why the `hasattr` was here. Bound through `getattr` instead so
+    # the same two shapes are handled without asserting an attribute the stub
+    # says does not exist.
+    _mapping_get = getattr(intent, "get", None)
+    secret = str(
+        (
+            _mapping_get("client_secret")
+            if callable(_mapping_get)
+            else getattr(intent, "client_secret", "")
+        )
+        or ""
+    )
+    if not secret:
+        raise HTTPException(409, "This payment can no longer be confirmed")
+
+    return {
+        "ok": True,
+        "resumable": True,
+        "client_secret": secret,
+        "amount_cad": round(int(row["amount_cents"] or 0) / 100, 2),
+        "description": row["description"],
+        "message": (
+            "Confirm this payment with your bank to complete it. Nothing has "
+            "been charged yet; the wallet is credited once the processor "
+            "confirms."
+        ),
+    }
+
+
+@router.post("/api/v2/billing/top-up", tags=["Billing"])
+def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
+    """Charge a saved card now and credit the wallet when Stripe confirms.
+
+    The same off-session charge auto-top-up runs nightly, with a manual trigger
+    instead of a threshold — `charge_saved_card` is shared between them, so the
+    charge and the `payment_intents` registration cannot drift apart.
+
+    **The wallet is not credited here.** Only Stripe's confirmation webhook
+    moves the balance, because the processor is the sole authority on whether
+    money moved. This route reports that the charge was *submitted*.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+
+    selected = be.resolve_payment_method(
+        customer_id,
+        payment_method_id=body.payment_method_id,
+        last4=body.card_last4,
+        brand=body.card_brand,
+    )
+    if not selected.get("ok"):
+        # 409 rather than 400: the request is well-formed, the account state is
+        # what makes it unanswerable. `candidates` is what lets the caller ask
+        # "which one?" with the cards named rather than guessing.
+        raise HTTPException(
+            409,
+            {
+                "charged": False,
+                "reason": selected.get("reason"),
+                "message": selected.get("message"),
+                "candidates": selected.get("candidates") or [],
+            },
+        )
+
+    method = selected["payment_method"]
+    wallet = be.get_wallet(customer_id)
+    stripe_customer_id = (wallet.get("stripe_customer_id") or "").strip()
+    if not stripe_customer_id:
+        raise HTTPException(409, {"charged": False, "reason": "no_stripe_customer"})
+
+    amount_micros = cad_to_micros(body.amount_cad)
+
+    # Idempotency. A caller that supplies a key owns the semantics: the same key
+    # is the same intended charge, and Stripe answers a repeat with the original
+    # PaymentIntent. `top_up_wallet` now mints one per invocation, so two
+    # deliberate top-ups carry two keys and a transport retry of either carries
+    # one.
+    #
+    # The fallback is for callers that send no key at all, and it is a
+    # compromise rather than a solution: without a key there is nothing that
+    # distinguishes "the request timed out, try again" from "top me up again",
+    # because both arrive as an identical POST. It buckets by customer, amount,
+    # card and a five-minute window, which makes the retry safe and makes a
+    # *deliberate* repeat inside that window collapse into the first charge.
+    #
+    # An earlier comment here claimed "a genuinely separate top-up a minute
+    # later gets a new key". It does not — the bucket only turns over every five
+    # minutes — and the response said nothing about it, so a second $10 top-up
+    # could report success while no second charge existed. `replayed` below is
+    # the part that makes this honest.
+    supplied = (request.headers.get("Idempotency-Key") or "").strip()
+    idempotency_key = supplied or (
+        f"manualtopup:{customer_id}:{amount_micros // 10_000}:"
+        f"{method.get('id')}:{int(time.time() // 300)}"
+    )
+
+    try:
+        charge = be.charge_saved_card(
+            customer_id,
+            amount_micros,
+            stripe_customer_id=stripe_customer_id,
+            payment_method_id=str(method.get("id") or ""),
+            idempotency_key=idempotency_key,
+            description="Wallet top-up",
+            metadata={"xcelsior_manual_topup": "true"},
+        )
+    except Exception as exc:
+        # An SCA challenge is a *decline*, not an error. Saying "error" leaves
+        # the caller to guess whether money moved; the answer is that it did
+        # not, and the charge is resumable by the cardholder in a browser.
+        #
+        # Deliberately does not touch `auto_topup_failures`, does not disable
+        # auto-top-up, and does not stop instances — that is the sweep's
+        # recovery for repeated unattended failures, and one manual decline is
+        # not evidence the card is dead.
+        # Checked on `decline_code` as well as `code`, because that is where
+        # Stripe actually puts it. For a card decline `code` is typically
+        # `card_declined` and `decline_code` carries the specific reason —
+        # Stripe's own guidance is "if the payment failed due to an
+        # authentication_required *decline code*". Matching only on `code`
+        # missed the case this branch exists for.
+        err = getattr(exc, "error", None)
+        code = str(getattr(err, "code", "") or "")
+        decline_code = str(getattr(err, "decline_code", "") or "")
+        # Three decline codes mean "the cardholder must authenticate", not
+        # "this failed". Stripe's decline-code table lists them separately:
+        #
+        #   authentication_required            — needs 3DS
+        #   authentication_not_handled         — they retried without doing it,
+        #                                        so the issuer declined again
+        #   mobile_device_authentication_required
+        #
+        # Handling only the first sends the second down the generic failure
+        # path, which tells a user who simply has not confirmed yet that
+        # something went wrong.
+        if (
+            (code in _AUTHENTICATION_DECLINES)
+            or (decline_code in _AUTHENTICATION_DECLINES)
+            or (any(d in str(exc) for d in _AUTHENTICATION_DECLINES))
+        ):
+            # The declined intent is the one the cardholder must confirm.
+            # Stripe attaches it to the error, and `charge_saved_card` has
+            # already registered it so the credit lands when they do. The link
+            # names it so the dashboard resumes *this* payment rather than
+            # guessing which pending intent was meant.
+            pending = getattr(err, "payment_intent", None)
+            pending_id = ""
+            if pending is not None:
+                pending_id = str(
+                    (pending.get("id") if hasattr(pending, "get") else getattr(pending, "id", ""))
+                    or ""
+                )
+            base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+            resume = (
+                f"{base}/dashboard/billing?resume={pending_id}"
+                if pending_id
+                else (f"{base}/dashboard/billing")
+            )
+            raise HTTPException(
+                402,
+                {
+                    "charged": False,
+                    "reason": "authentication_required",
+                    "message": (
+                        "Your bank asked to verify this payment, so the card was "
+                        "NOT charged yet. Open the link to confirm it — the wallet "
+                        "is credited automatically once you do."
+                    ),
+                    "resume_url": resume,
+                    "pending_intent_id": pending_id,
+                },
+            ) from exc
+        log.error("Manual top-up failed for %s: %s", customer_id, exc)
+        raise HTTPException(
+            502, {"charged": False, "reason": "charge_failed", "message": str(exc)}
+        ) from exc
+
+    # Stripe answered a repeated idempotency key with the charge it already
+    # made. That is the mechanism working — a retry cannot double-charge — but
+    # it means *this* call moved no money, and saying "card charged" would tell
+    # the account holder they have funds they do not have.
+    replayed = bool(charge.get("replayed"))
+    return {
+        "ok": True,
+        "charged": not replayed,
+        "replayed": replayed,
+        "credited": False,
+        "message": (
+            (
+                "This repeated an earlier top-up of the same amount on the same "
+                "card, so the card was NOT charged again and no additional funds "
+                "were added. Say so plainly. To add more on purpose, send a new "
+                "idempotency key."
+            )
+            if replayed
+            else (
+                "Card charged. The wallet is credited when the payment processor "
+                "confirms, usually within a minute."
+            )
+        ),
+        "amount_cad": body.amount_cad,
+        "card": {"brand": method.get("brand"), "last4": method.get("last4")},
+        "stripe_intent_id": charge.get("stripe_intent_id"),
+        "status": charge.get("status"),
+    }
+
+
+def _auto_topup_widens(previous: dict, body: AutoTopupConfig) -> bool:
+    """True when the change increases what can be charged unattended.
+
+    Three ways to widen, and the third is the one that gets missed: raising the
+    *threshold* does not raise any single charge, but it fires the charge sooner
+    and therefore more often. Disabling can never widen, whatever the amounts
+    say, which is why the `enabled` test comes first.
+    """
+    if not bool(body.enabled):
+        return False
+    return (
+        not previous["enabled"]
+        or body.amount_cad > previous["amount_cad"]
+        or body.threshold_cad > previous["threshold_cad"]
+    )
+
+
+def _auto_topup_canonical(body: AutoTopupConfig) -> dict:
+    """The exact settings an approval binds to."""
+    return {
+        "enabled": bool(body.enabled),
+        "amount_cad": float(body.amount_cad),
+        "threshold_cad": float(body.threshold_cad),
+        "stripe_payment_method_id": str(body.stripe_payment_method_id or ""),
+    }
+
+
+def _apply_auto_topup(
+    be,
+    customer_id: str,
+    user: dict,
+    body: AutoTopupConfig,
+    previous: dict,
+    widened: bool,
+    *,
+    plan_id: str | None = None,
+) -> dict:
+    """Write the setting and record what changed. One writer, two doors.
+
+    The direct route and the plan executor both land here so that the audit row
+    is written the same way regardless of which path a change arrived through —
+    the failure mode being a widening that leaves no `auto_topup_widened` event
+    because it came in via the door that forgot to log one.
+    """
+    be.configure_auto_topup(
+        customer_id=customer_id,
+        enabled=body.enabled,
+        amount_cad=body.amount_cad,
+        threshold_cad=body.threshold_cad,
+        stripe_payment_method_id=body.stripe_payment_method_id,
+    )
+
+    from routes._deps import append_user_audit_event
+
+    data = {"previous": previous, "current": body.model_dump(), "widened": widened}
+    if plan_id:
+        data["plan_id"] = plan_id
+    append_user_audit_event(
+        "user.billing.auto_topup_widened" if widened else "user.billing.auto_topup_changed",
+        "billing",
+        customer_id,
+        user,
+        data=data,
+    )
+    result = {"ok": True, "auto_topup": body.model_dump(), "previous": previous}
+    if plan_id:
+        result["plan_id"] = plan_id
+    return result
+
+
+@router.post("/api/v2/billing/auto-topup", tags=["Billing"])
+def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
+    """Configure wallet auto-top-up via Stripe."""
+    # Sets the threshold and amount that charge a saved card unattended. A
+    # session alone is not authority to change what gets charged.
+    #
+    # The explicit `if not user` refusal is kept rather than replaced with
+    # `_require_auth`: that helper returns a synthetic admin principal when
+    # `AUTH_REQUIRED` is false, so swapping it in would have *weakened* this
+    # route on a development box, from refusing anonymous callers to admitting
+    # them as admin. The defect here was missing authorization, not the
+    # authentication style.
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+
+    # Capture the previous setting so the audit row says what changed, not just
+    # that something did. This is the only lever in the system that alters what
+    # gets charged **unattended**, repeatedly, with nobody watching — and until
+    # now the change was recorded in a `log.info` and nowhere the account holder
+    # could ever see it.
+    before = be.get_wallet(customer_id) or {}
+    previous = {
+        "enabled": bool(before.get("auto_topup_enabled")),
+        "amount_cad": micros_to_cad(int(before.get("auto_topup_amount_micros") or 0)),
+        "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
+    }
+
+    # Raising the amount widens unattended spending; lowering or disabling it
+    # narrows. Computed here, **before** the write, because it now decides
+    # whether the write may happen at all — not merely how it is labelled in the
+    # audit trail.
+    widened = _auto_topup_widens(previous, body)
+
+    # Gate P1: "raising a spend cap requires approval; lowering one does not."
+    #
+    # A human at the dashboard *is* the approval — asking them to approve their
+    # own click is ceremony, and `_is_interactive_human` is what distinguishes
+    # them from a caller that merely relays intent. Everything else widening
+    # this lever must carry an approved plan, because this is the one control
+    # that authorises repeated unattended charges with nobody watching.
+    if widened and not _is_interactive_human(user):
+        raise HTTPException(
+            409,
+            "Widening auto-top-up requires an approved plan. POST the desired "
+            "settings to /api/v2/billing/auto-topup-plans, have the plan "
+            "approved, then POST to "
+            "/api/v2/billing/auto-topup-plans/{plan_id}/execute. Lowering the "
+            "amount or threshold, or disabling auto-top-up, needs no plan.",
+        )
+
+    return _apply_auto_topup(be, customer_id, user, body, previous, widened)
+
+
+@router.post("/api/v2/billing/auto-topup-plans", tags=["Billing"])
+def api_billing_auto_topup_plan(body: AutoTopupConfig, request: Request):
+    """Persist a server-bound approval plan for widening auto-top-up.
+
+    `approval_mode` is **always** `"human"`, never the spend policy's decision.
+    A standing policy exists so a client can pre-authorise spending inside
+    ceilings; letting it approve a change to those ceilings would be circular —
+    the credential would be raising its own limit on its own authority. That is
+    exactly the thing Gate P1 clause 6 is about.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    before = be.get_wallet(customer_id) or {}
+    previous = {
+        "enabled": bool(before.get("auto_topup_enabled")),
+        "amount_cad": micros_to_cad(int(before.get("auto_topup_amount_micros") or 0)),
+        "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
+    }
+    if not _auto_topup_widens(previous, body):
+        # Refusing to mint a plan nobody needs. A plan for a narrowing would sit
+        # in the trail looking like an authorised widening, and the caller would
+        # learn the wrong lesson about when approval is required.
+        raise HTTPException(
+            409,
+            "This change does not widen auto-top-up, so it needs no plan. POST "
+            "it directly to /api/v2/billing/auto-topup.",
+        )
+
+    canonical = _auto_topup_canonical(body)
+    canonical_json = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
+    canonical_hash = hashlib.sha256(canonical_json.encode()).hexdigest()
+    # What one automatic charge may cost. The standing authority is unbounded in
+    # aggregate by nature, so this is the per-charge ceiling being approved and
+    # not a total.
+    estimate_micros = int(round(float(body.amount_cad) * 1_000_000))
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.create_quoted_plan(
+            conn,
+            action_type="configure_auto_topup",
+            principal_id=_canonical_owner_id(user),
+            client_id=user.get("client_id"),
+            tenant_id=customer_id,
+            team_id=_user_team_id(user),
+            canonical_args=canonical,
+            canonical_args_hash=canonical_hash,
+            spec_hash=canonical_hash,
+            quote_id=f"auto-topup:{canonical_hash[:20]}",
+            pricing_version="auto-topup-v1",
+            estimate_micros=estimate_micros,
+            currency="CAD",
+            price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
+            required_scopes=["billing:write"],
+            approval_mode="human",
+            ttl_sec=plan_ttl_sec(),
+        )
+
+    plan_id = str(plan["plan_id"])
+    return {
+        "ok": True,
+        "preview": True,
+        "plan_id": plan_id,
+        "approval_state": plan["status"],
+        "previous": previous,
+        "requested": canonical,
+        "widens": True,
+        "approval_url": f"/dashboard/launch-plans/{plan_id}",
+        "expires_at": plan["expires_at"].isoformat(),
+    }
+
+
+@router.post("/api/v2/billing/auto-topup-plans/{plan_id}/execute", tags=["Billing"])
+def api_billing_execute_auto_topup_plan(plan_id: str, request: Request):
+    """Apply one approved auto-top-up plan.
+
+    The settings come from **the plan**, never from this request. That is what
+    makes the approval mean something: a caller cannot have one change approved
+    and apply another.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanConflict, PlanNotFound
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, plan_id)
+        # A foreign plan is not-found rather than forbidden — no existence oracle.
+        if not plan or str(plan["tenant_id"]) != str(customer_id):
+            raise PlanNotFound()
+        if plan["action_type"] != "configure_auto_topup":
+            raise PlanConflict("wrong_action_type", "the plan is not for auto-top-up")
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"] or {}), "idempotent": True}
+        if plan["status"] != "approved":
+            raise PlanConflict(
+                "approval_required", "approve the auto-top-up plan before applying it"
+            )
+        canonical = dict(plan["canonical_args"])
+        digest = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        if digest != plan["canonical_args_hash"]:
+            raise PlanConflict("argument_hash_mismatch", "the approved plan was altered")
+
+    body = AutoTopupConfig.model_validate(canonical)
+    before = be.get_wallet(customer_id) or {}
+    previous = {
+        "enabled": bool(before.get("auto_topup_enabled")),
+        "amount_cad": micros_to_cad(int(before.get("auto_topup_amount_micros") or 0)),
+        "threshold_cad": micros_to_cad(int(before.get("auto_topup_threshold_micros") or 0)),
+    }
+    response = _apply_auto_topup(
+        be,
+        customer_id,
+        user,
+        body,
+        previous,
+        _auto_topup_widens(previous, body),
+        plan_id=plan_id,
+    )
+
+    with control_plane_transaction() as conn:
+        # Re-read under lock: two concurrent executes of one approved plan must
+        # apply the setting once and both return the same answer.
+        locked = plans_repo.get_plan_for_update(conn, plan_id)
+        if locked and locked["status"] == "succeeded":
+            return {**dict(locked["idempotent_response"] or {}), "idempotent": True}
+        plans_repo.mark_consumed(
+            conn,
+            plan_id,
+            # `job_id` is NOT NULL for a `succeeded` plan
+            # (`ck_action_plans_state_machine`), and it doubles as
+            # `resulting_resource_id`. This action produces no job, so it names
+            # the resource it did change: the wallet whose setting now differs.
+            job_id=f"auto-topup:{customer_id}",
+            wallet_hold_id=None,
+            idempotent_response=response,
+            idempotency_key=f"auto-topup-plan:{plan_id}",
+        )
+    return response
+
+
+@router.get("/api/v2/billing/auto-topup", tags=["Billing"])
+def api_billing_get_topup(request: Request):
+    """Get current auto-top-up configuration."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:read")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    wallet = be.get_wallet(customer_id)
+    payment_method_id = (wallet.get("stripe_payment_method_id") or "").strip()
+    return {
+        "ok": True,
+        "auto_topup": {
+            "enabled": bool(wallet.get("auto_topup_enabled", False)),
+            # Stored as integer micros; the response contract is CAD.
+            "amount_cad": micros_to_cad(wallet.get("auto_topup_amount_micros") or 0),
+            "threshold_cad": micros_to_cad(wallet.get("auto_topup_threshold_micros") or 0),
+            "payment_method_id": payment_method_id,
+            "has_payment_method": bool(payment_method_id),
+        },
+    }
+
+
+# ── Saved payment methods (Stripe SetupIntent — backs auto-top-up) ──────────
+
+
+@router.post("/api/billing/portal-session", tags=["Billing"])
+def api_billing_portal_session(request: Request):
+    """Create a Stripe Customer Portal session for the authenticated wallet owner."""
+    # The portal is full billing management in a browser. Minting a session for
+    # it is a write, whatever the HTTP verb of the route that returns the URL.
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.create_billing_portal_session(customer_id, email=user.get("email", ""))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        raise HTTPException(503, f"Stripe unavailable: {e}") from e
+    return {"ok": True, **result}
+
+
+@router.post("/api/billing/setup-intent", tags=["Billing"])
+def api_billing_setup_intent(request: Request):
+    """Create a Stripe SetupIntent so the client can save a card off-session.
+
+    Returns a client_secret for Stripe Elements `confirmCardSetup`. The saved
+    card can then be selected for wallet auto-top-up.
+    """
+    # Mints a credential that attaches a payment method to this customer.
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.create_setup_intent(customer_id, email=user.get("email", ""))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        # CI uses a placeholder sk_test key — map Stripe API failures to 503, not 500.
+        raise HTTPException(503, f"Stripe unavailable: {e}") from e
+    return {"ok": True, **result}
+
+
+@router.get("/api/billing/payment-methods", tags=["Billing"])
+def api_billing_list_payment_methods(request: Request):
+    """List the customer's saved card payment methods."""
+    # Brand, last four and expiry — no secret, but it is the funding
+    # configuration, and a read-scoped credential is what should reach it.
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:read")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    return {"ok": True, "payment_methods": be.list_payment_methods(customer_id)}
+
+
+@router.delete("/api/billing/payment-methods/{payment_method_id}", tags=["Billing"])
+def api_billing_detach_payment_method(payment_method_id: str, request: Request):
+    """Detach a saved card. Disables auto-top-up if it was the default method."""
+    # Removing the default card silently disables unattended top-up, so the
+    # wallet runs to zero and a running workload hard-stops. A read-scoped
+    # credential must not be able to do that.
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "billing:write")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.detach_payment_method(customer_id, payment_method_id)
+    except ValueError:
+        raise HTTPException(404, "Payment method not found")
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    return result

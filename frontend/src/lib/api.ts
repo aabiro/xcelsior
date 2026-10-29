@@ -1,0 +1,4358 @@
+/** API client, all requests use httpOnly cookie auth (credentials: include). */
+
+let _refreshing: Promise<boolean> | null = null;
+const _BROWSER_OAUTH_STATE_KEY = "xcelsior.browser_oauth";
+const _BROWSER_OAUTH_CLIENT_ID = "xcelsior-web";
+const _BROWSER_OAUTH_SCOPE = "profile email offline_access";
+const _BROWSER_OAUTH_MAX_AGE_MS = 10 * 60 * 1000;
+const _EVENT_STREAM_PROBE_TTL_MS = 30_000;
+const _EVENT_STREAM_PROBE_TIMEOUT_MS = 4_000;
+const _eventStreamAvailability = new Map<string, {
+  expiresAt: number;
+  promise: Promise<boolean>;
+}>();
+
+async function _tryRefresh(): Promise<boolean> {
+  // Refresh tokens are single-use and rotated server-side; a concurrent tab
+  // (or the keepalive timer) holding the rotation lock yields HTTP 409.
+  // Treating that as failure logged users out with no warning, retry, and
+  // if the lock never clears assume the other tab completed the rotation so
+  // the caller can retry the original request with the refreshed cookie.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (res.ok) return true;
+      if (res.status !== 409) return false;
+    } catch {
+      // network hiccup, retry below
+    }
+    await new Promise((r) => setTimeout(r, 800 + attempt * 600));
+  }
+  return true;
+}
+
+function _redirectToLogin() {
+  if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+    // Only redirect to login from protected routes (dashboard)
+    // Marketing pages should silently handle unauthenticated state
+    if (window.location.pathname.startsWith("/dashboard")) {
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    }
+  }
+}
+
+export async function apiFetch<T = unknown>(
+  path: string,
+  opts: RequestInit = {},
+): Promise<T> {
+  const { headers: extraHeaders, ...rest } = opts;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(extraHeaders as Record<string, string>),
+  };
+  const res = await fetch(path, { credentials: "include", headers, ...rest });
+  if (res.status === 401) {
+    // Auth endpoints return 401 for invalid credentials, don't intercept
+    if (path.startsWith("/api/auth/")) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(
+        401,
+        body?.detail || body?.error?.message || body?.message || "Authentication failed",
+        body,
+      );
+    }
+    // Try refreshing the session once
+    if (!_refreshing) _refreshing = _tryRefresh();
+    const ok = await _refreshing;
+    _refreshing = null;
+    if (ok) {
+      // Retry the original request
+      const retry = await fetch(path, { credentials: "include", headers, ...rest });
+      if (retry.ok) return retry.json();
+      if (retry.status === 401) {
+        _redirectToLogin();
+        throw new ApiError(401, "Session expired");
+      }
+      const body = await retry.json().catch(() => ({}));
+      throw new ApiError(
+        retry.status,
+        body?.detail || body?.error?.message || body?.message || retry.statusText || `Request failed (HTTP ${retry.status})`,
+        body,
+      );
+    }
+    _redirectToLogin();
+    throw new ApiError(401, "Session expired");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      // statusText is empty over HTTP/2, never surface a blank error message
+      body?.detail || body?.error?.message || body?.message || res.statusText || `Request failed (HTTP ${res.status})`,
+      body,
+    );
+  }
+  return res.json();
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public body?: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export interface LaunchPlanApprovalView {
+  ok: boolean;
+  plan: {
+    plan_id: string;
+    status: string;
+    action_type: string;
+    approval_mode: string;
+    approval_method?: string | null;
+    estimate_micros: number;
+    expires_at: string;
+    version: number;
+    required_scopes: string[];
+    canonical_spec: Record<string, unknown>;
+    job_id?: string | null;
+  };
+}
+
+export function fetchLaunchPlan(planId: string): Promise<LaunchPlanApprovalView> {
+  return apiFetch(`/api/v1/launch-plans/${encodeURIComponent(planId)}`);
+}
+
+/**
+ * One stage of an approved dependency graph, and what happened to it.
+ *
+ * `on_failure` is part of what the user approved — `docs/pipeline-plan.md` §3.2:
+ * *"A user approving a graph is approving its failure behaviour too — deciding
+ * it afterwards, at the moment something broke, is exactly when the decision is
+ * worst."* So it is carried through to the view rather than left in the plan's
+ * canonical args where only a JSON dump would show it.
+ */
+export interface PipelineStage {
+  index: number;
+  name: string;
+  action_type: string;
+  state: string;
+  on_failure: "halt" | "continue" | "retry";
+  attempt_count: number;
+  max_attempts: number;
+  failure_code?: string | null;
+  result_ref?: string | null;
+  spent_micros: number;
+}
+
+export interface PipelineView {
+  ok: boolean;
+  plan_id: string;
+  approval_state: string;
+  finished: boolean;
+  failed: boolean;
+  /** The ceiling the user agreed to. A promise, not an estimate. */
+  approved_max_micros: number;
+  spent_micros: number;
+  currency: string;
+  stages: PipelineStage[];
+}
+
+/**
+ * Stage-by-stage state for an approved pipeline.
+ *
+ * A foreign plan answers 404 rather than 403 — a 403 would confirm the id
+ * exists, which is a probe for other tenants' pipelines.
+ */
+export function fetchPipeline(planId: string): Promise<PipelineView> {
+  return apiFetch(`/api/v1/pipelines/${encodeURIComponent(planId)}`);
+}
+
+export function approveLaunchPlan(
+  planId: string,
+  expectedVersion: number,
+): Promise<LaunchPlanApprovalView> {
+  return apiFetch(`/api/v1/launch-plans/${encodeURIComponent(planId)}/approve`, {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({
+      expected_version: expectedVersion,
+      confirmation: "approve",
+    }),
+  });
+}
+
+interface BrowserOAuthState {
+  state: string;
+  verifier: string;
+  redirectUri: string;
+  nextPath: string;
+  createdAt: number;
+}
+
+function _base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function _getBrowserCrypto(): Crypto {
+  if (typeof window === "undefined" || !window.crypto?.subtle) {
+    throw new Error("Browser OAuth requires Web Crypto support");
+  }
+  return window.crypto;
+}
+
+function _randomBase64Url(byteLength: number): string {
+  const crypto = _getBrowserCrypto();
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return _base64UrlEncode(bytes);
+}
+
+async function _pkceChallenge(verifier: string): Promise<string> {
+  const crypto = _getBrowserCrypto();
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return _base64UrlEncode(new Uint8Array(digest));
+}
+
+function _oauthRedirectUri(): string {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth redirect URI is only available in the browser");
+  }
+  return `${window.location.origin}/oauth/callback`;
+}
+
+function _storeBrowserOAuthState(state: BrowserOAuthState): void {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth state is only available in the browser");
+  }
+  window.sessionStorage.setItem(_BROWSER_OAUTH_STATE_KEY, JSON.stringify(state));
+}
+
+function _consumeBrowserOAuthState(expectedState: string): BrowserOAuthState {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth state is only available in the browser");
+  }
+  const raw = window.sessionStorage.getItem(_BROWSER_OAUTH_STATE_KEY);
+  window.sessionStorage.removeItem(_BROWSER_OAUTH_STATE_KEY);
+  if (!raw) {
+    throw new Error("OAuth login session is missing or expired");
+  }
+  let parsed: BrowserOAuthState;
+  try {
+    parsed = JSON.parse(raw) as BrowserOAuthState;
+  } catch {
+    throw new Error("OAuth login session is invalid");
+  }
+  if (!parsed.state || !parsed.verifier || !parsed.redirectUri) {
+    throw new Error("OAuth login session is incomplete");
+  }
+  if (parsed.state !== expectedState) {
+    throw new Error("OAuth state mismatch");
+  }
+  if (Date.now() - Number(parsed.createdAt || 0) > _BROWSER_OAUTH_MAX_AGE_MS) {
+    throw new Error("OAuth login session expired");
+  }
+  return parsed;
+}
+
+export function normalizeAuthRedirectPath(path: string | null | undefined, fallback = "/dashboard"): string {
+  const value = String(path || "").trim();
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return fallback;
+  }
+  try {
+    const normalized = new URL(value, "https://xcelsior.local");
+    if (normalized.origin !== "https://xcelsior.local") {
+      return fallback;
+    }
+    return `${normalized.pathname}${normalized.search}${normalized.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function buildBrowserOAuthAuthorizePath(nextPath?: string): Promise<string> {
+  const redirectUri = _oauthRedirectUri();
+  const verifier = _randomBase64Url(48);
+  const state = _randomBase64Url(24);
+  const challenge = await _pkceChallenge(verifier);
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: _BROWSER_OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri,
+    scope: _BROWSER_OAUTH_SCOPE,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+  });
+  _storeBrowserOAuthState({
+    state,
+    verifier,
+    redirectUri,
+    nextPath: normalizeAuthRedirectPath(nextPath, "/dashboard"),
+    createdAt: Date.now(),
+  });
+  return `/oauth/authorize?${params.toString()}`;
+}
+
+export async function beginBrowserOAuthLogin(nextPath?: string): Promise<void> {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth login can only run in the browser");
+  }
+  const authorizePath = await buildBrowserOAuthAuthorizePath(nextPath);
+  window.location.assign(authorizePath);
+}
+
+export async function completeBrowserOAuthLogin(
+  code: string,
+  state: string,
+): Promise<{ redirectPath: string }> {
+  const oauthState = _consumeBrowserOAuthState(state);
+  const res = await fetch("/oauth/token", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: _BROWSER_OAUTH_CLIENT_ID,
+      code,
+      redirect_uri: oauthState.redirectUri,
+      code_verifier: oauthState.verifier,
+    }).toString(),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (body as { error_description?: string; detail?: string; message?: string }).error_description
+      || (body as { detail?: string; message?: string }).detail
+      || (body as { message?: string }).message
+      || res.statusText
+      || "OAuth token exchange failed",
+      body,
+    );
+  }
+  return {
+    redirectPath: normalizeAuthRedirectPath(oauthState.nextPath, "/dashboard"),
+  };
+}
+
+// ── Launch Error Classification ──────────────────────────────────────
+
+export interface LaunchErrorInfo {
+  message: string;
+  action?: { label: string; href: string };
+  /** HTTP status when the error came from the API, else undefined. */
+  status?: number;
+  /**
+   * True when the error is a recognized user-state rejection (empty or
+   * suspended wallet, concurrency limit, invalid config, missing template,
+   * no hosts) that the UI already surfaces as a friendly, actionable message.
+   * The launch modal skips error-tracking capture for these, so a normal
+   * empty-wallet state does not open an error issue.
+   */
+  handled: boolean;
+}
+
+/**
+ * Classify an instance-launch error into a user-friendly message and
+ * optional call-to-action (like RunPod / Vast "add funds" prompts).
+ */
+export function classifyLaunchError(err: unknown): LaunchErrorInfo {
+  if (err instanceof ApiError) {
+    const detail =
+      typeof err.body === "object" && err.body
+        ? ((err.body as Record<string, string>).detail ?? err.message)
+        : err.message;
+
+    if (err.status === 402) {
+      if (/suspend/i.test(detail)) {
+        return {
+          message: "Your wallet has been suspended.",
+          action: { label: "Manage Wallet", href: "/dashboard/billing" },
+          status: err.status,
+          handled: true,
+        };
+      }
+      return {
+        message: "Insufficient balance, add funds to launch instances.",
+        action: { label: "Add Funds", href: "/dashboard/billing?topup=true" },
+        status: err.status,
+        handled: true,
+      };
+    }
+    if (err.status === 503) {
+      return {
+        message: "No GPU hosts available right now. Try again shortly.",
+        status: err.status,
+        handled: true,
+      };
+    }
+    if (err.status === 422) {
+      return {
+        message: "Invalid configuration, check your instance settings.",
+        status: err.status,
+        handled: true,
+      };
+    }
+    if (err.status === 404 && /template image/i.test(detail)) {
+      return {
+        message: "That template image isn't ready yet, pick another image or wait for it to finish building.",
+        action: { label: "Manage Templates", href: "/dashboard/templates" },
+        status: err.status,
+        handled: true,
+      };
+    }
+    if (err.status === 429 && /concurrent instance limit/i.test(detail)) {
+      return {
+        message:
+          "Concurrent instance limit reached for your team. Stop an existing instance or ask a team admin to upgrade the plan.",
+        action: { label: "View Instances", href: "/dashboard/instances" },
+        status: err.status,
+        handled: true,
+      };
+    }
+    if (err.status === 403) {
+      if (/team viewers cannot/i.test(detail)) {
+        return {
+          message: "Viewer access is read-only, ask a team admin or member to make changes.",
+          status: err.status,
+          handled: true,
+        };
+      }
+      if (/only team admins can manage team billing/i.test(detail)) {
+        return {
+          message: "Only team admins can add credits or change billing settings.",
+          action: { label: "Team Settings", href: "/dashboard/settings#team" },
+          status: err.status,
+          handled: true,
+        };
+      }
+    }
+    return { message: detail || `Request failed (${err.status})`, status: err.status, handled: false };
+  }
+  return { message: err instanceof Error ? err.message : "Failed to launch instance", handled: false };
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────
+
+/** User profile returned by login, register, and /api/auth/me (includes team tenancy). */
+export type AuthUser = {
+  user_id: string;
+  email: string;
+  name?: string;
+  role: string;
+  is_admin?: boolean;
+  country?: string;
+  province?: string;
+  avatar_url?: string;
+  customer_id?: string;
+  provider_id?: string;
+  team_id?: string | null;
+  team_name?: string;
+  team_role?: string;
+  team_plan?: string;
+  billing_customer_id?: string;
+  team_can_manage_billing?: boolean;
+  team_can_write_instances?: boolean;
+};
+
+export async function login(email: string, password: string) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    user?: AuthUser;
+    mfa_required?: boolean;
+    challenge_id?: string;
+    methods?: string[];
+  }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+/** IP-gated: returns the standing demo-account credentials only when the caller's
+ * network is whitelisted (see demo_account.py), otherwise null. Used to reveal
+ * the one-click "Demo account" button on the login page. Never throws. */
+export async function getDemoCredentials(): Promise<{ email: string; password: string } | null> {
+  try {
+    const res = await fetch("/api/auth/demo-credentials", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && typeof data.email === "string" && typeof data.password === "string") {
+      return { email: data.email, password: data.password };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function register(email: string, password: string, name?: string) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    email_verification_required?: boolean;
+    message?: string;
+    user?: AuthUser;
+  }>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  });
+}
+
+/** Sign-in providers configured on the server (the rest are hidden). */
+export async function fetchOAuthProviders() {
+  return apiFetch<{ ok: boolean; providers: string[] }>("/api/auth/oauth/providers");
+}
+
+export async function oauthInitiate(provider: string, redirectPath?: string) {
+  return apiFetch<{ ok: boolean; auth_url: string }>(`/api/auth/oauth/${provider}`, {
+    method: "POST",
+    body: JSON.stringify({
+      redirect: normalizeAuthRedirectPath(redirectPath, "/dashboard"),
+    }),
+  });
+}
+
+export async function getMe() {
+  return apiFetch<{ ok: boolean; user: AuthUser }>("/api/auth/me");
+}
+
+export async function uploadAvatar(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/auth/me/avatar", {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || "Avatar upload failed");
+  }
+  return res.json() as Promise<{ ok: boolean; avatar_url: string }>;
+}
+
+export async function deleteAvatar() {
+  return apiFetch<{ ok: boolean }>("/api/auth/me/avatar", { method: "DELETE" });
+}
+
+export async function refreshToken() {
+  return apiFetch<{ ok: boolean; access_token: string; expires_in: number }>(
+    "/api/auth/refresh",
+    { method: "POST" },
+  );
+}
+
+export async function logout() {
+  return apiFetch<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+}
+
+// ── Hosts ─────────────────────────────────────────────────────────────
+function normalizeHost(host: Host & Record<string, unknown>): Host {
+  const vram = Number(host.vram_gb ?? host.total_vram_gb ?? 0);
+  const rate = Number(host.cost_per_hour ?? host.price_per_hour ?? 0);
+  return {
+    ...host,
+    hostname: host.hostname || String(host.host_id || "").replace(/[-_]/g, " ").trim() || undefined,
+    gpu_model: host.gpu_model || "",
+    vram_gb: vram > 0 ? vram : host.vram_gb,
+    cost_per_hour: rate > 0 ? rate : host.cost_per_hour,
+  };
+}
+
+export async function fetchHosts() {
+  // No `ok` envelope on this legacy top-level route — it returns `hosts`
+  // directly, and nothing gates on `ok`.
+  const res = await apiFetch<{ hosts: Host[] }>("/hosts?active_only=false");
+  return {
+    ...res,
+    hosts: (res.hosts || []).map((h) => normalizeHost(h as Host & Record<string, unknown>)),
+  };
+}
+
+export async function registerHost(data: Record<string, unknown>) {
+  return apiFetch("/host", { method: "PUT", body: JSON.stringify(data) });
+}
+
+export interface RegisterHostWebPayload {
+  hostname: string;
+  gpu_model: string;
+  vram_gb: number;
+  country?: string;
+  province?: string;
+  region?: string;
+  notes?: string;
+  spot_enabled?: boolean;
+  spot_gpu_slots?: number;
+  spot_min_cents?: number;
+}
+
+export interface SpotRatePreview {
+  gpu_model: string;
+  suggested_min_cents: number;
+  spot_min_cents: number;
+  live_spot_cad: number;
+  on_demand_cad: number;
+  effective_spot_cad: number;
+  savings_pct: number;
+}
+
+export interface HostSpotSettingsPayload {
+  spot_enabled?: boolean;
+  spot_gpu_slots?: number;
+  spot_min_cents?: number;
+}
+
+export async function registerHostWeb(data: RegisterHostWebPayload) {
+  return apiFetch<{ ok: boolean; host: Host }>("/api/hosts/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Instances ─────────────────────────────────────────────────────────
+
+/** Normalize backend instance → frontend Instance (image→docker_image, spot fields, etc.) */
+function normalizeInstance(inst: Instance): Instance {
+  if (!inst.docker_image && inst.image) inst.docker_image = inst.image;
+  const payload = inst.payload;
+  if (!inst.pricing_mode && typeof payload?.pricing_mode === "string") {
+    inst.pricing_mode = payload.pricing_mode as Instance["pricing_mode"];
+  }
+  if (inst.preemptible == null && payload?.preemptible != null) {
+    inst.preemptible = Boolean(payload.preemptible);
+  }
+  if (inst.spot_rate_cad == null && typeof payload?.spot_rate_cad === "number") {
+    inst.spot_rate_cad = payload.spot_rate_cad;
+  }
+  if (inst.preemption_count == null && typeof payload?.preemption_count === "number") {
+    inst.preemption_count = payload.preemption_count;
+  }
+  if (inst.preempted_at == null && typeof payload?.preempted_at === "number") {
+    inst.preempted_at = payload.preempted_at;
+  }
+  return inst;
+}
+
+export interface InstanceConcurrencyInfo {
+  active: number;
+  cap: number;
+  shared: boolean;
+}
+
+export async function fetchInstances() {
+  const res = await apiFetch<{
+    ok?: boolean;
+    instances: Instance[];
+    concurrency?: InstanceConcurrencyInfo;
+  }>("/instances");
+  res.instances?.forEach(normalizeInstance);
+  return res;
+}
+
+/** Unified instance launch payload, all launch flows use this. */
+export interface LaunchInstanceParams {
+  name: string;
+  image?: string;
+  vram_needed_gb?: number;
+  num_gpus?: number;
+  priority?: string | number;
+  tier?: string;
+  host_id?: string;
+  gpu_model?: string;
+  pricing_mode?: "on_demand" | "spot";
+  nfs_path?: string;
+  nfs_server?: string;
+  nfs_mount_point?: string;
+  interactive?: boolean;
+  command?: string;
+  ssh_port?: number;
+  volume_ids?: string[];
+  encrypted_workspace?: boolean;
+  template_image_id?: string;
+}
+
+/** Single entry-point for launching instances, marketplace, new-instance page, spot, on-demand.
+ *  All go through POST /instance. No drift. */
+export async function launchInstance(params: LaunchInstanceParams) {
+  // Strip undefined values so Pydantic doesn't choke on explicit nulls
+  const body: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) body[k] = v;
+  }
+  const res = await apiFetch<{ ok: boolean; instance: Instance }>(
+    "/instance", { method: "POST", body: JSON.stringify(body) },
+  );
+  if (res.instance) normalizeInstance(res.instance);
+  return res;
+}
+
+/** @deprecated Use launchInstance instead */
+export async function submitInstance(data: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean; instance?: Record<string, unknown>; instance_id?: string; id?: string }>(
+    "/instance", { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export interface ImageTemplate {
+  id: string;
+  label: string;
+  image: string;
+  default_vram_gb: number;
+  icon: string;
+  category: string;
+  description: string;
+}
+
+export async function fetchImageTemplates() {
+  return apiFetch<{ templates: ImageTemplate[] }>("/api/images/templates");
+}
+
+export async function cancelInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/cancel`, { method: "POST" });
+}
+
+export async function stopInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/stop`, { method: "POST" });
+}
+
+export async function startInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/start`, { method: "POST" });
+}
+
+export async function restartInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/restart`, { method: "POST" });
+}
+
+export async function terminateInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/terminate`, { method: "POST" });
+}
+
+export async function renameInstance(instanceId: string, name: string) {
+  return apiFetch<{ ok: boolean; job_id: string; name: string }>(
+    `/instance/${encodeURIComponent(instanceId)}/name`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+}
+
+// ── Lock / Unlock / Reset (Phase 2 RunPod-style lifecycle) ───────────
+// Lock sets ``payload.locked = true`` so every mutating endpoint on the
+// instance returns 423 until unlock. Reset restarts the container with a
+// fresh /workspace while preserving named volumes.
+
+export async function lockInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; locked: boolean }>(
+    `/instances/${encodeURIComponent(instanceId)}/lock`,
+    { method: "POST" },
+  );
+}
+
+export async function unlockInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; locked: boolean }>(
+    `/instances/${encodeURIComponent(instanceId)}/unlock`,
+    { method: "POST" },
+  );
+}
+
+export async function resetInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; command_id: string }>(
+    `/instances/${encodeURIComponent(instanceId)}/reset`,
+    { method: "POST" },
+  );
+}
+
+export async function createTerminalTicket(instanceId: string) {
+  return apiFetch<{ ok: boolean; ticket: string; expires_in: number }>(
+    "/api/terminal/ticket",
+    {
+      method: "POST",
+      body: JSON.stringify({ instance_id: instanceId }),
+    },
+  );
+}
+
+export async function createInstanceStreamTicket(instanceId: string) {
+  return apiFetch<{ ok: boolean; ticket: string; expires_in: number }>(
+    `/api/instances/${encodeURIComponent(instanceId)}/stream-ticket`,
+    { method: "POST" },
+  );
+}
+
+// ── Billing ───────────────────────────────────────────────────────────
+export async function fetchBilling() {
+  // No `ok` envelope: this legacy top-level route returns its payload
+  // directly. Declaring one made `res.ok` `undefined` — harmless only
+  // because nothing gates on it, which is not a reason to keep it wrong.
+  return apiFetch<{ records: BillingRecord[]; total_revenue: number }>("/billing");
+}
+
+export async function fetchWallet(customerId: string) {
+  return apiFetch<{ ok: boolean; wallet: Wallet }>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}`,
+  );
+}
+
+export async function depositWallet(customerId: string, amount: number, description?: string) {
+  return apiFetch<{ ok: boolean; tx_id: string; balance_cad: number }>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/deposit`,
+    { method: "POST", body: JSON.stringify({ amount_cad: amount, description: description || "Credit deposit" }) },
+  );
+}
+
+/** Platform admins only: credit a wallet with no payment behind it. Recorded
+ * as an admin credit (never a deposit) and audited with the reason. */
+export async function adminCreditWallet(
+  customerId: string,
+  amountCad: number,
+  reason: string,
+  idempotencyKey: string,
+) {
+  return apiFetch<{ ok: boolean; tx_id: string; balance_cad: number; amount_cad: number; dedup?: boolean }>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/admin-credit`,
+    {
+      method: "POST",
+      body: JSON.stringify({ amount_cad: amountCad, reason, idempotency_key: idempotencyKey }),
+    },
+  );
+}
+
+export async function resetWalletTestingState(customerId: string) {
+  return apiFetch<{ ok: boolean; wallet: Wallet; cleared_transactions: number; promo_available: boolean }>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/reset-testing`,
+    { method: "POST" },
+  );
+}
+
+export async function claimFreeCredits(customerId: string) {
+  return apiFetch<{ ok: boolean; amount_cad: number; balance_cad: number; already_claimed: boolean }>(
+    `/api/billing/free-credits/${encodeURIComponent(customerId)}`,
+    { method: "POST" },
+  );
+}
+
+export async function checkFreeCreditsStatus(customerId: string) {
+  return apiFetch<{ ok: boolean; claimed: boolean }>(
+    `/api/billing/free-credits/${encodeURIComponent(customerId)}/status`,
+  );
+}
+
+export type TaxBreakdownLine = {
+  amount: number;
+  percentage: number;
+  tax_type?: string;
+  state?: string;
+  country?: string;
+  taxability_reason?: string;
+};
+
+/** Create wallet top-up PI. Tax uses account country/province (settings), not a deposit form. */
+export async function createPaymentIntent(
+  customerId: string,
+  amountCad: number,
+  description?: string,
+) {
+  return apiFetch<{
+    ok: boolean;
+    intent: {
+      intent_id: string;
+      customer_id?: string;
+      amount_cents?: number;
+      amount_cad?: number;
+      credit_amount_cad?: number;
+      tax_amount_cad?: number;
+      charge_amount_cad?: number;
+      tax_calculation_id?: string;
+      tax_breakdown?: TaxBreakdownLine[];
+      tax_enabled?: boolean;
+      tax_location_source?: string;
+      currency?: string;
+      status?: string;
+      stripe_intent_id: string;
+      client_secret?: string;
+    };
+  }>("/api/billing/payment-intent", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: customerId,
+      amount_cad: amountCad,
+      description,
+    }),
+  });
+}
+
+// ── PayPal ───────────────────────────────────────────────────────────
+
+export async function checkPayPalEnabled() {
+  return apiFetch<{ enabled: boolean; platform_mode?: boolean }>("/api/billing/paypal/enabled");
+}
+
+export async function createPayPalOrder(customerId: string, amountCad: number) {
+  return apiFetch<{ ok: boolean; order_id: string }>("/api/billing/paypal/create-order", {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad }),
+  });
+}
+
+export async function capturePayPalOrder(customerId: string, orderId: string) {
+  return apiFetch<{ ok: boolean; balance_cad: number; amount_cad: number }>(
+    "/api/billing/paypal/capture-order",
+    {
+      method: "POST",
+      body: JSON.stringify({ customer_id: customerId, order_id: orderId }),
+    },
+  );
+}
+
+// ── Bitcoin Deposits ─────────────────────────────────────────────────
+
+export async function checkCryptoEnabled(opts?: RequestInit) {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    available?: boolean;
+    reason?: string;
+    wallet_name?: string;
+    rpc_reachable?: boolean;
+    wallet_ready?: boolean;
+    network?: string;
+    blocks?: number;
+  }>("/api/billing/crypto/enabled", opts);
+}
+
+export async function createCryptoDeposit(customerId: string, amountCad: number) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    btc_address: string;
+    amount_btc: number;
+    amount_cad: number;
+    btc_cad_rate: number;
+    expires_at: number;
+    qr_data: string;
+  }>("/api/billing/crypto/deposit", {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad }),
+  });
+}
+
+export async function checkCryptoDeposit(depositId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    status: string;
+    confirmations: number;
+    amount_cad: number;
+    amount_btc: number;
+    balance_after_cad?: number;
+  }>(`/api/billing/crypto/deposit/${encodeURIComponent(depositId)}`);
+}
+
+export async function getCryptoRate() {
+  return apiFetch<{ ok: boolean; btc_cad: number; currency: string }>("/api/billing/crypto/rate");
+}
+
+export async function refreshCryptoDeposit(depositId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    amount_btc: number;
+    btc_cad_rate: number;
+    expires_at: number;
+    qr_data?: string;
+  }>(`/api/billing/crypto/refresh/${encodeURIComponent(depositId)}`, {
+    method: "POST",
+  });
+}
+
+// ── Lightning Network Deposits ────────────────────────────────────────
+export async function checkLightningEnabled(opts?: RequestInit) {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    available?: boolean;
+    reason?: string;
+    node_alias?: string;
+    node_id?: string;
+    num_active_channels?: number;
+    blockheight?: number;
+    network?: string;
+  }>("/api/billing/lightning/enabled", opts);
+}
+
+export async function createLightningDeposit(customerId: string, amountCad: number) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    bolt11: string;
+    payment_hash: string;
+    amount_sats: number;
+    amount_btc: number;
+    amount_cad: number;
+    btc_cad_rate: number;
+    expires_at: number;
+  }>("/api/billing/lightning/deposit", {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad }),
+  });
+}
+
+export async function checkLightningDeposit(depositId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    status: string;
+    amount_cad: number;
+    amount_sats: number;
+    amount_btc: number;
+    payment_preimage?: string;
+    paid_at?: number;
+    credited_at?: number;
+  }>(`/api/billing/lightning/deposit/${encodeURIComponent(depositId)}`);
+}
+
+export async function getLightningRate() {
+  return apiFetch<{ ok: boolean; btc_cad: number; currency: string }>("/api/billing/lightning/rate");
+}
+
+/** A charge the bank stopped, waiting for the cardholder to verify it. */
+export interface PendingVerification {
+  stripe_intent_id: string;
+  amount_cad: number;
+  description: string;
+  created_at: number;
+  resume_url: string;
+}
+
+/**
+ * Charges waiting on the cardholder — not failed, not complete.
+ *
+ * An off-session charge refused with `authentication_required` is stopped: no
+ * retry completes it, because the bank is waiting for the person rather than
+ * for us. Deliberately carries no `client_secret`; confirming needs one, and it
+ * is fetched per intent by {@link resumePendingVerification}.
+ */
+export async function fetchPendingVerification(customerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    customer_id: string;
+    pending: PendingVerification[];
+    count: number;
+    message: string;
+  }>(`/api/v2/billing/pending-verification?customer_id=${encodeURIComponent(customerId)}`);
+}
+
+/**
+ * The credential that lets this browser finish one challenge.
+ *
+ * POST because the response body contains a `client_secret`, which completes or
+ * cancels a payment — not something to leave in a cacheable GET. The server
+ * refuses anything that is not this customer's and not awaiting verification.
+ */
+export async function resumePendingVerification(stripeIntentId: string) {
+  return apiFetch<{
+    ok: boolean;
+    resumable: boolean;
+    client_secret: string;
+    amount_cad: number;
+    description: string;
+    message: string;
+  }>(
+    `/api/v2/billing/pending-verification/${encodeURIComponent(stripeIntentId)}/resume`,
+    { method: "POST" },
+  );
+}
+
+export async function fetchWalletHistory(customerId: string, limit = 50) {
+  return apiFetch<WalletHistoryPage>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/history?limit=${limit}`,
+  );
+}
+
+/** One page of wallet history, newest first. */
+export interface WalletHistoryPage {
+  ok: boolean;
+  customer_id: string;
+  transactions: WalletTransaction[];
+  /** Pass as `before` for the next, older page; null on the last page. */
+  next_cursor: string | null;
+  /** Every transaction on the wallet, for "21-40 of 134". */
+  total: number;
+}
+
+export async function fetchWalletHistoryPage(
+  customerId: string,
+  { limit = 20, before }: { limit?: number; before?: string | null } = {},
+) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (before) params.set("before", before);
+  return apiFetch<WalletHistoryPage>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/history?${params}`,
+  );
+}
+
+export async function fetchUsageSummary(customerId: string) {
+  return apiFetch<{
+    ok: boolean; customer_id: string;
+    job_count: number; total_gpu_hours: number; total_cost_cad: number;
+    canadian_compute_cad: number; non_canadian_compute_cad: number;
+    hosts_used: number; currency: string;
+  }>(`/api/billing/usage/${encodeURIComponent(customerId)}`);
+}
+
+export async function fetchInvoices(customerId: string, limit = 12) {
+  return apiFetch<{ ok: boolean; invoices: Invoice[]; count: number }>(
+    `/api/billing/invoices/${encodeURIComponent(customerId)}?limit=${limit}`,
+  );
+}
+
+export async function downloadInvoice(
+  customerId: string,
+  format: "csv" | "txt",
+  periodStart: number,
+  periodEnd: number,
+  taxRate = 0.13,
+  customerName = "",
+) {
+  const qs = new URLSearchParams({
+    format,
+    period_start: String(periodStart),
+    period_end: String(periodEnd),
+    tax_rate: String(taxRate),
+    customer_name: customerName,
+  }).toString();
+  const res = await fetch(
+    `/api/billing/invoice/${encodeURIComponent(customerId)}/download?${qs}`,
+    { credentials: "include" },
+  );
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return res.blob();
+}
+
+export async function estimatePrice(data: {
+  gpu_model: string; duration_hours: number; spot?: boolean;
+}) {
+  // Mirrors reputation.estimate_job_cost(). The AI Compute Access Fund has
+  // ended, so fund_rate / fund_reimbursable_cad / savings_pct are always 0 and
+  // effective_cost_cad always equals gross_cost_cad — read gross_cost_cad.
+  return apiFetch<{
+    ok: boolean; gpu_model: string; duration_hours: number;
+    rate_cad_per_hour: number; gross_cost_cad: number; currency: string;
+    spot: boolean;
+    host_tier: string; fund_eligible: boolean; fund_rate: number;
+    fund_label: string; fund_reimbursable_cad: number;
+    effective_cost_cad: number; savings_pct: number;
+  }>("/api/pricing/estimate", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function createReservation(data: {
+  customer_id: string; gpu_model: string;
+  commitment_type: "1_month" | "3_month" | "1_year";
+  quantity?: number; province?: string;
+}) {
+  return apiFetch<{
+    ok: boolean; commitment_id: string;
+    discounted_rate_cad: number; total_commitment_value_cad: number;
+    start_date: string; end_date: string;
+  }>("/api/pricing/reserve", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function fetchReservations(customerId?: string) {
+  const qs = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : "";
+  return apiFetch<{
+    ok: boolean;
+    customer_id: string;
+    reservations: ReservedCommitment[];
+    summary: {
+      active_count: number;
+      total_count: number;
+      realized_savings_cad: number;
+      projected_monthly_savings_cad: number;
+    };
+  }>(`/api/pricing/reservations${qs}`);
+}
+
+// ── Provider / Earnings ───────────────────────────────────────────────
+export async function fetchProviderEarnings(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    earnings: {
+      total_jobs: number;
+      total_earned_cad: number;
+      total_platform_cad: number;
+      total_tax_cad: number;
+      spot_earned_cad?: number;
+      on_demand_earned_cad?: number;
+    };
+    recent_payouts: Payout[];
+    intro_fee?: { window_days: number; active: boolean; days_remaining: number };
+  }>(`/api/providers/${encodeURIComponent(providerId)}/earnings`);
+}
+
+export async function registerProvider(data: {
+  provider_id: string; email: string; provider_type?: string;
+  corporation_name?: string; business_number?: string; province?: string; legal_name?: string;
+  country?: string;
+}) {
+  return apiFetch<{
+    ok: boolean; provider_id: string; stripe_account_id: string;
+    onboarding_url: string; status: string;
+  }>("/api/providers/register", { method: "POST", body: JSON.stringify(data) });
+}
+
+/** Stripe Connect AccountSession client_secret for embedded components (no charge). */
+export async function createProviderAccountSession(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    client_secret: string;
+    account_id: string;
+    provider_id: string;
+    expires_at?: number | null;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/account-session`, { method: "POST" });
+}
+
+/**
+ * What Stripe currently requires before this provider can be paid.
+ *
+ * `GET /api/providers/{id}` has returned this since the "a provider deserves to
+ * know why they are unpaid" fix, and `get_provider_account` hands the whole
+ * object to the agent. The dashboard type dropped it, so the browser rendered
+ * `status` alone — which the route's own comment calls out as insufficient:
+ * *"`status` alone collapses 'we need your bank account' and 'we need a photo of
+ * your ID' into `restricted`, which tells a provider nothing they can act on."*
+ *
+ * Entries in `currently_due` / `past_due` are Stripe's field **names** —
+ * `external_account`, `individual.id_number`. Names, never values; no identity
+ * document or bank number passes through here.
+ */
+export interface ProviderPayoutState {
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  currently_due: string[];
+  past_due: string[];
+  disabled_reason: string;
+  /**
+   * Whether Stripe was actually consulted. **Load-bearing.**
+   *
+   * When Stripe is unconfigured, the account has no id, or the retrieve failed,
+   * every field above is its zero value — and an empty `currently_due` then
+   * reads as "nothing outstanding, you are done" in exactly the case where
+   * nothing was asked. Absent information must not present as good news on the
+   * surface that tells someone why they are unpaid.
+   */
+  checked_live: boolean;
+}
+
+export interface ProviderAccount {
+  provider_id: string;
+  provider_type: string;
+  status: string;
+  corporation_name?: string;
+  email: string;
+  province?: string;
+  created_at: string;
+  onboarded_at?: string;
+  paypal?: { enabled: boolean; status: string; onboarded_at?: number };
+  payouts?: ProviderPayoutState;
+}
+
+export async function fetchProvider(providerId: string) {
+  return apiFetch<{ ok: boolean; provider: ProviderAccount }>(
+    `/api/providers/${encodeURIComponent(providerId)}`,
+  );
+}
+
+export async function fetchPayPalProvider(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    paypal_enabled: boolean;
+    paypal: {
+      provider_id: string;
+      tracking_id?: string;
+      status: string;
+      onboarded_at?: number;
+    };
+  }>(`/api/providers/${encodeURIComponent(providerId)}/paypal`);
+}
+
+export async function startPayPalProviderOnboard(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    provider_id: string;
+    onboarding_url: string;
+    tracking_id: string;
+    status: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/paypal/onboard`, { method: "POST" });
+}
+
+export async function refreshPayPalProvider(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    paypal: {
+      provider_id: string;
+      merchant_id?: string;
+      status: string;
+      payments_receivable?: boolean;
+      onboarded_at?: number;
+    };
+  }>(`/api/providers/${encodeURIComponent(providerId)}/paypal/refresh`, { method: "POST" });
+}
+
+export async function disconnectStripeProvider(providerId: string) {
+  return apiFetch<{ ok: boolean; provider_id: string; status: string }>(
+    `/api/providers/${encodeURIComponent(providerId)}/stripe/disconnect`,
+    { method: "POST" },
+  );
+}
+
+export async function disconnectPayPalProvider(providerId: string) {
+  return apiFetch<{ ok: boolean; paypal: { provider_id: string; status: string } }>(
+    `/api/providers/${encodeURIComponent(providerId)}/paypal/disconnect`,
+    { method: "POST" },
+  );
+}
+
+export async function resumeOnboarding(providerId: string) {
+  return apiFetch<{
+    ok: boolean; provider_id: string; onboarding_url?: string; status: string; message?: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/resume-onboarding`, { method: "POST" });
+}
+
+export async function abandonOnboarding(providerId: string) {
+  return apiFetch<{
+    ok: boolean; provider_id: string; status: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/abandon-onboarding`, { method: "POST" });
+}
+
+export type ProviderPayoutRail = "stripe" | "paypal";
+
+export async function requestPayout(
+  providerId: string,
+  jobId: string,
+  totalCad: number,
+  paymentRail: ProviderPayoutRail = "stripe",
+) {
+  const qs = new URLSearchParams({
+    job_id: jobId,
+    total_cad: String(totalCad),
+    payment_rail: paymentRail,
+  });
+  return apiFetch<{
+    ok: boolean;
+    job_id?: string;
+    total_cad?: number;
+    provider_share_cad?: number;
+    platform_share_cad?: number;
+    gst_hst_cad?: number;
+    stripe_transfer_id?: string;
+    payment_rail?: ProviderPayoutRail;
+    order_id?: string;
+    message?: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/payout?${qs}`, {
+    method: "POST",
+  });
+}
+
+export async function createPayPalMarketplaceOrder(
+  customerId: string,
+  providerId: string,
+  jobId: string,
+  amountCad: number,
+) {
+  return apiFetch<{
+    ok: boolean;
+    order_id: string;
+    provider_id: string;
+    job_id: string;
+    amount_cad: number;
+    platform_share_cad: number;
+    provider_share_cad: number;
+  }>("/api/billing/paypal/marketplace/create-order", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: customerId,
+      provider_id: providerId,
+      job_id: jobId,
+      amount_cad: amountCad,
+    }),
+  });
+}
+
+export async function capturePayPalMarketplaceOrder(
+  customerId: string,
+  providerId: string,
+  orderId: string,
+) {
+  return apiFetch<{
+    ok: boolean;
+    order_id: string;
+    job_id: string;
+    provider_id: string;
+    capture_id: string;
+    amount_cad: number;
+    platform_share_cad: number;
+    provider_share_cad: number;
+    gst_hst_cad: number;
+  }>("/api/billing/paypal/marketplace/capture-order", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: customerId,
+      provider_id: providerId,
+      order_id: orderId,
+    }),
+  });
+}
+
+export async function fetchGstThreshold(providerId: string) {
+  return apiFetch<{
+    ok: boolean; provider_id: string; total_revenue_cad: number;
+    threshold_cad: number; must_register: boolean; period_months: number;
+  }>(`/api/billing/gst-threshold/${encodeURIComponent(providerId)}`);
+}
+
+// ── Marketplace ───────────────────────────────────────────────────────
+export async function fetchMarketplace() {
+  // No `ok` envelope: this legacy top-level route returns its payload
+  // directly. Declaring one made `res.ok` `undefined` — harmless only
+  // because nothing gates on it, which is not a reason to keep it wrong.
+  return apiFetch<{ listings: MarketplaceListing[] }>("/marketplace");
+}
+
+export async function searchMarketplace(params: Record<string, string>) {
+  const qs = new URLSearchParams(params).toString();
+  return apiFetch<{ ok: boolean; listings: MarketplaceListing[] }>(
+    `/marketplace/search?${qs}`,
+  );
+}
+
+// ── Telemetry ─────────────────────────────────────────────────────────
+export async function fetchTelemetry() {
+  return apiFetch<{ ok: boolean; telemetry: Record<string, TelemetryData> }>(
+    "/api/telemetry/all",
+  );
+}
+
+// ── Pricing ───────────────────────────────────────────────────────────
+export async function fetchPricingReference() {
+  const res = await apiFetch<{
+    ok: boolean;
+    reference?: PricingReference[];
+    pricing?: Record<string, {
+      base_rate_cad?: number;
+      cad_per_hour?: number;
+      spot_cad?: number;
+      spot_rate_cad?: number;
+      spot_price_cad?: number;
+      reserved_1mo_cad?: number;
+      reserved_3mo_cad?: number;
+      reserved_1yr_cad?: number;
+    }>;
+  }>("/api/pricing/reference");
+
+  if (Array.isArray(res.reference)) {
+    return { ok: res.ok, reference: res.reference };
+  }
+
+  const reference = Object.entries(res.pricing || {}).map(([gpuModel, pricing]) => ({
+    gpu_model: gpuModel,
+    on_demand_cad:
+      typeof pricing?.base_rate_cad === "number"
+        ? pricing.base_rate_cad
+        : Number(pricing?.cad_per_hour ?? 0),
+    spot_cad:
+      typeof pricing?.spot_cad === "number"
+        ? pricing.spot_cad
+        : typeof pricing?.spot_rate_cad === "number"
+          ? pricing.spot_rate_cad
+          : typeof pricing?.spot_price_cad === "number"
+            ? pricing.spot_price_cad
+            : undefined,
+    reserved_1mo_cad: pricing?.reserved_1mo_cad,
+    reserved_3mo_cad: pricing?.reserved_3mo_cad,
+    reserved_1yr_cad: pricing?.reserved_1yr_cad,
+  }));
+
+  return { ok: res.ok, reference };
+}
+
+/**
+ * `/api/pricing/reserved-plans` sends `reserved_tiers`, a **dict** keyed by
+ * commitment length (`"1_month"`, …) — not a `plans` array.
+ *
+ * The old declaration was fictional in every part: wrong key, wrong container,
+ * and an element type (`plan_id`, `name`, `duration_months`, `gpu_model`,
+ * `price_per_hour_cad`) sharing exactly one field with the wire. Latent only
+ * because `RESERVED_PLANS_ENABLED` is `false` — and the flag's own comment says
+ * the feature "can be re-enabled by flipping this flag back to true", at which
+ * point it would have rendered nothing with no error.
+ */
+export interface ReservedTier {
+  commitment: string;
+  discount_pct: number;
+  description: string;
+  min_hours_per_day: number;
+  /** Per-GPU sample rates, keyed by model. */
+  sample_hourly_rates_cad: Record<string, number>;
+}
+
+export async function fetchReservedPlans() {
+  return apiFetch<{ ok: boolean; currency: string; reserved_tiers: Record<string, ReservedTier> }>(
+    "/api/pricing/reserved-plans",
+  );
+}
+
+// ── Spot ──────────────────────────────────────────────────────────────
+
+/** One row of `/spot-prices`'s `spot_prices` list. */
+export interface SpotPriceRow {
+  gpu_model: string;
+  rate_cad: number;
+  spot_cents: number;
+  on_demand_cad: number;
+  savings_pct: number;
+  supply: number;
+  demand: number;
+  provider_floor_cents: number;
+  recorded_at: number;
+}
+
+/**
+ * `/spot-prices` sends **both** shapes, and they are not interchangeable.
+ *
+ * `prices` is the lookup — `{"A10": 0.42}`. `spot_prices` is a **list** of rows
+ * carrying supply, demand and the on-demand comparison.
+ *
+ * This was typed as `spot_prices: Record<string, number>` with `prices` as an
+ * optional fallback, which inverted both. Callers wrote
+ * `res.spot_prices || res.prices` — and a non-empty array is truthy, so the
+ * correctly-shaped fallback could never be reached, and indexing the array by
+ * GPU model returned `undefined` every time.
+ *
+ * Pinned by `tests/test_spot_prices_shape_is_not_two_shapes.py`.
+ */
+export async function fetchSpotPrices() {
+  return apiFetch<{ ok: boolean; prices: Record<string, number>; spot_prices: SpotPriceRow[] }>(
+    "/spot-prices",
+  );
+}
+
+// ── Reputation ────────────────────────────────────────────────────────
+export async function fetchLeaderboard() {
+  return apiFetch<{ ok: boolean; leaderboard: ReputationEntry[] }>(
+    "/api/reputation/leaderboard?limit=20",
+  );
+}
+
+export async function fetchReputation(entityId: string) {
+  return apiFetch<{ ok: boolean; reputation: ReputationEntry }>(
+    `/api/reputation/${encodeURIComponent(entityId)}`,
+  );
+}
+
+export async function fetchReputationBreakdown(entityId: string) {
+  return apiFetch<{
+    ok: boolean;
+    total_score: number;
+    breakdown: { jobs_completed: number; uptime_bonus: number; penalties: number; decay: number };
+  }>(`/api/reputation/${encodeURIComponent(entityId)}/breakdown`);
+}
+
+export async function fetchReputationHistory(entityId: string) {
+  return apiFetch<{ ok: boolean; events: { event_type: string; delta: number; timestamp: string; description?: string }[] }>(
+    `/api/reputation/${encodeURIComponent(entityId)}/history?limit=50`,
+  );
+}
+
+export interface ReputationMilestone {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  points: number;
+  current: number;
+  target: number;
+  unlocks: string;
+  cta?: string | null;
+  status: "locked" | "claimable" | "claimed";
+}
+
+export interface ReputationJourney {
+  ok: boolean;
+  milestones: ReputationMilestone[];
+  claimable_count: number;
+  completed_count: number;
+  total_count: number;
+}
+
+/**
+ * The caller's own reputation score and tier.
+ *
+ * Was a raw `fetch("/api/reputation/me")` on the reputation page. That skips
+ * `apiFetch`'s **401 refresh-and-retry**, so an expired access token made the
+ * promise reject, `myRep` stay null, and `finalScore = myRep?.final_score ?? 0`
+ * render **"0 points"** — while the leaderboard and history on the same page,
+ * which do go through `apiFetch`, refreshed and showed correct data.
+ *
+ * A user with a stale token saw a working page telling them they had no
+ * reputation.
+ */
+export interface MyReputation {
+  ok: boolean;
+  entity_id?: string;
+  entity_type?: string;
+  tier?: string;
+  final_score?: number;
+  score?: number;
+  activity_points?: number;
+  days_active?: number;
+  jobs_completed?: number;
+  jobs_failed_host?: number;
+  jobs_failed_user?: number;
+  uptime_pct?: number;
+  last_activity_at?: number;
+}
+
+export function fetchMyReputation() {
+  return apiFetch<MyReputation>("/api/reputation/me");
+}
+
+export async function fetchReputationJourney() {
+  return apiFetch<ReputationJourney>("/api/reputation/me/journey");
+}
+
+export async function claimReputationMilestones() {
+  return apiFetch<{
+    ok: boolean;
+    newly_granted: { id: string; title: string; points: number }[];
+    milestones: ReputationMilestone[];
+    claimable_count: number;
+    completed_count: number;
+    total_count: number;
+    final_score?: number;
+    tier?: string;
+  }>("/api/reputation/me/claim", { method: "POST" });
+}
+
+/**
+ * One rung of the trust ladder, as `GET /api/trust-tiers` actually sends it.
+ *
+ * The previous declaration was a `Record<string, {min_score, requirements}>`.
+ * The route returns a **list**, and has never sent either of those fields — it
+ * sends `threshold` and `unlock_requirements`. The dashboard's
+ * `Object.entries()` therefore walked an array, rendered the **index** as each
+ * tier's name, and printed "Min Score: 0" with no requirements on every card.
+ * `?? 0` and `|| []` kept it silent.
+ *
+ * `unlock_requirements` is a **string**, not a list — renaming the dead
+ * `requirements` field without noticing that would have turned a quiet blank
+ * into a `.map is not a function` crash.
+ *
+ * Pinned by `tests/test_trust_tiers_shape_matches_the_browser.py`.
+ */
+export interface TrustTier {
+  tier: string;
+  threshold: number;
+  search_boost: number;
+  /** Fraction, not percent: 0.05 is a 5% premium. */
+  pricing_premium_pct: number;
+  /** Fraction, not percent: 0.15 is a 15% commission. */
+  platform_commission: number;
+  description: string;
+  unlock_requirements: string;
+}
+
+export async function fetchTrustTiers() {
+  return apiFetch<{ ok: boolean; tiers: TrustTier[] }>("/api/trust-tiers");
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────
+export async function fetchAnalytics(params?: Record<string, string>) {
+  const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
+  return apiFetch(`/api/analytics/usage${qs}`);
+}
+
+export interface EnhancedAnalytics {
+  ok: boolean;
+  days: number;
+  role: "admin" | "provider" | "customer";
+  customer_id: string;
+  provider_id: string;
+  cost_per_hour_trend: { date: string; cost_per_hour: number; gpu_hours: number; spend: number }[];
+  cumulative_spend: { date: string; total: number }[];
+  duration_histogram: { bucket: string; count: number; total_cost: number }[];
+  daily_gpu_hours: { date: string; hours: number }[];
+  hourly_heatmap: { dow: number; hour: number; count: number }[];
+  top_entities: { entity: string; job_count: number; total_cost: number; gpu_hours: number }[];
+  gpu_performance: {
+    gpu_model: string; jobs: number; avg_util: number; avg_duration_min: number;
+    total_cost: number; gpu_hours: number; avg_cost_per_hour: number;
+  }[];
+  provider_daily?: { date: string; jobs_served: number; total_revenue: number; avg_util: number }[];
+  provider_summary?: {
+    total_jobs_served: number; total_revenue: number;
+    total_gpu_hours: number; avg_util: number;
+  };
+  wallet_activity: { date: string; tx_type: string; total_amount: number; tx_count: number }[];
+  peak_days: { date: string; jobs: number; gpu_hours: number; spend: number; avg_util: number }[];
+}
+
+export async function fetchEnhancedAnalytics(days = 30) {
+  return apiFetch<EnhancedAnalytics>(`/api/analytics/enhanced?days=${days}`);
+}
+
+// ── Instance Detail ───────────────────────────────────────────────────
+export async function fetchInstance(instanceId: string) {
+  const res = await apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}`);
+  if (res.instance) normalizeInstance(res.instance);
+  return res;
+}
+
+export async function fetchInstanceLogs(instanceId: string, limit = 100) {
+  return apiFetch<{ ok: boolean; instance_id: string; logs: InstanceLog[]; total: number }>(
+    `/instances/${encodeURIComponent(instanceId)}/logs?limit=${limit}`,
+  );
+}
+
+export function createInstanceLogStream(instanceId: string): EventSource {
+  return new EventSource(`/instances/${encodeURIComponent(instanceId)}/logs/stream`, { withCredentials: true });
+}
+
+export async function requeueInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}/requeue`, {
+    method: "POST",
+  });
+}
+
+// ── Host Detail ───────────────────────────────────────────────────────
+export async function fetchHost(hostId: string) {
+  return apiFetch<{ ok: boolean; host: Host }>(`/host/${encodeURIComponent(hostId)}`);
+}
+
+export async function deleteHost(hostId: string) {
+  return apiFetch<{ ok: boolean; removed: string }>(`/host/${encodeURIComponent(hostId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function updateHostSpotSettings(hostId: string, settings: HostSpotSettingsPayload) {
+  return apiFetch<{ ok: boolean; host: Host; spot_preview: SpotRatePreview }>(
+    `/api/hosts/${encodeURIComponent(hostId)}/spot-settings`,
+    { method: "PATCH", body: JSON.stringify(settings) },
+  );
+}
+
+export async function fetchHostSpotPreview(hostId: string, spotMinCents?: number) {
+  const qs = spotMinCents != null ? `?spot_min_cents=${spotMinCents}` : "";
+  return apiFetch<{ ok: boolean; host_id: string; spot_preview: SpotRatePreview }>(
+    `/api/hosts/${encodeURIComponent(hostId)}/spot-preview${qs}`,
+  );
+}
+
+export async function fetchSpotFeatureStatus() {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    global_enabled: boolean;
+    message?: string | null;
+  }>("/api/pricing/spot-enabled");
+}
+
+export async function fetchSpotFloorSuggestion(gpuModel: string, spotMinCents?: number) {
+  const params = new URLSearchParams({ gpu_model: gpuModel });
+  if (spotMinCents != null) params.set("spot_min_cents", String(spotMinCents));
+  return apiFetch<SpotRatePreview & { ok: boolean }>(
+    `/api/pricing/spot-floor-suggestion?${params.toString()}`,
+  );
+}
+
+export async function fetchComputeScore(hostId: string) {
+  return apiFetch<{ ok: boolean; host_id: string; score: number }>(
+    `/compute-score/${encodeURIComponent(hostId)}`,
+  );
+}
+
+export async function fetchSlaStatus(hostId: string) {
+  return apiFetch<{ ok: boolean; uptime_30d_pct: number; monthly_record: Record<string, unknown> }>(
+    `/api/sla/${encodeURIComponent(hostId)}`,
+  );
+}
+
+// `status` is always present now. It used not to be: the route returned
+// `status` only when the host had *no* verification record, and `verification`
+// (with no `status`) when it did — so the badge on the host page read
+// `undefined` for exactly the hosts that were verified. This type described the
+// empty branch, which is why TypeScript enforced the broken shape instead of
+// catching it.
+export async function fetchVerificationStatus(hostId: string) {
+  return apiFetch<{
+    ok: boolean;
+    host_id: string;
+    status: string;
+    overall_score?: number;
+    verified_at?: number | null;
+    last_check_at?: number | null;
+    next_check_at?: number | null;
+  }>(`/api/verify/${encodeURIComponent(hostId)}/status`);
+}
+
+// ── Verification Admin ────────────────────────────────────────────────
+export async function fetchVerifiedHosts() {
+  return apiFetch<{
+    ok: boolean;
+    count: number;
+    hosts: VerifiedHost[];
+  }>("/api/verified-hosts");
+}
+
+export async function approveHost(hostId: string, notes?: string) {
+  const qs = notes ? `?notes=${encodeURIComponent(notes)}` : "";
+  return apiFetch<{ ok: boolean; status: string }>(`/api/verify/${encodeURIComponent(hostId)}/approve${qs}`, {
+    method: "POST",
+  });
+}
+
+export async function rejectHost(hostId: string, reason?: string) {
+  const qs = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+  return apiFetch<{ ok: boolean; status: string }>(`/api/verify/${encodeURIComponent(hostId)}/reject${qs}`, {
+    method: "POST",
+  });
+}
+
+// ── Transparency ──────────────────────────────────────────────────────
+export async function fetchTransparencyReport(months = 12) {
+  return apiFetch<{
+    ok: boolean;
+    period_months: number;
+    summary: {
+      requests_received: number;
+      complied: number;
+      challenged: number;
+      pending: number;
+      by_type: Record<string, number>;
+  by_requesting_country: Record<string, number>;
+    };
+    cloud_act_note: string;
+  }>(`/api/transparency/report?months=${months}`);
+}
+
+// ── Compliance ────────────────────────────────────────────────────────
+export async function fetchPricingRates(params: {
+  gpu_model: string;
+  tier?: string;
+  mode?: string;
+  priority?: string;
+  num_gpus?: number;
+  province?: string;
+}) {
+  const qs = new URLSearchParams({
+    gpu_model: params.gpu_model,
+    tier: params.tier || "standard",
+    mode: params.mode || "on_demand",
+    priority: params.priority || "normal",
+    num_gpus: String(params.num_gpus || 1),
+    province: params.province || "ON",
+  });
+  return apiFetch<{
+    ok: boolean;
+    currency: string;
+    gpu_model: string;
+    vram_gb: number;
+    tier: string;
+    pricing_mode: string;
+    priority: string;
+    num_gpus: number;
+    base_rate_cad: number;
+    priority_multiplier: number;
+    multi_gpu_discount: number;
+    effective_rate_per_gpu: number;
+    total_per_hour: number;
+    province: string;
+    tax_rate: number;
+    tax_description: string;
+    tax_amount: number;
+    total_with_tax: number;
+  }>(`/api/pricing/rates?${qs.toString()}`);
+}
+
+// ── Password Reset ────────────────────────────────────────────────────
+export async function requestPasswordReset(email: string) {
+  return apiFetch<{ ok: boolean; message: string; account_exists?: boolean }>("/api/auth/password-reset", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  return apiFetch<{ ok: boolean; message: string }>("/api/auth/password-reset/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+}
+
+// ── Change Password ───────────────────────────────────────────────────
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<{ ok: boolean; message: string }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+// ── Account Deletion ──────────────────────────────────────────────────
+export type PrivacyDeletionStatus = {
+  request_id: string;
+  state: string;
+  deadline_at: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  last_error?: string | null;
+  sinks: Array<{
+    sink: string;
+    status: string;
+    attempt_count: number;
+    deadline_at: string;
+    last_error?: string | null;
+    evidence: Record<string, unknown>;
+    updated_at: string;
+    completed_at?: string | null;
+  }>;
+};
+
+export async function deleteAccount(idempotencyKey: string) {
+  return apiFetch<{
+    ok: boolean;
+    request_id: string;
+    state: string;
+    deadline_at: string;
+    status_token: string;
+    already_existed: boolean;
+    message: string;
+  }>("/api/auth/me", {
+    method: "DELETE",
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
+}
+
+export async function fetchAccountDeletionStatus(
+  requestId: string,
+  statusToken: string,
+) {
+  return apiFetch<{ ok: boolean; deletion: PrivacyDeletionStatus }>(
+    `/api/v2/privacy/erase/${encodeURIComponent(requestId)}`,
+    { headers: { "X-Deletion-Status-Token": statusToken } },
+  );
+}
+
+// ── MFA / Two-Factor Authentication ───────────────────────────────────
+
+export interface MfaMethod {
+  id: number;
+  type: string;
+  enabled: boolean;
+  device_name?: string;
+  phone_number?: string;
+  created_at: number;
+}
+
+export interface MfaStatusResponse {
+  ok: boolean;
+  mfa_enabled: boolean;
+  /** False when Twilio is not configured server-side, hide/disable the SMS option. */
+  sms_available?: boolean;
+  methods: MfaMethod[];
+  backup_codes_remaining: number;
+}
+
+export async function fetchMfaMethods() {
+  return apiFetch<MfaStatusResponse>("/api/auth/mfa/methods");
+}
+
+// TOTP
+export async function setupTotp() {
+  return apiFetch<{ ok: boolean; secret: string; provisioning_uri: string; method_id: number }>(
+    "/api/auth/mfa/totp/setup", { method: "POST" },
+  );
+}
+
+export async function verifyTotp(code: string, methodId?: number) {
+  return apiFetch<{ ok: boolean; message: string; backup_codes?: string[] }>(
+    "/api/auth/mfa/totp/verify",
+    { method: "POST", body: JSON.stringify({ code, method_id: methodId }) },
+  );
+}
+
+export async function disableTotp() {
+  return apiFetch<{ ok: boolean }>("/api/auth/mfa/totp", { method: "DELETE" });
+}
+
+// SMS
+export async function setupSms(phoneNumber: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    "/api/auth/mfa/sms/setup",
+    { method: "POST", body: JSON.stringify({ phone_number: phoneNumber }) },
+  );
+}
+
+export async function verifySms(code: string) {
+  return apiFetch<{ ok: boolean; message: string; backup_codes?: string[] }>(
+    "/api/auth/mfa/sms/verify",
+    { method: "POST", body: JSON.stringify({ code }) },
+  );
+}
+
+export async function disableSms() {
+  return apiFetch<{ ok: boolean }>("/api/auth/mfa/sms", { method: "DELETE" });
+}
+
+// Passkeys (WebAuthn)
+export async function passkeyRegisterOptions(deviceName: string = "Security Key") {
+  return apiFetch<{ ok: boolean; options: Record<string, unknown>; state_id: string }>(
+    "/api/auth/mfa/passkey/register-options",
+    { method: "POST", body: JSON.stringify({ device_name: deviceName }) },
+  );
+}
+
+export async function passkeyRegisterComplete(stateId: string, credential: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean; message: string; method_id: number; device_name: string; backup_codes?: string[] }>(
+    "/api/auth/mfa/passkey/register-complete",
+    { method: "POST", body: JSON.stringify({ state_id: stateId, credential }) },
+  );
+}
+
+export async function deletePasskey(methodId: number) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    "/api/auth/mfa/passkey/delete",
+    { method: "POST", body: JSON.stringify({ method_id: methodId }) },
+  );
+}
+
+export async function passkeyAuthenticateOptions(challengeId: string) {
+  return apiFetch<{ ok: boolean; options: Record<string, unknown>; state_id: string }>(
+    "/api/auth/mfa/passkey/authenticate-options",
+    { method: "POST", body: JSON.stringify({ challenge_id: challengeId }) },
+  );
+}
+
+export async function passkeyAuthenticateComplete(stateId: string, credential: Record<string, unknown>) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    user?: { user_id: string; email: string; name: string; role: string; is_admin?: boolean; customer_id: string; provider_id?: string };
+  }>("/api/auth/mfa/passkey/authenticate-complete", {
+    method: "POST",
+    body: JSON.stringify({ state_id: stateId, credential }),
+  });
+}
+
+// MFA Login verification
+export async function verifyMfaLogin(challengeId: string, method: string, code: string) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    user?: { user_id: string; email: string; name: string; role: string; is_admin?: boolean; customer_id: string; provider_id?: string };
+  }>("/api/auth/mfa/verify", {
+    method: "POST",
+    body: JSON.stringify({ challenge_id: challengeId, method, code }),
+  });
+}
+
+export async function sendMfaSms(challengeId: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    "/api/auth/mfa/sms/send",
+    { method: "POST", body: JSON.stringify({ challenge_id: challengeId }) },
+  );
+}
+
+// Backup codes
+export async function regenerateBackupCodes() {
+  return apiFetch<{ ok: boolean; backup_codes: string[] }>(
+    "/api/auth/mfa/backup-codes/regenerate",
+    { method: "POST" },
+  );
+}
+
+export async function disableAllMfa() {
+  return apiFetch<{ ok: boolean }>("/api/auth/mfa/all", { method: "DELETE" });
+}
+
+// ── API Keys ──────────────────────────────────────────────────────────
+export async function generateApiKey(name: string, scope: "full-access" | "read-only" = "full-access") {
+  return apiFetch<{ ok: boolean; key: string; name: string; scope: string; preview: string }>(
+    "/api/keys/generate", { method: "POST", body: JSON.stringify({ name, scope }) },
+  );
+}
+
+export async function fetchApiKeys() {
+  return apiFetch<{ ok: boolean; keys: ApiKeyInfo[] }>("/api/keys");
+}
+
+export async function revokeApiKey(keyPreview: string) {
+  return apiFetch<{ ok: boolean }>(`/api/keys/${encodeURIComponent(keyPreview)}`, { method: "DELETE" });
+}
+
+// ── OAuth Clients ─────────────────────────────────────────────────────
+export async function createOAuthClient(
+  clientName: string,
+  scopes: string[],
+  grantTypes: string[] = ["client_credentials"],
+) {
+  return apiFetch<{
+    ok: boolean;
+    client: OAuthClientInfo & { client_secret?: string };
+    client_secret?: string;
+  }>(
+    "/api/oauth/clients",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: clientName,
+        client_type: "confidential",
+        redirect_uris: [],
+        grant_types: grantTypes,
+        scopes,
+      }),
+    },
+  );
+}
+
+export interface McpQuickConnect {
+  ok: boolean;
+  client_id: string;
+  /** Only present when the key was just minted. Keys are stored as a hash, so
+   * an existing key can never be shown again — null means "already in use". */
+  access_token: string | null;
+  key_id: string | null;
+  /** Masked form, e.g. `xcel_ai_…HfQ8`, safe to display at any time. */
+  key_prefix: string | null;
+  /** True once the key has authenticated a real request, i.e. it is live in
+   * someone's agent config and replacing it would break that setup. */
+  in_use: boolean;
+  /** ISO 8601, or null when the key has never authenticated a request. */
+  last_used_at: string | null;
+  /** Always null: agent keys do not expire, they are revoked. */
+  expires_in: number | null;
+  scopes: string[];
+  mcp_url: string;
+  api_url: string;
+}
+
+/** Powers the /dashboard/mcp page. Returns the full key only when one is
+ * minted — which happens when there is no key, or the existing key has never
+ * been used, or `regenerate` forces a rotation. */
+export async function getMcpQuickConnect(regenerate = false, surface: "mcp" | "cli" = "mcp") {
+  const q = `?surface=${surface}${regenerate ? "&regenerate=true" : ""}`;
+  return apiFetch<McpQuickConnect>(`/api/mcp/quick-connect${q}`, { cache: "no-store" });
+}
+
+export interface AgentKey {
+  key_id: string;
+  name: string;
+  key_prefix: string;
+  client_id: string;
+  scopes: string[];
+  /** ISO 8601. */
+  created_at: string;
+  /** ISO 8601, or null when the key has never authenticated a request. */
+  last_used_at: string | null;
+  in_use: boolean;
+}
+
+export async function fetchAgentKeys() {
+  return apiFetch<{ ok: boolean; keys: AgentKey[] }>("/api/agent-keys", { cache: "no-store" });
+}
+
+export async function revokeAgentKey(keyId: string) {
+  return apiFetch<{ ok: boolean; revoked: string }>(
+    `/api/agent-keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function renameAgentKey(keyId: string, name: string) {
+  return apiFetch<{ ok: boolean; key_id: string; name: string }>(
+    `/api/agent-keys/${encodeURIComponent(keyId)}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+}
+
+export async function fetchOAuthClients() {
+  return apiFetch<{ ok: boolean; clients: OAuthClientInfo[] }>("/api/oauth/clients");
+}
+
+export async function updateOAuthClient(
+  clientId: string,
+  updates: {
+    client_name?: string;
+    redirect_uris?: string[];
+    grant_types?: string[];
+    scopes?: string[];
+    status?: "active" | "disabled";
+  },
+) {
+  return apiFetch<{ ok: boolean }>(`/api/oauth/clients/${encodeURIComponent(clientId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function rotateOAuthClientSecret(clientId: string) {
+  return apiFetch<{ ok: boolean; client_id: string; client_secret: string; client_secret_preview?: string }>(
+    `/api/oauth/clients/${encodeURIComponent(clientId)}/rotate-secret`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteOAuthClient(clientId: string) {
+  return apiFetch<{ ok: boolean }>(`/api/oauth/clients/${encodeURIComponent(clientId)}`, { method: "DELETE" });
+}
+
+// ── SSH Keys ──────────────────────────────────────────────────────────
+export async function generateSshKey() {
+  return apiFetch<{ ok: boolean; key_path: string; public_key: string }>("/ssh/keygen", { method: "POST" });
+}
+
+export async function fetchSshPubKey() {
+  return apiFetch<{ public_key: string }>("/api/ssh/pubkey");
+}
+
+export interface UserSshKey {
+  id: string;
+  name: string;
+  fingerprint: string;
+  public_key: string;
+  created_at: number;
+}
+
+export async function uploadSshKey(name: string, publicKey: string) {
+  return apiFetch<{ ok: boolean; id: string; name: string; fingerprint: string }>("/api/ssh/keys", {
+    method: "POST",
+    body: JSON.stringify({ name, public_key: publicKey }),
+  });
+}
+
+export async function listSshKeys() {
+  return apiFetch<{ ok: boolean; keys: UserSshKey[] }>("/api/ssh/keys");
+}
+
+export async function deleteSshKey(keyId: string) {
+  return apiFetch<{ ok: boolean }>(`/api/ssh/keys/${encodeURIComponent(keyId)}`, { method: "DELETE" });
+}
+
+// ── Privacy / Consent ─────────────────────────────────────────────────
+export async function fetchConsent(entityId: string) {
+  return apiFetch<{ ok: boolean; consents: ConsentRecord[] }>(
+    `/api/privacy/consent/${encodeURIComponent(entityId)}`,
+  );
+}
+
+export async function recordConsent(entityId: string, consentType: string, details?: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean; consent_id: string }>("/api/privacy/consent", {
+    method: "POST",
+    body: JSON.stringify({ entity_id: entityId, consent_type: consentType, details }),
+  });
+}
+
+export async function revokeConsent(entityId: string, consentType: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/privacy/consent/${encodeURIComponent(entityId)}/${encodeURIComponent(consentType)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function fetchRetentionPolicies() {
+  return apiFetch<{ ok: boolean; policies: Record<string, { retention_days: number; description: string }> }>(
+    "/api/privacy/retention-policies",
+  );
+}
+
+// ── Compliance ────────────────────────────────────────────────────────
+export async function fetchTaxRates() {
+  return apiFetch<{ ok: boolean; rates: Record<string, { rate: number; description: string; gst: number; pst: number; hst: number }> }>("/api/compliance/tax-rates");
+}
+
+
+/** One SLA tier's targets, as `sla.SLATarget` defines them. */
+export interface SlaTargets {
+  tier: string;
+  availability_pct: number;
+  latency_ttft_ms: number;
+  throughput_floor_pct: number;
+  response_time_hours: number;
+  heartbeat_grace_sec: number;
+  max_thermal_c: number;
+}
+
+/**
+ * `/api/sla/targets` answers `{ok, targets}` — keyed by tier name.
+ *
+ * This declared `tiers`, so `d.tiers` was `undefined` and the compliance page's
+ * `|| {}` rendered "No SLA tier data available" permanently. The inner fields
+ * were wrong too: it expected `uptime_pct` and `credit_pct_10/25/100`, none of
+ * which any endpoint has ever sent. Credit is computed from *measured* uptime
+ * by `sla.compute_credit_pct`, not carried as a per-tier constant, so
+ * `penalty_rate` had no source at all.
+ *
+ * Pinned by `tests/test_sla_targets_reach_the_compliance_page.py`.
+ */
+export async function fetchSlaTargets() {
+  return apiFetch<{ ok: boolean; targets: Record<string, SlaTargets> }>("/api/sla/targets");
+}
+
+export async function fetchSlaHostsSummary() {
+  return apiFetch<{ ok: boolean; hosts: { host_id: string; sla_tier: string; uptime_30d_pct: number; violation_count: number }[] }>(
+    "/api/sla/hosts-summary",
+  );
+}
+
+// ── Teams ─────────────────────────────────────────────────────────────
+export interface TeamInfo {
+  team_id: string;
+  name: string;
+  owner_email: string;
+  plan: string;
+  max_members: number;
+  created_at: number;
+}
+
+export interface TeamMember {
+  email: string;
+  role: string;
+  joined_at?: number;
+}
+
+export async function fetchMyTeams() {
+  return apiFetch<{ ok: boolean; teams: TeamInfo[]; active_team_id?: string | null }>(
+    "/api/teams/me",
+  );
+}
+
+export async function switchActiveTeam(teamId: string | null) {
+  return apiFetch<{
+    ok: boolean;
+    active_team_id: string | null;
+    team_name?: string;
+    message?: string;
+  }>("/api/teams/active", {
+    method: "PATCH",
+    body: JSON.stringify({ team_id: teamId }),
+  });
+}
+
+export async function createTeam(data: { name: string; plan?: string }) {
+  return apiFetch<{ ok: boolean; team_id: string; name: string; plan: string }>(
+    "/api/teams", { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function fetchTeam(teamId: string) {
+  return apiFetch<{ ok: boolean; team: TeamInfo; members: TeamMember[] }>(
+    `/api/teams/${encodeURIComponent(teamId)}`,
+  );
+}
+
+export async function addTeamMember(teamId: string, data: { email: string; role?: string }) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/teams/${encodeURIComponent(teamId)}/members`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function removeTeamMember(teamId: string, email: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(email)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function deleteTeam(teamId: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/teams/${encodeURIComponent(teamId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function updateMemberRole(teamId: string, email: string, role: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(email)}`,
+    { method: "PATCH", body: JSON.stringify({ role }) },
+  );
+}
+
+// ── Artifacts ─────────────────────────────────────────────────────────
+export async function uploadArtifact(data: { job_id: string; filename: string; artifact_type: string; storage_policy?: string }) {
+  return apiFetch<{ ok: boolean; upload_url: string; artifact_id: string }>(
+    "/api/artifacts/upload", { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function downloadArtifact(data: { job_id: string; filename: string; artifact_type: string }) {
+  return apiFetch<{ ok: boolean; download_url: string }>(
+    "/api/artifacts/download", { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function fetchArtifacts(jobId?: string) {
+  const path = jobId ? `/api/artifacts/${encodeURIComponent(jobId)}` : "/api/artifacts";
+  return apiFetch<{ ok: boolean; job_id?: string; artifacts: ArtifactEntry[] }>(path);
+}
+
+export interface ArtifactExpiryEntry {
+  artifact_id: string;
+  artifact_type: string;
+  created_at: number;
+  ttl_days: number;
+  expires_at: number;
+  days_remaining: number;
+}
+
+/** The retention clock for one job's outputs.
+ *
+ * P3's frontend clause: a completed instance must say "this output expires in N
+ * days". The tool surface has had `get_artifact_expiry` for a while; the human
+ * looking at the same instance could not see it, which the plan names as how
+ * work gets lost.
+ */
+export async function fetchArtifactExpiry(jobId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; artifacts: ArtifactExpiryEntry[] }>(
+    `/api/artifacts/${encodeURIComponent(jobId)}/expiry`,
+  );
+}
+
+/**
+ * Why the scheduler placed — or did not place — an instance.
+ *
+ * `build_explanation` stores this on the attempt and
+ * `/api/v1/instances/{job_id}/placement-explanation` serves it. The MCP tool
+ * `explain_instance_placement` has consumed it since it shipped; the browser
+ * never called it, so an agent could say *why* an instance was queued and the
+ * person looking at the same instance could not. B6.5.
+ *
+ * **Aggregates only on this type.** The stored payload also carries a
+ * per-host `rejections` map whose messages are infrastructure state — "host is
+ * drained", "heartbeat is stale", with host ids for hosts this job was *not*
+ * placed on. §20.3 says customers see redacted infrastructure detail, so the
+ * customer surface reads `rejection_summary` (counts by constraint code) and
+ * never the per-host detail.
+ */
+export interface PlacementExplanationPayload {
+  explain_version: string;
+  /** The constraints as the scheduler understood them. */
+  request: {
+    gpu_model?: string;
+    num_gpus?: number;
+    vram_needed_gb?: number;
+    region?: string;
+    max_price_per_hour?: number;
+    tier?: string;
+  };
+  hosts_considered: number;
+  hosts_eligible: number;
+  hosts_rejected: number;
+  rejection_summary: {
+    policy_version: string;
+    hosts_evaluated: number;
+    /** Constraint code -> how many hosts failed it. */
+    failed_constraints: Record<string, number>;
+  };
+  /** Present when a host was chosen; absent when the job is still queued. */
+  selected_host_id?: string;
+  /** Present only when nothing was selected. */
+  queue_reason_code?: string;
+}
+
+export interface PlacementExplanation {
+  ok: boolean;
+  job_id: string;
+  attempt_id: string | null;
+  placement_score: number | null;
+  explanation: PlacementExplanationPayload | null;
+  /**
+   * `false` when the scheduler stored nothing for this attempt — an older job,
+   * or one that never reached placement. A real state, not a loading state: the
+   * UI must say "no explanation recorded" rather than rendering an empty one.
+   */
+  explained: boolean;
+}
+
+/**
+ * One scheduling attempt: reserve → command → lease → start → end.
+ *
+ * `placement_explanation` is deliberately **not** on this type. The route
+ * includes it per attempt, and it carries the per-host rejections map — other
+ * tenants' fleet state. `PlacementExplanation` renders the redacted aggregate
+ * from the dedicated endpoint instead; typing it here would invite a timeline
+ * row to dump the blob and quietly undo that.
+ */
+export interface InstanceAttempt {
+  attempt_id: string;
+  attempt_number: number;
+  status: string;
+  host_id: string | null;
+  placement_score: number | null;
+  failure_code: string | null;
+  reserved_at: string | null;
+  command_created_at: string | null;
+  lease_claimed_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  trace_id: string | null;
+}
+
+export function fetchInstanceTimeline(jobId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; attempts: InstanceAttempt[] }>(
+    `/api/v1/instances/${encodeURIComponent(jobId)}/timeline`,
+  );
+}
+
+/**
+ * Current lease health. The route already redacts: `host_alias` is a SHA-derived
+ * stand-in and no credential is included, so this is safe to render as-is.
+ */
+export interface ActiveLease {
+  lease_id: string;
+  attempt_id: string;
+  status: string;
+  host_alias: string;
+  offered_at: string | null;
+  claim_deadline: string | null;
+  claimed_at: string | null;
+  last_renewed_at: string | null;
+  expires_at: string | null;
+}
+
+export function fetchActiveLease(jobId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; lease: ActiveLease | null }>(
+    `/api/v1/instances/${encodeURIComponent(jobId)}/active-lease`,
+  );
+}
+
+/** Tenant-scoped: a foreign job answers 404, never 403. */
+export function fetchPlacementExplanation(jobId: string): Promise<PlacementExplanation> {
+  return apiFetch(`/api/v1/instances/${encodeURIComponent(jobId)}/placement-explanation`);
+}
+
+/** Copy a job's artifacts onto a durable volume, so they stop expiring. */
+export async function promoteArtifactsToVolume(volumeId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; promotion_id?: string; status?: string }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/promotions`,
+    { method: "POST", body: JSON.stringify({ job_id: jobId }) },
+  );
+}
+
+export interface PlacementPreferenceInput {
+  min_uptime_pct?: number | null;
+  min_tier?: string | null;
+  require_verified?: boolean;
+  max_premium_pct?: number | null;
+}
+
+/** Either the host a preference would pick, or the number that made it refuse. */
+export interface PlacementDecision {
+  refused: boolean;
+  code?: string;
+  detail?: string;
+  asked?: unknown;
+  best_available?: unknown;
+  host_id?: string;
+  baseline_price?: number;
+  chosen_price?: number;
+  premium_pct?: number;
+}
+
+/** What a stated preference would place on, or why it refuses — read-only.
+ *
+ * P5's frontend clause asks for the price/reliability trade-off *before*
+ * launch, and its gate is explicit that an unsatisfiable preference must refuse
+ * clearly rather than fall back to the cheapest host. **A refusal is a 200
+ * here**: the caller asked what would happen and is being told, with the number
+ * that failed attached so the trade-off can be rendered rather than guessed.
+ */
+export async function evaluatePlacement(
+  spec: Record<string, unknown>,
+  preference: PlacementPreferenceInput,
+) {
+  return apiFetch<{
+    ok: boolean;
+    spec_hash: string;
+    availability: Record<string, unknown>;
+    preference: PlacementDecision;
+    decision_id?: string;
+  }>("/api/v1/placements/evaluate", {
+    method: "POST",
+    body: JSON.stringify({ spec, preference }),
+  });
+}
+
+// ── Admin ─────────────────────────────────────────────────────────────
+export async function fetchAdminStats() {
+  return apiFetch<{ ok: boolean; total_users: number; active_hosts: number; running_jobs: number; revenue_mtd: number }>(
+    "/api/admin/stats",
+  );
+}
+
+export async function fetchAdminUsers() {
+  return apiFetch<{
+    ok: boolean;
+    users: {
+      email: string; customer_id: string; role: string; is_admin?: boolean; is_active: boolean;
+      is_suspended?: boolean;
+      created_at: string; wallet_balance_cad: number; total_jobs: number;
+      province: string; country: string; team_id?: string | null;
+    }[];
+  }>("/api/admin/users");
+}
+
+export async function fetchAdminOverview(days = 30) {
+  return apiFetch<{
+    ok: boolean;
+    days: number;
+    kpis: {
+      total_users: number; active_hosts: number; running_jobs: number;
+      total_jobs: number; revenue_mtd: number; revenue_total: number;
+      total_gpu_hours: number; gpu_utilization: number;
+      job_failure_rate: number; arpu: number;
+      total_volumes: number; total_storage_gb: number;
+      attached_volumes: number; volume_revenue: number;
+    };
+    trends?: {
+      users_pct: number; hosts_pct: number; jobs_pct: number; revenue_pct: number;
+    };
+    daily_revenue: { date: string; revenue: number }[];
+    daily_signups: { date: string; signups: number }[];
+    daily_jobs: { date: string; jobs: number }[];
+    web_push: {
+      configured: number;
+      active_subscriptions: number;
+      revoked_subscriptions: number;
+      stale_subscriptions: number;
+      delivery_attempts_total: number;
+      delivery_success_total: number;
+      delivery_failure_total: number;
+      delivery_revoked_total: number;
+      deliveries_skipped_unconfigured_total: number;
+      deliveries_skipped_no_subscriptions_total: number;
+      last_delivery_attempt_at: number;
+      last_delivery_success_at: number;
+      last_delivery_failure_at: number;
+      last_failure_status_code: number;
+      notification_retained_total: number;
+      current_user_subscription_count: number;
+    };
+  }>(`/api/admin/overview?days=${days}`);
+}
+
+export async function sendAdminWebPushTestNotification() {
+  return apiFetch<{
+    ok: boolean;
+    notification_id: string;
+    smoke_id: string;
+    title: string;
+    body: string;
+    action_url: string;
+    user_email: string;
+    active_subscription_count: number;
+    web_push: {
+      configured: number;
+      active_subscriptions: number;
+      revoked_subscriptions: number;
+      stale_subscriptions: number;
+      delivery_attempts_total: number;
+      delivery_success_total: number;
+      delivery_failure_total: number;
+      delivery_revoked_total: number;
+      deliveries_skipped_unconfigured_total: number;
+      deliveries_skipped_no_subscriptions_total: number;
+      last_delivery_attempt_at: number;
+      last_delivery_success_at: number;
+      last_delivery_failure_at: number;
+      last_failure_status_code: number;
+    };
+  }>("/api/admin/web-push/test-notification", {
+    method: "POST",
+  });
+}
+
+export async function fetchAdminRevenue(days = 90) {
+  return apiFetch<{
+    ok: boolean; days: number;
+    daily: { date: string; revenue: number; jobs: number; gpu_hours: number }[];
+    by_gpu: { gpu_model: string; revenue: number; jobs: number }[];
+    by_province: { province: string; revenue: number; jobs: number }[];
+    top_customers: { email: string; total_spend: number; jobs: number }[];
+    top_providers: { provider_id: string; earnings: number; jobs: number }[];
+  }>(`/api/admin/revenue?days=${days}`);
+}
+
+export async function fetchAdminUnitEconomics(days = 30) {
+  return apiFetch<{
+    ok: boolean; days: number;
+    marketplace: {
+      gross_cad?: number; provider_payout_cad?: number;
+      platform_margin_cad?: number; margin_pct?: number; payouts?: number;
+    };
+    serverless: {
+      revenue_cad?: number; token_revenue_cad?: number; gpu_seconds?: number;
+      gpu_hours?: number; billed_cycles?: number;
+    };
+    serverless_by_model_size: {
+      band: string; gpu_revenue_cad: number; token_revenue_cad: number;
+      gpu_seconds: number; billed_cycles: number;
+    }[];
+    funnel: {
+      signups?: number; deployed_model?: number; ran_inference?: number;
+      paid?: number; activation_pct?: number; paid_pct?: number;
+    };
+    liquidity: { requested?: number; fulfilled?: number; liquidity_pct?: number };
+    weekly: { week: string; revenue: number; gpu_hours: number }[];
+  }>(`/api/admin/unit-economics?days=${days}`);
+}
+
+export async function fetchAdminInfrastructure() {
+  return apiFetch<{
+    ok: boolean; total_hosts: number;
+    by_state: { state: string; count: number }[];
+    by_gpu: { gpu_model: string; count: number }[];
+    by_province: { province: string; count: number }[];
+    verification: { state: string; count: number }[];
+    reputation_tiers: { tier: string; count: number }[];
+  }>("/api/admin/infrastructure");
+}
+
+export async function fetchAdminActivity(days = 7) {
+  return apiFetch<{
+    ok: boolean; days: number;
+    events: {
+      event_id: string; event_type: string; entity_type: string;
+      entity_id: string; timestamp: string; actor: string; data: Record<string, unknown>;
+    }[];
+    by_type: { event_type: string; count: number }[];
+    daily_jobs: { date: string; submitted: number; completed: number; failed: number }[];
+  }>(`/api/admin/activity?days=${days}`);
+}
+
+export async function verifyAuditChain() {
+  return apiFetch<{ ok: boolean; chain_integrity: { valid: boolean; break_point: string | null } }>(
+    "/api/audit/verify-chain",
+  );
+}
+
+export async function fetchAlertConfig() {
+  return apiFetch<Record<string, unknown>>(
+    "/api/alerts/config",
+  );
+}
+
+export async function updateAlertConfig(config: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean }>("/api/alerts/config", {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function fetchAdminVerificationQueue() {
+  return apiFetch<{
+    ok: boolean;
+    queue: {
+      host_id: string; state: string; overall_score: number;
+      last_check_at: string | null; gpu_model: string;
+      province: string; cost_per_hour: number;
+    }[];
+  }>("/api/admin/verification-queue");
+}
+
+export async function adminSetUserRole(email: string, role: string) {
+  return apiFetch<{ ok: boolean; email: string; role: string }>(
+    `/api/admin/users/${encodeURIComponent(email)}/role?role=${encodeURIComponent(role)}`,
+    { method: "POST" },
+  );
+}
+
+export async function adminToggleAdmin(email: string) {
+  return apiFetch<{ ok: boolean; email: string; is_admin: number }>(
+    `/api/admin/users/${encodeURIComponent(email)}/toggle-admin`,
+    { method: "POST" },
+  );
+}
+
+/** Ban: blocks sign-in and spending and revokes sessions. Nothing is deleted. */
+export async function adminSuspendUser(email: string, reason = "administrative_suspension") {
+  return apiFetch<{ ok: boolean; email: string; is_suspended: boolean }>(
+    `/api/admin/users/${encodeURIComponent(email)}/suspend`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+export async function adminUnsuspendUser(email: string) {
+  return apiFetch<{ ok: boolean; email: string; is_suspended: boolean }>(
+    `/api/admin/users/${encodeURIComponent(email)}/unsuspend`,
+    { method: "POST" },
+  );
+}
+
+/** Suspends the account, then starts the durable deletion workflow for it. */
+export async function adminDeleteUser(email: string) {
+  return apiFetch<{ ok: boolean; email: string; request_id: string; state: string; already_existed: boolean }>(
+    `/api/admin/users/${encodeURIComponent(email)}/delete`,
+    { method: "POST" },
+  );
+}
+
+// ── Admin: Teams ─────────────────────────────────────────────────────
+export interface AdminTeam {
+  team_id: string;
+  name: string;
+  owner_email: string;
+  plan: string;
+  max_members: number;
+  created_at: number;
+  members: TeamMember[];
+}
+
+export async function fetchAdminTeams() {
+  return apiFetch<{ ok: boolean; teams: AdminTeam[] }>("/api/admin/teams");
+}
+
+export async function adminRemoveTeamMember(teamId: string, email: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/admin/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(email)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── HPC / Slurm ──────────────────────────────────────────────────────
+export async function fetchSlurmProfiles() {
+  // No `ok` envelope: this legacy top-level route returns its payload
+  // directly. Declaring one made `res.ok` `undefined` — harmless only
+  // because nothing gates on it, which is not a reason to keep it wrong.
+  return apiFetch<{ profiles: Record<string, { description: string; gpus: string[]; partitions: string[] }> }>(
+    "/api/slurm/profiles",
+  );
+}
+
+export async function submitSlurmInstance(data: {
+  name: string; vram_needed_gb?: number; priority: string;
+  tier?: string; num_gpus?: number; image?: string; profile?: string; dry_run?: boolean;
+}) {
+  return apiFetch<{ ok: boolean; slurm_job_id: string; instance_id?: string }>(
+    "/api/slurm/submit", { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function fetchSlurmJobStatus(slurmJobId: string) {
+  return apiFetch<{ ok: boolean; slurm_job_id: string; state: string }>(
+    `/api/slurm/status/${encodeURIComponent(slurmJobId)}`,
+  );
+}
+
+export async function cancelSlurmJob(slurmJobId: string) {
+  return apiFetch<{ ok: boolean; cancelled: boolean }>(
+    `/api/slurm/${encodeURIComponent(slurmJobId)}`, { method: "DELETE" },
+  );
+}
+
+// ── Events SSE ────────────────────────────────────────────────────────
+export function createEventSource(url: string = "/api/stream"): EventSource {
+  return new EventSource(url, { withCredentials: true });
+}
+
+async function _probeEventStream(url: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), _EVENT_STREAM_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "text/event-stream" },
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    void response.body?.cancel?.().catch(() => undefined);
+    return response.ok && contentType.includes("text/event-stream");
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export async function isEventStreamAvailable(
+  url: string = "/api/stream",
+  opts: { force?: boolean } = {},
+): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const cacheKey = new URL(url, window.location.origin).href;
+  const cached = _eventStreamAvailability.get(cacheKey);
+  if (!opts.force && cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+
+  const promise = _probeEventStream(url);
+  _eventStreamAvailability.set(cacheKey, {
+    expiresAt: Date.now() + _EVENT_STREAM_PROBE_TTL_MS,
+    promise,
+  });
+  return promise;
+}
+
+// ── Notifications ─────────────────────────────────────────────────────
+export interface Notification {
+  id: string;
+  user_email: string;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  read: number;
+  created_at: number;
+  action_url?: string;
+  entity_type?: string;
+  entity_id?: string;
+  priority?: number;
+}
+
+export interface WebPushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+export interface WebPushSubscriptionStatus {
+  ok: boolean;
+  configured: boolean;
+  vapid_public_key: string;
+  active_subscription_count: number;
+}
+
+export async function fetchNotifications(unread = false, limit = 50) {
+  const qs = `?unread=${unread}&limit=${limit}`;
+  return apiFetch<{ ok: boolean; notifications: Notification[]; unread_count: number }>(
+    `/api/notifications${qs}`,
+  );
+}
+
+export async function fetchUnreadCount() {
+  return apiFetch<{ ok: boolean; unread_count: number }>("/api/notifications/unread-count");
+}
+
+export async function markNotificationRead(notificationId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/notifications/${encodeURIComponent(notificationId)}/read`,
+    { method: "POST" },
+  );
+}
+
+export async function markAllNotificationsRead() {
+  return apiFetch<{ ok: boolean; marked: number }>("/api/notifications/read-all", {
+    method: "POST",
+  });
+}
+
+export async function deleteNotification(notificationId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/notifications/${encodeURIComponent(notificationId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function fetchPushSubscriptionStatus() {
+  try {
+    return await apiFetch<WebPushSubscriptionStatus>("/api/notifications/push/subscription");
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 503)) {
+      return {
+        ok: false,
+        configured: false,
+        vapid_public_key: "",
+        active_subscription_count: 0,
+      };
+    }
+    throw err;
+  }
+}
+
+export async function subscribePushNotifications(payload: WebPushSubscriptionPayload) {
+  return apiFetch<{ ok: boolean; subscription_id: string }>("/api/notifications/push/subscription", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function unsubscribePushNotifications(endpoint: string) {
+  return apiFetch<{ ok: boolean; revoked: boolean }>("/api/notifications/push/subscription", {
+    method: "DELETE",
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+// ── Types ─────────────────────────────────────────────────────────────
+export interface Host {
+  host_id: string;
+  id?: string;
+  hostname?: string;
+  ip: string;
+  gpu_model: string;
+  vram_gb: number;
+  status: string;
+  cost_per_hour: number;
+  price_per_hour?: number;
+  country?: string;
+  province?: string;
+  region?: string;
+  reputation_tier?: string;
+  reputation_score?: number;
+  verified?: boolean;
+  compute_score?: number;
+  admitted?: boolean;
+  admission_details?: { rejection_reasons?: string[]; recommended_runtime?: string };
+  gpu_count?: number;
+  spot_enabled?: boolean;
+  spot_gpu_slots?: number;
+  spot_min_cents?: number;
+}
+
+export interface Instance {
+  job_id: string;
+  id?: string;
+  name?: string;
+  host_id?: string;
+  status: string;
+  gpu_model: string;
+  gpu_type?: string;
+  docker_image: string;
+  image?: string;  // raw backend field, normalizeInstance maps this to docker_image
+  duration_sec?: number;
+  elapsed_sec?: number;
+  wait_elapsed_sec?: number;
+  cost_cad?: number;
+  rate_per_hour_cad?: number;
+  rate_is_estimate?: boolean;
+  gpu_display?: string;
+  tier?: string;
+  pricing_mode?: "on_demand" | "spot" | "reserved";
+  spot_rate_cad?: number;
+  preemptible?: boolean;
+  preempted_at?: number;
+  preemption_count?: number;
+  num_gpus?: number;
+  submitted_at: number;
+  created_at?: number;
+  // Connection info (enriched by API when running/completed)
+  host_ip?: string;
+  host_gpu?: string;
+  host_gpu_model?: string;
+  host_vram_gb?: number;
+  container_id?: string;
+  container_name?: string;
+  started_at?: string;
+  completed_at?: string;
+  // Interactive instance fields
+  interactive?: boolean;
+  ssh_port?: number;
+  /**
+   * SHA256 host-key fingerprint of the instance's sshd, as the API observed it.
+   *
+   * `null` is a real, permanent state, not a loading state — non-interactive
+   * launches, proxy-terminated hosts whose container legitimately holds no
+   * keys, instances predating the rollout, and agents that have not reported
+   * yet all produce it. The UI must say "cannot be verified" for those rather
+   * than hiding the row, which is what invites a user to accept a key blind.
+   *
+   * The API returns it **only when a port and a host resolved** — a fingerprint
+   * beside the wrong port is a failed verification that reads to the user as an
+   * attack. See `routes/instances.py` `_enrich_instance`.
+   */
+  host_key_fingerprint?: string | null;
+  command?: string;
+  // SSH setup state reported by the worker after _inject_ssh_keys.
+  // Surfaced as a customer-facing notice on the instance detail page
+  // when something didn't work (no sshd, daemon failed to start, no
+  // keys uploaded, etc).
+  ssh_status?: {
+    ok: boolean;
+    sshd_present: boolean;
+    sshd_started: boolean;
+    key_count: number;
+    /** Auto-generated root password for this instance. Surfaced on the
+     *  dashboard so users can connect without uploading an SSH key.
+     *  Empty string when password auth isn't available (sshd didn't start). */
+    root_password?: string;
+    summary: string;
+    level: "info" | "warning" | "error";
+    elapsed_sec: number;
+    ts: number;
+  };
+  // Volume attachment
+  attached_volumes?: {
+    volume_id: string;
+    name: string;
+    size_gb: number;
+    mount_path: string;
+    mode: string;
+    storage_type: string;
+    encrypted: boolean;
+  }[];
+  storage_cost_cad?: number;
+  volume_ids?: string[];
+  // Queue diagnostics
+  queue_reason?: string;
+  queue_reason_detail?: string;
+  relaunch_count?: number;
+  retries?: number;
+  updated_at?: number;
+  failure_reason?: string;
+  // Provenance: launched from a saved template
+  source_template_id?: string;
+  // Raw payload from backend (some fields not promoted to top-level)
+  payload?: {
+    source_template_id?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** @deprecated Use Instance instead */
+export type Job = Instance;
+
+export interface BillingRecord {
+  id?: string;
+  job_id: string;
+  host_id: string;
+  amount_cad: number;
+  amount?: number;
+  gpu_model: string;
+  duration_sec: number;
+  billed_at: string;
+  created_at?: string;
+  description?: string;
+  type?: string;
+}
+
+export interface Wallet {
+  customer_id: string;
+  balance_cad: number;
+  balance?: number;
+  currency: string;
+  available_cad?: number;
+  held_cad?: number;
+  status?: string;
+  low_balance?: boolean;
+  low_balance_threshold_cad?: number;
+  hard_stop?: boolean;
+}
+
+export interface MarketplaceListing {
+  id?: string;
+  host_id: string;
+  hostname?: string;
+  gpu_model: string;
+  vram_gb: number;
+  price_per_hour_cad: number;
+  price_per_hour?: number;
+  status: string;
+  country?: string;
+  province?: string;
+  region?: string;
+  reputation_tier?: string;
+  reputation_score?: number;
+}
+
+export interface TelemetryData {
+  gpu_utilization_pct: number;
+  gpu_util?: number;
+  gpu_temp_c: number;
+  temperature?: number;
+  gpu_memory_used_mb: number;
+  mem_used_mb?: number;
+  gpu_memory_total_mb: number;
+  gpu_power_draw_w: number;
+  power_draw_w?: number;
+  ecc_errors: number;
+  timestamp: string;
+  // P2.4: network + disk bandwidth (optional, older agents won't ship these)
+  net_rx_mbps?: number;
+  net_tx_mbps?: number;
+  disk_read_mb_s?: number;
+  disk_write_mb_s?: number;
+}
+
+export interface PricingReference {
+  gpu_model: string;
+  on_demand_cad: number;
+  spot_cad?: number;
+  reserved_1mo_cad?: number;
+  reserved_3mo_cad?: number;
+  reserved_1yr_cad?: number;
+}
+
+export interface ReservedCommitment {
+  commitment_id: string;
+  customer_id: string;
+  commitment_type: string;
+  gpu_model: string;
+  quantity: number;
+  province?: string;
+  base_rate_cad: number;
+  discounted_rate_cad: number;
+  discount_pct: number;
+  min_hours_per_day: number;
+  status: string;
+  is_active: boolean;
+  created_at: number;
+  start_at: number;
+  end_at: number;
+  realized_hours: number;
+  realized_savings_cad: number;
+}
+
+export interface ReputationEntry {
+  entity_id: string;
+  user_id?: string;
+  score: number;
+  tier: string;
+  rank: number;
+  jobs_completed?: number;
+  uptime?: number;
+  gpu_model?: string;
+  reliability_score?: number;
+}
+
+export interface InstanceLog {
+  timestamp: number | string;
+  level?: string;
+  message: string;
+  line?: string;
+  stream?: string;
+}
+
+/** @deprecated Use InstanceLog instead */
+export type JobLog = InstanceLog;
+
+export interface VerifiedHost {
+  host_id: string;
+  gpu_model?: string;
+  overall_score: number;
+  last_check: string;
+  gpu_fingerprint?: string;
+  status: string;
+  deverify_reason?: string;
+}
+
+/**
+ * One row of `/api/billing/wallet/{id}/history`, as the API actually sends it.
+ *
+ * This type used to describe a row that did not exist — `type` (the API says
+ * `tx_type`), `created_at` as a string (it is Unix seconds), `amount_cad` (the
+ * API sent only integer micros). TypeScript enforced the fiction, so the
+ * billing page crashed on `amount_cad.toFixed`, dated every transaction 1970,
+ * and never showed refunds, all with the compiler satisfied.
+ */
+export interface WalletTransaction {
+  tx_id: string;
+  /** "deposit", "charge", "refund", … */
+  tx_type: string;
+  /** CAD, derived at the API boundary from `amount_micros`. */
+  amount_cad: number;
+  amount_micros?: number;
+  balance_after_cad?: number;
+  description?: string;
+  job_id?: string;
+  /** Unix seconds. */
+  created_at: number;
+}
+
+/** A wallet transaction's time, from the API's Unix seconds. */
+export function walletTxTime(tx: Pick<WalletTransaction, "created_at">): string {
+  return tx.created_at ? new Date(tx.created_at * 1000).toLocaleString() : "-";
+}
+
+export interface Invoice {
+  invoice_id: string;
+  /** Half-open billing period in Unix seconds (UTC). */
+  period_start: number;
+  period_end: number;
+  total_cad: number;
+  subtotal_cad: number;
+  tax_cad: number;
+  tax_rate: number;
+  line_items: number;
+  status: string;
+}
+
+export interface Payout {
+  job_id: string;
+  provider_id: string;
+  total_cad: number;
+  provider_share_cad: number;
+  platform_share_cad: number;
+  gst_hst_cad: number;
+  stripe_transfer_id?: string;
+  paypal_capture_id?: string;
+  payment_rail?: string;
+  created_at: string;
+}
+
+export interface ApiKeyInfo {
+  name: string;
+  scope: string;
+  preview: string;
+  created_at: string;
+}
+
+export interface OAuthClientInfo {
+  client_id: string;
+  client_name: string;
+  client_type: string;
+  redirect_uris: string[];
+  grant_types: string[];
+  scopes: string[];
+  is_first_party: boolean;
+  created_by_email?: string | null;
+  workspace_customer_id?: string | null;
+  team_id?: string | null;
+  workspace_label?: "personal" | "team";
+  status?: string;
+  created_at?: number;
+  updated_at?: number;
+  last_used?: number | null;
+  client_secret_preview?: string | null;
+}
+
+export interface ConsentRecord {
+  consent_id: string;
+  entity_id: string;
+  consent_type: string;
+  granted_at: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ArtifactEntry {
+  artifact_id: string;
+  job_id: string;
+  filename: string;
+  artifact_type: string;
+  size_bytes?: number;
+  storage_policy?: string;
+  created_at: string;
+}
+
+// ── v2 Types ──────────────────────────────────────────────────────────
+
+export interface GPUOffer {
+  offer_id: string;
+  provider_id: string;
+  host_id: string;
+  gpu_model: string;
+  gpu_count_total: number;
+  gpu_count_available: number;
+  vram_gb: number;
+  ask_cents_per_hour: number;
+  region: string;
+  spot_enabled: boolean;
+  spot_min_cents: number;
+  available: boolean;
+}
+
+export interface ServerlessPricing {
+  billing_model: string;
+  rate_per_hour_cad: number;
+  rate_per_second_cad_per_worker: number;
+  rate_cents_per_second_per_worker: number;
+  gpu_count: number;
+  formula: string;
+  token_billing?: boolean;
+  input_price_cad_per_m?: number;
+  output_price_cad_per_m?: number;
+  cached_input_price_cad_per_m?: number;
+  token_formula?: string;
+}
+
+export interface ServerlessEndpoint {
+  endpoint_id: string;
+  owner_id: string;
+  name?: string;
+  model_id: string;
+  model_name?: string;
+  model_ref?: string;
+  model_revision?: string;
+  gpu_type: string;
+  gpu_tier?: string;
+  gpu_count?: number;
+  region: string;
+  docker_image: string;
+  image_ref?: string;
+  mode: string;
+  managed_engine?: string;
+  vanity_slug?: string;
+  invoke_path?: string;
+  startup_command?: string;
+  http_port?: number;
+  health_endpoint?: string;
+  health_check_path?: string;
+  cuda_version?: string;
+  scaling_policy_type?: string;
+  scaling_policy_value?: number;
+  execution_mode?: "sync" | "async";
+  queue_timeout_sec?: number;
+  status: string;
+  min_workers: number;
+  max_workers: number;
+  max_concurrency?: number;
+  idle_timeout_sec?: number;
+  total_requests: number;
+  total_gpu_seconds?: number;
+  total_tokens_generated?: number;
+  total_cost_cad: number;
+  openai_base_url?: string;
+  pricing?: ServerlessPricing;
+  cost_per_hour_cad?: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ServerlessEndpointMetrics {
+  endpoint_id: string;
+  window_sec: number;
+  total_requests: number;
+  window_requests: number;
+  jobs_completed: number;
+  jobs_failed: number;
+  jobs_cancelled: number;
+  success_rate: number;
+  error_rate: number;
+  queue_depth: number;
+  avg_queue_ms: number;
+  avg_execution_ms: number;
+  avg_gpu_seconds: number;
+  total_gpu_seconds: number;
+  tokens_per_sec: number;
+  ttft_p95_ms?: number;
+  kv_cache_hit_rate?: number;
+  total_input_tokens?: number;
+  total_cached_tokens?: number;
+  total_output_tokens: number;
+  total_cost_cad: number;
+  active_workers: number;
+  idle_workers: number;
+  busy_workers: number;
+  booting_workers?: number;
+}
+
+export interface ServerlessWorker {
+  worker_id: string;
+  endpoint_id: string;
+  state: string;
+  host_id?: string;
+  gpu_count?: number;
+  current_concurrency?: number;
+  scheduler_job_id?: string;
+  allocated_at?: number;
+  ready_at?: number;
+  released_at?: number;
+  last_heartbeat_at?: number;
+  error_message?: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface ServerlessWarmStatus {
+  endpoint_id: string;
+  state: "scaled_down" | "starting" | "booting" | "ready" | "failed" | string;
+  ready_count: number;
+  booting_count: number;
+  active_count: number;
+  max_workers?: number;
+  worker?: ServerlessWorker | null;
+  workers: ServerlessWorker[];
+}
+
+export interface ServerlessWorkerTelemetry {
+  gpu_util_pct: number;
+  gpu_memory_pct: number;
+  gpu_memory_used_gb: number;
+  gpu_memory_total_gb: number;
+  cpu_util_pct: number;
+  system_memory_pct: number;
+  stale: boolean;
+  received_at: number;
+}
+
+export interface ServerlessWorkerLogLine {
+  timestamp?: number;
+  ts?: number;
+  level?: string;
+  line?: string;
+  message?: string;
+}
+
+export interface ServerlessJob {
+  job_id: string;
+  endpoint_id: string;
+  worker_id?: string;
+  status: string;
+  created_at?: number;
+  queued_at?: number;
+  started_at?: number;
+  finished_at?: number;
+  gpu_seconds?: number;
+  cold_start_seconds?: number;
+  cost_cad?: number;
+  output_tokens?: number;
+  error?: unknown;
+  output?: unknown;
+}
+
+export interface ServerlessApiKey {
+  key_id: string;
+  name: string;
+  key_prefix: string;
+  scopes?: string;
+  created_at?: number;
+  last_used_at?: number;
+}
+
+export interface ServerlessApiKeyCreated extends ServerlessApiKey {
+  api_key: string;
+}
+
+export interface ServerlessJobStatus {
+  id: string;
+  status: string;
+  output?: unknown;
+  error?: unknown;
+  queued_at?: number;
+  started_at?: number;
+  finished_at?: number;
+  gpu_seconds?: number;
+  cold_start_seconds?: number;
+  cost_cad?: number;
+}
+
+export interface GpuAvailability {
+  gpu_model: string;
+  vram_gb: number;
+  region: string;
+  province: string;
+  count_available: number;
+  price_per_hour_cad: number;
+}
+
+export interface Volume {
+  volume_id: string;
+  owner_id: string;
+  name: string;
+  storage_type: string;
+  size_gb: number;
+  region: string;
+  encrypted: boolean;
+  status: string;
+  created_at: number;
+  price_per_gb_month_cad?: number;
+  monthly_cost_cad?: number;
+  attached_to?: string | null;
+}
+
+export interface SpotPricePoint {
+  gpu_model: string;
+  spot_cents: number;
+  recorded_at: number;
+  rate_cad?: number;
+  on_demand_cad?: number;
+  savings_pct?: number;
+  supply?: number;
+  demand?: number;
+  provider_floor_cents?: number;
+}
+
+// ── v2 Marketplace API ────────────────────────────────────────────────
+
+export async function searchMarketplaceV2(params: {
+  gpu_model?: string;
+  min_vram_gb?: number;
+  max_price_cents?: number;
+  region?: string;
+  sort_by?: string;
+  limit?: number;
+}) {
+  return apiFetch<{ ok: boolean; offers: GPUOffer[]; count: number }>(
+    "/api/v2/marketplace/search",
+    { method: "POST", body: JSON.stringify(params) },
+  );
+}
+
+export async function fetchSpotPricesV2() {
+  return apiFetch<{ ok: boolean; spot_prices: SpotPricePoint[] }>(
+    "/api/v2/marketplace/spot-prices",
+  );
+}
+
+export async function fetchSpotHistory(gpuModel: string, hours = 24) {
+  return apiFetch<{ ok: boolean; gpu_model: string; history: SpotPricePoint[] }>(
+    `/api/v2/marketplace/spot-prices/${encodeURIComponent(gpuModel)}/history?hours=${hours}`,
+  );
+}
+
+export async function fetchMarketplaceStatsV2() {
+  // `avg_cad_per_hour`, not `avg_price` — the latter is not a key this route
+  // has ever sent, so `Number(m.avg_price ?? 0)` on the analytics page was
+  // always exactly 0.
+  return apiFetch<{
+    ok: boolean;
+    total_offers: number;
+    total_gpus: number;
+    avg_cad_per_hour: number;
+    cheapest_cad_per_hour: number;
+    currency: string;
+  }>(
+    "/api/v2/marketplace/stats",
+  );
+}
+
+export async function createMarketplaceReservation(data: {
+  gpu_model: string;
+  gpu_count?: number;
+  period_months: number;
+}) {
+  return apiFetch<{ ok: boolean; reservation: Record<string, unknown> }>(
+    "/api/v2/marketplace/reservations",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+// ── v2 Inference API ──────────────────────────────────────────────────
+
+export async function fetchAvailableGPUs() {
+  return apiFetch<{ ok: boolean; gpus: GpuAvailability[] }>(
+    "/api/v2/gpu/available",
+  );
+}
+
+export type ServerlessEndpointCreatePayload = {
+  name?: string;
+  mode?: string;
+  managed_engine?: string;
+  model_name?: string;
+  model_ref?: string;
+  source_type?: string;
+  source_ref?: string;
+  source_ref_branch?: string;
+  gpu_type?: string;
+  gpu_tier?: string;
+  gpu_count?: number;
+  region?: string;
+  docker_image?: string;
+  image_ref?: string;
+  min_workers?: number;
+  max_workers?: number;
+  max_concurrency?: number;
+  idle_timeout_sec?: number;
+  scaledown_window_sec?: number;
+  scaling_policy_type?: string;
+  scaling_policy_value?: number;
+  execution_mode?: "sync" | "async";
+  queue_timeout_sec?: number;
+  health_endpoint?: string;
+  health_check_path?: string;
+  startup_command?: string;
+  http_port?: number;
+  cuda_version?: string;
+  request_timeout_sec?: number;
+  env?: Record<string, string>;
+};
+
+export async function getServerlessEnabled() {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    global_enabled?: boolean;
+    allowlist_active?: boolean;
+  }>("/api/v2/serverless/enabled");
+}
+
+export async function createServerlessEndpoint(data: ServerlessEndpointCreatePayload) {
+  return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
+    "/api/v2/serverless/endpoints",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function listServerlessEndpoints() {
+  return apiFetch<{ ok: boolean; endpoints: ServerlessEndpoint[] }>(
+    "/api/v2/serverless/endpoints",
+  );
+}
+
+export async function getServerlessEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}`,
+  );
+}
+
+export async function patchServerlessEndpoint(
+  endpointId: string,
+  data: Partial<{
+    name: string;
+    min_workers: number;
+    max_workers: number;
+    max_concurrency: number;
+    idle_timeout_sec: number;
+    scaling_policy_type: string;
+    scaling_policy_value: number;
+    keep_warm: boolean;
+    execution_mode: "sync" | "async";
+    queue_timeout_sec: number;
+  }>,
+) {
+  return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+export async function getServerlessEndpointHealth(endpointId: string) {
+  return apiFetch<{ ok: boolean; health: Record<string, unknown> }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/health`,
+  );
+}
+
+export async function getServerlessEndpointMetrics(endpointId: string, sinceHours = 24) {
+  return apiFetch<{ ok: boolean; metrics: ServerlessEndpointMetrics }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/metrics?since_hours=${sinceHours}`,
+  );
+}
+
+export async function getServerlessEndpointUsage(endpointId: string) {
+  return apiFetch<{ ok: boolean; usage: Record<string, unknown> }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/usage`,
+  );
+}
+
+export async function listServerlessWorkers(endpointId: string) {
+  return apiFetch<{ ok: boolean; workers: ServerlessWorker[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers`,
+  );
+}
+
+export async function warmServerlessEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean; warm: ServerlessWarmStatus }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/warm`,
+    { method: "POST" },
+  );
+}
+
+export async function getServerlessWorkerLogs(endpointId: string, workerId: string, limit = 100) {
+  return apiFetch<{ ok: boolean; worker_id: string; job_id: string | null; logs: ServerlessWorkerLogLine[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/logs?limit=${limit}`,
+  );
+}
+
+export async function getServerlessWorkerTelemetry(endpointId: string, workerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    worker_id: string;
+    host_id: string | null;
+    telemetry: ServerlessWorkerTelemetry | null;
+    stale: boolean;
+    state?: "waiting" | "ready" | "stale" | "unavailable" | string;
+    reason?: string;
+  }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/telemetry`,
+  );
+}
+
+export function createServerlessWorkerLogStream(endpointId: string, workerId: string): EventSource {
+  return new EventSource(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers/${encodeURIComponent(workerId)}/logs/stream`,
+    { withCredentials: true },
+  );
+}
+
+export async function listServerlessJobs(endpointId: string) {
+  return apiFetch<{ ok: boolean; jobs: ServerlessJob[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/jobs`,
+  );
+}
+
+export async function createServerlessKey(
+  endpointId: string,
+  data: { name?: string; scopes?: string; rate_limit_rpm?: number } = {},
+) {
+  return apiFetch<{ ok: boolean; key: ServerlessApiKeyCreated }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/keys`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function listServerlessKeys(endpointId: string) {
+  return apiFetch<{ ok: boolean; keys: ServerlessApiKey[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/keys`,
+  );
+}
+
+export async function revokeServerlessKey(endpointId: string, keyId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function runServerlessJob(
+  endpointId: string,
+  input: Record<string, unknown>,
+  opts: { webhook?: string; idempotencyKey?: string } = {},
+) {
+  const headers: Record<string, string> = {};
+  if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
+  return apiFetch<{ id: string; status: string; warm?: ServerlessWarmStatus }>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/run`,
+    { method: "POST", body: JSON.stringify({ input, webhook: opts.webhook }), headers },
+  );
+}
+
+export async function runServerlessJobSync(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<ServerlessJobStatus>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/runsync`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function runServerlessTestJob(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<{ id: string; status: string; warm?: ServerlessWarmStatus; billing_exempt?: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/run`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function runServerlessTestJobSync(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<ServerlessJobStatus & { billing_exempt?: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/runsync`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function getServerlessJobStatus(endpointId: string, jobId: string) {
+  return apiFetch<ServerlessJobStatus>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/status/${encodeURIComponent(jobId)}`,
+  );
+}
+
+export async function cancelServerlessJob(endpointId: string, jobId: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/cancel/${encodeURIComponent(jobId)}`,
+    { method: "POST" },
+  );
+}
+
+export function createServerlessJobStream(
+  endpointId: string,
+  jobId: string,
+  afterSeq = 0,
+): EventSource {
+  const qs = afterSeq > 0 ? `?after_seq=${afterSeq}` : "";
+  return new EventSource(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/stream/${encodeURIComponent(jobId)}${qs}`,
+    { withCredentials: true },
+  );
+}
+
+export async function serverlessOpenAIChat(
+  endpointId: string,
+  body: {
+    model: string;
+    messages: Array<{ role: string; content: string }>;
+    max_tokens?: number;
+    temperature?: number;
+    stream?: boolean;
+  },
+  onChunk?: (text: string) => void,
+): Promise<string> {
+  const res = await fetch(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/test/openai/v1/chat/completions`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      errBody?.detail || errBody?.error?.message || errBody?.message || res.statusText,
+      errBody,
+    );
+  }
+  if (!body.stream || !onChunk) {
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+  const decoder = new TextDecoder();
+  let full = "";
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(payload);
+        const delta = parsed?.choices?.[0]?.delta?.content;
+        if (delta) {
+          full += delta;
+          onChunk(delta);
+        }
+      } catch {
+        // skip malformed SSE lines
+      }
+    }
+  }
+  return full;
+}
+
+export async function deleteServerlessEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── v2 Volumes API ────────────────────────────────────────────────────
+
+export async function createVolume(data: {
+  name: string;
+  size_gb?: number;
+  region?: string;
+  encrypted?: boolean;
+}) {
+  return apiFetch<{ ok: boolean; volume: Volume }>(
+    "/api/v2/volumes",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function listVolumes() {
+  return apiFetch<{ ok: boolean; volumes: Volume[] }>("/api/v2/volumes");
+}
+
+export async function deleteVolume(volumeId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function attachVolume(volumeId: string, instanceId: string, mountPath = "/workspace") {
+  return apiFetch<{ ok: boolean; attachment: Record<string, unknown>; region_warning?: string }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/attach`,
+    { method: "POST", body: JSON.stringify({ instance_id: instanceId, mount_path: mountPath }) },
+  );
+}
+
+export async function detachVolume(volumeId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/detach`,
+    { method: "POST" },
+  );
+}
+
+export async function listAvailableVolumes() {
+  return apiFetch<{ ok: boolean; volumes: Volume[] }>("/api/v2/volumes/available");
+}
+
+export async function renameVolume(volumeId: string, name: string) {
+  return apiFetch<{ ok: boolean; volume: { volume_id: string; name: string } }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+}
+
+export async function retryVolume(volumeId: string) {
+  return apiFetch<{ ok: boolean; volume: Volume }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/retry`,
+    { method: "POST" },
+  );
+}
+
+export interface VolumeSnapshot {
+  snapshot_id: string;
+  volume_id: string;
+  label?: string;
+  size_bytes?: number;
+  created_at?: number;
+  status?: string;
+}
+
+export async function createVolumeSnapshot(volumeId: string, label = "") {
+  return apiFetch<{ ok: boolean; snapshot: VolumeSnapshot }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/snapshots`,
+    { method: "POST", body: JSON.stringify({ label }) },
+  );
+}
+
+export async function listVolumeSnapshots(volumeId: string) {
+  return apiFetch<{ ok: boolean; snapshots: VolumeSnapshot[] }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/snapshots`,
+  );
+}
+
+export async function deleteVolumeSnapshot(volumeId: string, snapshotId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/snapshots/${encodeURIComponent(snapshotId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── v2 Billing API ────────────────────────────────────────────────────
+
+export async function configureAutoTopup(data: {
+  enabled: boolean;
+  amount_cad?: number;
+  threshold_cad?: number;
+  stripe_payment_method_id?: string;
+}) {
+  return apiFetch<{ ok: boolean }>(
+    "/api/v2/billing/auto-topup",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function fetchAutoTopup() {
+  return apiFetch<{
+    ok: boolean;
+    auto_topup: {
+      enabled: boolean;
+      amount_cad: number;
+      threshold_cad: number;
+      payment_method_id: string;
+      has_payment_method: boolean;
+    };
+  }>("/api/v2/billing/auto-topup");
+}
+
+export interface SavedPaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  exp_month: number | null;
+  exp_year: number | null;
+  is_default: boolean;
+}
+
+export async function createBillingPortalSession() {
+  return apiFetch<{
+    ok: boolean;
+    url: string;
+    session_id: string;
+    stripe_customer_id: string;
+  }>("/api/billing/portal-session", { method: "POST" });
+}
+
+export async function createSetupIntent() {
+  return apiFetch<{
+    ok: boolean;
+    client_secret: string;
+    setup_intent_id: string;
+    stripe_customer_id: string;
+  }>("/api/billing/setup-intent", { method: "POST" });
+}
+
+export async function fetchPaymentMethods() {
+  return apiFetch<{ ok: boolean; payment_methods: SavedPaymentMethod[] }>(
+    "/api/billing/payment-methods",
+  );
+}
+
+export async function deletePaymentMethod(paymentMethodId: string) {
+  return apiFetch<{ ok: boolean; payment_method_id: string }>(
+    `/api/billing/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── v2 Cloud Burst API ────────────────────────────────────────────────
+
+export async function fetchBurstStatus() {
+  return apiFetch<{ ok: boolean; active_instances: number; total_spending: number; budget_remaining: number }>(
+    "/api/v2/burst/status",
+  );
+}
+
+// ── Device sign-in (RFC 8628) ─────────────────────────────────────────
+
+/** Approve a terminal's device code for the signed-in account. */
+export async function approveDeviceCode(userCode: string) {
+  return apiFetch<{ ok: boolean; user_code: string; message?: string }>("/api/auth/verify", {
+    method: "POST",
+    body: JSON.stringify({ user_code: userCode }),
+  });
+}
+
+// ── Email Verification ────────────────────────────────────────────────
+
+export async function verifyEmail(token: string) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    user?: { user_id: string; email: string; role: string; is_admin?: boolean; name?: string; customer_id?: string };
+  }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendVerification(email: string) {
+  return apiFetch<{ ok: boolean; message: string }>("/api/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+// ── Profile + email change ────────────────────────────────────────────
+
+/** Update display name (and optionally country/province). Email is changed via
+ *  the verified flow below, not here. */
+export async function updateProfile(updates: { name?: string; country?: string; province?: string }) {
+  return apiFetch<{ ok: boolean; name?: string }>("/api/auth/me/profile", {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+}
+
+/** Begin a verified email change, emails a confirmation link to the new address. */
+export async function requestEmailChange(newEmail: string) {
+  return apiFetch<{ ok: boolean; pending_email: string; message: string }>("/api/auth/me/email-change", {
+    method: "POST",
+    body: JSON.stringify({ new_email: newEmail }),
+  });
+}
+
+/** Confirm a pending email change via the token from the verification email. */
+export async function confirmEmailChange(token: string) {
+  return apiFetch<{ ok: boolean; email: string; message: string }>("/api/auth/me/email-change/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+// ── Session Management ────────────────────────────────────────────────
+
+export interface SessionInfo {
+  token_prefix: string;
+  is_current: boolean;
+  ip_address: string;
+  user_agent: string;
+  created_at: number;
+  last_active: number;
+  expires_at: number;
+}
+
+export async function fetchSessions() {
+  return apiFetch<{ ok: boolean; sessions: SessionInfo[] }>("/api/auth/sessions");
+}
+
+export async function revokeSession(tokenPrefix: string) {
+  return apiFetch<{ ok: boolean; message: string }>(`/api/auth/sessions/${tokenPrefix}`, {
+    method: "DELETE",
+  });
+}
+
+// ── Admin AI Insights ─────────────────────────────────────────────────
+
+export interface AdminAiMessage {
+  role: string;
+  content: string;
+  tool_name: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  created_at: number;
+}
+
+export interface AdminAiConversation {
+  conversation_id: string;
+  source: string;
+  user: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  messages: AdminAiMessage[];
+}
+
+export interface AdminAiSourceStat {
+  source: string;
+  conversations: number;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface AdminAiTopUser {
+  user_id: string;
+  conversations: number;
+  total_tokens: number;
+}
+
+export interface AdminAiStats {
+  ok: boolean;
+  total_conversations: number;
+  total_messages: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_cost: number;
+  by_source: AdminAiSourceStat[];
+  daily: Record<string, string | number>[];
+  top_users: AdminAiTopUser[];
+}
+
+export async function fetchAdminAiStats(days = 30) {
+  return apiFetch<AdminAiStats>(`/api/admin/ai-stats?days=${days}`);
+}
+
+export async function fetchAdminAiConversations(
+  source = "all",
+  days = 7,
+  search = "",
+  page = 1,
+  perPage = 30,
+) {
+  const params = new URLSearchParams({
+    source,
+    days: String(days),
+    page: String(page),
+    per_page: String(perPage),
+  });
+  if (search) params.set("search", search);
+  return apiFetch<{
+    ok: boolean;
+    conversations: AdminAiConversation[];
+    total: number;
+    page: number;
+    per_page: number;
+  }>(`/api/admin/ai-conversations?${params}`);
+}
+
+// ── Phase D: User image templates ─────────────────────────────────────
+
+export type UserImage = {
+  image_id: string;
+  owner_id: string;
+  name: string;
+  tag: string;
+  description: string;
+  source_job_id: string | null;
+  host_id: string | null;
+  image_ref: string;
+  /** P7's lineage: what this image was built *from*, and the manifest digest
+   *  that makes a sweep from it reproducible. Both are returned by
+   *  `GET /api/v2/user-images` and were simply absent from this type, so no
+   *  caller could see them. */
+  base_image_ref: string | null;
+  image_digest: string | null;
+  size_bytes: number;
+  status: "pending" | "ready" | "failed";
+  created_at: number;
+  is_public: boolean;
+  labels: string[];
+  starred_at: number | null;
+  starred: boolean;
+  is_mine: boolean;
+};
+
+export type UserImageScope = "mine" | "public" | "all";
+
+export async function listUserImages(params: {
+  scope?: UserImageScope;
+  starred?: boolean;
+  label?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const qs = new URLSearchParams();
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.starred) qs.set("starred", "true");
+  if (params.label) qs.set("label", params.label);
+  if (params.q) qs.set("q", params.q);
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return apiFetch<{ images: UserImage[]; limit: number; offset: number }>(
+    `/user-images${suffix}`,
+  );
+}
+
+export async function deleteUserImage(imageId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/user-images/${encodeURIComponent(imageId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function patchUserImage(
+  imageId: string,
+  patch: {
+    description?: string;
+    is_public?: boolean;
+    labels?: string[];
+    starred?: boolean;
+  },
+) {
+  return apiFetch<{ ok: boolean }>(
+    `/user-images/${encodeURIComponent(imageId)}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export async function snapshotInstance(
+  instanceId: string,
+  body: { name: string; tag?: string; description?: string },
+) {
+  return apiFetch<{ ok: boolean; image_id: string; image_ref: string; status: string }>(
+    `/instances/${encodeURIComponent(instanceId)}/snapshot`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}

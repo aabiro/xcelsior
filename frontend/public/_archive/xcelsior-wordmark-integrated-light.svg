@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 80" width="280" height="80">
+  <defs>
+    <linearGradient id="brandGrad" x1="28" y1="9" x2="28" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="35%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <filter id="leafGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+  </defs>
+  <!-- Leaf glow -->
+  <path d="M28.8,26.2 L33.6,27.0 L32.9,25.3 L33.1,24.9 L38.2,20.7 L37.0,20.2 L36.8,19.8 L37.9,16.6 L34.9,17.2 L34.5,17.0 L33.9,15.7 L31.6,18.2 L31.0,17.9 L32.1,12.1 L30.3,13.2 L29.8,13.0 L28.0,9.4 L26.2,13.0 L25.7,13.2 L23.9,12.1 L25.0,17.9 L24.4,18.2 L22.1,15.7 L21.5,17.0 L21.1,17.2 L18.1,16.6 L19.2,19.8 L19.0,20.2 L17.8,20.7 L22.9,24.9 L23.1,25.3 L22.4,27.0 L27.2,26.2 Z" fill="#00d4ff" opacity="0.35" filter="url(#leafGlow)"/>
+  <!-- Maple leaf -->
+  <path d="M28.8,26.2 L33.6,27.0 L32.9,25.3 L33.1,24.9 L38.2,20.7 L37.0,20.2 L36.8,19.8 L37.9,16.6 L34.9,17.2 L34.5,17.0 L33.9,15.7 L31.6,18.2 L31.0,17.9 L32.1,12.1 L30.3,13.2 L29.8,13.0 L28.0,9.4 L26.2,13.0 L25.7,13.2 L23.9,12.1 L25.0,17.9 L24.4,18.2 L22.1,15.7 L21.5,17.0 L21.1,17.2 L18.1,16.6 L19.2,19.8 L19.0,20.2 L17.8,20.7 L22.9,24.9 L23.1,25.3 L22.4,27.0 L27.2,26.2 Z" fill="url(#brandGrad)"/>
+  <!-- X letterform -->
+  <path d="M11.4,28.5 L19.0,28.5 L28.0,42.6 L37.0,28.5 L44.6,28.5 L31.8,47.7 L44.6,67.5 L37.0,67.5 L28.0,52.8 L19.0,67.5 L11.4,67.5 L24.2,47.7 Z" fill="url(#brandGrad)"/>
+  <!-- "celsior" flows directly after X, dark text for light backgrounds -->
+  <text x="48" y="67.5" font-family="system-ui, -apple-system, sans-serif" font-size="40" font-weight="700" fill="#0a0e1a" letter-spacing="-1">celsior</text>
+</svg>

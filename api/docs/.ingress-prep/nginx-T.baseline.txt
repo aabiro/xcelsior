@@ -1,0 +1,3248 @@
+# configuration file /etc/nginx/nginx.conf:
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+	worker_connections 768;
+	# multi_accept on;
+}
+
+http {
+
+	##
+	# Basic Settings
+	##
+
+	sendfile on;
+	tcp_nopush on;
+	types_hash_max_size 2048;
+	# server_tokens off;
+
+	# server_names_hash_bucket_size 64;
+	# server_name_in_redirect off;
+
+	include /etc/nginx/mime.types;
+	default_type application/octet-stream;
+
+	##
+	# SSL Settings
+	##
+
+	ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3; # Dropping SSLv3, ref: POODLE
+	ssl_prefer_server_ciphers on;
+
+	##
+	# Logging Settings
+	##
+
+	access_log /var/log/nginx/access.log;
+
+	##
+	# Gzip Settings
+	##
+
+	gzip on;
+
+	# gzip_vary on;
+	# gzip_proxied any;
+	# gzip_comp_level 6;
+	# gzip_buffers 16 8k;
+	# gzip_http_version 1.1;
+	# gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+	##
+	# Virtual Host Configs
+	##
+
+	include /etc/nginx/conf.d/*.conf;
+	include /etc/nginx/sites-enabled/*;
+}
+
+
+#mail {
+#	# See sample authentication script at:
+#	# http://wiki.nginx.org/ImapAuthenticateWithApachePhpScript
+#
+#	# auth_http localhost/auth.php;
+#	# pop3_capabilities "TOP" "USER";
+#	# imap_capabilities "IMAP4rev1" "UIDPLUS";
+#
+#	server {
+#		listen     localhost:110;
+#		protocol   pop3;
+#		proxy      on;
+#	}
+#
+#	server {
+#		listen     localhost:143;
+#		protocol   imap;
+#		proxy      on;
+#	}
+#}
+
+# configuration file /etc/nginx/mime.types:
+
+types {
+    text/html                                        html htm shtml;
+    text/css                                         css;
+    text/xml                                         xml;
+    image/gif                                        gif;
+    image/jpeg                                       jpeg jpg;
+    application/javascript                           js;
+    application/atom+xml                             atom;
+    application/rss+xml                              rss;
+
+    text/mathml                                      mml;
+    text/plain                                       txt;
+    text/vnd.sun.j2me.app-descriptor                 jad;
+    text/vnd.wap.wml                                 wml;
+    text/x-component                                 htc;
+
+    image/avif                                       avif;
+    image/png                                        png;
+    image/svg+xml                                    svg svgz;
+    image/tiff                                       tif tiff;
+    image/vnd.wap.wbmp                               wbmp;
+    image/webp                                       webp;
+    image/x-icon                                     ico;
+    image/x-jng                                      jng;
+    image/x-ms-bmp                                   bmp;
+
+    font/woff                                        woff;
+    font/woff2                                       woff2;
+
+    application/java-archive                         jar war ear;
+    application/json                                 json;
+    application/mac-binhex40                         hqx;
+    application/msword                               doc;
+    application/pdf                                  pdf;
+    application/postscript                           ps eps ai;
+    application/rtf                                  rtf;
+    application/vnd.apple.mpegurl                    m3u8;
+    application/vnd.google-earth.kml+xml             kml;
+    application/vnd.google-earth.kmz                 kmz;
+    application/vnd.ms-excel                         xls;
+    application/vnd.ms-fontobject                    eot;
+    application/vnd.ms-powerpoint                    ppt;
+    application/vnd.oasis.opendocument.graphics      odg;
+    application/vnd.oasis.opendocument.presentation  odp;
+    application/vnd.oasis.opendocument.spreadsheet   ods;
+    application/vnd.oasis.opendocument.text          odt;
+    application/vnd.openxmlformats-officedocument.presentationml.presentation
+                                                     pptx;
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+                                                     xlsx;
+    application/vnd.openxmlformats-officedocument.wordprocessingml.document
+                                                     docx;
+    application/vnd.wap.wmlc                         wmlc;
+    application/wasm                                 wasm;
+    application/x-7z-compressed                      7z;
+    application/x-cocoa                              cco;
+    application/x-java-archive-diff                  jardiff;
+    application/x-java-jnlp-file                     jnlp;
+    application/x-makeself                           run;
+    application/x-perl                               pl pm;
+    application/x-pilot                              prc pdb;
+    application/x-rar-compressed                     rar;
+    application/x-redhat-package-manager             rpm;
+    application/x-sea                                sea;
+    application/x-shockwave-flash                    swf;
+    application/x-stuffit                            sit;
+    application/x-tcl                                tcl tk;
+    application/x-x509-ca-cert                       der pem crt;
+    application/x-xpinstall                          xpi;
+    application/xhtml+xml                            xhtml;
+    application/xspf+xml                             xspf;
+    application/zip                                  zip;
+
+    application/octet-stream                         bin exe dll;
+    application/octet-stream                         deb;
+    application/octet-stream                         dmg;
+    application/octet-stream                         iso img;
+    application/octet-stream                         msi msp msm;
+
+    audio/midi                                       mid midi kar;
+    audio/mpeg                                       mp3;
+    audio/ogg                                        ogg;
+    audio/x-m4a                                      m4a;
+    audio/x-realaudio                                ra;
+
+    video/3gpp                                       3gpp 3gp;
+    video/mp2t                                       ts;
+    video/mp4                                        mp4;
+    video/mpeg                                       mpeg mpg;
+    video/ogg                                        ogv;
+    video/quicktime                                  mov;
+    video/webm                                       webm;
+    video/x-flv                                      flv;
+    video/x-m4v                                      m4v;
+    video/x-matroska                                 mkv;
+    video/x-mng                                      mng;
+    video/x-ms-asf                                   asx asf;
+    video/x-ms-wmv                                   wmv;
+    video/x-msvideo                                  avi;
+}
+
+# configuration file /etc/nginx/sites-enabled/docs-xcelsior:
+# docs.xcelsior.ca — Reverse proxy to Fern-hosted API documentation
+# Deploy: ln -s /etc/nginx/sites-available/docs-xcelsior /etc/nginx/sites-enabled/
+
+# HTTP → HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name docs.xcelsior.ca;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — Reverse proxy to Fern docs
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name docs.xcelsior.ca;
+
+    # SSL certificates (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/docs.xcelsior.ca/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/docs.xcelsior.ca/privkey.pem;
+
+    # SSL configuration (Mozilla Modern)
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:DocsSSL:10m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Security headers
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # Gzip
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss text/javascript image/svg+xml text/x-component;
+
+    # Rewrite tab-prefixed paths to flat paths (Fern tabs are client-side only)
+    # /guides/quickstart -> /quickstart, /sdk/typescript-sdk -> /typescript-sdk
+    rewrite ^/guides/(.+) /$1 break;
+    rewrite ^/sdk/(.+) /$1 break;
+    # Keep /api-reference as-is (Fern handles it as a redirect to auto-gen API docs)
+
+    # Reverse proxy to Fern-hosted docs
+    location / {
+        proxy_pass https://xcelsior.docs.buildwithfern.com;
+        proxy_ssl_server_name on;
+        proxy_set_header Host xcelsior.docs.buildwithfern.com;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Accept-Encoding "";
+
+        # Pass through query params (RSC requests use ?_rsc=...)
+        proxy_pass_request_headers on;
+
+        # Timeouts
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+
+        # Buffering
+        proxy_buffering on;
+        proxy_buffer_size 16k;
+        proxy_buffers 4 32k;
+
+        # Handle redirects from upstream
+        proxy_redirect https://xcelsior.docs.buildwithfern.com https://docs.xcelsior.ca;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/downloads-xcelsior:
+# downloads.xcelsior.ca — Static file hosting for desktop app downloads
+
+# HTTP → HTTPS redirect (+ ACME challenge)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name downloads.xcelsior.ca;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — Static files
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name downloads.xcelsior.ca;
+
+    # SSL certificates (Let's Encrypt) — placeholder until certbot runs
+    ssl_certificate /etc/letsencrypt/live/downloads.xcelsior.ca/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/downloads.xcelsior.ca/privkey.pem;
+
+    # SSL configuration (Mozilla Modern)
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:DownloadsSSL:10m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Security headers
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # CORS for Tauri updater
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS" always;
+
+    root /var/www/downloads;
+
+    location / {
+        autoindex off;
+        try_files $uri $uri/ =404;
+    }
+
+    # Cache static binaries aggressively
+    location ~* \.(dmg|exe|AppImage|deb|rpm|msi|tar\.gz|zip)$ {
+        expires 1h;
+        add_header Cache-Control "public, no-transform";
+    }
+
+    # latest.json should not be cached (updater endpoint)
+    location ~* latest\.json$ {
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Access-Control-Allow-Origin "*" always;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/grafana-xcelsior:
+# grafana.xcelsior.ca — Reverse proxy to local Grafana on 127.0.0.1:3001
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name grafana.xcelsior.ca;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name grafana.xcelsior.ca;
+
+    ssl_certificate     /etc/letsencrypt/live/grafana.xcelsior.ca/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/grafana.xcelsior.ca/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:GrafanaSSL:10m;
+    ssl_session_tickets off;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    location /api/live/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/headscale:
+# Headscale HTTPS Nginx Configuration
+# Deploy to: /etc/nginx/sites-available/headscale
+# Enable with: ln -s /etc/nginx/sites-available/headscale /etc/nginx/sites-enabled/
+#
+# NOT installed by scripts/deploy.sh. `hs.xcelsior.ca` resolves to a different
+# host than the API, so a vhost for it on the API box answers no requests — and
+# while this file still named a Let's Encrypt path, installing it there made
+# `nginx -t` fail and aborted the whole deploy (2026-08-08).
+#
+# The certificate is a **self-signed internal cert**, ten years, not ACME. That
+# is deliberate rather than a shortcut: the front reaches this service with
+# `proxy_ssl_verify off`, so nothing validates the certificate and a publicly
+# trusted one would buy nothing that this does not. The Let's Encrypt entry it
+# replaced could not renew — the ACME challenge for this name is answered by the
+# host DNS points at, not by the one that held the certificate — and its daily
+# renewal failure was noise that masked the four *real* renewal failures found
+# on 2026-08-08.
+#
+# The trade is worth stating plainly: TLS here is transport encryption, not
+# identity. Anything that ever needs to *authenticate* this endpoint has to stop
+# using `proxy_ssl_verify off` first, at which point this certificate must be
+# pinned or replaced — it cannot chain to a public root.
+
+server {
+    listen 443 ssl http2;
+    server_name hs.xcelsior.ca;
+
+    ssl_certificate /etc/nginx/ssl/hs-internal.crt;
+    ssl_certificate_key /etc/nginx/ssl/hs-internal.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/headscale-http:
+# Headscale HTTP Redirect / ACME Configuration
+# Deploy to: /etc/nginx/sites-available/headscale-http
+# Enable with: ln -s /etc/nginx/sites-available/headscale-http /etc/nginx/sites-enabled/
+
+server {
+    listen 80;
+    server_name hs.xcelsior.ca;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/mcp-acme:
+server {
+    listen 80;
+    listen [::]:80;
+    server_name mcp.xcelsior.ca;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+# configuration file /etc/nginx/sites-enabled/mcp-xcelsior:
+# Canonical hosted MCP edge. The xcelsior.ca/mcp route remains compatibility
+# only; this host has no marketing-page method switch.
+upstream xcelsior_mcp_canonical {
+    server 127.0.0.1:8770;
+    server 127.0.0.1:8771 backup;
+    keepalive 16;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name mcp.xcelsior.ca;
+
+    ssl_certificate /etc/letsencrypt/live/xcelsior.ca/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/xcelsior.ca/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    location = /.well-known/oauth-protected-resource {
+        proxy_pass http://xcelsior_mcp_canonical;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+    }
+
+    location = /mcp {
+        limit_req zone=xcelsior_limit burst=20 nodelay;
+        client_max_body_size 1m;
+        proxy_pass http://xcelsior_mcp_canonical;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Mcp-Session-Id $http_mcp_session_id;
+        proxy_set_header MCP-Protocol-Version $http_mcp_protocol_version;
+        proxy_set_header traceparent $http_traceparent;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 60s;
+        proxy_next_upstream off;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/monitoring-endpoints.conf:
+# Nginx Configuration for PixelEnhance Labs Monitoring Endpoints
+# Add this to your main nginx.conf or include it
+
+# Shared rate-limit zones (must be in http context)
+limit_req_zone $binary_remote_addr zone=webhook_limit:10m rate=10r/m;
+
+# Monitoring services proxy configuration
+upstream telegram_alerts {
+    server localhost:8001;
+}
+
+upstream prometheus {
+    server localhost:9090;
+}
+
+upstream grafana {
+    server localhost:3000;
+}
+
+# Main API server with monitoring endpoints
+server {
+    listen 443 ssl http2;
+    server_name api.pixelenhance.com;
+
+    # SSL configuration (your existing SSL settings)
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # Main API routes (your existing configuration)
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Prometheus metrics endpoint
+    location /metrics {
+        proxy_pass http://localhost:8000/metrics;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Basic auth for metrics (optional but recommended)
+        auth_basic "Prometheus Metrics";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        # Allow only specific IPs (adjust as needed)
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        deny all;
+    }
+
+    # Business metrics endpoint (less sensitive, longer cache)
+    location /business-metrics {
+        proxy_pass http://localhost:8000/business-metrics;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Cache for 1 minute since business metrics change slowly
+        proxy_cache_valid 200 1m;
+        add_header X-Cache-Status $upstream_cache_status;
+    }
+
+    # Health check endpoint (public)
+    location /health {
+        proxy_pass http://localhost:8000/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # No auth needed for health checks
+        access_log off;  # Reduce log noise from monitoring
+    }
+}
+
+# Webhook endpoints server (for alerts)
+server {
+    listen 443 ssl http2;
+    server_name webhooks.pixelenhance.com;  # Or alerts.pixelenhance.com
+
+    # SSL configuration
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # Telegram alert webhooks
+    location /webhook/ {
+        limit_req zone=webhook_limit burst=5 nodelay;
+
+        proxy_pass http://telegram_alerts;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Security headers
+        add_header X-Content-Type-Options nosniff;
+        add_header X-Frame-Options DENY;
+
+        # Only allow POST requests for webhooks
+        if ($request_method !~ ^(POST)$) {
+            return 405;
+        }
+    }
+
+    # Test endpoint (remove in production)
+    location /alert/test {
+        proxy_pass http://telegram_alerts;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Allow only specific IPs for testing
+        allow 127.0.0.1;
+        # allow 203.0.113.10;  # Example: add authorized tester IP
+        deny all;
+    }
+}
+
+# Monitoring dashboards server (internal/VPN only)
+server {
+    listen 443 ssl http2;
+    server_name monitoring.pixelenhance.com;  # Internal domain
+
+    # SSL configuration
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # Restrict access to monitoring dashboards
+    # Option 1: IP whitelist
+    allow 10.0.0.0/8;        # Private networks
+    allow 172.16.0.0/12;     # Private networks
+    allow 192.168.0.0/16;    # Private networks
+    # allow 203.0.113.10;    # Example: add your office IP here
+    deny all;
+
+    # Option 2: HTTP Basic Auth (uncomment if needed)
+    # auth_basic "Monitoring Access";
+    # auth_basic_user_file /etc/nginx/.htpasswd_monitoring;
+
+    # Grafana dashboard
+    location /grafana/ {
+        proxy_pass http://grafana/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support for live updates
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Prometheus dashboard
+    location /prometheus/ {
+        proxy_pass http://prometheus/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Direct Grafana access (root path)
+    location / {
+        proxy_pass http://grafana;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+# Node exporter endpoints (GPU workers)
+#
+# Use variables + on-demand DNS resolution so nginx -t doesn't fail when
+# worker hostnames are not resolvable at deploy time. Override these values by
+# adding `env GPU_WORKER_1_HOST;` to nginx.conf and exporting the variables in
+# the systemd unit if different hostnames are required.
+
+server {
+    # Avoid conflict with node_exporter (default :9100 on the host).
+    listen 9101;
+    server_name api.pixelenhance.com;
+
+    # GPU worker endpoints (deploy script replaces placeholders with actual hostnames or IPs)
+    set $gpu_worker_1_host "127.0.0.1";
+    set $gpu_worker_2_host "127.0.0.1";
+
+    # Defaults assume docker-compose style names; override via env vars if needed
+    location /gpu-1/metrics {
+        resolver 127.0.0.53 valid=60s ipv6=off;
+        proxy_pass http://$gpu_worker_1_host:9100/metrics;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Restrict to Prometheus server (duplicate allow line per host)
+        allow 127.0.0.1;
+        # allow 10.23.45.67;  # Example: Prometheus host
+        deny all;
+    }
+
+    location /gpu-2/metrics {
+        resolver 127.0.0.53 valid=60s ipv6=off;
+        proxy_pass http://$gpu_worker_2_host:9100/metrics;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Restrict to Prometheus server (duplicate allow line per host)
+        allow 127.0.0.1;
+        # allow 10.23.45.67;  # Example: Prometheus host
+        deny all;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/nginx-prod.conf:
+# PixelEnhance Labs - Production Nginx Configuration
+# Managed by deployment/setup-nginx.sh
+# Do not edit this file directly on the server - update the template instead
+
+# Upstream definitions (inlined to avoid duplicate loads)
+upstream pixelenhance_backend_prod {
+    least_conn;
+    server 127.0.0.1:8000 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+
+# PixelSpark Spring Boot backend (passkeys, mobile API) — separate from main Python API.
+upstream pixelspark_backend_prod {
+    server 127.0.0.1:8008 max_fails=3 fail_timeout=30s;
+    keepalive 8;
+}
+
+# Rate limiting zones (scoped to production site template)
+limit_req_zone $binary_remote_addr zone=api_prod_limit_site:10m rate=100r/m;
+limit_req_zone $binary_remote_addr zone=upload_prod_limit_site:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=general_prod_limit_site:10m rate=10r/s;
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name pixelenhancelabs.ai
+                www.pixelenhancelabs.ai
+                api.pixelenhancelabs.ai
+                app.pixelenhancelabs.ai
+                deploy.pixelenhancelabs.ai
+                cdn.pixelenhancelabs.ai
+                secure.pixelenhancelabs.ai
+                help.pixelenhancelabs.ai
+                forum.pixelenhancelabs.ai
+                dashboard.pixelenhancelabs.ai
+                developer.pixelenhancelabs.ai
+                media.pixelenhancelabs.ai
+                grafana.pixelenhancelabs.ai
+                pagerduty.pixelenhancelabs.ai
+                b2.pixelenhancelabs.ai
+                rollout.pixelenhancelabs.ai;
+                # pixelspark.pixelenhancelabs.ai is owned exclusively by
+                # pixel-spark-backend-prod.conf (PixelSpark reverse proxy).
+
+    # ACME challenge for Let's Encrypt
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# Main site - Marketing/Landing Page
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name pixelenhancelabs.ai www.pixelenhancelabs.ai;
+
+    # SSL certificates (Let's Encrypt wildcard)
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self https://js.stripe.com), usb=(), fullscreen=(self)" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://app.posthog.com https://cdn.jsdelivr.net blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; connect-src 'self' https://api.pixelenhancelabs.ai https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com wss://api.pixelenhancelabs.ai https://*.sentry.io; font-src 'self' https://fonts.gstatic.com data:; frame-src https://js.stripe.com; media-src 'self' blob: data: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" always;
+
+    # Hide nginx version
+    server_tokens off;
+
+    # Root directory - serve actual frontend
+    root /opt/pixelenhance/prod/frontend/current/frontend;
+    index index.html;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+
+    # Rate limiting
+    limit_req zone=general_prod_limit_site burst=20 nodelay;
+
+    # JavaScript files with explicit MIME type
+    location ~* \.js$ {
+        types {
+            application/javascript js;
+        }
+        default_type application/javascript;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # CSS files with explicit MIME type
+    location ~* \.css$ {
+        types {
+            text/css css;
+        }
+        default_type text/css;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Other static assets
+    location ~* \.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+    }
+
+    # Demo VOD HLS (fMP4) — Content-Type mirrors aarynfans ^~ /hls/ (types + add_header always)
+    location ^~ /demo/ {
+        gzip off;
+        types {
+            application/vnd.apple.mpegurl m3u8;
+            video/mp4 m4s;
+            video/mp4 mp4;
+        }
+
+        add_header Accept-Ranges "bytes" always;
+        add_header X-Content-Type-Options "nosniff" always;
+
+        if ($request_uri ~ \.m3u8$) {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Content-Type "application/vnd.apple.mpegurl" always;
+        }
+        if ($request_uri ~ \.m4s$) {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Content-Type "video/mp4" always;
+        }
+        if ($request_uri ~ init\.mp4$) {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Content-Type "video/mp4" always;
+        }
+
+        try_files $uri =404;
+    }
+
+    # HTML files should not be cached to ensure updates are immediate
+    location ~* \.html$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    }
+
+    # OAuth callback handling
+    location /auth/callback {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+
+    # Handle client-side routing (SPA)
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "production";
+        add_header Cross-Origin-Embedder-Policy "require-corp";
+        add_header Cross-Origin-Opener-Policy "same-origin";
+    }
+
+    # Deny access to sensitive files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    location ~* \.(env|log|ini)$ {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+
+# API server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name api.pixelenhancelabs.ai;
+
+    # CORS Configuration
+    set $cors_origin "";
+    if ($http_origin ~* "^https?://(pixelenhancelabs\.ai|www\.pixelenhancelabs\.ai|app\.pixelenhancelabs\.ai|docs\.pixelenhancelabs\.ai|dashboard\.pixelenhancelabs\.ai|pixelspark\.pixelenhancelabs\.ai|test\.pixelenhancelabs\.ai|test-app\.pixelenhancelabs\.ai|localhost|127\.0\.0\.1)(:[0-9]+)?$") {
+        set $cors_origin $http_origin;
+    }
+    set $cors_allowed_headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-API-Key,X-CSRF-Token,sentry-trace,baggage,X-Chunk-Index,X-Chunk-Checksum,x-chunk-checksum,X-Chunk-Total,X-Part-SHA256,X-Part-Count';
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Cross-Origin-Resource-Policy "cross-origin" always;
+
+    # Production environment indicator
+    add_header X-Environment "production" always;
+
+    # Hide nginx version
+    server_tokens off;
+
+    # Large file upload support (video files)
+    client_max_body_size 10G;
+    client_body_buffer_size 1M;
+    client_body_timeout 300s;
+    client_header_timeout 60s;
+    send_timeout 300s;
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 '{"status":"healthy","environment":"production","timestamp":"$time_iso8601"}\n';
+        add_header Content-Type application/json;
+    }
+
+    # Digital Asset Links for PixelSpark Android passkeys (RP ID = api.pixelenhancelabs.ai).
+    location = /.well-known/assetlinks.json {
+        proxy_pass http://pixelspark_backend_prod/.well-known/assetlinks.json;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+    # PixelSpark WebAuthn auth (Spring Boot on 8008).
+    location ~ ^/auth/passkey/ {
+        proxy_pass http://pixelspark_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "production";
+
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Vary Origin always;
+
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+
+    # Version endpoint with CORS (frontend boot)
+    location = /version {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "production";
+
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Vary Origin always;
+
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+
+    # Nginx status for monitoring (internal only)
+    location /nginx_status {
+        stub_status;
+        allow 127.0.0.1;
+        allow 10.0.0.0/24;
+        deny all;
+        access_log off;
+    }
+
+    # =================================================================
+    # Internal location for X-Accel-Redirect media serving (mobile app)
+    # Backend sets X-Accel-Redirect: /internal-media/<path> header
+    # nginx intercepts and serves the file directly (zero-copy sendfile)
+    # =================================================================
+    location /internal-media/ {
+        internal;  # Only accessible via X-Accel-Redirect from backend
+        alias /opt/pixelenhance/prod/scratch/;
+        
+        # Efficient file serving
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        
+        # Caching for media
+        add_header Cache-Control "private, max-age=3600";
+        
+        # Support range requests for video streaming/seeking
+        add_header Accept-Ranges bytes;
+        
+        # Prevent directory listing
+        autoindex off;
+        
+        # Large file support
+        output_buffers 1 512k;
+    }
+
+    # Forward auth + smart preset endpoints to backend
+    location ~ ^/api/v1/(auth/(token|session|demo-login)|smart-presets)$ {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "production";
+
+        # CORS - Handle by Nginx
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Vary Origin always;
+        
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+
+    # Admin endpoints (DMCA, Analytics, Billing - sensitive data)
+    location ~ ^/api/v1/admin/(dmca|analytics|billing)/ {
+        limit_req zone=api_prod_limit_site burst=10 nodelay;
+        
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $server_name;
+        
+        # Additional security for financial endpoints
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        
+        # Extended timeout for payment processing
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # PostHog analytics, reverse-proxied through our own origin.
+    #
+    # Two reasons this is not a direct browser -> posthog.com connection:
+    #   1. Ad blockers block posthog.com hosts by default, silently dropping a
+    #      meaningful share of events.
+    #   2. Our CSP connect-src does not include the ingest host
+    #      (us.i.posthog.com); same-origin needs only 'self'.
+    #
+    # Static assets and ingestion live on different upstreams, so the /static
+    # location must come first.
+    location ^~ /ingest/static/ {
+        proxy_pass https://us-assets.i.posthog.com/static/;
+        proxy_set_header Host us-assets.i.posthog.com;
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering on;
+        proxy_cache_valid 200 1h;
+    }
+
+    location ^~ /ingest/ {
+        proxy_pass https://us.i.posthog.com/;
+        proxy_set_header Host us.i.posthog.com;
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        # Preserve the real client IP so PostHog geolocates correctly rather
+        # than attributing every event to the VPS.
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+
+    # API endpoints
+    location /api/ {
+        limit_req zone=api_prod_limit_site burst=20 nodelay;
+
+        # Proxy to backend
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $server_name;
+        proxy_set_header X-Environment "production";
+
+        # CORS - Handle by Nginx to ensure headers are present even on errors
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Vary Origin always;
+        
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+
+        # Disable buffering for streaming
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering on;
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    # Video upload/processing endpoints (extended timeouts)
+    location ~ ^/api/v1/(upload|process|enhance)/ {
+        limit_req zone=upload_prod_limit_site burst=5 nodelay;
+
+        # Extended timeouts for large uploads and GPU processing
+        client_body_timeout 3600s;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+
+        # Proxy to backend
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $server_name;
+        proxy_set_header X-Environment "production";
+
+        # CORS - Handle by Nginx
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Vary Origin always;
+        
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+
+        # Disable buffering for large files
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # WebSocket support for real-time updates
+    location /ws {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket timeouts
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # Server-Sent Events for job progress
+    location ~ ^/api/v1/videos/jobs/events {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # SSE specific settings
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+        
+        # Extended timeout for SSE
+        proxy_read_timeout 3600s;
+    }
+
+    # Feature flags and settings endpoints
+    location ~ ^/api/v1/(settings|feature-flags)/ {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Cache feature flags for production
+        proxy_cache_valid 200 5m;
+        proxy_cache_bypass $http_cache_control;
+        add_header X-Cache-Status $upstream_cache_status;
+            proxy_hide_header Access-Control-Allow-Origin;
+            proxy_hide_header Access-Control-Allow-Credentials;
+
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+
+            if ($request_method = 'OPTIONS') {
+                add_header Access-Control-Allow-Origin $cors_origin always;
+                add_header Access-Control-Allow-Credentials 'true' always;
+                add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+                add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+                add_header Vary Origin always;
+                add_header Access-Control-Max-Age 1728000 always;
+                add_header Content-Type 'text/plain; charset=utf-8' always;
+                add_header Content-Length 0 always;
+                return 204;
+            }
+
+    }
+
+    # Monitoring and system utilities endpoints
+    location ~ ^/api/v1/(monitoring|system)/ {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support for monitoring
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # PixelAssist streaming endpoint
+    location ~ ^/api/v1/assistant/stream {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Streaming specific settings
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+        
+        # Extended timeout for streaming
+        proxy_read_timeout 3600s;
+    }
+
+    # Root fallback
+    location / {
+        proxy_pass http://pixelenhance_backend_prod;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Vary Origin always;
+
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Vary Origin always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+}
+
+# App (Frontend SPA)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name app.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+
+
+    # Security headers (optimized for SPA with Stripe)
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    # NOTE: Player streams video from the API domain; allow media-src https: and blob: (Safari/HLS, object URLs),
+    # and allow blob: workers for hls.js (enableWorker=true).
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://js.stripe.com https://app.posthog.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.pixelenhancelabs.ai https://app.posthog.com; media-src 'self' blob: data: https:; worker-src 'self' blob:; font-src 'self'; frame-src https://js.stripe.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" always;
+
+    # Hide nginx version
+    server_tokens off;
+
+    # Root directory (matches deploy target: /opt/pixelenhance/<env>/frontend/web/dist)
+    root /opt/pixelenhance/prod/frontend/current/frontend;
+    index index.html;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+
+    # Rate limiting
+    limit_req zone=general_prod_limit_site burst=20 nodelay;
+
+    # JavaScript files with explicit MIME type
+    location ~* \.js$ {
+        types {
+            application/javascript js;
+        }
+        default_type application/javascript;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # CSS files with explicit MIME type
+    location ~* \.css$ {
+        types {
+            text/css css;
+        }
+        default_type text/css;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Other static assets
+    location ~* \.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+    }
+
+    # Demo VOD HLS (fMP4) — Content-Type mirrors aarynfans ^~ /hls/ (types + add_header always)
+    location ^~ /demo/ {
+        gzip off;
+        types {
+            application/vnd.apple.mpegurl m3u8;
+            video/mp4 m4s;
+            video/mp4 mp4;
+        }
+
+        add_header Accept-Ranges "bytes" always;
+        add_header X-Content-Type-Options "nosniff" always;
+
+        if ($request_uri ~ \.m3u8$) {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Content-Type "application/vnd.apple.mpegurl" always;
+        }
+        if ($request_uri ~ \.m4s$) {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Content-Type "video/mp4" always;
+        }
+        if ($request_uri ~ init\.mp4$) {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Content-Type "video/mp4" always;
+        }
+
+        try_files $uri =404;
+    }
+
+    # GPU assets and shaders (WGSL, GLSL files)
+    location ~* \.(wgsl|glsl|vert|frag|compute)$ {
+        types {
+            text/plain wgsl glsl vert frag compute;
+        }
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+    }
+
+    # LUT files for color grading
+    location ~* \.(cube|dat|3dl|csp|lut)$ {
+        types {
+            application/octet-stream cube dat 3dl csp lut;
+        }
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+    }
+
+    # HTML files should not be cached to ensure updates are immediate
+    location ~* \.html$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    }
+
+    # OAuth callback handling
+    location /auth/callback {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+
+    # Player routes with WebGPU support
+    location ~ ^/player/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        # Enable SharedArrayBuffer for WebGPU/WebAssembly
+        add_header Cross-Origin-Embedder-Policy "require-corp" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+    }
+
+    # Admin routes
+    location ~ ^/admin/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        # Additional security for admin area
+        add_header X-Frame-Options "DENY" always;
+    }
+
+    # App dashboard routes
+    location ~ ^/app/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+
+    # Handle client-side routing (SPA)
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+
+    # Deny access to sensitive files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    location ~* \.(env|log|ini)$ {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+
+# CDN subdomain (static assets, media)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name cdn.pixelenhancelabs.ai media.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Security headers (relaxed for CDN)
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    server_tokens off;
+
+    # Static assets directory
+    root /opt/pixelenhance/prod/frontend/current/frontend;
+
+    # Aggressive caching
+    location / {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
+        add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS";
+    }
+}
+
+# Monitoring subdomains (Grafana, PagerDuty proxy)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name grafana.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    # Basic auth
+    auth_basic "Monitoring Access";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Developer portal
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name developer.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    server_tokens off;
+
+    # Developer docs/portal
+    root /opt/pixelenhance/prod/frontend/current/frontend;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+# Help and Forum subdomains (placeholder - configure as needed)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name help.pixelenhancelabs.ai forum.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Redirect to main site for now (configure later)
+    return 302 https://pixelenhance-demo.pages.dev;
+}
+
+# Dashboard and Secure subdomains (app aliases)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name dashboard.pixelenhancelabs.ai secure.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Redirect to app
+    return 301 https://app.pixelenhancelabs.ai$request_uri;
+}
+
+# Deployment and rollout subdomains (internal use)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name deploy.pixelenhancelabs.ai rollout.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    # Basic auth
+    auth_basic "Deployment Access";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    # Placeholder - configure deployment interface as needed
+    return 503 "Deployment interface - configure as needed";
+}
+
+# B2 and PagerDuty subdomains (external service proxies/redirects)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name b2.pixelenhancelabs.ai pagerduty.pixelenhancelabs.ai;
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Placeholder - configure external service access as needed
+    return 503 "External service proxy - configure as needed";
+}
+
+# PixelSpark (pixelspark.pixelenhancelabs.ai) is owned exclusively by
+# pixel-spark-backend-prod.conf installed from the PixelSpark repo.
+# Do not reintroduce a server_name claim for that host here — it causes
+# "conflicting server name" warnings and ambiguous routing.
+
+
+# configuration file /etc/nginx/sites-enabled/nginx-test.conf:
+# PixelEnhance Labs - Test/Test Nginx Configuration
+# Managed by deployment/setup-nginx.sh
+# Do not edit this file directly on the server - update the template instead
+
+# IP whitelist for test environment (commented out)
+# geo $allowed_ip {
+#     default 0;
+#
+#     # Allowed IPs
+#     66.222.167.133 1;      # Your IP
+#     66.222.139.136 1;      # Current IP
+#     66.222.154.89 1;       # QA laptop
+#     10.0.0.2 1;            # Internal network
+#     10.0.0.3 1;            # Internal network
+#     10.0.0.4 1;            # Internal network
+#     127.0.0.8 1;           # Localhost alias
+#     127.0.0.1 1;           # Localhost
+#     ::1 1;                 # IPv6 localhost
+# }
+
+# Upstream definitions (inlined for test environment)
+upstream pixelenhance_backend_test {
+    least_conn;
+    server 127.0.0.1:8001 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+
+# Rate limiting zones (more permissive for testing)
+limit_req_zone $binary_remote_addr zone=api_test_limit_site:10m rate=200r/m;
+limit_req_zone $binary_remote_addr zone=upload_test_limit_site:10m rate=50r/m;
+limit_req_zone $binary_remote_addr zone=general_test_limit_site:10m rate=20r/s;
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name test.pixelenhancelabs.ai
+                test-api.pixelenhancelabs.ai
+                test-app.pixelenhancelabs.ai;
+
+    # IP whitelist check (commented out)
+    # if ($allowed_ip = 0) {
+    #     return 403 "Access denied. IP not whitelisted.";
+    # }
+
+    # ACME challenge for Let's Encrypt
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# Test API server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name test-api.pixelenhancelabs.ai;
+
+    # IP whitelist check (commented out)
+    # if ($allowed_ip = 0) {
+    #     return 403 "Access denied. IP not whitelisted.";
+    # }
+
+    # SSL certificates (Let's Encrypt wildcard or SAN)
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+
+        set $cors_origin "";
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+        set $cors_allowed_headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-CSRF-Token,sentry-trace,baggage,X-Chunk-Index,X-Chunk-Checksum,x-chunk-checksum,X-Chunk-Total';
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+
+
+    # Security headers (test environment)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Cross-Origin-Resource-Policy "cross-origin" always;
+
+    # CORS Configuration
+    set $cors_origin "";
+    if ($http_origin ~* "^https?://(test\.pixelenhancelabs\.ai|test-app\.pixelenhancelabs\.ai|pixelspark-test\.pixelenhancelabs\.ai|localhost|127\.0\.0\.1)(:[0-9]+)?$") {
+        set $cors_origin $http_origin;
+    }
+
+    # Test environment indicator
+    add_header X-Environment "test" always;
+
+    # Hide nginx version
+    server_tokens off;
+
+    # Large file upload support (video files)
+    client_max_body_size 10G;
+    client_body_buffer_size 1M;
+    client_body_timeout 300s;
+    client_header_timeout 60s;
+    send_timeout 300s;
+
+    # Health check endpoint (no auth for monitoring)
+    location /health {
+        access_log off;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        add_header Content-Type application/json;
+    }
+
+    # Test endpoint
+    location /api/test {
+        return 200 '{"status":"success","message":"Test API endpoint working","server":"pixelenhance-labs-test","environment":"test","timestamp":"$time_iso8601"}';
+        add_header Content-Type application/json;
+    }
+
+    # Version endpoint with CORS (used by frontend boot)
+    location = /version {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+
+    # Nginx status for monitoring (whitelisted IPs only)
+    location /nginx_status {
+        stub_status;
+        allow 127.0.0.1;
+        allow 10.0.0.0/24;
+        deny all;
+        access_log off;
+    }
+
+    # =================================================================
+    # Internal location for X-Accel-Redirect media serving (mobile app)
+    # Backend sets X-Accel-Redirect: /internal-media/<path> header
+    # nginx intercepts and serves the file directly (zero-copy sendfile)
+    # =================================================================
+    location /internal-media/ {
+        internal;  # Only accessible via X-Accel-Redirect from backend
+        alias /opt/pixelenhance/test/scratch/;
+        
+        # Efficient file serving
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        
+        # Caching for media
+        add_header Cache-Control "private, max-age=3600";
+        
+        # Support range requests for video streaming/seeking
+        add_header Accept-Ranges bytes;
+        
+        # Prevent directory listing
+        autoindex off;
+        
+        # Large file support
+        output_buffers 1 512k;
+    }
+
+    # Forward auth + smart preset endpoints to backend
+    location ~ ^/api/v1/(auth/(token|session|demo-login)|smart-presets)$ {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+
+        # CORS - Handle by Nginx
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+
+    # API endpoints
+    # Admin billing endpoints (sensitive financial data)
+    # Admin endpoints (DMCA, Analytics, Billing)
+    location ~ ^/api/v1/admin/(dmca|analytics|billing)/ {
+        limit_req zone=api_test_limit_site burst=10 nodelay;
+        
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+        
+        # Additional security for financial endpoints
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # PostHog analytics, reverse-proxied through our own origin. Mirrors
+    # nginx-prod.conf; see the comment there for why this is not a direct
+    # browser -> posthog.com connection.
+    location ^~ /ingest/static/ {
+        proxy_pass https://us-assets.i.posthog.com/static/;
+        proxy_set_header Host us-assets.i.posthog.com;
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering on;
+        proxy_cache_valid 200 1h;
+    }
+
+    location ^~ /ingest/ {
+        proxy_pass https://us.i.posthog.com/;
+        proxy_set_header Host us.i.posthog.com;
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+
+    location /api/ {
+        limit_req zone=api_test_limit_site burst=50 nodelay;
+
+        # Proxy to backend
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Environment "test";
+
+        # CORS - Handle by Nginx to ensure headers are present even on errors
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+
+        # Disable buffering for streaming
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering on;
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    # Video upload/processing endpoints (extended timeouts)
+    location ~ ^/api/v1/(upload|process|enhance)/ {
+        limit_req zone=upload_test_limit_site burst=10 nodelay;
+
+        # Extended timeouts for large uploads and GPU processing
+        client_body_timeout 3600s;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+
+        # Proxy to backend
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Environment "test";
+
+        # CORS - Handle by Nginx
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+        
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+
+        # Disable buffering for large files
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # WebSocket support for real-time updates
+    location /ws {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+
+        # WebSocket timeouts
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # Server-Sent Events for job progress
+    location ~ ^/api/v1/videos/jobs/events {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+        
+        # SSE specific settings
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+        
+        # Extended timeout for SSE
+        proxy_read_timeout 3600s;
+    }
+
+    # Feature flags and settings endpoints
+    location ~ ^/api/v1/(settings|feature-flags)/ {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Cache feature flags briefly
+        proxy_cache_valid 200 1m;
+        proxy_cache_bypass $http_cache_control;
+        add_header X-Cache-Status $upstream_cache_status;
+
+        # Ensure CORS headers are present even on cached responses
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+
+    # Monitoring and system utilities endpoints
+    location ~ ^/api/v1/(monitoring|system)/ {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support for monitoring
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Developer tools endpoints (test environment only)
+    location ~ ^/api/v1/dev/ {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Extended timeout for simulation/bulk operations
+        proxy_connect_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # PixelAssist streaming endpoint
+    location ~ ^/api/v1/assistant/stream {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+        
+        # Streaming specific settings
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+        
+        # Extended timeout for streaming
+        proxy_read_timeout 3600s;
+    }
+
+    # Root fallback
+    location / {
+        proxy_pass http://pixelenhance_backend_test;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Environment "test";
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin $cors_origin always;
+        add_header Access-Control-Allow-Credentials 'true' always;
+        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin $cors_origin always;
+            add_header Access-Control-Allow-Credentials 'true' always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+            add_header Access-Control-Allow-Headers $cors_allowed_headers always;
+            add_header Access-Control-Max-Age 1728000 always;
+            add_header Content-Type 'text/plain; charset=utf-8' always;
+            add_header Content-Length 0 always;
+            return 204;
+        }
+    }
+}
+
+# Test App (Frontend SPA)
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name test.pixelenhancelabs.ai
+                test-app.pixelenhancelabs.ai;
+
+    # IP whitelist check (commented out)
+    # if ($allowed_ip = 0) {
+    #     return 403 "Access denied. IP not whitelisted.";
+    # }
+
+    # SSL certificates
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+
+
+    # Security headers (test environment with Stripe)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://app.posthog.com https://cdn.jsdelivr.net blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; connect-src 'self' https://test-api.pixelenhancelabs.ai https://test.pixelenhancelabs.ai https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com wss://test-api.pixelenhancelabs.ai https://*.sentry.io; font-src 'self' https://fonts.gstatic.com data:; frame-src https://js.stripe.com; media-src 'self' blob: data: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" always;
+
+    # Test environment indicator
+    add_header X-Environment "test" always;
+
+    # Hide nginx version
+    server_tokens off;
+
+    # Root directory (matches deploy symlink: /opt/pixelenhance/test/frontend/current/frontend)
+    root /opt/pixelenhance/test/frontend/current/frontend;
+    index index.html;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+
+    # Rate limiting (more permissive for testing)
+    limit_req zone=general_test_limit_site burst=50 nodelay;
+
+    # JavaScript files with explicit MIME type
+    location ~* \.js$ {
+        types {
+            application/javascript js;
+        }
+        default_type application/javascript;
+        try_files $uri =404;
+        expires 1d;
+        add_header Cache-Control "public, must-revalidate";
+        add_header X-Environment "test";
+    }
+
+    # CSS files with explicit MIME type
+    location ~* \.css$ {
+        types {
+            text/css css;
+        }
+        default_type text/css;
+        try_files $uri =404;
+        expires 1d;
+        add_header Cache-Control "public, must-revalidate";
+        add_header X-Environment "test";
+    }
+
+    # Other static assets
+    location ~* \.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1d;
+        add_header Cache-Control "public, must-revalidate";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-Environment "test";
+    }
+
+    # Demo VOD HLS (fMP4) — Content-Type mirrors aarynfans ^~ /hls/ (types + add_header always)
+    location ^~ /demo/ {
+        gzip off;
+        types {
+            application/vnd.apple.mpegurl m3u8;
+            video/mp4 m4s;
+            video/mp4 mp4;
+        }
+
+        add_header Accept-Ranges "bytes" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Environment "test";
+
+        if ($request_uri ~ \.m3u8$) {
+            add_header Cache-Control "public, must-revalidate" always;
+            add_header Content-Type "application/vnd.apple.mpegurl" always;
+        }
+        if ($request_uri ~ \.m4s$) {
+            add_header Cache-Control "public, must-revalidate" always;
+            add_header Content-Type "video/mp4" always;
+        }
+        if ($request_uri ~ init\.mp4$) {
+            add_header Cache-Control "public, must-revalidate" always;
+            add_header Content-Type "video/mp4" always;
+        }
+
+        try_files $uri =404;
+    }
+
+    # Cache HTML with short duration (for testing)
+    location ~* \.html$ {
+        expires 5m;
+        add_header Cache-Control "public, must-revalidate";
+        add_header X-Environment "test";
+    }
+
+
+    # OAuth callback handling
+    location /auth/callback {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 '{"status":"healthy","environment":"test","frontend":"ok"}\n';
+        add_header Content-Type application/json;
+    }
+
+    # Player routes (video player with WebGPU support)
+    location ~ ^/player/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "test";
+        # Enable SharedArrayBuffer for WebGPU/WebAssembly
+        add_header Cross-Origin-Embedder-Policy "require-corp" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+    }
+
+    # GPU assets and shaders (WGSL, GLSL files)
+    location ~* \.(wgsl|glsl|vert|frag|compute)$ {
+        types {
+            text/plain wgsl glsl vert frag compute;
+        }
+        expires 1d;
+        add_header Cache-Control "public, must-revalidate";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-Environment "test";
+    }
+
+    # LUT files for color grading
+    location ~* \.(cube|dat|3dl|csp|lut)$ {
+        types {
+            application/octet-stream cube dat 3dl csp lut;
+        }
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-Environment "test";
+    }
+
+    # Admin routes
+    location ~ ^/admin/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "test";
+        # Additional security for admin area
+        add_header X-Frame-Options "DENY" always;
+    }
+
+    # Authenticated app routes (canonical /app/* only — no legacy /dashboard)
+    location ~ ^/app/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "test";
+    }
+
+    # Developer Test Lab route
+    location ~ ^/dev/lab {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "test";
+        # Enable features for testing
+        add_header Cross-Origin-Embedder-Policy "require-corp" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+    }
+
+    # Dev/test lab routes
+    location ~ ^/dev/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "test";
+    }
+
+    # Legal/compliance routes
+    location ~ ^/(privacy|terms|compliance|gdpr|dmca|records-2257)/?$ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "public, max-age=3600";
+        add_header X-Environment "test";
+    }
+
+    # Service Worker and PWA support
+    location /sw.js {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Service-Worker-Allowed "/";
+        try_files $uri =404;
+    }
+
+    location /manifest.json {
+        add_header Cache-Control "public, max-age=3600";
+        try_files $uri =404;
+    }
+
+    # Offline cache for video player
+    location ~ ^/offline/ {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "private, max-age=31536000";
+        add_header X-Environment "test";
+    }
+
+    # Handle client-side routing (SPA) - catch all
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "test";
+    }
+
+    # Deny access to sensitive files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    location ~* \.(env|log|ini)$ {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+
+# pixelspark-test.pixelenhancelabs.ai is served by pixel-spark-backend-test.conf (pixelspark repo).
+
+# configuration file /etc/nginx/sites-enabled/pixel-spark-backend-prod.conf:
+# Pixel Spark Backend - Production nginx configuration
+
+# Enforce HTTPS but keep ACME challenge available on port 80.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name pixelspark.pixelenhancelabs.ai;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name pixelspark.pixelenhancelabs.ai;
+
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Allow large uploads for media (adjust as needed).
+    client_max_body_size 10G;
+    client_body_timeout 3600s;
+    client_header_timeout 120s;
+    send_timeout 3600s;
+
+    access_log /var/log/nginx/pixel-spark-backend-prod.access.log;
+    error_log /var/log/nginx/pixel-spark-backend-prod.error.log;
+
+    location = /health {
+        proxy_pass http://localhost:8008/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 10s;
+    }
+
+    # Long-running uploads/streaming responses.
+    location / {
+        proxy_pass http://localhost:8008;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_redirect off;
+
+        # Stream uploads/downloads without buffering.
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # Enable gzip compression
+    gzip on;
+
+    # Disable gzip for media types that are already compressed
+    gzip_disable "msie6";
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 256;
+    gzip_types
+        application/atom+xml
+        application/geo+json
+        application/javascript
+        application/x-javascript
+        application/json
+        application/ld+json
+        application/manifest+json
+        application/rdf+xml
+        application/rss+xml
+        application/vnd.ms-fontobject
+        application/wasm
+        application/x-web-app-manifest+json
+        application/xhtml+xml
+        application/xml
+        font/eot
+        font/otf
+        font/ttf
+        image/svg+xml
+        text/css
+        text/plain
+        text/xml;
+}
+
+# configuration file /etc/nginx/sites-enabled/pixel-spark-backend-test.conf:
+# Pixel Spark Backend - Test Environment nginx configuration
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name test.pixelspark.pixelenhancelabs.ai;
+
+    # For local testing, you might not have HTTPS. If you do, use the same pattern as prod.
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name test.pixelspark.pixelenhancelabs.ai;
+
+    # Use a test certificate or a self-signed one if you don't have a dedicated test cert
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+
+    # Security headers are still a good idea in test
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    client_max_body_size 5G; # Slightly smaller than prod, perhaps
+
+    access_log /var/log/nginx/pixel-spark-backend-test.access.log;
+    error_log /var/log/nginx/pixel-spark-backend-test.error.log;
+
+    location / {
+        proxy_pass http://localhost:8008; # Assuming test also runs on 8008
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # Use the same gzip settings as production for consistency
+    gzip on;
+    gzip_disable "msie6";
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 256;
+    gzip_types
+        application/atom+xml
+        application/json
+        application/javascript
+        text/css
+        text/plain
+        text/xml;
+}
+
+# configuration file /etc/nginx/sites-enabled/pixelenhance-docs.conf:
+# PixelEnhance standalone documentation site.
+# Installed independently by deployment/docs_deploy.sh.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name docs.pixelenhancelabs.ai;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name docs.pixelenhancelabs.ai;
+
+    ssl_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pixelenhancelabs.ai/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/pixelenhancelabs.ai/chain.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://app.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.cdnfonts.com; img-src 'self' data: blob:; connect-src 'self' https://api.pixelenhancelabs.ai https://app.posthog.com https://us.i.posthog.com https://*.sentry.io; media-src 'self' blob: data: https://api.pixelenhancelabs.ai; font-src 'self' data: https://fonts.gstatic.com https://fonts.cdnfonts.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';" always;
+
+    server_tokens off;
+    root /opt/pixelenhance/prod/docs/current;
+    index index.html;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript image/svg+xml;
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+    }
+
+    location ~* \.html$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    }
+
+    location = /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header X-Environment "production-docs";
+    }
+
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+
+# configuration file /etc/nginx/sites-enabled/xcelsior:
+# Xcelsior Nginx Configuration — API + Next.js Frontend
+# Deploy to: /etc/nginx/sites-available/xcelsior
+# Enable with: ln -s /etc/nginx/sites-available/xcelsior /etc/nginx/sites-enabled/
+# Headscale uses dedicated configs: nginx/headscale.conf and nginx/headscale-http.conf
+
+# Rate limiting zone
+limit_req_zone $binary_remote_addr zone=xcelsior_limit:10m rate=30r/s;
+limit_conn_zone $binary_remote_addr zone=xcelsior_conn:10m;
+
+# Upstream for FastAPI backend (blue-green zero-downtime)
+upstream xcelsior_api {
+    server 127.0.0.1:9500;
+    server 127.0.0.1:9501 backup;
+    keepalive 32;
+}
+
+# Upstream for Next.js frontend
+upstream xcelsior_frontend {
+    server 127.0.0.1:3000;
+    keepalive 16;
+}
+
+# Hosted MCP server (Streamable HTTP)
+upstream xcelsior_mcp {
+    server 127.0.0.1:8770;
+    server 127.0.0.1:8771 backup;
+    keepalive 8;
+}
+
+# HTTP → HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name xcelsior.ca www.xcelsior.ca;
+
+    # Let's Encrypt challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# Main API server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name xcelsior.ca www.xcelsior.ca;
+
+    # SSL certificates (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/xcelsior.ca/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/xcelsior.ca/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/xcelsior.ca/chain.pem;
+
+    # SSL configuration (Mozilla Modern)
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS (1 year)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    # Security headers: CSP + frame-ancestors are set by Next.js (see next.config.ts).
+    # Do not duplicate X-Frame-Options / Referrer-Policy here — nginx would stack values.
+
+    # OCSP stapling disabled — LE certs on this host log "no OCSP responder URL" when enabled.
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+
+    # Connection limit (rate limiting applied per-location)
+    limit_conn xcelsior_conn 20;
+
+    # Client body size (for artifact uploads)
+    client_max_body_size 500M;
+    client_body_timeout 300s;
+
+    # Proxy timeouts (long-running jobs)
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+
+    # Blue-green failover: retry on the backup if primary returns 502/503/504
+    proxy_next_upstream error timeout http_502 http_503 http_504;
+    proxy_next_upstream_tries 2;
+    proxy_next_upstream_timeout 5s;
+
+    # MCP health (no rate limit)
+    location = /mcp/health {
+        access_log off;
+        proxy_pass http://xcelsior_mcp/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # /mcp — marketing page (browser GET) vs MCP protocol (POST/DELETE/SSE/Bearer)
+    location = /mcp {
+        set $use_mcp 0;
+        if ($request_method = POST) { set $use_mcp 1; }
+        if ($request_method = DELETE) { set $use_mcp 1; }
+        if ($http_accept ~* "text/event-stream") { set $use_mcp 1; }
+        if ($http_authorization ~* "^Bearer ") { set $use_mcp 1; }
+
+        error_page 418 = @mcp_service;
+        if ($use_mcp = 1) { return 418; }
+
+        proxy_pass http://xcelsior_frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    location @mcp_service {
+        internal;
+        proxy_pass http://xcelsior_mcp;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Mcp-Session-Id $http_mcp_session_id;
+        proxy_set_header MCP-Protocol-Version $http_mcp_protocol_version;
+        proxy_set_header traceparent $http_traceparent;
+        proxy_read_timeout 86400s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        client_max_body_size 1m;
+        proxy_next_upstream off;
+    }
+
+    # Infrastructure probes (no rate limit, no logging). These endpoints
+    # answer different orchestration questions and must reach the API instead
+    # of falling through to the frontend.
+    location ~ ^/(healthz|livez|readyz|startupz)$ {
+        access_log off;
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # SSE endpoints (disable buffering for real-time streaming)
+    location ~ ^/api/(stream|ai/chat|ai/confirm) {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE specific settings
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;  # 24 hours for long SSE connections
+    }
+
+    location ~ ^/instances/.*/logs/stream {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE specific settings
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+    }
+
+    # Serverless job streams + streaming OpenAI proxy (survive blue-green deploy)
+    location ~ ^/v1/serverless/[^/]+/(stream/|openai/v1/chat/completions) {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 5s;
+    }
+
+    # WebSocket support (terminals + instance streams — survive blue-green API swap)
+    location /ws {
+        proxy_pass http://xcelsior_api;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 5s;
+    }
+
+    # Next.js static assets (immutable hashed filenames)
+    location /_next/static/ {
+        proxy_pass http://xcelsior_frontend;
+        proxy_set_header Host $host;
+        expires 365d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Next.js image optimization
+    location /_next/image {
+        proxy_pass http://xcelsior_frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Static worker-agent bootstrap (exact match — nothing else under /static is served)
+    location = /static/worker_agent.py {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Pass through the SHA256 header the backend sets
+        proxy_pass_header X-Xcelsior-Agent-SHA256;
+        # Short cache so rollouts propagate quickly
+        add_header Cache-Control "no-cache, must-revalidate" always;
+    }
+
+    # ── Worker agent endpoints (migration surface) ────────────────────
+    #
+    # Phase 10 / §19.2–19.3: public ingress MUST strip forgeable worker
+    # identity headers. Unique admitted identity is via agent.xcelsior.ca
+    # (nginx/agent-xcelsior.conf mTLS, or the Envoy SPIFFE gateway in
+    # infra/envoy/agent-gateway.yaml), never this path.
+    #
+    # CUTOVER (blueprint §22.1): once every host speaks to
+    # agent.xcelsior.ca, replace the two blocks below with
+    #   include /etc/nginx/snippets/xcelsior-agent-retired.conf;
+    # (see nginx/snippets/xcelsior-agent-retired.conf) and set
+    # XCELSIOR_AGENT_PUBLIC_INGRESS=deny on the API so the surface is
+    # closed at both layers, not just at the edge.
+    location /host {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Worker-Host-Id "";
+        proxy_set_header X-Worker-Spiffe-Id "";
+        proxy_set_header X-Worker-Provider-Id "";
+        proxy_set_header X-Spiffe-Id "";
+        proxy_set_header X-Worker-Identity "";
+        proxy_set_header X-Forwarded-Client-Cert "";
+        proxy_set_header X-Xcelsior-Agent-Gateway "";
+        proxy_set_header X-Xcelsior-Gateway-Auth "";
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    location /agent/ {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Worker-Host-Id "";
+        proxy_set_header X-Worker-Spiffe-Id "";
+        proxy_set_header X-Worker-Provider-Id "";
+        proxy_set_header X-Spiffe-Id "";
+        proxy_set_header X-Worker-Identity "";
+        proxy_set_header X-Forwarded-Client-Cert "";
+        proxy_set_header X-Xcelsior-Agent-Gateway "";
+        proxy_set_header X-Xcelsior-Gateway-Auth "";
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # API routes → FastAPI backend
+    location /api/ {
+        limit_req zone=xcelsior_limit burst=50 nodelay;
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Backend data endpoints → API
+    location ~ ^/(hosts|instances|instance|marketplace|billing|spot-prices|spot|compute-score|compute-scores|queue|failover|user-images)(/|$) {
+        limit_req zone=xcelsior_limit burst=50 nodelay;
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Legacy dashboard → FastAPI (old Jinja HTML dashboard)
+    location /legacy/ {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Metrics are scraped over the host-private API ports. Never expose either
+    # the JSON snapshot or Prometheus exposition through the public edge.
+    location = /metrics {
+        access_log off;
+        add_header Cache-Control "no-store" always;
+        return 404;
+    }
+
+    location ^~ /metrics/ {
+        access_log off;
+        add_header Cache-Control "no-store" always;
+        return 404;
+    }
+
+    # Public API endpoints that must route to FastAPI (not Next.js)
+    location ~ ^/(openapi\.json|llms\.txt|redoc|docs|tiers|v1|autoscale|build|builds|canada|token|ssh|oauth|\.well-known)(/|$) {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Alert config endpoints → FastAPI
+    location /alerts/ {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Default: all other routes → Next.js frontend (no rate limit on page loads)
+    location / {
+        proxy_pass http://xcelsior_frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Deny access to sensitive files
+    location ~ /\. {
+        deny all;
+    }
+
+    location ~ ^/(\.env|\.git|__pycache__|tests) {
+        deny all;
+    }
+
+    # Error pages
+    error_page 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+        internal;
+    }
+
+    # Logging
+    access_log /var/log/nginx/xcelsior.access.log combined;
+    error_log /var/log/nginx/xcelsior.error.log warn;
+}
+
+# ── Internal API proxy for server-side callers (Next.js SSR, bg-worker) ──
+# Binds to loopback only — not reachable from the internet.
+# Routes through the same xcelsior_api upstream so blue-green swaps are
+# transparent: callers always hit 127.0.0.1:9555 regardless of which
+# colour slot is currently live.
+server {
+    listen 127.0.0.1:9555;
+    server_name _;
+
+    # No rate limiting — internal traffic only
+    # No SSL — loopback only
+
+    location / {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host xcelsior.ca;
+        proxy_set_header X-Real-IP 127.0.0.1;
+        proxy_set_header X-Forwarded-For 127.0.0.1;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 5s;
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        client_max_body_size 500M;
+    }
+
+    # SSE endpoints need proxy_buffering off
+    location ~ ^/api/(stream|ai/chat|ai/confirm) {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host xcelsior.ca;
+        proxy_set_header X-Real-IP 127.0.0.1;
+        proxy_set_header X-Forwarded-For 127.0.0.1;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+    }
+
+    location ~ ^/v1/serverless/[^/]+/(stream/|openai/v1/chat/completions) {
+        proxy_pass http://xcelsior_api;
+        proxy_set_header Host xcelsior.ca;
+        proxy_set_header X-Real-IP 127.0.0.1;
+        proxy_set_header X-Forwarded-For 127.0.0.1;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+        proxy_next_upstream_timeout 5s;
+    }
+
+    access_log off;
+}
+

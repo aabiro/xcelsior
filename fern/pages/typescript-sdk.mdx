@@ -1,0 +1,252 @@
+---
+title: TypeScript SDK
+subtitle: TypeScript client for Xcelsior's public developer API.
+slug: typescript-sdk
+---
+
+## Overview
+
+The Xcelsior TypeScript SDK gives you typed access to the core Xcelsior platform workflows from TypeScript: compute, billing, marketplace, storage, and inference.
+
+## Installation
+
+```bash
+npm install @xcelsior-gpu/sdk
+# or
+yarn add @xcelsior-gpu/sdk
+# or
+pnpm add @xcelsior-gpu/sdk
+```
+
+## Quick Start
+
+```typescript
+import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
+
+const client = new XcelsiorApiClient({
+  environment: XcelsiorApiEnvironment.Production,
+  headers: {
+    Authorization: `Bearer ${process.env.XCELSIOR_BEARER_TOKEN}`,
+  },
+});
+
+// Submit an instance
+const instance = await client.instances.create({
+  name: "llama-inference",
+  vramNeededGb: 24,
+  priority: 5,
+  tier: "dedicated",
+});
+console.log(`Instance ${instance.jobId} created`);
+
+// Check wallet balance
+const wallet = await client.billing.getWallet("customer-123");
+console.log(`Balance: $${wallet.balance} CAD`);
+```
+
+## Configuration
+
+```typescript
+import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
+
+const client = new XcelsiorApiClient({
+  // Environment (defaults to production)
+  environment: XcelsiorApiEnvironment.Production, // "https://xcelsior.ca"
+
+  // Authentication via headers
+  headers: {
+    Authorization: "Bearer your-api-key",
+  },
+
+  // Optional settings
+  timeoutInSeconds: 60,  // request timeout
+  maxRetries: 2,         // retry count (default: 2)
+});
+```
+
+### Configuration Options
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `environment` | `string` | No | API base URL. Defaults to `https://xcelsior.ca` |
+| `headers` | `Record<string, string>` | No | Additional headers (use for `Authorization`) |
+| `timeoutInSeconds` | `number` | No | Request timeout in seconds |
+| `maxRetries` | `number` | No | Number of retries on failure (default: 2) |
+| `fetch` | `typeof fetch` | No | Custom fetch implementation |
+
+## Usage Examples
+
+### Instance Management
+
+```typescript
+// Submit an instance (GPU job)
+const instance = await client.instances.create({
+  name: "training-run",
+  vramNeededGb: 48,
+  priority: 8,
+});
+
+// Check status
+const status = await client.instances.get("job-id-123");
+
+// List all instances
+const instances = await client.instances.list();
+
+// Cancel an instance
+await client.instances.cancel("job-id-123");
+
+// Get logs
+const logs = await client.instances.getLogs("job-id-123");
+```
+
+### Billing
+
+```typescript
+// Check wallet balance
+const wallet = await client.billing.getWallet("customer-123");
+console.log(`Balance: $${wallet.balance} CAD`);
+
+// Deposit credits
+await client.billing.deposit("customer-123", {
+  amount: 100.0,
+  currency: "CAD",
+});
+
+// Get invoice
+const invoice = await client.billing.getInvoice("customer-123");
+
+// Get usage
+const usage = await client.billing.getUsage("customer-123");
+
+// Estimate cost
+const estimate = await client.billing.estimateCost({
+  gpuModel: "RTX 4090",
+  hours: 24,
+});
+```
+
+### Marketplace
+
+```typescript
+// Browse available GPUs
+const listings = await client.marketplace.list();
+
+// Search marketplace
+const results = await client.marketplace.search({ query: "RTX 4090" });
+
+// Get marketplace stats
+const stats = await client.marketplace.getStats();
+
+// Create a reservation for capacity
+const reservation = await client.marketplaceV2.createReservation({
+  gpuModel: "RTX 4090",
+  count: 1,
+  hours: 4,
+});
+```
+
+### Volumes
+
+```typescript
+// Create a volume
+const volume = await client.volumes.create({
+  name: "training-data",
+  sizeGb: 100,
+});
+
+// Attach to an instance
+await client.volumes.attach(volume.volumeId, { jobId: "job-id-123" });
+
+// Detach
+await client.volumes.detach(volume.volumeId);
+
+// List volumes
+const volumes = await client.volumes.list();
+```
+
+### Inference
+
+```typescript
+// Submit inference job
+const job = await client.inference.submit({
+  model: "llama-3-70b",
+  prompt: "Explain GPU computing",
+});
+
+// List available models
+const models = await client.inference.listModels();
+
+// Serverless, create endpoint, run job, OpenAI chat
+const { endpoint } = await client.serverless.createEndpoint({
+  name: "my-llama",
+  mode: "preset",
+  modelName: "meta-llama/Llama-3.1-8B-Instruct",
+  minWorkers: 0,
+  maxWorkers: 2,
+});
+const job = await client.serverless.runJob(endpoint.endpointId, { input: { prompt: "Hi" } });
+const chat = await client.serverless.chatCompletions(endpoint.endpointId, {
+  model: "meta-llama/Llama-3.1-8B-Instruct",
+  messages: [{ role: "user", content: "Hello" }],
+});
+```
+
+## Resource Groups
+
+The SDK is organized around the main product areas exposed in Xcelsior's public developer API:
+
+| Group | Accessor | Description |
+|-------|----------|-------------|
+| Auth | `client.auth` | OAuth flows and session bootstrap |
+| Instances | `client.instances` | Instance creation, status, logs, cancellation |
+| Billing | `client.billing` | Wallets, payments, invoices, pricing |
+| Marketplace | `client.marketplace` | Listings, search, and marketplace insights |
+| Marketplace v2 | `client.marketplaceV2` | Reservations and advanced capacity search |
+| Volumes | `client.volumes` | Persistent storage volumes |
+| Artifacts | `client.artifacts` | Artifact upload and download URLs |
+| Serverless | `client.serverless` | Autoscaling inference endpoints, queue API, OpenAI proxy |
+| Inference (batch) | `client.inference` | HuggingFace scheduler jobs (`/api/inference`, `/v1/inference`) |
+
+## Error Handling
+
+```typescript
+import { XcelsiorApiClient, XcelsiorApiError, XcelsiorApiTimeoutError } from "@xcelsior-gpu/sdk";
+
+try {
+  const instance = await client.instances.create({ name: "my-job", vramNeededGb: 24 });
+} catch (error) {
+  if (error instanceof XcelsiorApiTimeoutError) {
+    console.error("Request timed out");
+  } else if (error instanceof XcelsiorApiError) {
+    console.error(`API Error ${error.statusCode}: ${error.message}`);
+    console.error("Response body:", error.body);
+  } else {
+    throw error;
+  }
+}
+```
+
+## TypeScript Support
+
+The SDK is fully typed. All request/response objects have TypeScript interfaces:
+
+```typescript
+import { XcelsiorApi } from "@xcelsior-gpu/sdk";
+
+// Access types via the XcelsiorApi namespace
+type ValidationError = XcelsiorApi.ValidationError;
+type HttpValidationError = XcelsiorApi.HttpValidationError;
+```
+
+## Passthrough Requests
+
+If you need a newer public route before updating your SDK version, use the built-in `fetch` method so auth, retries, and logging stay consistent:
+
+```typescript
+const response = await client.fetch("/api/some-new-endpoint", {
+  method: "POST",
+  body: JSON.stringify({ key: "value" }),
+  headers: { "Content-Type": "application/json" },
+});
+const data = await response.json();
+```

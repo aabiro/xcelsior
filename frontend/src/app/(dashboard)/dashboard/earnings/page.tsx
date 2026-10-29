@@ -1,0 +1,661 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { StatCard } from "@/components/ui/stat-card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DollarSign, TrendingUp, RefreshCw, ArrowUpRight, ExternalLink,
+  Percent, AlertTriangle, CheckCircle, Loader2, LinkIcon, Unlink, Gift,
+} from "lucide-react";
+import { PayoutRequirements } from "@/components/providers/payout-requirements";
+import type { ProviderAccount } from "@/lib/api";
+import { StripeLogo } from "@/components/ui/payment-logos";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useAuth } from "@/lib/auth";
+import { useLocale } from "@/lib/locale";
+import * as api from "@/lib/api";
+import type { Payout } from "@/lib/api";
+import { toast } from "sonner";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from "@/lib/recharts";
+import { PayPalConnectCard, type PayPalProviderState } from "@/components/providers/paypal-connect-card";
+import { StripeConnectEmbedded } from "@/components/providers/stripe-connect-embedded";
+
+/**
+ * The provider shape this page reads, minus the payout state it dropped.
+ *
+ * This local re-declaration is how the P6 parity gap survived: the route has
+ * returned `payouts` since the "tell a provider why they are unpaid" fix, and a
+ * hand-copied interface here quietly stopped at `paypal`. TypeScript then
+ * enforced the omission — `provider.payouts` was a compile error, so nobody
+ * could render it by accident.
+ *
+ * Extending the shared `ProviderAccount` rather than restating it means the
+ * next field the API adds is visible here without anyone remembering to copy
+ * it.
+ */
+type ProviderInfo = Omit<ProviderAccount, "paypal"> & {
+  paypal?: PayPalProviderState;
+};
+
+export default function EarningsPage() {
+  const { user, refreshUser } = useAuth();
+  const { t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const providerId = user?.provider_id || "";
+  const customerId = user?.customer_id || user?.user_id || "";
+
+  const [earnings, setEarnings] = useState<{
+    total_jobs: number; total_earned_cad: number;
+    total_platform_cad: number; total_tax_cad: number;
+    spot_earned_cad?: number; on_demand_earned_cad?: number;
+  } | null>(null);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [introFee, setIntroFee] = useState<{ window_days: number; active: boolean; days_remaining: number } | null>(null);
+  const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  const [gst, setGst] = useState<{
+    total_revenue_cad: number; threshold_cad: number;
+    must_register: boolean;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [onboarding, setOnboarding] = useState(false);
+  const [handledStripeReturn, setHandledStripeReturn] = useState(false);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [justConnected, setJustConnected] = useState(false);
+  const [pollingStatus, setPollingStatus] = useState(false);
+  const [platformPayPal, setPlatformPayPal] = useState(false);
+  const [confirmStripeDisconnect, setConfirmStripeDisconnect] = useState(false);
+  const [stripeDisconnecting, setStripeDisconnecting] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!providerId && !customerId) return;
+    setLoading(true);
+    try {
+      // Try providerId first, fall back to customerId for provider lookup
+      // (registerProvider uses customerId as provider_id when no providerId exists)
+      const pid = providerId || customerId;
+      const promises: Promise<any>[] = [];
+      promises.push(api.fetchProviderEarnings(pid).catch(() => null));
+      // Only a provider has an account to fetch. Registration writes
+      // `provider_id` onto the user, so its absence is the answer; probing by
+      // customer id instead cost every non-provider a 404 on each visit.
+      promises.push(providerId ? api.fetchProvider(providerId).catch(() => null) : Promise.resolve(null));
+      promises.push(api.fetchGstThreshold(customerId || providerId));
+      promises.push(api.checkPayPalEnabled().catch(() => ({ enabled: false, platform_mode: false })));
+      const [earningsRes, providerRes, gstRes, paypalFlagRes] = await Promise.allSettled(promises);
+      if (earningsRes.status === "fulfilled" && earningsRes.value) {
+        setEarnings(earningsRes.value.earnings);
+        setPayouts(earningsRes.value.recent_payouts || []);
+        setIntroFee(earningsRes.value.intro_fee || null);
+      }
+      if (providerRes.status === "fulfilled" && providerRes.value?.provider) {
+        setProvider(providerRes.value.provider as ProviderInfo);
+      }
+      if (gstRes.status === "fulfilled") {
+        setGst({
+          total_revenue_cad: gstRes.value.total_revenue_cad,
+          threshold_cad: gstRes.value.threshold_cad,
+          must_register: gstRes.value.must_register,
+        });
+      }
+      if (paypalFlagRes.status === "fulfilled") {
+        setPlatformPayPal(Boolean(paypalFlagRes.value?.enabled));
+      }
+    } catch {
+      toast.error("Failed to load earnings");
+    } finally {
+      setLoading(false);
+    }
+  }, [providerId, customerId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const stripeState = searchParams.get("stripe");
+    if (!stripeState || handledStripeReturn || loading) return;
+
+    if (stripeState === "refresh") {
+      // Link expired, user never completed onboarding. Mark abandoned immediately.
+      toast.info("Stripe setup wasn't completed. Click \"Resume Setup\" to try again.", { duration: 8000 });
+      const pid = providerId || customerId;
+      if (pid) {
+        api.abandonOnboarding(pid)
+          .then(() => { load(); })
+          .catch(() => {/* non-critical */});
+      }
+    } else if (stripeState === "return") {
+      if (provider?.status === "active") {
+        setJustConnected(true);
+        toast.success("Stripe account connected successfully! You're ready to receive payouts.", { duration: 10000 });
+      } else {
+        // Webhook may not have fired yet, poll until status becomes active.
+        toast.info("Verifying your Stripe account status…", { duration: 4000 });
+        setPollingStatus(true);
+      }
+    }
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("stripe");
+    next.delete("provider");
+    const query = next.toString();
+    router.replace(query ? `/dashboard/earnings?${query}` : "/dashboard/earnings", { scroll: false });
+    setHandledStripeReturn(true);
+  }, [searchParams, handledStripeReturn, loading, provider?.status, router, load, customerId, providerId]);
+
+  // Poll Stripe status after onboarding return until webhook-driven DB update lands.
+  useEffect(() => {
+    if (!pollingStatus) return;
+    const pid = providerId || customerId;
+    if (!pid) return;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 15; // 30 s at 2 s intervals
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await api.fetchProvider(pid);
+        if (res?.provider?.status === "active") {
+          setProvider(res.provider as ProviderInfo);
+          setJustConnected(true);
+          setPollingStatus(false);
+          clearInterval(interval);
+          // Refresh auth context so provider_id + role propagate immediately
+          // (analytics Provider tab unlocks without requiring a page reload).
+          await refreshUser();
+          toast.success("Stripe account connected! You're ready to receive payouts.", { duration: 10000 });
+        }
+      } catch { /* ignore transient errors */ }
+      if (attempts >= MAX_ATTEMPTS) {
+        setPollingStatus(false);
+        clearInterval(interval);
+        // Poll timed out, either Stripe is slow or the user didn't finish.
+        // Mark abandoned so they see a clear "Resume Setup" CTA.
+        const pid = providerId || customerId;
+        if (pid) {
+          api.abandonOnboarding(pid)
+            .then(() => { load(); })
+            .catch(() => {/* non-critical */});
+        }
+        toast.info("Stripe verification timed out. If you completed setup, click \"Resume Setup\" to check again.", { duration: 10000 });
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [pollingStatus, providerId, customerId, load, refreshUser]);
+
+  const handleStripeDisconnect = async () => {
+    setConfirmStripeDisconnect(false);
+    const pid = providerId || customerId;
+    if (!pid) return;
+    setStripeDisconnecting(true);
+    try {
+      await api.disconnectStripeProvider(pid);
+      setJustConnected(false);
+      toast.success(t("dash.earnings.stripe_disconnected"));
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dash.earnings.disconnect_failed"));
+    } finally {
+      setStripeDisconnecting(false);
+    }
+  };
+
+  const handleStripeConnect = async () => {
+    const pid = providerId || customerId;
+    if (!pid || !user?.email) {
+      toast.error("Unable to start Stripe setup, please log in again.", { duration: 6000 });
+      return;
+    }
+    setStripeError(null);
+    setOnboarding(true);
+    try {
+      const res = await api.registerProvider({
+        provider_id: pid,
+        email: user.email,
+      });
+      if (res.onboarding_url) {
+        // Redirect to Stripe onboarding/dashboard
+        window.location.href = res.onboarding_url;
+        // Reset spinner after 5s in case user returns via back button
+        setTimeout(() => setOnboarding(false), 5000);
+      } else if (provider) {
+        const msg = "Unable to generate Stripe onboarding link. Please try again or contact support.";
+        setStripeError(msg);
+        toast.error(msg, { duration: 8000 });
+        setOnboarding(false);
+      } else {
+        toast.success("Provider account created! Redirecting to Stripe…");
+        // Re-call to get the onboarding URL now that the account exists
+        load();
+        setOnboarding(false);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to start Stripe onboarding";
+      setStripeError(msg);
+      toast.error(msg, { duration: 8000 });
+      setOnboarding(false);
+    }
+  };
+
+  // Build chart data from payouts
+  const chartData = payouts
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .reduce<{ date: string; amount: number }[]>((acc, p) => {
+      const date = new Date(p.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+      const existing = acc.find((d) => d.date === date);
+      if (existing) existing.amount += p.provider_share_cad;
+      else acc.push({ date, amount: p.provider_share_cad });
+      return acc;
+    }, [])
+    .slice(-30);
+
+  const netEarnings = (earnings?.total_earned_cad ?? 0) - (earnings?.total_platform_cad ?? 0) - (earnings?.total_tax_cad ?? 0);
+
+  const statusColor: Record<string, string> = {
+    active: "text-emerald",
+    onboarding: "text-gold",
+    pending: "text-text-muted",
+    abandoned: "text-accent-orange",
+    restricted: "text-accent-red",
+    suspended: "text-accent-red",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{t("dash.earnings.title")}</h1>
+        <Button variant="outline" size="sm" onClick={load}>
+          <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
+        </Button>
+      </div>
+
+      {/* New-provider 0% platform-fee window */}
+      {introFee?.active && (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald/30 bg-emerald/10 px-4 py-3">
+          <Gift className="h-5 w-5 shrink-0 text-emerald" />
+          <div className="text-sm">
+            <span className="font-semibold text-emerald">0% platform fee active.</span>{" "}
+            <span className="text-text-secondary">
+              You keep 100% of your earnings for {introFee.days_remaining} more{" "}
+              {introFee.days_remaining === 1 ? "day" : "days"} (new-provider intro).
+            </span>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-28 rounded-xl bg-surface skeleton-pulse" />)}
+        </div>
+      ) : (
+        <>
+          {/* Stat Cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label={t("dash.earnings.total_earned")}
+              value={`$${(earnings?.total_earned_cad ?? 0).toFixed(2)}`}
+              icon={DollarSign}
+              glow="cyan"
+            />
+            <StatCard
+              label={t("dash.earnings.net_earnings")}
+              value={`$${netEarnings.toFixed(2)}`}
+              icon={TrendingUp}
+              glow="emerald"
+            />
+            <StatCard
+              label={t("dash.earnings.platform_fee")}
+              value={`$${(earnings?.total_platform_cad ?? 0).toFixed(2)}`}
+              icon={Percent}
+              glow="violet"
+            />
+            <StatCard
+              label={t("dash.earnings.instances_completed")}
+              value={earnings?.total_jobs ?? 0}
+              icon={ArrowUpRight}
+              glow="gold"
+            />
+          </div>
+
+          {(earnings?.spot_earned_cad != null || earnings?.on_demand_earned_cad != null) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Revenue by pricing mode</CardTitle>
+                <CardDescription>
+                  Spot jobs may be interrupted, payout reflects actual runtime only.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4">
+                    <p className="text-xs text-text-muted">Spot earnings</p>
+                    <p className="text-xl font-bold font-mono text-emerald mt-1">
+                      ${(earnings?.spot_earned_cad ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-surface/50 p-4">
+                    <p className="text-xs text-text-muted">On-demand earnings</p>
+                    <p className="text-xl font-bold font-mono mt-1">
+                      ${(earnings?.on_demand_earned_cad ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Payout methods + GST */}
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold tracking-wide text-text-primary">
+                {t("dash.earnings.payout_methods")}
+              </h2>
+              <p className="text-xs text-text-muted mt-0.5">{t("dash.earnings.payout_methods_desc")}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Stripe Connect */}
+            <Card className={provider?.status === "active" ? "border-emerald/40 ring-1 ring-emerald/20" : ""}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2.5">
+                  <StripeLogo className="text-base" />
+                  <span className="text-text-secondary font-normal text-sm">{t("dash.earnings.stripe_title")}</span>
+                </CardTitle>
+                <CardDescription>{t("dash.earnings.stripe_desc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* Gate P6 parity: the payout state `get_provider_account`
+                    returns, on the surface a provider actually looks at.
+                    Outside the status branches on purpose — `active` means
+                    Stripe enabled charges and payouts at the last check, not
+                    that nothing is outstanding, and a requirement with a future
+                    deadline appears while the account is still active. That is
+                    the window in which telling someone early is worth
+                    something. */}
+                {/* No account, no payout state: "could not be checked" would
+                    describe a Stripe account that does not exist. The
+                    become-a-provider branch below is the whole answer. */}
+                {provider && (
+                  <div className="mb-3">
+                    <PayoutRequirements payouts={provider.payouts} />
+                  </div>
+                )}
+                {provider?.status === "active" ? (
+                  <div className="space-y-3">
+                    {/* Always-visible connected banner */}
+                    <div className={`rounded-lg border px-3 py-3 ${
+                      justConnected
+                        ? "border-emerald/40 bg-emerald/8"
+                        : "border-emerald/20 bg-emerald/5"
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald/15">
+                          <CheckCircle className="h-4.5 w-4.5 text-emerald" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-emerald">
+                            {justConnected ? "Stripe Connected Successfully! 🎉" : "Stripe Account Connected"}
+                          </p>
+                          <p className="text-xs text-text-secondary mt-0.5">
+                            {justConnected
+                              ? "Your account is connected and ready to receive payouts for completed GPU jobs."
+                              : "Your account is connected to Stripe and ready to receive payouts."}
+                          </p>
+                          {provider.onboarded_at && (
+                            <p className="text-[11px] text-text-muted mt-1">
+                              Connected since {new Date(Number(provider.onboarded_at) * 1000).toLocaleDateString()}
+                            </p>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="mt-2 h-7 px-2 text-xs text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                            onClick={() => setConfirmStripeDisconnect(true)}
+                            disabled={stripeDisconnecting}
+                          >
+                            {stripeDisconnecting ? (
+                              <><Loader2 className="h-3 w-3 animate-spin" /> {t("dash.earnings.disconnecting")}</>
+                            ) : (
+                              <><Unlink className="h-3 w-3" /> {t("dash.earnings.disconnect")}</>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Requirements banner + payout management stay embedded for active accounts */}
+                    {(providerId || customerId) && (
+                      <StripeConnectEmbedded
+                        providerId={providerId || customerId}
+                        active
+                        mode="manage"
+                      />
+                    )}
+                    <ConfirmDialog
+                      open={confirmStripeDisconnect}
+                      title={t("dash.earnings.stripe_disconnect_title")}
+                      description={t("dash.earnings.stripe_disconnect_desc")}
+                      confirmLabel={t("dash.earnings.disconnect")}
+                      variant="danger"
+                      onConfirm={handleStripeDisconnect}
+                      onCancel={() => setConfirmStripeDisconnect(false)}
+                    />
+                  </div>
+                ) : provider ? (
+                  <div className="space-y-3">
+                    {(providerId || customerId) && (
+                      <StripeConnectEmbedded
+                        providerId={providerId || customerId}
+                        active
+                        mode="setup"
+                      />
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {provider.status === "abandoned"
+                            ? "Stripe Setup Incomplete"
+                            : provider.status === "pending"
+                            ? "Set Up Stripe Payouts"
+                            : "Provider Onboarding In Progress"}
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          {provider.status === "abandoned"
+                            ? "You left Stripe setup before finishing. Use the embedded form above or Resume for hosted setup."
+                            : "Complete Stripe Connect in the embedded form above, or open hosted setup as a fallback."}
+                        </p>
+                      </div>
+                      <Badge className={`${statusColor[provider.status] || "text-text-muted"} border-current/20 bg-current/5`}>
+                        {provider.status === "abandoned" ? "Incomplete" : provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
+                      </Badge>
+                    </div>
+                    <Button variant="outline" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus}>
+                      {onboarding ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
+                      ) : pollingStatus ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying Stripe status…</>
+                      ) : provider.status === "abandoned" ? (
+                        <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
+                      ) : provider.status === "pending" ? (
+                        <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
+                      ) : (
+                        <><ExternalLink className="h-3.5 w-3.5" /> Hosted setup fallback</>
+                      )}
+                    </Button>
+                    {stripeError && (
+                      <div className="rounded-md border border-accent-red/30 bg-accent-red/5 px-3 py-2">
+                        <p className="text-xs text-accent-red font-medium">{stripeError}</p>
+                        <p className="text-[11px] text-text-muted mt-0.5">If this persists, contact support with your account email.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold">Become a GPU Provider</p>
+                      <p className="text-xs text-text-muted">
+                        Earn money by sharing your GPU resources on the Xcelsior network.
+                        Connect Stripe to receive direct payouts for completed compute jobs.
+                      </p>
+                    </div>
+                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
+                      {onboarding ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Setting up…</>
+                      ) : (
+                        <><LinkIcon className="h-3.5 w-3.5" /> Become a Provider, Connect Stripe</>
+                      )}
+                    </Button>
+                    {stripeError && (
+                      <p className="text-xs text-accent-red mt-1">{stripeError}</p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {(provider || providerId) && (
+              <PayPalConnectCard
+                providerId={providerId || customerId}
+                paypal={provider?.paypal}
+                platformPayPalEnabled={platformPayPal}
+                onUpdated={load}
+              />
+            )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {/* GST Threshold */}
+            <Card className={gst?.must_register ? "border-gold/30 bg-gold/5" : ""}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">{t("dash.earnings.gst_title")}</CardTitle>
+                <CardDescription>{t("dash.earnings.gst_desc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-lg font-bold font-mono">
+                      ${(gst?.total_revenue_cad ?? 0).toLocaleString("en-CA", { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      of ${(gst?.threshold_cad ?? 30000).toLocaleString()} threshold
+                    </p>
+                  </div>
+                  {gst?.must_register ? (
+                    <div className="flex items-center gap-1.5 text-gold">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-sm font-medium">Registration required</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-text-muted">
+                      <CheckCircle className="h-4 w-4" />
+                      <span className="text-sm">Exempt</span>
+                    </div>
+                  )}
+                </div>
+                {/* Progress bar */}
+                <div className="mt-3 h-2 rounded-full bg-background overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${gst?.must_register ? "bg-gold" : "bg-emerald"}`}
+                    style={{ width: `${Math.min(((gst?.total_revenue_cad ?? 0) / (gst?.threshold_cad ?? 30000)) * 100, 100)}%` }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Earnings Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("dash.earnings.chart_title")}</CardTitle>
+              <CardDescription>{t("dash.earnings.chart_desc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {chartData.length === 0 ? (
+                <p className="text-sm text-text-muted py-8 text-center">
+                  {t("dash.earnings.no_earnings")}
+                </p>
+              ) : (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
+                      <YAxis
+                        tick={{ fill: "#94a3b8", fontSize: 11 }}
+                        stroke="#475569"
+                        tickFormatter={(v) => `$${v}`}
+                      />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#e2e8f0" }}
+                        formatter={(value) => [`$${Number(value).toFixed(2)}`, "Earned"]}
+                      />
+                      <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Payout History */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("dash.earnings.payouts")}</CardTitle>
+              <CardDescription>{t("dash.earnings.payouts_desc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {payouts.length === 0 ? (
+                <p className="text-sm text-text-muted">{t("dash.earnings.no_payouts")}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-text-muted">
+                        <th className="pb-2 pr-4 font-medium">Session</th>
+                        <th className="pb-2 pr-4 font-medium">Rail</th>
+                        <th className="pb-2 pr-4 font-medium">Total</th>
+                        <th className="pb-2 pr-4 font-medium">Your Share</th>
+                        <th className="pb-2 pr-4 font-medium">Platform</th>
+                        <th className="pb-2 pr-4 font-medium">Tax</th>
+                        <th className="pb-2 font-medium">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payouts.map((p) => (
+                        <tr key={`${p.job_id}-${p.created_at}`} className="border-b border-border/50">
+                          <td className="py-2.5 pr-4 font-mono text-xs">{p.job_id.slice(0, 12)}…</td>
+                          <td className="py-2.5 pr-4">
+                            <Badge
+                              className={
+                                p.payment_rail === "paypal"
+                                  ? "border-[#009cde]/30 text-[#009cde] bg-[#009cde]/5 text-[10px]"
+                                  : "border-[#635BFF]/30 text-[#635BFF] bg-[#635BFF]/5 text-[10px]"
+                              }
+                            >
+                              {p.payment_rail === "paypal"
+                                ? t("dash.earnings.rail_paypal")
+                                : t("dash.earnings.rail_stripe")}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 pr-4 font-mono">${p.total_cad.toFixed(2)}</td>
+                          <td className="py-2.5 pr-4 font-mono text-emerald">${p.provider_share_cad.toFixed(2)}</td>
+                          <td className="py-2.5 pr-4 font-mono text-text-muted">${p.platform_share_cad.toFixed(2)}</td>
+                          <td className="py-2.5 pr-4 font-mono text-text-muted">${p.gst_hst_cad.toFixed(2)}</td>
+                          <td className="py-2.5 text-text-muted">{new Date(p.created_at).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}

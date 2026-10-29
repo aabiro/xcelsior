@@ -1,0 +1,1617 @@
+"""Routes: health."""
+
+import asyncio
+import json
+from collections import defaultdict, deque
+import os
+import secrets
+from typing import Any
+import threading
+import time
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+    Response,
+)
+from pydantic import BaseModel, Field
+
+from routes._deps import (
+    AUTH_REQUIRED,
+    XCELSIOR_ENV,
+    _create_session,
+    _get_current_user,
+    _is_platform_admin,
+    _require_admin,
+    _require_auth,
+    _require_provider_or_admin,
+    _sse_lock,
+    _sse_subscribers,
+    log,
+)
+from scheduler import (
+    ALERT_CONFIG,
+    API_TOKEN,
+    build_and_push,
+    configure_alerts,
+    generate_dockerfile,
+    generate_ssh_keypair,
+    get_metrics_snapshot,
+    get_public_key,
+    list_builds,
+    log,
+    storage_healthcheck,
+)
+import metrics_catalog  # noqa: F401
+
+router = APIRouter()
+_projection_metrics_last_success_timestamp = 0.0
+
+# Incompressible, fixed-size payload: small JSON/metrics requests measure
+# request latency, not link throughput. No caller-controlled allocation.
+_NETWORK_SAMPLE = secrets.token_bytes(8 * 1024 * 1024)
+_NETWORK_DIAGNOSTIC_BUCKETS: defaultdict[str, deque] = defaultdict(deque)
+_NETWORK_DIAGNOSTIC_LOCK = threading.Lock()
+
+
+@router.get("/api/diagnostics/network-download", tags=["Infrastructure"])
+def network_download(request: Request):
+    """Bounded authenticated download for provider network diagnostics."""
+    from routes._deps import _canonical_owner_id, _require_scope
+
+    user = _require_auth(request)
+    _require_scope(user, "hosts:write")
+    return _network_download_response(_canonical_owner_id(user))
+
+
+def _network_download_response(owner_id: str):
+    from routes._deps import _take_shared_rate_slot
+
+    allowed = _take_shared_rate_slot(
+        "runtime.network_diagnostic_rate_limit",
+        owner_id,
+        time.time(),
+        limit=4,
+        window_sec=60,
+        buckets=_NETWORK_DIAGNOSTIC_BUCKETS,
+        lock=_NETWORK_DIAGNOSTIC_LOCK,
+    )
+    if not allowed:
+        raise HTTPException(
+            429, "Retry network diagnostics in one minute", headers={"Retry-After": "60"}
+        )
+    return Response(
+        _NETWORK_SAMPLE,
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "no-store, no-transform",
+            "Content-Encoding": "identity",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+# Templates and device code constants
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
+DEVICE_CODE_EXPIRY = 600  # 10 minutes
+DEVICE_CODE_INTERVAL = 5  # poll interval seconds
+_device_codes: dict[str, dict] = {}
+_device_lock = threading.Lock()
+
+
+@router.get("/healthz", tags=["Infrastructure"])
+def healthz():
+    """Lightweight liveness probe for frontend polling."""
+    return {"ok": True}
+
+
+@router.get("/livez", tags=["Infrastructure"])
+def livez():
+    """Liveness (blueprint §21.3): the process is alive. No dependency calls.
+
+    Deliberately distinct from ``/readyz``: a liveness probe that touches
+    the database restarts healthy replicas during a database blip, which
+    turns a brief dependency outage into a full outage. This one only
+    proves the event loop is scheduling work.
+    """
+    return {"ok": True, "status": "alive"}
+
+
+@router.get("/startupz", tags=["Infrastructure"])
+def startupz():
+    """Startup gate (blueprint §21.3 / §30): configuration and key material.
+
+    Reports every §30 production requirement that is currently violated,
+    each with its remediation. Returns 503 while any ``error`` finding is
+    outstanding so an orchestrator holds traffic instead of promoting a
+    misconfigured replica.
+    """
+    from control_plane.startup_validation import startup_report
+
+    report = startup_report()
+    if not report["ok"]:
+        # Returned directly rather than raised: the app's HTTPException
+        # handler flattens `detail` into a single message string, and the
+        # whole point of this probe is the itemised finding list.
+        return JSONResponse(status_code=503, content=report)
+    return report
+
+
+@router.get("/dashboard", response_class=HTMLResponse, tags=["Infrastructure"])
+def dashboard():
+    """The dashboard. HTML + JS. No React. No npm. No build step."""
+    html = (TEMPLATES_DIR / "dashboard.html").read_text()
+    return HTMLResponse(content=html)
+
+
+@router.get("/legacy", response_class=HTMLResponse, tags=["Infrastructure"])
+@router.get("/legacy/{path:path}", response_class=HTMLResponse, tags=["Infrastructure"])
+def legacy_dashboard(path: str = ""):
+    """Legacy dashboard preserved at /legacy while Next.js serves /."""
+    html = (TEMPLATES_DIR / "dashboard.html").read_text()
+    return HTMLResponse(content=html)
+
+
+# ── Model: AlertConfig ──
+
+
+class AlertConfig(BaseModel):
+    email_enabled: bool | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_user: str | None = None
+    smtp_pass: str | None = None
+    email_from: str | None = None
+    email_to: str | None = None
+    telegram_enabled: bool | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
+
+@router.get("/alerts/config", tags=["Infrastructure"])
+def api_get_alert_config(request: Request):
+    """Get current alert config (passwords redacted)."""
+    _require_admin(request)
+    safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
+    return {"config": safe}
+
+
+@router.put("/alerts/config", tags=["Infrastructure"])
+def api_set_alert_config(cfg: AlertConfig, request: Request):
+    """Update alert config at runtime."""
+    _require_admin(request)
+    updates = {k: v for k, v in cfg.model_dump().items() if v is not None}
+    configure_alerts(**updates)
+    return {"ok": True, "updated": list(updates.keys())}
+
+
+@router.post("/ssh/keygen", tags=["Infrastructure"])
+def api_generate_ssh_key(request: Request):
+    """Generate the platform's Ed25519 keypair for reaching provider hosts.
+
+    Admin, like the two infrastructure routes either side of it. This is not a
+    tenant's key — it is the one the platform presents to hosts, whose public
+    half `/ssh/pubkey` publishes for `authorized_keys`. Nothing a customer does
+    should touch it.
+
+    It was `_require_auth`, so any signed-in user could call it and read back
+    `key_path`: a filesystem path on the server. Small, but it is server
+    topology handed to whoever asks, from a route that has no tenant purpose at
+    all.
+
+    **It is not destructive**, which is worth writing down so nobody re-derives
+    a worse story from the route name: `generate_ssh_keypair` returns early when
+    the key already exists, so this cannot rotate the fleet's access key out
+    from under it.
+    """
+    _require_admin(request)
+    path = generate_ssh_keypair()
+    pub = get_public_key(path)
+    return {"ok": True, "key_path": path, "public_key": pub}
+
+
+@router.get("/ssh/pubkey", tags=["Infrastructure"])
+@router.get("/api/ssh/pubkey", tags=["Infrastructure"])
+def api_get_pubkey():
+    """Get the public key to add to hosts' authorized_keys."""
+    pub = get_public_key()
+    return {"public_key": pub or ""}
+
+
+@router.post("/token/generate", tags=["Infrastructure"])
+def api_generate_token(request: Request):
+    """Generate a secure random API token (admin only)."""
+    _require_admin(request)
+    token = secrets.token_urlsafe(32)
+    return {"token": token, "note": "Set XCELSIOR_API_TOKEN in your .env to enable auth."}
+
+
+# ── Model: DeviceCodeResponse ──
+
+
+class DeviceCodeResponse(BaseModel):
+    device_code: str
+    user_code: str
+    verification_uri: str
+    expires_in: int = DEVICE_CODE_EXPIRY
+    interval: int = DEVICE_CODE_INTERVAL
+
+
+# ── Model: DeviceTokenRequest ──
+
+
+class DeviceTokenRequest(BaseModel):
+    device_code: str
+    grant_type: str = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+@router.post("/_internal/legacy-auth/device", tags=["Infrastructure"])
+def api_auth_device_code(request: Request):
+    """Initiate OAuth2 device authorization flow (RFC 8628).
+
+    Returns a device_code (for polling) and a user_code (for the user to enter
+    in the browser at the verification_uri).
+    """
+    device_code = secrets.token_urlsafe(32)
+    user_code = "-".join(
+        [
+            secrets.token_hex(2).upper(),
+            secrets.token_hex(2).upper(),
+        ]
+    )  # e.g. "A1B2-C3D4"
+
+    base_url = str(request.base_url).rstrip("/")
+    verification_uri = f"{base_url}/api/auth/verify"
+
+    entry = {
+        "user_code": user_code,
+        "device_code": device_code,
+        "status": "pending",  # pending | authorized | expired
+        "token": None,
+        "created_at": time.time(),
+        "expires_at": time.time() + DEVICE_CODE_EXPIRY,
+    }
+
+    with _device_lock:
+        # Cleanup expired entries
+        now = time.time()
+        expired = [k for k, v in _device_codes.items() if v["expires_at"] < now]
+        for k in expired:
+            del _device_codes[k]
+
+        _device_codes[device_code] = entry
+
+    return DeviceCodeResponse(
+        device_code=device_code,
+        user_code=user_code,
+        verification_uri=verification_uri,
+    )
+
+
+@router.post("/_internal/legacy-auth/token", tags=["Infrastructure"])
+def api_auth_device_token(body: DeviceTokenRequest):
+    """Poll for device authorization result (RFC 8628 §3.4).
+
+    Returns:
+    - 200 + access_token when authorized
+    - 428 "authorization_pending" while waiting
+    - 410 "expired_token" if timed out
+    """
+    with _device_lock:
+        entry = _device_codes.get(body.device_code)
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="invalid_device_code")
+
+    now = time.time()
+    if now > entry["expires_at"]:
+        entry["status"] = "expired"
+        raise HTTPException(status_code=410, detail="expired_token")
+
+    if entry["status"] == "pending":
+        raise HTTPException(
+            status_code=428,
+            detail="authorization_pending",
+            headers={"Retry-After": str(DEVICE_CODE_INTERVAL)},
+        )
+
+    if entry["status"] == "authorized":
+        return {
+            "access_token": entry["token"],
+            "token_type": "Bearer",
+            "expires_in": 86400 * 30,  # 30 days
+        }
+
+    raise HTTPException(status_code=400, detail="unknown_status")
+
+
+# ── Model: DeviceVerifyRequest ──
+
+
+class DeviceVerifyRequest(BaseModel):
+    user_code: str
+
+
+@router.post("/_internal/legacy-auth/verify", tags=["Infrastructure"])
+def api_auth_verify_device(body: DeviceVerifyRequest, request: Request):
+    """Verify a device code by entering the user_code shown in the CLI.
+
+    Called from the web dashboard after the user logs in and enters their code.
+    Requires a valid session (cookie or bearer token) so the CLI token can be
+    tied to the authenticated user.  Falls back to creating an anonymous session
+    when no user context is available (e.g. first-time sign-up via device flow).
+    """
+    # Resolve the logged-in user from cookie/bearer
+    user = _get_current_user(request)
+
+    with _device_lock:
+        for dc, entry in _device_codes.items():
+            if entry["user_code"] == body.user_code and entry["status"] == "pending":
+                now = time.time()
+                if now > entry["expires_at"]:
+                    entry["status"] = "expired"
+                    raise HTTPException(status_code=410, detail="Code expired")
+
+                # Create a real session so the token works with TokenAuthMiddleware
+                if user:
+                    session = _create_session(user.get("email", "device-user"), user, request)
+                else:
+                    # Anonymous device auth — create a minimal session
+                    anon_user = {
+                        "user_id": f"device-{secrets.token_hex(8)}",
+                        "email": "device-auth@xcelsior.ca",
+                        "role": "submitter",
+                        "name": "Device User",
+                    }
+                    session = _create_session(anon_user["email"], anon_user, request)
+
+                token = session["token"]
+                entry["status"] = "authorized"
+                entry["token"] = token
+                return {"message": "Device authorized", "user_code": body.user_code}
+
+    raise HTTPException(status_code=404, detail="Invalid or expired user code")
+
+
+@router.get("/_internal/legacy-auth/verify", response_class=HTMLResponse, tags=["Infrastructure"])
+def api_auth_verify_page():
+    """Browser-facing page where users enter their device code."""
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="https://xcelsior.ca/favicon.svg" type="image/svg+xml">
+<title>Xcelsior — Device Authorization</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#060a14;color:#e5e7eb;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;
+       background-image:radial-gradient(ellipse at 50% 0%,rgba(0,212,255,.06) 0%,transparent 60%)}
+  .brand-line{height:2px;width:100%;background:linear-gradient(90deg,#00d4ff 0%,#8b5cf6 50%,#ef4444 100%);
+              border-radius:1px}
+  .card{background:rgba(13,19,32,.85);border:1px solid rgba(75,85,99,.4);border-radius:16px;
+        padding:2.5rem 2rem 2rem;max-width:440px;width:100%;text-align:center;
+        backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+        box-shadow:0 0 60px rgba(0,212,255,.05)}
+  .logo-wrap{display:flex;justify-content:center;margin-bottom:1.5rem}
+  .logo{width:180px;height:auto}
+  .subtitle{color:#9ca3af;margin-bottom:2rem;font-size:.95rem;line-height:1.5}
+  .subtitle strong{color:#00d4ff}
+  input{width:100%;padding:.875rem;border:1px solid rgba(75,85,99,.5);border-radius:10px;
+        background:rgba(31,41,55,.6);color:#f9fafb;font-size:1.3rem;text-align:center;
+        letter-spacing:.25em;text-transform:uppercase;margin-bottom:1rem;
+        transition:border-color .2s,box-shadow .2s}
+  input:focus{outline:none;border-color:#00d4ff;box-shadow:0 0 0 3px rgba(0,212,255,.15)}
+  input::placeholder{color:#4b5563;letter-spacing:.15em;text-transform:none;font-size:.95rem}
+  button{width:100%;padding:.875rem;border:none;border-radius:10px;
+         background:linear-gradient(135deg,#00d4ff 0%,#0ea5e9 100%);color:#0a0a0a;
+         font-size:1rem;cursor:pointer;font-weight:700;letter-spacing:.02em;
+         transition:opacity .2s,transform .1s}
+  button:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
+  button:active:not(:disabled){transform:translateY(0)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .msg{margin-top:1.25rem;padding:.875rem;border-radius:10px;font-size:.9rem;font-weight:500}
+  .ok{background:rgba(6,78,59,.6);color:#6ee7b7;border:1px solid rgba(6,95,70,.6)}
+  .err{background:rgba(127,29,29,.5);color:#fca5a5;border:1px solid rgba(153,27,27,.5)}
+  .footer{margin-top:1.5rem;font-size:.8rem;color:#4b5563}
+  .footer a{color:#00d4ff;text-decoration:none}
+  .footer a:hover{text-decoration:underline}
+</style></head><body>
+<div class="card">
+  <div class="brand-line" style="margin-bottom:1.5rem"></div>
+  <div class="logo-wrap">
+    <img src="https://xcelsior.ca/site-assets/assets/png/lockup-light.png" alt="Xcelsior" class="logo"
+         onerror="this.parentElement.style.display='none';document.getElementById('fallback-title').style.display='block'">
+  </div>
+  <h1 id="fallback-title" style="display:none;font-size:1.8rem;margin-bottom:1rem;
+      background:linear-gradient(135deg,#00d4ff,#8b5cf6);-webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;font-weight:800">Xcelsior</h1>
+  <p class="subtitle">Enter the code shown in your <strong>CLI</strong> to authorize this device.</p>
+  <form id="f">
+    <input id="code" placeholder="XXXX-XXXX" maxlength="9" autocomplete="off" autofocus>
+    <button type="submit" id="btn">Authorize Device</button>
+  </form>
+  <div id="msg"></div>
+  <div class="brand-line" style="margin-top:1.5rem"></div>
+  <div class="footer">
+    <a href="https://xcelsior.ca">xcelsior.ca</a> · GPU Cloud Platform
+  </div>
+</div>
+<script>
+const btn=document.getElementById('btn');
+const codeInput=document.getElementById('code');
+document.getElementById('f').onsubmit=async e=>{
+  e.preventDefault();
+  const code=codeInput.value.trim();
+  if(!code)return;
+  const msg=document.getElementById('msg');
+  btn.disabled=true;btn.textContent='Authorizing...';
+  try{
+    const r=await fetch('/api/auth/verify',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({user_code:code})});
+    const d=await r.json();
+    if(r.ok){
+      msg.className='msg ok';
+      msg.textContent='\\u2713 Device authorized! You can close this tab.';
+      codeInput.disabled=true;
+      btn.textContent='Authorized';
+    }else{
+      msg.className='msg err';
+      msg.textContent=d.detail||'Authorization failed. Check your code and try again.';
+      btn.disabled=false;btn.textContent='Authorize Device';
+    }
+  }catch(x){
+    msg.className='msg err';msg.textContent='Network error — check your connection.';
+    btn.disabled=false;btn.textContent='Authorize Device';
+  }
+};
+</script></body></html>""")
+
+
+# ── Helper: _require_provider_or_admin ──
+
+
+def _require_provider_or_admin(request: Request) -> dict:
+    """Return the current user or raise 403 if they lack provider/admin access."""
+    user = _require_auth(request)
+    if user.get("role") != "provider" and not _is_platform_admin(user):
+        raise HTTPException(403, "Provider or admin access required")
+    return user
+
+
+# ── Model: SlurmSubmitIn ──
+
+
+class SlurmSubmitIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    vram_needed_gb: float = Field(gt=0)
+    priority: int = 0
+    tier: str | None = None
+    num_gpus: int = 1
+    image: str = ""
+    profile: str | None = None
+    dry_run: bool = False
+
+
+@router.post("/api/slurm/submit", tags=["Infrastructure"])
+def api_slurm_submit(body: SlurmSubmitIn, request: Request):
+    """Submit an Xcelsior job to a Slurm cluster (HPC bridge).
+
+    Translates the job to an sbatch script and submits. Set dry_run=true
+    to see the generated script without submitting.
+    """
+    _require_admin(request)
+    from slurm_adapter import submit_to_slurm, register_slurm_job
+
+    job_dict = {
+        "job_id": secrets.token_hex(4),
+        "name": body.name,
+        "vram_needed_gb": body.vram_needed_gb,
+        "priority": body.priority,
+        "tier": body.tier or "free",
+        "num_gpus": body.num_gpus,
+        "image": body.image,
+    }
+
+    result = submit_to_slurm(job_dict, profile_name=body.profile, dry_run=body.dry_run)
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    if not body.dry_run and "slurm_job_id" in result:
+        register_slurm_job(job_dict["job_id"], result["slurm_job_id"])
+
+    return result
+
+
+@router.get("/api/slurm/status/{slurm_job_id}", tags=["Infrastructure"])
+def api_slurm_status(slurm_job_id: str, request: Request):
+    """Check the status of a Slurm job."""
+    _require_admin(request)
+    from slurm_adapter import get_slurm_job_status
+
+    status = get_slurm_job_status(slurm_job_id)
+    if "error" in status:
+        raise HTTPException(status_code=400, detail=status["error"])
+    return status
+
+
+@router.delete("/api/slurm/{slurm_job_id}", tags=["Infrastructure"])
+def api_slurm_cancel(slurm_job_id: str, request: Request):
+    """Cancel a Slurm job."""
+    _require_admin(request)
+    from slurm_adapter import cancel_slurm_job
+
+    result = cancel_slurm_job(slurm_job_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/api/slurm/profiles", tags=["Infrastructure"])
+def api_slurm_profiles(request: Request):
+    """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
+    _require_admin(request)
+    from slurm_adapter import CLUSTER_PROFILES
+
+    return {"profiles": {k: v["name"] for k, v in CLUSTER_PROFILES.items()}}
+
+
+@router.get("/api/nfs/config", tags=["Infrastructure"])
+def api_nfs_config(request: Request):
+    """Get current NFS configuration from environment (admin only)."""
+    from volumes import nfs_storage_healthcheck
+
+    _require_admin(request)
+    health = nfs_storage_healthcheck()
+    return {
+        "nfs_server": os.environ.get("XCELSIOR_NFS_SERVER", ""),
+        "nfs_path": os.environ.get("XCELSIOR_NFS_PATH", ""),
+        "nfs_export_base": os.environ.get("XCELSIOR_NFS_EXPORT_BASE", ""),
+        "nfs_mount_point": os.environ.get("XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs"),
+        "nfs_required": os.environ.get("XCELSIOR_NFS_REQUIRED", "").lower() in ("1", "true", "yes"),
+        "configured": health.get("configured", False),
+        "volumes": health,
+    }
+
+
+# ── Model: BuildIn ──
+
+
+class BuildIn(BaseModel):
+    model: str
+    base_image: str = "python:3.11-slim"
+    quantize: str | None = None
+    push: bool = False
+
+
+@router.post("/build", tags=["Infrastructure"])
+def api_build_image(b: BuildIn, request: Request):
+    """Build a Docker image for a model. Optionally quantize and push (admin only)."""
+    _require_admin(request)
+    result = build_and_push(b.model, quantize=b.quantize, base_image=b.base_image, push=b.push)
+    if not result["built"]:
+        raise HTTPException(status_code=500, detail=f"Build failed for {b.model}")
+    return {"ok": True, "build": result}
+
+
+@router.get("/builds", tags=["Infrastructure"])
+def api_list_builds(request: Request):
+    """List all local build directories (admin only)."""
+    _require_admin(request)
+    return {"builds": list_builds()}
+
+
+@router.post("/build/{model}/dockerfile", tags=["Infrastructure"])
+def api_generate_dockerfile(
+    model: str,
+    request: Request,
+    base_image: str = "python:3.11-slim",
+    quantize: str | None = None,
+):
+    """Preview the generated Dockerfile without building (admin only)."""
+    _require_admin(request)
+    content = generate_dockerfile(model, base_image=base_image, quantize=quantize)
+    return {"model": model, "dockerfile": content}
+
+
+# ── Helper: _sse_generator ──
+
+
+async def _sse_generator(request: Request, last_event_id: str | None = None):
+    """Async generator that yields SSE events until the client disconnects.
+
+    On reconnect (a `Last-Event-ID` cursor is present) it first replays the
+    durable outbox projection strictly after that cursor — so a client that lost
+    its connection to a dying replica receives every missed transition, exactly
+    once, in order (§16.3, B4.6) — then tails the process-local `broadcast_sse`
+    fan-out as a latency optimization behind that persistence.
+    """
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    with _sse_lock:
+        _sse_subscribers.append(queue)
+    try:
+        yield "retry: 3000\n\n"
+        yield f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
+
+        # Durable gap replay — only when resuming (a fresh connect starts live).
+        if last_event_id:
+            try:
+                from control_plane.event_stream import resume_after
+                from db import _get_pg_pool
+
+                with _get_pg_pool().connection() as conn:
+                    replay = resume_after(conn, last_event_id, limit=1000)
+                for ev in replay:
+                    yield (
+                        f"id: {ev.cursor}\nevent: {ev.event_type}\n"
+                        f"data: {json.dumps(ev.payload)}\n\n"
+                    )
+            except Exception as exc:  # degrade to live-only if the store is down
+                log.warning("SSE durable replay failed (live-only): %s", exc)
+
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=30)
+                event_type = msg.get("event", "message")
+                data = json.dumps(msg.get("data", {}))
+                cursor = msg.get("cursor")
+                id_prefix = f"id: {cursor}\n" if cursor else ""
+                yield f"{id_prefix}event: {event_type}\ndata: {data}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+    finally:
+        with _sse_lock:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
+
+
+@router.get("/api/stream", tags=["Infrastructure"])
+async def sse_stream(request: Request):
+    """Server-Sent Events stream for real-time dashboard updates.
+
+    A reconnecting client sends the standard `Last-Event-ID` header (or a
+    `last_event_id` query param); the generator replays the durable gap before
+    tailing live (B4.6, §16.3).
+    """
+    last_event_id = request.headers.get("last-event-id") or request.query_params.get(
+        "last_event_id"
+    )
+    return StreamingResponse(
+        _sse_generator(request, last_event_id=last_event_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── Model: VersionReport ──
+
+
+class VersionReport(BaseModel):
+    host_id: str
+    versions: dict
+
+
+# NOTE: /healthz is defined once near the top of this module as a lightweight
+# liveness probe (it wins by FastAPI registration order). A second, fuller
+# DB-connectivity handler used to live here but was an unreachable duplicate
+# route; its DB status and host/job counts are available via /api/status and
+# /metrics, so the dead duplicate was removed to avoid confusion.
+
+
+@router.get("/readyz", tags=["Infrastructure"])
+def readyz():
+    token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    if AUTH_REQUIRED and not token:
+        raise HTTPException(
+            status_code=503, detail="API token not configured for non-dev environment"
+        )
+
+    # Schema-revision gate (blueprint ADR-009 / §13.8; data-architecture
+    # companion §4.4 rule 2): refuse traffic when the database is outside
+    # this build's supported migration range, instead of limping along
+    # against a schema it does not understand. Postgres only; env-toggle
+    # for emergencies. A DB that cannot be reached to answer this is, by
+    # definition, not ready to serve.
+    schema_gate = os.environ.get("XCELSIOR_READYZ_SCHEMA_CHECK", "true").lower()
+    if (
+        schema_gate not in ("0", "false", "no", "off")
+        and os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower() == "postgres"
+    ):
+        from control_plane.schema_compat import (
+            SchemaIncompatibleError,
+            assert_schema_compatible,
+        )
+
+        try:
+            from db import _get_pg_pool
+
+            with _get_pg_pool().connection() as conn:
+                schema = assert_schema_compatible(conn)
+        except SchemaIncompatibleError as exc:
+            raise HTTPException(status_code=503, detail=f"Database schema incompatible: {exc}")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Database not ready (schema check): {exc}")
+    else:
+        schema = None
+
+    # Serverless rate-limit degradation policy must be explicitly declared
+    # in production (data-architecture companion §2.3/§5.5): a service that
+    # would silently fall back to per-process rate limiting is not ready.
+    try:
+        from serverless.limits import RateLimitPolicyError, validate_rate_limit_policy
+
+        validate_rate_limit_policy()
+    except RateLimitPolicyError as exc:
+        raise HTTPException(status_code=503, detail=f"Rate-limit policy misconfigured: {exc}")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # never let an unrelated import error mask readiness
+
+    # Worker-identity readiness (blueprint §21.3: "required Redis/identity/
+    # config ready"). A half-configured gateway cutover is the dangerous
+    # state — the API would be told to trust identity headers it has no way
+    # to authenticate. Fail the readiness gate instead of serving.
+    identity: dict[str, Any] | None = None
+    try:
+        from control_plane.identity import (
+            agent_gateway_secret,
+            spiffe_strict_binding,
+            spiffe_trust_domain,
+            trusted_gateway_enabled,
+        )
+
+        if trusted_gateway_enabled():
+            if not agent_gateway_secret():
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Agent identity not ready: XCELSIOR_TRUSTED_AGENT_GATEWAY=1 "
+                        "requires XCELSIOR_AGENT_GATEWAY_SECRET"
+                    ),
+                )
+            identity = {
+                "agent_gateway": True,
+                "spiffe_trust_domain": spiffe_trust_domain(),
+                "spiffe_strict": spiffe_strict_binding(),
+            }
+        else:
+            identity = {"agent_gateway": False}
+    except HTTPException:
+        raise
+    except Exception:
+        identity = None  # never let an unrelated import error mask readiness
+
+    # Auth cache readiness. Without it every authenticated request answers
+    # `auth_cache_unavailable` (503), so a replica that passes every other gate
+    # here is ready only in the sense that it can reliably reject its users.
+    # This gate was missing while the schema, rate-limit, identity, storage and
+    # NFS gates were all present — the dependency with the widest blast radius
+    # was the one nothing checked.
+    #
+    # Toggle mirrors XCELSIOR_READYZ_SCHEMA_CHECK above, for the same reason:
+    # an operator mid-incident may need to serve the unauthenticated surface
+    # while the cache is being repaired.
+    auth_cache: dict[str, Any] | None = None
+    if os.environ.get("XCELSIOR_READYZ_AUTH_CACHE_CHECK", "true").lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        from oauth_service import auth_cache_healthcheck
+
+        auth_cache = auth_cache_healthcheck()
+        if not auth_cache.get("ok"):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Auth cache not ready ({auth_cache.get('backend')}): "
+                    f"{auth_cache.get('error', 'unknown')}"
+                ),
+            )
+
+    storage = storage_healthcheck()
+    if not storage.get("ok"):
+        raise HTTPException(
+            status_code=503, detail=f"Storage not ready: {storage.get('error', 'unknown')}"
+        )
+
+    from volumes import nfs_storage_healthcheck
+
+    nfs = nfs_storage_healthcheck()
+    nfs_required = os.environ.get("XCELSIOR_NFS_REQUIRED", "").lower() in ("1", "true", "yes")
+    if nfs_required and not nfs.get("ok"):
+        raise HTTPException(
+            status_code=503,
+            detail=f"NFS volume storage not ready: {nfs.get('error') or nfs.get('mode', 'unreachable')}",
+        )
+
+    resp = {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
+    if auth_cache is not None:
+        resp["auth_cache"] = auth_cache
+    if identity is not None:
+        resp["identity"] = identity
+    if schema is not None:
+        resp["schema"] = {
+            "current": schema.current,
+            "minimum": schema.minimum,
+            "maximum": schema.maximum,
+        }
+    return resp
+
+
+#: How long one probe of every subsystem answers anonymous callers.
+_PUBLIC_STATUS_TTL_SEC = 15.0
+_public_status_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+_public_status_lock = threading.Lock()
+
+
+def _public_view(payload: dict) -> dict:
+    """State only. The detail strings are for operators.
+
+    They carry raw exception text — a failed database probe reads
+    `unreachable: connection to server at "…", port …, user "…"` — plus the
+    model name, host counts and storage backend. None of it tells a visitor
+    anything the state does not, and all of it tells an attacker something.
+    """
+    return {
+        **payload,
+        "services": [{**svc, "detail": ""} for svc in payload.get("services", [])],
+    }
+
+
+@router.get("/api/status", tags=["Infrastructure"])
+def service_status(request: Request):
+    """Aggregated per-service health for the status page and the CLI preflight.
+
+    Probes each named subsystem and reports state operational|degraded|down,
+    and never raises — it always returns 200 with a verdict so callers render.
+
+    verdict: "operational" (all green) | "degraded" (something down/degraded but
+    the wizard can still run) | "blocked" (a *required* service is down).
+
+    This docstring said "intentionally unauthenticated" for as long as the path
+    was missing from `PUBLIC_PATHS`, so `TokenAuthMiddleware` answered 401 to
+    every anonymous caller. The public status page treats any failure as
+    "status check unreachable — treat it as unknown rather than healthy", which
+    is what it told every visitor while production was healthy (found by the
+    real-production Playwright examination, 2026-10-05). The CLI preflight,
+    which runs before sign-in by definition, got the same 401.
+
+    Made public as intended, with two conditions the intent did not spell out.
+    Anonymous callers get state without detail (see `_public_view`). And they
+    get a cached answer: public paths skip `RateLimitMiddleware`, and each
+    computation runs a database query, an auth-cache probe and an HTTP probe of
+    the MCP process with a 3-second timeout — unthrottled and uncached, that is
+    an endpoint for making the API do work on demand. A platform admin always
+    gets a fresh, detailed probe.
+    """
+    user = _get_current_user(request)
+    if user and _is_platform_admin(user):
+        return _compute_service_status()
+
+    now = time.monotonic()
+    with _public_status_lock:
+        cached = _public_status_cache["payload"]
+        if cached is not None and now - _public_status_cache["at"] < _PUBLIC_STATUS_TTL_SEC:
+            return cached
+        # Computed under the lock so a burst of anonymous requests costs one
+        # probe, not one each.
+        fresh = _public_view(_compute_service_status())
+        _public_status_cache.update(at=now, payload=fresh)
+        return fresh
+
+
+_ARTIFACT_PROBE_TIMEOUT_SEC = 5.0
+
+
+#: Both blue-green MCP replicas. deploy.sh promotes `mcp` (8770) and `mcp-blue`
+#: (8771) in turn and stops the one it replaced, so a probe of one fixed port
+#: read "down" after every other deploy while the live replica served
+#: mcp.xcelsior.ca normally (found 2026-10-12: live=blue, :8770 refused).
+_MCP_HEALTH_URLS_DEFAULT = "http://127.0.0.1:8770/readyz,http://127.0.0.1:8771/readyz"
+
+
+def _probe_mcp_connector() -> tuple[str, str, str, bool]:
+    """(name, state, detail, required) for the MCP connector.
+
+    ``XCELSIOR_MCP_HEALTH_URL`` is a comma-separated list of readiness URLs;
+    the connector is operational when any of them answers ready.
+    """
+    import httpx as _httpx
+
+    name = "MCP connector"
+    raw = os.environ.get("XCELSIOR_MCP_HEALTH_URL") or _MCP_HEALTH_URLS_DEFAULT
+    urls = [u.strip() for u in raw.split(",") if u.strip()]
+    not_ready: list[str] = []
+    unreachable: list[str] = []
+    with _httpx.Client(timeout=3.0) as _http:
+        for url in urls:
+            try:
+                probe = _http.get(url)
+            except Exception as exc:
+                unreachable.append(f"{url}: {exc}")
+                continue
+            if probe.status_code == 200:
+                return (name, "operational", "ready", False)
+            checks = {}
+            try:
+                checks = probe.json().get("checks", {})
+            except Exception:
+                pass
+            not_ready.append(
+                ", ".join(check for check, ok in checks.items() if not ok) or "not ready"
+            )
+    # A replica that answered names what is wrong with it; a stopped standby
+    # only says it is stopped, so report the answering one first.
+    if not_ready:
+        return (name, "down", "; ".join(not_ready), False)
+    return (name, "down", "unreachable: " + "; ".join(unreachable), False)
+
+
+def _probe_artifact_storage() -> tuple[str, str, str, bool]:
+    """(name, state, detail, required) for the artifact bucket."""
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as _ProbeTimeout
+
+    name = "Artifact storage"
+    try:
+        from artifacts import StorageClient, StorageConfig
+
+        config = StorageConfig.from_env()
+        client = StorageClient(config)
+    except Exception as exc:
+        return name, "degraded", f"not configured: {exc}", False
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        pool.submit(client.list_objects, "", 1).result(timeout=_ARTIFACT_PROBE_TIMEOUT_SEC)
+    except _ProbeTimeout:
+        return (
+            name,
+            "degraded",
+            f"{config.backend}: no answer in {_ARTIFACT_PROBE_TIMEOUT_SEC:g}s",
+            False,
+        )
+    except Exception as exc:
+        return name, "down", f"{config.backend}: {exc}", False
+    finally:
+        # Do not wait for a hung probe; it finishes or dies on its own.
+        pool.shutdown(wait=False, cancel_futures=True)
+    where = config.bucket if config.backend in ("s3", "gcs") else "local"
+    return name, "operational", f"{config.backend} · {where}", False
+
+
+def _compute_service_status() -> dict:
+    services: list[dict[str, Any]] = []
+
+    def add(name: str, state: str, detail: str, required: bool) -> None:
+        services.append({"name": name, "state": state, "detail": detail, "required": required})
+
+    # API — if this handler runs at all, the control plane is reachable.
+    add("API", "operational", "Control plane reachable", True)
+
+    # Database
+    try:
+        from db import _get_pg_pool
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            row = conn.execute("SELECT 1 AS ok").fetchone()
+        ok = bool(row)
+        add(
+            "Database",
+            "operational" if ok else "down",
+            "connected" if ok else "query returned no rows",
+            True,
+        )
+    except Exception as exc:
+        add("Database", "down", f"unreachable: {exc}", True)
+
+    # Auth cache — required. The wizard's preflight gate reported "operational"
+    # while sign-in was answering 503 on every attempt, because nothing here
+    # probed the cache auth depends on. A gate that cannot see the failure the
+    # user is about to hit is worse than no gate: it tells them to proceed.
+    try:
+        from oauth_service import auth_cache_healthcheck
+
+        probe = auth_cache_healthcheck()
+        add(
+            "Auth cache",
+            "operational" if probe.get("ok") else "down",
+            str(probe.get("error") or f"{probe.get('backend')} ready"),
+            True,
+        )
+    except Exception as exc:
+        add("Auth cache", "down", f"probe failed: {exc}", True)
+
+    # Scheduler / job queue
+    try:
+        snap = get_metrics_snapshot()
+        active = snap.get("active_hosts", 0)
+        queued = snap.get("queue_depth", 0)
+        add("Scheduler", "operational", f"{active} active host(s) · {queued} queued", True)
+    except Exception as exc:
+        add("Scheduler", "down", f"scheduler error: {exc}", True)
+
+    # AI assistant (Hexara) — non-required; the wizard runs without it (help disabled)
+    try:
+        from ai_assistant import AI_MODEL, _has_any_live_provider
+
+        if _has_any_live_provider():
+            add("AI (Hexara)", "operational", f"model {AI_MODEL}", False)
+        else:
+            add("AI (Hexara)", "degraded", "no provider key configured — assistant disabled", False)
+    except Exception as exc:
+        add("AI (Hexara)", "degraded", f"assistant unavailable: {exc}", False)
+
+    # Billing (Stripe) — non-required; wallet top-ups unavailable when down
+    try:
+        from stripe_connect import STRIPE_ENABLED
+
+        if STRIPE_ENABLED:
+            add("Billing", "operational", "Stripe configured", False)
+        else:
+            add("Billing", "degraded", "Stripe not configured — top-ups disabled", False)
+    except Exception as exc:
+        add("Billing", "degraded", f"billing unavailable: {exc}", False)
+
+    # Storage (Postgres-backed persistence)
+    try:
+        st = storage_healthcheck()
+        st_ok = bool(st.get("ok"))
+        add(
+            "Storage",
+            "operational" if st_ok else "degraded",
+            str(st.get("backend") or st.get("error") or ("ready" if st_ok else "unavailable")),
+            False,
+        )
+    except Exception as exc:
+        add("Storage", "degraded", f"storage error: {exc}", False)
+
+    # NFS volumes — required only when XCELSIOR_NFS_REQUIRED is set
+    nfs_required = os.environ.get("XCELSIOR_NFS_REQUIRED", "").lower() in ("1", "true", "yes")
+    try:
+        from volumes import nfs_storage_healthcheck
+
+        nfs = nfs_storage_healthcheck()
+        nfs_ok = bool(nfs.get("ok"))
+        add(
+            "Volumes (NFS)",
+            "operational" if nfs_ok else ("down" if nfs_required else "degraded"),
+            str(nfs.get("mode") or nfs.get("error") or ("ready" if nfs_ok else "unreachable")),
+            nfs_required,
+        )
+    except Exception as exc:
+        add(
+            "Volumes (NFS)",
+            "down" if nfs_required else "degraded",
+            f"nfs error: {exc}",
+            nfs_required,
+        )
+
+    # Artifact storage — probed against the bucket itself. `storage_healthcheck`
+    # above only queries Postgres, so nothing anywhere exercised the bucket, and
+    # when every bucket in the Backblaze account was deleted (found 2026-10-06,
+    # some time after 2026-08-12) nothing noticed. A one-object listing proves
+    # the bucket exists and the key can read it. `list_objects` raises rather
+    # than returning an empty list, so a missing bucket cannot pass for an
+    # empty one. Capped at 5s in a worker thread: a provider that hangs must
+    # not hang the status page with it.
+    add(*_probe_artifact_storage())
+
+    # MCP connector — the surface every connected AI assistant talks to. Probed
+    # through its own readiness endpoint rather than assumed healthy because the
+    # API is: it is a separate process behind a separate hostname, and it can be
+    # down while everything else is fine (adoption plan X6.27).
+    add(*_probe_mcp_connector())
+
+    required_down = any(s["required"] and s["state"] == "down" for s in services)
+    has_problem = any(s["state"] in ("down", "degraded") for s in services)
+    verdict = "blocked" if required_down else ("degraded" if has_problem else "operational")
+
+    return {"ok": verdict != "blocked", "verdict": verdict, "services": services}
+
+
+@router.get("/metrics", tags=["Infrastructure"])
+def metrics():
+    return {"ok": True, "metrics": get_metrics_snapshot()}
+
+
+@router.get("/metrics/prometheus", tags=["Infrastructure"])
+def metrics_prometheus():
+    """Prometheus-compatible /metrics endpoint.
+
+    Exports xcelsior_* gauges, counters, and histograms in Prometheus
+    text exposition format for scraping by Prometheus/Grafana.
+    """
+    global _projection_metrics_last_success_timestamp
+
+    snap = get_metrics_snapshot()
+
+    lines = [
+        "# HELP xcelsior_queue_depth Number of queued jobs",
+        "# TYPE xcelsior_queue_depth gauge",
+        f'xcelsior_queue_depth {snap.get("queue_depth", 0)}',
+        "",
+        "# HELP xcelsior_active_hosts Number of active GPU hosts",
+        "# TYPE xcelsior_active_hosts gauge",
+        f'xcelsior_active_hosts {snap.get("active_hosts", 0)}',
+        "",
+        "# HELP xcelsior_running_jobs Number of running jobs",
+        "# TYPE xcelsior_running_jobs gauge",
+        f'xcelsior_running_jobs {snap.get("running_jobs", 0)}',
+        "",
+        "# HELP xcelsior_failed_jobs_total Total number of failed jobs",
+        "# TYPE xcelsior_failed_jobs_total gauge",
+        f'xcelsior_failed_jobs_total {snap.get("failed_jobs", 0)}',
+        "",
+        "# HELP xcelsior_billing_revenue_cad Total revenue in CAD",
+        "# TYPE xcelsior_billing_revenue_cad gauge",
+        f'xcelsior_billing_revenue_cad {snap.get("billing_totals", {}).get("total_revenue", 0)}',
+        "",
+        "# HELP xcelsior_billing_records_total Total billing records",
+        "# TYPE xcelsior_billing_records_total gauge",
+        f'xcelsior_billing_records_total {snap.get("billing_totals", {}).get("records", 0)}',
+    ]
+
+    # B4.4 projection metrics are derived from durable database state so they
+    # remain truthful when the dispatcher runs in the separate bg-worker
+    # process. Process-local counters in the API would incorrectly stay at zero.
+    try:
+        from control_plane.projection_delivery import health_snapshot
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            projection = health_snapshot(conn)
+        _projection_metrics_last_success_timestamp = time.time()
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_projection_metrics_available 1 when projection metrics can be read",
+                "# TYPE xcelsior_projection_metrics_available gauge",
+                "xcelsior_projection_metrics_available 1",
+                "# HELP xcelsior_projection_metrics_last_success_timestamp_seconds Unix time of the most recent successful projection metrics snapshot",
+                "# TYPE xcelsior_projection_metrics_last_success_timestamp_seconds gauge",
+                "xcelsior_projection_metrics_last_success_timestamp_seconds "
+                f"{_projection_metrics_last_success_timestamp:.3f}",
+                "# HELP xcelsior_projection_outbox_unprepared Outbox events awaiting fan-out preparation",
+                "# TYPE xcelsior_projection_outbox_unprepared gauge",
+                f'xcelsior_projection_outbox_unprepared {projection["unprepared"]}',
+                "# HELP xcelsior_projection_orphaned_deliveries Delivery receipts missing their source outbox event",
+                "# TYPE xcelsior_projection_orphaned_deliveries gauge",
+                f'xcelsior_projection_orphaned_deliveries {projection["orphaned"]}',
+                "# HELP xcelsior_projection_deliveries Delivery receipts by sink and state",
+                "# TYPE xcelsior_projection_deliveries gauge",
+                "# HELP xcelsior_projection_oldest_pending_seconds Age of the oldest pending receipt",
+                "# TYPE xcelsior_projection_oldest_pending_seconds gauge",
+                "# HELP xcelsior_projection_delivery_latency_p95_seconds P95 delivery latency for retained successful receipts",
+                "# TYPE xcelsior_projection_delivery_latency_p95_seconds gauge",
+            ]
+        )
+        for sink in projection["sinks"]:
+            sink_label = json.dumps(str(sink["sink"]))
+            for status in ("pending", "delivered", "dead_lettered"):
+                lines.append(
+                    "xcelsior_projection_deliveries"
+                    f'{{sink={sink_label},status="{status}"}} {sink[status]}'
+                )
+            lines.append(
+                "xcelsior_projection_oldest_pending_seconds"
+                f'{{sink={sink_label}}} {sink["oldest_pending_seconds"]}'
+            )
+            lines.append(
+                "xcelsior_projection_delivery_latency_p95_seconds"
+                f'{{sink={sink_label}}} {sink["delivery_latency_p95_seconds"]}'
+            )
+    except Exception as e:
+        log.debug("projection delivery metrics failed: %s", e)
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_projection_metrics_available 1 when projection metrics can be read",
+                "# TYPE xcelsior_projection_metrics_available gauge",
+                "xcelsior_projection_metrics_available 0",
+                "# HELP xcelsior_projection_metrics_last_success_timestamp_seconds Unix time of the most recent successful projection metrics snapshot",
+                "# TYPE xcelsior_projection_metrics_last_success_timestamp_seconds gauge",
+                "xcelsior_projection_metrics_last_success_timestamp_seconds "
+                f"{_projection_metrics_last_success_timestamp:.3f}",
+            ]
+        )
+
+    # Durable operational state and cross-process heartbeats.  Keep this
+    # separate from the projection block: one failing subsystem must carry an
+    # explicit availability=0 signal without suppressing the other metrics.
+    try:
+        from control_plane.operational_metrics import (
+            collect_operational_snapshot,
+            render_operational_metrics,
+        )
+        from db import _get_pg_pool
+
+        observation_stale_seconds = max(
+            1,
+            int(os.environ.get("XCELSIOR_OBSERVATION_STALE_SEC", "300")),
+        )
+        heartbeat_fresh_seconds = max(
+            1,
+            int(os.environ.get("XCELSIOR_SERVICE_HEARTBEAT_FRESH_SEC", "60")),
+        )
+        with _get_pg_pool().connection() as conn:
+            operational = collect_operational_snapshot(
+                conn,
+                observation_stale_seconds=observation_stale_seconds,
+                heartbeat_fresh_seconds=heartbeat_fresh_seconds,
+            )
+        lines.extend(render_operational_metrics(operational))
+    except Exception as e:
+        log.warning("durable operational metrics failed: %s", e)
+        from control_plane.operational_metrics import (
+            render_operational_metrics_unavailable,
+        )
+
+        lines.extend(render_operational_metrics_unavailable())
+
+    volumes = snap.get("volumes", {})
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_volumes_total Non-deleted persistent volumes",
+            "# TYPE xcelsior_volumes_total gauge",
+            f'xcelsior_volumes_total {volumes.get("total", 0)}',
+            "",
+            "# HELP xcelsior_volumes_error Volumes in error state",
+            "# TYPE xcelsior_volumes_error gauge",
+            f'xcelsior_volumes_error {volumes.get("error", 0)}',
+            "",
+            "# HELP xcelsior_nfs_reachable NFS volume storage reachable (1=yes)",
+            "# TYPE xcelsior_nfs_reachable gauge",
+            f'xcelsior_nfs_reachable {volumes.get("nfs_reachable", 0)}',
+        ]
+    )
+
+    notifications = snap.get("notifications", {})
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_notifications_retained_total Total retained in-app notifications",
+            "# TYPE xcelsior_notifications_retained_total gauge",
+            f'xcelsior_notifications_retained_total {notifications.get("retained_total", 0)}',
+        ]
+    )
+
+    spot = snap.get("spot", {})
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_spot_jobs_running Number of running spot (interruptible) jobs",
+            "# TYPE xcelsior_spot_jobs_running gauge",
+            f'xcelsior_spot_jobs_running {spot.get("jobs_running", 0)}',
+            "",
+            "# HELP xcelsior_spot_preemptions_total Total spot job preemptions",
+            "# TYPE xcelsior_spot_preemptions_total counter",
+            f'xcelsior_spot_preemptions_total {spot.get("preemptions_total", 0)}',
+        ]
+    )
+    for gpu_model, rate in (spot.get("rates_cad") or {}).items():
+        safe_model = str(gpu_model).replace('"', '\\"')
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_spot_rate_cad Current unified spot rate in CAD per hour",
+                "# TYPE xcelsior_spot_rate_cad gauge",
+                f'xcelsior_spot_rate_cad{{gpu_model="{safe_model}"}} {rate}',
+            ]
+        )
+
+    web_push = snap.get("web_push", {})
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_web_push_configured Whether web push is configured for this API instance",
+            "# TYPE xcelsior_web_push_configured gauge",
+            f'xcelsior_web_push_configured {web_push.get("configured", 0)}',
+            "",
+            "# HELP xcelsior_web_push_active_subscriptions Active web push subscriptions",
+            "# TYPE xcelsior_web_push_active_subscriptions gauge",
+            f'xcelsior_web_push_active_subscriptions {web_push.get("active_subscriptions", 0)}',
+            "",
+            "# HELP xcelsior_web_push_revoked_subscriptions Revoked web push subscriptions awaiting cleanup",
+            "# TYPE xcelsior_web_push_revoked_subscriptions gauge",
+            f'xcelsior_web_push_revoked_subscriptions {web_push.get("revoked_subscriptions", 0)}',
+            "",
+            "# HELP xcelsior_web_push_stale_subscriptions Active subscriptions not touched within the stale window",
+            "# TYPE xcelsior_web_push_stale_subscriptions gauge",
+            f'xcelsior_web_push_stale_subscriptions {web_push.get("stale_subscriptions", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_attempts_total Web push delivery attempts",
+            "# TYPE xcelsior_web_push_delivery_attempts_total counter",
+            f'xcelsior_web_push_delivery_attempts_total {web_push.get("delivery_attempts_total", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_success_total Successful web push deliveries",
+            "# TYPE xcelsior_web_push_delivery_success_total counter",
+            f'xcelsior_web_push_delivery_success_total {web_push.get("delivery_success_total", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_failure_total Failed web push deliveries",
+            "# TYPE xcelsior_web_push_delivery_failure_total counter",
+            f'xcelsior_web_push_delivery_failure_total {web_push.get("delivery_failure_total", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_revoked_total Deliveries that revoked stale endpoints",
+            "# TYPE xcelsior_web_push_delivery_revoked_total counter",
+            f'xcelsior_web_push_delivery_revoked_total {web_push.get("delivery_revoked_total", 0)}',
+        ]
+    )
+
+    # GPU telemetry if available
+    try:
+        from nvml_telemetry import collect_all_gpus
+
+        gpu_stats = collect_all_gpus()
+        if gpu_stats:
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_utilization_percent GPU utilization percentage",
+                    "# TYPE xcelsior_gpu_utilization_percent gauge",
+                ]
+            )
+            for gs in gpu_stats:
+                idx = gs.get("index", 0)
+                model = gs.get("name", "unknown").replace(" ", "_")
+                lines.append(
+                    f'xcelsior_gpu_utilization_percent{{gpu="{idx}",model="{model}"}} '
+                    f'{gs.get("utilization", 0)}'
+                )
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_temperature_celsius GPU temperature",
+                    "# TYPE xcelsior_gpu_temperature_celsius gauge",
+                ]
+            )
+            for gs in gpu_stats:
+                idx = gs.get("index", 0)
+                lines.append(
+                    f'xcelsior_gpu_temperature_celsius{{gpu="{idx}"}} {gs.get("temperature", 0)}'
+                )
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_memory_used_bytes GPU memory used",
+                    "# TYPE xcelsior_gpu_memory_used_bytes gauge",
+                ]
+            )
+            for gs in gpu_stats:
+                idx = gs.get("index", 0)
+                lines.append(
+                    f'xcelsior_gpu_memory_used_bytes{{gpu="{idx}"}} '
+                    f'{gs.get("memory_used_bytes", 0)}'
+                )
+    except Exception as e:
+        log.debug("GPU metrics collection failed: %s", e)
+
+    # Webhook backlog
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            row = conn.execute(
+                "SELECT COUNT(*) as pending FROM stripe_event_inbox WHERE status = 'pending'"
+            ).fetchone()
+            backlog = row["pending"] if row else 0
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_webhook_backlog Pending webhook events",
+                "# TYPE xcelsior_webhook_backlog gauge",
+                f"xcelsior_webhook_backlog {backlog}",
+            ]
+        )
+    except Exception as e:
+        log.debug("webhook backlog metric failed: %s", e)
+
+    # Scheduling latency histogram (approximated from last scheduling cycle)
+    try:
+        _snap_running = snap.get("running_jobs", 0)
+        _snap_queued = snap.get("queue_depth", 0)
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_scheduling_latency_seconds Scheduling cycle latency",
+                "# TYPE xcelsior_scheduling_latency_seconds histogram",
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="0.1"}} {_snap_running}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="1.0"}} {_snap_running}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="10.0"}} {_snap_running + _snap_queued}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="+Inf"}} {_snap_running + _snap_queued}',
+                f"xcelsior_scheduling_latency_seconds_sum 0",
+                f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
+            ]
+        )
+    except Exception as e:
+        log.debug("scheduling latency metric failed: %s", e)
+
+    # Wallet depletion events counter
+    try:
+        from db import _get_pg_pool as _pgp2
+        from psycopg.rows import dict_row as _dr2
+
+        pool2 = _pgp2()
+        with pool2.connection() as conn2:
+            conn2.row_factory = _dr2
+            dep_row = conn2.execute(
+                "SELECT COUNT(*) as cnt FROM wallet_transactions WHERE description LIKE '%grace%' OR description LIKE '%suspend%'"
+            ).fetchone()
+            dep_cnt = dep_row["cnt"] if dep_row else 0
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_wallet_depletion_events_total Total wallet depletion events",
+                "# TYPE xcelsior_wallet_depletion_events_total counter",
+                f"xcelsior_wallet_depletion_events_total {dep_cnt}",
+            ]
+        )
+    except Exception as e:
+        log.debug("wallet depletion metric failed: %s", e)
+
+    # Inference cold start rate
+    try:
+        from db import _get_pg_pool as _pgp3
+        from psycopg.rows import dict_row as _dr3
+
+        pool3 = _pgp3()
+        with pool3.connection() as conn3:
+            conn3.row_factory = _dr3
+            cache_row = conn3.execute(
+                "SELECT COUNT(*) FILTER (WHERE state = 'loading') as cold, COUNT(*) FILTER (WHERE state = 'ready') as warm FROM worker_model_cache"
+            ).fetchone()
+            cold = cache_row["cold"] if cache_row else 0
+            warm = cache_row["warm"] if cache_row else 0
+            total_infer = cold + warm
+            cold_rate = round(cold / total_infer, 4) if total_infer > 0 else 0
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_inference_cold_start_rate Fraction of inference requests requiring cold start",
+                "# TYPE xcelsior_inference_cold_start_rate gauge",
+                f"xcelsior_inference_cold_start_rate {cold_rate}",
+            ]
+        )
+    except Exception as e:
+        log.debug("inference cold start metric failed: %s", e)
+
+    # Inference tokens per second
+    try:
+        from db import _get_pg_pool as _pgp4
+        from psycopg.rows import dict_row as _dr4
+
+        pool4 = _pgp4()
+        with pool4.connection() as conn4:
+            conn4.row_factory = _dr4
+            # `jobs` has no `result` column — it holds `payload`, `spec` and
+            # `reason_details`. This raised UndefinedColumn on every scrape, and
+            # because `lines.extend` sits inside the same `try`, the metric was
+            # not emitted wrong, it was not emitted at all: any dashboard or alert
+            # on xcelsior_inference_tokens_per_second has always seen no series.
+            #
+            # `inference_results` is where completed inference lands
+            # (`inference_store.store_inference_result`, reached from
+            # `inference.py`), and it carries both halves of the ratio as typed
+            # columns rather than JSON.
+            tps_row = conn4.execute("""SELECT COALESCE(SUM(output_tokens), 0) /
+                          GREATEST(COALESCE(SUM(latency_ms), 0) / 1000.0, 1) AS tps
+                     FROM inference_results
+                    WHERE output_tokens IS NOT NULL
+                      AND latency_ms IS NOT NULL""").fetchone()
+            tps = round(tps_row["tps"], 2) if tps_row else 0
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_inference_tokens_per_second Aggregate inference throughput",
+                "# TYPE xcelsior_inference_tokens_per_second gauge",
+                f"xcelsior_inference_tokens_per_second {tps}",
+            ]
+        )
+    except Exception as e:
+        log.debug("inference tokens/sec metric failed: %s", e)
+
+    # Append the live prometheus_client default registry (Counter/Gauge/Histogram
+    # objects declared in routes/terminal.py and elsewhere). Without this the
+    # hand-rolled lines above would miss xcelsior_terminal_* and any other
+    # metric that uses the prometheus_client API directly.
+    try:
+        from prometheus_client import generate_latest, REGISTRY
+
+        # Refresh registry-health gauges from the shared
+        # DB cache before serialising. The bg_worker process runs the
+        # actual probes; without this refresh the API process's gauges
+        # would stay at 0 because each process has its own in-module
+        # state.
+        try:
+            import registry_health
+
+            registry_health.refresh_prometheus_gauges()
+        except Exception as e:
+            log.debug("registry_health gauge refresh failed: %s", e)
+
+        prom_bytes = generate_latest(REGISTRY)
+        if prom_bytes:
+            lines.append("")
+            lines.append(prom_bytes.decode("utf-8").rstrip("\n"))
+    except Exception as e:
+        log.debug("prometheus_client registry export failed: %s", e)
+
+    from starlette.responses import Response
+
+    return Response(
+        content="\n".join(lines) + "\n",
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+@router.get("/", tags=["Infrastructure"], include_in_schema=False)
+def root():
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url="/dashboard")
+
+
+@router.get("/llms.txt", tags=["Infrastructure"])
+def api_llms_txt():
+    """Serve LLM-optimized documentation for AI agents.
+
+    Per Report #1.B: "Standard llms.txt for AI agents".
+    See https://llmstxt.org for specification.
+    """
+    llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
+    if llms_path.exists():
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(content=llms_path.read_text(), media_type="text/plain")
+    raise HTTPException(404, "llms.txt not found")
+
+
+@router.get("/api/alerts/config", tags=["Infrastructure"])
+def api_get_alert_config_alias(request: Request):
+    """Alias for /alerts/config with /api/ prefix."""
+    _require_admin(request)
+    safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
+    return {"config": safe}
+
+
+@router.put("/api/alerts/config", tags=["Infrastructure"])
+def api_set_alert_config_alias(cfg: AlertConfig, request: Request):
+    """Alias for PUT /alerts/config with /api/ prefix."""
+    _require_admin(request)
+    updates = {k: v for k, v in cfg.model_dump().items() if v is not None}
+    configure_alerts(**updates)
+    return {"ok": True, "updated": list(updates.keys())}
+
+
+@router.get("/api/slurm/instances", tags=["Infrastructure"])
+def api_slurm_list_instances(request: Request):
+    """List all tracked Slurm jobs."""
+    _require_admin(request)
+    from slurm_adapter import _load_slurm_map, get_slurm_job_status
+
+    job_map = _load_slurm_map()
+    jobs = []
+    for xcelsior_id, slurm_id in job_map.items():
+        jobs.append({"job_id": xcelsior_id, "slurm_job_id": slurm_id})
+    return {"ok": True, "jobs": jobs}

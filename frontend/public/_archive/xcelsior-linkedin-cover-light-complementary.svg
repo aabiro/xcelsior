@@ -1,0 +1,235 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4200" height="700" viewBox="0 0 4200 700" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="4200" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FAFCFF"/>
+      <stop offset="40%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FFFAF5"/>
+    </linearGradient>
+    <radialGradient id="glowBlue" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(900 200) rotate(90) scale(380 900)">
+      <stop offset="0%" stop-color="#0A66C2" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0A66C2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowCyan" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2400 340) rotate(90) scale(320 800)">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(3600 180) rotate(90) scale(300 700)">
+      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#5b21b6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="traceCyan" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="15%" stop-color="#0891b2" stop-opacity="0.7"/>
+      <stop offset="85%" stop-color="#0891b2" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="traceViolet" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0"/>
+      <stop offset="15%" stop-color="#5b21b6" stop-opacity="0.65"/>
+      <stop offset="85%" stop-color="#5b21b6" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#5b21b6" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="traceBlue" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0A66C2" stop-opacity="0"/>
+      <stop offset="15%" stop-color="#0A66C2" stop-opacity="0.6"/>
+      <stop offset="85%" stop-color="#0A66C2" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#0A66C2" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="traceOrange" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#ea580c" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#ea580c" stop-opacity="0.5"/>
+      <stop offset="80%" stop-color="#ea580c" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="traceVCyan" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#0891b2" stop-opacity="0.55"/>
+      <stop offset="80%" stop-color="#0891b2" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="traceVViolet" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#5b21b6" stop-opacity="0.5"/>
+      <stop offset="80%" stop-color="#5b21b6" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#5b21b6" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beamCyan" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="40%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#0891b2" stop-opacity="0.9"/>
+      <stop offset="60%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+      <animateTransform attributeName="gradientTransform" type="translate" values="-1 0;2 0" dur="4s" repeatCount="indefinite"/>
+    </linearGradient>
+    <linearGradient id="beamViolet" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0"/>
+      <stop offset="40%" stop-color="#5b21b6" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#5b21b6" stop-opacity="0.85"/>
+      <stop offset="60%" stop-color="#5b21b6" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#5b21b6" stop-opacity="0"/>
+      <animateTransform attributeName="gradientTransform" type="translate" values="-1 0;2 0" dur="5.5s" repeatCount="indefinite"/>
+    </linearGradient>
+    <linearGradient id="beamBlue" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0A66C2" stop-opacity="0"/>
+      <stop offset="40%" stop-color="#0A66C2" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#0A66C2" stop-opacity="0.8"/>
+      <stop offset="60%" stop-color="#0A66C2" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0A66C2" stop-opacity="0"/>
+      <animateTransform attributeName="gradientTransform" type="translate" values="2 0;-1 0" dur="6s" repeatCount="indefinite"/>
+    </linearGradient>
+    <linearGradient id="fadeLeft" x1="0" y1="0" x2="200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="fadeRight" x1="4000" y1="0" x2="4200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="1"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="fadeBottom" x1="0" y1="580" x2="0" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="1"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="edgeFade">
+      <rect width="4200" height="700" fill="white"/>
+      <rect x="0" y="0" width="200" height="700" fill="url(#fadeLeft)"/>
+      <rect x="4000" y="0" width="200" height="700" fill="url(#fadeRight)"/>
+      <rect x="0" y="0" width="4200" height="120" fill="url(#fadeTop)"/>
+      <rect x="0" y="580" width="4200" height="120" fill="url(#fadeBottom)"/>
+    </mask>
+    <filter id="dotGlow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      .pulse{animation:pulse 3s ease-in-out infinite}
+      .pulse-slow{animation:pulse 5s ease-in-out infinite}
+      .pulse-offset{animation:pulse 3.6s ease-in-out infinite;animation-delay:1.4s}
+      @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+    </style>
+  </defs>
+
+  <rect width="4200" height="700" fill="url(#bg)"/>
+  <rect width="4200" height="700" fill="url(#glowBlue)"/>
+  <rect width="4200" height="700" fill="url(#glowCyan)"/>
+  <rect width="4200" height="700" fill="url(#glowViolet)"/>
+
+  <g mask="url(#edgeFade)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M180 140 H620 V200 H1100 V160 H1600 V200 H2100" stroke="url(#traceCyan)" stroke-width="2.0"/>
+      <path d="M380 180 H800 V120 H1300 V180 H1800 V140 H2300 V180 H2800" stroke="url(#traceViolet)" stroke-width="1.8"/>
+      <path d="M2600 160 H3100 V200 H3500 V140 H3900" stroke="url(#traceBlue)" stroke-width="1.6"/>
+      <path d="M300 260 H680 V300 H1050 V260 H1500 V300 H1900" stroke="url(#traceBlue)" stroke-width="2.2"/>
+      <path d="M1600 280 H2000 V240 H2500 V280 H3000 V240 H3400" stroke="url(#traceCyan)" stroke-width="1.8"/>
+      <path d="M3200 260 H3600 V300 H4000" stroke="url(#traceViolet)" stroke-width="1.6"/>
+      <path d="M200 360 H550 V400 H900 V360 H1300 V400 H1700 V360 H2200" stroke="url(#traceViolet)" stroke-width="2.4"/>
+      <path d="M2000 380 H2400 V340 H2900 V380 H3300" stroke="url(#traceOrange)" stroke-width="1.8"/>
+      <path d="M3100 360 H3500 V400 H3800 V340 H4100" stroke="url(#traceCyan)" stroke-width="1.6"/>
+      <path d="M250 460 H600 V500 H950 V460 H1400" stroke="url(#traceCyan)" stroke-width="2.0"/>
+      <path d="M1200 480 H1600 V440 H2100 V480 H2600 V440 H3000" stroke="url(#traceBlue)" stroke-width="1.8"/>
+      <path d="M2800 460 H3200 V500 H3700" stroke="url(#traceOrange)" stroke-width="1.4"/>
+      <path d="M400 540 H750 V580 H1100 V540 H1600" stroke="url(#traceOrange)" stroke-width="1.6"/>
+      <path d="M1400 560 H1800 V520 H2300 V560 H2700" stroke="url(#traceViolet)" stroke-width="1.4"/>
+      <path d="M2500 540 H2900 V580 H3400 V540 H3800" stroke="url(#traceBlue)" stroke-width="1.4"/>
+    </g>
+
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.45">
+      <path d="M620 140 V110" stroke="#0891b2" stroke-width="1.4"/>
+      <path d="M1100 160 V130" stroke="#0891b2" stroke-width="1.2"/>
+      <path d="M800 180 V210" stroke="#5b21b6" stroke-width="1.2"/>
+      <path d="M1300 120 V90" stroke="#5b21b6" stroke-width="1.0"/>
+      <path d="M3100 160 V130" stroke="#0A66C2" stroke-width="1.0"/>
+      <path d="M680 260 V230" stroke="#0A66C2" stroke-width="1.4"/>
+      <path d="M1050 300 V330" stroke="#0A66C2" stroke-width="1.2"/>
+      <path d="M2000 280 V310" stroke="#0891b2" stroke-width="1.2"/>
+      <path d="M2500 240 V210" stroke="#0891b2" stroke-width="1.0"/>
+      <path d="M3600 260 V230" stroke="#5b21b6" stroke-width="1.0"/>
+      <path d="M550 360 V330" stroke="#5b21b6" stroke-width="1.4"/>
+      <path d="M900 400 V430" stroke="#5b21b6" stroke-width="1.2"/>
+      <path d="M1700 400 V430" stroke="#5b21b6" stroke-width="1.0"/>
+      <path d="M2400 380 V410" stroke="#ea580c" stroke-width="1.2"/>
+      <path d="M2900 340 V310" stroke="#ea580c" stroke-width="1.0"/>
+      <path d="M3500 360 V330" stroke="#0891b2" stroke-width="1.0"/>
+      <path d="M600 460 V430" stroke="#0891b2" stroke-width="1.2"/>
+      <path d="M950 500 V530" stroke="#0891b2" stroke-width="1.0"/>
+      <path d="M1600 440 V410" stroke="#0A66C2" stroke-width="1.2"/>
+      <path d="M2100 480 V510" stroke="#0A66C2" stroke-width="1.0"/>
+      <path d="M3200 460 V430" stroke="#ea580c" stroke-width="1.0"/>
+      <path d="M750 540 V510" stroke="#ea580c" stroke-width="1.0"/>
+      <path d="M1800 520 V490" stroke="#5b21b6" stroke-width="1.0"/>
+      <path d="M2900 540 V510" stroke="#0A66C2" stroke-width="1.0"/>
+    </g>
+
+    <g fill="none" stroke-width="1.2" opacity="0.35">
+      <rect x="613" y="133" width="14" height="14" rx="3" stroke="#0891b2"/>
+      <rect x="1093" y="153" width="14" height="14" rx="3" stroke="#0891b2"/>
+      <rect x="793" y="173" width="14" height="14" rx="3" stroke="#5b21b6"/>
+      <rect x="673" y="253" width="14" height="14" rx="3" stroke="#0A66C2"/>
+      <rect x="1043" y="293" width="14" height="14" rx="3" stroke="#0A66C2"/>
+      <rect x="543" y="353" width="14" height="14" rx="3" stroke="#5b21b6"/>
+      <rect x="893" y="393" width="14" height="14" rx="3" stroke="#5b21b6"/>
+      <rect x="2393" y="373" width="14" height="14" rx="3" stroke="#ea580c"/>
+      <rect x="593" y="453" width="14" height="14" rx="3" stroke="#0891b2"/>
+      <rect x="1593" y="433" width="14" height="14" rx="3" stroke="#0A66C2"/>
+      <rect x="3193" y="453" width="14" height="14" rx="3" stroke="#ea580c"/>
+      <rect x="743" y="533" width="14" height="14" rx="3" stroke="#ea580c"/>
+      <rect x="1793" y="513" width="14" height="14" rx="3" stroke="#5b21b6"/>
+      <rect x="2893" y="533" width="14" height="14" rx="3" stroke="#0A66C2"/>
+      <rect x="1993" y="273" width="14" height="14" rx="3" stroke="#0891b2"/>
+      <rect x="3493" y="353" width="14" height="14" rx="3" stroke="#0891b2"/>
+      <rect x="2493" y="233" width="14" height="14" rx="3" stroke="#0891b2"/>
+      <rect x="3093" y="153" width="14" height="14" rx="3" stroke="#0A66C2"/>
+    </g>
+
+    <g filter="url(#dotGlow)">
+      <circle cx="2100" cy="200" r="5" fill="#0891b2" fill-opacity="0.75" class="pulse"/>
+      <circle cx="1900" cy="300" r="4.5" fill="#0891b2" fill-opacity="0.6" class="pulse-offset"/>
+      <circle cx="1400" cy="460" r="4" fill="#0891b2" fill-opacity="0.55"/>
+      <circle cx="3400" cy="280" r="4" fill="#0891b2" fill-opacity="0.5" class="pulse-slow"/>
+      <circle cx="4100" cy="340" r="3.5" fill="#0891b2" fill-opacity="0.45"/>
+      <circle cx="2800" cy="180" r="5" fill="#5b21b6" fill-opacity="0.65" class="pulse-slow"/>
+      <circle cx="2200" cy="360" r="5" fill="#5b21b6" fill-opacity="0.6" class="pulse"/>
+      <circle cx="2700" cy="560" r="4" fill="#5b21b6" fill-opacity="0.5" class="pulse-offset"/>
+      <circle cx="4000" cy="260" r="3.5" fill="#5b21b6" fill-opacity="0.45"/>
+      <circle cx="3000" cy="280" r="4.5" fill="#0A66C2" fill-opacity="0.6" class="pulse-offset"/>
+      <circle cx="3300" cy="380" r="4" fill="#0A66C2" fill-opacity="0.5"/>
+      <circle cx="3000" cy="460" r="4" fill="#0A66C2" fill-opacity="0.45" class="pulse-slow"/>
+      <circle cx="3800" cy="540" r="3.5" fill="#0A66C2" fill-opacity="0.4"/>
+      <circle cx="1600" cy="540" r="4.5" fill="#ea580c" fill-opacity="0.55" class="pulse"/>
+      <circle cx="3700" cy="500" r="3.5" fill="#ea580c" fill-opacity="0.45" class="pulse-offset"/>
+    </g>
+
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M180 140 H620 V200 H1100 V160 H1600 V200 H2100" stroke="url(#beamCyan)" stroke-width="3" opacity="0.5"/>
+      <path d="M200 360 H550 V400 H900 V360 H1300 V400 H1700 V360 H2200" stroke="url(#beamViolet)" stroke-width="3" opacity="0.45"/>
+      <path d="M300 260 H680 V300 H1050 V260 H1500 V300 H1900" stroke="url(#beamBlue)" stroke-width="2.5" opacity="0.4"/>
+      <path d="M1200 480 H1600 V440 H2100 V480 H2600 V440 H3000" stroke="url(#beamBlue)" stroke-width="2.5" opacity="0.35"/>
+      <path d="M2500 540 H2900 V580 H3400 V540 H3800" stroke="url(#beamCyan)" stroke-width="2" opacity="0.35"/>
+    </g>
+
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1050 260 L1030 255 L1040 248 L1020 240" stroke="#0A66C2" stroke-opacity="0.55" stroke-width="1.5"/>
+      <path d="M900 360 L880 365 L890 372 L870 378" stroke="#5b21b6" stroke-opacity="0.45" stroke-width="1.3"/>
+      <path d="M2400 340 L2380 335 L2390 328 L2370 320" stroke="#ea580c" stroke-opacity="0.4" stroke-width="1.2"/>
+      <path d="M3500 400 L3480 395 L3490 388 L3470 380" stroke="#0891b2" stroke-opacity="0.4" stroke-width="1.2"/>
+      <path d="M1600 500 L1580 495 L1590 488 L1570 480" stroke="#0891b2" stroke-opacity="0.35" stroke-width="1.1"/>
+      <path d="M2900 580 L2880 575 L2890 568 L2870 560" stroke="#0A66C2" stroke-opacity="0.35" stroke-width="1.1"/>
+    </g>
+
+    <g fill="none" stroke-linecap="round" opacity="0.3">
+      <path d="M620 200 V260" stroke="url(#traceVCyan)" stroke-width="1.2"/>
+      <path d="M1300 180 V240" stroke="url(#traceVViolet)" stroke-width="1.2"/>
+      <path d="M2100 200 V280" stroke="url(#traceVCyan)" stroke-width="1.0"/>
+      <path d="M900 400 V460" stroke="url(#traceVViolet)" stroke-width="1.0"/>
+      <path d="M3000 280 V340" stroke="url(#traceVCyan)" stroke-width="1.0"/>
+      <path d="M1600 300 V360" stroke="url(#traceVViolet)" stroke-width="0.8"/>
+      <path d="M3400 280 V360" stroke="url(#traceVCyan)" stroke-width="0.8"/>
+      <path d="M2600 440 V540" stroke="url(#traceVViolet)" stroke-width="0.8"/>
+    </g>
+  </g>
+
+  <rect x="1" y="1" width="4198" height="698" stroke="#CBD5E1" stroke-opacity="0.5" stroke-width="1"/>
+</svg>
