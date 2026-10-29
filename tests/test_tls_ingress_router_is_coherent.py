@@ -35,9 +35,9 @@ import pytest
 yaml = pytest.importorskip("yaml")
 
 ROOT = Path(__file__).resolve().parents[1]
-NGINX = ROOT / "api" / "nginx"
+NGINX = ROOT / "nginx"
 ROUTER = NGINX / "stream-tls-router.conf"
-ENVOY = ROOT / "api" / "infra" / "envoy" / "agent-gateway.yaml"
+ENVOY = ROOT / "infra" / "envoy" / "agent-gateway.yaml"
 
 HEADSCALE_PORT = 8443
 BACKEND_PORT = 8444
@@ -48,7 +48,6 @@ MOVED = [
     "mcp-xcelsior.conf",
     "docs-xcelsior.conf",
     "downloads-xcelsior.conf",
-    "otel-xcelsior.conf",
     "headscale.conf",
     "unmatched-hosts.conf",
     "agent-xcelsior.conf",

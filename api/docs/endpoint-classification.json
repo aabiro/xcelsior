@@ -537,7 +537,7 @@
   },
   "GET /api/pricing/rates": {
     "class": "gap",
-    "notes": "Returns the *breakdown* of an hourly rate — base, priority multiplier, premium, multi-GPU discount, tax. estimate_job_cost returns a total from /api/pricing/estimate; nothing lets an agent explain why a price is what it is."
+    "notes": "Stripe-backed compute breakdown including service tier, optional GPU exclusivity and account tax estimate. Raw priority has no monetary or queue effect; estimate_job_cost does not expose this breakdown."
   },
   "GET /api/pricing/reference": {
     "class": "covered",
@@ -2274,5 +2274,25 @@
   "PUT /host": {
     "class": "gap",
     "notes": "Provider axis. Registering or updating a rig is how supply reaches the marketplace, and docs/mcp-provider-axis-plan.md records that the provider class has zero tools today."
+  },
+  "GET /api/pricing/service-tiers": {
+    "class": "covered",
+    "notes": "list_tiers(gpu_model, pricing_mode) returns exact Stripe Prices, the optional GPU exclusivity add-on, policy and qualified whole-host GPU counts. create_instance carries the selected tier and both Price IDs into a bound launch plan."
+  },
+  "GET /api/privacy/deletion-status": {
+    "class": "internal",
+    "notes": "Public confirmation-code receipt for the Facebook account deletion browser flow; it reports an existing deletion outcome and is not an agent action."
+  },
+  "GET /api/auth/mfa/pending": {
+    "class": "internal",
+    "notes": "Browser OAuth second-factor continuation reads its httpOnly challenge cookie before any authenticated session exists; MCP OAuth receives a token only after this succeeds."
+  },
+  "GET /api/providers/seller-profile": {
+    "class": "gap",
+    "notes": "Authenticated providers:read view of the caller's redacted legal seller profile; no current MCP tool reads this reporting profile."
+  },
+  "PUT /api/providers/seller-profile": {
+    "class": "gap",
+    "notes": "Authenticated providers:write update of the caller's legal seller reporting name, address and encrypted tax identifier; the dashboard implements this journey and no MCP tool currently forwards it."
   }
 }

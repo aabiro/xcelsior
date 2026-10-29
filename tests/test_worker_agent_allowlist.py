@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py"
+SRC = Path(__file__).resolve().parent.parent / "worker_agent.py"
 
 
 def test_c7_allowlist_constant_exists():
@@ -21,9 +21,7 @@ def _server_side_allowlist() -> set[str]:
     """
     import ast
 
-    tree = ast.parse(
-        (Path(__file__).resolve().parent.parent / "api" / "routes" / "agent.py").read_text()
-    )
+    tree = ast.parse((Path(__file__).resolve().parent.parent / "routes" / "agent.py").read_text())
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -65,11 +63,11 @@ def test_the_two_allowlists_agree():
 def test_c7_drain_rejects_unknown_at_top():
     """The rejection block must appear BEFORE any if/elif dispatch."""
     src = SRC.read_text()
-    idx = src.find("def _dispatch_agent_commands(")
+    idx = src.find("def drain_agent_commands(")
     body_end = src.find("\ndef ", idx + 1)
     body = src[idx:body_end]
     reject_idx = body.find("if name not in _AGENT_COMMAND_ALLOWED")
-    first_dispatch_idx = body.find('if name == "health_probe"')
+    first_dispatch_idx = body.find('if name == "reinject_shell"')
     assert reject_idx > 0
     assert first_dispatch_idx > 0
     assert reject_idx < first_dispatch_idx, "allowlist check must precede the first dispatch branch"

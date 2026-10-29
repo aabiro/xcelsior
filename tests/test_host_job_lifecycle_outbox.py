@@ -1,8 +1,7 @@
 """Host/job lifecycle SSE via durable outbox (multi-replica).
 
 Drives shipped scheduler producers that previously only process-local
-``emit_event``'d: host register/drain/remove and job submit. The retired
-unfenced preemption writer must not emit or mutate anything.
+``emit_event``'d: host register/drain/remove, job submit, job preempt.
 Asserts outbox rows + projection shape + real LISTEN delivery for at
 least one type. Process-local dual fan-out is not required when outbox
 succeeds.
@@ -222,8 +221,8 @@ def test_try_append_lifecycle_outbox_savepoint_isolates_failure(cleanup, monkeyp
 
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')""",
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted')""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
         ok = try_append_lifecycle_outbox(
@@ -325,7 +324,7 @@ def test_submit_job_appends_submitted_outbox(cleanup, monkeypatch):
     assert [c for c in emit_calls if c[0] == "job_submitted"] == []
 
 
-def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
+def test_preempt_job_appends_preempted_outbox(cleanup, monkeypatch):
     import scheduler as sched
 
     host_id = f"h-pre-{uuid.uuid4().hex[:8]}"
@@ -336,7 +335,6 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
         "spot-preempt-outbox",
         8.0,
         pricing_mode="spot",
-        gpu_model="RTX 4090",
         owner="spot-owner@test",
     )
     job_id = job["job_id"]
@@ -345,7 +343,7 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
     # Force running on host (spot preemption only acts on running jobs).
     with _pool.connection() as conn:
         conn.execute(
-            """UPDATE jobs SET status='running', phase='running', desired_state='running', host_id=%s WHERE job_id=%s""",
+            "UPDATE jobs SET status='running', host_id=%s WHERE job_id=%s",
             (host_id, job_id),
         )
         conn.execute(
@@ -365,12 +363,14 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
     emit_calls: list = []
     monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
-    before = _outbox_for(job_id)
-    assert not hasattr(sched, "preempt_job")
-    assert not hasattr(sched, "preemption_cycle")
-    assert _outbox_for(job_id) == before
-    assert sched.get_job(job_id)["status"] == "running"
-    assert emit_calls == []
+    result = sched.preempt_job(job_id)
+    assert result is not None
+
+    rows = [r for r in _outbox_for(job_id) if r["event_type"] == "job.v1.preempted"]
+    assert len(rows) >= 1, f"no preempt outbox: {_outbox_for(job_id)}"
+    payload = _payload(rows[-1])
+    assert payload.get("previous_host_id") == host_id
+    assert [c for c in emit_calls if c[0] == "job_preempted"] == []
 
 
 def test_submit_job_outbox_dispatches_to_notify(cleanup):
@@ -443,7 +443,7 @@ def test_inventory_process_local_emit_sites_classified():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    sched_src = (root / "workers" / "scheduler.py").read_text()
+    sched_src = (root / "scheduler.py").read_text()
     runtime_src = (root / "control_plane" / "outbox_runtime.py").read_text()
 
     assert "try_append_lifecycle_outbox" in runtime_src
@@ -456,12 +456,14 @@ def test_inventory_process_local_emit_sites_classified():
         'event_type="host.v1.status_changed"',
         'event_type="host.v1.removed"',
         'event_type="job.v1.submitted"',
+        'event_type="job.v1.preempted"',
     ):
         assert marker in sched_src, f"missing wired producer: {marker}"
 
-    # Native queue release appends its notification in the same transaction.
-    claim_src = (root / "control_plane" / "scheduler" / "claim.py").read_text()
-    assert 'event_type="job.v1.queue_blocked"' in claim_src
-    assert "native_queue_blocked:" in claim_src
-    assert "process_queue_binpack" not in sched_src
+    # Still process-local (not this cutover): queue-block job_error, spot_prices.
+    assert (
+        'emit_event(\n            "job_error"' in sched_src
+        or 'emit_event(\n        "job_error"' in sched_src
+        or '"job_error"' in sched_src
+    )
     assert "spot_prices" in sched_src

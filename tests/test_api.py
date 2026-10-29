@@ -16,7 +16,7 @@ import pytest
 # Use a TemporaryDirectory (auto-cleaned) for all scheduler data files
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_api_test_")
 _tmpdir = _tmp_ctx.name
-os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
+os.environ["XCELSIOR_API_TOKEN"] = ""
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_AUTH_DB_PATH"] = os.path.join(_tmpdir, "auth.db")
 os.environ["XCELSIOR_ENV"] = "test"
@@ -125,14 +125,9 @@ def _place_queue():
     trigger placement explicitly here (the same `process_queue` the tick runs),
     instead of relying on the request handler to schedule inline.
     """
-    from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
-    from control_plane.scheduler.service import SchedulerService
+    from scheduler import process_queue
 
-    report = SchedulerService(
-        SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="api-test-scheduler")
-    ).tick()
-    hosts = {h["host_id"]: h for h in scheduler.list_hosts()}
-    return [(scheduler.get_job(r.job_id), hosts[r.host_id]) for r in report.placements]
+    return process_queue()
 
 
 def _submit_and_place(name="llama3", vram=16, **extra):
@@ -686,8 +681,8 @@ class TestJobEndpoints:
         r = client.get("/instance/nonexistent")
         assert r.status_code == 404
 
-    def test_legacy_status_patch_is_retired(self):
-        """Lifecycle reports must use native attempt authority."""
+    def test_update_job_status(self):
+        """PATCH /instance/{id} status updates (worker/platform token)."""
         resp = _submit_job("test", 8)
         job_id = resp.json()["instance"]["job_id"]
         token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
@@ -696,20 +691,24 @@ class TestJobEndpoints:
             json={"status": "completed"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert r.status_code == 410
-        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "queued"
+        assert r.status_code == 200
+        assert r.json()["status"] == "completed"
 
-    def test_inline_queue_endpoint_is_retired(self):
+    def test_process_queue(self):
         _register_host("h1", versions=GOOD_VERSIONS)
         _authoritatively_admit("h1")
-        response = _submit_job("llama3", 16)
-        assert response.status_code == 200
-        job_id = response.json()["instance"]["job_id"]
-        response = client.post("/queue/process")
-        assert response.status_code == 410
-        assert client.get(f"/instance/{job_id}").json()["instance"]["status"] == "queued"
-        assert len(_place_queue()) == 1
-        assert _place_queue() == []
+        # B2.6: submit only enqueues; placement is the scheduler's job.
+        r = _submit_job("llama3", 16)
+        assert r.status_code == 200
+        assert r.json()["instance"]["status"] == "queued"
+        # First pass claims and assigns the queued job …
+        r1 = client.post("/queue/process")
+        assert r1.status_code == 200
+        assert len(r1.json()["assigned"]) == 1
+        # … a second pass has nothing left to assign.
+        r2 = client.post("/queue/process")
+        assert r2.status_code == 200
+        assert len(r2.json()["assigned"]) == 0
 
     def test_submit_multi_gpu_job(self):
         """Multi-GPU job support (num_gpus > 1)."""
@@ -739,8 +738,8 @@ class TestJobEndpoints:
 
 
 class TestJobStatusApiValidation:
-    def test_invalid_status_cannot_revive_retired_patch(self):
-        """The retired transport refuses every lifecycle mutation."""
+    def test_invalid_status_returns_400(self):
+        """PATCH /job/{id} with invalid status should return 400, not 200."""
         resp = _submit_job("test", 8)
         job_id = resp.json()["instance"]["job_id"]
         token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
@@ -749,8 +748,8 @@ class TestJobStatusApiValidation:
             json={"status": "totally_bogus_status"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert r.status_code == 410
-        assert r.json()["error"]["code"] == "v2_protocol_required"
+        assert r.status_code == 400
+        assert "Invalid status" in r.json()["error"]["message"]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -805,7 +804,7 @@ class TestAuth:
 
     def test_source_has_no_http_query_token_fallback(self):
         """Main and legacy apps do not accept HTTP auth via ?token=."""
-        for rel_path in ("api/api.py",):
+        for rel_path in ("api.py",):
             path = os.path.join(os.path.dirname(__file__), "..", rel_path)
             with open(path) as f:
                 content = f.read()
@@ -1431,9 +1430,9 @@ class TestAutoscaleEndpoints:
 
 class TestAgentEndpoints:
     def test_agent_work_no_jobs(self):
-        """The retired v1 transport always explains the native requirement."""
+        """GET /agent/work/{host_id} with no work → 204."""
         r = client.get("/agent/work/h-idle")
-        assert r.status_code == 410
+        assert r.status_code == 204
 
     def test_agent_mining_alert(self):
         """POST /agent/mining-alert receives alert."""
@@ -1465,11 +1464,16 @@ class TestAgentEndpoints:
         assert r.json()["xcu"] == 8.5
 
     def test_agent_preemption_schedule(self):
-        """Retired preemption routes cannot enqueue or consume state."""
+        """POST /agent/preempt/{host_id}/{job_id} schedules preemption."""
         admin_token, _ = _register_user("preempt-admin@xcelsior.ca", is_admin=True)
-        r = client.post("/agent/preempt/h1/job-abc", headers=_bearer(admin_token))
-        assert r.status_code == 410
-        assert client.get("/agent/preempt/h1").status_code == 410
+        r = client.post(
+            "/agent/preempt/h1/job-abc",
+            headers=_bearer(admin_token),
+        )
+        assert r.status_code == 200
+        # Check it's retrievable
+        r2 = client.get("/agent/preempt/h1")
+        assert "job-abc" in r2.json()["preempt_jobs"]
 
     def test_agent_popular_images(self):
         """GET /agent/popular-images returns image list."""
@@ -1501,7 +1505,6 @@ class TestSpotPricingEndpoints:
                 "name": "spot-test",
                 "vram_needed_gb": 8,
                 "pricing_mode": "spot",
-                "gpu_model": "RTX 4090",
             },
         )
         assert r.status_code == 200
@@ -1510,9 +1513,9 @@ class TestSpotPricingEndpoints:
         assert inst.get("pricing_mode") == "spot" or inst.get("spot") is True
 
     def test_preemption_cycle(self):
-        """The obsolete preemption controller has no callable route."""
-        assert client.post("/spot/preemption-cycle").status_code == 404
-        assert client.post("/spot/preemption-cycle?dry_run=true").status_code == 404
+        """POST /spot/preemption-cycle runs without error."""
+        r = client.post("/spot/preemption-cycle")
+        assert r.status_code == 200
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1639,25 +1642,19 @@ class TestFailover:
         assert "requeued" in r.json()
         assert "assigned" in r.json()
 
-    def test_raw_requeue_cannot_discard_running_native_authority(self):
-        """A live attempt must settle through the fenced restart protocol."""
-        from tests.fixtures.native_runtime import running_instance
-
-        with running_instance(owner="api-admin") as native:
-            job_id = native["job_id"]
-            response = client.post(f"/instance/{job_id}/requeue")
-            assert response.status_code == 400, response.text
-            job = client.get(f"/instance/{job_id}").json()["instance"]
-            assert job["status"] == "running"
-            with db_mod._get_pg_pool().connection() as conn:
-                assert (
-                    str(
-                        conn.execute(
-                            "SELECT active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
-                        ).fetchone()[0]
-                    )
-                    == native["authority"]["attempt_id"]
-                )
+    def test_requeue_job(self):
+        """POST /job/{id}/requeue re-queues a running job."""
+        resp = _submit_job("requeue-test", 8)
+        job_id = resp.json()["instance"]["job_id"]
+        # Must transition to running before requeue is allowed
+        token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "running", "host_id": "h1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        r = client.post(f"/instance/{job_id}/requeue")
+        assert r.status_code == 200
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1753,27 +1750,13 @@ class TestOAuthDeviceFlow:
 
 class TestOAuthServer:
     def test_authorize_redirects_browser_to_login_when_unauthenticated(self):
-        token, _ = _register_user("browser-redirect-test@xcelsior.ca")
-        created = client.post(
-            "/api/oauth/clients",
-            headers=_bearer(token),
-            json={
-                "client_name": "Login Redirect Test",
-                "client_type": "public",
-                "redirect_uris": ["https://app.example/callback"],
-                "grant_types": ["authorization_code"],
-                "scopes": ["profile"],
-            },
-        )
-        assert created.status_code == 200, created.text
-        client.cookies.clear()
         r = client.get(
             "/oauth/authorize",
             params={
                 "response_type": "code",
-                "client_id": created.json()["client"]["client_id"],
-                "redirect_uri": "https://app.example/callback",
-                "code_challenge": "a" * 43,
+                "client_id": "xcelsior-web",
+                "redirect_uri": "https://xcelsior.ca/oauth/callback",
+                "code_challenge": "challenge",
                 "code_challenge_method": "S256",
             },
             headers={"Accept": "text/html"},

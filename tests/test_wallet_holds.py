@@ -184,14 +184,9 @@ def test_link_hold_to_job_and_release_for_job(cleanup):
     now = time.time()
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
-            (
-                job_id,
-                now,
-                '{"owner":"%s"}' % cid,
-                now,
-            ),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
+               VALUES (%s, 'queued', 0, %s, %s)""",
+            (job_id, now, '{"owner":"%s"}' % cid),
         )
         conn.commit()
     cleanup["jobs"].append(job_id)
@@ -324,7 +319,7 @@ def test_preflight_fail_closed_no_soft_pass_on_hold_error(cleanup, monkeypatch):
 
 def test_production_submit_key_is_unique_per_attempt():
     """api_submit_instance must use a per-attempt uuid in the hold key."""
-    src = (Path(__file__).resolve().parents[1] / "api" / "routes" / "instances.py").read_text()
+    src = (Path(__file__).resolve().parents[1] / "routes" / "instances.py").read_text()
     assert 'f"launch:{customer_id}:{uuid.uuid4().hex}"' in src
     # Old deterministic shape must not be the production key.
     assert "j.name}:{j.pricing_mode}" not in src
@@ -332,21 +327,21 @@ def test_production_submit_key_is_unique_per_attempt():
 
 def test_inventory_wallet_hold_sites():
     root = Path(__file__).resolve().parents[1]
-    billing = (root / "billing" / "billing.py").read_text()
+    billing = (root / "billing.py").read_text()
     assert "def create_wallet_hold" in billing
     assert "def release_wallet_hold" in billing
     assert "def available_balance_cad" in billing
     assert "FOR UPDATE" in billing
     assert "status <> 'held'" in billing  # terminal prior frees key
 
-    instances = (root / "api" / "routes" / "instances.py").read_text()
+    instances = (root / "routes" / "instances.py").read_text()
     assert "create_wallet_hold" in instances or "link_wallet_hold_to_job" in instances
     assert "_wallet_preflight" in instances
     assert "Unable to reserve wallet funds" in instances
 
-    sched = (root / "workers" / "scheduler.py").read_text()
+    sched = (root / "scheduler.py").read_text()
     assert "release_wallet_hold_for_job" in sched
 
-    mig = (root / "api" / "migrations" / "versions" / "063_wallet_holds.py").read_text()
+    mig = (root / "migrations" / "versions" / "063_wallet_holds.py").read_text()
     assert "CREATE TABLE IF NOT EXISTS wallet_holds" in mig
     assert "uq_wallet_holds_idempotency" in mig

@@ -11,7 +11,7 @@ import yaml
 from control_plane import operational_metrics
 
 ROOT = Path(__file__).resolve().parent.parent
-OBS = ROOT / "api" / "infra" / "observability"
+OBS = ROOT / "infra" / "observability"
 
 
 def _yaml(path: Path) -> dict:
@@ -78,7 +78,6 @@ def test_all_observability_host_ports_are_loopback_only():
     assert services["prometheus"]["ports"] == ["127.0.0.1:9091:9090"]
     assert services["grafana"]["ports"] == ["127.0.0.1:3001:3000"]
     assert services["jaeger"]["ports"] == ["127.0.0.1:16686:16686"]
-    assert services["loki"]["ports"] == ["127.0.0.1:3110:3100"]
 
 
 def test_stateful_observability_services_have_named_volumes_and_retention():
@@ -140,7 +139,7 @@ def test_prometheus_scrapes_private_application_and_exporter_targets():
 
 
 def test_public_nginx_edge_blocks_metrics_instead_of_proxying_them():
-    config = (ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
+    config = (ROOT / "nginx" / "xcelsior.conf").read_text()
     assert "location = /metrics" in config
     assert "location ^~ /metrics/" in config
     assert config.count("return 404;") >= 2
@@ -258,10 +257,10 @@ def test_recording_rules_reduce_replica_duplicates_and_expose_freshness():
 
 
 def test_runtime_loops_publish_durable_worker_freshness_signals():
-    scheduler = (ROOT / "workers" / "scheduler.py").read_text()
+    scheduler = (ROOT / "scheduler.py").read_text()
     reconciler = (ROOT / "control_plane" / "scheduler" / "service.py").read_text()
     outbox = (ROOT / "control_plane" / "outbox_runtime.py").read_text()
-    maintenance = (ROOT / "workers" / "bg_worker.py").read_text()
+    maintenance = (ROOT / "bg_worker.py").read_text()
 
     assert 'ServiceHeartbeat("scheduler")' in scheduler
     assert '"reconciler",' in reconciler

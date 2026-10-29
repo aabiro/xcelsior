@@ -10,9 +10,11 @@ Covers the P3.1 / A1 / A2 / B contract:
 
 from __future__ import annotations
 
-
+import json
 import os
+import time
 import uuid
+from pathlib import Path
 from typing import Iterator
 
 import pytest
@@ -33,6 +35,7 @@ def client() -> Iterator[TestClient]:
     # Override auth to a NON-admin user so 403 path is actually reachable.
     # (Default test-mode _require_auth returns is_admin=True which would
     # bypass every owner check.)
+    from routes import _deps as _rdeps
 
     original = rinst._require_auth
 
@@ -84,21 +87,62 @@ def _stub_agent_enqueue(monkeypatch):
 
 @pytest.fixture
 def seeded_job():
-    """An admitted, claimed running instance; cleanup only this fixture's rows."""
+    """Insert a running job + host owned by 'alice'; delete on teardown."""
     from db import _get_pg_pool
-    from tests.fixtures.native_runtime import running_instance
 
-    with running_instance(owner="alice", exposed_ports=(), auto_launch=()) as instance:
-        image_ids = []
-        try:
-            yield {**instance, "image_ids": image_ids}
-        finally:
-            with _get_pg_pool().connection() as conn:
-                conn.execute(
-                    "DELETE FROM user_images WHERE source_job_id=%s", (instance["job_id"],)
-                )
-                if image_ids:
-                    conn.execute("DELETE FROM user_images WHERE image_id=ANY(%s)", (image_ids,))
+    pool = _get_pg_pool()
+    job_id = f"job-int-{uuid.uuid4().hex[:8]}"
+    host_id = f"host-int-{uuid.uuid4().hex[:8]}"
+    image_ids: list[str] = []
+
+    now = time.time()
+    host_payload = {
+        "host_id": host_id,
+        "status": "active",
+        "owner": "alice",
+        "registered_at": now,
+    }
+    job_payload = {
+        "job_id": job_id,
+        "status": "running",
+        "owner": "alice",
+        "host": host_id,
+        "host_id": host_id,
+        "image": "python:3.11",
+        "name": "integration-test",
+        "submitted_at": now,
+    }
+
+    with pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+            "VALUES (%s, %s, %s, %s::jsonb, 'admitted') "
+            "ON CONFLICT (host_id) DO UPDATE SET payload=EXCLUDED.payload",
+            (host_id, "active", now, json.dumps(host_payload)),
+        )
+        conn.execute(
+            "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
+            "VALUES (%s, %s, 0, %s, %s, %s::jsonb)",
+            (job_id, "running", now, host_id, json.dumps(job_payload)),
+        )
+        conn.commit()
+
+    yield {"job_id": job_id, "host_id": host_id, "image_ids": image_ids}
+
+    # Teardown: drop any images created during the test, then the job + host.
+    with pool.connection() as conn:
+        if image_ids:
+            conn.execute("DELETE FROM user_images WHERE image_id = ANY(%s)", (image_ids,))
+        conn.execute("DELETE FROM user_images WHERE source_job_id=%s", (job_id,))
+        conn.execute("DELETE FROM agent_commands WHERE host_id=%s", (host_id,))
+        conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
+        conn.execute("DELETE FROM hosts WHERE host_id=%s", (host_id,))
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# POST /instances/{job_id}/snapshot
+# ---------------------------------------------------------------------------
 
 
 def test_snapshot_happy_path(client, seeded_job):
@@ -135,7 +179,9 @@ def test_snapshot_400_when_job_not_running(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            """UPDATE jobs SET status='stopped', phase='stopped', desired_state='stopped', payload = jsonb_set(payload, '{status}', '"stopped"') WHERE job_id=%s""",
+            "UPDATE jobs SET status='stopped', "
+            "payload = jsonb_set(payload, '{status}', '\"stopped\"') "
+            "WHERE job_id=%s",
             (seeded_job["job_id"],),
         )
         conn.commit()
@@ -155,7 +201,7 @@ def test_snapshot_403_when_owner_mismatch(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET owner_id='bob' " "WHERE job_id=%s",
+            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"bob\"') " "WHERE job_id=%s",
             (seeded_job["job_id"],),
         )
         conn.commit()

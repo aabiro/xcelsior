@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-AGENT = REPO / "workers" / "worker_agent.py"
+AGENT = REPO / "worker_agent.py"
 EXAMPLE = REPO / ".env.worker.example"
 
 
@@ -44,14 +44,10 @@ def _shipped_modules() -> list[Path]:
 
     source = AGENT.read_text(encoding="utf-8")
     names = set(_re.findall(r'"([a-z_][a-z0-9_]*\.py)"', source))
-    resolved: set[Path] = {AGENT}
-    for n in names:
-        for sub in ("workers", "auth", "hosts", "core", ""):
-            cand = (REPO / sub / n) if sub else (REPO / n)
-            if cand.is_file():
-                resolved.add(cand)
-                break
-    return sorted(resolved, key=lambda p: p.name)
+    return sorted(
+        {AGENT} | {REPO / n for n in names if (REPO / n).is_file()},
+        key=lambda p: p.name,
+    )
 
 
 #: Read by the agent but deliberately absent from the template.
@@ -71,9 +67,6 @@ NOT_WORKER_CONFIG = frozenset(
         # passed in; an operator never sets it, and documenting it in the
         # template would invite someone to.
         "XCELSIOR_IMAGE_DIGEST",
-        # Issued for one claimed attempt and injected into its container.
-        # Operators must never configure a reusable host-wide callback token.
-        "XCELSIOR_WORKER_CALLBACK_TOKEN",
         # Set only by the test suite's conftest, so that importing the agent
         # does not load the developer's own `.env`. An operator setting it on a
         # rented machine would switch off the worker's env loading entirely.
@@ -175,7 +168,7 @@ def test_example_declares_nothing_the_worker_or_installer_does_not_read():
     # Some options move into root-owned helper configuration at installation
     # rather than being read by the unprivileged agent. Derive those consumers
     # from the installer so their documented interface is not deleted as stale.
-    installer = (REPO / "api" / "scripts" / "install.sh").read_text(encoding="utf-8")
+    installer = (REPO / "scripts" / "install.sh").read_text(encoding="utf-8")
     installer_reads = set(re.findall(r"_env_value\s+(XCELSIOR_[A-Z0-9_]+)", installer))
 
     extra = sorted(documented - required - installer_reads)

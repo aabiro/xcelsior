@@ -35,7 +35,7 @@ import re
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WORKER = ROOT / "workers" / "worker_agent.py"
+WORKER = ROOT / "worker_agent.py"
 
 #: Paths the worker calls that are deliberately not being relocated, with the
 #: reason. Anything here is a decision someone made, not an oversight.
@@ -170,7 +170,7 @@ def test_the_exemptions_are_still_called():
     assert not stale, f"NOT_RELOCATED lists paths the worker no longer calls: {sorted(stale)}"
 
 
-def test_each_alias_behaves_exactly_like_its_v1_path(monkeypatch):
+def test_each_alias_behaves_exactly_like_its_v1_path():
     """Same function, so same answer — asserted rather than assumed.
 
     Run with gateway headers present, because the relocated endpoints now live
@@ -185,8 +185,8 @@ def test_each_alias_behaves_exactly_like_its_v1_path(monkeypatch):
     """
     import os
 
-    monkeypatch.setenv("XCELSIOR_AGENT_GATEWAY_SECRET", "test-gateway-secret")
-    monkeypatch.setenv("XCELSIOR_AGENT_PUBLIC_INGRESS", "deny")
+    os.environ["XCELSIOR_AGENT_GATEWAY_SECRET"] = "test-gateway-secret"
+    os.environ["XCELSIOR_AGENT_PUBLIC_INGRESS"] = "deny"
     from fastapi.testclient import TestClient
 
     from api import app
@@ -225,7 +225,7 @@ def test_each_alias_behaves_exactly_like_its_v1_path(monkeypatch):
     )
 
 
-def test_the_relocated_endpoints_are_now_behind_the_ingress_gate(monkeypatch):
+def test_the_relocated_endpoints_are_now_behind_the_ingress_gate():
     """Relocation tightened them; prove it, so a later change cannot loosen it.
 
     These were reachable on the public origin under their product prefixes.
@@ -233,8 +233,8 @@ def test_the_relocated_endpoints_are_now_behind_the_ingress_gate(monkeypatch):
     """
     import os
 
-    monkeypatch.setenv("XCELSIOR_AGENT_GATEWAY_SECRET", "test-gateway-secret")
-    monkeypatch.setenv("XCELSIOR_AGENT_PUBLIC_INGRESS", "deny")
+    os.environ["XCELSIOR_AGENT_GATEWAY_SECRET"] = "test-gateway-secret"
+    os.environ["XCELSIOR_AGENT_PUBLIC_INGRESS"] = "deny"
     from fastapi.testclient import TestClient
 
     from api import app

@@ -3,6 +3,7 @@ import {
   ApiError,
   buildBrowserOAuthAuthorizePath,
   completeBrowserOAuthLogin,
+  fetchPricingRates,
   normalizeAuthRedirectPath,
 } from "@/lib/api";
 
@@ -65,6 +66,21 @@ describe("normalizeAuthRedirectPath", () => {
     it("rejects external targets", () => {
         expect(normalizeAuthRedirectPath("https://evil.example/phish")).toBe("/dashboard");
         expect(normalizeAuthRedirectPath("//evil.example/phish")).toBe("/dashboard");
+    });
+});
+
+describe("pricing estimates", () => {
+    it("lets the server use the account location and preserves explicit province overrides", async () => {
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(
+            JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+        await fetchPricingRates({ gpu_model: "RTX 4090" });
+        const accountUrl = new URL(String(fetchMock.mock.calls[0][0]), "https://xcelsior.ca");
+        expect(accountUrl.searchParams.has("province")).toBe(false);
+
+        await fetchPricingRates({ gpu_model: "RTX 4090", province: "BC" });
+        const explicitUrl = new URL(String(fetchMock.mock.calls[1][0]), "https://xcelsior.ca");
+        expect(explicitUrl.searchParams.get("province")).toBe("BC");
     });
 });
 

@@ -17,8 +17,6 @@ job attempt authority.
 
 from __future__ import annotations
 
-from control_plane.state import initial_desired_state, job_phase
-
 import json
 import time
 import uuid
@@ -73,8 +71,8 @@ def cleanup():
 def _mk_host(cleanup, host_id: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id})),
         )
@@ -96,8 +94,8 @@ def _mk_running_legacy(cleanup, *, host_id: str, owner: str, interactive: bool =
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'running', 0, %s, %s, %s, 'running', 'running', 0, NULL)""",
+                   (job_id, status, priority, submitted_at, host_id, payload)
+               VALUES (%s, 'running', 0, %s, %s, %s)""",
             (job_id, time.time(), host_id, json.dumps(payload)),
         )
         conn.commit()
@@ -124,8 +122,8 @@ def _mk_running_attempt_owned(
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'running', 0, %s, %s, %s, NULL, 'running', 'running', 0, NULL)""",
+                    active_attempt_id)
+               VALUES (%s, 'running', 0, %s, %s, %s, NULL)""",
             (job_id, time.time(), host_id, json.dumps(payload)),
         )
         conn.execute(
@@ -149,16 +147,6 @@ def _mk_running_attempt_owned(
                        clock_timestamp() + interval '10 minutes')""",
             (job_id, attempt_id, host_id, fence),
         )
-        from tests.native_jobs import admit_fixture_job
-
-        conn.execute(
-            "UPDATE jobs SET owner_id=%s,tenant_id=%s WHERE job_id=%s", (owner, owner, job_id)
-        )
-        admit_fixture_job(conn, job_id)
-        conn.execute(
-            "UPDATE job_attempts a SET spec_hash=j.spec_hash FROM jobs j WHERE a.attempt_id=%s AND j.job_id=a.job_id",
-            (attempt_id,),
-        )
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id, attempt_id
@@ -179,23 +167,12 @@ def _mk_fenced_history_no_active(
     }
     with _pool.connection() as conn:
         fence = conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0]
-        fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, %s, 0, %s, %s, %s, NULL, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
-            (
-                job_id,
-                status,
-                fixture_submitted_at,
-                host_id,
-                json.dumps(payload),
-                job_phase(status),
-                initial_desired_state(status),
-                status,
-                fixture_submitted_at,
-            ),
+                    active_attempt_id)
+               VALUES (%s, %s, 0, %s, %s, %s, NULL)""",
+            (job_id, status, time.time(), host_id, json.dumps(payload)),
         )
         conn.execute(
             """INSERT INTO job_attempts
@@ -255,10 +232,11 @@ def test_classify_and_attempt_container_name_match_worker():
         status="running",
         active_attempt_id=None,
         has_fenced_history=False,
+        payload_container_name=None,
     )
-    assert leg.class_ == "unadmitted"
-    assert leg.container_name == ""
-    assert leg.has_live_attempt is False
+    assert leg.class_ == "legacy"
+    assert leg.container_name == f"xcl-{job_id}"
+    assert leg.allows_unfenced_container_command is True
 
     att = classify_job_target(
         job_id=job_id,
@@ -266,10 +244,11 @@ def test_classify_and_attempt_container_name_match_worker():
         status="running",
         active_attempt_id=attempt_id,
         has_fenced_history=True,
+        payload_container_name=f"xcl-{job_id}",  # stale must be ignored
     )
     assert att.class_ == "attempt_owned"
     assert att.container_name == f"xcl-{job_id}-abcdef12"
-    assert att.has_live_attempt is True
+    assert att.allows_unfenced_container_command is True
 
     fh = classify_job_target(
         job_id=job_id,
@@ -279,7 +258,7 @@ def test_classify_and_attempt_container_name_match_worker():
         has_fenced_history=True,
     )
     assert fh.class_ == "fenced_history"
-    assert fh.has_live_attempt is False
+    assert fh.allows_unfenced_container_command is False
 
     assert is_fenced_history_job(active_attempt_id=None, has_fenced_history=False) is False
     assert is_fenced_history_job(active_attempt_id="a", has_fenced_history=False) is True
@@ -302,9 +281,9 @@ def test_resolve_job_command_target_real_pg(cleanup):
 
     t_leg = resolve_job_command_target(leg)
     assert t_leg is not None
-    assert t_leg.class_ == "unadmitted"
-    assert t_leg.container_name == ""
-    assert t_leg.has_live_attempt is False
+    assert t_leg.class_ == "legacy"
+    assert t_leg.container_name == f"xcl-{leg}"
+    assert t_leg.allows_unfenced_container_command is True
 
     t_att = resolve_job_command_target(att_job)
     assert t_att is not None
@@ -315,13 +294,13 @@ def test_resolve_job_command_target_real_pg(cleanup):
     t_fh = resolve_job_command_target(fh)
     assert t_fh is not None
     assert t_fh.class_ == "fenced_history"
-    assert t_fh.has_live_attempt is False
+    assert t_fh.allows_unfenced_container_command is False
 
 
 # ── SSH reinject ───────────────────────────────────────────────────────
 
 
-def test_ssh_reinject_unadmitted_observations_cannot_enqueue(cleanup, monkeypatch):
+def test_ssh_reinject_legacy_enqueues_xcl_job_id(cleanup, monkeypatch):
     from routes import ssh as ssh_mod
 
     host_id = f"h-res-ssh-l-{uuid.uuid4().hex[:6]}"
@@ -336,8 +315,12 @@ def test_ssh_reinject_unadmitted_observations_cannot_enqueue(cleanup, monkeypatc
     )
 
     n = ssh_mod._trigger_reinject_for_user(user)
-    assert n == 0
-    assert _commands_for_job(job_id) == []
+    assert n >= 1
+    cmds = _commands_for_job(job_id)
+    reinject = [c for c in cmds if c["command"] == "reinject_shell"]
+    assert len(reinject) == 1
+    assert reinject[0]["args"]["container_name"] == f"xcl-{job_id}"
+    assert reinject[0]["args"]["job_id"] == job_id
 
 
 def test_ssh_reinject_attempt_owned_uses_attempt_container_name(cleanup, monkeypatch):
@@ -390,28 +373,52 @@ def test_ssh_reinject_fenced_history_skips_enqueue(cleanup, monkeypatch):
 # ── Reset / admin reinject (resolve + real enqueue) ────────────────────
 
 
-def test_reset_host_directive_is_refused_for_every_authority_class(cleanup):
+def test_reset_enqueue_legacy_and_attempt_owned(cleanup):
+    from control_plane.job_targets import (
+        attempt_container_name,
+        resolve_job_command_target,
+    )
     from routes.agent import enqueue_agent_command
-    from fastapi import HTTPException
 
     host_id = f"h-res-rst-{uuid.uuid4().hex[:6]}"
     _mk_host(cleanup, host_id)
     owner = f"rst-{uuid.uuid4().hex[:6]}@test"
-    legacy = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
-    native, _ = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
-    historical = _mk_fenced_history_no_active(
-        cleanup, host_id=host_id, owner=owner, status="running"
-    )
-    for job_id in (legacy, native, historical):
-        with pytest.raises(HTTPException) as exc:
-            enqueue_agent_command(
-                host_id=host_id,
-                command="reset_container",
-                args={"job_id": job_id, "container_name": f"xcl-{job_id}"},
-                created_by="test_reset",
-            )
-        assert exc.value.status_code == 400
-        assert _commands_for_job(job_id) == []
+
+    leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
+    att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
+    fh = _mk_fenced_history_no_active(cleanup, host_id=host_id, owner=owner, status="running")
+
+    # Mirror the shipped gate in api_reset_instance / admin reinject.
+    for job_id, expect_cname, allow in (
+        (leg, f"xcl-{leg}", True),
+        (att_job, attempt_container_name(att_job, attempt_id), True),
+        (fh, None, False),
+    ):
+        target = resolve_job_command_target(job_id)
+        assert target is not None
+        if not allow:
+            assert target.allows_unfenced_container_command is False
+            continue
+        assert target.allows_unfenced_container_command is True
+        assert target.container_name == expect_cname
+        enqueue_agent_command(
+            host_id=target.host_id,
+            command="reset_container",
+            args={"job_id": job_id, "container_name": target.container_name},
+            created_by="test_reset",
+        )
+
+    leg_cmds = [c for c in _commands_for_job(leg) if c["command"] == "reset_container"]
+    assert len(leg_cmds) == 1
+    assert leg_cmds[0]["args"]["container_name"] == f"xcl-{leg}"
+
+    att_cmds = [c for c in _commands_for_job(att_job) if c["command"] == "reset_container"]
+    assert len(att_cmds) == 1
+    assert att_cmds[0]["args"]["container_name"] == attempt_container_name(att_job, attempt_id)
+    assert att_cmds[0]["args"]["container_name"] != f"xcl-{att_job}"
+
+    fh_cmds = [c for c in _commands_for_job(fh) if c["command"] == "reset_container"]
+    assert fh_cmds == []
 
 
 # ── Volumes ────────────────────────────────────────────────────────────
@@ -428,17 +435,17 @@ def test_volume_hot_mount_unmount_legacy_and_attempt_owned(cleanup):
     att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
 
     eng = VolumeEngine()
-    with pytest.raises(ValueError):
-        eng._enqueue_hot_mount(host_id, leg, "vol-leg-1", "/workspace", "rw")
+    eng._enqueue_hot_mount(host_id, leg, "vol-leg-1", "/workspace", "rw")
     eng._enqueue_hot_mount(host_id, att_job, "vol-att-1", "/workspace", "rw")
-    with pytest.raises(ValueError):
-        eng._enqueue_hot_unmount(host_id, leg, "vol-leg-1", "/workspace")
+    eng._enqueue_hot_unmount(host_id, leg, "vol-leg-1", "/workspace")
     eng._enqueue_hot_unmount(host_id, att_job, "vol-att-1", "/workspace")
 
     leg_mount = [
         c for c in _commands_for_job(leg) if c["command"] in ("mount_volume", "unmount_volume")
     ]
-    assert leg_mount == []
+    assert len(leg_mount) == 2
+    for c in leg_mount:
+        assert c["args"]["container_name"] == f"xcl-{leg}"
 
     att_mount = [
         c for c in _commands_for_job(att_job) if c["command"] in ("mount_volume", "unmount_volume")
@@ -481,10 +488,10 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
     leg = _mk_running_legacy(cleanup, host_id=host_id, owner=owner)
     att_job, attempt_id = _mk_running_attempt_owned(cleanup, host_id=host_id, owner=owner)
 
-    for job_id in (att_job,):
+    for job_id in (leg, att_job):
         target = resolve_job_command_target(job_id)
         assert target is not None
-        assert target.has_live_attempt
+        assert target.allows_unfenced_container_command
         enqueue_agent_command(
             target.host_id,
             "snapshot_container",
@@ -499,7 +506,8 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
         )
 
     leg_s = [c for c in _commands_for_job(leg) if c["command"] == "snapshot_container"]
-    assert leg_s == []
+    assert len(leg_s) == 1
+    assert leg_s[0]["args"]["container_name"] == f"xcl-{leg}"
 
     att_s = [c for c in _commands_for_job(att_job) if c["command"] == "snapshot_container"]
     assert len(att_s) == 1
@@ -513,8 +521,8 @@ def test_snapshot_identity_attempt_owned_not_legacy_name(cleanup):
 def test_host_scoped_admin_rollout_not_job_dual_writer():
     """upgrade_agent / rollback_agent stay host-level (no job_id authority)."""
     root = Path(__file__).resolve().parents[1]
-    admin_src = (root / "api" / "routes" / "admin.py").read_text()
-    bg_src = (root / "workers" / "bg_worker.py").read_text()
+    admin_src = (root / "routes" / "admin.py").read_text()
+    bg_src = (root / "bg_worker.py").read_text()
 
     # Admin rollout enqueues upgrade_agent by host_id only.
     assert ' "upgrade_agent"' in admin_src or '"upgrade_agent"' in admin_src
@@ -536,13 +544,13 @@ def test_enqueue_site_inventory_classifies_job_vs_host():
     """Static inventory: residual job sites gated; host sites separate."""
     root = Path(__file__).resolve().parents[1]
     sources = {
-        "ssh": (root / "api" / "routes" / "ssh.py").read_text(),
-        "instances": (root / "api" / "routes" / "instances.py").read_text(),
-        "volumes": (root / "workers" / "volumes.py").read_text(),
-        "bg_worker": (root / "workers" / "bg_worker.py").read_text(),
-        "admin": (root / "api" / "routes" / "admin.py").read_text(),
-        "billing": (root / "billing" / "billing.py").read_text(),
-        "serverless": (root / "api" / "serverless" / "service.py").read_text(),
+        "ssh": (root / "routes" / "ssh.py").read_text(),
+        "instances": (root / "routes" / "instances.py").read_text(),
+        "volumes": (root / "volumes.py").read_text(),
+        "bg_worker": (root / "bg_worker.py").read_text(),
+        "admin": (root / "routes" / "admin.py").read_text(),
+        "billing": (root / "billing.py").read_text(),
+        "serverless": (root / "serverless" / "service.py").read_text(),
     }
 
     # Job-scoped residuals must import / use the shared target resolver.

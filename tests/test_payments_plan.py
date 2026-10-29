@@ -166,8 +166,7 @@ class TestMeterDualWrite:
         # Ensure outbox table exists (migration 079 may not be applied in CI).
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS stripe_meter_event_outbox (
                     event_id TEXT PRIMARY KEY,
                     customer_id TEXT NOT NULL,
@@ -182,8 +181,7 @@ class TestMeterDualWrite:
                     updated_at DOUBLE PRECISION NOT NULL,
                     sent_at DOUBLE PRECISION
                 )
-                """
-            )
+                """)
             conn.commit()
 
         stripe_meters.set_outbox_backend(None)  # real Postgres path
@@ -483,7 +481,7 @@ class TestUiSourceContracts:
     def test_billing_page_banners(self):
         from pathlib import Path
 
-        text = Path("api/frontend/src/app/(dashboard)/dashboard/billing/page.tsx").read_text()
+        text = Path("frontend/src/app/(dashboard)/dashboard/billing/page.tsx").read_text()
         assert "wallet-hard-stop-banner" in text
         assert "wallet-low-balance-banner" in text
         assert "hard_stop" in text
@@ -493,7 +491,7 @@ class TestUiSourceContracts:
     def test_earnings_embeds_stripe_and_paypal(self):
         from pathlib import Path
 
-        text = Path("api/frontend/src/app/(dashboard)/dashboard/earnings/page.tsx").read_text()
+        text = Path("frontend/src/app/(dashboard)/dashboard/earnings/page.tsx").read_text()
         assert "StripeConnectEmbedded" in text
         assert 'mode="manage"' in text
         assert 'mode="setup"' in text
@@ -502,7 +500,7 @@ class TestUiSourceContracts:
     def test_deposit_modal_stripe_and_paypal(self):
         from pathlib import Path
 
-        text = Path("api/frontend/src/components/billing/deposit-modal.tsx").read_text()
+        text = Path("frontend/src/components/billing/deposit-modal.tsx").read_text()
         assert "PaymentElement" in text
         assert "createPayPalOrder" in text or "PayPal" in text
         assert "createPaymentIntent" in text
@@ -510,7 +508,7 @@ class TestUiSourceContracts:
     def test_stripe_connect_embedded_component_exists(self):
         from pathlib import Path
 
-        p = Path("api/frontend/src/components/providers/stripe-connect-embedded.tsx")
+        p = Path("frontend/src/components/providers/stripe-connect-embedded.tsx")
         assert p.is_file()
         text = p.read_text()
         assert "loadConnectAndInitialize" in text

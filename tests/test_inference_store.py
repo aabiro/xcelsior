@@ -199,9 +199,7 @@ class TestInferenceEndpoints:
         # Post result (worker callback)
         resp = client.post(
             f"/api/inference/{job_id}/result",
-            # The run's platform token, which conftest pins for every test;
-            # a literal default is not what the harness configures.
-            headers={"Authorization": f"Bearer {os.environ['XCELSIOR_API_TOKEN']}"},
+            headers={"Authorization": "Bearer test-token-not-for-production"},
             json={
                 "outputs": [{"label": "POSITIVE", "score": 0.95}],
                 "model": "distilbert",

@@ -21,7 +21,7 @@ import worker_agent  # noqa: E402
 
 
 def _fake_cmd(image_id: str, container: str, image_ref: str) -> dict:
-    # Match the cmd shape consumed by worker_agent._dispatch_agent_commands:
+    # Match the cmd shape consumed by worker_agent.drain_agent_commands:
     # `name = cmd.get("command")`, args under `"args"`.
     return {
         "id": "cmd-test-1",
@@ -37,11 +37,18 @@ def _fake_cmd(image_id: str, container: str, image_ref: str) -> dict:
 
 @pytest.fixture
 def _no_network(monkeypatch):
-    # Isolate the snapshot completion callback.
+    # Stop drain_agent_commands from actually hitting the API for the
+    # GET /agent/commands/... part of its loop.
+    get_mock = MagicMock()
+    get_mock.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"commands": [_fake_cmd("img_abc", "xcl-job1", "xcl-alice-demo:latest")]},
+    )
     post_mock = MagicMock()
     post_mock.return_value = MagicMock(status_code=200, text="ok")
+    monkeypatch.setattr(worker_agent.requests, "get", get_mock)
     monkeypatch.setattr(worker_agent.requests, "post", post_mock)
-    return {"post": post_mock}
+    return {"get": get_mock, "post": post_mock}
 
 
 def _fake_run(returncode=0, stdout="0", stderr=""):
@@ -55,9 +62,7 @@ def test_snapshot_callback_uses_unprefixed_path(_no_network, monkeypatch):
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run(0, "0", ""))
     # Host identity / auth
     monkeypatch.setattr(worker_agent, "HOST_ID", "host-1", raising=False)
-    worker_agent._dispatch_agent_commands(
-        [_fake_cmd("img_abc", "xcl-job1", "xcl-alice-demo:latest")]
-    )
+    worker_agent.drain_agent_commands()
 
     # Callback URL must NOT contain /api/v2 and MUST end with /user-images/<id>/complete.
     called_urls = [c.args[0] for c in _no_network["post"].call_args_list]
@@ -73,8 +78,6 @@ def test_snapshot_callback_logs_http_error(_no_network, monkeypatch, caplog):
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run(0, "0", ""))
     monkeypatch.setattr(worker_agent, "HOST_ID", "host-1", raising=False)
     with caplog.at_level("WARNING"):
-        worker_agent._dispatch_agent_commands(
-            [_fake_cmd("img_abc", "xcl-job1", "xcl-alice-demo:latest")]
-        )
+        worker_agent.drain_agent_commands()
     # Must surface the HTTP status rather than swallow silently.
     assert any("403" in r.getMessage() for r in caplog.records), caplog.text

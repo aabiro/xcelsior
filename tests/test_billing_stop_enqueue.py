@@ -1,4 +1,25 @@
-"""Source guard against reintroducing unfenced billing lifecycle writers."""
+"""C7 — verify billing.py enqueues correct agent commands.
+
+Per the Phase 3 hardening plan (P3.2), all four sites in billing.py
+that previously used SSH to stop/start containers were converted to
+push commands through the agent queue. This test asserts those
+contracts are still in place — protecting against accidental
+regressions back to the old SSH path.
+
+We use a static-source check rather than full integration because:
+  1. The full `BillingService.stop_instance` path requires a live
+     Postgres + 8 mock layers; the value tested (the call shape) is
+     entirely determined by source.
+  2. A semantic break (wrong command type, wrong field name) shows up
+     immediately as a missing match in the source, which is exactly
+     what we want to detect.
+
+Sites covered:
+- BillingService.stop_instance → "pause_container" for legacy jobs and a
+  durable "stop_attempt" command for fenced jobs.
+- suspended-wallet / grace-expired paths delegate to stop_instance instead of
+  bypassing its fencing and state-settlement rules.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-BILLING_PY = Path(__file__).resolve().parent.parent / "billing" / "billing.py"
+BILLING_PY = Path(__file__).resolve().parent.parent / "billing.py"
 
 
 @pytest.fixture(scope="module")
@@ -32,48 +53,25 @@ def _enqueue_calls(src: str) -> list[tuple[str, str]]:
     return [(m.group("by"), m.group("cmd")) for m in pat.finditer(src)]
 
 
-def test_lifecycle_has_no_unfenced_enqueues(billing_src: str) -> None:
-    assert _enqueue_calls(billing_src) == []
-    for obsolete in ("pause_container", "start_container", "update_job_status"):
-        assert obsolete not in billing_src
-    assert "request_fenced_stop" in billing_src
-    assert "request_fenced_stop_remove" in billing_src
-    assert "request_fresh_attempt_resume" in billing_src
+def test_stop_instance_preserves_container(billing_src: str) -> None:
+    pairs = _enqueue_calls(billing_src)
+    assert ("billing_stop", "pause_container") in pairs, (
+        "stop_instance must enqueue pause_container (NOT stop_container) — "
+        "the STOPPED→RESTARTING transition requires the container to still "
+        "exist for `docker start`. Using stop_container leaves restart broken. "
+        "Found: " + repr(pairs)
+    )
 
 
-def test_billing_sweepers_preserve_the_financial_control_boundary(billing_src: str) -> None:
-    """Financial tasks persist intent; the API sweep uses fenced lifecycle."""
-    import ast
-
-    tree = ast.parse(billing_src)
-    sweep = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "stop_jobs_for_suspended_wallets"
+def test_billing_sweepers_delegate_to_stop_instance(billing_src: str) -> None:
+    """Automated stops must use the same fenced lifecycle service as users."""
+    delegated = re.findall(
+        r"self\.stop_instance\(\s*job_id,\s*reason=\"billing_suspended\"\s*\)",
+        billing_src,
     )
-    assert any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "stop_instance"
-        and any(kw.arg == "expected_authority" for kw in node.keywords)
-        for node in ast.walk(sweep)
-    )
-    periodic = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "auto_billing_cycle"
-    )
-    calls = {
-        node.func.id
-        for node in ast.walk(periodic)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    assert "queue_failed_cycle_stop" in calls
-    assert not any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "stop_instance"
-        for node in ast.walk(periodic)
+    assert len(delegated) >= 2, (
+        "Grace-expired and suspended-wallet sweepers must delegate to "
+        "stop_instance so v2 jobs receive attempt-bound commands."
     )
 
 
@@ -87,18 +85,15 @@ def test_no_ssh_exec_for_lifecycle(billing_src: str) -> None:
     assert not bad, f"billing.py reintroduced SSH-based lifecycle ops: {bad}"
 
 
-def test_billing_lifecycle_uses_native_identity(billing_src: str) -> None:
-    import ast
+def test_all_enqueues_pass_container_name_and_job_id(billing_src: str) -> None:
+    """Args dict must always contain container_name AND job_id.
 
-    tree = ast.parse(billing_src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name in {
-            "stop_instance",
-            "start_instance",
-            "restart_instance",
-            "terminate_instance",
-        }:
-            source = ast.get_source_segment(billing_src, node)
-            assert "native_admission_problem" in source
-            assert "spec->>'owner_id'" in source
-            assert "payload->>'owner'" not in source
+    Worker handlers branch on container_name; job_id is needed for the
+    callback report path. Missing either is a silent breakage.
+    """
+    blocks = re.findall(r"enqueue_agent_command\s*\([^)]*\)", billing_src, re.DOTALL)
+    assert blocks, "no enqueue_agent_command calls found in billing.py — "
+    "P3.2 may have been reverted entirely"
+    for blk in blocks:
+        assert "container_name" in blk, f"enqueue call missing container_name arg: {blk[:200]}"
+        assert "job_id" in blk, f"enqueue call missing job_id arg: {blk[:200]}"

@@ -27,11 +27,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SQLITE_ALLOWED = {
     # The backend abstraction itself. Production selection of the SQLite
     # backend is refused by control_plane.startup_validation.
-    "core/db.py": "backend abstraction; production use blocked by the startup validator",
+    "db.py": "backend abstraction; production use blocked by the startup validator",
     # Reads the SQLite side during the one-time consolidation.
-    "api/scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
+    "scripts/migrate_sqlite_to_pg.py": "one-time migration staging (§10.2 item 4)",
     # Test/dev-only path, gated on XCELSIOR_DB_BACKEND != postgres.
-    "billing/bitcoin.py": "dev/test backend branch; production refuses a non-postgres backend",
+    "bitcoin.py": "dev/test backend branch; production refuses a non-postgres backend",
     # Reads **Headscale's own** database, not Xcelsior state. Headscale stores
     # its tailnet — users, nodes, the Noise key — in sqlite by design; this is a
     # third-party product's storage opened `mode=ro` to count users and nodes,
@@ -39,13 +39,13 @@ SQLITE_ALLOWED = {
     # Xcelsior control-plane or money state is involved, and nothing is written.
     # Operator CLI installed at /usr/local/sbin/headscale-failover, run on the
     # standby host and never in a deployed image (§10.2 items 2 and 3).
-    "api/scripts/headscale_failover.py": "reads Headscale's own sqlite tailnet DB read-only; operator CLI",
+    "scripts/headscale_failover.py": "reads Headscale's own sqlite tailnet DB read-only; operator CLI",
 }
 
 # Developer tooling that runs on a workstation, never in a deployed image
 # (§10.2 items 2 and 3). Exempted as a directory rather than file-by-file,
 # with `test_local_tooling_is_not_deployed` keeping the exemption honest.
-LOCAL_TOOLING_PREFIX = "api/scripts/local/"
+LOCAL_TOOLING_PREFIX = "scripts/local/"
 
 # Directories that are not production control-plane code. Note this repo
 # has BOTH `.venv` and `venv`; any directory containing `pyvenv.cfg` is
@@ -63,7 +63,6 @@ _SKIP_PARTS = {
     "mcp",
     "desktop",
     "sprites",
-    "artifacts",
     ".git",
     "site-packages",
 }
@@ -135,7 +134,7 @@ def test_retired_shared_state_modules_are_clean() -> None:
     shared between processes. Migration 060 moved them and Track B B9.3
     finished the contract — this asserts they do not drift back.
     """
-    for name in ("workers/lightning.py", "workers/slurm_adapter.py"):
+    for name in ("lightning.py", "slurm_adapter.py"):
         text = (PROJECT_ROOT / name).read_text(encoding="utf-8")
         assert not _SQLITE_IMPORT_RE.search(text), (
             f"{name} imports sqlite3 again; deposit and mapping state is " f"owned by PostgreSQL"
@@ -152,7 +151,7 @@ def test_worker_journal_is_documented_as_non_authority() -> None:
     grant a lease or extend a fence — those are PostgreSQL rows, and
     adoption still requires the API to confirm the attempt is current.
     """
-    text = (PROJECT_ROOT / "workers" / "worker_agent.py").read_text(encoding="utf-8")
+    text = (PROJECT_ROOT / "worker_agent.py").read_text(encoding="utf-8")
     assert "NOT CONTROL-PLANE AUTHORITY" in text, (
         "the worker journal must be explicitly documented as node-local "
         "recovery state (companion §10.2)"
@@ -168,7 +167,7 @@ def test_local_tooling_is_not_deployed() -> None:
     evaporates and it becomes shared state on a shared host.
     """
     referenced = []
-    for artifact in ("docker-compose.yml", "Dockerfile", "api/mcp/Dockerfile"):
+    for artifact in ("docker-compose.yml", "Dockerfile", "mcp/Dockerfile"):
         path = PROJECT_ROOT / artifact
         if not path.is_file():
             continue

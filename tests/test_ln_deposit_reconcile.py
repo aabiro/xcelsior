@@ -49,22 +49,30 @@ def deposit():
         with pg_transaction() as conn:
             conn.execute(
                 """INSERT INTO ln_deposits
-                    (deposit_id,customer_id,tenant_id,label,bolt11,payment_hash,
-                     amount_msat,amount_sats,amount_micros,amount_cad_minor,
-                     btc_cad_rate_exact,status,wallet_ledger_entry_id,
-                     created_at_ts,expires_at_ts)
-                VALUES(%s,%s,%s,%s,'bolt',%s,1000000,1000,%s,%s,100000,%s,%s,
-                    clock_timestamp(),to_timestamp(%s))""",
+                   (deposit_id, customer_id, tenant_id, label, bolt11,
+                    payment_hash, amount_msat, amount_sats, amount_btc,
+                    amount_micros, amount_cad_minor, btc_cad_rate, status,
+                    wallet_ledger_entry_id, created_at, expires_at,
+                    expires_at_ts)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, to_timestamp(%s))""",
                 (
                     deposit_id,
                     cust,
                     cust,
                     f"lbl-{deposit_id}",
+                    "bolt",
                     f"hash-{deposit_id}",
+                    1_000_000,
+                    1000,
+                    0.00001,
                     round(amount_cad * 1_000_000),
                     amount_minor if amount_minor is not None else int(round(amount_cad * 100)),
+                    100_000.0,
                     status,
                     ledger_entry_id,
+                    now,
+                    expires_at,
                     expires_at,
                 ),
             )
@@ -297,9 +305,7 @@ def test_task_entry_point_is_registered_durably():
     import ast
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parent.parent / "workers" / "bg_worker.py").read_text(
-        encoding="utf-8"
-    )
+    source = (Path(__file__).resolve().parent.parent / "bg_worker.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     names = {
         call.args[0].value

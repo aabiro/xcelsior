@@ -24,15 +24,10 @@ try:
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
-        _has_attempt_col = (
-            _c.execute(
-                """
+        _has_attempt_col = _c.execute("""
                 SELECT 1 FROM information_schema.columns
                  WHERE table_name='usage_meters' AND column_name='attempt_id'
-                """
-            ).fetchone()
-            is not None
-        )
+                """).fetchone() is not None
         _has_job_attempts = (
             _c.execute("SELECT to_regclass('public.job_attempts')").fetchone()[0] is not None
         )
@@ -65,8 +60,8 @@ def cleanup():
 def _mk_host(cleanup, host_id: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"host_id": host_id, "gpu_model": "A100"})),
         )
@@ -89,8 +84,8 @@ def _mk_legacy_job(cleanup, *, host_id: str, owner: str) -> str:
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'completed', 0, %s, %s, %s, 'succeeded', 'running', 0, NULL)""",
+                   (job_id, status, priority, submitted_at, host_id, payload)
+               VALUES (%s, 'completed', 0, %s, %s, %s)""",
             (job_id, now - 3600, host_id, json.dumps(payload)),
         )
         conn.commit()
@@ -115,8 +110,8 @@ def _mk_attempt_owned_job(cleanup, *, host_id: str, owner: str) -> tuple[str, st
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'completed', 0, %s, %s, %s, NULL, 'succeeded', 'running', 0, NULL)""",
+                    active_attempt_id)
+               VALUES (%s, 'completed', 0, %s, %s, %s, NULL)""",
             (job_id, now - 1800, host_id, json.dumps(payload)),
         )
         conn.execute(
@@ -282,8 +277,8 @@ def test_active_attempt_on_job_row_preferred(cleanup):
         conn.execute(
             """INSERT INTO jobs
                    (job_id, status, priority, submitted_at, host_id, payload,
-                    active_attempt_id, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, 'running', 0, %s, %s, %s, NULL, 'running', 'running', 0, NULL)""",
+                    active_attempt_id)
+               VALUES (%s, 'running', 0, %s, %s, %s, NULL)""",
             (
                 job_id,
                 now,
@@ -324,7 +319,7 @@ def test_active_attempt_on_job_row_preferred(cleanup):
 def test_production_meter_insert_inventory():
     """Static: only BillingEngine.meter_job inserts usage_meters rows."""
     root = Path(__file__).resolve().parents[1]
-    billing = (root / "billing" / "billing.py").read_text()
+    billing = (root / "billing.py").read_text()
     assert "def meter_job(" in billing
     assert "INSERT INTO usage_meters" in billing
     assert "resolve_meter_attempt_id" in billing
@@ -333,10 +328,10 @@ def test_production_meter_insert_inventory():
     assert billing.count("INSERT INTO usage_meters") == 1
 
     # Callers go through meter_job, not raw SQL
-    sched = (root / "workers" / "scheduler.py").read_text()
+    sched = (root / "scheduler.py").read_text()
     assert "meter_job" in sched
     assert "INSERT INTO usage_meters" not in sched
 
-    mig = (root / "api" / "migrations" / "versions" / "062_usage_meters_attempt_id.py").read_text()
+    mig = (root / "migrations" / "versions" / "062_usage_meters_attempt_id.py").read_text()
     assert "uq_usage_meters_one_per_attempt" in mig
     assert "ADD COLUMN IF NOT EXISTS attempt_id" in mig

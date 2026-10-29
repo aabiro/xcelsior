@@ -109,7 +109,7 @@ class TestStagingChecklistMigration040:
     """10.1 — Migration 040 applied (schema + bid retirement)."""
 
     def test_migration_040_module_present(self):
-        path = ROOT / "api" / "migrations" / "versions" / "040_retire_spot_bidding.py"
+        path = ROOT / "migrations" / "versions" / "040_retire_spot_bidding.py"
         assert path.is_file()
         text = path.read_text()
         assert 'revision = "040"' in text
@@ -121,14 +121,12 @@ class TestStagingChecklistMigration040:
     def test_jobs_table_has_spot_columns(self):
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_schema = 'public' AND table_name = 'jobs'
                   AND column_name IN ('pricing_mode', 'spot_rate_micros')
-                """
-            ).fetchall()
+                """).fetchall()
         cols = {r["column_name"] if isinstance(r, dict) else r[0] for r in rows}
         assert cols == {"pricing_mode", "spot_rate_micros"}
 
@@ -308,7 +306,7 @@ class TestStagingChecklistApiSurface:
         assert "prices" in body or "spot_prices" in body
 
     def test_openapi_job_in_has_no_max_bid(self):
-        spec = json.loads((ROOT / "api" / "public" / "openapi.json").read_text())
+        spec = json.loads((ROOT / "public" / "openapi.json").read_text())
         job_in = spec["components"]["schemas"].get("JobIn", {})
         props = job_in.get("properties", {})
         assert "max_bid" not in props

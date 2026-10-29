@@ -9,32 +9,32 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Paths allowed to mention max_bid (historical migration + this guard).
 ALLOWED_FRAGMENTS = (
-    "api/migrations/versions/040_retire_spot_bidding.py",
+    "migrations/versions/040_retire_spot_bidding.py",
     "tests/test_no_max_bid_references.py",
     "tests/test_spot_e2e_staging.py",
-    "api/docs/SPOT_INSTANCE_INTEGRATION_PLAN.md",
-    "api/frontend/src/__tests__/launch-instance-modal-spot.test.tsx",
-    "api/scripts/spot_staging_smoke.py",
+    "docs/SPOT_INSTANCE_INTEGRATION_PLAN.md",
+    "frontend/src/__tests__/launch-instance-modal-spot.test.tsx",
+    "scripts/spot_staging_smoke.py",
     "CHANGELOG.md",
     "SPOT_ROLLOUT.md",
-    "api/fern/pages/",
+    "fern/pages/",
     "README.md",
 )
 
 SCAN_DIRS = (
-    "api/routes",
-    "workers/scheduler.py",
-    "billing/marketplace.py",
-    "billing/billing.py",
-    "core/db.py",
-    "api/api.py",
-    "api/templates",
-    "api/frontend/src",
-    "api/frontend/sdk",
-    "api/public/openapi.json",
-    "api/fern",
+    "routes",
+    "scheduler.py",
+    "marketplace.py",
+    "billing.py",
+    "db.py",
+    "api.py",
+    "templates",
+    "frontend/src",
+    "frontend/sdk",
+    "public/openapi.json",
+    "fern",
     "llms.txt",
-    "api/scripts",
+    "scripts",
 )
 
 

@@ -35,7 +35,7 @@ import pathlib
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-ROUTES = ROOT / "api" / "routes"
+ROUTES = ROOT / "routes"
 
 
 def enforced_scopes() -> dict[str, set[str]]:

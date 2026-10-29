@@ -42,8 +42,8 @@ def host_without_host_id_in_payload():
     def insert(conn):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  tenant_id, owner_id, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'pending', 'pending', 'ready')
+                                  tenant_id, owner_id, admission_state)
+               VALUES (%s, 'active', %s, %s::jsonb, %s, %s, 'pending')
                ON CONFLICT (host_id) DO NOTHING""",
             (
                 host_id,
@@ -109,8 +109,12 @@ def test_both_loaders_read_the_column() -> None:
     from db import DatabaseOps
     import scheduler
 
-    source = inspect.getsource(DatabaseOps.load_hosts)
-    assert "'host_id',host_id" in source
-    assert "SELECT host_id, payload" in source  # SQLite's explicit projection.
-    # PostgreSQL delegates to the same canonical loader.
-    assert "DatabaseOps.load_hosts" in inspect.getsource(scheduler._load_hosts_from_conn)
+    for label, fn in (
+        ("db.DatabaseOps.load_hosts", DatabaseOps.load_hosts),
+        ("scheduler._load_hosts_from_conn", scheduler._load_hosts_from_conn),
+    ):
+        source = inspect.getsource(fn)
+        assert "SELECT host_id, payload" in source, (
+            f"{label} still selects only the payload, so it depends on the id "
+            "being duplicated inside the JSON"
+        )

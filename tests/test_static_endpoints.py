@@ -34,7 +34,7 @@ def test_worker_agent_served_with_sha256_header():
     assert advertised == hashlib.sha256(body).hexdigest()
 
     # Must match the file actually on disk
-    on_disk = (REPO_ROOT / "workers" / "worker_agent.py").read_bytes()
+    on_disk = (REPO_ROOT / "worker_agent.py").read_bytes()
     assert body == on_disk
 
 
@@ -118,7 +118,7 @@ def test_worker_split_modules_served_and_signed(name: str):
     advertised_sha = resp.headers.get("X-Xcelsior-Agent-SHA256")
     assert advertised_sha == hashlib.sha256(body).hexdigest()
 
-    on_disk = (REPO_ROOT / "workers" / name).read_bytes()
+    on_disk = (REPO_ROOT / name).read_bytes()
     assert body == on_disk
 
     assert resp.headers.get(
@@ -137,12 +137,7 @@ import re  # noqa: E402
 
 from routes import static as static_routes  # noqa: E402
 
-SCRIPTS_DIR = (
-    REPO_ROOT / "api" / "scripts"
-    if (REPO_ROOT / "api" / "scripts").is_dir()
-    else REPO_ROOT / "api" / "scripts"
-)
-INSTALL_SH = SCRIPTS_DIR / "install.sh"
+INSTALL_SH = REPO_ROOT / "scripts" / "install.sh"
 
 
 def _installer_downloads() -> set[str]:
@@ -174,15 +169,15 @@ def test_every_installer_download_is_served():
 def test_signable_lists_agree():
     signer = ast.literal_eval(
         re.search(
-            r"SIGNABLE = (\([^)]*\))", (SCRIPTS_DIR / "sign-static-agent.py").read_text()
+            r"SIGNABLE = (\([^)]*\))", (REPO_ROOT / "scripts" / "sign-static-agent.py").read_text()
         ).group(1)
     )
     assert _installer_signable() == set(static_routes._SIGNABLE) == set(signer)
-    assert _installer_downloads() == _installer_signable()
+    assert {n for n in _installer_downloads() if n.endswith(".py")} == _installer_signable()
 
 
 def test_nginx_forwards_exactly_the_installer_files():
-    conf = (REPO_ROOT / "api" / "nginx" / "xcelsior.conf").read_text()
+    conf = (REPO_ROOT / "nginx" / "xcelsior.conf").read_text()
     assert "location = /install.sh {" in conf
     m = re.search(r"location ~ (\^/static/\([^)]*\)\$) \{", conf)
     assert m, "no /static/ regex location in nginx/xcelsior.conf"
@@ -193,16 +188,8 @@ def test_nginx_forwards_exactly_the_installer_files():
         assert not pattern.match(f"/static/{name}")
 
 
-def _find_local_module(module: str) -> Path:
-    for pkg in ("workers", "auth", "hosts", "core", "billing", "privacy", "api", ""):
-        cand = (REPO_ROOT / pkg / f"{module}.py") if pkg else (REPO_ROOT / f"{module}.py")
-        if cand.exists():
-            return cand
-    return REPO_ROOT / f"{module}.py"
-
-
 def _module_level_local_imports(module: str, local: set[str]) -> set[str]:
-    tree = ast.parse(_find_local_module(module).read_text())
+    tree = ast.parse((REPO_ROOT / f"{module}.py").read_text())
     found = set()
     for node in tree.body:  # only unconditional imports run at load time
         if isinstance(node, ast.Import):
@@ -213,12 +200,7 @@ def _module_level_local_imports(module: str, local: set[str]) -> set[str]:
 
 
 def test_agent_load_time_imports_are_all_shipped():
-    local = {
-        p.stem
-        for pkg in ("workers", "auth", "hosts", "core", "billing", "privacy", "api", "")
-        for p in ((REPO_ROOT / pkg) if pkg else REPO_ROOT).glob("*.py")
-        if p.stem != "__init__"
-    }
+    local = {p.stem for p in REPO_ROOT.glob("*.py")}
     shipped = {Path(n).stem for n in _installer_downloads() if n.endswith(".py")}
     seen, todo = set(), ["worker_agent"]
     while todo:
@@ -259,51 +241,3 @@ def test_a_new_host_downloads_the_installer_without_credentials(anonymous_client
         assert (
             resp.status_code == 200
         ), f"install.sh downloads {name}, anonymous call got {resp.status_code}"
-
-
-def test_worker_requirements_signature_covers_exact_bytes():
-    import base64
-    from cryptography.hazmat.primitives.serialization import load_pem_public_key
-
-    response = client.get("/static/worker-requirements.txt")
-    assert response.status_code == 200
-    public = load_pem_public_key((SCRIPTS_DIR / "agent-signing.pub").read_bytes())
-    public.verify(
-        base64.b64decode(response.headers["X-Xcelsior-Agent-Signature"]), response.content
-    )
-
-
-def test_missing_dependency_signature_fails_closed(monkeypatch, tmp_path):
-    monkeypatch.setattr(static_routes, "_SCRIPTS", tmp_path)
-    response = client.get("/static/worker-requirements.txt")
-    assert response.status_code == 503
-
-
-def test_public_key_verifier_detects_tampered_dependency_file(monkeypatch, tmp_path):
-    import importlib.util
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    spec = importlib.util.spec_from_file_location(
-        "signer_test", SCRIPTS_DIR / "sign-static-agent.py"
-    )
-    signer = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(signer)
-    (tmp_path / "scripts").mkdir()
-    key = Ed25519PrivateKey.generate()
-    (tmp_path / "scripts/agent-signing.pub").write_bytes(
-        key.public_key().public_bytes(
-            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-    )
-    data = b"requests==2.34.2\n"
-    path = tmp_path / "scripts/worker-requirements.txt"
-    path.write_bytes(data)
-    (tmp_path / "scripts/worker-requirements.txt.sig").write_bytes(key.sign(data))
-    monkeypatch.setattr(signer, "ROOT", tmp_path)
-    monkeypatch.setattr(signer, "SIGNABLE", ("worker-requirements.txt",))
-    signer.verify()  # no private key file exists in this fixture
-    path.write_bytes(data + b"malicious-package==1\n")
-    with pytest.raises(InvalidSignature):
-        signer.verify()

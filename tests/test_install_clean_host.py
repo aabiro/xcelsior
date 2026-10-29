@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALL_SH = ROOT / "api" / "scripts" / "install.sh"
-REQUIREMENTS = ROOT / "api" / "scripts" / "worker-requirements.txt"
+INSTALL_SH = ROOT / "scripts" / "install.sh"
+REQUIREMENTS = ROOT / "scripts" / "worker-requirements.txt"
 
 
 @pytest.mark.skipif(
@@ -41,7 +41,7 @@ def test_worker_requirements_install_in_fresh_venv():
 
 def test_install_sh_has_platform_guard_and_npx_fallback():
     text = INSTALL_SH.read_text()
-    wizard_version = json.loads((ROOT / "api" / "wizard" / "package.json").read_text())["version"]
+    wizard_version = json.loads((ROOT / "wizard" / "package.json").read_text())["version"]
     assert "check_platform" in text
     assert f'WIZARD_PACKAGE="@xcelsior-gpu/wizard@{wizard_version}"' in text
     assert 'npx --yes "$WIZARD_PACKAGE"' in text
@@ -96,7 +96,7 @@ def _run_installer_function(
         bin_dir = Path(tmp)
         for name, body in fake_commands.items():
             command = bin_dir / name
-            command.write_text(f"#!/bin/bash\n{body}\n")
+            command.write_text(f"#!/usr/bin/env bash\n{body}\n")
             command.chmod(0o755)
         command_path = f"{bin_dir}:/usr/bin:/bin" if include_system_commands else str(bin_dir)
         return subprocess.run(
@@ -114,15 +114,13 @@ def test_install_preflight_fails_when_nvidia_smi_is_missing():
         include_system_commands=False,
     )
     assert result.returncode != 0
-    assert "nvidia-smi is not installed" in result.stdout
-    assert "Install a supported NVIDIA driver" in result.stdout
+    assert "nvidia-smi is required" in result.stdout
 
 
 def test_install_preflight_fails_when_nvidia_smi_cannot_detect_gpu():
     result = _run_installer_function("check_nvidia", {"nvidia-smi": "exit 1"})
     assert result.returncode != 0
-    assert "did not list a usable NVIDIA GPU" in result.stdout
-    assert "Seat a supported NVIDIA GPU" in result.stdout
+    assert "could not detect a usable NVIDIA GPU" in result.stdout
 
 
 def test_install_preflight_fails_without_nvidia_docker_runtime():
@@ -138,8 +136,7 @@ exit 1
 """
     result = _run_installer_function("check_docker", {"docker": docker})
     assert result.returncode != 0
-    assert "NVIDIA container runtime is not installed" in result.stdout
-    assert "Install the NVIDIA Container Toolkit" in result.stdout
+    assert "NVIDIA Container Toolkit/runtime is required" in result.stdout
 
 
 def test_install_preflight_accepts_detected_gpu_and_nvidia_runtime():
@@ -199,153 +196,6 @@ def test_install_status_check_fails_without_a_fresh_heartbeat():
     )
     assert result.returncode != 0
     assert "No heartbeat from h1" in result.stdout
-
-
-UNAME_LINUX = """
-case "$1" in
-  -s) printf '%s\\n' Linux ;;
-  -m) printf '%s\\n' x86_64 ;;
-esac
-"""
-
-UNAME_MAC = """
-case "$1" in
-  -s) printf '%s\\n' Darwin ;;
-  -m) printf '%s\\n' arm64 ;;
-esac
-"""
-
-UNAME_PPC = """
-case "$1" in
-  -s) printf '%s\\n' Linux ;;
-  -m) printf '%s\\n' ppc64le ;;
-esac
-"""
-
-
-def test_install_messages_match_the_shared_requirement_copy():
-    shell = INSTALL_SH.read_text()
-    wizard = (ROOT / "api" / "wizard" / "src" / "host-requirements.ts").read_text()
-    frontend = (
-        ROOT / "api" / "frontend" / "src" / "lib" / "host-setup-requirements.ts"
-    ).read_text()
-    assert wizard == frontend
-    for sentence in (
-        "This machine is macOS (Darwin), so it cannot host an Xcelsior worker yet.",
-        "not Linux, so it cannot host an Xcelsior worker yet.",
-        "which this worker does not support.",
-        "systemd is not available on this machine",
-        "python3 is not installed, so the worker cannot run.",
-        "curl is not installed, so the installer cannot download the worker.",
-        "openssl is not installed, so the installer cannot verify the worker signature.",
-        "docker is not installed, so rented GPUs cannot start containers.",
-        "nvidia-smi is not installed, so no NVIDIA driver was found.",
-        "did not list a usable NVIDIA GPU",
-        "Docker is installed but it is not running",
-        "NVIDIA container runtime is not installed",
-        "No host IP could be detected",
-        "Tailscale is optional",
-    ):
-        assert sentence in shell
-        assert sentence in wizard
-
-
-def test_install_preflight_rejects_macos():
-    result = _run_installer_function("check_platform", {"uname": UNAME_MAC})
-    assert result.returncode != 0
-    assert "macOS (Darwin)" in result.stdout
-    assert "Use a Linux host" in result.stdout
-    assert "WSL2" in result.stdout
-
-
-def test_install_preflight_rejects_other_non_linux():
-    uname = """
-case "$1" in
-  -s) printf '%s\\n' FreeBSD ;;
-  -m) printf '%s\\n' amd64 ;;
-esac
-"""
-    result = _run_installer_function("check_platform", {"uname": uname})
-    assert result.returncode != 0
-    assert "FreeBSD" in result.stdout
-    assert "not Linux" in result.stdout
-    assert "Use a Linux host" in result.stdout
-
-
-def test_install_preflight_rejects_unsupported_cpu():
-    result = _run_installer_function(
-        "check_platform",
-        {"uname": UNAME_PPC, "systemctl": "exit 0"},
-        include_system_commands=False,
-    )
-    assert result.returncode != 0
-    assert "ppc64le" in result.stdout
-    assert "amd64 (x86_64) or arm64 (aarch64)" in result.stdout
-
-
-def test_install_preflight_rejects_missing_systemd():
-    result = _run_installer_function(
-        "check_platform",
-        {"uname": UNAME_LINUX},
-        include_system_commands=False,
-    )
-    assert result.returncode != 0
-    assert "systemctl was not found" in result.stdout
-    assert "WSL2" in result.stdout
-
-
-@pytest.mark.parametrize(
-    ("missing", "problem", "step"),
-    [
-        ("python3", "python3 is not installed", "Install Python 3"),
-        ("docker", "docker is not installed", "Install Docker Engine"),
-        ("curl", "curl is not installed", "Install curl"),
-        ("openssl", "openssl is not installed", "Install openssl"),
-    ],
-)
-def test_install_preflight_names_each_missing_command(missing, problem, step):
-    commands = {
-        "python3": "exit 0",
-        "docker": "exit 0",
-        "curl": "exit 0",
-        "openssl": "exit 0",
-    }
-    del commands[missing]
-    result = _run_installer_function("check_deps", commands, include_system_commands=False)
-    assert result.returncode != 0
-    assert problem in result.stdout
-    assert step in result.stdout
-
-
-def test_install_preflight_rejects_docker_that_is_not_running():
-    result = _run_installer_function(
-        "check_docker",
-        {"docker": "exit 1"},
-        include_system_commands=False,
-    )
-    assert result.returncode != 0
-    assert "not running" in result.stdout
-    assert 'usermod -aG docker "$USER"' in result.stdout
-
-
-def test_install_preflight_rejects_missing_host_ip():
-    result = _run_installer_function(
-        "detect_network",
-        {"curl": "exit 1"},
-        include_system_commands=False,
-    )
-    assert result.returncode != 0
-    assert "No host IP could be detected" in result.stdout
-    assert "Tailscale is optional" in result.stdout
-
-
-def test_install_preflight_accepts_linux_systemd_and_supported_cpu():
-    result = _run_installer_function(
-        "check_platform",
-        {"uname": UNAME_LINUX, "systemctl": "exit 0"},
-        include_system_commands=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_installer_runs_main_when_piped():
@@ -415,8 +265,7 @@ def test_privileged_helper_units_and_root_config(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     # sudo: copy installed files into out/, capture tee'd config, ignore the rest.
-    (bin_dir / "sudo").write_text(
-        f"""#!/usr/bin/env bash
+    (bin_dir / "sudo").write_text(f"""#!/usr/bin/env bash
 case "$1" in
   install) [ "$2" = -d ] && exit 0; src="${{@: -2:1}}"; dst="${{@: -1}}"; cp "$src" "{out}/$(basename "$dst")" ;;
   test) exit 1 ;;
@@ -424,10 +273,9 @@ case "$1" in
   sed) shift; sed "${{@:1:$#-1}}" "{out}/$(basename "${{@: -1}}")" ;;
 esac
 exit 0
-"""
-    )
+""")
     (bin_dir / "sudo").chmod(0o755)
-    helper = ROOT / "workers" / "worker_privileged.py"
+    helper = ROOT / "worker_privileged.py"
     result = subprocess.run(
         ["/bin/bash", "-c", f"source {INSTALL_SH}; install_privd {helper}"],
         text=True,

@@ -33,8 +33,10 @@ Create a token: **Dashboard → Settings → Connect AI Agents** (or visit [xcel
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `XCELSIOR_ACCESS_TOKEN` | — | OAuth Bearer token (required) |
-| `XCELSIOR_API_URL` | `http://127.0.0.1:8000` | API base URL |
+| `XCELSIOR_API_URL` | `https://xcelsior.ca` | API base URL; set this to your local or self-hosted API when needed |
 
 ## Hosted alternative
 
 No local install required — use the hosted server at `https://xcelsior.ca/mcp` (Streamable HTTP). See `mcp/README.md` in the monorepo.
+
+This package is distributed under the [MIT License](LICENSE).

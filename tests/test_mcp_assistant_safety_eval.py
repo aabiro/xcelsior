@@ -82,7 +82,7 @@ class TestProvisioningSafety:
     def test_mcp_scope_map_includes_pel_guardrail(self):
         from pathlib import Path
 
-        scopes = (Path(__file__).resolve().parent.parent / "api/mcp/src/auth/scopes.ts").read_text()
+        scopes = (Path(__file__).resolve().parent.parent / "mcp/src/auth/scopes.ts").read_text()
         assert "should_i_run_pel_job" in scopes
 
 
@@ -108,13 +108,13 @@ class TestModularizationHygiene:
     def test_worker_agent_uses_criu_hosts_module(self):
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / "workers" / "worker_agent.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "worker_agent.py").read_text()
         assert "from criu_hosts import" in src
 
     def test_ai_assistant_config_module_extracted(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        assert (root / "core" / "ai_assistant_config.py").is_file()
-        assistant = (root / "core" / "ai_assistant.py").read_text()
+        assert (root / "ai_assistant_config.py").is_file()
+        assistant = (root / "ai_assistant.py").read_text()
         assert "from ai_assistant_config import" in assistant

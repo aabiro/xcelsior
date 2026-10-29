@@ -222,7 +222,8 @@ class TestDispatcherDelivery:
         job_id = f"j-{marker}-run"
         with _pool.connection() as conn:
             conn.execute(
-                """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state, capabilities, last_observed_at) VALUES (%s, 'active', %s, %s, 'admitted', 'admitted', 'ready', '{"egress_isolation":true}', clock_timestamp())""",
+                "INSERT INTO hosts (host_id, status, registered_at, payload, admission_state) "
+                "VALUES (%s, 'active', %s, %s, 'admitted')",
                 (
                     host_id,
                     time.time(),
@@ -241,12 +242,12 @@ class TestDispatcherDelivery:
                     ),
                 ),
             )
-            fixture_submitted_at = time.time()
             conn.execute(
-                """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at) VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', 0, to_timestamp(%s))""",
+                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload) "
+                "VALUES (%s, 'queued', 0, %s, %s)",
                 (
                     job_id,
-                    fixture_submitted_at,
+                    time.time(),
                     json.dumps(
                         {
                             "job_id": job_id,
@@ -257,12 +258,8 @@ class TestDispatcherDelivery:
                             "status": "queued",
                         }
                     ),
-                    fixture_submitted_at,
                 ),
             )
-            from tests.native_jobs import admit_fixture_job
-
-            admit_fixture_job(conn, job_id)
             conn.commit()
         cleanup["hosts"].append(host_id)
         cleanup["jobs"].append(job_id)
@@ -273,9 +270,6 @@ class TestDispatcherDelivery:
             canary_gpu_models=frozenset({model.lower()}),
             canary_host_ids=frozenset({host_id}),
         )
-        from tests._db_helpers import report_test_host_inventory
-
-        report_test_host_inventory(host_id)
         report = SchedulerService(cfg).tick()
         assert len(report.placements) == 1
 

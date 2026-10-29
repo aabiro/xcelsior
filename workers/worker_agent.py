@@ -1569,6 +1569,8 @@ def _report_agent_degraded(reason: str, *, context: str = "", level: str = "warn
 #: crash on ``import``. Must stay in sync with
 #: scripts/sign-static-agent.py::SIGNABLE / routes/static.py::_SIGNABLE.
 _SIBLING_MODULES = (
+    "security.py",
+    "hardware_isolation.py",
     "worker_image_cache.py",
     "worker_nfs.py",
     "worker_nvme_cache.py",
@@ -2900,6 +2902,19 @@ def _v2_restore_resource_lock(auth: dict) -> bool:
         log.error("Resource adoption refused a journal from another host")
         return False
     exclusive = resources.get("exclusive")
+    if exclusive and exclusive.get("kind") == "paid_hardware":
+        if auth.get("_exclusive_state", {}).get("hardware_scope") is not None:
+            return True
+        try:
+            from hardware_isolation import restore_scope
+
+            auth["_exclusive_state"] = {
+                "ok": True,
+                "hardware_scope": restore_scope(exclusive["gpu_uuids"]),
+            }
+            return True
+        except (OSError, ValueError):
+            return False
     if not exclusive or auth.get("_exclusive_state", {}).get("lock_fd") is not None:
         return True
     fd = None
@@ -2965,7 +2980,10 @@ def _v2_cleanup_resources(auth: dict) -> bool:
             if any(resources.get(k) for k in ["nfs_mounts", "encrypted_volumes", "workspaces"]):
                 return False
             if resources.get("exclusive"):
-                if any(other.get("exclusive") for other in others):
+                exclusive = resources["exclusive"]
+                if exclusive.get("kind") != "paid_hardware" and any(
+                    other.get("exclusive") for other in others
+                ):
                     return False
                 state = auth.get("_exclusive_state") or resources["exclusive"]
                 if _release_exclusive_gpu(auth["job_id"], state) is False:
@@ -4435,6 +4453,13 @@ def report_observations_v2(force: bool = False) -> bool:
     _last_observation_at = now
     inventory, conditions = _observation_inventory()
     from egress_isolation import isolation_ready
+    from hardware_isolation import qualified_capabilities
+
+    hardware_caps = (
+        qualified_capabilities()
+        if inventory
+        else {"gpu_uuid_binding": False, "gpu_exclusivity": False, "dedicated_host": False}
+    )
 
     code, _body = _v2_post(
         "/agent/v2/observations",
@@ -4446,7 +4471,7 @@ def report_observations_v2(force: bool = False) -> bool:
             "workloads": _collect_local_workloads(),
             "agent_version": VERSION,
             "worker_reported_at": time.time(),
-            "capabilities": {"egress_isolation": isolation_ready()},
+            "capabilities": {"egress_isolation": isolation_ready(), **hardware_caps},
             "conditions": conditions,
             "gpu_inventory": inventory,
         },
@@ -5019,6 +5044,11 @@ def _release_exclusive_gpu(job_id: str, state: dict) -> bool:
 
     if not state:
         return True
+    if state.get("hardware_scope") is not None:
+        from hardware_isolation import release_scope
+
+        release_scope(state["hardware_scope"])
+        return True
     released = True
 
     # 1. SIGCONT ollama runners
@@ -5342,7 +5372,7 @@ def run_job(job):
     current_stage = "preparing instance"
 
     # ── Phase 7 / §3: acquire exclusive GPU before any container/IO setup ──
-    exclusive_gpu = bool(job.get("exclusive_gpu"))
+    exclusive_gpu = bool(job.get("exclusive_gpu") or job.get("host_exclusive"))
     _excl_state: dict = {}
     try:
         if exclusive_gpu:
@@ -5350,31 +5380,47 @@ def run_job(job):
                 "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
                 job_id,
             )
-            _v2_resource_intent(
-                authority, "exclusive", {"ollama_pids": [], "drain_requested": False}
-            )
+            if job.get("service_tier_quote"):
+                from hardware_isolation import acquire_scope
 
-            def checkpoint_exclusive(state):
-                authority["_exclusive_state"] = state
+                intent = {"kind": "paid_hardware", "gpu_uuids": list(authority["gpu_device_uuids"])}
+                _v2_resource_intent(authority, "exclusive", intent)
+                try:
+                    _excl_state = {
+                        "ok": True,
+                        "hardware_scope": acquire_scope(
+                            intent["gpu_uuids"], physical_host=bool(job.get("host_exclusive"))
+                        ),
+                    }
+                except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                    _excl_state = {"ok": False, "error": str(exc)}
+                authority["_exclusive_state"] = _excl_state
+            else:
+                _v2_resource_intent(
+                    authority, "exclusive", {"ollama_pids": [], "drain_requested": False}
+                )
+
+                def checkpoint_exclusive(state):
+                    authority["_exclusive_state"] = state
+                    _v2_resource_intent(
+                        authority,
+                        "exclusive",
+                        {
+                            "ollama_pids": list(state.get("ollama_pids") or []),
+                            "drain_requested": bool(state.get("drain_requested", False)),
+                        },
+                    )
+
+                _excl_state = _acquire_exclusive_gpu(job_id, checkpoint=checkpoint_exclusive)
+                authority["_exclusive_state"] = _excl_state
                 _v2_resource_intent(
                     authority,
                     "exclusive",
                     {
-                        "ollama_pids": list(state.get("ollama_pids") or []),
-                        "drain_requested": bool(state.get("drain_requested", False)),
+                        "ollama_pids": list(_excl_state.get("ollama_pids") or []),
+                        "drain_requested": bool(_excl_state.get("drain_requested", False)),
                     },
                 )
-
-            _excl_state = _acquire_exclusive_gpu(job_id, checkpoint=checkpoint_exclusive)
-            authority["_exclusive_state"] = _excl_state
-            _v2_resource_intent(
-                authority,
-                "exclusive",
-                {
-                    "ollama_pids": list(_excl_state.get("ollama_pids") or []),
-                    "drain_requested": bool(_excl_state.get("drain_requested", False)),
-                },
-            )
             if not _excl_state.get("ok"):
                 authority["resources"].pop("exclusive", None)
                 _v2_journal_save()

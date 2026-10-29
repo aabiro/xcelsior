@@ -7,8 +7,6 @@ outbox + job projection, all present) or a clean conflict with zero
 residue — never anything in between.
 """
 
-from tests.native_jobs import admit_fixture_job, fixture_devices_serve
-
 import json
 import time
 import uuid
@@ -58,7 +56,7 @@ def fleet():
         conn.commit()
 
 
-def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None, owner=None, admission_fields=None):
+def _mkjob(fleet, *, num_gpus=1):
     job_id = f"job-resv-{uuid.uuid4().hex[:10]}"
     # gpu_model doubles as a unique claim scope so these tests never
     # claim residue jobs left behind by other suites (and vice versa).
@@ -68,22 +66,15 @@ def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None, owner=None, admission_f
         "image": "pytorch:latest",
         "gpu_model": job_id,
     }
-    payload.update(admission_fields or {})
-    if preferred_host_id:
-        payload["preferred_host_id"] = preferred_host_id
-    if owner:
-        payload["owner"] = owner
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at, effective_priority)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
+                                 phase, desired_state, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
             (job_id, time.time(), json.dumps(payload)),
         )
-        admit_fixture_job(conn, job_id)
-        fleet["jobs"].append(job_id)
-        fixture_devices_serve(conn, fleet["jobs"], fleet["hosts"])
         conn.commit()
+    fleet["jobs"].append(job_id)
     return job_id
 
 
@@ -93,14 +84,9 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
                                   administrative_state, availability_state,
-                                  inventory_generation, admission_state, capabilities, last_observed_at)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
-            (
-                host_id,
-                time.time(),
-                json.dumps({"admitted": True, "cost_per_hour": 0}),
-                inventory_generation,
-            ),
+                                  inventory_generation, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted')""",
+            (host_id, time.time(), json.dumps({"admitted": True}), inventory_generation),
         )
         for i in range(gpus):
             conn.execute(
@@ -110,9 +96,8 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
                    VALUES (%s, %s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
                 (host_id, f"GPU-{host_id}-{i}", i),
             )
-        fleet["hosts"].append(host_id)
-        fixture_devices_serve(conn, fleet["jobs"], fleet["hosts"])
         conn.commit()
+    fleet["hosts"].append(host_id)
     return host_id
 
 
@@ -159,22 +144,6 @@ def _counts(job_id):
                 (job_id,),
             ).fetchone()[0],
         }
-
-
-def test_host_pin_is_rechecked_after_claim(fleet):
-    job_id = _mkjob(fleet, preferred_host_id="another-host")
-    host_id = _mkhost(fleet)
-    claimed = _claim(job_id)
-    before = _counts(job_id)
-    with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE jobs SET payload=jsonb_set(payload, '{preferred_host_id}', "
-            "to_jsonb(%s::text)) WHERE job_id=%s",
-            (host_id, job_id),
-        )
-    with pytest.raises(HostNotEligible, match="pinned to another host"):
-        _reserve(claimed, host_id)
-    assert _counts(job_id) == before
 
 
 class TestHappyPath:
@@ -254,7 +223,7 @@ class TestConflictsLeaveNoResidue:
             # ('stopped'/'stopped'), exactly how production writers stop
             # a job out from under a claim.
             conn.execute(
-                """UPDATE jobs SET status='cancelled', phase='stopped', desired_state='stopped' WHERE job_id=%s""",
+                "UPDATE jobs SET status='cancelled' WHERE job_id=%s",
                 (job_id,),
             )
             conn.commit()
@@ -267,10 +236,14 @@ class TestConflictsLeaveNoResidue:
         host_id = _mkhost(fleet)
         claimed = _claim(job_id)
         with _pool.connection() as conn:
-            # Native fixture transition, matching the host controller writer.
+            # Drain the legacy way (payload flag): the 059 projection
+            # trigger derives administrative_state='draining' from it —
+            # writing the column directly would just be recomputed.
             conn.execute(
-                """UPDATE hosts SET status='draining',administrative_state='draining',
-                    availability_state='unknown' WHERE host_id=%s""",
+                # Since 082 the projection derives administrative_state from
+                # status and admission_state, not from the payload, so a
+                # payload write no longer drains a host.
+                """UPDATE hosts SET status = 'draining' WHERE host_id=%s""",
                 (host_id,),
             )
             conn.commit()

@@ -16,15 +16,49 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from psycopg import Connection
-from psycopg.types.json import Jsonb
 
 DEFAULT_CLAIM_TTL_SEC = 15
 
-# Each claim calculates current weighted ranks in its transaction and persists
-# the chosen components. Diagnostic refresh timing never supplies authority.
-from control_plane.scheduler.fairness import claim_sql
-
-_CLAIM_SQL = claim_sql()
+# Queue order is part of the replica contract (§10.7): every replica must
+# order work identically or two replicas fight over ordering fairness.
+#
+# The scope predicate implements the Phase 4 canary partition: in canary
+# mode only jobs the new scheduler owns (matching gpu_model, or explicit
+# payload {"scheduler": "v2"} opt-in) are claimable; the legacy queue
+# walker skips exactly the same set (SchedulerConfig.owns_job), so no job
+# is ever contested by both schedulers.
+_CLAIM_SQL = """
+WITH candidate AS (
+    SELECT job_id
+      FROM jobs
+     WHERE phase = 'pending'
+       AND desired_state = 'running'
+       AND (next_schedule_at IS NULL OR next_schedule_at <= clock_timestamp())
+       AND (schedule_claim_expires_at IS NULL
+            OR schedule_claim_expires_at < clock_timestamp())
+       AND (%(scope_all)s
+            OR lower(COALESCE(payload->>'gpu_model', '')) = ANY(%(scope_models)s)
+            OR lower(COALESCE(payload->>'scheduler', '')) = 'v2')
+     ORDER BY effective_priority DESC,
+              fair_share_finish ASC,
+              queued_at ASC NULLS LAST
+       FOR UPDATE SKIP LOCKED
+     LIMIT 1
+)
+UPDATE jobs j
+   SET schedule_claim_owner = %(replica_id)s,
+       schedule_claim_token = gen_random_uuid(),
+       schedule_claim_expires_at =
+           clock_timestamp() + make_interval(secs => %(ttl_sec)s),
+       schedule_attempt_count = j.schedule_attempt_count + 1,
+       version = j.version + 1,
+       updated_at = clock_timestamp()
+  FROM candidate c
+ WHERE j.job_id = c.job_id
+RETURNING j.job_id, j.schedule_claim_token, j.schedule_claim_expires_at,
+          j.schedule_attempt_count, j.version, j.generation, j.spec,
+          j.spec_hash, j.payload, j.priority, j.effective_priority
+"""
 
 
 @dataclass(frozen=True)
@@ -99,7 +133,6 @@ def release_claim(
     *,
     reason_code: str,
     requeue_delay_sec: float = 0.0,
-    reason_details: dict[str, Any] | None = None,
 ) -> bool:
     """Give the claim back without placing (all candidates failed, §10.5).
 
@@ -118,8 +151,6 @@ def release_claim(
                next_schedule_at =
                    clock_timestamp() + make_interval(secs => %(delay)s),
                reason_code = %(reason)s,
-               reason_details = CASE WHEN %(details)s::jsonb IS NOT NULL THEN %(details)s::jsonb
-                   WHEN %(reason)s='preemption_waiting' THEN reason_details ELSE NULL END,
                last_schedule_conflict_at = CASE
                    WHEN %(reason)s = 'placement_conflict' THEN clock_timestamp()
                    ELSE last_schedule_conflict_at
@@ -128,37 +159,15 @@ def release_claim(
                updated_at = clock_timestamp()
          WHERE job_id = %(job_id)s
            AND schedule_claim_token = %(token)s
-        RETURNING generation, version, reason_details
         """,
         {
             "job_id": job_id,
             "token": claim_token,
             "delay": max(0.0, requeue_delay_sec),
             "reason": reason_code,
-            "details": Jsonb(reason_details) if reason_details is not None else None,
         },
     )
-    row = result.fetchone()
-    if row is None:
-        return False
-    # Queue state and cross-replica notification share the claim transaction.
-    # A failed append rolls back the release; there is no process-local fallback.
-    from control_plane.outbox import append_event
-
-    append_event(
-        conn,
-        aggregate_type="job",
-        aggregate_id=job_id,
-        aggregate_version=int(_row_get(row, "version", 1)),
-        event_type="job.v1.queue_blocked",
-        payload={
-            "error": reason_code,
-            "message": reason_code.replace("_", " "),
-            "details": _row_get(row, "reason_details", 2),
-        },
-        idempotency_key=f"native_queue_blocked:{job_id}:{_row_get(row, 'generation', 0)}:{reason_code}",
-    )
-    return True
+    return result.rowcount == 1
 
 
 def clear_expired_claims(conn: Connection, *, limit: int = 100) -> int:

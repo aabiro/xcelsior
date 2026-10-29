@@ -2669,7 +2669,18 @@ data disposition remain separately scoped below.
   depletion use admission/captured quotes; stopped-job observations cannot bill
   storage. The focused gate passes 309 checks. Production remains 125; no final
   deployment is claimed. See the [native lifecycle receipt](review/2026-10-23-retired-unfenced-lifecycle.md).
-- [~] **B16.4 Queue fairness and preemption** (§10.7, §10.8). Only after
+- [~] **B16.4 Queue fairness and preemption** (§10.7, §10.8). **2026-10-27 source update:**
+  customer queue order now follows purchased Stripe tier, original bid plus
+  bounded 15-minute aging, then FIFO. Promoted work joins behind customers who
+  purchased the next class; administrative priority, entitlement and team
+  weight do not buy queue precedence. Native team quotas, concurrency limits
+  and fenced preemption remain in force. Prices and isolation are pinned in
+  immutable execution specs; migrations 146/147 follow deployed identity 145.
+  Gates: `tests/test_paid_service_tiers.py`, `tests/test_queue_bid_policy.py`,
+  `tests/test_durable_fairness.py`, launch, reservation and billing tests.
+  Production deployment and physical-host acceptance remain pending.
+  The following weighted-order description is historical and superseded by
+  [the paid queue policy](queue-bidding-policy.md). Only after
   the staged native handoff and migration 131 remove the production triggers
   (source prerequisite is implemented): weighted fair share from administrative
   priority class, reservation entitlement, per-team virtual finish time,

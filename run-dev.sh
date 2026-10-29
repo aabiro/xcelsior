@@ -145,7 +145,6 @@ start_backend() {
     fi
 
     mkdir -p "$LOG_DIR"
-    export PYTHONPATH="$SCRIPT_DIR/archive:$SCRIPT_DIR/billing:$SCRIPT_DIR/workers:$SCRIPT_DIR/auth:$SCRIPT_DIR/hosts:$SCRIPT_DIR/privacy:$SCRIPT_DIR/api:$SCRIPT_DIR/core:$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
     uvicorn api:app \
         --host 0.0.0.0 \
         --port "$BACKEND_PORT" \
@@ -166,13 +165,13 @@ start_frontend() {
     mkdir -p "$LOG_DIR"
 
     # Install deps if needed
-    if [[ ! -d "api/frontend/node_modules" ]]; then
+    if [[ ! -d "frontend/node_modules" ]]; then
         info "Installing frontend dependencies…"
-        (cd api/frontend && npm install) >> "$LOG_DIR/frontend.log" 2>&1
+        (cd frontend && npm install) >> "$LOG_DIR/frontend.log" 2>&1
         success "Dependencies installed"
     fi
 
-    (cd api/frontend && npm run dev -- --port "$FRONTEND_PORT") \
+    (cd frontend && npm run dev -- --port "$FRONTEND_PORT") \
         > "$LOG_DIR/frontend.log" 2>&1 &
     echo $! > "$LOG_DIR/frontend.pid"
 

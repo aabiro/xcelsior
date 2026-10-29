@@ -24,6 +24,7 @@ SIGNABLE = (
     "criu_hosts.py",
     "egress_isolation.py",
     "worker_privileged.py",
+    "hardware_isolation.py",
     "worker-requirements.txt",
 )
 
@@ -39,6 +40,7 @@ _PKG_FOR_FILE = {
     "criu_hosts.py": "workers",
     "egress_isolation.py": "hosts",
     "worker_privileged.py": "workers",
+    "hardware_isolation.py": "workers",
 }
 
 

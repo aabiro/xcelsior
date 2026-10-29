@@ -13,6 +13,7 @@ os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 from serverless.metering import (
     blended_period_amount,
     cached_input_price,
+    charge_serverless_execution,
     estimate_cost_cad,
     estimate_worker_cost_for_duration_sec,
     infer_model_params_b,
@@ -26,7 +27,6 @@ from serverless.metering import (
 from serverless.openai_proxy import accrue_proxy_token_usage, extract_usage_from_response
 from serverless.repo import EndpointCreate, ServerlessRepo
 from serverless.service import ServerlessService, WalletPreflightError
-from tests.fixtures.serverless_billing import charge_priced_fixture_slice
 
 
 class TestNovitaPricingQuote:
@@ -68,15 +68,15 @@ class TestIncrementalBilling:
 
         with (
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
+            patch("serverless.metering.last_billed_period_end", return_value=1100.0),
             patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}),
         ):
-            result = charge_priced_fixture_slice(
+            result = charge_serverless_execution(
                 billing,
                 repo,
                 worker,
                 endpoint,
                 period_end=1150.0,
-                paid_end=1100.0,
                 final=True,
             )
         assert result["charged"] is True
@@ -97,7 +97,7 @@ class TestIncrementalBilling:
             patch("serverless.metering.last_billed_period_end", return_value=None),
             patch.dict(os.environ, {"XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC": "60"}),
         ):
-            result = charge_priced_fixture_slice(billing, repo, worker, endpoint, final=False)
+            result = charge_serverless_execution(billing, repo, worker, endpoint, final=False)
         assert result["charged"] is False
         assert result["reason"] == "below_minimum_interval"
         billing.charge.assert_not_called()
@@ -178,12 +178,11 @@ class TestBlendedMeter:
             patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
             # 120s @ 3.60/hr = 0.12 CAD GPU; token cost 5.00 → blended bills 5.00
-            result = charge_priced_fixture_slice(
+            result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         repo.peek_endpoint_token_cost.assert_called_with("ep1")
-        repo.consume_endpoint_token_cost.assert_called_once()
-        assert repo.consume_endpoint_token_cost.call_args.args == ("ep1",)
+        repo.consume_endpoint_token_cost.assert_called_once_with("ep1")
         assert result["token_cost_cad"] == 5.00
         assert result["blended_amount_cad"] == 5.00
         assert result["amount_cad"] == 5.00
@@ -215,7 +214,7 @@ class TestBlendedMeter:
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
             patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
-            result = charge_priced_fixture_slice(
+            result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         assert result["charged"] is False
@@ -247,7 +246,7 @@ class TestBlendedMeter:
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
             patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
-            result = charge_priced_fixture_slice(
+            result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         assert result["blended_billing"] is True
@@ -280,7 +279,7 @@ class TestBlendedMeter:
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
             patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
-            result = charge_priced_fixture_slice(
+            result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         assert result["blended_billing"] is False
@@ -313,7 +312,7 @@ class TestBlendedMeter:
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
             patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
-            charge_priced_fixture_slice(
+            charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         repo.consume_endpoint_token_cost.assert_not_called()
@@ -345,7 +344,7 @@ class TestBlendedMeter:
             patch("serverless.metering.get_gpu_rate_per_hour", return_value=3.60),
             patch("serverless.metering.last_billed_period_end", return_value=None),
         ):
-            result = charge_priced_fixture_slice(
+            result = charge_serverless_execution(
                 billing, repo, worker, endpoint, period_end=1000.0 + 120, final=True
             )
         assert result["blended_billing"] is False

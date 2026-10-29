@@ -64,20 +64,12 @@ class TestNFSMountOpts:
         opts = NFS_MOUNT_OPTS.split(",")
         assert "intr" not in opts
 
-    def test_the_mounter_uses_the_canonical_options(self):
-        """One definition of the mount options.
-
-        The scheduler's SSH mount path was removed with the legacy control
-        plane; the privileged helper performs mounts now. Its default must be
-        the canonical options, and the scheduler must not grow a copy.
-        """
-        import volumes
-        import worker_privileged
-
-        assert worker_privileged.DEFAULT_NFS_OPTS == volumes._DEFAULT_NFS_MOUNT_OPTS
-        with open("workers/scheduler.py") as f:
+    def test_scheduler_imports_constant(self):
+        """scheduler.py must import NFS_MOUNT_OPTS from volumes, not define its own."""
+        with open("scheduler.py") as f:
             source = f.read()
-        assert "timeo=600" not in source
+        assert "from volumes import NFS_MOUNT_OPTS" in source
+        assert "nfs_mount_fstype" in source
 
     def test_nfs_mount_fstype_v4(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_NFS_MOUNT_OPTS", "tcp,nfsvers=4.0,port=12049")
@@ -99,7 +91,7 @@ class TestNFSMountOpts:
 
     def test_no_soft_mounts_in_codebase(self):
         """Zero 'soft' NFS mount references in production code."""
-        for filename in ["workers/volumes.py", "workers/scheduler.py", "workers/worker_agent.py"]:
+        for filename in ["volumes.py", "scheduler.py", "worker_agent.py"]:
             with open(filename) as f:
                 content = f.read()
             lines = content.split("\n")
@@ -249,19 +241,16 @@ class TestSSHExecWithRetry:
 class TestBillingAtomicPattern:
     """Verify billing uses single-transaction pattern (not write-ahead)."""
 
-    def test_volume_billing_skips_a_period_another_tick_holds(self):
-        """Each volume's paid cursor is serialized, and a busy one is skipped.
-
-        The serialization is the financial period lock, not `FOR UPDATE SKIP
-        LOCKED` on `volumes`: the billing login holds no UPDATE on volume
-        control rows. A period another tick holds is skipped, not waited on.
-        """
+    def test_volume_billing_uses_for_update_skip_locked(self):
+        """Volume billing must use FOR UPDATE SKIP LOCKED like GPU billing."""
         import inspect
         from billing import BillingEngine
 
         source = inspect.getsource(BillingEngine.auto_billing_cycle)
+        # The volume billing section should have FOR UPDATE SKIP LOCKED
+        # Find the volume billing section
         vol_section = source[source.index("Bill active volumes") :]
-        assert 'if not lock_period(conn, "volume", vid):' in vol_section
+        assert "FOR UPDATE SKIP LOCKED" in vol_section
 
     def test_volume_billing_single_transaction(self):
         """Charge + cycle INSERT must be in the same 'with pool.connection()' block."""

@@ -70,24 +70,20 @@ EXCLUDED_DIRS = (
     "site-assets",  # vendored third-party marketing bundle
     "coverage",
     ".hypothesis",  # property-test corpus: machine-generated string soup
-    "worktrees",
-    "artifacts",  # release-evidence manifests and test run artifacts
-    "xcelsior.egg-info",  # setuptools editable-install metadata (SOURCES.txt)
     # Applied migration history. A migration that removed a column must name it;
     # rewriting one would falsify the record of what the schema used to be.
-    "api/migrations/versions",
+    "migrations/versions",
 )
 
 # Individual files that record the removal itself, or are third-party verbatim.
 EXCLUDED_FILES = (
     "tests/test_no_residency_gating.py",
-    "api/docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
-    "api/docs/mcp_tools_gemini.md",
-    "api/docs/mcp_tools_grok.md",
+    "docs/mcp_tools_chatgpt.md",  # verbatim third-party research output
+    "docs/mcp_tools_gemini.md",
+    "docs/mcp_tools_grok.md",
     "stripe_embed.md",  # verbatim Stripe documentation dump
-    "billing/stripe_embed.md",
     # Submitted as written; JSON carries no comment syntax for the marker.
-    "api/docs/compliance/scip_partner_loi.json",
+    "docs/compliance/scip_partner_loi.json",
 )
 
 # Binary and lockfile extensions: scanning them yields noise, not signal.
@@ -156,15 +152,15 @@ DOCUMENTS_REMOVAL = "residency-guard: documents-removal"
 def _is_excluded(rel: str) -> bool:
     if set(rel.split("/")) & set(EXCLUDED_DIRS):
         return True
-    if rel.startswith(("migrations/versions/", "api/migrations/versions/")):
+    if rel.startswith("migrations/versions/"):
         return True
     # Generated crawl/link reports: a snapshot of URLs that existed at the time.
-    if rel.startswith(("link-checker-results", "archive/link-checker-results")):
+    if rel.startswith("link-checker-results"):
         return True
     # `.env.bak.<timestamp>` — a local snapshot, not configuration in use.
     if ".bak." in rel or rel.endswith(".bak"):
         return True
-    if rel.startswith(("docs/archive/", "api/docs/archive/")):
+    if rel.startswith("docs/archive/"):
         return True
     return rel in EXCLUDED_FILES
 
@@ -255,17 +251,17 @@ def test_absence_assertions_are_not_counted():
     "path",
     [
         "llms.txt",
-        "api/templates/dashboard.html",
-        "api/fern/pages/compliance.mdx",
-        "api/fern/pages/security.mdx",
-        "api/fern/pages/introduction.mdx",
-        "api/frontend/src/lib/i18n/en.ts",
-        "api/frontend/src/lib/i18n/fr.ts",
+        "templates/dashboard.html",
+        "fern/pages/compliance.mdx",
+        "fern/pages/security.mdx",
+        "fern/pages/introduction.mdx",
+        "frontend/src/lib/i18n/en.ts",
+        "frontend/src/lib/i18n/fr.ts",
         "README.md",
-        "api/mcp/src/auth/scopes.ts",
-        "api/routes/_deps.py",
-        "workers/scheduler.py",
-        "billing/billing.py",
+        "mcp/src/auth/scopes.ts",
+        "routes/_deps.py",
+        "scheduler.py",
+        "billing.py",
     ],
 )
 def test_high_traffic_surfaces_are_clean(path):
