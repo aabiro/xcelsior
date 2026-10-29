@@ -1,0 +1,1633 @@
+.dashboard-shell {
+  /* Shared layout tokens: heavy content rails sit on light grid verticals.
+     When content is maxed: half-span = max/2 - pad must be k * step.
+     n=8 → max = 2*(8*76 + 28) = 1272; rail offset from center = 608 = 8*76.
+     Light lines use mid-tile strokes so center-aligned pattern places lines
+     at center ± k*step (not center-38 + k*step). */
+  --dashboard-grid-step: 76px;
+  --dashboard-content-pad: 28px;
+  --dashboard-content-max: 1272px;
+  --dashboard-ai-rail-width: 64px;
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  height: 100dvh;
+  /* clip, not just hidden: a hidden box is still programmatically scrollable,
+     and the ::after glow below overhangs the right edge by 80px, so a focus
+     or scrollIntoView slid the whole dashboard sideways under a modal. */
+  overflow: hidden;
+  overflow: clip;
+  font-family: var(--font-geist-sans), "Geist", system-ui, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 800px at 12% -8%, var(--mesh-a), transparent 52%),
+    radial-gradient(1000px 900px at 94% 0%, var(--mesh-b), transparent 50%),
+    radial-gradient(900px 900px at 60% 108%, var(--mesh-c), transparent 58%),
+    var(--bg);
+}
+
+.dashboard-shell *,
+.dashboard-shell *::before,
+.dashboard-shell *::after {
+  box-sizing: border-box;
+}
+
+.dashboard-shell::before,
+.dashboard-shell::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Ambient mesh only on the full shell — the aligned square grid lives on
+   .dashboard-site-content-column so its origin matches topbar/main rails. */
+.dashboard-shell::before {
+  inset: 0;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: var(--dashboard-grid-step) var(--dashboard-grid-step);
+  background-position: center top;
+  mask-image: radial-gradient(circle at 38% 14%, #000 12%, transparent 70%);
+}
+
+.dashboard-shell::after {
+  top: -120px;
+  right: -80px;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(155, 109, 255, 0.18), transparent 68%);
+  filter: blur(40px);
+  animation: auroraB 18s ease-in-out infinite;
+}
+
+.dashboard-shell[data-theme="dark"] {
+  --bg: #05070e;
+  --panel: rgba(5, 7, 14, 0.6);
+  --panel-2: rgba(8, 11, 20, 0.5);
+  --popover-solid: #0c1019;
+  --popover-solid-2: #111827;
+  --text: #f0f4fa;
+  --text-2: #dbe2ec;
+  --text-3: #9aa7bd;
+  --text-4: #7a879d;
+  --text-5: #5a6578;
+  --line: rgba(255, 255, 255, 0.06);
+  --edge: rgba(255, 255, 255, 0.12);
+  --grid: rgba(255, 255, 255, 0.028);
+  --surface-1: rgba(255, 255, 255, 0.02);
+  --surface-2: rgba(255, 255, 255, 0.05);
+  --surface-3: rgba(255, 255, 255, 0.1);
+  --cyan: #38dbff;
+  --violet: #9b6dff;
+  --violet-2: #b79dff;
+  --green: #34d399;
+  --gold: #ffbf5e;
+  --coral: #ff8f8f;
+  --mesh-a: rgba(56, 219, 255, 0.1);
+  --mesh-b: rgba(155, 109, 255, 0.15);
+  --mesh-c: rgba(155, 109, 255, 0.05);
+  --cta-bg: #ffffff;
+  --cta-fg: #0b0f19;
+  --shadow-hero: 0 40px 90px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --shadow-cta: 0 12px 34px rgba(0, 0, 0, 0.3);
+  --shadow-panel: 0 24px 60px -30px rgba(0, 0, 0, 0.6);
+  --color-navy: var(--bg);
+  --color-navy-light: rgba(255, 255, 255, 0.03);
+  --color-navy-lighter: rgba(255, 255, 255, 0.08);
+  --color-accent-red: var(--coral);
+  --color-accent-red-hover: var(--coral);
+  --color-accent-gold: var(--gold);
+  --color-accent-gold-hover: var(--gold);
+  --color-accent-orange: var(--gold);
+  --color-accent-orange-hover: var(--gold);
+  --color-ice-blue: var(--cyan);
+  --color-accent-cyan: var(--cyan);
+  --color-accent-violet: var(--violet);
+  --color-emerald: var(--green);
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text-3);
+  --color-text-muted: var(--text-4);
+  --color-border: var(--line);
+  --color-border-light: var(--edge);
+  --color-surface: var(--surface-1);
+  --color-surface-hover: var(--surface-2);
+  --color-glow-cyan: rgba(56, 219, 255, 0.16);
+  --color-glow-violet: rgba(155, 109, 255, 0.14);
+  --color-glow-red: rgba(255, 143, 143, 0.12);
+}
+
+.dashboard-shell[data-theme="light"] {
+  --bg: #e7ebf5;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-2: rgba(255, 255, 255, 0.7);
+  --popover-solid: #ffffff;
+  --popover-solid-2: #f4f6fb;
+  --text: #0f1830;
+  --text-2: #2a3550;
+  --text-3: #4d5975;
+  --text-4: #6c7891;
+  --text-5: #939eb4;
+  --line: rgba(16, 26, 48, 0.1);
+  --edge: rgba(16, 26, 48, 0.15);
+  --grid: rgba(16, 26, 48, 0.045);
+  --surface-1: rgba(255, 255, 255, 0.66);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --surface-3: rgba(255, 255, 255, 0.6);
+  --cyan: #0e7d95;
+  --violet: #6d28d9;
+  --violet-2: #6d28d9;
+  --green: #047d5a;
+  --gold: #b45309;
+  --coral: #be123c;
+  --mesh-a: rgba(34, 197, 235, 0.2);
+  --mesh-b: rgba(139, 80, 245, 0.2);
+  --mesh-c: rgba(236, 72, 153, 0.11);
+  --cta-bg: linear-gradient(100deg, #0e7d95, #6d28d9);
+  --cta-fg: #ffffff;
+  --shadow-hero: 0 34px 74px -26px rgba(23, 37, 84, 0.3), 0 12px 26px -14px rgba(23, 37, 84, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --shadow-cta: 0 16px 32px -10px rgba(109, 40, 217, 0.42);
+  --shadow-panel: 0 20px 46px -24px rgba(23, 37, 84, 0.24), 0 6px 16px -12px rgba(23, 37, 84, 0.12);
+  --color-navy: var(--bg);
+  --color-navy-light: rgba(255, 255, 255, 0.72);
+  --color-navy-lighter: rgba(255, 255, 255, 0.92);
+  --color-accent-red: var(--coral);
+  --color-accent-red-hover: var(--coral);
+  --color-accent-gold: var(--gold);
+  --color-accent-gold-hover: var(--gold);
+  --color-accent-orange: var(--gold);
+  --color-accent-orange-hover: var(--gold);
+  --color-ice-blue: var(--cyan);
+  --color-accent-cyan: var(--cyan);
+  --color-accent-violet: var(--violet);
+  --color-emerald: var(--green);
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text-3);
+  --color-text-muted: var(--text-4);
+  --color-border: var(--line);
+  --color-border-light: var(--edge);
+  --color-surface: var(--surface-1);
+  --color-surface-hover: var(--surface-2);
+  --color-glow-cyan: rgba(14, 125, 149, 0.18);
+  --color-glow-violet: rgba(109, 40, 217, 0.14);
+  --color-glow-red: rgba(190, 18, 60, 0.1);
+}
+
+.dashboard-shell ::selection {
+  background: var(--violet);
+  color: #fff;
+}
+
+.dashboard-shell-frame {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-shell .glass,
+.dashboard-shell .desktop-sidebar-surface,
+.dashboard-shell .desktop-topbar {
+  background: var(--panel);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.dashboard-shell .glow-card {
+  border-color: var(--edge);
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+  box-shadow: var(--shadow-panel);
+}
+
+.dashboard-shell .mcp-connect-card {
+  background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
+}
+
+/* Prompt surface and its inline chips. The chips are the prompt's
+   placeholders: what is on screen is what Copy Prompt copies. */
+.dashboard-shell .mcp-connect-prompt {
+  background: color-mix(in srgb, var(--bg) 55%, var(--popover-solid));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.dashboard-shell .mcp-connect-chip {
+  border: 1px solid transparent;
+  line-height: 1.6;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dashboard-shell .mcp-connect-chip-key {
+  color: #5ee7ff;
+  background: rgba(56, 219, 255, 0.1);
+  border-color: rgba(56, 219, 255, 0.28);
+  cursor: copy;
+}
+.dashboard-shell .mcp-connect-chip-key:hover { background: rgba(56, 219, 255, 0.18); }
+.dashboard-shell .mcp-connect-chip-command {
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.28);
+  cursor: copy;
+}
+.dashboard-shell .mcp-connect-chip-command:hover { background: rgba(52, 211, 153, 0.18); }
+.dashboard-shell .mcp-connect-chip-masked {
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-color: var(--edge);
+}
+.dashboard-shell .mcp-connect-chip:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.dashboard-shell[data-theme="light"] .mcp-connect-prompt {
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 #ffffff;
+}
+.dashboard-shell[data-theme="light"] .mcp-connect-chip-key {
+  color: #0e7490;
+  background: rgba(8, 145, 178, 0.08);
+  border-color: rgba(8, 145, 178, 0.3);
+}
+.dashboard-shell[data-theme="light"] .mcp-connect-chip-command {
+  color: #047857;
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.3);
+}
+
+.dashboard-shell .glow-card::before {
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(56, 219, 255, 0.18), rgba(155, 109, 255, 0.16), transparent 62%);
+}
+
+.dashboard-shell[data-theme="light"] .glow-card::before {
+  background: linear-gradient(135deg, rgba(14, 125, 149, 0.26), rgba(109, 40, 217, 0.2), transparent 62%);
+}
+
+.dashboard-shell .glow-card:hover {
+  border-color: var(--edge);
+  box-shadow: var(--shadow-hero);
+}
+
+.dashboard-shell .glow-card:hover::before {
+  opacity: 1;
+}
+
+.dashboard-shell .brand-top-accent::after {
+  left: 12%;
+  right: 12%;
+  opacity: 0.34;
+  background: linear-gradient(90deg, transparent, var(--cyan) 24%, var(--violet) 54%, var(--coral) 82%, transparent);
+}
+
+.dashboard-shell .brand-line {
+  opacity: 0.28;
+  background: linear-gradient(90deg, transparent, var(--cyan) 18%, var(--violet) 50%, var(--coral) 82%, transparent);
+}
+
+.dashboard-shell .nav-active::before {
+  background: linear-gradient(180deg, var(--cyan), var(--violet));
+}
+
+.dashboard-shell .ai-panel-border::before {
+  background: linear-gradient(180deg, transparent 0%, var(--cyan) 28%, var(--violet) 70%, transparent 100%);
+  opacity: 0.24;
+}
+
+.dashboard-shell .stat-glow-cyan {
+  border-color: rgba(56, 219, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(56, 219, 255, 0.12), 0 0 0 1px rgba(56, 219, 255, 0.06);
+}
+
+.dashboard-shell .stat-glow-violet {
+  border-color: rgba(155, 109, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(155, 109, 255, 0.12), 0 0 0 1px rgba(155, 109, 255, 0.06);
+}
+
+.dashboard-shell .stat-glow-emerald {
+  border-color: rgba(52, 211, 153, 0.22);
+  box-shadow: inset 0 1px 0 rgba(52, 211, 153, 0.12), 0 0 0 1px rgba(52, 211, 153, 0.06);
+}
+
+.dashboard-shell .stat-glow-gold {
+  border-color: rgba(255, 191, 94, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 191, 94, 0.14), 0 0 0 1px rgba(255, 191, 94, 0.06);
+}
+
+.dashboard-shell-loading {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-shell-loading-spinner {
+  width: 42px;
+  height: 42px;
+  background: transparent;
+  border: 3px solid rgba(56, 219, 255, 0.38);
+  border-top-color: var(--cyan);
+  border-right-color: var(--violet);
+  border-radius: 999px;
+  box-shadow: 0 0 30px rgba(56, 219, 255, 0.16);
+}
+
+.dashboard-site-sidebar {
+  --dashboard-sidebar-width: 240px;
+  position: relative;
+  z-index: 40;
+  flex: 0 0 var(--dashboard-sidebar-width);
+  width: var(--dashboard-sidebar-width);
+  min-width: var(--dashboard-sidebar-width);
+  overflow: visible;
+  border-right: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 16%),
+    var(--panel);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+  transition: width .22s ease, min-width .22s ease, flex-basis .22s ease;
+}
+
+.dashboard-site-sidebar[data-collapsed="true"] {
+  --dashboard-sidebar-width: 72px;
+}
+
+.dashboard-site-sidebar::before,
+.dashboard-site-topbar-inner::before,
+.dashboard-site-main-inner::before {
+  content: "";
+  position: absolute;
+  /* Inset matches --dashboard-content-pad so appbar + main heavy rails share
+     the same verticals as the centered light grid (see --dashboard-content-max). */
+  left: var(--dashboard-content-pad, 28px);
+  right: var(--dashboard-content-pad, 28px);
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  pointer-events: none;
+}
+
+.dashboard-site-sidebar::before {
+  left: 0;
+  right: 0;
+  border-left: 0;
+}
+
+.dashboard-site-sidebar-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  height: 72px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+}
+
+.dashboard-site-sidebar-brand-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  object-fit: contain;
+  object-position: center;
+}
+
+.dashboard-site-sidebar-brand-wordmark {
+  height: 22px;
+  width: auto;
+  /* May shrink: the row was 4px too narrow for wordmark + Beta pill, and the
+     pill's right end was clipped by the container. object-fit keeps it crisp. */
+  flex-shrink: 1;
+  min-width: 0;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.dashboard-site-beta {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(56, 219, 255, 0.22);
+  background: rgba(56, 219, 255, 0.08);
+  color: var(--cyan);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.12em;
+}
+
+.dashboard-site-close {
+  border: 1px solid var(--edge);
+  background: var(--surface-2);
+  color: var(--text-3);
+  transition: background .2s, color .2s, border-color .2s;
+}
+
+.dashboard-site-close:hover {
+  background: var(--surface-3);
+  border-color: var(--edge);
+  color: var(--text);
+}
+
+.dashboard-site-nav {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-site-sidebar-footer {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.02));
+}
+
+.dashboard-site-sidebutton,
+.dashboard-site-collapse,
+.dashboard-site-mobile-link,
+.dashboard-site-banner-action {
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--text-4);
+  transition: transform .2s, background .2s, color .2s, border-color .2s, box-shadow .2s;
+}
+
+.dashboard-site-sidebutton:hover,
+.dashboard-site-collapse:hover,
+.dashboard-site-mobile-link:hover,
+.dashboard-site-banner-action:hover {
+  border-color: rgba(56, 219, 255, 0.22);
+  background: var(--surface-2);
+  color: var(--text-2);
+  box-shadow: 0 0 0 1px rgba(56, 219, 255, 0.08);
+}
+
+.dashboard-site-sidebutton-active {
+  border-color: rgba(56, 219, 255, 0.28);
+  background: linear-gradient(135deg, rgba(56, 219, 255, 0.14), rgba(155, 109, 255, 0.1));
+  color: var(--cyan);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.dashboard-site-collapse {
+  justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.dashboard-site-sidebar-toggle {
+  justify-content: center;
+}
+
+.dashboard-site-popout,
+.dashboard-site-subpanel {
+  border: 1px solid var(--edge);
+  background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
+  box-shadow: var(--shadow-panel);
+  z-index: 200;
+}
+
+.dashboard-site-sidebar .dashboard-site-popout {
+  position: fixed;
+  left: 12px;
+  bottom: 132px;
+  width: 18rem;
+}
+
+.dashboard-site-subpanel {
+  position: fixed;
+  left: calc(var(--dashboard-sidebar-width, 240px) + 12px);
+  bottom: 72px;
+  z-index: 210;
+}
+
+.dashboard-site-popout-section {
+  border-color: var(--line);
+}
+
+.dashboard-site-popout-link {
+  color: var(--text-3);
+  transition: background .2s, color .2s;
+}
+
+.dashboard-site-popout-link:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.dashboard-site-popout-link-active {
+  background: linear-gradient(135deg, rgba(56, 219, 255, 0.12), rgba(155, 109, 255, 0.08));
+  color: var(--cyan);
+}
+
+.dashboard-site-mobile-backdrop {
+  background: rgba(5, 7, 14, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.dashboard-site-mobile-drawer {
+  border-right: 1px solid var(--edge);
+  background:
+    radial-gradient(circle at top left, rgba(56, 219, 255, 0.1), transparent 34%),
+    var(--panel);
+  backdrop-filter: blur(26px);
+}
+
+/* Shared content column: topbar + main share width (AI rail is outside). */
+.dashboard-site-main-row {
+  position: relative;
+  z-index: 1;
+  /* Same reason as .dashboard-shell: never programmatically scrollable. */
+  overflow: clip;
+}
+
+.dashboard-site-content-column {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  overflow: clip;
+}
+
+/* Primary square grid — mid-tile lines + center origin so verticals land at
+   column-center ± k*step, matching heavy rails at ± (max/2 - pad) when maxed. */
+.dashboard-site-content-column::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  /* Line sits in the middle of each 76px tile (not the leading edge). */
+  background-image:
+    linear-gradient(
+      to bottom,
+      transparent calc(50% - 0.5px),
+      var(--grid) calc(50% - 0.5px),
+      var(--grid) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(
+      to right,
+      transparent calc(50% - 0.5px),
+      var(--grid) calc(50% - 0.5px),
+      var(--grid) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    );
+  background-size: var(--dashboard-grid-step) var(--dashboard-grid-step);
+  background-position: center top;
+}
+
+.dashboard-site-topbar {
+  position: relative;
+  z-index: 50;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dashboard-site-topbar-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 72px;
+  max-width: var(--dashboard-content-max, 1272px);
+  margin: 0 auto;
+  padding: 0 var(--dashboard-content-pad, 28px);
+}
+
+.dashboard-site-crumbs {
+  min-width: 0;
+}
+
+.dashboard-site-status {
+  justify-content: center;
+}
+
+.dashboard-site-actions {
+  gap: 12px;
+}
+
+.dashboard-site-topbar-brand {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  height: 100%;
+  gap: 10px;
+  color: var(--text);
+}
+
+.dashboard-site-topbar-brand-mark {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  object-fit: contain;
+  object-position: center;
+}
+
+.dashboard-site-topbar-brand-wordmark {
+  height: 22px;
+  width: auto;
+  flex-shrink: 0;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.dashboard-site-profile-trigger,
+.dashboard-site-icon-button,
+.dashboard-site-pill-control,
+.dashboard-site-team-control,
+.dashboard-site-control > div > button,
+.dashboard-site-control > button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  box-shadow: none;
+  backdrop-filter: none;
+  transition: transform .2s, background .2s, color .2s, border-color .2s, box-shadow .2s;
+}
+
+.dashboard-site-profile-trigger:hover,
+.dashboard-site-icon-button:hover,
+.dashboard-site-pill-control:hover,
+.dashboard-site-team-control > button:hover,
+.dashboard-site-control > div > button:hover,
+.dashboard-site-control > button:hover {
+  border-color: rgba(56, 219, 255, 0.18);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.dashboard-site-pill-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 999px;
+  padding-right: 14px;
+  padding-left: 14px;
+  color: var(--text-3);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-site-pill-control svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dashboard-site-theme-toggle {
+  position: relative;
+  width: 62px;
+  height: 32px;
+  min-width: 62px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background .38s, border-color .25s;
+}
+
+.dashboard-site-theme-toggle:hover {
+  border-color: rgba(56, 219, 255, 0.22);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px rgba(56, 219, 255, 0.08);
+}
+
+.dashboard-site-theme-sun,
+.dashboard-site-theme-moon {
+  position: absolute;
+  top: 9px;
+  width: 13px;
+  height: 13px;
+  transition: opacity .3s;
+}
+
+.dashboard-site-theme-sun {
+  left: 9px;
+}
+
+.dashboard-site-theme-moon {
+  right: 9px;
+}
+
+.dashboard-site-theme-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  box-shadow: 0 3px 10px rgba(155, 109, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  transition: transform .36s cubic-bezier(.5, 1.5, .5, 1);
+}
+
+.dashboard-shell[data-theme="light"] .dashboard-site-theme-knob {
+  transform: translateX(30px);
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-site-theme-sun {
+  opacity: 0;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-site-theme-moon {
+  opacity: .85;
+}
+
+.dashboard-shell[data-theme="light"] .dashboard-site-theme-sun {
+  opacity: 1;
+}
+
+.dashboard-shell[data-theme="light"] .dashboard-site-theme-moon {
+  opacity: 0;
+}
+
+.dashboard-shell[data-theme="light"] .site-theme-dark {
+  display: none;
+}
+
+.dashboard-shell[data-theme="dark"] .site-theme-light {
+  display: none;
+}
+
+.dashboard-site-team-control > button {
+  min-height: 44px;
+  border-radius: 12px;
+  border-color: var(--edge);
+  background: var(--popover-solid);
+}
+
+.dashboard-site-team-control > button:hover,
+.dashboard-site-team-control > button[aria-expanded="true"] {
+  border-color: rgba(56, 219, 255, 0.22);
+  box-shadow: 0 0 0 1px rgba(56, 219, 255, 0.08);
+}
+
+.dashboard-site-team-control [role="listbox"] {
+  border: 1px solid var(--edge);
+  background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
+  box-shadow: var(--shadow-panel);
+  z-index: 200;
+}
+
+.dashboard-site-control > div > button,
+.dashboard-site-control > button {
+  border-radius: 999px;
+}
+
+.dashboard-site-control > div > button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.dashboard-site-control > div > button:hover {
+  box-shadow: 0 10px 24px -18px rgba(56, 219, 255, 0.35);
+}
+
+.dashboard-site-control > div > button + div,
+.dashboard-site-header-dropdown {
+  border: 1px solid var(--edge);
+  background: linear-gradient(180deg, var(--popover-solid-2), var(--popover-solid));
+  box-shadow: var(--shadow-panel);
+  z-index: 200;
+}
+
+.dashboard-site-control > div > .dashboard-site-header-balance {
+  border: 1px solid transparent;
+  background: linear-gradient(100deg, var(--cyan), var(--violet));
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(155, 109, 255, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+.dashboard-site-control > div > .dashboard-site-header-balance:hover {
+  background: linear-gradient(100deg, var(--cyan), var(--violet));
+  color: #fff;
+  border-color: rgba(56, 219, 255, 0.35);
+  box-shadow: 0 10px 20px rgba(155, 109, 255, 0.2), 0 0 0 1px rgba(56, 219, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  filter: brightness(1.025);
+}
+
+.dashboard-site-header-balance-negative {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dashboard-site-main {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  padding: 20px 0 32px;
+  overscroll-behavior: contain;
+}
+
+.dashboard-site-main:has(.dashboard-ai-page) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dashboard-site-main:has(.dashboard-mcp-page) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dashboard-site-main:has(.dashboard-mcp-page) .dashboard-site-main-inner {
+  max-width: none;
+  padding: 0;
+  height: 100%;
+}
+
+/* Connect page reads as a focused, full-bleed installer screen, not a bordered
+   card sitting inside the usual dashboard chrome — drop the ambient dot-grid
+   and the main-column rail guides here only, and reclaim the AI-rail's width
+   so the pixel field and corner link reach the true page edge. */
+.dashboard-shell:has(.dashboard-mcp-page)::before {
+  display: none;
+}
+
+.dashboard-site-main:has(.dashboard-mcp-page) .dashboard-site-main-inner::before {
+  display: none;
+}
+
+.dashboard-site-workspace:has(.dashboard-mcp-page) .dashboard-site-ai-rail {
+  display: none;
+}
+
+.dashboard-site-main:has(.dashboard-ai-page) .dashboard-site-main-inner {
+  max-width: none;
+  padding: 0;
+  height: 100%;
+}
+
+.dashboard-site-main-inner {
+  position: relative;
+  max-width: var(--dashboard-content-max, 1272px);
+  margin: 0 auto;
+  padding: 0 var(--dashboard-content-pad, 28px);
+}
+
+.dashboard-site-workspace {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-site-ai-panel {
+  width: 384px;
+  min-width: 384px;
+  height: 100%;
+  border-left: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top, rgba(56, 219, 255, 0.08), transparent 34%),
+    var(--popover-solid);
+  backdrop-filter: blur(24px);
+}
+
+.dashboard-site-ai-rail {
+  display: flex;
+  border-left: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel-2), transparent 38%, var(--panel-2));
+}
+
+.dashboard-site-ai-toggle {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  background: linear-gradient(135deg, var(--surface-2), var(--surface-1));
+  box-shadow: var(--shadow-panel);
+}
+
+.dashboard-site-ai-toggle svg {
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
+.dashboard-site-ai-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(56, 219, 255, 0.1), transparent 40%, rgba(155, 109, 255, 0.12));
+}
+
+.dashboard-site-ai-toggle-active {
+  border-color: rgba(155, 109, 255, 0.26);
+  background: linear-gradient(135deg, rgba(56, 219, 255, 0.18), rgba(155, 109, 255, 0.22));
+  box-shadow: 0 16px 38px rgba(155, 109, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.dashboard-site-banner {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(56, 219, 255, 0.16);
+  background: linear-gradient(90deg, rgba(56, 219, 255, 0.1), rgba(155, 109, 255, 0.1), rgba(56, 219, 255, 0.1));
+  color: var(--cyan);
+}
+
+.dashboard-site-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  background-size: 200% 100%;
+  animation: siteShimmer 8s linear infinite;
+  pointer-events: none;
+}
+
+.dashboard-site-banner-content {
+  position: relative;
+  z-index: 1;
+  max-width: var(--dashboard-content-max, 1272px);
+  margin: 0 auto;
+  padding: 10px var(--dashboard-content-pad, 28px);
+}
+
+.dashboard-site-banner-action {
+  color: var(--cyan);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.dashboard-overview {
+  position: relative;
+  display: grid;
+  /* Uniform vertical rhythm between markers, cards, and appbar-adjacent blocks. */
+  gap: 24px;
+  --dashboard-marker-gap: 16px;
+}
+
+.dashboard-overview-page-heading {
+  display: flex;
+  justify-content: flex-start;
+  /* Match section marker → content spacing so [01] feels even with [02]/[0n]. */
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard-overview-page-heading .site-marker,
+.dashboard-overview-section .site-marker {
+  align-items: center;
+  margin-top: 0;
+  margin-bottom: var(--dashboard-marker-gap, 16px);
+}
+
+.dashboard-overview-hero-cta {
+  min-height: 44px;
+  padding: 12px 22px;
+  white-space: nowrap;
+}
+
+.dashboard-shell [data-card] {
+  background: var(--popover-solid);
+}
+
+.dashboard-site-modal-overlay {
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+html.light .dashboard-site-modal-overlay {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.dashboard-site-modal-panel {
+  background: var(--popover-solid);
+  border-color: var(--edge);
+}
+
+.dashboard-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dashboard-overview-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 44px 46px;
+  border: 1px solid var(--edge);
+  border-radius: 26px;
+  background: linear-gradient(160deg, var(--surface-2), var(--surface-1));
+  box-shadow: var(--shadow-hero);
+}
+
+.dashboard-overview-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(56, 219, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(155, 109, 255, 0.16), transparent 36%);
+  pointer-events: none;
+}
+
+.dashboard-overview-hero-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dashboard-overview-eyebrow {
+  margin-bottom: 10px;
+  color: var(--text-4);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dashboard-overview-hero-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 420px);
+  gap: 28px;
+  align-items: center;
+}
+
+.dashboard-overview-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: var(--text);
+  font-family: var(--font-geist-sans), var(--font-geist), "Geist", ui-sans-serif, system-ui, sans-serif;
+}
+
+.dashboard-overview-intro {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.dashboard-overview-hero-cta {
+  flex-shrink: 0;
+}
+
+.dashboard-overview-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--surface-1), var(--surface-1));
+  box-shadow: var(--shadow-panel);
+}
+
+.dashboard-overview-hero-stat {
+  padding: 22px 24px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.dashboard-overview-hero-stat:nth-child(2n) {
+  border-right: 0;
+}
+
+.dashboard-overview-hero-stat:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.dashboard-overview-hero-stat-label {
+  margin-bottom: 14px;
+  color: var(--text-3);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dashboard-overview-hero-stat-value-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-overview-hero-stat-value {
+  color: var(--text);
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.dashboard-overview-hero-stat-dot {
+  width: 8px;
+  height: 8px;
+  margin-bottom: 8px;
+  border-radius: 999px;
+}
+
+.dashboard-overview-hero-stat-dot--cyan {
+  background: var(--cyan);
+  box-shadow: 0 0 12px rgba(56, 219, 255, 0.45);
+}
+
+.dashboard-overview-hero-stat-dot--violet {
+  background: var(--violet);
+  box-shadow: 0 0 12px rgba(155, 109, 255, 0.45);
+}
+
+.dashboard-overview-hero-stat-dot--emerald {
+  background: var(--green);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
+}
+
+.dashboard-overview-hero-stat-dot--gold {
+  background: var(--gold);
+  box-shadow: 0 0 12px rgba(255, 191, 94, 0.4);
+}
+
+.dashboard-overview-map {
+  min-height: 100%;
+  border-color: var(--edge) !important;
+  border-radius: 24px !important;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1)) !important;
+  box-shadow: var(--shadow-panel);
+}
+
+.dashboard-overview-loading-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dashboard-overview-loading-card {
+  height: 116px;
+  border: 1px solid var(--edge);
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+}
+
+.dashboard-overview-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Marker-to-card spacing is owned by .site-marker margin-bottom token. */
+  gap: 0;
+  padding: 0;
+}
+
+.dashboard-overview-actions {
+  display: grid;
+  gap: 20px;
+}
+
+.dashboard-overview-action {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 28px;
+  align-items: center;
+  padding: 30px 32px;
+  border: 1px solid var(--edge);
+  border-radius: 26px;
+  background: linear-gradient(160deg, var(--surface-2), var(--surface-1));
+  box-shadow: var(--shadow-panel);
+}
+
+.dashboard-overview-action::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dashboard-overview-action[data-accent="launch"]::before {
+  background: radial-gradient(circle at 0% 0%, rgba(155, 109, 255, 0.16), transparent 32%);
+}
+
+.dashboard-overview-action[data-accent="provider"]::before {
+  background: radial-gradient(circle at 100% 0%, rgba(56, 219, 255, 0.14), transparent 32%);
+}
+
+.dashboard-overview-action[data-reverse="true"] {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.dashboard-overview-action-copy,
+.dashboard-overview-action-visual {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-overview-action[data-reverse="true"] .dashboard-overview-action-copy {
+  order: 2;
+  text-align: right;
+}
+
+.dashboard-overview-action[data-reverse="true"] .dashboard-overview-action-visual {
+  order: 1;
+}
+
+.dashboard-overview-action-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.dashboard-overview-action[data-reverse="true"] .dashboard-overview-action-badges {
+  justify-content: flex-end;
+}
+
+.dashboard-overview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--text-3);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dashboard-overview-chip--accent {
+  color: var(--cyan);
+}
+
+.dashboard-overview-chip--violet {
+  color: var(--violet);
+}
+
+.dashboard-overview-action-title {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.dashboard-overview-action-copy .site-card-copy {
+  max-width: 620px;
+}
+
+.dashboard-overview-action[data-reverse="true"] .site-card-copy {
+  margin-left: auto;
+}
+
+.dashboard-overview-action-cta {
+  margin-top: 22px;
+}
+
+.dashboard-overview-action-button {
+  min-height: 42px;
+}
+
+.dashboard-overview-action[data-accent="provider"] .dashboard-overview-action-button {
+  background: linear-gradient(100deg, var(--green), var(--cyan));
+  color: #fff;
+  font-weight: 600;
+  /* Dark halo + soft drop so the label stays legible on the bright green→cyan fill */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.42), 0 0 1px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 12px 34px rgba(56, 219, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.dashboard-overview-action[data-accent="provider"] .dashboard-overview-action-button:hover {
+  box-shadow: 0 18px 46px rgba(56, 219, 255, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.dashboard-overview-visual-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  border: 1px solid var(--edge);
+  border-radius: 24px;
+  background: linear-gradient(160deg, var(--surface-2), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.dashboard-overview-visual-shell::before,
+.dashboard-overview-visual-shell::after {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border-radius: 18px;
+  pointer-events: none;
+}
+
+.dashboard-overview-visual-shell::before {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.dashboard-overview-visual-shell::after {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(56, 219, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 100% 100%, rgba(155, 109, 255, 0.14), transparent 40%);
+}
+
+.dashboard-overview-visual-icon {
+  position: relative;
+  z-index: 1;
+  width: 112px;
+  height: 112px;
+  filter: drop-shadow(0 14px 30px rgba(56, 219, 255, 0.18));
+}
+
+.dashboard-overview-visual-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.dashboard-overview-action[data-accent="launch"] .dashboard-overview-visual-icon {
+  filter: drop-shadow(0 16px 32px rgba(155, 109, 255, 0.24));
+}
+
+.dashboard-overview-visual-grid {
+  position: absolute;
+  inset: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.8;
+}
+
+.dashboard-overview-data-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.dashboard-data-card {
+  overflow: hidden;
+}
+
+.dashboard-data-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+}
+
+.dashboard-data-card-body {
+  padding: 20px 22px 22px;
+}
+
+.dashboard-data-list {
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-1);
+  transition: transform .18s, background .18s, border-color .18s;
+}
+
+.dashboard-data-row:hover {
+  transform: translateY(-1px);
+  background: var(--surface-2);
+  border-color: var(--edge);
+}
+
+.dashboard-data-row-icon {
+  display: flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgba(56, 219, 255, 0.14), rgba(155, 109, 255, 0.14));
+}
+
+.dashboard-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-chip-emerald {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(52, 211, 153, 0.08);
+  color: var(--green);
+}
+
+.dashboard-rank {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboard-rank-gold {
+  background: rgba(255, 191, 94, 0.12);
+  color: var(--gold);
+}
+
+.dashboard-rank-silver {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.dashboard-rank-coral {
+  background: rgba(255, 143, 143, 0.12);
+  color: var(--coral);
+}
+
+.dashboard-rank-default {
+  background: var(--surface-1);
+  color: var(--text-4);
+}
+
+.dashboard-tier-diamond {
+  background: rgba(56, 219, 255, 0.12);
+  color: var(--cyan);
+}
+
+.dashboard-tier-platinum {
+  background: rgba(155, 109, 255, 0.12);
+  color: var(--violet);
+}
+
+.dashboard-tier-gold {
+  background: rgba(255, 191, 94, 0.12);
+  color: var(--gold);
+}
+
+.dashboard-tier-silver {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.dashboard-tier-bronze {
+  background: rgba(255, 143, 143, 0.12);
+  color: var(--coral);
+}
+
+.dashboard-tier-new_user {
+  background: var(--surface-1);
+  color: var(--text-4);
+}
+
+.dashboard-shell .skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@media (max-width: 1280px) {
+  .dashboard-site-topbar-inner,
+  .dashboard-site-main-inner {
+    padding-right: 22px;
+    padding-left: 22px;
+  }
+
+  .dashboard-site-topbar-inner::before,
+  .dashboard-site-main-inner::before {
+    left: 22px;
+    right: 22px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .dashboard-overview-hero-grid,
+  .dashboard-overview-action,
+  .dashboard-overview-action[data-reverse="true"],
+  .dashboard-overview-data-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-overview-hero-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-overview-action[data-reverse="true"] .dashboard-overview-action-copy,
+  .dashboard-overview-action[data-reverse="true"] .dashboard-overview-action-badges {
+    text-align: left;
+    justify-content: flex-start;
+  }
+
+  .dashboard-overview-action[data-reverse="true"] .site-card-copy {
+    margin-left: 0;
+  }
+
+  .dashboard-overview-action-copy,
+  .dashboard-overview-action-visual {
+    order: initial;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-site-main {
+    padding-top: 16px;
+    /* Room to scroll the end of the page clear of the mobile deploy dock,
+       which publishes how much of the viewport it covers. */
+    padding-bottom: max(32px, calc(var(--mobile-dock-clearance, 0px) + 16px));
+  }
+
+  .dashboard-overview-loading-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-overview-hero,
+  .dashboard-overview-action {
+    padding: 28px 22px;
+  }
+
+  .dashboard-overview-hero-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-overview-hero-stat,
+  .dashboard-overview-hero-stat:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .dashboard-overview-hero-stat:not(:last-child) {
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-site-topbar-inner,
+  .dashboard-site-main-inner,
+  .dashboard-site-banner-content {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .dashboard-site-topbar::before,
+  .dashboard-site-main-inner::before {
+    left: 18px;
+    right: 18px;
+  }
+
+  .dashboard-overview-loading-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-overview-title {
+    font-size: 30px;
+  }
+
+  .dashboard-site-actions {
+    gap: 8px;
+  }
+
+  .dashboard-site-ai-rail {
+    display: none;
+  }
+}

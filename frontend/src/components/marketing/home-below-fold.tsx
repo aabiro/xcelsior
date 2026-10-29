@@ -1,0 +1,297 @@
+"use client";
+
+import Link from "next/link";
+import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
+import {
+  Shield,
+  Zap,
+  Scale,
+  Server,
+  BadgeCheck,
+  BarChart3,
+  Globe,
+  Sparkles,
+  DollarSign,
+  ArrowRight,
+  Check,
+} from "lucide-react";
+import { m } from "@/components/marketing/motion";
+import { Button } from "@/components/ui/button";
+import { ProviderLogo } from "@/components/ui/provider-logo";
+import { BRAND_ASSETS } from "@/lib/brand-assets";
+import { useLocale } from "@/lib/locale";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.1, duration: 0.5, ease: "easeOut" as const },
+  }),
+};
+
+export function HomeBelowFold() {
+  const { t } = useLocale();
+  return (
+    <>
+      {/* ── Value Propositions ────────────────────────────────────────── */}
+      <div className="brand-line" />
+      <section className="bg-navy py-28">
+        <div className="mx-auto max-w-7xl px-6">
+          <m.div
+            className="text-center mb-16"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+          >
+            <m.h2 variants={fadeUp} custom={0} className="text-3xl font-bold md:text-4xl">
+              {t("home.why_title")}
+            </m.h2>
+            <m.p variants={fadeUp} custom={1} className="mt-4 text-text-secondary max-w-2xl mx-auto">
+              {t("home.why_desc")}
+            </m.p>
+          </m.div>
+
+          <m.div
+            className="grid grid-cols-1 gap-8 md:grid-cols-3"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+          >
+            <ValueCard i={0} icon={Scale} title={t("home.val_agents_title")} description={t("home.val_agents_desc")} glowColor="rgba(245,158,11,0.12)" accent="accent-gold" />
+            <ValueCard i={1} icon={Zap} title={t("home.val_pricing_title")} description={t("home.val_pricing_desc")} glowColor="rgba(16,185,129,0.12)" accent="emerald" />
+          </m.div>
+        </div>
+      </section>
+
+      {/* ── Feature Grid ─────────────────────────────────────────────── */}
+      <section className="border-t border-border bg-navy-light/30 py-28 relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 opacity-[0.03]" style={{
+          backgroundImage: "linear-gradient(currentColor 1px, transparent 1px), linear-gradient(90deg, currentColor 1px, transparent 1px)",
+          backgroundSize: "60px 60px",
+        }} />
+
+        <div className="relative mx-auto max-w-7xl px-6">
+          <m.h2
+            className="text-3xl font-bold text-center mb-16 md:text-4xl"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            {t("home.built_title")}
+          </m.h2>
+          <m.div
+            className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+          >
+            <FeatureCard i={0} icon={Server} title={t("home.feat_marketplace_title")} description={t("home.feat_marketplace_desc")} />
+            <FeatureCard i={1} icon={BadgeCheck} title={t("home.feat_trust_title")} description={t("home.feat_trust_desc")} />
+            <FeatureCard i={2} icon={BarChart3} title={t("home.feat_telemetry_title")} description={t("home.feat_telemetry_desc")} />
+            <FeatureCard i={3} icon={Globe} title={t("home.feat_serverless_title")} description={t("home.feat_serverless_desc")} />
+            <FeatureCard i={4} icon={DollarSign} title={t("home.feat_spot_title")} description={t("home.feat_spot_desc")} />
+            <FeatureCard i={5} icon={Sparkles} title={t("home.feat_ai_title")} description={t("home.feat_ai_desc")} />
+          </m.div>
+        </div>
+      </section>
+
+      {/* ── Comparison ────────────────────────────────────────────────── */}
+      <section className="border-t border-border bg-navy py-28">
+        <div className="mx-auto max-w-7xl px-6">
+          <m.h2
+            className="text-3xl font-bold text-center mb-16 md:text-4xl"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            {t("home.compare_title")}
+          </m.h2>
+          <m.div
+            className="overflow-x-auto rounded-xl border border-border bg-surface/50 backdrop-blur-sm"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.15 }}
+          >
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th scope="col" className="py-4 pl-6 pr-4 text-left text-text-secondary font-medium">{t("home.compare_feature")}</th>
+                  <th scope="col" className="py-4 px-4 text-center font-bold text-accent-cyan">
+                    <div className="flex flex-col items-center gap-1.5">
+                      {/* Framed to match the competitor ProviderLogos (54px box, ~34px mark inside) */}
+                      <span className="inline-flex h-[54px] w-[54px] shrink-0 items-center justify-center rounded-xl border border-accent-cyan/40 bg-background/70">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={BRAND_ASSETS.iconGradient} alt="Xcelsior" width={34} height={34} className="h-[34px] w-[34px] object-contain" />
+                      </span>
+                      {t("home.compare_xcelsior")}
+                    </div>
+                  </th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <ProviderLogo provider="aws" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />
+                      {t("home.compare_aws")}
+                    </div>
+                  </th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <ProviderLogo provider="vast" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />
+                      {t("home.compare_vast")}
+                    </div>
+                  </th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <ProviderLogo provider="runpod" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />
+                      {t("home.compare_runpod")}
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-text-secondary">
+                <CompRow feature={t("home.cmp_agents")} xcelsior={t("home.cmp_agents_x")} aws={t("home.cmp_agents_aws")} vast={t("home.cmp_agents_vast")} runpod={t("home.cmp_agents_rp")} />
+                <CompRow feature={t("home.cmp_quote")} xcelsior={t("home.cmp_quote_x")} aws={t("home.cmp_quote_aws")} vast={t("home.cmp_quote_vast")} runpod={t("home.cmp_quote_rp")} />
+                <CompRow feature={t("home.cmp_price")} xcelsior={t("home.cmp_price_x")} aws={t("home.cmp_price_aws")} vast={t("home.cmp_price_vast")} runpod={t("home.cmp_price_rp")} />
+                <CompRow feature={t("home.cmp_spot")} xcelsior={t("home.cmp_spot_x")} aws={t("home.cmp_spot_aws")} vast={t("home.cmp_spot_vast")} runpod={t("home.cmp_spot_rp")} />
+                <CompRow feature={t("home.cmp_verification")} xcelsior={t("home.cmp_verification_x")} aws={t("home.cmp_verification_aws")} vast={t("home.cmp_verification_vast")} runpod={t("home.cmp_verification_rp")} />
+                <CompRow feature={t("home.cmp_ai")} xcelsior={t("home.cmp_ai_x")} aws={t("home.cmp_ai_aws")} vast={t("home.cmp_ai_vast")} runpod={t("home.cmp_ai_rp")} />
+              </tbody>
+            </table>
+          </m.div>
+        </div>
+      </section>
+
+      {/* ── CTA ──────────────────────────────────────────────────────── */}
+      <div className="brand-line" />
+      <section className="relative overflow-hidden py-32">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-0 top-0 h-full w-full aurora-gradient" />
+          <div className="absolute left-[20%] top-[20%] h-72 w-72 rounded-full bg-accent-cyan/10 blur-[120px] animate-[aurora-drift_6s_ease-in-out_infinite]" />
+          <div className="absolute right-[20%] bottom-[15%] h-64 w-64 rounded-full bg-accent-violet/8 blur-[100px] animate-[aurora-drift_8s_ease-in-out_infinite_3s]" />
+        </div>
+
+        <m.div
+          className="relative mx-auto max-w-3xl px-6 text-center"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+        >
+          <m.h2 variants={fadeUp} custom={0} className="text-4xl font-bold md:text-5xl lg:text-6xl">
+            {t("home.cta_title_1")}
+            <br />
+            <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
+              {t("home.cta_title_2")}
+            </span>
+          </m.h2>
+          <m.p variants={fadeUp} custom={1} className="mt-6 text-lg text-text-secondary max-w-xl mx-auto">
+            {t("home.cta_desc")}
+          </m.p>
+          <m.div variants={fadeUp} custom={2} className="mt-10">
+            <AuthAwareLink intent="start">
+              <Button variant="gold" size="lg" className="text-base px-10 shadow-lg shadow-accent-gold/15">
+                {t("home.cta_button")}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </AuthAwareLink>
+          </m.div>
+        </m.div>
+      </section>
+    </>
+  );
+}
+
+function ValueCard({
+  icon: Icon,
+  title,
+  description,
+  accent,
+  glowColor,
+  i,
+}: {
+  icon: typeof Shield;
+  title: string;
+  description: string;
+  accent: string;
+  glowColor: string;
+  i: number;
+}) {
+  return (
+    <m.div
+      variants={fadeUp}
+      custom={i}
+      className="glow-card rounded-xl p-8"
+      style={{ "--glow-color": glowColor } as React.CSSProperties}
+    >
+      <div
+        className={`mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-${accent}/10`}
+      >
+        <Icon className={`h-6 w-6 text-${accent}`} />
+      </div>
+      <h3 className="mb-2 text-xl font-semibold">{title}</h3>
+      <p className="text-sm text-text-secondary leading-relaxed">{description}</p>
+    </m.div>
+  );
+}
+
+function FeatureCard({
+  icon: Icon,
+  title,
+  description,
+  i,
+}: {
+  icon: typeof Shield;
+  title: string;
+  description: string;
+  i: number;
+}) {
+  return (
+    <m.div
+      variants={fadeUp}
+      custom={i}
+      className="group glow-card rounded-xl p-6"
+    >
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-accent-cyan/10 transition-colors group-hover:bg-accent-cyan/20">
+        <Icon className="h-5 w-5 text-accent-cyan" />
+      </div>
+      <h3 className="mb-1 font-semibold">{title}</h3>
+      <p className="text-sm text-text-secondary leading-relaxed">{description}</p>
+    </m.div>
+  );
+}
+
+function CompRow({
+  feature,
+  xcelsior,
+  aws,
+  vast,
+  runpod,
+}: {
+  feature: string;
+  xcelsior: string;
+  aws: string;
+  vast: string;
+  runpod: string;
+}) {
+  const isCheck = (val: string) => val === "✓" || val === "Yes" || val === "Oui";
+  const isX = (val: string) => val === "✗" || val === "No" || val === "Non";
+
+  return (
+    <tr className="border-b border-border/50 hover:bg-surface-hover transition-colors">
+      <td className="py-3.5 pl-6 pr-4 font-medium text-text-primary">{feature}</td>
+      <td className="py-3.5 px-4 text-center font-medium text-accent-cyan">
+        {isCheck(xcelsior) ? <Check className="inline h-4 w-4 text-emerald" aria-label="Yes" /> : xcelsior}
+      </td>
+      <td className="py-3.5 px-4 text-center">
+        {isCheck(aws) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(aws) ? <span className="text-accent-red" aria-label="No">✗</span> : aws}
+      </td>
+      <td className="py-3.5 px-4 text-center">
+        {isCheck(vast) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(vast) ? <span className="text-accent-red" aria-label="No">✗</span> : vast}
+      </td>
+      <td className="py-3.5 px-4 text-center">
+        {isCheck(runpod) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(runpod) ? <span className="text-accent-red" aria-label="No">✗</span> : runpod}
+      </td>
+    </tr>
+  );
+}

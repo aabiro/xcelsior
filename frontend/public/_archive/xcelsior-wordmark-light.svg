@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72" width="320" height="72">
+  <!-- Xcelsior wordmark – light background variant
+       Logo icon (maple leaf + X) replaces the X letterform.
+       Single brand color: accent-cyan-dark #0e7490 -->
+  <defs>
+    <filter id="leafGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.5"/>
+    </filter>
+  </defs>
+  <!-- Icon: Maple leaf (positioned as the X character) -->
+  <path d="M24.8,22.2 L29.6,23.0 L28.9,21.3 L29.1,20.9 L34.2,16.7 L33.0,16.2 L32.8,15.8 L33.9,12.6 L30.9,13.2 L30.5,13.0 L29.9,11.7 L27.6,14.2 L27.0,13.9 L28.1,8.1 L26.3,9.2 L25.8,9.0 L24.0,5.4 L22.2,9.0 L21.7,9.2 L19.9,8.1 L21.0,13.9 L20.4,14.2 L18.1,11.7 L17.5,13.0 L17.1,13.2 L14.1,12.6 L15.2,15.8 L15.0,16.2 L13.8,16.7 L18.9,20.9 L19.1,21.3 L18.4,23.0 L23.2,22.2 Z" fill="#0e7490" opacity="0.25" filter="url(#leafGlow)"/>
+  <path d="M24.8,22.2 L29.6,23.0 L28.9,21.3 L29.1,20.9 L34.2,16.7 L33.0,16.2 L32.8,15.8 L33.9,12.6 L30.9,13.2 L30.5,13.0 L29.9,11.7 L27.6,14.2 L27.0,13.9 L28.1,8.1 L26.3,9.2 L25.8,9.0 L24.0,5.4 L22.2,9.0 L21.7,9.2 L19.9,8.1 L21.0,13.9 L20.4,14.2 L18.1,11.7 L17.5,13.0 L17.1,13.2 L14.1,12.6 L15.2,15.8 L15.0,16.2 L13.8,16.7 L18.9,20.9 L19.1,21.3 L18.4,23.0 L23.2,22.2 Z" fill="#0e7490"/>
+  <!-- Icon: X letterform -->
+  <path d="M7.4,24.5 L15.0,24.5 L24.0,38.6 L33.0,24.5 L40.6,24.5 L27.8,43.7 L40.6,63.5 L33.0,63.5 L24.0,48.8 L15.0,63.5 L7.4,63.5 L20.2,43.7 Z" fill="#0e7490"/>
+  <!-- Wordmark: "celsior" — single word continuous with the logo X -->
+  <text x="48" y="58" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="42" font-weight="700" letter-spacing="-1.5" fill="#1e293b">celsior</text>
+</svg>

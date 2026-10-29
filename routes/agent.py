@@ -1,0 +1,1537 @@
+"""Routes: agent."""
+
+import asyncio
+import gzip
+import os
+import re
+import time
+from collections import defaultdict
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field
+
+from routes._deps import (
+    broadcast_sse,
+    _get_current_user,
+    _get_real_client_ip,
+    _require_user_grant,
+)
+from scheduler import (
+    list_hosts,
+    list_jobs,
+    log,
+    register_compute_score,
+    update_job_status,
+)
+from events import Event, get_event_store, get_state_machine
+from security import check_node_versions, recommend_runtime
+from db import _get_pg_pool
+import threading
+
+router = APIRouter()
+
+
+# ── Auth helper ───────────────────────────────────────────────────────
+# Every /agent/* endpoint except the compatibility path (/agent/versions) and
+# the public popular-images metadata endpoint requires a Bearer token or
+# API key. The worker_agent.py already sends
+# `Authorization: Bearer $XCELSIOR_API_TOKEN` on every request (see
+# worker_agent.py:600-607), so enforcing this does not break deployed
+# agents. Previously these endpoints were completely unauthenticated —
+# anyone reachable could spoof telemetry, claim leases, inject logs,
+# exfiltrate user SSH public keys via /agent/ssh-keys, etc.
+def _bearer_credential(request: Request) -> str | None:
+    """The raw bearer credential presented, if any."""
+    header = request.headers.get("authorization") or ""
+    if header.lower().startswith("bearer "):
+        return header[7:].strip() or None
+    # Workers may also present the credential as an API-key header.
+    return (request.headers.get("x-api-key") or "").strip() or None
+
+
+def _resolve_host_token_identity(request: Request, host_id: str | None) -> dict | None:
+    """Authenticate a per-host agent token (blueprint §19.2 rotation).
+
+    Returns a principal on success, ``None`` when no host token was
+    presented (caller falls through to the existing paths). A *presented*
+    host token that fails verification raises — it never degrades to the
+    shared fleet bearer, which would defeat the point of scoping.
+    """
+    from psycopg.errors import UndefinedTable
+
+    from control_plane.agent_tokens import (
+        TokenRejected,
+        host_tokens_enabled,
+        looks_like_host_token,
+        verify_token,
+    )
+
+    if not host_tokens_enabled():
+        return None
+    credential = _bearer_credential(request)
+    if not looks_like_host_token(credential):
+        return None
+
+    client_ip = _get_real_client_ip(request)
+    try:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            try:
+                verified = verify_token(
+                    conn,
+                    str(credential),
+                    required_host_id=host_id,
+                    client_ip=client_ip,
+                )
+            except TokenRejected:
+                conn.rollback()
+                raise
+            conn.commit()
+    except TokenRejected as exc:
+        status = 403 if exc.reason == "host_mismatch" else 401
+        log.warning("host agent token rejected (%s)", exc.reason)
+        raise HTTPException(status, f"Host agent token rejected: {exc.reason}") from exc
+    except HTTPException:
+        raise
+    except UndefinedTable:
+        # Migration 065 has not been applied (or was rolled back). No
+        # valid host token can exist against a table that is not there,
+        # so falling through to the ordinary auth path grants nothing —
+        # unlike a generic DB error, this one is unambiguous.
+        log.error(
+            "host agent tokens enabled but host_agent_tokens is missing — "
+            "apply migration 065 or set XCELSIOR_AGENT_HOST_TOKENS=off"
+        )
+        return None
+    except Exception as exc:
+        # Blueprint §31: identity verification never fails open.
+        log.error("host agent token verification failed (fail-closed): %s", exc)
+        raise HTTPException(503, "Identity verification temporarily unavailable") from exc
+
+    # The credential proves possession; the host must still be admitted.
+    from control_plane.identity import IdentityAdmissionError, require_admitted_host
+
+    try:
+        all_hosts = list_hosts(active_only=False)
+        row = next((h for h in all_hosts if h.get("host_id") == verified.host_id), None)
+        require_admitted_host(row, host_id=verified.host_id)
+    except IdentityAdmissionError as exc:
+        raise HTTPException(exc.http_status, exc.message) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("host token admission lookup failed (fail-closed): %s", exc)
+        raise HTTPException(503, "Identity verification temporarily unavailable") from exc
+
+    return {
+        "user_id": f"host:{verified.host_id}",
+        "host_token": True,
+        "admitted_host_id": verified.host_id,
+        "identity_source": "host_token",
+        "token_id": verified.token_id,
+        "token_status": verified.status,
+        "is_admin": False,
+    }
+
+
+def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict:
+    """Require auth on /agent/* endpoints. Optionally gate by host ownership.
+
+    Bypass rules (in order, first match wins):
+      1. If XCELSIOR_ENV == 'production': NEVER bypass. A production host
+         accidentally tagged with XCELSIOR_ENV=test (the original audit
+         concern) is impossible because deploy.sh pins XCELSIOR_ENV=production
+         at the unit level; this rule hardens it belt-and-braces.
+      2. If XCELSIOR_ENV == 'test': accept unauth (test suite pattern).
+      3. If unauth and XCELSIOR_ALLOW_UNAUTH_AGENT=1: accept with WARNING
+         (emergency escape hatch during token rotation).
+      4. Otherwise: require an authenticated user.
+
+    B1: when XCELSIOR_AGENT_STRICT_HOST_BINDING=1 AND a bypass rule (2 or 3)
+    would otherwise grant access, any supplied `host_id` must still resolve
+    to a registered row in the hosts table.
+
+    Phase 10 / blueprint §31: identity verification fails closed on DB
+    lookup errors for host binding (retryable 503) — never fail-open.
+    When XCELSIOR_TRUSTED_AGENT_GATEWAY=1, gateway-set identity headers
+    are required; public-injected X-Worker-* headers alone are rejected.
+    """
+    from control_plane.identity import (
+        IdentityAdmissionError,
+        gateway_headers_authenticated,
+        require_admitted_host,
+        resolve_gateway_identity,
+        strip_untrusted_identity_headers,
+        trusted_gateway_enabled,
+    )
+
+    env = os.environ.get("XCELSIOR_ENV", "").lower()
+    raw_headers = {k.lower(): v for k, v in request.headers.items()}
+    # Blueprint §19.2: strip client-injected worker identity unless the
+    # private gateway proved itself with the shared secret. Public ingress
+    # must never be able to spoof X-Worker-* / gateway markers.
+    if gateway_headers_authenticated(raw_headers):
+        header_map = raw_headers
+    else:
+        header_map = strip_untrusted_identity_headers(raw_headers)
+
+    # Trusted private agent gateway path (mTLS/SPIFFE terminator + secret).
+    if trusted_gateway_enabled():
+        try:
+            admitted = resolve_gateway_identity(header_map, required_host_id=host_id)
+        except IdentityAdmissionError as exc:
+            raise HTTPException(exc.http_status, exc.message) from exc
+        if admitted is not None:
+            if host_id and admitted.host_id != host_id:
+                raise HTTPException(403, "Gateway host identity does not match request")
+            # Still require the host to be registered+admitted in control-plane state.
+            try:
+                all_hosts = list_hosts(active_only=False)
+                row = next(
+                    (h for h in all_hosts if h.get("host_id") == admitted.host_id),
+                    None,
+                )
+                require_admitted_host(row, host_id=admitted.host_id)
+            except IdentityAdmissionError as exc:
+                raise HTTPException(exc.http_status, exc.message) from exc
+            except Exception as exc:
+                log.error("agent identity host lookup failed (fail-closed): %s", exc)
+                raise HTTPException(503, "Identity verification temporarily unavailable") from exc
+            return {
+                "agent_gateway": True,
+                "host_id": admitted.host_id,
+                "spiffe_id": admitted.spiffe_id,
+                "identity_source": admitted.source,
+            }
+
+    # Per-host bearer token (blueprint §19.2). Checked before every other
+    # path — a host-scoped credential is strictly stronger than the shared
+    # fleet bearer and must win whenever it is presented.
+    host_token_identity = _resolve_host_token_identity(request, host_id)
+    if host_token_identity is not None:
+        return host_token_identity
+
+    # Field-wide rotation complete: the shared fleet bearer is no longer
+    # an accepted worker credential anywhere under /agent/*. Only a
+    # verified gateway identity or a per-host token may act.
+    from control_plane.agent_tokens import host_tokens_required
+
+    if host_tokens_required():
+        raise HTTPException(
+            403,
+            "Per-host agent token required (XCELSIOR_AGENT_HOST_TOKENS=require); "
+            "the shared fleet bearer is no longer accepted",
+        )
+
+    # 1. Hard refuse in production — escape hatches do NOT apply.
+    if env == "production":
+        user = _get_current_user(request)
+        if not user:
+            raise HTTPException(401, "Authentication required")
+        if host_id:
+            try:
+                all_hosts = list_hosts(active_only=False)
+                row = next((h for h in all_hosts if h.get("host_id") == host_id), None)
+                require_admitted_host(row, host_id=host_id)
+            except IdentityAdmissionError as exc:
+                raise HTTPException(exc.http_status, exc.message) from exc
+            except Exception as exc:
+                log.error("agent host admission lookup failed (fail-closed): %s", exc)
+                raise HTTPException(503, "Identity verification temporarily unavailable") from exc
+            # Ownership / shared fleet bearer (Phase 10 residual closeout):
+            # shared api-token is NOT a permanent fail-open for arbitrary hosts.
+            # Requires XCELSIOR_AGENT_SHARED_BEARER_MIGRATION=1 (+ optional host CSV).
+            from control_plane.identity import allow_shared_bearer_for_host
+
+            owner = (row or {}).get("owner") or ""
+            allowed, reason = allow_shared_bearer_for_host(
+                user, host_id=host_id, host_owner=str(owner) if owner else None
+            )
+            if not allowed:
+                detail = {
+                    "shared_bearer_migration_disabled": (
+                        "Shared fleet bearer cannot act on host_id without "
+                        "XCELSIOR_AGENT_SHARED_BEARER_MIGRATION=1"
+                    ),
+                    "shared_bearer_host_not_allowlisted": (
+                        "Host not in XCELSIOR_AGENT_SHARED_BEARER_HOSTS allowlist"
+                    ),
+                    "not_owner": "Host is not owned by the authenticated caller",
+                }.get(reason, "Host identity admission denied")
+                raise HTTPException(403, detail)
+            user = {
+                **user,
+                "admitted_host_id": host_id,
+                "identity_source": "bearer_host",
+                "admission_reason": reason,
+            }
+        return user
+
+    # B1 defense-in-depth: when bypass is active AND strict binding is enabled,
+    # still require any supplied host_id to be registered. Prevents a rogue/
+    # misconfigured caller in dev/test/staging from claiming an arbitrary
+    # host_id. Default OFF for backward compat; production already hard-fails
+    # above so this flag is a no-op there.
+    strict = os.environ.get("XCELSIOR_AGENT_STRICT_HOST_BINDING", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+    def _enforce_host_registered() -> None:
+        if not strict or not host_id:
+            return
+        try:
+            all_hosts = list_hosts(active_only=False)
+        except Exception as exc:
+            # Blueprint §31: auth/identity verification fails closed (503).
+            log.error("strict host binding lookup failed (fail-closed): %s", exc)
+            raise HTTPException(503, "Identity verification temporarily unavailable") from exc
+        if not any(h.get("host_id") == host_id for h in all_hosts):
+            raise HTTPException(403, "Unknown host_id")
+
+    # 2. Test-mode bypass — tests drive /agent/* without bearer tokens.
+    if env == "test":
+        _enforce_host_registered()
+        return {"unauth": True, "test": True}
+
+    user = _get_current_user(request)
+    if not user:
+        # 3. Explicit escape hatch (non-prod only) — WARN loudly.
+        if os.environ.get("XCELSIOR_ALLOW_UNAUTH_AGENT", "").lower() in ("1", "true", "yes"):
+            log.warning(
+                "unauthenticated /agent/* request accepted (XCELSIOR_ALLOW_UNAUTH_AGENT=true)",
+            )
+            _enforce_host_registered()
+            return {"unauth": True}
+        raise HTTPException(401, "Authentication required")
+
+    # Admins bypass host-ownership checks.
+    if user.get("is_admin"):
+        return user
+
+    if host_id:
+        try:
+            all_hosts = list_hosts(active_only=False)
+            host = next((h for h in all_hosts if h.get("host_id") == host_id), None)
+        except Exception as exc:
+            log.error("agent host ownership lookup failed (fail-closed): %s", exc)
+            raise HTTPException(503, "Identity verification temporarily unavailable") from exc
+        if host:
+            owner = host.get("owner") or ""
+            if owner and owner != user.get("user_id") and owner != user.get("email"):
+                raise HTTPException(403, "Host is not owned by the authenticated caller")
+    return user
+
+
+# Critical container log patterns to detect image pull / launch errors
+_IMAGE_PULL_PATTERNS = (
+    "manifest unknown",
+    "pull access denied",
+    "not found: manifest unknown",
+    "Error response from daemon",
+    "image not found",
+    "ErrImagePull",
+    "ImagePullBackOff",
+)
+
+# Agent work state
+_agent_work: dict[str, list[dict]] = defaultdict(list)  # host_id -> [job, ...]
+_agent_lock = threading.Lock()
+_host_telemetry: dict[str, dict] = {}
+
+
+# ── Model: VersionReport ──
+
+
+class VersionReport(BaseModel):
+    host_id: str = Field(min_length=1, max_length=64)
+    versions: dict
+
+
+# ── Model: MiningAlert ──
+
+
+class MiningAlert(BaseModel):
+    host_id: str = Field(min_length=1, max_length=64)
+    gpu_index: int = Field(ge=0, le=64)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str = Field(max_length=500)
+    timestamp: float | None = None
+
+
+# ── Model: BenchmarkReport ──
+
+
+class BenchmarkReport(BaseModel):
+    host_id: str = Field(min_length=1, max_length=64)
+    gpu_model: str = Field(max_length=64)
+    score: float = Field(ge=0)
+    tflops: float = Field(ge=0)
+    details: dict | None = None
+
+
+@router.get("/agent/network-download/{host_id}", tags=["Agent"])
+def api_agent_network_download(host_id: str, request: Request):
+    """Measure throughput using the host's normal, verified worker identity."""
+    _require_agent_auth(request, host_id=host_id)
+    from routes.health import _network_download_response
+
+    return _network_download_response(f"host:{host_id}")
+
+
+@router.get("/agent/work/{host_id}", tags=["Agent"])
+def api_agent_work(host_id: str, request: Request):
+    """Pull pending work for an agent. Returns assigned jobs."""
+    _require_agent_auth(request, host_id=host_id)
+    all_jobs = list_jobs()
+    pending = [
+        j for j in all_jobs if j.get("host_id") == host_id and j.get("status") in ("assigned",)
+    ]
+    with _agent_lock:
+        queued_work = _agent_work.pop(host_id, [])
+
+    jobs = pending + queued_work
+    if not jobs:
+        # 204 must have no body. JSONResponse(None) emits four bytes (null),
+        # which Uvicorn rejects after it has sent the no-content headers.
+        return Response(status_code=204)
+
+    # Enrich each job with volume mount paths from the volume_attachments table
+    try:
+        from volumes import get_volume_engine
+
+        ve = get_volume_engine()
+        for j in jobs:
+            vol_ids = j.get("volume_ids", [])
+            if vol_ids:
+                mounts: dict[str, str] = dict(j.get("volume_mounts") or {})
+                try:
+                    for att in ve.get_instance_volumes(j["job_id"]):
+                        mounts[att["volume_id"]] = att.get("mount_path", "/workspace")
+                except Exception:
+                    pass
+                # Auto-assign paths for volumes without attachments yet
+                _idx = 0
+                for vid in vol_ids:
+                    if vid not in mounts:
+                        mounts[vid] = "/workspace" if _idx == 0 else f"/workspace/vol-{_idx}"
+                    _idx += 1
+                j["volume_mounts"] = mounts
+                if not j.get("nfs_server"):
+                    try:
+                        from volumes import NFS_SERVER as vol_nfs_server
+
+                        if vol_nfs_server:
+                            j["nfs_server"] = vol_nfs_server
+                    except Exception:
+                        pass
+    except Exception:
+        pass  # Best-effort: worker falls back to /workspace
+
+    return {"ok": True, "instances": jobs}
+
+
+@router.get("/agent/preempt/{host_id}", tags=["Agent"])
+def api_agent_preempt(host_id: str, request: Request):
+    """Check if any jobs on this host should be preempted."""
+    _require_agent_auth(request, host_id=host_id)
+    from agent_preempt import pop_host_preemptions
+
+    preempt_list = pop_host_preemptions(host_id)
+    checkpoint_mode = ""
+    try:
+        hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+        host = hosts.get(host_id) or {}
+        checkpoint_mode = str(host.get("checkpoint_class") or "")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "preempt_jobs": preempt_list,
+        "checkpoint_mode": checkpoint_mode,
+        "checkpoint_resumable": bool(checkpoint_mode),
+    }
+
+
+@router.post("/agent/preempt/{host_id}/{job_id}", tags=["Agent"])
+def api_schedule_preemption(host_id: str, job_id: str, request: Request):
+    """Schedule a job for preemption on a host. Admin-only."""
+    user = _require_user_grant(request, allow_api_key=True)
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin role required")
+    from agent_preempt import schedule_host_preemptions
+
+    schedule_host_preemptions(host_id, [job_id])
+    broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
+    return {"ok": True, "host_id": host_id, "job_id": job_id}
+
+
+# ── Agent command queue (admin control plane → worker) ────────────────
+# Admins enqueue commands via /admin/* endpoints; worker agents drain
+# them via this endpoint in their poll loop. Rows are deleted on fetch —
+# delivery is at-most-once by design (re-inject is idempotent so a lost
+# command is harmless; admins can re-issue).
+
+# A1 of docs/host-key-fingerprint-plan.md — rejected host-key reports.
+#
+# **A rejection and an absence must not look the same.** A host with no sshd
+# legitimately reports nothing; an agent version emitting a malformed value
+# fleet-wide would also store null, and without this counter that breakage is
+# indistinguishable from the normal case. Same distinction as a presence check
+# being read as a usability check.
+try:
+    from prometheus_client import Counter as _PromCounter  # type: ignore
+
+    _host_key_rejected_total = _PromCounter(
+        "xcelsior_host_key_rejected_total",
+        "Host-key fingerprints refused at the API boundary.",
+        ["reason"],
+    )
+except Exception:  # pragma: no cover — prom lib not installed
+
+    class _NoopCounter:
+        def labels(self, *a, **kw):
+            return self
+
+        def inc(self, *a, **kw):
+            return None
+
+    _host_key_rejected_total = _NoopCounter()  # type: ignore
+
+
+_AGENT_COMMAND_ALLOWED = {
+    "reinject_shell",
+    "upgrade_agent",
+    "rollback_agent",  # P1.2 — auto-rollback driver
+    "stop_container",  # P3.2 — billing/admin-initiated container kill (+ rm)
+    "pause_container",  # internal: state-preserving stop primitive used by /stop
+    "start_container",  # P3.2 — (re)start a stopped container
+    "reset_container",  # P2 — restart with fresh /workspace, preserve volumes
+    "snapshot_container",  # P3.1 — docker commit → user_images
+    "mount_volume",  # hot-attach managed NFS volume into running container
+    "unmount_volume",
+    "prepull_image",  # serverless cold-start: pull image on idle host
+    # P3 A1: copy a job's artifacts onto an attached volume. The command
+    # carries only `{promotion_id}` — the agent fetches the manifest over its
+    # own authenticated channel. A file list would blow the 16 KB args cap on a
+    # sharded checkpoint, and presigned URLs are read grants for a tenant's
+    # weights that would then sit in a queued, logged, retained row.
+    "promote_artifacts",
+    # P5 C2: ask a host to re-run its benchmark and resubmit its verification
+    # report. `run_verification` needs telemetry only the host can produce, and
+    # the agent submitted one at startup and never again — so a verified stamp
+    # could sit indefinitely past a one-day reverification interval with nothing
+    # to move it.
+    "reverify",
+    # P7: ask a sweep member's container to fingerprint its own environment.
+    # The control plane already knows the digest it sent to all N members, so
+    # comparing that to itself establishes the request was consistent rather
+    # than the containers. Only the container can answer, which is why this is
+    # a command and not a query. Carries `{sweep_id, member_index, job_id}`.
+    "fingerprint_environment",
+}
+
+
+@router.get("/agent/commands/{host_id}", tags=["Agent"])
+def api_agent_commands_drain(host_id: str, request: Request):
+    """Drain pending agent commands for this host.
+
+    Returns up to 50 pending, non-expired commands and deletes them in the
+    same transaction. Also GCs rows whose expires_at has passed.
+    """
+    _require_agent_auth(request, host_id=host_id)
+    if not host_id or len(host_id) > 128:
+        raise HTTPException(400, "Invalid host_id")
+    pool = _get_pg_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        # Drop expired rows for any host (cheap housekeeping). Attempt-
+        # bound commands are excluded: their lifecycle (claim/ACK,
+        # backoff, dead-letter, cancellation on lease expiry) is owned by
+        # the /agent/v2 protocol and control_plane.commands.
+        cur.execute(
+            "DELETE FROM agent_commands "
+            "WHERE expires_at < EXTRACT(EPOCH FROM NOW()) "
+            "AND attempt_id IS NULL"
+        )
+        # Atomically claim pending rows for this host. attempt_id IS NULL:
+        # a legacy drain must never destroy a v2 start_attempt command —
+        # v1 dispatch would refuse the unknown name and the DELETE would
+        # have already destroyed the placement's only delivery.
+        cur.execute(
+            """
+            DELETE FROM agent_commands
+            WHERE id IN (
+                SELECT id FROM agent_commands
+                WHERE host_id = %s AND status = 'pending'
+                  AND attempt_id IS NULL
+                ORDER BY created_at ASC
+                LIMIT 50
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id, command, args, created_at, created_by
+            """,
+            (host_id,),
+        )
+        rows = cur.fetchall()
+    commands = [
+        {
+            "id": r[0],
+            "command": r[1],
+            "args": r[2] or {},
+            "created_at": float(r[3]),
+            "created_by": r[4],
+        }
+        for r in rows
+    ]
+    return {"ok": True, "commands": commands}
+
+
+def prune_expired_agent_commands(conn, *, limit: int = 5000) -> int:
+    """Delete expired, non-attempt-bound commands. Returns rows removed.
+
+    **The same DELETE `api_agent_commands_drain` runs, on a timer instead of on
+    a drain.** That housekeeping only executes when an agent actually collects
+    commands — so it is coupled to fleet health, and stops running in exactly
+    the situation that produces the most garbage: a fleet that cannot reach the
+    API at all. Observed on production, where the hourly reverification sweep
+    accumulated 40 expired rows against 2 live ones while every worker was
+    locked out by the retired public agent ingress. ~48 rows/day, indefinitely.
+
+    The sweep itself is not at fault and is not the thing to bound: it holds at
+    most one live request per host (`hosts_with_pending_reverify`), verified on
+    production. What was missing is a consumer for the expired rows that does
+    not depend on the consumer being reachable.
+
+    `attempt_id IS NULL` is preserved from the drain, and is not incidental: a
+    v2 `start_attempt` carries its own lifecycle — claim/ACK, backoff,
+    dead-letter, cancellation on lease expiry — owned by the `/agent/v2`
+    protocol and `control_plane.commands`. Deleting one here would destroy a
+    placement's only delivery.
+    """
+    return conn.execute(
+        """DELETE FROM agent_commands
+            WHERE id IN (
+                SELECT id FROM agent_commands
+                 WHERE expires_at < EXTRACT(EPOCH FROM NOW())
+                   AND attempt_id IS NULL
+                 LIMIT %s
+            )""",
+        (int(limit),),
+    ).rowcount
+
+
+def enqueue_agent_command(
+    host_id: str,
+    command: str,
+    args: dict | None = None,
+    created_by: str | None = None,
+    ttl_sec: int = 900,
+) -> int:
+    """Insert an agent command row; returns the new command id.
+
+    Rejects unknown command names at the API boundary so a typo in an
+    admin endpoint can't ship a bogus instruction to workers.
+    """
+    if command not in _AGENT_COMMAND_ALLOWED:
+        raise HTTPException(400, f"Unknown agent command: {command}")
+    import json as _json
+
+    # P3/C4 — args size cap. Serialised JSON > 16 KB almost certainly
+    # indicates a bug or an abuse attempt (the payload has to cross a
+    # JSONB column and later be rehydrated in the worker). Fail fast
+    # with 413 so callers get a clear signal.
+    _AGENT_ARGS_MAX_BYTES = int(os.environ.get("XCELSIOR_AGENT_ARGS_MAX_BYTES", "16384"))
+    args_json = _json.dumps(args or {})
+    if len(args_json) > _AGENT_ARGS_MAX_BYTES:
+        raise HTTPException(
+            413,
+            f"Agent command args too large: {len(args_json)} bytes (max {_AGENT_ARGS_MAX_BYTES}).",
+        )
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        # P3/C5 — per-host queue cap. Prevents a buggy caller or
+        # compromised admin token from flooding a single host with more
+        # pending commands than it can reasonably drain (default 50/drain,
+        # so 1000 = ~20 drain cycles of backlog).
+        _AGENT_QUEUE_MAX = int(os.environ.get("XCELSIOR_AGENT_QUEUE_MAX", "1000"))
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM agent_commands
+             WHERE host_id=%s
+               AND status='pending'
+               AND expires_at > EXTRACT(EPOCH FROM NOW())
+            """,
+            (host_id,),
+        )
+        pending_count = int((cur.fetchone() or [0])[0])
+        if pending_count >= _AGENT_QUEUE_MAX:
+            raise HTTPException(
+                503,
+                f"Agent queue full for host {host_id}: "
+                f"{pending_count} pending (max {_AGENT_QUEUE_MAX}). "
+                f"Wait for worker to drain.",
+            )
+        cur.execute(
+            """
+            INSERT INTO agent_commands (host_id, command, args, created_by, expires_at)
+            VALUES (%s, %s, %s::jsonb, %s, EXTRACT(EPOCH FROM NOW()) + %s)
+            RETURNING id
+            """,
+            (host_id, command, args_json, created_by, int(ttl_sec)),
+        )
+        row = cur.fetchone()
+    return int(row[0])
+
+
+# ── Admission failure notification (throttled: once per hour per host) ─────
+_admission_notified: dict[str, float] = {}
+
+
+def _notify_provider_admission_failure(host: dict, details: dict):
+    """Send in-app + push notification to host owner about admission failure."""
+    host_id = host.get("host_id", "?")
+    now = time.time()
+    # Evict stale throttle entries (>1 hour) to prevent memory leak
+    stale = [k for k, v in _admission_notified.items() if now - v > 3600]
+    for k in stale:
+        del _admission_notified[k]
+    last = _admission_notified.get(host_id, 0)
+    if now - last < 3600:
+        return  # throttle: at most once per hour per host
+    _admission_notified[host_id] = now
+
+    owner_id = host.get("owner", "")
+    if not owner_id:
+        return  # no owner — agent-only host, can't notify
+
+    try:
+        from db import UserStore, NotificationStore
+
+        user = UserStore.get_user_by_id(owner_id)
+        if not user:
+            return
+        email = user.get("email", "")
+        if not email:
+            return
+
+        reasons = details.get("rejection_reasons", [])
+        reason_text = "; ".join(reasons) if reasons else "Unknown version requirements not met"
+        gpu_label = host.get("gpu_model") or host.get("hostname") or host_id
+
+        NotificationStore.create(
+            user_email=email,
+            notif_type="host_admission_failed",
+            title=f"Host {gpu_label} failed admission",
+            body=(
+                f"Your host could not be admitted to the compute pool. "
+                f"Issues: {reason_text}. "
+                f"Please update the flagged components and restart the worker agent."
+            ),
+            data={
+                "host_id": host_id,
+                "rejection_reasons": reasons,
+                "recommended_runtime": details.get("recommended_runtime", "runc"),
+            },
+            action_url="/dashboard/hosts",
+            entity_type="host",
+            entity_id=host_id,
+            priority=2,  # critical
+        )
+        log.info("Notified provider %s about admission failure for host %s", email, host_id)
+    except Exception:
+        log.exception("Failed to send admission failure notification for host %s", host_id)
+
+
+@router.post("/agent/versions", tags=["Agent"])
+def api_agent_versions(report: VersionReport):
+    """Evaluate self-reported versions without mutating host admission.
+
+    This endpoint remains useful to older workers and compatibility tooling,
+    but a provider-controlled report cannot activate, create, or list a host.
+    """
+    compatible, reasons = check_node_versions(report.versions)
+    runtime, runtime_reason = recommend_runtime("unknown")
+    details = {
+        "host_id": report.host_id,
+        "compatible": compatible,
+        "admitted": False,
+        "admission_applied": False,
+        "versions": dict(report.versions),
+        "rejection_reasons": reasons,
+        "recommended_runtime": runtime,
+        "runtime_reason": runtime_reason,
+        "checked_at": time.time(),
+    }
+    log.info(
+        "NODE VERSION COMPATIBILITY host=%s compatible=%s (no admission applied)",
+        report.host_id,
+        compatible,
+    )
+    return {
+        "ok": True,
+        "compatible": compatible,
+        "admitted": False,
+        "admission_applied": False,
+        "details": details,
+    }
+
+
+class AgentDegradedReport(BaseModel):
+    host_id: str
+    reason: str
+    context: str = ""
+
+
+@router.post("/agent/degraded", tags=["Agent"])
+def api_agent_degraded(report: AgentDegradedReport, request: Request):
+    """Receive degraded-state reports from worker hot loops (B11)."""
+    _require_agent_auth(request, host_id=report.host_id)
+    log.warning(
+        "AGENT DEGRADED host=%s reason=%s context=%s",
+        report.host_id,
+        report.reason,
+        report.context[:200],
+    )
+    return {"ok": True, "received": True}
+
+
+@router.post("/agent/mining-alert", tags=["Agent"])
+def api_mining_alert(alert: MiningAlert, request: Request):
+    """Receive mining detection alert from an agent."""
+    _require_agent_auth(request, host_id=alert.host_id)
+    log.warning(
+        "MINING ALERT host=%s gpu=%d confidence=%.0f%% — %s",
+        alert.host_id,
+        alert.gpu_index,
+        alert.confidence * 100,
+        alert.reason,
+    )
+    broadcast_sse(
+        "mining_alert",
+        {
+            "host_id": alert.host_id,
+            "gpu_index": alert.gpu_index,
+            "confidence": alert.confidence,
+            "reason": alert.reason,
+        },
+    )
+    return {"ok": True, "received": True}
+
+
+@router.post("/agent/benchmark", tags=["Agent"])
+def api_agent_benchmark(report: BenchmarkReport, request: Request):
+    """Receive compute benchmark results from an agent."""
+    _require_agent_auth(request, host_id=report.host_id)
+    register_compute_score(
+        report.host_id,
+        report.gpu_model,
+        report.score,
+        report.details,
+    )
+    broadcast_sse(
+        "benchmark_result",
+        {
+            "host_id": report.host_id,
+            "gpu_model": report.gpu_model,
+            "xcu": report.score,
+            "tflops": report.tflops,
+        },
+    )
+    return {"ok": True, "xcu": report.score}
+
+
+# ── Model: LeaseClaimRequest ──
+
+
+class LeaseClaimRequest(BaseModel):
+    host_id: str
+    job_id: str
+
+
+# ── Model: LeaseRenewRequest ──
+
+
+class LeaseRenewRequest(BaseModel):
+    host_id: str
+    job_id: str
+
+
+# ── Model: LeaseReleaseRequest ──
+
+
+class LeaseReleaseRequest(BaseModel):
+    job_id: str
+    reason: str = "completed"
+
+    @classmethod
+    def _valid_reasons(cls):
+        return {"completed", "failed", "preempted"}
+
+
+@router.post("/agent/lease/claim", tags=["Agent"])
+def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
+    """Agent claims a lease for an assigned job.
+
+    This transitions the job from ASSIGNED → LEASED and starts
+    the lease clock. The agent must renew before expiry.
+    """
+    _require_agent_auth(request, host_id=req.host_id)
+    store = get_event_store()
+    sm = get_state_machine()
+
+    # Validate the job is in a claimable state.
+    # Normal flow: job must be "assigned".
+    # Restart-recovery: allow re-claiming if job is already leased/starting/running
+    # on this same host (worker restart without server-side requeue).
+    _RECLAIM_STATUSES = {"leased", "starting", "running"}
+    jobs = list_jobs()
+    job = next((j for j in jobs if j.get("job_id") == req.job_id), None)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {req.job_id} not found")
+
+    current_status = job.get("status", "queued")
+    is_reclaim = current_status in _RECLAIM_STATUSES
+
+    if current_status != "assigned" and not is_reclaim:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job {req.job_id} is '{current_status}', expected 'assigned'",
+        )
+
+    # Verify the requesting host is the one assigned to this job
+    assigned_host = job.get("host_id", "")
+    if assigned_host and assigned_host != req.host_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Host {req.host_id} is not assigned to job {req.job_id}",
+        )
+
+    # Grant lease (or re-grant after worker restart)
+    lease = store.grant_lease(req.job_id, req.host_id)
+
+    if not is_reclaim:
+        # Normal first-claim: transition assigned → leased
+        try:
+            sm.transition(
+                req.job_id,
+                "assigned",
+                "leased",
+                actor=f"agent:{req.host_id}",
+                data={"lease_id": lease.lease_id},
+            )
+        except ValueError:
+            pass  # Event already recorded by grant_lease
+
+        # Update scheduler's job status to leased (lifecycle log emitted by update_job_status)
+        update_job_status(req.job_id, "leased", host_id=req.host_id)
+    else:
+        # Restart-recovery reclaim: job already past "leased", don't regress its status.
+        # Just refresh the lease clock so the scheduler doesn't requeue a live container.
+        log.info(
+            "LEASE RECLAIM job=%s host=%s (status was '%s') — refreshing lease without status change",
+            req.job_id,
+            req.host_id,
+            current_status,
+        )
+
+    broadcast_sse(
+        "lease_granted",
+        {
+            "job_id": req.job_id,
+            "host_id": req.host_id,
+            "lease_id": lease.lease_id,
+            "expires_at": lease.expires_at,
+        },
+    )
+
+    return {
+        "ok": True,
+        "lease_id": lease.lease_id,
+        "expires_at": lease.expires_at,
+        "duration_sec": lease.duration_sec,
+    }
+
+
+@router.post("/agent/lease/renew", tags=["Agent"])
+def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
+    """Agent renews its lease on a job. Must be called before expiry."""
+    _require_agent_auth(request, host_id=req.host_id)
+    store = get_event_store()
+    lease = store.renew_lease(req.job_id, req.host_id)
+    if not lease:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No active lease for job {req.job_id} on host {req.host_id}",
+        )
+    return {
+        "ok": True,
+        "lease_id": lease.lease_id,
+        "expires_at": lease.expires_at,
+    }
+
+
+@router.post("/agent/lease/release", tags=["Agent"])
+def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
+    """Agent releases its lease (job completed/failed/preempted)."""
+    _require_agent_auth(request)
+    store = get_event_store()
+    released = store.release_lease(req.job_id)
+    if not released:
+        return {"ok": True, "released": False, "detail": "No active lease"}
+    return {"ok": True, "released": True}
+
+
+@router.get("/agent/popular-images", tags=["Agent"])
+def api_agent_popular_images(request: Request):
+    """Return popular container images for agent pre-pulling.
+
+    Agents call this during idle time to pre-cache frequently-used images,
+    reducing cold-start latency for future jobs.
+    """
+    _require_agent_auth(request)
+    # Aggregate image usage from completed/running jobs
+    jobs = list_jobs()
+    image_counts: dict[str, int] = defaultdict(int)
+    for j in jobs:
+        img = j.get("image") or j.get("docker_image", "")
+        if img:
+            image_counts[img] += 1
+
+    # Sort by frequency, return top 10
+    popular = sorted(image_counts.items(), key=lambda x: -x[1])
+    return {"images": [img for img, _ in popular[:10]]}
+
+
+# ── Model: TelemetryPayload ──
+
+
+class TelemetryPayload(BaseModel):
+    host_id: str
+    timestamp: float = 0
+    metrics: dict = {}
+
+
+def _telemetry_pg_enabled() -> bool:
+    return os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower() in (
+        "postgres",
+        "dual",
+    )
+
+
+def _persist_telemetry_latest(host_id: str, record: dict) -> None:
+    """Upsert one host's latest telemetry into ``telemetry_latest``
+    (migration 057) so every API replica shares one view instead of each
+    keeping its own process-local dict — the fleet's live state stops
+    living in one worker's memory (data-architecture companion §2.6/§5.8).
+
+    Best-effort: the process-local cache remains the dev/sqlite path, and a
+    DB blip never fails the agent's telemetry post. One row per host
+    (``gpu_uuid=''``); the schema allows per-GPU rows for future detail.
+    """
+    if not _telemetry_pg_enabled():
+        return
+    try:
+        from psycopg.types.json import Jsonb
+
+        sample = {
+            "timestamp": record.get("timestamp"),
+            "metrics": record.get("metrics", {}),
+        }
+        with _get_pg_pool().connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO telemetry_latest (host_id, gpu_uuid, sample, received_at)
+                VALUES (%s, '', %s, clock_timestamp())
+                ON CONFLICT (host_id, gpu_uuid) DO UPDATE
+                   SET sample = EXCLUDED.sample,
+                       received_at = clock_timestamp()
+                """,
+                (host_id, Jsonb(sample)),
+            )
+    except Exception as e:
+        log.debug("telemetry_latest upsert failed for %s: %s", host_id, e)
+
+
+def _read_telemetry_latest(host_id: str | None = None) -> dict[str, dict] | None:
+    """Latest telemetry for one host (or the whole fleet) from the shared
+    ``telemetry_latest`` store, or ``None`` when it is unavailable so the
+    caller falls back to the process-local cache. ``received_at`` is the
+    DB-clock epoch (authoritative freshness, §12.2)."""
+    if not _telemetry_pg_enabled():
+        return None
+    try:
+        with _get_pg_pool().connection() as conn:
+            if host_id is not None:
+                rows = conn.execute(
+                    "SELECT host_id, sample, "
+                    "EXTRACT(EPOCH FROM received_at) AS recv_epoch "
+                    "FROM telemetry_latest WHERE gpu_uuid = '' AND host_id = %s",
+                    (host_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT host_id, sample, "
+                    "EXTRACT(EPOCH FROM received_at) AS recv_epoch "
+                    "FROM telemetry_latest WHERE gpu_uuid = ''"
+                ).fetchall()
+    except Exception as e:
+        log.debug("telemetry_latest read failed: %s", e)
+        return None
+    result: dict[str, dict] = {}
+    for r in rows:
+        hid = r["host_id"] if isinstance(r, dict) else r[0]
+        sample = (r["sample"] if isinstance(r, dict) else r[1]) or {}
+        recv = float(r["recv_epoch"] if isinstance(r, dict) else r[2])
+        result[str(hid)] = {
+            "timestamp": sample.get("timestamp"),
+            "metrics": sample.get("metrics", {}),
+            "received_at": recv,
+        }
+    return result
+
+
+@router.post("/agent/telemetry", tags=["Telemetry"])
+def api_agent_telemetry(payload: TelemetryPayload, request: Request):
+    """Receive periodic GPU telemetry from agent (every 5s)."""
+    _require_agent_auth(request, host_id=payload.host_id)
+    record = {
+        "timestamp": payload.timestamp or time.time(),
+        "metrics": payload.metrics,
+        "received_at": time.time(),
+    }
+    _host_telemetry[payload.host_id] = record  # fast local cache
+    _persist_telemetry_latest(payload.host_id, record)  # shared across replicas
+    return {"ok": True}
+
+
+@router.get("/agent/telemetry/{host_id}", tags=["Telemetry"])
+def api_get_telemetry(host_id: str, request: Request):
+    """Get latest telemetry for a host (dashboard live gauges)."""
+    _require_user_grant(request, allow_api_key=True)
+    shared = _read_telemetry_latest(host_id)
+    if shared is not None and host_id in shared:
+        data = shared[host_id]
+    elif host_id in _host_telemetry:
+        data = _host_telemetry[host_id]  # dev/sqlite or pre-persist fallback
+    else:
+        raise HTTPException(404, f"No telemetry for host {host_id}")
+
+    stale = (time.time() - data.get("received_at", 0)) > 30  # >30s = stale
+    return {"ok": True, "host_id": host_id, "stale": stale, **data}
+
+
+@router.get("/api/telemetry/all", tags=["Telemetry"])
+def api_all_telemetry(request: Request):
+    """Get latest telemetry for all hosts (dashboard overview)."""
+    user = _require_user_grant(request, allow_api_key=True)
+    if not user.get("is_admin") and user.get("role") != "provider":
+        raise HTTPException(403, "Admin or provider role required")
+    shared = _read_telemetry_latest()
+    source = shared if shared is not None else _host_telemetry
+    now = time.time()
+    result = {}
+    for host_id, data in source.items():
+        result[host_id] = {
+            **data,
+            "stale": (now - data.get("received_at", 0)) > 30,
+        }
+    return {"ok": True, "hosts": result, "count": len(result)}
+
+
+# ── Log Forwarding (worker → API → SSE/WS → frontend) ──
+
+
+@router.post("/agent/logs/{job_id}", tags=["Agent"])
+async def api_agent_logs(job_id: str, request: Request):
+    """Ingest container log lines from the worker agent.
+
+    Accepts JSON body (LogBatch) or gzip-compressed JSON.
+    Persists to job_logs table, pushes to in-memory buffer + SSE.
+    """
+    _require_agent_auth(request)
+    # Basic shape validation on job_id (prevents injection of rows with weird
+    # keys). Accept hex/slug forms used by our job-id generator.
+    if not job_id or len(job_id) > 128 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_\-]*", job_id):
+        raise HTTPException(400, "Invalid job_id")
+
+    # Cap the raw body at 2 MiB (uncompressed or compressed) to prevent gzip
+    # bombs and abuse. 2 MiB is generous for 500 log lines × ~4 KiB each.
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > 2 * 1024 * 1024:
+        raise HTTPException(413, "Payload too large")
+
+    # Handle gzip-compressed body
+    content_encoding = request.headers.get("content-encoding", "")
+    raw = await request.body()
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(413, "Payload too large")
+    if content_encoding == "gzip":
+        try:
+            # Bound decompression too — refuse anything that would expand past 8 MiB
+            decomp = gzip.decompress(raw)
+            if len(decomp) > 8 * 1024 * 1024:
+                raise HTTPException(413, "Decompressed payload too large")
+            raw = decomp
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(400, "Invalid gzip payload")
+
+    import json as _json
+
+    try:
+        data = _json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "Invalid JSON")
+
+    lines = data.get("lines", [])
+    if not lines:
+        return {"ok": True, "accepted": 0}
+
+    # Cap batch size to prevent abuse
+    if len(lines) > 500:
+        lines = lines[:500]
+
+    # Silently drop logs for jobs that don't exist OR that have been in a
+    # terminal state for >1h. Prevents zombie log-line floods from a
+    # forgotten/rogue worker agent and keeps the job_logs table bounded.
+    try:
+        from scheduler import load_jobs
+
+        snap = {j["job_id"]: j for j in load_jobs()}
+        job = snap.get(job_id)
+        if not job:
+            return {"ok": True, "accepted": 0, "dropped": "unknown_job"}
+        if job.get("status") in {"completed", "failed", "cancelled", "terminated", "preempted"}:
+            last_ts = job.get("completed_at") or job.get("updated_at") or 0
+            try:
+                last_ts_f = float(last_ts) if last_ts else 0.0
+            except (TypeError, ValueError):
+                last_ts_f = 0.0
+            if last_ts_f and (time.time() - last_ts_f) > 3600:
+                return {"ok": True, "accepted": 0, "dropped": "job_terminal"}
+    except HTTPException:
+        raise
+    except Exception:
+        # Snapshot failure — fall through and accept the log (fail-open so
+        # a transient DB blip doesn't lose diagnostics).
+        pass
+
+    now = time.time()
+    accepted = 0
+
+    # Detect critical errors in log lines (image pull failures, OOM, etc.)
+    critical_error = None
+    for entry in lines:
+        msg = entry.get("message", "")
+        if msg and any(pat.lower() in msg.lower() for pat in _IMAGE_PULL_PATTERNS):
+            critical_error = msg
+            break
+
+    if critical_error:
+        from db import emit_event
+
+        emit_event(
+            "job_error",
+            {
+                "job_id": job_id,
+                "error": "image_pull_failed",
+                "message": f"Container image error: {critical_error[:200]}",
+            },
+        )
+
+    # Persist to PG, then broadcast to SSE.
+    #
+    # This is an `async def` handler — it has to be, it awaits `request.body()`
+    # — so everything in it runs on the event loop thread. It used to open a
+    # connection and run up to 500 INSERTs inline, which blocked the loop for
+    # the whole batch: no other request on this worker process made progress
+    # while any agent in the fleet was uploading logs, and every agent uploads
+    # logs continuously.
+    #
+    # The writes move to a worker thread. The SSE push deliberately does not:
+    # `push_job_log` calls `broadcast_sse`, which does `put_nowait` on
+    # `asyncio.Queue` objects, and those are not thread-safe. Keeping that half
+    # on the loop is what makes the offload safe rather than just faster.
+    from routes.instances import push_job_log
+
+    normalized: list[tuple[float, str, str]] = []
+    for entry in lines:
+        msg = entry.get("message", "")
+        # Cap individual line length to 8 KiB — protects the log viewer, SSE
+        # wire, and PG column from pathological lines.
+        if isinstance(msg, str) and len(msg) > 8192:
+            msg = msg[:8192] + "…[truncated]"
+        if not msg:
+            continue
+        level = entry.get("level", "info")
+        if level not in {
+            "debug",
+            "info",
+            "warn",
+            "warning",
+            "error",
+            "fatal",
+            "stdout",
+            "stderr",
+        }:
+            level = "info"
+        normalized.append((entry.get("timestamp") or now, level, msg))
+
+    def _persist(rows: list[tuple[float, str, str]]) -> None:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            for ts, level, msg in rows:
+                conn.execute(
+                    "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
+                    (job_id, ts, level, msg),
+                )
+            conn.commit()
+
+    persisted = True
+    if normalized:
+        try:
+            await asyncio.to_thread(_persist, normalized)
+        except Exception as e:
+            log.error("Failed to persist logs for job %s: %s", job_id, e)
+            persisted = False
+
+    # persist=False when the batch is already in PG; persist=True asks
+    # push_job_log to retry the write for lines whose INSERT did not land.
+    # The whole batch shares one transaction, so it either all committed or
+    # none did — which is why `accepted` is counted once, here, rather than
+    # incremented in the write loop and then again in a fallback.
+    for ts, level, msg in normalized:
+        push_job_log(job_id, msg, level, ts, persist=not persisted)
+        accepted += 1
+
+    return {"ok": True, "accepted": accepted}
+
+
+@router.get("/agent/ssh-keys/{job_id}", tags=["Agent"])
+def api_agent_ssh_keys(job_id: str, request: Request):
+    """Return the job owner's SSH public keys so the agent can inject them into containers.
+
+    Requires authentication — this endpoint previously leaked every user's
+    authorized public keys to any unauthenticated caller who guessed a job id.
+    """
+    _require_agent_auth(request)
+    from db import UserStore
+
+    # Look up the job to find its owner
+    all_jobs = list_jobs()
+    job = None
+    for j in all_jobs:
+        if j.get("job_id") == job_id:
+            job = j
+            break
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    owner = job.get("owner", "")
+    if not owner:
+        return {"ok": True, "keys": []}
+
+    # owner is customer_id or user_id — find the user
+    user = UserStore.get_user_by_id(owner)
+    if not user:
+        # Try looking up by customer_id
+        try:
+            pool = _get_pg_pool()
+            with pool.connection() as conn:
+                row = conn.execute(
+                    "SELECT email FROM users WHERE customer_id = %s LIMIT 1", (owner,)
+                ).fetchone()
+                if row:
+                    user = {"email": row[0] if isinstance(row, tuple) else dict(row)["email"]}
+        except Exception:
+            pass
+
+    if not user or not user.get("email"):
+        return {"ok": True, "keys": []}
+
+    keys = UserStore.list_ssh_keys(user["email"])
+    return {
+        "ok": True,
+        "keys": [k["public_key"] for k in keys],
+    }
+
+
+@router.post("/agent/ssh-status/{job_id}", tags=["Agent"])
+async def api_agent_ssh_status(job_id: str, request: Request):
+    """Worker reports the final state of SSH setup for a job.
+
+    The dashboard reads ``jobs.payload.ssh_status`` to surface a
+    customer-facing notice when SSH setup didn't fully succeed (sshd
+    couldn't be installed, daemon failed to start, no keys uploaded,
+    etc.). This is fire-and-forget from the worker — failures here
+    must not break the worker's run loop.
+    """
+    _require_agent_auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+
+    # Defensive validation — worker is trusted but we still bound the data.
+    summary = str(body.get("summary") or "")[:500]
+    level = str(body.get("level") or "info")
+    if level not in ("info", "warning", "error"):
+        level = "info"
+    # Per-instance generated root password (optional). Bounded length to
+    # prevent accidental blob storage; empty means "no password available".
+    root_password = str(body.get("root_password") or "")[:128]
+    # A1 of docs/host-key-fingerprint-plan.md. **Validated here, not at
+    # display.** This value is served back to users as the thing they compare
+    # before trusting an SSH connection, so it is attacker-controlled text until
+    # the shape proves otherwise, and a renderer that has to remember to escape
+    # is one that will forget. Anything that is not `SHA256:` + 43 unpadded
+    # base64 characters becomes `None` — "unknown" rather than a plausible wrong
+    # value, because null makes a client say "cannot be verified" while a wrong
+    # value makes it say "verified".
+    from host_key_fingerprint import parse_host_key_fingerprint
+
+    reported_fingerprint = body.get("host_key_fingerprint")
+    host_key_fingerprint = parse_host_key_fingerprint(reported_fingerprint)
+    if reported_fingerprint not in (None, "") and host_key_fingerprint is None:
+        # **A rejection is not an absence, and silence would make them look the
+        # same.** A host that legitimately has no key reports nothing; an agent
+        # version emitting a malformed value fleet-wide would also read as
+        # "no fingerprint" and the breakage would be invisible. Counted and
+        # logged so the two are distinguishable.
+        _host_key_rejected_total.labels(reason="malformed").inc()
+        log.warning(
+            "host_key.rejected job=%s len=%d — reported value is not a "
+            "SHA256 fingerprint; stored as null",
+            job_id,
+            len(str(reported_fingerprint)),
+        )
+    status = {
+        "ok": bool(body.get("ok")),
+        "sshd_present": bool(body.get("sshd_present")),
+        "sshd_started": bool(body.get("sshd_started")),
+        "key_count": int(body.get("key_count") or 0),
+        "root_password": root_password,
+        "summary": summary,
+        "level": level,
+        "host_key_fingerprint": host_key_fingerprint,
+        "elapsed_sec": float(body.get("elapsed_sec") or 0),
+        "ts": float(body.get("ts") or time.time()),
+    }
+    from instance_credentials import protect_ssh_status
+
+    status = protect_ssh_status(status)
+    import json as _json
+
+    # Also an `async def` (it awaits `request.json()`), so this UPDATE ran on
+    # the event loop thread. One round trip rather than the log endpoint's 500,
+    # but the fix is the same and there is no SSE half to keep behind.
+    def _persist_status() -> None:
+        pool = _get_pg_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE jobs
+                   SET payload = jsonb_set(
+                       jsonb_set(
+                           COALESCE(payload, '{}'::jsonb),
+                           '{ssh_status}',
+                           %s::jsonb,
+                           true
+                       ),
+                       -- **The payload is the source; the column is a
+                       -- projection.** Every other field here works that way
+                       -- (`host_id`, `status`, `priority`), and `upsert_job`
+                       -- rebuilds the column from the payload on every write —
+                       -- so a fingerprint that lived only in the column would
+                       -- be nulled by the next unrelated status update.
+                       '{host_key_fingerprint}',
+                       COALESCE(to_jsonb(%s::text),
+                                COALESCE(payload, '{}'::jsonb)->'host_key_fingerprint',
+                                'null'::jsonb),
+                       true
+                   ),
+                   -- A2's column, kept in step. COALESCE so a later report
+                   -- omitting the field does not erase what the agent already
+                   -- established; only a host change clears it, in
+                   -- `update_job_status`.
+                   host_key_fingerprint =
+                       COALESCE(%s, jobs.host_key_fingerprint)
+                 WHERE job_id = %s
+                """,
+                (
+                    _json.dumps(status),
+                    host_key_fingerprint,
+                    host_key_fingerprint,
+                    job_id,
+                ),
+            )
+
+    try:
+        await asyncio.to_thread(_persist_status)
+    except Exception as e:
+        log.warning("ssh-status persist failed for job %s: %s", job_id, e)
+        raise HTTPException(500, "Failed to persist ssh status")
+    return {"ok": True}
+
+
+# ── P7: a sweep member reports its own environment ────────────────────
+
+
+class _SweepFingerprintIn(BaseModel):
+    hash: str = Field(min_length=16, max_length=128)
+    manifest: dict
+
+
+@router.post(
+    "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint",
+    tags=["Agent"],
+)
+def api_report_sweep_fingerprint(
+    sweep_id: str,
+    member_index: int,
+    body: _SweepFingerprintIn,
+    request: Request,
+):
+    """Receive what a sweep member's container said about its own environment.
+
+    Gate P7's evidence has to come from the running container: the control
+    plane already knows the digest it sent to all N members, so comparing that
+    to itself establishes the request was consistent rather than the
+    containers.
+
+    Authenticated as the agent, not as a user — the reporter is the worker that
+    ran the collector, and `_require_agent_auth` binds the credential to the
+    host in the usual way.
+
+    **Both halves or neither.** `record_fingerprint` refuses a hash without its
+    manifest: a bare mismatch is undiagnosable, and the first time a sweep goes
+    red the question is which field.
+    """
+    from control_plane.db import control_plane_transaction
+    from control_plane.image_sweeps import SweepRefused, record_fingerprint
+
+    _require_agent_auth(request)
+
+    try:
+        with control_plane_transaction() as conn:
+            owner = conn.execute(
+                "SELECT tenant_id FROM image_sweeps WHERE sweep_id = %s", (sweep_id,)
+            ).fetchone()
+            if not owner:
+                raise HTTPException(404, "no such sweep")
+            record_fingerprint(
+                conn,
+                sweep_id,
+                int(member_index),
+                hash_=body.hash,
+                manifest=body.manifest,
+            )
+    except SweepRefused as exc:
+        raise HTTPException(422, f"{exc.code}: {exc.detail}") from exc
+
+    log.info("sweep %s member %s reported a fingerprint", sweep_id, member_index)
+    return {"ok": True, "sweep_id": sweep_id, "member_index": member_index}

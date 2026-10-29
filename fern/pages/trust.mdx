@@ -1,0 +1,95 @@
+---
+title: Trust & Reputation
+subtitle: Multi-factor trust scoring from New to Diamond.
+slug: trust
+---
+
+## Overview
+
+Xcelsior uses a multi-factor reputation system to build trust between providers and submitters. Scores affect job allocation priority, marketplace visibility, and access to premium features.
+
+## Trust Tiers
+
+There are six tiers. Each one lowers the platform commission and raises your marketplace visibility. For a provider-focused walkthrough of what each tier is worth, see [Earn as a Provider](/earn).
+
+| Tier | Min Score | Commission | Search boost | Unlocks |
+|------|-----------|-----------|--------------|---------|
+| **New** | 0 | 15% | 0.8× | Baseline access |
+| **Bronze** | 100 | 15% | 1.0× | Standard marketplace visibility |
+| **Silver** | 250 | 15% | 1.1× | +5% price premium, priority payout |
+| **Gold** | 450 | 12% | 1.25× | Verified badge, +20% price premium |
+| **Platinum** | 650 | 10% | 1.5× | Featured placement, +40% price premium |
+| **Diamond** | 850 | 8% | 2.0× | Top visibility, +50% price premium |
+
+## Scoring Model
+
+The score is **not** capped at 100. It is:
+
+```
+score = ( verification + activity + penalties ) × reliability
+```
+
+| Component | Range | How it's earned |
+|-----------|-------|-----------------|
+| **Verification** | 0 to +250 | One-time points for verifying email, phone, government ID, hardware, and incorporation. |
+| **Activity** | 0 to +500 | +10 per completed job (halved after your first 50) and +2 per day hosted. |
+| **Penalties** | negative | SLA breach −75, host-side job failure −50, chargeback −100, security incident −200, fraud −250. |
+| **Reliability** | ×0.0 to ×1.0 | A multiplier applied to everything else (see below). |
+
+### Reliability multiplier
+
+The reliability multiplier is the highest-leverage factor because it scales the *entire* score:
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Measured uptime | 40% | Availability vs. what you committed to. |
+| Job success rate | 35% | Completed jobs / (completed + host-side failures). |
+| Network stability | 25% | 1 − (jitter + packet loss). |
+
+### Grace Period
+
+New providers get a **7-day grace period** where activity-point decay is suspended, allowing time to build a track record. After that, idle providers lose 1 activity point per day.
+
+## Verification
+
+Submit verification documents to increase your trust tier:
+
+```bash
+POST /api/reputation/verify
+Content-Type: application/json
+
+{
+  "entity_id": "provider-alice",
+  "type": "email",
+  "proof": "verified-token"
+}
+```
+
+### Verification Types
+
+Verification points are one-time and capped at **+250 total** — the fastest way to climb tiers on day one.
+
+| Type | Points | Process |
+|------|--------|---------|
+| `email` | +50 | Email confirmation link |
+| `phone` | +50 | SMS verification code |
+| `gov_id` | +75 | Government-issued ID scan |
+| `hardware_audit` | +75 | Automated host hardware attestation |
+| `incorporation` | +100 | Certificate of incorporation |
+
+## Leaderboard
+
+View top-rated providers:
+
+```bash
+GET /api/reputation/leaderboard
+```
+
+## Checking Your Score
+
+```bash
+GET /api/reputation/{entity_id}
+GET /api/reputation/me  # Authenticated shortcut
+```
+
+Returns your current score, tier, verification status, and scoring breakdown.

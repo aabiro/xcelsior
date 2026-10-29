@@ -1,0 +1,3733 @@
+{
+  "config": {
+    "configFile": "/mnt/storage/projects/xcelsior/frontend/playwright.prod.config.ts",
+    "rootDir": "/mnt/storage/projects/xcelsior/frontend/e2e-prod",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/mnt/storage/projects/xcelsior/frontend/test-results-prod",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "desktop",
+        "name": "desktop",
+        "testDir": "/mnt/storage/projects/xcelsior/frontend/e2e-prod",
+        "testIgnore": [],
+        "testMatch": [
+          "/public-surface\\.spec\\.ts/"
+        ],
+        "timeout": 90000
+      },
+      {
+        "outputDir": "/mnt/storage/projects/xcelsior/frontend/test-results-prod",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "mobile",
+        "name": "mobile",
+        "testDir": "/mnt/storage/projects/xcelsior/frontend/e2e-prod",
+        "testIgnore": [],
+        "testMatch": [
+          "/public-surface\\.spec\\.ts/"
+        ],
+        "timeout": 90000
+      },
+      {
+        "outputDir": "/mnt/storage/projects/xcelsior/frontend/test-results-prod",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "login",
+        "name": "login",
+        "testDir": "/mnt/storage/projects/xcelsior/frontend/e2e-prod",
+        "testIgnore": [],
+        "testMatch": [
+          "/demo-login\\.setup\\.ts/"
+        ],
+        "timeout": 90000
+      },
+      {
+        "outputDir": "/mnt/storage/projects/xcelsior/frontend/test-results-prod",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "signed-in-desktop",
+        "name": "signed-in-desktop",
+        "testDir": "/mnt/storage/projects/xcelsior/frontend/e2e-prod",
+        "testIgnore": [],
+        "testMatch": [
+          "/signed-in-surface\\.spec\\.ts/"
+        ],
+        "timeout": 90000
+      },
+      {
+        "outputDir": "/mnt/storage/projects/xcelsior/frontend/test-results-prod",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "signed-in-mobile",
+        "name": "signed-in-mobile",
+        "testDir": "/mnt/storage/projects/xcelsior/frontend/e2e-prod",
+        "testIgnore": [],
+        "testMatch": [
+          "/signed-in-surface\\.spec\\.ts/"
+        ],
+        "timeout": 90000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results-prod/report.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.59.1",
+    "workers": 2,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "demo-login.setup.ts",
+      "file": "demo-login.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "sign in through the demo gate",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "login",
+              "projectName": "login",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5687,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:38.603Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "72cf31af7881a142d6a8-559bf9e73be883dffaf9",
+          "file": "demo-login.setup.ts",
+          "line": 13,
+          "column": 6
+        }
+      ]
+    },
+    {
+      "title": "public-surface.spec.ts",
+      "file": "public-surface.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "/ renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6225,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:38.603Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-6a8eed109ac42d411c6b",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/about renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3413,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:45.318Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-cbb7dcfee0cce1b1917d",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/blog renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4613,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:48.750Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-2c1ddaf1bd5c568c2260",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/download renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4029,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:53.388Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-266e4463b3628d22c068",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/features renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4152,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:57.439Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-e71c2939809417a832c5",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/gpu-availability renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 5012,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:01.613Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-a9aeb57c521786127c90",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/gpus renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 5071,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:06.647Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-a2575b11badf62723a50",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/login renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3352,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:11.743Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-ec2ed84f0515b82ced3f",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/mcp renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4866,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:15.114Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-c625b80c08c822cf0d1f",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/pricing renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4152,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:19.999Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-efe8d154cbfcf037fee4",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/privacy renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 5046,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:24.172Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-048c861479b434f3f97d",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/register renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3794,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:29.238Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-143fb447f22dd6675d96",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/security renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4642,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:33.046Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-de288691abf30a1aed8c",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/status renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 5340,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:37.701Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-f6b5b3aedb6d23532835",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/support renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3331,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:43.064Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-0330a9d7c65807b37de0",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/terms renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 5063,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:46.416Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-833f53b8bfd1ab073c2a",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/forgot-password renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3948,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:51.506Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-1be794429ff1527b7397",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "pricing is populated from the live rate table",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3668,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:55.473Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-bc26ba923c0e3bc7adf7",
+          "file": "public-surface.spec.ts",
+          "line": 108,
+          "column": 5
+        },
+        {
+          "title": "the GPU availability page shows real inventory or says there is none",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3353,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:59.166Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-d3430ad8eac321be39ec",
+          "file": "public-surface.spec.ts",
+          "line": 115,
+          "column": 5
+        },
+        {
+          "title": "a wrong password is refused with a visible message, not a crash",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3631,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:48:02.542Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-759eb498903dae0ac573",
+          "file": "public-surface.spec.ts",
+          "line": 123,
+          "column": 5
+        },
+        {
+          "title": "the theme on <html> and the app shell agree after hydration",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3187,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:48:06.215Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-0c230f4c898536dd642b",
+          "file": "public-surface.spec.ts",
+          "line": 135,
+          "column": 5
+        },
+        {
+          "title": "/ renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8023,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:45.720Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-264e6f1a76e5fa7625e5",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/about renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6434,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:46:54.075Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-056316c2f539306a7311",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/blog renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8824,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:00.528Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-ac4cbe24991bf76df125",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/download renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 9026,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:09.370Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-d1ef897968ca9d810f15",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/features renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8534,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:18.412Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-dee2204fd3a9c2d0f259",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/gpu-availability renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 14768,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:26.976Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-105f91f2439a8c0e3fd0",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/gpus renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 11682,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:41.772Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-7107d39349c3dddae83e",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/login renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8091,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:47:53.485Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-922ff7e5da4b7bd8935b",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/mcp renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 12918,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:48:01.600Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-7df8bb3c549c05d7cea0",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/pricing renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 7596,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:48:14.543Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-b01e749739ae9b145d0f",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/privacy renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 22310,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:48:22.156Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-052e12ae7c1f8fe4f703",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/register renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 17302,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:48:44.571Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-698b5f9592209737ef94",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/security renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 12533,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:01.936Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-a3ba2d56b12042affe16",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/status renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 7322,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:14.497Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-71af66c6d8da23fe47ae",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/support renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5952,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:21.840Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-78461b4a19c0b7abe4c2",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/terms renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 14232,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:27.806Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-74ca621dc9d7becc6310",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "/forgot-password renders cleanly in production",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5533,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:42.055Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-588dc2ec6a9aa47df5c6",
+          "file": "public-surface.spec.ts",
+          "line": 84,
+          "column": 7
+        },
+        {
+          "title": "pricing is populated from the live rate table",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3490,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:47.611Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-fbefe6fe1e34dc1d3e12",
+          "file": "public-surface.spec.ts",
+          "line": 108,
+          "column": 5
+        },
+        {
+          "title": "the GPU availability page shows real inventory or says there is none",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3670,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:51.126Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-1cf65275c8dc48d4a102",
+          "file": "public-surface.spec.ts",
+          "line": 115,
+          "column": 5
+        },
+        {
+          "title": "a wrong password is refused with a visible message, not a crash",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3594,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:54.819Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-efcabefdb81c8b6f6a89",
+          "file": "public-surface.spec.ts",
+          "line": 123,
+          "column": 5
+        },
+        {
+          "title": "the theme on <html> and the app shell agree after hydration",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile",
+              "projectName": "mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3197,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:49:58.443Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bcc203c0069e231bc698-9a3000f30346bd379ada",
+          "file": "public-surface.spec.ts",
+          "line": 135,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "signed-in-surface.spec.ts",
+      "file": "signed-in-surface.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "/dashboard — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8320,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:02.655Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-2e5fd3f6186341422e24",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/admin/control-plane — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5812,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:11.278Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-69910731bfc69332c800",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/ai — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5767,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:17.117Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-178baaf290a46d3d7cdf",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/analytics — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5800,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:22.928Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-461f8a01cebbc121d536",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/artifacts — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6115,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:28.785Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-3c6e97662df92ec7c542",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/billing — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6182,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:34.936Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-e11ae9eb5e77d32a990d",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/compliance — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6127,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:41.152Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-2fe9450197beddc5f900",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/earnings — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5850,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:47.300Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-909992d185c8b840dfcd",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/events — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6406,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:53.178Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-e30c20e7b8a25b0ce7f9",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/hosts — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6408,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:59.623Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-21dddd75c105676ccdec",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/hpc — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5647,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:06.068Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-b25d0b07ad4f52c18fb9",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/inference — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5862,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:11.737Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-fa84f8c0a4b1f5fa3f34",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/instances — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6275,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:17.624Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ec1f10c1184b7694e76b",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/marketplace — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5962,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:23.925Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-db5c7291f0b0d58f4529",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/mcp — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5745,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:29.928Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-717502428b222e9ec273",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/notifications — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5585,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:35.704Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-5d6b0eb88997a39476c0",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/reputation — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5738,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:41.312Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-6f9ef8687a10273add3c",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/settings — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5818,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:47.078Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-e8b362cfcd75fd6ce40c",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/spot-pricing — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5943,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:52.927Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-065a531e9801cf4501ce",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/telemetry — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5858,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:58.899Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-42e008fe2b51efc80e86",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/templates — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5491,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:04.779Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-40037424621e7171167d",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/trust — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5607,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:10.292Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-9d9c4345fc29a6c9ba78",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/volumes — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5639,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:15.916Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-33cf9e61e235701a4ff9",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "an instance detail page renders its new cards — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-desktop",
+              "projectName": "signed-in-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 7958,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:21.573Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-d1c86f9ead0bc8b3eea8",
+          "file": "signed-in-surface.spec.ts",
+          "line": 143,
+          "column": 5
+        },
+        {
+          "title": "/dashboard — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 10393,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:02.639Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-92ed796714cadccc0b87",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/admin/control-plane — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 8568,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:13.347Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-b695c9cfcf97cb0265ed",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/ai — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 9477,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:21.939Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ec019482d07880351345",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/analytics — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7773,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:31.445Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ad234ad6c3b36c2a8483",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/artifacts — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6752,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:39.249Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-82c99612d21503a76207",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/billing — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7733,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:46.030Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-d6b9643474aa50059973",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/compliance — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7587,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:50:53.781Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-f9b5b077801520d3999a",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/earnings — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7597,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:01.401Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-24b32bffb88398e66604",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/events — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6817,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:09.045Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-f8915a2eca5fb76483cd",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/hosts — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 8152,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:15.889Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-17a7e9f721771948ddb2",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/hpc — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7370,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:24.060Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ab8d4ba1ab1bd612f82f",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/inference — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7818,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:31.460Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-e2d6185fac09c9402bd7",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/instances — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6814,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:39.303Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ed2ab423a8d5dceb9a4b",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/marketplace — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7211,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:46.140Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ed3438f0e266069feb43",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/mcp — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7828,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:51:53.368Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-b788ad643fd2c42528f4",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/notifications — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6905,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:01.219Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-da0130cbe6284e258d82",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/reputation — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7031,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:08.145Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-f0364442fe54d2400554",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/settings — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7528,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:15.203Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-8d3f07e99a141a72430b",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/spot-pricing — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7642,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:22.762Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-735e82981480359969db",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/telemetry — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 8678,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:30.419Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-009443bc053cea1a01b2",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/templates — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6018,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:39.117Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-68702807485ce924b0cc",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/trust — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6668,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:45.156Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-4e64b7f948c419ec70a5",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "/dashboard/volumes — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 6336,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:51.835Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "findings",
+                      "contentType": "application/json",
+                      "body": "ewogICJwYWdlRXJyb3JzIjogW10sCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY3NwVmlvbGF0aW9ucyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJoeWRyYXRpb24iOiBbXSwKICAiYnJva2VuIjogW10sCiAgIm92ZXJmbG93IjogMCwKICAiY2xpcHBlZCI6IFtdLAogICJicm9rZW5JbWFnZXMiOiBbXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-ebd9ed3a2d41fba22c4c",
+          "file": "signed-in-surface.spec.ts",
+          "line": 101,
+          "column": 7
+        },
+        {
+          "title": "an instance detail page renders its new cards — signed in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "signed-in-mobile",
+              "projectName": "signed-in-mobile",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 9190,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-07T23:52:58.183Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9de918017fb46044042c-8e5f88bcca4f7be444e1",
+          "file": "signed-in-surface.spec.ts",
+          "line": 143,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-07T23:46:37.692Z",
+    "duration": 389942.747,
+    "expected": 91,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

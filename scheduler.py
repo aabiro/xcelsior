@@ -1,0 +1,5904 @@
+# Xcelsior v2.0.0 — distributed GPU scheduler for Canadians who refuse to wait.
+# Pull-based architecture. PostgreSQL + JSONB. Defense in depth. SSE dashboards.
+# 20 phases + production hardening. No shortcuts. Ever upward.
+
+import fcntl
+import json
+import logging
+import math
+import os
+import re
+import shlex
+import smtplib
+import subprocess
+import threading
+import time
+import urllib.request
+import uuid
+from contextlib import contextmanager
+from email.mime.text import MIMEText
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from psycopg import Connection as PgConnection
+
+from db import (
+    get_engine,
+    DatabaseOps,
+    emit_event,
+    DB_BACKEND,
+)
+
+# v2.1 modules — event sourcing, verification, billing, reputation
+from events import (
+    JobState,
+    EventType,
+    VALID_TRANSITIONS,
+    get_event_store,
+    get_state_machine,
+)
+from verification import get_verification_engine
+from billing import get_billing_engine
+from reputation import get_reputation_engine
+
+HOSTS_FILE = os.environ.get(
+    "XCELSIOR_HOSTS_FILE", os.path.join(os.path.dirname(__file__), "hosts.json")
+)
+JOBS_FILE = os.environ.get(
+    "XCELSIOR_JOBS_FILE", os.path.join(os.path.dirname(__file__), "jobs.json")
+)
+LOG_FILE = os.environ.get(
+    "XCELSIOR_LOG_FILE", os.path.join(os.path.dirname(__file__), "xcelsior.log")
+)
+DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
+
+
+def _db_path():
+    return os.environ.get("XCELSIOR_DB_PATH", DEFAULT_DB_FILE)
+
+
+# ── Phase 13: Security ───────────────────────────────────────────────
+
+SSH_KEY_PATH = os.environ.get("XCELSIOR_SSH_KEY_PATH", os.path.expanduser("~/.ssh/xcelsior"))
+SSH_USER = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
+API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN", "")
+
+# Guard against concurrent process_queue / failover_and_reassign
+_scheduler_lock = threading.Lock()
+
+
+# ── Phase 7: Logging ─────────────────────────────────────────────────
+
+
+def setup_logging(log_file=None, level=logging.INFO):
+    """
+    Log everything. Every move. Every crash. Every win.
+    Console + file. No silent failures. Structured JSON with redaction (B7.2).
+    """
+    from structured_logging import configure_structured_logging
+
+    log_file = log_file or LOG_FILE
+    return configure_structured_logging(log_file=log_file, level=level)
+
+
+log = setup_logging()
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+# Safe name pattern: alphanumeric, hyphens, underscores, dots, colons, slashes, and @
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9._:/@-]+$")
+
+# Host-death detection grace period: don't mark a host dead (or requeue its
+# jobs) until it has been unreachable for this many seconds. Prevents a brief
+# systemd restart of the worker agent from cascading into container churn.
+HOST_DEATH_GRACE_SEC = 120
+
+# First-miss timestamps per host, used to enforce the grace period above.
+_host_first_miss: dict = {}
+
+
+def _validate_name(value, label="value"):
+    """Reject shell-unsafe characters in names used in commands."""
+    if not value or not _SAFE_NAME_RE.match(str(value)):
+        raise ValueError(
+            f"Invalid {label}: {value!r} — only alphanumeric, hyphens, underscores, dots, colons, slashes, and @ allowed"
+        )
+    return str(value)
+
+
+def _coerce_list(value):
+    """Normalize deserialized payloads to a list shape."""
+    return value if isinstance(value, list) else []
+
+
+def _read_legacy_json_file(path):
+    """Best-effort read from legacy JSON files."""
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r") as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                return _coerce_list(json.load(f))
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _ensure_storage_tables(conn):
+    """No-op: tables created by Alembic migrations."""
+    pass
+
+
+def _active_backend() -> str:
+    """Runtime backend for scheduler persistence (honours CI/test env overrides)."""
+    return (os.environ.get("XCELSIOR_DB_BACKEND") or DB_BACKEND or "postgres").lower()
+
+
+@contextmanager
+def _db_connection():
+    """Shared DB connection — SQLite in test/CI when configured, else PostgreSQL pool."""
+    backend = _active_backend()
+    if backend == "sqlite":
+        from db import sqlite_connection
+
+        with sqlite_connection() as conn:
+            yield conn
+        return
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+@contextmanager
+def _atomic_mutation():
+    """Execute a mutation in a single transaction."""
+    backend = _active_backend()
+    if backend == "sqlite":
+        from db import sqlite_transaction
+
+        with sqlite_transaction() as conn:
+            yield conn
+        return
+    with _db_connection() as conn:
+        yield conn
+
+
+def _pg_conn(conn):
+    """Narrow a dual-backend connection to psycopg for control-plane calls.
+
+    ``_atomic_mutation`` yields either a sqlite3 or a psycopg connection.
+    Every call site that reaches the control-plane helpers below is already
+    guarded by ``_active_backend() == "postgres"``, but that runtime check
+    is invisible to the type checker — this makes the narrowing explicit
+    instead of leaving the union to be silently accepted.
+    """
+    return cast("PgConnection", conn)
+
+
+def _namespace_key(path):
+    return os.path.realpath(path)
+
+
+def _load_legacy_namespace(conn, path):
+    """Read namespace data from state table first, then fallback JSON."""
+    backend = _active_backend()
+    stored = DatabaseOps.get_state(conn, _namespace_key(path), backend=backend)
+    if stored is not None:
+        return _coerce_list(stored)
+    return _read_legacy_json_file(path)
+
+
+def _decode_payload(payload) -> Any:
+    # Returns decoded JSON — a dict for host/job records, occasionally a list,
+    # or None on failure. Typed Any (like json.loads) so record accessors such
+    # as host["status"] aren't mis-flagged as list-subscripts by the type
+    # checker; the JSONB payloads are genuinely heterogeneous.
+    if isinstance(payload, (dict, list)):
+        return payload
+    try:
+        return json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def _upsert_job_row(conn, job):
+    DatabaseOps.upsert_job(conn, job, backend=_active_backend())
+
+
+def _upsert_host_row(conn, host):
+    DatabaseOps.upsert_host(conn, host, backend=_active_backend())
+
+
+def _get_job_by_id_conn(conn, job_id):
+    return DatabaseOps.get_job(conn, job_id, backend=_active_backend())
+
+
+def _get_host_by_id_conn(conn, host_id):
+    return DatabaseOps.get_host(conn, host_id, backend=_active_backend())
+
+
+def _replace_jobs_in_conn(conn, jobs):
+    conn.execute("DELETE FROM jobs")
+    for job in jobs:
+        if isinstance(job, dict):
+            _upsert_job_row(conn, job)
+
+
+def _replace_hosts_in_conn(conn, hosts):
+    conn.execute("DELETE FROM hosts")
+    for host in hosts:
+        if isinstance(host, dict):
+            _upsert_host_row(conn, host)
+
+
+def _load_jobs_from_conn(conn, status=None):
+    backend = _active_backend()
+    if backend == "sqlite":
+        return DatabaseOps.load_jobs(conn, status=status, backend=backend)
+    if status:
+        rows = conn.execute(
+            """
+            SELECT status, payload
+            FROM jobs
+            WHERE status = %s
+            ORDER BY submitted_at ASC, job_id ASC
+            """,
+            (status,),
+        ).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT status, payload
+            FROM jobs
+            ORDER BY submitted_at ASC, job_id ASC
+            """).fetchall()
+    jobs = []
+    for row in rows:
+        item = _decode_payload(row["payload"])
+        if isinstance(item, dict):
+            # The indexed `status` column is authoritative; legacy reaper SQL
+            # could update the column without syncing payload.status.
+            col_status = row["status"] if isinstance(row, dict) else row[0]
+            if col_status and item.get("status") != col_status:
+                item["status"] = col_status
+            jobs.append(item)
+    return jobs
+
+
+def _load_hosts_from_conn(conn, active_only=False):
+    backend = _active_backend()
+    if backend == "sqlite":
+        return DatabaseOps.load_hosts(conn, active_only=active_only, backend=backend)
+    # `host_id` from the column, not from the payload — see the same repair in
+    # `db.DatabaseOps.load_hosts`, which is the sqlite half of this. The column
+    # is the primary key; registration merely happens to duplicate it into the
+    # payload JSON, and reading only the payload made that duplicate
+    # load-bearing. A row written without it — by a migration, an ops repair,
+    # or any other code path — yields a host dict with no `host_id`, and
+    # `routes/hosts.py` indexes `h["host_id"]` in nine places including
+    # `_resolve_host_id`, which every admission route funnels through. One such
+    # row turns every host lookup in the process into a 500.
+    #
+    # This is the branch production takes. The sqlite copy above was fixed
+    # first and on its own would have left the postgres path broken, which is
+    # what having the query written twice buys.
+    if active_only:
+        rows = conn.execute("""
+            SELECT host_id, payload
+            FROM hosts
+            WHERE status = 'active'
+            ORDER BY registered_at ASC, host_id ASC
+            """).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT host_id, payload
+            FROM hosts
+            ORDER BY registered_at ASC, host_id ASC
+            """).fetchall()
+    hosts = []
+    for row in rows:
+        item = _decode_payload(row["payload"])
+        if isinstance(item, dict):
+            if row["host_id"] is not None:
+                item["host_id"] = row["host_id"]
+            hosts.append(item)
+    return hosts
+
+
+def _migrate_jobs_if_needed(conn):
+    row = conn.execute("SELECT 1 FROM jobs LIMIT 1").fetchone()
+    if row:
+        return
+    for job in _load_legacy_namespace(conn, JOBS_FILE):
+        if isinstance(job, dict):
+            _upsert_job_row(conn, job)
+
+
+def _migrate_hosts_if_needed(conn):
+    row = conn.execute("SELECT 1 FROM hosts LIMIT 1").fetchone()
+    if row:
+        return
+    for host in _load_legacy_namespace(conn, HOSTS_FILE):
+        if isinstance(host, dict):
+            _upsert_host_row(conn, host)
+
+
+def _set_job_fields(job_id, **updates):
+    """Patch fields for one job atomically."""
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        job = _get_job_by_id_conn(conn, job_id)
+        if not job:
+            return None
+        job.update(updates)
+        _upsert_job_row(conn, job)
+        return job
+
+
+def _set_host_fields(host_id, **updates):
+    """Patch fields for one host atomically."""
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        host = _get_host_by_id_conn(conn, host_id)
+        if not host:
+            return None
+        host.update(updates)
+        _upsert_host_row(conn, host)
+        return host
+
+
+def set_host_draining(host_id, draining=True):
+    """Mark a host as draining or restore it to its schedulable state."""
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        host = _get_host_by_id_conn(conn, host_id)
+        if not host:
+            return None
+
+        if draining:
+            host["status"] = "draining"
+            host["draining_since"] = time.time()
+        else:
+            host.pop("draining_since", None)
+            host["status"] = "active" if host.get("admitted", False) else "pending"
+
+        _upsert_host_row(conn, host)
+        outbox_enqueued = False
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                _pg_conn(conn),
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.status_changed",
+                payload={"status": host["status"]},
+                idempotency_key=(
+                    f"host_status:{host_id}:{host['status']}:"
+                    f"{host.get('draining_since') or host.get('status')}:{time.time()}"
+                ),
+            )
+
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_host, host)
+    if not outbox_enqueued:
+        emit_event("host_update", {"host_id": host_id, "status": host["status"]})
+    return host
+
+
+def _load_json(path):
+    """Load persisted list data from SQLite, with one-time migration from JSON files."""
+    namespace = _namespace_key(path)
+    backend = _active_backend()
+    with _db_connection() as conn:
+        stored = DatabaseOps.get_state(conn, namespace, backend=backend)
+        if stored is not None:
+            return _coerce_list(stored)
+
+    payload = _read_legacy_json_file(path)
+    if not payload:
+        return []
+
+    _save_json(path, payload)
+    return payload
+
+
+def _save_json(path, data):
+    """Persist list data while preserving JSON-compatible interfaces."""
+    namespace = _namespace_key(path)
+    backend = _active_backend()
+    with _atomic_mutation() as conn:
+        DatabaseOps.upsert_state(conn, namespace, data, backend=backend)
+
+    # Keep a legacy JSON mirror for backward compatibility/tests.
+    dirpath = os.path.dirname(path)
+    if dirpath:
+        os.makedirs(dirpath, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# ── Phase 1: Allocate ────────────────────────────────────────────────
+
+_allocate_blocked_notified: dict[str, float] = {}
+
+_ACTIVE_GPU_STATUSES = ("running", "starting", "assigned", "leased")
+
+
+def _is_spot_job(job: dict) -> bool:
+    """True when job should use spot capacity pools and preemptible semantics."""
+    return bool(
+        job.get("pricing_mode") == "spot"
+        or job.get("preemptible")
+        or job.get("spot")
+        or job.get("tier") == "spot"
+    )
+
+
+def _host_gpu_count(host: dict) -> int:
+    return max(1, int(host.get("gpu_count", 1) or 1))
+
+
+def _host_spot_gpu_slots(host: dict) -> int:
+    """GPUs on this host reserved for interruptible spot workloads."""
+    total = _host_gpu_count(host)
+    slots = host.get("spot_gpu_slots")
+    if slots is None:
+        return total
+    return max(0, min(int(slots), total))
+
+
+def _gpus_active_on_host(jobs: list[dict], host_id: str, *, spot_only: bool = False) -> int:
+    used = 0
+    for j in jobs:
+        if j.get("host_id") != host_id:
+            continue
+        if j.get("status") not in _ACTIVE_GPU_STATUSES:
+            continue
+        if spot_only and not _is_spot_job(j):
+            continue
+        used += max(1, int(j.get("num_gpus", 1) or 1))
+    return used
+
+
+def host_accepts_spot_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
+    """Spot jobs require spot_enabled and free capacity in the spot GPU pool."""
+    if not host.get("spot_enabled", True):
+        return False
+    if jobs is None:
+        jobs = list_jobs()
+    needed = max(1, int(job.get("num_gpus", 1) or 1))
+    host_id = host["host_id"]
+    total_gpus = _host_gpu_count(host)
+    total_used = _gpus_active_on_host(jobs, host_id, spot_only=False)
+    spot_used = _gpus_active_on_host(jobs, host_id, spot_only=True)
+    spot_slots = _host_spot_gpu_slots(host)
+    return total_used + needed <= total_gpus and spot_used + needed <= spot_slots
+
+
+def host_isolates_egress(host: dict | None) -> bool:
+    """The host verified its tenant egress isolation on its last heartbeat."""
+    caps = (host or {}).get("capabilities")
+    return isinstance(caps, dict) and caps.get("egress_isolation") is True
+
+
+def host_can_run_egress(host: dict | None, job: dict) -> bool:
+    from egress_isolation import OPEN, job_egress
+
+    # Funded rentals still need the isolated bridge. Only an administrator
+    # "open" decision runs without it.
+    return job_egress(job) == OPEN or host_isolates_egress(host)
+
+
+def host_accepts_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
+    """Return True if host has capacity and checkpoint compatibility for the job."""
+    if not host_can_run_egress(host, job):
+        return False
+    try:
+        from criu_hosts import host_supports_checkpoint, job_is_resumable
+
+        if job_is_resumable(job):
+            if not host_supports_checkpoint(host):
+                return False
+    except Exception:
+        pass
+    if host.get("status", "active") != "active":
+        return False
+    if jobs is None:
+        jobs = list_jobs()
+    needed = max(1, int(job.get("num_gpus", 1) or 1))
+    host_id = host["host_id"]
+    total_gpus = _host_gpu_count(host)
+    total_used = _gpus_active_on_host(jobs, host_id, spot_only=False)
+    if total_used + needed > total_gpus:
+        return False
+    if _is_spot_job(job):
+        return host_accepts_spot_job(host, job, jobs)
+    return True
+
+
+def _filter_host_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -> list[dict]:
+    return [h for h in candidates if host_accepts_job(h, job, jobs)]
+
+
+def _filter_spot_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -> list[dict]:
+    return _filter_host_capacity(job, candidates, jobs)
+
+
+# GPU driver / CUDA context overhead — nvidia-smi always reports free_vram_gb
+# as slightly less than total_vram_gb (typically 0.3–1.0 GB lost to driver,
+# display output, and reserved system memory). Without this tolerance,
+# requests for `total_vram_gb` of a card will never match on an idle host
+# (e.g. RTX 2060: total=6.0, free=5.52 — a 6.0GB request would fail despite
+# the card being completely idle). This buffer permits that common case
+# while still rejecting hosts with active reservations consuming most VRAM.
+VRAM_DRIVER_OVERHEAD_GB = 1.0
+
+
+def _vram_fits(host, vram_needed):
+    """Return True if host can accept a job requesting vram_needed GB.
+
+    Checks both physical capacity (total_vram_gb) and current availability
+    with a tolerance for driver overhead on idle hosts.
+    """
+    if vram_needed <= 0:
+        return True
+    total = float(host.get("total_vram_gb", 0) or 0)
+    free = float(host.get("free_vram_gb", 0) or 0)
+    return total >= vram_needed and (free + VRAM_DRIVER_OVERHEAD_GB) >= vram_needed
+
+
+def _gpu_model_candidates(candidates: list[dict], requested_gpu_model: str) -> list[dict]:
+    """Return exact GPU model matches for an explicit model request.
+
+    Selecting a different card can change performance, architecture support,
+    and price. Callers that accept any sufficiently capable GPU must omit
+    ``gpu_model`` instead of silently substituting hardware.
+    """
+    requested = (requested_gpu_model or "").strip().lower()
+    if not requested:
+        return candidates
+    return [h for h in candidates if (h.get("gpu_model") or "").strip().lower() == requested]
+
+
+def _allocate_host_score(
+    job: dict, host: dict, *, volume_host_ids: set[str] | None = None
+) -> tuple:
+    """Sort key for host preference (higher is better)."""
+    num_gpus_needed = job.get("num_gpus", 1) or 1
+    volume_host_ids = volume_host_ids or set()
+    requested = (job.get("gpu_model") or "").strip().lower()
+    host_model = (host.get("gpu_model") or "").strip().lower()
+    exact_gpu = 1 if (not requested or host_model == requested) else 0
+    gpu_match = min(host.get("gpu_count", 1), num_gpus_needed)
+    vram = host.get("free_vram_gb", 0)
+    latency = host.get("latency_ms", 999)
+    base_cost = host.get("cost_per_hour", 999)
+    compute = host.get("compute_score") or estimate_compute_score(host.get("gpu_model", ""))
+    price = max(base_cost, 0.01)
+    efficiency = compute / price
+    gravity = 1.3 if host.get("host_id") in volume_host_ids else 1.0
+    return (exact_gpu, gpu_match, efficiency * gravity, vram, -latency, -base_cost)
+
+
+def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
+    """Hosts matching VRAM/admission/isolation filters (before GPU capacity)."""
+    del jobs  # capacity applied separately
+    if not hosts:
+        return []
+
+    num_gpus_needed = job.get("num_gpus", 1) or 1
+    requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
+    requested_region = ""
+    if job.get("region"):
+        from host_metadata import normalize_region
+
+        requested_region = normalize_region(str(job.get("region") or ""), default="")
+
+    vram_needed = job.get("vram_needed_gb", 0) or 0
+    candidates = [
+        h for h in hosts if h.get("status", "active") == "active" and _vram_fits(h, vram_needed)
+    ]
+    if not candidates:
+        return []
+
+    if requested_gpu_model:
+        candidates = _gpu_model_candidates(candidates, requested_gpu_model)
+        if not candidates:
+            return []
+
+    if requested_region:
+        from host_metadata import normalize_host_region
+
+        candidates = [h for h in candidates if normalize_host_region(h) == requested_region]
+        if not candidates:
+            log.warning(
+                "ALLOCATE: no hosts match requested region %s for job=%s",
+                requested_region,
+                job.get("name", "?"),
+            )
+            return []
+
+    if num_gpus_needed > 1:
+        gpu_candidates = [h for h in candidates if h.get("gpu_count", 1) >= num_gpus_needed]
+        if gpu_candidates:
+            candidates = gpu_candidates
+        else:
+            log.warning(
+                "ALLOCATE: job=%s needs %d GPUs but no single host has enough — "
+                "best available: %d GPUs",
+                job.get("name", "?"),
+                num_gpus_needed,
+                max((h.get("gpu_count", 1) for h in candidates), default=0),
+            )
+
+    admitted_candidates = [h for h in candidates if h.get("admitted", False)]
+    if not admitted_candidates:
+        _now = time.time()
+        _jkey = job.get("job_id", "?")
+        if _now - _allocate_blocked_notified.get(_jkey, 0) >= 300:
+            _allocate_blocked_notified[_jkey] = _now
+            log.warning(
+                "ALLOCATE BLOCKED: %d hosts have VRAM but none are admitted (job=%s)",
+                len(candidates),
+                job.get("name", "?"),
+            )
+        return []
+    candidates = admitted_candidates
+
+    isolated = [h for h in candidates if host_can_run_egress(h, job)]
+    if not isolated:
+        _now = time.time()
+        _jkey = f"egress:{job.get('job_id', '?')}"
+        if _now - _allocate_blocked_notified.get(_jkey, 0) >= 300:
+            _allocate_blocked_notified[_jkey] = _now
+            log.warning(
+                "ALLOCATE BLOCKED: %d admitted hosts but none has verified egress isolation (job=%s)",
+                len(candidates),
+                job.get("name", "?"),
+            )
+        return []
+    return isolated
+
+
+def allocate(job, hosts, jobs: list[dict] | None = None):
+    """Find the best host for this job.
+
+    Enforces:
+    - VRAM capacity check
+    - GPU count check (multi-GPU jobs)
+    - Admission gating (REPORT_FEATURE_FINAL.md §62: only admitted hosts)
+    - Isolation tier enforcement (REPORT_FEATURE_FINAL.md §193:
+      untrusted workloads require strong isolation tier)
+    - Data gravity: prefer hosts that already have job's volumes mounted
+
+    Prioritize: available VRAM > GPU count > speed > lowest cost.
+    If nothing fits, return None (queue or reject).
+    """
+    jobs = jobs or list_jobs()
+    candidates = _allocate_candidates(job, hosts, jobs)
+    if not candidates:
+        return None
+
+    candidates = _filter_host_capacity(job, candidates, jobs)
+    if not candidates:
+        return None
+
+    volume_ids = job.get("volume_ids", [])
+    volume_host_ids = set()
+    if volume_ids:
+        try:
+            from volumes import get_volume_engine
+
+            ve = get_volume_engine()
+            volume_host_ids = ve.get_volume_host_ids(volume_ids)
+        except Exception:
+            pass
+
+    best = max(
+        candidates, key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids)
+    )
+    log.info(
+        "ALLOCATE job=%s -> host=%s (%s, %sGB free, %d GPUs, admitted=%s, runtime=%s)",
+        job.get("name", "?"),
+        best["host_id"],
+        best.get("gpu_model"),
+        best.get("free_vram_gb"),
+        best.get("gpu_count", 1),
+        best.get("admitted", False),
+        best.get("recommended_runtime", "runc"),
+    )
+    return best
+
+
+def _job_may_trigger_preemption(job: dict) -> bool:
+    """Non-spot workloads may reclaim GPUs from preemptible spot jobs."""
+    return not _is_spot_job(job)
+
+
+def _running_jobs_on_host(jobs: list[dict], host_id: str) -> list[dict]:
+    return [
+        j for j in jobs if j.get("host_id") == host_id and j.get("status") in _ACTIVE_GPU_STATUSES
+    ]
+
+
+def identify_preemption_candidates(
+    host_id: str,
+    gpus_needed: int = 1,
+    jobs: list[dict] | None = None,
+) -> list[dict]:
+    """Select running preemptible jobs on a host to free ``gpus_needed`` GPUs."""
+    jobs = jobs or list_jobs()
+    hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+    host = hosts.get(host_id)
+    if not host:
+        return []
+
+    needed = max(1, int(gpus_needed or 1))
+    total_gpus = _host_gpu_count(host)
+    total_used = _gpus_active_on_host(jobs, host_id, spot_only=False)
+    if total_used + needed <= total_gpus:
+        return []
+
+    shortfall = (total_used + needed) - total_gpus
+    preemptible = [j for j in _running_jobs_on_host(jobs, host_id) if j.get("preemptible")]
+    preemptible.sort(
+        key=lambda j: (
+            int(j.get("priority", 0) or 0),
+            float(j.get("started_at") or 0),
+            j.get("job_id", ""),
+        )
+    )
+
+    selected: list[dict] = []
+    freed = 0
+    for job in preemptible:
+        selected.append(job)
+        freed += max(1, int(job.get("num_gpus", 1) or 1))
+        if freed >= shortfall:
+            break
+    if freed < shortfall:
+        return []
+    return selected
+
+
+def allocate_with_preemption(job, hosts, jobs: list[dict] | None = None):
+    """Allocate a host, preempting spot jobs when on-demand contention requires it."""
+    jobs = jobs or list_jobs()
+    host = allocate(job, hosts, jobs=jobs)
+    if host:
+        return host, []
+
+    if not _job_may_trigger_preemption(job):
+        return None, []
+
+    candidates = _allocate_candidates(job, hosts, jobs)
+    if not candidates:
+        return None, []
+
+    volume_ids = job.get("volume_ids", [])
+    volume_host_ids = set()
+    if volume_ids:
+        try:
+            from volumes import get_volume_engine
+
+            ve = get_volume_engine()
+            volume_host_ids = ve.get_volume_host_ids(volume_ids)
+        except Exception:
+            pass
+
+    blocked = [h for h in candidates if not host_accepts_job(h, job, jobs)]
+    blocked.sort(
+        key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids),
+        reverse=True,
+    )
+
+    needed = max(1, int(job.get("num_gpus", 1) or 1))
+    for candidate in blocked:
+        victims = identify_preemption_candidates(candidate["host_id"], needed, jobs)
+        if not victims:
+            continue
+        preempted = []
+        for victim in victims:
+            result = preempt_job(victim["job_id"])
+            if result:
+                preempted.append(result)
+        jobs = list_jobs()
+        if host_accepts_job(candidate, job, jobs):
+            log.info(
+                "ALLOCATE+PREEMPT job=%s -> host=%s (preempted %s)",
+                job.get("job_id"),
+                candidate["host_id"],
+                [p["job_id"] for p in preempted],
+            )
+            return candidate, preempted
+    return None, []
+
+
+def identify_drain_preemption_candidates(
+    host_id: str, jobs: list[dict] | None = None
+) -> list[dict]:
+    """Jobs to evict when a host is draining: spot first, then on-demand."""
+    jobs = jobs or list_jobs()
+    hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+    host = hosts.get(host_id)
+    if not host or host.get("status") != "draining":
+        return []
+
+    running = _running_jobs_on_host(jobs, host_id)
+    spot_jobs = sorted(
+        [j for j in running if _is_spot_job(j)],
+        key=lambda j: (int(j.get("priority", 0) or 0), float(j.get("started_at") or 0)),
+    )
+    other_jobs = sorted(
+        [j for j in running if not _is_spot_job(j)],
+        key=lambda j: (int(j.get("priority", 0) or 0), float(j.get("started_at") or 0)),
+    )
+    return spot_jobs + other_jobs
+
+
+def run_drain_preemptions(host_id: str) -> list[dict]:
+    """Preempt all workloads on a draining host (spot first, then on-demand)."""
+    victims = identify_drain_preemption_candidates(host_id)
+    preempted = []
+    for victim in victims:
+        result = preempt_job(victim["job_id"])
+        if result:
+            preempted.append(result)
+    return preempted
+
+
+# ── Best-Fit Bin-Packing Allocator ───────────────────────────────────
+# Processes queue in decreasing VRAM order (largest jobs first) to
+# minimize fragmentation. Scoring: waste ratio, locality, reputation.
+
+
+def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
+    """Best-fit-decreasing bin packer with locality + reputation scoring.
+
+    Score = (1 - waste_ratio) * locality_bonus * reputation_bonus
+
+    Args:
+        job: dict with vram_needed_gb, num_gpus, tier, etc.
+        hosts: list of host dicts
+        user_province: user's province for locality scoring
+        volume_host_ids: set of host_ids where user has attached volumes
+
+    Returns:
+        Best host or None
+    """
+    if not hosts:
+        return None
+
+    vram_needed = job.get("vram_needed_gb", 0)
+    num_gpus_needed = job.get("num_gpus", 1) or 1
+    requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
+    volume_host_ids = volume_host_ids or set()
+
+    # Filter: VRAM (with driver-overhead tolerance) + admission
+    candidates = [
+        h
+        for h in hosts
+        if h.get("status", "active") == "active"
+        and h.get("admitted", False)
+        and _vram_fits(h, vram_needed)
+    ]
+    if not candidates:
+        return None
+
+    if requested_gpu_model:
+        candidates = _gpu_model_candidates(candidates, requested_gpu_model)
+        if not candidates:
+            return None
+
+    # GPU count filter for multi-GPU gang scheduling
+    if num_gpus_needed > 1:
+        multi = [h for h in candidates if h.get("gpu_count", 1) >= num_gpus_needed]
+        if multi:
+            candidates = multi
+        else:
+            return None  # Gang scheduling: all GPUs must be on one host
+
+    jobs = list_jobs()
+    candidates = _filter_spot_capacity(job, candidates, jobs)
+    if not candidates:
+        return None
+
+    def _binpack_score(h):
+        total_vram = max(h.get("total_vram_gb", 1), 1)
+        free_vram = h.get("free_vram_gb", 0)
+        waste_ratio = (free_vram - vram_needed) / total_vram
+        fit_score = 1.0 - waste_ratio  # Tighter fit = higher score
+
+        # Locality bonus
+        host_province = h.get("province", "")
+        locality = 1.0
+        if user_province and host_province:
+            if host_province == user_province:
+                locality = 1.2  # Same province
+            elif h.get("country", "CA") == "CA":
+                locality = 1.0  # Same country
+            else:
+                locality = 0.5  # Cross-border
+
+        # Data gravity: prefer hosts with user's volumes attached
+        if h.get("host_id") in volume_host_ids:
+            locality *= 1.3
+
+        # Reputation bonus
+        rep = h.get("reputation_score", 0.5)
+        rep_bonus = 0.8 + (rep * 0.4)  # Range: 0.8 to 1.2
+
+        # Compute efficiency
+        compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
+        price = max(h.get("cost_per_hour", 0.01), 0.01)
+        efficiency = compute / price / 100  # Normalized
+
+        return fit_score * locality * rep_bonus * (1 + efficiency * 0.1)
+
+    best = max(candidates, key=_binpack_score)
+    log.info(
+        "BINPACK job=%s -> host=%s (%s, %.1fGB free, score=%.3f)",
+        job.get("name", "?"),
+        best["host_id"],
+        best.get("gpu_model"),
+        best.get("free_vram_gb", 0),
+        _binpack_score(best),
+    )
+    return best
+
+
+# Throttle: track last job_error notification per job_id
+_job_error_notified: dict[str, float] = {}
+
+
+def _evict_stale_throttles():
+    """Remove throttle entries older than 1 hour to prevent memory leak."""
+    cutoff = time.time() - 3600
+    for d in (_job_error_notified, _renter_notified, _allocate_blocked_notified):
+        stale = [k for k, v in d.items() if v < cutoff]
+        for k in stale:
+            del d[k]
+
+
+def process_queue_binpack(region=None):
+    """Process job queue using best-fit-decreasing order.
+
+    Sorts queued jobs by vram_needed_gb descending (largest first)
+    to minimize fragmentation, then allocates using bin-pack scoring.
+
+    ``region`` narrows the fleet for latency, and is the only geographic input.
+    It is optional and has no default: the whole global fleet is eligible.
+    """
+    _evict_stale_throttles()
+    hosts = list_hosts()
+    if region:
+        hosts = [h for h in hosts if (h.get("region") or "").lower() == region.lower()]
+
+    jobs = [j for j in list_jobs() if j.get("status") == "queued"]
+    # Phase 4 partition: skip jobs the transactional scheduler owns.
+    jobs = [j for j in jobs if not _control_plane_owns_job(j)]
+    # Best-fit-decreasing: sort by VRAM descending
+    jobs.sort(key=lambda j: j.get("vram_needed_gb", 0), reverse=True)
+
+    assigned = []
+    skipped = []
+    for job in jobs:
+        # Data gravity: find hosts where this job's volumes are already mounted
+        vol_host_ids = set()
+        vol_ids = job.get("volume_ids", [])
+        if vol_ids:
+            try:
+                from volumes import get_volume_engine
+
+                ve = get_volume_engine()
+                vol_host_ids = ve.get_volume_host_ids(vol_ids)
+            except Exception:
+                pass
+        host = allocate_binpack(job, hosts, volume_host_ids=vol_host_ids)
+        if host:
+            try:
+                from host_metadata import enrich_host_for_api
+
+                host = enrich_host_for_api(host)
+            except Exception:
+                pass
+            assign_kwargs: dict = {
+                "host_gpu_model": host.get("gpu_model", ""),
+                "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
+            }
+            if job.get("pricing_mode") == "spot" or job.get("spot"):
+                from spot_pricing import lock_spot_rate_for_job
+
+                lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
+                assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+                assign_kwargs["pricing_mode"] = "spot"
+            update_job_status(job["job_id"], "assigned", host["host_id"], **assign_kwargs)
+            assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
+            # Reduce host's available VRAM for subsequent allocations (clamped)
+            host["free_vram_gb"] = max(
+                0, host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0)
+            )
+            # Lifecycle log — surface the match decision so users see "Assigned
+            # to host X" instead of a silent jump from queued → starting. Also
+            # gives admins a forensic trail for capacity planning.
+            try:
+                from routes.instances import push_job_log
+
+                push_job_log(
+                    job["job_id"],
+                    f"Assigned to host {host['host_id']} "
+                    f"({host.get('gpu_model', 'unknown GPU')}, "
+                    f"{host.get('free_vram_gb', '?')} GB free VRAM)",
+                    level="info",
+                )
+            except Exception:
+                pass
+        else:
+            skipped.append(job["job_id"])
+
+    # Notify about unassignable jobs (throttle: once per 5 minutes per job)
+    now = time.time()
+    for jid in skipped:
+        last_notified = _job_error_notified.get(jid, 0)
+        if now - last_notified < 300:
+            continue
+        _job_error_notified[jid] = now
+
+        # Diagnose WHY the job is stuck for a useful message
+        job = next((j for j in jobs if j.get("job_id") == jid), None)
+        reason, detail = _diagnose_queue_block(job, hosts)
+
+        # Durable queue_reason first; multi-replica SSE rides the same
+        # transaction. Process-local emit only when outbox is not durable
+        # (or there is no job row to attach authority to).
+        outbox_enqueued = False
+        if job:
+            outbox_enqueued = _persist_queue_reason(job, reason, detail)
+        if not outbox_enqueued:
+            emit_event(
+                "job_error",
+                {
+                    "job_id": jid,
+                    "error": reason,
+                    "message": detail,
+                },
+            )
+
+        # In-app notification to renter (once per 15 min per job)
+        _notify_renter_queue_block(jid, job, reason, detail, now)
+
+    return assigned
+
+
+# ── Queue-block diagnostics + renter notifications ───────────────────
+
+_renter_notified: dict[str, float] = {}
+_queue_diag_logged: dict[str, float] = {}
+
+
+def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str]:
+    """Return (reason_code, human_message) explaining why a job can't be allocated."""
+    if not job:
+        return "unknown", "Your job could not be allocated. It remains queued."
+
+    active = [h for h in hosts if h.get("status") == "active"]
+    if not active:
+        return (
+            "no_hosts_online",
+            "No GPU hosts are currently online. Your job remains queued and will be assigned when a host becomes available.",
+        )
+
+    vram = job.get("vram_needed_gb", 0)
+    with_vram = [h for h in active if h.get("free_vram_gb", 0) >= vram]
+    if not with_vram:
+        return (
+            "insufficient_vram",
+            f"No hosts have enough free VRAM ({vram} GB needed). Your job remains queued.",
+        )
+
+    gpu_model = (job.get("gpu_model") or "").strip().lower()
+    candidates = with_vram
+    if gpu_model:
+        with_gpu = [
+            h for h in candidates if (h.get("gpu_model") or "").strip().lower() == gpu_model
+        ]
+        if not with_gpu:
+            admitted_upgrades = [h for h in with_vram if h.get("admitted", False)]
+            upgrade_candidates = _gpu_model_candidates(
+                admitted_upgrades, job.get("gpu_model") or ""
+            )
+            if upgrade_candidates:
+                jobs = list_jobs()
+                if not _filter_host_capacity(job, upgrade_candidates, jobs):
+                    models = sorted({str(h.get("gpu_model") or "GPU") for h in upgrade_candidates})
+                    return (
+                        "gpu_busy",
+                        (
+                            f"No {job.get('gpu_model', gpu_model)} hosts are online; "
+                            f"{', '.join(models)} GPU(s) match but are fully in use. "
+                            "Your job will start when a GPU frees up."
+                        ),
+                    )
+            if admitted_upgrades:
+                models = sorted({h.get("gpu_model", "GPU") for h in admitted_upgrades})
+                return (
+                    "gpu_upgrade_available",
+                    (
+                        f"No {job.get('gpu_model', gpu_model)} hosts are online, but "
+                        f"{', '.join(models)} GPU(s) with sufficient VRAM are available. "
+                        "Choose “Any GPU” or wait for your requested model."
+                    ),
+                )
+            return (
+                "no_matching_gpu",
+                f"No hosts with a {job.get('gpu_model', gpu_model)} GPU are available. Your job remains queued.",
+            )
+        candidates = with_gpu
+
+    # Check if matching hosts are unadmitted (scoped to VRAM+GPU-filtered set)
+    admitted = [h for h in candidates if h.get("admitted", False)]
+    if not admitted:
+        return "hosts_not_admitted", (
+            "GPU hosts are online but haven't passed admission checks yet. "
+            "The provider has been notified. Your job will be assigned automatically once a host is cleared."
+        )
+
+    if job and _is_spot_job(job):
+        jobs = list_jobs()
+        spot_ready = [h for h in admitted if host_accepts_spot_job(h, job, jobs)]
+        if not spot_ready:
+            disabled = [h for h in admitted if not h.get("spot_enabled", True)]
+            if disabled and len(disabled) == len(admitted):
+                return (
+                    "spot_disabled",
+                    "Matching hosts have spot instances disabled. Your job remains queued.",
+                )
+            return (
+                "no_spot_capacity",
+                "No hosts have free spot GPU capacity right now. Your job remains queued.",
+            )
+
+    jobs = list_jobs()
+    alloc_candidates = _allocate_candidates(job, active, jobs)
+    if alloc_candidates:
+        with_capacity = _filter_host_capacity(job, alloc_candidates, jobs)
+        if not with_capacity:
+            models = sorted({str(h.get("gpu_model") or "GPU") for h in alloc_candidates})
+            return (
+                "gpu_busy",
+                (
+                    f"Matching {', '.join(models)} GPU(s) are online but fully in use. "
+                    "Your job will start automatically when a GPU frees up."
+                ),
+            )
+
+    return (
+        "no_hosts_available",
+        "No GPU hosts currently match your requirements. Your job remains queued.",
+    )
+
+
+def _persist_queue_reason(job: dict, reason: str, detail: str) -> bool:
+    """Write queue_reason into the job payload so the frontend can display it.
+
+    On Postgres, also appends a durable ``job.v1.queue_blocked`` outbox
+    intent in the same transaction (multi-replica SSE). Returns True when
+    that intent is durable so callers skip process-local ``emit_event``.
+    """
+    try:
+        job["queue_reason"] = reason
+        job["queue_reason_detail"] = detail
+        # Waiting for GPU capacity is legitimate — don't let the queued reaper
+        # count hours spent behind an active job against submitted_at.
+        if reason == "gpu_busy" and job.get("status") == "queued":
+            job["submitted_at"] = time.time()
+        outbox_enqueued = False
+        with _atomic_mutation() as conn:
+            _upsert_job_row(conn, job)
+            if _active_backend() == "postgres":
+                from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+                job_id = str(job.get("job_id") or "")
+                # Align idempotency with the 300s process-local notify throttle.
+                window = int(time.time() // 300)
+                outbox_enqueued = try_append_lifecycle_outbox(
+                    _pg_conn(conn),
+                    aggregate_type="job",
+                    aggregate_id=job_id,
+                    event_type="job.v1.queue_blocked",
+                    payload={"error": reason, "message": detail},
+                    idempotency_key=f"queue_blocked:{job_id}:{reason}:{window}",
+                )
+        return outbox_enqueued
+    except Exception:
+        log.debug("Failed to persist queue_reason for job %s", job.get("job_id"))
+        return False
+
+
+def _notify_renter_queue_block(job_id: str, job: dict | None, reason: str, detail: str, now: float):
+    """Send in-app notification to the renter (throttled: once per 15 min per job)."""
+    last = _renter_notified.get(job_id, 0)
+    if now - last < 900:
+        return
+    _renter_notified[job_id] = now
+
+    if not job:
+        return
+    owner_id = job.get("owner", "")
+    if not owner_id:
+        return
+
+    try:
+        from db import UserStore, NotificationStore
+
+        user = UserStore.get_user_by_id(owner_id)
+        if not user:
+            return
+        email = user.get("email", "")
+        if not email:
+            return
+
+        job_name = job.get("name") or job_id
+
+        NotificationStore.create(
+            user_email=email,
+            notif_type="job_queue_blocked",
+            title=f'Instance "{job_name}" waiting for GPU',
+            body=detail,
+            data={"job_id": job_id, "reason": reason},
+            action_url=f"/dashboard/instances/{job_id}",
+            entity_type="job",
+            entity_id=job_id,
+            priority=1,  # high
+        )
+    except Exception:
+        log.debug("Failed to send queue-block notification for job %s", job_id)
+
+
+# ── Phase 2: Host Registry ───────────────────────────────────────────
+
+
+def load_hosts(active_only=False):
+    """Load hosts from SQLite-backed storage."""
+    with _db_connection() as conn:
+        _migrate_hosts_if_needed(conn)
+        return _load_hosts_from_conn(conn, active_only=active_only)
+
+
+def save_hosts(hosts):
+    """Replace all hosts (compatibility helper)."""
+    with _atomic_mutation() as conn:
+        _replace_hosts_in_conn(conn, hosts)
+
+
+def register_host(
+    host_id,
+    ip,
+    gpu_model,
+    total_vram_gb,
+    free_vram_gb,
+    cost_per_hour=0.20,
+    country="",
+    province="",
+    region="",
+    *,
+    spot_enabled: bool | None = None,
+    spot_gpu_slots: int | None = None,
+    spot_min_cents: int | None = None,
+    pending_until_admitted: bool = False,
+):
+    """
+    Register a host. If it exists, update it. If not, add it.
+    Every host sends: GPU model, VRAM, IP, uptime.
+    You store it.
+    """
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        existing = _get_host_by_id_conn(conn, host_id)
+        gpu_count = max(1, int(existing.get("gpu_count", 1) or 1)) if existing else 1
+        admitted_before_update = bool(existing and existing.get("admitted") is True)
+        initial_status = (
+            "pending" if pending_until_admitted and not admitted_before_update else "active"
+        )
+        entry = {
+            "host_id": host_id,
+            "ip": ip,
+            "gpu_model": gpu_model,
+            "total_vram_gb": total_vram_gb,
+            "free_vram_gb": free_vram_gb,
+            "cost_per_hour": cost_per_hour,
+            "gpu_count": gpu_count,
+            "spot_enabled": True if spot_enabled is None else bool(spot_enabled),
+            "spot_gpu_slots": (
+                gpu_count if spot_gpu_slots is None else max(0, min(int(spot_gpu_slots), gpu_count))
+            ),
+            "spot_min_cents": 0 if spot_min_cents is None else max(0, int(spot_min_cents)),
+            "registered_at": time.time(),
+            "last_seen": time.time(),
+            "status": initial_status,
+        }
+        if country:
+            entry["country"] = country.upper()
+        if province:
+            entry["province"] = province.upper()
+        from host_metadata import normalize_region
+
+        if region or province or not existing:
+            entry["region"] = normalize_region(
+                region,
+                country=entry.get("country", country),
+                province=entry.get("province", province),
+            )
+        if existing:
+            from host_metadata import merge_host_update
+
+            entry = merge_host_update(existing, entry)
+            # Preserve host metadata set by other flows (country/autoscaled tags).
+            for field in (
+                "country",
+                "province",
+                "region",
+                "owner",
+                "autoscaled",
+                "compute_score",
+                "cpu_count",
+                "admitted",
+                "gpu_count",
+                "spot_enabled",
+                "spot_gpu_slots",
+                "spot_min_cents",
+                "checkpoint_class",
+                "capabilities",
+                "cuda_driver_version",
+            ):
+                if field in existing and field not in entry:
+                    entry[field] = existing[field]
+            if "spot_gpu_slots" not in existing:
+                entry["spot_gpu_slots"] = _host_spot_gpu_slots(entry)
+            if existing.get("status") == "draining":
+                entry["status"] = "draining"
+                if "draining_since" in existing:
+                    entry["draining_since"] = existing["draining_since"]
+        else:
+            from host_metadata import enrich_host_for_api
+
+            entry = enrich_host_for_api(entry)
+        _upsert_host_row(conn, entry)
+        outbox_enqueued = False
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                _pg_conn(conn),
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.status_changed",
+                payload={"status": entry.get("status") or initial_status},
+                idempotency_key=(
+                    f"host_status:{host_id}:{entry.get('status') or initial_status}:"
+                    f"{entry.get('last_seen') or entry.get('registered_at') or time.time()}"
+                ),
+            )
+
+    # Mirror to secondary DB in dual-write mode
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_host, entry)
+
+    if not outbox_enqueued:
+        emit_event(
+            "host_update", {"host_id": host_id, "status": entry.get("status") or initial_status}
+        )
+
+    if existing:
+        log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
+        return entry
+
+    log.info(
+        "HOST REGISTERED %s | %s | %s | %sGB | $%s/hr",
+        host_id,
+        ip,
+        gpu_model,
+        total_vram_gb,
+        cost_per_hour,
+    )
+    return entry
+
+
+def update_host_spot_settings(
+    host_id: str,
+    *,
+    spot_enabled: bool | None = None,
+    spot_gpu_slots: int | None = None,
+    spot_min_cents: int | None = None,
+) -> dict | None:
+    """Update provider spot controls on a host and sync marketplace offer."""
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        host = _get_host_by_id_conn(conn, host_id)
+        if not host:
+            return None
+
+        if spot_enabled is not None:
+            host["spot_enabled"] = bool(spot_enabled)
+        if spot_gpu_slots is not None:
+            gpu_count = max(1, int(host.get("gpu_count", 1) or 1))
+            host["spot_gpu_slots"] = max(0, min(int(spot_gpu_slots), gpu_count))
+        if spot_min_cents is not None:
+            host["spot_min_cents"] = max(0, int(spot_min_cents))
+
+        _upsert_host_row(conn, host)
+        outbox_enqueued = False
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                _pg_conn(conn),
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.status_changed",
+                payload={
+                    "status": host.get("status"),
+                    "spot_enabled": host.get("spot_enabled"),
+                },
+                idempotency_key=(
+                    f"host_spot:{host_id}:{host.get('spot_enabled')}:"
+                    f"{host.get('spot_gpu_slots')}:{host.get('spot_min_cents')}:"
+                    f"{time.time()}"
+                ),
+            )
+
+    try:
+        from host_metadata import normalize_host_region
+        from marketplace import get_marketplace_engine
+
+        me = get_marketplace_engine()
+        marketplace_eligible = host.get("admitted") is True and host.get("status") == "active"
+        if marketplace_eligible:
+            ask_cents = max(
+                1,
+                int(round(float(host.get("cost_per_hour", 0.20) or 0.20) * 100)),
+            )
+            me.upsert_offer(
+                provider_id=str(host.get("owner") or host_id),
+                host_id=host_id,
+                gpu_model=str(host.get("gpu_model") or "unknown"),
+                gpu_count_total=max(1, int(host.get("gpu_count", 1) or 1)),
+                vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
+                ask_cents_per_hour=ask_cents,
+                region=normalize_host_region(host),
+                province=str(host.get("province") or ""),
+                spot_enabled=bool(host.get("spot_enabled", True)),
+                spot_min_cents=int(host.get("spot_min_cents", 0) or 0),
+            )
+        else:
+            stale_offer = me.get_offer_for_host(host_id)
+            if stale_offer:
+                me.disable_offer(str(stale_offer["offer_id"]))
+    except Exception as exc:
+        log.debug("Spot settings marketplace sync skipped for %s: %s", host_id, exc)
+
+    if not outbox_enqueued:
+        emit_event(
+            "host_update",
+            {"host_id": host_id, "spot_enabled": host.get("spot_enabled")},
+        )
+    return host
+
+
+def remove_host(host_id):
+    """Host is dead. Remove it. No funeral."""
+    outbox_enqueued = False
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        DatabaseOps.delete_host(conn, host_id, backend=_active_backend())
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                _pg_conn(conn),
+                aggregate_type="host",
+                aggregate_id=str(host_id),
+                event_type="host.v1.removed",
+                payload={},
+                idempotency_key=f"host_removed:{host_id}:{time.time()}",
+            )
+
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.delete_host, host_id)
+    if not outbox_enqueued:
+        emit_event("host_removed", {"host_id": host_id})
+    log.warning("HOST REMOVED %s", host_id)
+
+
+def list_hosts(active_only=True):
+    """Show what we've got."""
+    return load_hosts(active_only=active_only)
+
+
+# ── Phase 4: Health Check ─────────────────────────────────────────────
+
+
+def ping_host(ip):
+    """Ping once. Returns True if alive, False if dead."""
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def check_hosts():
+    """
+    Ping every registered host. Once.
+    Dead? Mark it dead. Alive? Update last_seen.
+    If the host has a recent agent heartbeat (last_seen < 60s ago),
+    trust the heartbeat even if ping fails (Tailscale/Headscale IP mismatch).
+    Returns dict of results.
+    """
+    hosts = load_hosts(active_only=False)
+    results = {}
+    updates = []
+    alerts = []
+    revivals = []
+    now = time.time()
+
+    for h in hosts:
+        # `h["ip"]` raised KeyError on any row registered without one, which
+        # took the whole admin health check down with a 500 rather than
+        # reporting that one host as unreachable. A host with no address cannot
+        # be pinged, so it is dead by definition — but a recent agent heartbeat
+        # still counts, exactly as it does for a host whose ping fails.
+        ip = str(h.get("ip") or "").strip()
+        alive = ping_host(ip) if ip else False
+        # Trust recent agent heartbeat even if ping fails
+        if not alive:
+            last_seen = h.get("last_seen", 0)
+            if isinstance(last_seen, (int, float)) and (now - last_seen) < 60:
+                alive = True
+        updates.append((h["host_id"], ip, alive))
+        results[h["host_id"]] = "alive" if alive else "dead"
+
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        for host_id, ip, alive in updates:
+            current = _get_host_by_id_conn(conn, host_id)
+            if not current:
+                continue
+            if alive:
+                current["last_seen"] = time.time()
+                # Clear any pending death timer on revival
+                _host_first_miss.pop(host_id, None)
+                if current.get("status") == "dead":
+                    revivals.append((host_id, ip))
+                if current.get("status") != "draining":
+                    current["status"] = "active"
+            else:
+                # Track first-miss time so brief restarts don't trigger requeue.
+                first_miss = _host_first_miss.setdefault(host_id, now)
+                grace_remaining = HOST_DEATH_GRACE_SEC - (now - first_miss)
+                if grace_remaining > 0:
+                    # Still in grace window — don't mark dead yet.
+                    if current.get("status") not in ("dead", "draining"):
+                        # Keep prior status (active/etc); just note the miss.
+                        log.info(
+                            "Host %s unreachable — in grace period (%.0fs remaining)",
+                            host_id,
+                            grace_remaining,
+                        )
+                else:
+                    # Grace exhausted → mark dead and alert (once per death).
+                    if current.get("status") != "dead":
+                        alerts.append((host_id, ip))
+                    current["status"] = "dead"
+            _upsert_host_row(conn, current)
+
+    for host_id, ip in revivals:
+        log.info("HOST REVIVED %s (%s)", host_id, ip)
+    for host_id, ip in alerts:
+        log.warning("HOST DEAD %s (%s)", host_id, ip)
+        alert_host_dead(host_id, ip)
+        # Requeue running jobs from dead host so they get rescheduled
+        _requeue_dead_host_jobs(host_id, ip)
+
+    return results
+
+
+def _requeue_dead_host_jobs(host_id: str, ip: str):
+    """Requeue all running/assigned/leased jobs from a dead host so they get rescheduled.
+
+    Delegates to requeue_job() per-job to ensure proper VRAM release,
+    retry tracking, and JSONB payload consistency.
+    """
+    try:
+        backend = _active_backend()
+        active_statuses = ("running", "starting", "assigned", "leased")
+        with _db_connection() as conn:
+            if backend == "sqlite":
+                jobs = [
+                    {"job_id": j["job_id"], "name": j.get("name")}
+                    for j in DatabaseOps.load_jobs(conn, backend=backend)
+                    if j.get("host_id") == host_id and j.get("status") in active_statuses
+                ]
+            else:
+                jobs = conn.execute(
+                    "SELECT job_id, payload->>'name' AS name FROM jobs "
+                    "WHERE host_id = %s AND status IN ('running', 'starting', 'assigned', 'leased')",
+                    (host_id,),
+                ).fetchall()
+        if not jobs:
+            return
+
+        requeued_ids = []
+        for j in jobs:
+            try:
+                result = requeue_job(j["job_id"])
+                if result:
+                    requeued_ids.append(j["job_id"])
+            except Exception as e:
+                log.error("Failed to requeue job %s from dead host %s: %s", j["job_id"], host_id, e)
+
+        if requeued_ids:
+            log.warning(
+                "REQUEUED %d jobs from dead host %s (%s): %s",
+                len(requeued_ids),
+                host_id,
+                ip,
+                requeued_ids,
+            )
+    except Exception as e:
+        log.error("Failed to requeue jobs from dead host %s: %s", host_id, e)
+
+
+def health_loop(interval=5, callback=None):
+    """
+    Ping hosts every `interval` seconds. Forever.
+    If one dies — mark it dead.
+    If one comes back — mark it active.
+    Run this in a thread.
+    """
+    while True:
+        try:
+            results = check_hosts()
+            if callback:
+                callback(results)
+        except Exception as e:
+            log.error("Health monitor error: %s", e)
+        time.sleep(interval)
+
+
+def start_health_monitor(interval=5, callback=None):
+    """Start the health loop in a background thread. Fire and forget."""
+    t = threading.Thread(target=health_loop, args=(interval, callback), daemon=True)
+    t.start()
+    return t
+
+
+# ── Phase 15: Priority Tiers ─────────────────────────────────────────
+
+PRIORITY_TIERS = {
+    # Pricing-model tiers (frontend-facing)
+    "on-demand": {"priority": 1, "multiplier": 1.0, "label": "On-Demand"},
+    "spot": {"priority": 0, "multiplier": 0.6, "label": "Spot", "spot": True},
+    "reserved": {"priority": 1, "multiplier": 0.8, "label": "Reserved"},
+    # Priority tiers (queue priority escalation)
+    "free": {"priority": 0, "multiplier": 1.0, "label": "Free"},
+    "standard": {"priority": 1, "multiplier": 1.0, "label": "Standard"},
+    "premium": {"priority": 2, "multiplier": 1.5, "label": "Premium"},
+    "urgent": {"priority": 3, "multiplier": 2.0, "label": "Urgent"},
+}
+
+
+def get_tier_info(tier_name):
+    """Look up a tier. Returns dict or None."""
+    return PRIORITY_TIERS.get(tier_name)
+
+
+def get_tier_by_priority(priority):
+    """Reverse lookup: priority int -> tier name. Prefers non-spot tiers."""
+    candidates = []
+    for name, info in PRIORITY_TIERS.items():
+        if info["priority"] == priority:
+            candidates.append(name)
+    # Prefer non-spot tier (avoid accidentally marking jobs as spot/preemptible)
+    for c in candidates:
+        if not PRIORITY_TIERS[c].get("spot"):
+            return c
+    return candidates[0] if candidates else "free"
+
+
+def list_tiers():
+    """Return all tiers with their details."""
+    return {name: dict(info) for name, info in PRIORITY_TIERS.items()}
+
+
+# ── Phase 3: Job Queue ────────────────────────────────────────────────
+
+# Extended status set — aligns with events.JobState
+# Legacy 4 statuses preserved for backward compat; new statuses for v2.1
+VALID_STATUSES = (
+    "queued",
+    "assigned",
+    "leased",
+    "starting",
+    "running",
+    "completed",
+    "failed",
+    "preempted",
+    "cancelled",
+    # User-controlled lifecycle states — billing.py writes these via raw SQL
+    # today, but the worker agent's `report_job_status` goes through
+    # `update_job_status` and was getting HTTP 400'd when a clean container
+    # exit produced "stopped" (see _monitor_interactive).
+    "stopping",
+    "stopped",
+    "restarting",
+    "paused",
+    "terminated",
+)
+
+
+def load_jobs():
+    """Load jobs from SQLite-backed storage."""
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        return _load_jobs_from_conn(conn)
+
+
+def save_jobs(jobs):
+    """Replace all jobs (compatibility helper)."""
+    with _atomic_mutation() as conn:
+        _replace_jobs_in_conn(conn, jobs)
+
+
+def submit_job(
+    name,
+    vram_needed_gb,
+    priority=0,
+    tier=None,
+    num_gpus=1,
+    gpu_model=None,
+    nfs_server=None,
+    nfs_path=None,
+    nfs_mount_point=None,
+    image=None,
+    interactive=False,
+    command=None,
+    ssh_port=22,
+    owner="",
+    volume_ids=None,
+    encrypted_workspace=False,
+    init_script=None,
+    git_repo=None,
+    auto_launch=None,
+    exposed_ports=None,
+    source_template_id=None,
+    job_type=None,
+    pricing_mode="on_demand",
+    region="",
+    # P5. A dict shaped like `PlacementPreferenceIn`, or None. Kept out of the
+    # spec on purpose — `canonicalize`/`spec_hash` must not see it, or two
+    # identical workloads asking for different reliability hash apart and an
+    # approved plan stops matching a rerun.
+    placement_preference=None,
+    job_id=None,
+    trace_id=None,
+):
+    # A caller may supply a deterministic ``job_id`` so a retried submission
+    # upserts the same row instead of creating a duplicate — the launch
+    # service (Track B B2.5) derives one from the action plan so a replayed
+    # execute is exactly-once. Omitted: a fresh random id as before.
+    """
+    Submit a job to the queue.
+    Each job has: model name, VRAM needed, priority, tier.
+    Tier overrides priority. Pay more = jump the queue.
+    FIFO within the same priority. Higher priority goes first.
+
+    Multi-GPU: num_gpus specifies how many GPUs are needed (default 1).
+    NFS: Optionally specify NFS server/path for shared storage.
+    Interactive: If True, container stays running with SSH access until stopped.
+    """
+    # Validate Docker image if provided
+    if image:
+        from security import validate_docker_image
+
+        image = validate_docker_image(image)
+
+    if owner:
+        from abuse_policy import account_suspended
+
+        if account_suspended({"owner": owner, "customer_id": owner, "user_id": owner}):
+            raise ValueError(f"Account '{owner}' is suspended by security policy")
+
+    if job_id:
+        from abuse_policy import job_blocked
+
+        with get_engine().connection() as (conn, backend):
+            if job_blocked(conn, job_id, backend=backend):
+                raise ValueError(f"Job '{job_id}' is blocked by security policy")
+
+    pricing_mode = (pricing_mode or "on_demand").strip().lower()
+    if pricing_mode not in ("on_demand", "spot", "reserved"):
+        pricing_mode = "on_demand"
+
+    if pricing_mode == "spot":
+        tier = "spot"
+    # Tier overrides raw priority
+    if tier and tier in PRIORITY_TIERS:
+        tier_info = PRIORITY_TIERS[tier]
+        priority = tier_info["priority"]
+    elif tier:
+        log.warning("UNKNOWN TIER '%s' — defaulting to on-demand", tier)
+        tier = "on-demand"
+        priority = 1
+    else:
+        tier = get_tier_by_priority(priority)
+
+    if pricing_mode == "spot":
+        tier = "spot"
+        tier_info = PRIORITY_TIERS["spot"]
+        priority = tier_info["priority"]
+
+    # Spot tier: mark job as interruptible
+    is_spot = pricing_mode == "spot" or PRIORITY_TIERS.get(tier, {}).get("spot", False)
+    if is_spot:
+        pricing_mode = "spot"
+
+    normalized_region = ""
+    if region:
+        from host_metadata import normalize_region
+
+        normalized_region = normalize_region(region, default="")
+
+    resolved_nfs_server = nfs_server or ""
+    if not resolved_nfs_server and volume_ids:
+        try:
+            from volumes import NFS_SERVER as _vol_nfs_server
+
+            if _vol_nfs_server:
+                resolved_nfs_server = _vol_nfs_server
+        except Exception:
+            pass
+
+    from abuse_policy import egress_for_owner
+
+    job = {
+        "job_id": str(job_id).strip() if job_id else str(uuid.uuid4())[:8],
+        "name": name,
+        "owner": owner,
+        # Decided here from the account, never from the request. A spend limit
+        # is not an input. Funded means a settled payment: direct internet on
+        # the isolated bridge. Unfunded stays on the proxy.
+        "egress": egress_for_owner({"owner": owner}),
+        "vram_needed_gb": vram_needed_gb,
+        "priority": priority,
+        "tier": tier,
+        "status": "queued",
+        "host_id": None,
+        "submitted_at": time.time(),
+        "started_at": None,
+        "completed_at": None,
+        "retries": 0,
+        "max_retries": 3,
+        "num_gpus": max(1, int(num_gpus or 1)),
+        "gpu_model": gpu_model or "",
+        "nfs_server": resolved_nfs_server,
+        "nfs_path": nfs_path or "",
+        "nfs_mount_point": nfs_mount_point or "",
+        "image": image or "",
+        "interactive": bool(interactive),
+        "command": command or "",
+        "ssh_port": int(ssh_port or 22),
+        "volume_ids": volume_ids or [],
+        "encrypted_workspace": bool(encrypted_workspace),
+        # P2.1 — optional provisioning hooks (all bounded by the agent to 15 s).
+        "init_script": init_script or "",
+        "git_repo": git_repo or "",
+        "auto_launch": list(auto_launch or []),
+        "exposed_ports": list(exposed_ports or []),
+        "source_template_id": source_template_id or "",
+        "job_type": (job_type or "").strip(),
+        "pricing_mode": pricing_mode,
+        # `upsert_job` converts this to the integer basis points the schema
+        # stores. It stays a percent here because that is what the caller said.
+        "placement_preference": placement_preference or None,
+        "region": normalized_region,
+        "trace_id": trace_id,
+    }
+
+    # Spot jobs are preemptible interruptible instances (no bidding).
+    if is_spot:
+        job["spot"] = True
+        job["preemptible"] = True
+        job["pricing_mode"] = "spot"
+
+    outbox_enqueued = False
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        _upsert_job_row(conn, job)
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                _pg_conn(conn),
+                aggregate_type="job",
+                aggregate_id=str(job["job_id"]),
+                event_type="job.v1.submitted",
+                payload={"name": name, "tier": tier},
+                idempotency_key=f"job_submitted:{job['job_id']}",
+            )
+
+    # Mirror to secondary DB
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_job, job)
+
+    if not outbox_enqueued:
+        emit_event(
+            "job_submitted",
+            {"job_id": job["job_id"], "name": name, "tier": tier},
+        )
+
+    log.info(
+        "JOB SUBMITTED %s | %s | %sGB VRAM | tier=%s (priority %s)",
+        job["job_id"],
+        name,
+        vram_needed_gb,
+        tier,
+        priority,
+    )
+    return job
+
+
+def get_next_job():
+    """
+    Pull the next job off the queue.
+    Highest priority first. Within same priority: FIFO. No mercy.
+    """
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        row = conn.execute("""
+            SELECT payload
+            FROM jobs
+            WHERE status = 'queued'
+            ORDER BY priority DESC, submitted_at ASC, job_id ASC
+            LIMIT 1
+            """).fetchone()
+        if not row:
+            return None
+        return _decode_payload(row["payload"])
+
+
+def _reserve_host_vram(conn, host_id, amount_gb):
+    """Reserve VRAM on a host.
+
+    Returns:
+      True: reservation applied.
+      False: host exists but has insufficient free VRAM.
+      None: host not found.
+    """
+    if amount_gb <= 0:
+        return True
+    host = _get_host_by_id_conn(conn, host_id)
+    if not host:
+        return None
+    total = float(host.get("total_vram_gb", 0) or 0)
+    free = float(host.get("free_vram_gb", 0) or 0)
+    if free + 1e-9 < amount_gb:
+        return False
+    host["free_vram_gb"] = round(max(0.0, min(total, free - amount_gb)), 4)
+    _upsert_host_row(conn, host)
+    return True
+
+
+def _release_host_vram(conn, host_id, amount_gb):
+    """Release VRAM on a host with clamping to [0, total_vram_gb]."""
+    if not host_id or amount_gb <= 0:
+        return False
+    host = _get_host_by_id_conn(conn, host_id)
+    if not host:
+        return False
+    total = float(host.get("total_vram_gb", 0) or 0)
+    free = float(host.get("free_vram_gb", 0) or 0)
+    host["free_vram_gb"] = round(max(0.0, min(total, free + amount_gb)), 4)
+    _upsert_host_row(conn, host)
+    return True
+
+
+def reconcile_host_vram():
+    """Periodic VRAM reconciliation: recompute free_vram_gb from ground truth.
+
+    Sole free-capacity repair path for host ``free_vram_gb``. Pure policy
+    lives in :mod:`control_plane.capacity` — this function only reads hosts/
+    jobs and writes host free capacity when drift exceeds tolerance. It does
+    not place, fail, requeue, or touch attempt/lease/allocation rows.
+
+    Returns dict of {host_id: correction_amount} for hosts that were corrected.
+    """
+    from control_plane.capacity import (
+        expected_free_vram_gb,
+        free_vram_correction,
+        vram_used_by_host,
+    )
+
+    corrections = {}
+
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        _migrate_jobs_if_needed(conn)
+
+        hosts = _load_hosts_from_conn(conn, active_only=False)
+        jobs = _load_jobs_from_conn(conn)
+        host_vram_used = vram_used_by_host(jobs)
+
+        for host in hosts:
+            hid = host.get("host_id")
+            if not hid:
+                continue
+            total = float(host.get("total_vram_gb", 0) or 0)
+            current_free = float(host.get("free_vram_gb", 0) or 0)
+            used = host_vram_used.get(str(hid), 0.0)
+            expected_free = expected_free_vram_gb(total, used)
+            delta = free_vram_correction(current_free, expected_free)
+            if delta is None:
+                continue
+            log.warning(
+                "VRAM RECONCILE host=%s total=%.2f current_free=%.2f expected_free=%.2f drift=%.2f",
+                hid,
+                total,
+                current_free,
+                expected_free,
+                abs(delta),
+            )
+            host["free_vram_gb"] = expected_free
+            _upsert_host_row(conn, host)
+            corrections[str(hid)] = delta
+
+    if corrections:
+        log.info("VRAM RECONCILE corrected %d hosts: %s", len(corrections), corrections)
+
+    return corrections
+
+
+def update_job_status(job_id, status, host_id=None, **kwargs):
+    """Mark a job. queued -> running -> completed/failed. That's the lifecycle.
+
+    Any extra keyword arguments are merged into the job payload before
+    persisting (e.g. host_gpu_model, host_vram_gb set at assignment time).
+    """
+    if status not in VALID_STATUSES:
+        raise ValueError(
+            f"Invalid status '{status}' for job {job_id} — must be one of {VALID_STATUSES}"
+        )
+    alert_failed = None
+    alert_completed = None
+    outbox_enqueued = False
+    validated_attempt_id = kwargs.pop("_attempt_id", None)
+    validated_fencing_token = kwargs.pop("_fencing_token", None)
+    validated_host_id = kwargs.pop("_authority_host_id", None)
+
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        _migrate_hosts_if_needed(conn)
+
+        # Postgres: lock the job row first, then load status under that lock.
+        # CAS (expected_status) must not use a pre-lock snapshot — concurrent
+        # assigned→running would otherwise be force-failed (regresses the old
+        # reaper SQL ``WHERE status = expected`` under row lock).
+        locked_col_status = None
+        authority_host_id = None
+        if _active_backend() == "postgres":
+            authority = conn.execute(
+                """SELECT j.active_attempt_id, j.host_id, a.fencing_token, j.status
+                     FROM jobs j
+                     LEFT JOIN job_attempts a
+                       ON a.attempt_id = j.active_attempt_id
+                    WHERE j.job_id=%s
+                      FOR UPDATE OF j""",
+                (job_id,),
+            ).fetchone()
+            if authority is None:
+                return None
+            active_attempt_id = (
+                authority.get("active_attempt_id") if isinstance(authority, dict) else authority[0]
+            )
+            authority_host_id = (
+                authority.get("host_id") if isinstance(authority, dict) else authority[1]
+            )
+            authority_fence = (
+                authority.get("fencing_token") if isinstance(authority, dict) else authority[2]
+            )
+            locked_col_status = (
+                authority.get("status") if isinstance(authority, dict) else authority[3]
+            )
+            tuple_matches = (
+                active_attempt_id is not None
+                and validated_attempt_id is not None
+                and validated_fencing_token is not None
+                and validated_host_id is not None
+                and authority_fence is not None
+                and authority_host_id is not None
+                and str(validated_attempt_id) == str(active_attempt_id)
+                and int(validated_fencing_token) == int(authority_fence)
+                and str(validated_host_id) == str(authority_host_id)
+            )
+            if active_attempt_id is not None and not tuple_matches:
+                raise RuntimeError(
+                    f"job {job_id} is attempt-owned ({active_attempt_id}); "
+                    "raw lifecycle mutation is fenced out"
+                )
+
+        # Full payload load under the same transaction (after FOR UPDATE on PG).
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j:
+            return None
+
+        # Column status from the locked row is CAS authority; keep payload in sync.
+        if locked_col_status is not None:
+            j["status"] = locked_col_status
+        old_status = j.get("status")
+        old_host_id = j.get("host_id")
+        assigned_host = authority_host_id if _active_backend() == "postgres" else old_host_id
+        if validated_host_id is not None and str(validated_host_id) != str(assigned_host or ""):
+            raise RuntimeError(
+                f"job {job_id} host authority changed; raw lifecycle mutation is fenced out"
+            )
+
+        from abuse_policy import MINING_REASON, job_blocked, record_mining_violation
+
+        blocked = job_blocked(conn, job_id, backend=_active_backend())
+        if blocked and status != "terminated":
+            raise ValueError("Instance is permanently terminated by security policy")
+        policy_reason = kwargs.get("policy_reason")
+        if policy_reason:
+            if policy_reason != MINING_REASON or status != "terminated" or host_id != old_host_id:
+                raise ValueError("Invalid or stale policy termination")
+            record_mining_violation(conn, j, backend=_active_backend())
+
+        # Optional CAS: callers (stuck-job reaper) race workers that advance
+        # status between candidate SELECT and this mutation. If the row is
+        # no longer in the expected state, return None without writing —
+        # do not force-fail a job that already left the stuck state.
+        expected_status = kwargs.pop("expected_status", None)
+        if expected_status is not None and old_status != expected_status:
+            return None
+
+        # Validate state transition against the state machine
+        from events import VALID_TRANSITIONS, JobState
+
+        try:
+            old_state = JobState(old_status) if old_status else None
+            new_state = JobState(status)
+            if old_state and new_state not in VALID_TRANSITIONS.get(old_state, set()):
+                log.warning(
+                    "INVALID TRANSITION job=%s %s -> %s (allowed: %s)",
+                    job_id,
+                    old_status,
+                    status,
+                    [s.value for s in VALID_TRANSITIONS.get(old_state, set())],
+                )
+        except ValueError:
+            pass  # Unknown state enum value — allow for forward compat
+
+        # Idempotency: if already running, don't allow accidental reassignment.
+        if status == "running" and old_status == "running":
+            return j
+
+        # Reserve GPU memory when job starts running (best-effort — never
+        # block the status transition because the container is already live).
+        if status == "running" and old_status != "running":
+            target_host = host_id or j.get("host_id")
+            reserved = float(j.get("vram_needed_gb", 0) or 0)
+            if target_host and reserved > 0:
+                reserve_result = _reserve_host_vram(conn, target_host, reserved)
+                if reserve_result is False:
+                    log.warning(
+                        "VRAM RESERVE FAILED job=%s host=%s needed=%.1fGB — proceeding anyway",
+                        job_id,
+                        target_host,
+                        reserved,
+                    )
+                else:
+                    j["vram_reserved_gb"] = reserved
+
+        # Release GPU memory when a running job reaches terminal state.
+        if status in ("completed", "failed", "cancelled", "terminated") and old_status == "running":
+            reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
+            if reserved > 0:
+                _release_host_vram(conn, j.get("host_id"), reserved)
+            j["vram_reserved_gb"] = 0
+
+        j["status"] = status
+        if host_id and not (status == "running" and old_status == "running"):
+            j["host_id"] = host_id
+            # **The host changed, so the container changed, so the fingerprint
+            # is stale.** A2 of docs/host-key-fingerprint-plan.md requires that
+            # a reported host key never outlive its container; a stale one makes
+            # a client report "verified" against the wrong host, which is worse
+            # than reporting nothing.
+            #
+            # Cleared here rather than at `_clear_job_output`, which the plan
+            # nominated: that hook is gated on `user_initiated`, and **automatic
+            # failover — the primary way a job changes host — does not pass it**.
+            # The gate is correct for logs (a failover must not erase the
+            # evidence of why it failed over) and fatal for a fingerprint.
+            #
+            # Every placement path reaches this line: normal placement, the CRIU
+            # checkpoint migration, and failover. `_upsert_job_row` writes the
+            # column in the same statement as `host_id`, so the two move
+            # together or not at all.
+            if str(host_id) != str(old_host_id or ""):
+                j.pop("host_key_fingerprint", None)
+        if status == "running":
+            j["started_at"] = time.time()
+        if status in ("completed", "failed", "cancelled", "terminated"):
+            j["completed_at"] = time.time()
+
+        # Merge extra keyword args into payload (e.g., host GPU info on assignment)
+        if kwargs:
+            j.update(kwargs)
+
+        # Stamp updated_at so the stuck-job reaper's cutoff query measures
+        # time-since-last-transition, not time-since-submission. Without this
+        # the reaper falls back to submitted_at (via COALESCE) — it still
+        # works, but can either miss recently-stuck jobs with old submissions
+        # or fire on legitimately long-queued jobs that just transitioned.
+        j["updated_at"] = time.time()
+
+        _upsert_job_row(conn, j)
+
+        # Durable side-effect intent for multi-replica SSE.
+        # Append inside the same transaction as the status mutation so a
+        # crash after commit cannot lose the event (dispatcher redelivers).
+        # Postgres only; sqlite keeps emit_event below.
+        #
+        # SAVEPOINT is mandatory: a failed INSERT aborts the open PG
+        # transaction (INERROR). Without ROLLBACK TO SAVEPOINT the later
+        # commit discards the job upsert while we still return the
+        # in-memory new status (split-brain). Isolate append failures so
+        # the status write always commits; fall back to emit_event.
+        if _active_backend() == "postgres":
+            from control_plane.outbox import append_event
+
+            try:
+                conn.execute("SAVEPOINT legacy_status_outbox_append")
+            except Exception as e:
+                log.warning(
+                    "outbox SAVEPOINT create failed job=%s: %s " "(falling back to emit_event)",
+                    job_id,
+                    e,
+                )
+            else:
+                try:
+                    append_event(
+                        _pg_conn(conn),
+                        aggregate_type="job",
+                        aggregate_id=str(job_id),
+                        event_type="job.v1.legacy_status_changed",
+                        payload={
+                            "status": status,
+                            "previous_status": old_status,
+                            "host_id": host_id or j.get("host_id") or old_host_id,
+                        },
+                        destination_class="default",
+                        idempotency_key=(
+                            f"legacy_status:{job_id}:{old_status}:{status}:"
+                            f"{j.get('updated_at')}"
+                        ),
+                    )
+                    conn.execute("RELEASE SAVEPOINT legacy_status_outbox_append")
+                    outbox_enqueued = True
+                except Exception as e:
+                    try:
+                        conn.execute("ROLLBACK TO SAVEPOINT legacy_status_outbox_append")
+                    except Exception as rb_err:
+                        # Outer transaction is doomed — do not return success
+                        # with an in-memory status the DB will not keep.
+                        log.error(
+                            "outbox SAVEPOINT rollback failed job=%s: %s " "(original: %s)",
+                            job_id,
+                            rb_err,
+                            e,
+                        )
+                        raise e from rb_err
+                    log.warning(
+                        "outbox append failed for job_status job=%s: %s "
+                        "(SAVEPOINT restored; falling back to emit_event)",
+                        job_id,
+                        e,
+                    )
+
+        if status == "failed":
+            alert_failed = (job_id, j.get("name", "?"), j.get("host_id"))
+        elif status == "completed":
+            dur = None
+            if j.get("started_at") and j.get("completed_at"):
+                dur = j["completed_at"] - j["started_at"]
+            alert_completed = (job_id, j.get("name", "?"), dur)
+
+    lvl = logging.WARNING if status == "failed" else logging.INFO
+    log.log(
+        lvl,
+        "JOB %s %s -> %s | %s | host=%s",
+        status.upper(),
+        old_status,
+        status,
+        job_id,
+        host_id or old_host_id or "—",
+    )
+
+    # Mirror to secondary DB + emit SSE event
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_job, j)
+    # Primary production path for multi-replica correctness is the outbox
+    # (dispatcher → pg_notify on xcelsior_events). Avoid dual fan-out when
+    # the intent is already durable — clients would see duplicate SSE.
+    if not outbox_enqueued:
+        emit_event(
+            "job_status",
+            {"job_id": job_id, "status": status, "host_id": host_id or old_host_id},
+        )
+
+    # Detach volumes when instance reaches terminal state
+    if status in ("completed", "failed", "cancelled", "terminated"):
+        try:
+            from volumes import get_volume_engine
+
+            get_volume_engine().detach_all_for_instance(job_id)
+        except Exception as e:
+            log.warning("Volume detach on %s failed for %s: %s", status, job_id, e)
+        # Release launch fund hold once (idempotent).
+        try:
+            from billing import get_billing_engine
+
+            get_billing_engine().release_wallet_hold_for_job(job_id, reason=f"job_{status}")
+        except Exception as e:
+            log.debug("wallet hold release on %s for %s: %s", status, job_id, e)
+
+    # ── v2.1: Record event + trigger billing/reputation ──
+    try:
+        sm = get_state_machine()
+        if isinstance(old_status, str):
+            sm.transition(job_id, old_status, status, actor="scheduler")
+    except Exception as exc:
+        log.debug("Event record skip: %s", exc)
+
+    if status == "completed" and j.get("started_at") and j.get("completed_at"):
+        try:
+            be = get_billing_engine()
+            host_data = {}
+            if j.get("host_id"):
+                hosts_list = load_hosts(active_only=False)
+                for h in hosts_list:
+                    if h["host_id"] == j["host_id"]:
+                        host_data = h
+                        break
+            be.meter_job(j, host_data)
+            # Reputation: reward host
+            if j.get("host_id"):
+                re_engine = get_reputation_engine()
+                updated = re_engine.record_job_completed(j["host_id"])
+                total = updated.jobs_completed + updated.jobs_failed_host
+                job_sr = updated.jobs_completed / total if total > 0 else 1.0
+                re_engine.update_reliability(
+                    j["host_id"],
+                    uptime_pct=max(updated.uptime_pct, 0.5),
+                    job_success_rate=job_sr,
+                )
+        except Exception as exc:
+            log.debug("Billing/reputation skip: %s", exc)
+
+    if status == "failed" and j.get("host_id"):
+        try:
+            re_engine = get_reputation_engine()
+            updated = re_engine.record_job_failure(j["host_id"], is_host_fault=True)
+            total = updated.jobs_completed + updated.jobs_failed_host
+            job_sr = updated.jobs_completed / total if total > 0 else 0.5
+            re_engine.update_reliability(
+                j["host_id"],
+                uptime_pct=max(updated.uptime_pct, 0.5),
+                job_success_rate=job_sr,
+            )
+        except Exception as exc:
+            log.debug("Reputation penalty skip: %s", exc)
+
+    if alert_failed:
+        alert_job_failed(*alert_failed)
+    elif alert_completed:
+        alert_job_completed(*alert_completed)
+
+    try:
+        from routes.instances import emit_lifecycle_log
+
+        emit_lifecycle_log(job_id, old_status, status, j)
+    except Exception:
+        pass
+
+    return j
+
+
+def list_jobs(status=None):
+    """List jobs. Filter by status or get everything."""
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        return _load_jobs_from_conn(conn, status=status)
+
+
+def get_job(job_id: str):
+    """Get a single job by ID. Returns full JSONB payload dict or None."""
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        return _get_job_by_id_conn(conn, job_id)
+
+
+def process_queue():
+    """
+    The loop. Walk the queue by priority. Find a host. Assign it.
+    If no host fits a job, skip it — try the next one.
+    If no hosts left, stop.
+
+    Spot and on-demand jobs share the same queue; spot capacity gating
+    is applied in allocate() (Phase 3).
+    """
+    assigned = []
+
+    queued = list_jobs(status="queued")
+    # Phase 4 partition: jobs owned by the transactional scheduler are
+    # placed by _control_plane_tick; the legacy walkers must skip them.
+    queued = [j for j in queued if not _control_plane_owns_job(j)]
+    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
+
+    jobs_snapshot = list_jobs()
+    for job in queued:
+        hosts = list_hosts()
+        if not hosts:
+            break
+
+        host, preempted = allocate_with_preemption(job, hosts, jobs=jobs_snapshot)
+        if preempted:
+            jobs_snapshot = list_jobs()
+        if not host:
+            log.info(
+                "QUEUE: no host for job=%s gpu=%s vram=%sGB",
+                job.get("job_id"),
+                job.get("gpu_model", "any"),
+                job.get("vram_needed_gb", 0),
+            )
+            jid = job.get("job_id")
+            if jid:
+                now = time.time()
+                if now - _queue_diag_logged.get(jid, 0) >= 120:
+                    reason, detail = _diagnose_queue_block(job, hosts)
+                    _persist_queue_reason(job, reason, detail)
+                    try:
+                        from routes.instances import push_job_log
+
+                        push_job_log(jid, f"Still queued — {detail}", "info")
+                    except Exception:
+                        pass
+                    _queue_diag_logged[jid] = now
+            continue  # no host for THIS job, but maybe smaller jobs fit
+
+        try:
+            from host_metadata import enrich_host_for_api
+
+            host = enrich_host_for_api(host)
+        except Exception:
+            pass
+        assign_kwargs: dict = {
+            "host_gpu_model": host.get("gpu_model", ""),
+            "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
+        }
+        if job.get("pricing_mode") == "spot" or job.get("spot"):
+            from spot_pricing import lock_spot_rate_for_job
+
+            lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
+            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+            assign_kwargs["pricing_mode"] = "spot"
+            log.info(
+                "spot.allocated job_id=%s host_id=%s gpu_model=%s spot_rate_cad=%s",
+                job.get("job_id"),
+                host["host_id"],
+                host.get("gpu_model"),
+                job.get("spot_rate_cad"),
+            )
+
+        updated = update_job_status(
+            job["job_id"],
+            "assigned",
+            host_id=host["host_id"],
+            **assign_kwargs,
+        )
+        if not updated or updated.get("status") != "assigned":
+            continue
+        assigned.append((updated, host))
+
+    return assigned
+
+
+def host_uses_worker_agent(host: dict) -> bool:
+    """An enrolled pull worker owns container startup, even for legacy jobs.
+
+    Protocol-v2 enrollment does not imply that every job has a fenced attempt:
+    shadow/canary schedulers still assign legacy work for the agent to poll.
+    Never switch such a host to SSH startup because its heartbeat is old.
+    """
+    return bool(str(host.get("agent_version") or "").strip())
+
+
+def process_assigned():
+    """Pick up 'assigned' jobs and start their containers.
+
+    Queue processing moves jobs from queued to assigned.
+    The optional legacy SSH runner starts only hosts without an enrolled
+    agent. Workers poll assignments and own their container startup.
+    """
+    assigned_jobs = list_jobs(status="assigned")
+    if not assigned_jobs:
+        return []
+
+    # Jobs bound by the transactional scheduler start via the durable
+    # agent start command (claim → lease → container); the legacy SSH
+    # path starting them too would double-start the workload.
+    attempt_owned = _attempt_owned_job_ids()
+    if attempt_owned is None:
+        # Fail-closed: never SSH-start when we cannot prove a job is
+        # not attempt-owned (agent-v2 fence).
+        log.error(
+            "RUNNER: attempt-owned lookup failed — skipping all assigned "
+            "starts (fail-closed; durable command path remains authority)"
+        )
+        return []
+
+    hosts = list_hosts(active_only=False)
+    host_map = {h["host_id"]: h for h in hosts}
+    started = []
+
+    for job in assigned_jobs:
+        if job.get("job_id") in attempt_owned:
+            continue
+        host_id = job.get("host_id")
+        if not host_id:
+            log.warning("RUNNER: assigned job %s has no host_id, requeueing", job.get("job_id"))
+            update_job_status(job["job_id"], "queued")
+            continue
+
+        host = host_map.get(host_id)
+        if not host:
+            log.warning(
+                "RUNNER: host %s not found for job %s, requeueing", host_id, job.get("job_id")
+            )
+            update_job_status(job["job_id"], "queued")
+            continue
+
+        if host_uses_worker_agent(host):
+            continue
+
+        try:
+            docker_image = job.get("image") or None
+            container_id = run_job(job, host, docker_image=docker_image)
+            if container_id:
+                log.info(
+                    "RUNNER: job %s started on host %s (container=%s)",
+                    job["job_id"],
+                    host_id,
+                    container_id,
+                )
+                started.append((job, host))
+            else:
+                log.warning(
+                    "RUNNER: container start failed for job %s on host %s", job["job_id"], host_id
+                )
+                # run_job already sets status to "failed"
+        except Exception as e:
+            log.error("RUNNER: exception starting job %s on host %s: %s", job["job_id"], host_id, e)
+            update_job_status(job["job_id"], "failed")
+
+    return started
+
+
+def scheduler_tick():
+    """Single scheduler iteration: assign queued jobs to hosts.
+
+    Container lifecycle is managed by the worker agent on each host.
+    The scheduler only handles queue processing (job→host assignment).
+    Uses _scheduler_lock to prevent concurrent process_queue calls from
+    the failover monitor thread.
+    """
+    with _scheduler_lock:
+        try:
+            _control_plane_tick()
+        except Exception as e:
+            log.error("Control-plane scheduler tick error: %s", e)
+        try:
+            process_queue()
+        except Exception as e:
+            log.error("Scheduler queue error: %s", e)
+
+
+_cp_service = None
+_cp_config = None
+
+
+def _control_plane_config():
+    """Cached SchedulerConfig (env is static per process); None off postgres."""
+    global _cp_config
+    if _cp_config is None:
+        if _active_backend() != "postgres":
+            return None
+        from control_plane.scheduler.config import SchedulerConfig
+
+        _cp_config = SchedulerConfig.from_env()
+    return _cp_config
+
+
+def _control_plane_owns_job(job: dict) -> bool:
+    """True when the transactional scheduler owns queued→assigned for job.
+
+    The legacy queue walker must skip exactly these jobs (the claim SQL
+    selects exactly them), keeping the Phase 4 partition exclusive.
+    """
+    from control_plane.scheduler.config import SchedulerMode
+
+    cfg = _control_plane_config()
+    if cfg is None or cfg.mode not in (SchedulerMode.CANARY, SchedulerMode.ACTIVE):
+        return False
+    return cfg.owns_job(job)
+
+
+def legacy_inline_placement_allowed(job: dict) -> bool:
+    """May API/serverless paths assign + SSH-start this job inline?
+
+    When the transactional scheduler owns the job (canary partition
+    or active), only the claim→reserve path may create assigned state and
+    the durable start command. Host-pin / marketplace direct launch and
+    legacy queue walkers must refuse placement side effects for owned work.
+    """
+    return not _control_plane_owns_job(job)
+
+
+def _control_plane_tick():
+    """Track A Phase 4: one transactional-scheduler tick (canary/active).
+
+    No-op unless XCELSIOR_SCHEDULER_MODE is canary or active on the
+    postgres backend. Failures are contained — the legacy loop must keep
+    running whatever happens here.
+    """
+    global _cp_service
+    from control_plane.scheduler.config import SchedulerMode
+
+    cfg = _control_plane_config()
+    if cfg is None or cfg.mode not in (SchedulerMode.CANARY, SchedulerMode.ACTIVE):
+        return None
+    if _cp_service is None:
+        from control_plane.scheduler.service import SchedulerService
+
+        _cp_service = SchedulerService(cfg)
+    return _cp_service.tick()
+
+
+def _attempt_owned_job_ids():
+    """Assigned jobs bound by the transactional scheduler (have an active
+    attempt). Their containers start via the durable agent start command,
+    never via the legacy SSH path — process_assigned must skip them.
+
+    Returns:
+      set[str]: job_ids that are attempt-owned.
+      None: lookup failed — callers MUST fail-closed (do not start anything
+        via SSH) rather than race the fenced /agent/v2 path.
+    """
+    if _active_backend() != "postgres":
+        return set()
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            rows = conn.execute(
+                "SELECT job_id FROM jobs "
+                "WHERE status = 'assigned' AND active_attempt_id IS NOT NULL"
+            ).fetchall()
+        return {str(r["job_id"] if isinstance(r, dict) else r[0]) for r in rows}
+    except Exception as e:
+        log.error("attempt-owned job lookup failed (fail-closed): %s", e)
+        return None
+
+
+def start_shadow_runner():
+    """Track A Phase 3: start the shadow placement runner if enabled.
+
+    Runs the new claim→filter→score pipeline read-only alongside this
+    legacy loop and persists would-be decisions for comparison. Requires
+    XCELSIOR_SCHEDULER_MODE=shadow, the postgres backend, and migration
+    058; anything missing logs once and leaves the legacy loop untouched.
+    """
+    try:
+        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
+
+        cfg = SchedulerConfig.from_env()
+        if cfg.mode is not SchedulerMode.SHADOW:
+            return None
+        if _active_backend() != "postgres":
+            log.warning("Shadow scheduler requires the postgres backend; not starting")
+            return None
+        from control_plane.scheduler.main import run_shadow_loop, shadow_schema_ready
+
+        if not shadow_schema_ready():
+            log.error(
+                "Shadow scheduler enabled but scheduler_shadow_decisions is "
+                "missing — run alembic upgrade to 058; not starting"
+            )
+            return None
+        thread = threading.Thread(
+            target=run_shadow_loop, args=(cfg,), name="shadow-scheduler", daemon=True
+        )
+        thread.start()
+        log.info(
+            "Shadow scheduler thread started (replica=%s, interval=%ds)",
+            cfg.replica_id,
+            cfg.shadow_interval_sec,
+        )
+        return thread
+    except Exception as e:
+        log.error("Shadow scheduler failed to start: %s", e)
+        return None
+
+
+def scheduler_main():
+    """Production scheduler entry point.
+
+    Starts background threads for health monitoring and failover,
+    then runs the scheduler tick loop with lease expiry checks.
+    Intended to be the single command for the scheduler-worker container.
+    """
+    log.info("SCHEDULER MAIN starting — tick=2s, health=30s, failover=60s")
+
+    # Start health monitor: pings all hosts every 30s, marks dead/alive
+    start_health_monitor(interval=30)
+    log.info("Health monitor thread started (30s interval)")
+
+    # Start failover monitor: requeues orphaned jobs every 60s
+    start_failover_monitor(interval=60)
+    log.info("Failover monitor thread started (60s interval)")
+
+    # Track A Phase 3: shadow placement comparison (no-op unless enabled)
+    start_shadow_runner()
+
+    # Track A Phase 7: outbox dispatcher — delivers the transactional
+    # writers' side-effect intents (SSE via pg_notify, agent wake).
+    if _active_backend() == "postgres":
+        try:
+            from control_plane.outbox_runtime import start_outbox_dispatcher
+
+            if start_outbox_dispatcher() is not None:
+                log.info("Outbox dispatcher thread started")
+        except Exception as e:
+            log.error("Outbox dispatcher failed to start: %s", e)
+
+    event_store = get_event_store()
+    tick_count = 0
+    from control_plane.operational_metrics import ServiceHeartbeat
+
+    scheduler_heartbeat = ServiceHeartbeat("scheduler")
+
+    while True:
+        try:
+            scheduler_heartbeat.emit_if_due()
+        except Exception as e:
+            log.error("Scheduler heartbeat failed: %s", e)
+        scheduler_tick()
+
+        # Expire stale leases every 5th tick (10s)
+        tick_count += 1
+        if tick_count % 5 == 0:
+            try:
+                expired = event_store.expire_stale_leases()
+                if expired:
+                    log.warning(
+                        "LEASE EXPIRY: %d jobs expired — requeueing: %s",
+                        len(expired),
+                        expired,
+                    )
+                    for job_id in expired:
+                        try:
+                            requeue_job(job_id)
+                        except Exception as e:
+                            log.error("Failed to requeue expired lease job %s: %s", job_id, e)
+            except Exception as e:
+                log.error("Lease expiry check failed: %s", e)
+
+        # Reconcile VRAM every 30th tick (60s) to catch drift
+        if tick_count % 30 == 0:
+            try:
+                reconcile_host_vram()
+            except Exception as e:
+                log.error("VRAM reconciliation failed: %s", e)
+
+        time.sleep(2)
+
+
+# ── Phase 5 & 6: Run Job / Kill Job ──────────────────────────────────
+
+
+def ssh_exec(ip, cmd, timeout=30):
+    """
+    Run a command on a remote host via SSH.
+    Key-based auth only. No passwords. No agent forwarding.
+    Returns (returncode, stdout, stderr).
+    """
+    full_cmd = [
+        "ssh",
+        "-i",
+        SSH_KEY_PATH,
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "KbdInteractiveAuthentication=no",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "ServerAliveInterval=10",
+        "-o",
+        "ServerAliveCountMax=3",
+        f"{SSH_USER}@{ip}",
+        cmd,
+    ]
+    try:
+        result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        log.warning("SSH command timed out after %ds to %s: %s", timeout, ip, cmd[:120])
+        return 255, "", f"ssh timeout after {timeout}s"
+
+
+def generate_ssh_keypair(path=None):
+    """Generate an Ed25519 SSH keypair. No passphrase. Fast. Secure."""
+    path = path or SSH_KEY_PATH
+    # Resolve to absolute and ensure it's under home directory
+    path = os.path.realpath(os.path.expanduser(path))
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not path.startswith(home + os.sep):
+        log.error("SSH KEYGEN REJECTED: path %s is outside home directory", path)
+        raise ValueError(f"SSH key path must be under home directory: {path}")
+    if os.path.isdir(path):
+        log.error("SSH KEYGEN REJECTED: path %s is a directory, expected file", path)
+        raise ValueError(f"SSH key path must be a file, not a directory: {path}")
+    if os.path.exists(path):
+        log.info("SSH key already exists: %s", path)
+        return path
+
+    dirpath = os.path.dirname(path)
+    if dirpath:
+        os.makedirs(dirpath, exist_ok=True)
+    result = subprocess.run(
+        ["ssh-keygen", "-t", "ed25519", "-f", path, "-N", "", "-C", "xcelsior"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode == 0:
+        os.chmod(path, 0o600)
+        log.info("SSH KEYPAIR GENERATED: %s", path)
+    else:
+        log.error("SSH KEYGEN FAILED: %s", result.stderr.strip())
+    return path
+
+
+def get_public_key(path=None):
+    """Read the public key. For distributing to hosts."""
+    path = (path or SSH_KEY_PATH) + ".pub"
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return f.read().strip()
+
+
+def run_job(job, host, docker_image=None):
+    """
+    SSH into the host. docker run the model. Log the container ID.
+    Returns the container ID or None on failure.
+
+    If the job has checkpoint metadata (resume_from), attempts to resume
+    from the checkpoint first. Falls through to fresh docker run on failure.
+
+    Constructs a hardened docker run command with:
+    - NFS volume mounts (if specified in job)
+    - Interactive mode with SSH port mapping
+    - Security flags (no-new-privileges, pids-limit)
+    - Memory limits based on host capacity
+    - Per-GPU selection when available
+    """
+    # Defense for callers outside the normal placement paths. Starting via
+    # SSH while the agent polls the same assignment creates two containers
+    # with one name; the losing runner then marks the working job failed.
+    if host_uses_worker_agent(host):
+        log.info("SSH start deferred to worker job=%s host=%s", job["job_id"], host["host_id"])
+        return None
+
+    # ── Checkpoint Resume Path ────────────────────────────────────────
+    checkpoint_meta = job.get("resume_from")
+    if checkpoint_meta and checkpoint_meta.get("success"):
+        log.info(
+            "RUN_JOB attempting checkpoint resume for job=%s on host=%s",
+            job["job_id"],
+            host["host_id"],
+        )
+        resumed = resume_from_checkpoint(job["job_id"], host["host_id"], checkpoint_meta)
+        if resumed:
+            # Clear resume_from metadata now that we've successfully resumed
+            _set_job_fields(job["job_id"], resume_from=None)
+            return checkpoint_meta.get("container", f"xcelsior-job-{job['job_id']}")
+        log.warning(
+            "RUN_JOB checkpoint resume failed for job=%s — falling through to fresh start",
+            job["job_id"],
+        )
+        # Clear stale checkpoint metadata so we don't retry forever
+        _set_job_fields(job["job_id"], resume_from=None)
+
+    # ── Fresh Start Path ──────────────────────────────────────────────
+    image = docker_image or job.get("image") or f"xcelsior/{job['name']}:latest"
+    container_name = f"xcl-{job['job_id']}"
+
+    # Validate names to prevent shell injection
+    _validate_name(image, "docker image")
+    _validate_name(container_name, "container name")
+
+    # Validate image against allowlist
+    from security import validate_docker_image
+
+    image = validate_docker_image(image)
+
+    # Build docker run command parts
+    parts = ["docker run -d"]
+
+    # GPU passthrough
+    num_gpus = job.get("num_gpus", 1)
+    if num_gpus > 0:
+        parts.append(f"--gpus all")
+
+    # Container name
+    parts.append(f"--name {shlex.quote(container_name)}")
+    for label in (
+        "xcelsior.managed=true",
+        f"xcelsior.job_id={job['job_id']}",
+        f"xcelsior.container_name={container_name}",
+    ):
+        parts.append(f"--label {shlex.quote(label)}")
+
+    # Security hardening (parity with build_secure_docker_args in security.py)
+    parts.append("--security-opt=no-new-privileges")
+    parts.append("--pids-limit=4096")
+    parts.append("--no-healthcheck")
+
+    # Non-root execution — skip for interactive containers because GPU images
+    # (e.g. nvcr.io/nvidia/pytorch) require root for CUDA/cuDNN libraries.
+    is_interactive = job.get("interactive", False)
+    if not is_interactive:
+        parts.append("--cap-drop=ALL")
+        parts.append("--user=1000:1000")
+
+    # Read-only root filesystem for batch jobs; tmpfs for temp dirs
+    is_interactive = job.get("interactive", False)
+    if not is_interactive:
+        parts.append("--read-only")
+    parts.append("--tmpfs=/tmp:rw,noexec,nosuid,size=1g")
+    parts.append("--tmpfs=/var/tmp:rw,noexec,nosuid,size=512m")
+
+    # Memory limit: use host's total VRAM as a rough proxy for container memory
+    # (containers typically need system RAM proportional to VRAM)
+    host_vram = host.get("total_vram_gb", 0)
+    if host_vram > 0:
+        mem_limit = max(8, int(host_vram * 2))  # 2x VRAM as system RAM, min 8GB
+        parts.append(f"--memory={mem_limit}g")
+        parts.append(f"--memory-swap={mem_limit}g")
+    else:
+        parts.append("--memory=32g")
+        parts.append("--memory-swap=32g")
+
+    # CPU, ulimit, and shared memory limits (cap to host logical CPUs)
+    from security import container_cpu_limit
+
+    host_cpus = int(host.get("cpu_count") or 0)
+    parts.append(f"--cpus={container_cpu_limit(host_cpus if host_cpus > 0 else None)}")
+    parts.append("--ulimit=nofile=65535:65535")
+    parts.append("--ulimit=nproc=4096:4096")
+    parts.append("--shm-size=1g")
+
+    # Sandboxed runtime (gVisor) — use if available on the host
+    host_runtime = host.get("runtime", "")
+    if host_runtime and host_runtime != "runc":
+        parts.append(f"--runtime={shlex.quote(host_runtime)}")
+
+    # NFS volume mount — mount on host via SSH, then bind-mount into container
+    nfs_server = job.get("nfs_server", "")
+    nfs_path = job.get("nfs_path", "")
+    nfs_mount = job.get("nfs_mount_point", "/mnt/xcelsior-nfs")
+    from volumes import NFS_MOUNT_OPTS, nfs_mount_fstype
+
+    nfs_opts = NFS_MOUNT_OPTS
+    nfs_fstype = nfs_mount_fstype()
+    if nfs_server and nfs_path:
+        nfs_mount = nfs_mount or "/mnt/xcelsior-nfs"
+        mount_cmd = (
+            f"mkdir -p {shlex.quote(nfs_mount)} && "
+            f"mountpoint -q {shlex.quote(nfs_mount)} || "
+            f"mount -t {nfs_fstype} -o {nfs_opts} "
+            f"{shlex.quote(nfs_server)}:{shlex.quote(nfs_path)} "
+            f"{shlex.quote(nfs_mount)}"
+        )
+        mrc, _, merr = ssh_exec(host["ip"], mount_cmd, timeout=30)
+        if mrc == 0:
+            parts.append(f"-v {shlex.quote(nfs_mount)}:/data/nfs:rw")
+            log.info("NFS mounted on host: %s:%s → %s", nfs_server, nfs_path, nfs_mount)
+        else:
+            log.warning(
+                "NFS mount failed on host %s: %s — continuing without", host["host_id"], merr
+            )
+
+    # Managed volumes — mount NFS for each volume_id, bind-mount into container
+    from volumes import NFS_EXPORT_BASE, NFS_SERVER as VOL_NFS_SERVER
+
+    vol_nfs_server = VOL_NFS_SERVER or nfs_server
+    vol_export_base = NFS_EXPORT_BASE
+    managed_vol_host_mounts = []
+    # Look up per-volume mount paths from volume_attachments
+    vol_mount_paths: dict[str, str] = {}
+    try:
+        from volumes import get_volume_engine
+
+        ve = get_volume_engine()
+        for att in ve.get_instance_volumes(job["job_id"]):
+            vol_mount_paths[att["volume_id"]] = att.get("mount_path", "/workspace")
+    except Exception:
+        pass
+    _vol_idx = 0
+    for vid in job.get("volume_ids", []):
+        # Determine container mount path — from attachment or auto-assign
+        container_path = vol_mount_paths.get(vid)
+        if not container_path:
+            container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
+        vol_host_mount = f"/mnt/xcelsior-volumes/{vid}"
+        vol_nfs_path = f"{vol_export_base}/{vid}"
+        if vol_nfs_server:
+            vol_mount_cmd = (
+                f"mkdir -p {shlex.quote(vol_host_mount)} && "
+                f"mountpoint -q {shlex.quote(vol_host_mount)} || "
+                f"mount -t {nfs_fstype} -o {nfs_opts} "
+                f"{shlex.quote(vol_nfs_server)}:{shlex.quote(vol_nfs_path)} "
+                f"{shlex.quote(vol_host_mount)}"
+            )
+            vrc, _, verr = ssh_exec(host["ip"], vol_mount_cmd, timeout=30)
+            if vrc == 0:
+                parts.append(f"-v {shlex.quote(vol_host_mount)}:{shlex.quote(container_path)}:rw")
+                managed_vol_host_mounts.append(vol_host_mount)
+                log.info(
+                    "Managed volume %s mounted on host %s: %s → %s",
+                    vid,
+                    host["host_id"],
+                    vol_host_mount,
+                    container_path,
+                )
+            else:
+                log.warning(
+                    "Managed volume %s mount failed on host %s: %s", vid, host["host_id"], verr
+                )
+        else:
+            log.warning("Managed volume %s: NFS server not configured — skipping", vid)
+        _vol_idx += 1
+
+    required_vols = list(job.get("volume_ids") or [])
+    if required_vols and len(managed_vol_host_mounts) < len(required_vols):
+        log.error(
+            "MANAGED VOLUME MOUNT FAILED job=%s host=%s mounted=%d required=%d",
+            job["job_id"],
+            host["host_id"],
+            len(managed_vol_host_mounts),
+            len(required_vols),
+        )
+        update_job_status(
+            job["job_id"],
+            "failed",
+            error_message="required volume mount failed on host",
+        )
+        return None
+
+    # Interactive mode: keep stdin open, map SSH port
+    if job.get("interactive"):
+        ssh_port = int(job.get("ssh_port", 22))
+        # Avoid port 22 — it's used by the host SSH daemon
+        if ssh_port == 22:
+            # Deterministic high port from job_id to avoid collisions
+            ssh_port = 2222 + (int(job["job_id"][:4], 16) % 10000)
+        parts.append(f"-p {ssh_port}:22")
+        # Don't auto-remove interactive containers
+    else:
+        parts.append("--restart=no")
+
+    # Environment variables: pass job ID and API token so the container
+    # can report status back if needed
+    parts.append(f"-e XCELSIOR_JOB_ID={shlex.quote(job['job_id'])}")
+    job_type = str(job.get("job_type") or "").strip()
+    if job_type:
+        parts.append(f"-e XCELSIOR_JOB_TYPE={shlex.quote(job_type)}")
+
+    # Image
+    parts.append(shlex.quote(image))
+
+    # Append the job command if specified (quote each token to prevent injection)
+    job_command = job.get("command", "").strip()
+    if job_command:
+        tokens = shlex.split(job_command)
+        parts.append(" ".join(shlex.quote(t) for t in tokens))
+    elif is_interactive:
+        # Interactive containers need a long-running process to stay alive
+        # (default image entrypoints like bash exit immediately in detached mode)
+        parts.append("sleep infinity")
+
+    cmd = " ".join(parts)
+
+    # Pre-pull the image (may take minutes for large images like pytorch)
+    log.info("PULLING IMAGE job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
+    pull_rc, _, pull_err = ssh_exec(host["ip"], f"docker pull {shlex.quote(image)}", timeout=600)
+    if pull_rc != 0:
+        log.error(
+            "IMAGE PULL FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], pull_err
+        )
+        update_job_status(job["job_id"], "failed")
+        return None
+    log.info("IMAGE READY job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
+
+    rc, stdout, stderr = ssh_exec(host["ip"], cmd)
+    if rc != 0:
+        log.error("RUN FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], stderr)
+        update_job_status(job["job_id"], "failed")
+        return None
+
+    container_id = stdout[:12]
+    log.info(
+        "CONTAINER STARTED job=%s host=%s container=%s image=%s",
+        job["job_id"],
+        host["host_id"],
+        container_id,
+        image,
+    )
+
+    # Apply egress filtering (mining port blocks + default-deny for batch jobs)
+    try:
+        from security import build_egress_iptables_rules
+
+        is_interactive = job.get("interactive", False)
+        egress_rules = build_egress_iptables_rules(
+            container_name,
+            strict=not is_interactive,
+        )
+        for rule in egress_rules:
+            ssh_exec(host["ip"], rule)
+    except Exception as e:
+        log.warning("EGRESS RULES FAILED job=%s: %s", job["job_id"], e)
+
+    # Store container info on the job atomically.
+    _set_job_fields(job["job_id"], container_id=container_id, container_name=container_name)
+
+    update_job_status(job["job_id"], "running", host_id=host["host_id"])
+    return container_id
+
+
+def check_job_running(job, host):
+    """Check if a job's container is still running. Returns True/False."""
+    container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
+    cmd = f"docker inspect -f '{{{{.State.Running}}}}' {shlex.quote(container_name)}"
+    rc, stdout, _ = ssh_exec(host["ip"], cmd)
+    return rc == 0 and stdout == "true"
+
+
+def kill_job(job, host):
+    """
+    Kill the container. Clean up. Mark job COMPLETE.
+    No lingering processes. No orphaned containers.
+    """
+    container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
+
+    # Kill it
+    ssh_exec(host["ip"], f"docker kill {shlex.quote(container_name)}")
+    # Remove it
+    ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
+    # NOTE: Caller is responsible for setting the final status (cancelled, completed, etc.)
+    log.info(
+        "JOB KILLED job=%s host=%s container=%s", job["job_id"], host["host_id"], container_name
+    )
+
+
+def stop_container_graceful(job, host):
+    """Gracefully stop a container with SIGTERM, then SIGKILL after 10s.
+
+    Unlike kill_job, the container is NOT removed — it is left in an exited
+    state so that docker start can restore it with volumes intact.
+    Returns True on success, False if the container was already gone.
+    """
+    container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
+    rc, _, _ = ssh_exec(host["ip"], f"docker stop -t 10 {shlex.quote(container_name)}")
+    ok = rc == 0
+    log.info(
+        "STOP_GRACEFUL job=%s host=%s container=%s ok=%s",
+        job["job_id"],
+        host["host_id"],
+        container_name,
+        ok,
+    )
+    return ok
+
+
+def start_stopped_container(job, host):
+    """Start a previously stopped (but not removed) container.
+
+    Used for the Start and Restart flows. The container must still exist
+    on the host in an exited state. Returns True on success.
+    """
+    container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
+    rc, _, _ = ssh_exec(host["ip"], f"docker start {shlex.quote(container_name)}")
+    ok = rc == 0
+    log.info(
+        "START_STOPPED job=%s host=%s container=%s ok=%s",
+        job["job_id"],
+        host["host_id"],
+        container_name,
+        ok,
+    )
+    return ok
+
+
+def terminate_job(job, host):
+    """Hard-kill and fully remove a container (user-initiated terminate).
+
+    This is a destructive operation: the container and its anonymous volumes
+    are removed. Named volumes are preserved.
+    """
+    container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
+    # Best-effort kill first, then force-remove
+    ssh_exec(host["ip"], f"docker kill {shlex.quote(container_name)}")
+    ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
+    log.info(
+        "TERMINATE job=%s host=%s container=%s", job["job_id"], host["host_id"], container_name
+    )
+
+
+def wait_for_job(job, host, poll_interval=5, max_wait=172800):
+    """
+    Watch a job until it finishes on its own.
+    When the container exits, mark it complete and clean up.
+    Returns final status: "completed", "failed", or "timeout".
+    max_wait defaults to 48 hours.
+    """
+    container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
+
+    start = time.time()
+    while True:
+        if time.time() - start > max_wait:
+            log.warning("JOB TIMEOUT job=%s exceeded max_wait=%ds", job["job_id"], max_wait)
+            update_job_status(job["job_id"], "failed")
+            return "timeout"
+        # Check if container still exists
+        cmd = f"docker inspect -f '{{{{.State.Status}}}}' {shlex.quote(container_name)}"
+        rc, stdout, _ = ssh_exec(host["ip"], cmd)
+
+        if rc != 0:
+            # Container gone entirely
+            update_job_status(job["job_id"], "failed")
+            return "failed"
+
+        if stdout == "exited":
+            # Check exit code
+            cmd_exit = f"docker inspect -f '{{{{.State.ExitCode}}}}' {shlex.quote(container_name)}"
+            _, exit_code, _ = ssh_exec(host["ip"], cmd_exit)
+            # Clean up
+            ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
+
+            if exit_code == "0":
+                update_job_status(job["job_id"], "completed")
+                return "completed"
+            else:
+                update_job_status(job["job_id"], "failed")
+                return "failed"
+
+        time.sleep(poll_interval)
+
+
+def run_job_local(job, docker_image=None):
+    """
+    Run a job locally (no SSH). For testing or single-machine setups.
+    Returns (container_id, container_name) or (None, None) on failure.
+    """
+    image = docker_image or f"xcelsior/{job['name']}:latest"
+    container_name = f"xcl-{job['job_id']}"
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "--label",
+                "xcelsior.managed=true",
+                "--label",
+                f"xcelsior.job_id={job['job_id']}",
+                "--label",
+                f"xcelsior.container_name={container_name}",
+                image,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception:
+        update_job_status(job["job_id"], "failed")
+        return None, None
+
+    if result.returncode != 0:
+        update_job_status(job["job_id"], "failed")
+        return None, None
+
+    container_id = result.stdout.strip()[:12]
+
+    _set_job_fields(job["job_id"], container_id=container_id, container_name=container_name)
+
+    return container_id, container_name
+
+
+def kill_job_local(container_name):
+    """Kill and remove a local container."""
+    subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=10)
+
+
+# ── Phase 8: Billing ─────────────────────────────────────────────────
+
+BILLING_FILE = os.environ.get(
+    "XCELSIOR_BILLING_FILE", os.path.join(os.path.dirname(__file__), "billing.json")
+)
+DEFAULT_RATE = 0.20  # $/hr
+
+
+def load_billing():
+    """Load billing records."""
+    return _load_json(BILLING_FILE)
+
+
+def save_billing(records):
+    """Write billing records."""
+    _save_json(BILLING_FILE, records)
+
+
+def bill_job(job_id):
+    """
+    Bill a completed job. Multiply time by rate. Charge.
+    start_time, end_time, duration, cost. That's it.
+
+    Duplicate check + write are serialized through SQLite-backed state
+    persistence to prevent double billing across concurrent callers.
+    """
+    jobs = load_jobs()
+    job = None
+    for j in jobs:
+        if j["job_id"] == job_id:
+            job = j
+            break
+
+    if not job:
+        log.error("BILLING FAILED job=%s not found", job_id)
+        return None
+
+    if not job.get("started_at") or not job.get("completed_at"):
+        log.error("BILLING FAILED job=%s missing timestamps", job_id)
+        return None
+
+    # Get the host's rate
+    rate = DEFAULT_RATE
+    if job.get("host_id"):
+        hosts = load_hosts(active_only=False)
+        for h in hosts:
+            if h["host_id"] == job["host_id"]:
+                rate = h.get("cost_per_hour", DEFAULT_RATE)
+                break
+
+    # Tier multiplier — premium and urgent pay more
+    tier = job.get("tier", "free")
+    tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
+    multiplier = tier_info["multiplier"]
+
+    duration_sec = job["completed_at"] - job["started_at"]
+    duration_hr = duration_sec / 3600
+    base_cost = duration_hr * rate
+    cost = round(base_cost * multiplier, 4)
+
+    record = {
+        "job_id": job_id,
+        "job_name": job["name"],
+        "host_id": job.get("host_id"),
+        "tier": tier,
+        "tier_multiplier": multiplier,
+        "started_at": job["started_at"],
+        "completed_at": job["completed_at"],
+        "duration_sec": round(duration_sec, 2),
+        "rate_per_hour": rate,
+        "cost": cost,
+        "billed_at": time.time(),
+    }
+
+    records = load_billing()
+    # Atomic check-and-insert to prevent double-billing
+    backend = _active_backend()
+    billed_ns = f"billed:{job_id}"
+    with _atomic_mutation() as conn:
+        if backend == "sqlite":
+            cur = conn.execute(
+                "INSERT INTO state (namespace, payload) VALUES (?, ?) "
+                "ON CONFLICT (namespace) DO NOTHING",
+                (billed_ns, "1"),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO state (namespace, payload) VALUES (%s, %s) "
+                "ON CONFLICT (namespace) DO NOTHING",
+                (billed_ns, "1"),
+            )
+        if cur.rowcount == 0:
+            log.warning("BILLING SKIPPED job=%s already billed", job_id)
+            return None
+    if any(r["job_id"] == job_id for r in records):
+        log.warning("BILLING SKIPPED job=%s already billed", job_id)
+        return None
+    records.append(record)
+    save_billing(records)
+
+    log.info(
+        "BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr x%.1f (%s)",
+        job_id,
+        job["name"],
+        duration_sec,
+        cost,
+        rate,
+        multiplier,
+        tier,
+    )
+    return record
+
+
+def bill_all_completed():
+    """Bill every completed job that hasn't been billed yet."""
+    jobs = load_jobs()
+    records = load_billing()
+    billed_ids = {r["job_id"] for r in records}
+    new_bills = []
+
+    for j in jobs:
+        if j["status"] == "completed" and j["job_id"] not in billed_ids:
+            bill = bill_job(j["job_id"])
+            if bill:
+                new_bills.append(bill)
+
+    return new_bills
+
+
+def get_total_revenue():
+    """How much money did we make?"""
+    records = load_billing()
+    return round(sum(r["cost"] for r in records), 4)
+
+
+# ── Phase 12: Alerts ─────────────────────────────────────────────────
+
+ALERT_CONFIG = {
+    "email_enabled": bool(
+        os.environ.get("XCELSIOR_SMTP_HOST") and os.environ.get("XCELSIOR_SMTP_USER")
+    ),
+    "smtp_host": os.environ.get("XCELSIOR_SMTP_HOST", ""),
+    "smtp_port": int(os.environ.get("XCELSIOR_SMTP_PORT", "587")),
+    "smtp_user": os.environ.get("XCELSIOR_SMTP_USER", ""),
+    "smtp_pass": os.environ.get("XCELSIOR_SMTP_PASS", ""),
+    "email_from": os.environ.get("XCELSIOR_EMAIL_FROM", ""),
+    "email_to": os.environ.get("XCELSIOR_EMAIL_TO", ""),
+    "reply_to": os.environ.get("XCELSIOR_EMAIL_REPLY_TO", ""),
+    "telegram_enabled": bool(
+        os.environ.get("XCELSIOR_TG_TOKEN") and os.environ.get("XCELSIOR_TG_CHAT_ID")
+    ),
+    "telegram_bot_token": os.environ.get("XCELSIOR_TG_TOKEN", ""),
+    "telegram_chat_id": os.environ.get("XCELSIOR_TG_CHAT_ID", ""),
+}
+
+
+def configure_alerts(**kwargs):
+    """Update alert config at runtime."""
+    ALERT_CONFIG.update(kwargs)
+
+
+def send_email(subject, body, to_email=None):
+    """Send an email alert. SMTP. No dependencies.
+
+    If to_email is provided, sends to that address instead of the admin email.
+    """
+    cfg = ALERT_CONFIG
+    if not cfg["email_enabled"]:
+        return False
+
+    try:
+        recipient = to_email or cfg["email_to"]
+        msg = MIMEText(body)
+        msg["Subject"] = f"[Xcelsior] {subject}"
+        msg["From"] = cfg["email_from"]
+        msg["To"] = recipient
+        if cfg.get("reply_to"):
+            msg["Reply-To"] = cfg["reply_to"]
+
+        with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
+            server.starttls()
+            server.login(cfg["smtp_user"], cfg["smtp_pass"])
+            server.send_message(msg)
+
+        log.info("EMAIL SENT: %s -> %s", subject, recipient)
+        return True
+    except Exception as e:
+        log.error("EMAIL FAILED: %s | %s", subject, e)
+        return False
+
+
+def send_telegram(message):
+    """Send a Telegram alert. HTTP POST. No dependencies."""
+    cfg = ALERT_CONFIG
+    if not cfg["telegram_enabled"]:
+        return False
+
+    try:
+        url = f"https://api.telegram.org/bot{cfg['telegram_bot_token']}/sendMessage"
+        payload = json.dumps(
+            {
+                "chat_id": cfg["telegram_chat_id"],
+                "text": f"[Xcelsior] {message}",
+                "parse_mode": "HTML",
+            }
+        ).encode()
+
+        req = urllib.request.Request(
+            url, data=payload, headers={"Content-Type": "application/json"}
+        )
+        urllib.request.urlopen(req, timeout=10)
+
+        log.info("TELEGRAM SENT: %s", message)
+        return True
+    except Exception as e:
+        log.error("TELEGRAM FAILED: %s | %s", message, e)
+        return False
+
+
+def alert(subject, body=None):
+    """
+    Send an alert through all enabled channels.
+    Fire and forget. Non-blocking.
+    """
+    body = body or subject
+    sent = []
+
+    if ALERT_CONFIG["email_enabled"]:
+        threading.Thread(target=send_email, args=(subject, body), daemon=True).start()
+        sent.append("email")
+
+    if ALERT_CONFIG["telegram_enabled"]:
+        threading.Thread(
+            target=send_telegram, args=(f"<b>{subject}</b>\n{body}",), daemon=True
+        ).start()
+        sent.append("telegram")
+
+    if not sent:
+        log.debug("ALERT (no channels): %s", subject)
+    return sent
+
+
+def alert_host_dead(host_id, ip):
+    """Host died. Sound the alarm."""
+    alert(
+        f"HOST DOWN: {host_id}",
+        f"Host {host_id} ({ip}) is not responding to ping.",
+    )
+
+
+def alert_job_failed(job_id, job_name, host_id=None):
+    """Job failed. Notify."""
+    alert(
+        f"JOB FAILED: {job_name}",
+        f"Job {job_id} ({job_name}) failed on host {host_id or 'unknown'}.",
+    )
+
+
+def alert_job_completed(job_id, job_name, duration_sec=None):
+    """Job completed. Good news for once."""
+    dur = f" in {duration_sec:.1f}s" if duration_sec else ""
+    alert(
+        f"JOB COMPLETE: {job_name}",
+        f"Job {job_id} ({job_name}) completed{dur}.",
+    )
+
+
+# ── Phase 14: Failover ────────────────────────────────────────────────
+
+
+def _clear_job_output(job_id) -> None:
+    """Drop the previous attempt's logs, both persisted and buffered.
+
+    Best-effort on purpose: failing to clear logs must not fail the requeue the
+    user asked for. A stale log tail is a confusing next run; a refused requeue
+    is a broken one.
+    """
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            conn.execute("DELETE FROM job_logs WHERE job_id = %s", (job_id,))
+            conn.commit()
+    except Exception as exc:
+        log.warning("requeue: could not clear persisted logs for %s: %s", job_id, exc)
+    try:
+        from routes.instances import _job_log_buffers
+
+        _job_log_buffers.pop(job_id, None)
+    except Exception as exc:
+        log.debug("requeue: could not clear log buffer for %s: %s", job_id, exc)
+
+
+def requeue_job(job_id, *, user_initiated: bool = False, expected_version: int | None = None):
+    """
+    Reset a failed/running/leased/assigned job back to queued.
+    Increment retry counter (failover only). Clear host assignment. Release VRAM.
+    If max retries exceeded, mark permanently failed — unless user_initiated.
+    """
+    exhausted = None
+    requeued = None
+
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        _migrate_hosts_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j:
+            return None
+        from abuse_policy import account_suspended, job_blocked
+
+        if job_blocked(conn, job_id, backend=_active_backend()) or account_suspended(j):
+            return None
+        if expected_version is not None and int(j.get("version") or 0) != int(expected_version):
+            return None
+
+        # Phase 4 boundary: a job bound by the transactional scheduler
+        # (active attempt) is owned by the lease/fencing engine — its
+        # failover path is the lease-expiry sweep, which fails the
+        # attempt, releases device allocations exactly once, and requeues
+        # with a fresh fence. A legacy requeue here would clobber the
+        # jobs projection while attempt/lease/allocations stay live.
+        # (User relaunch for v2 jobs arrives with the Phase 5 attempt
+        # termination flow.)
+        if _active_backend() == "postgres":
+            _row = conn.execute(
+                "SELECT active_attempt_id FROM jobs WHERE job_id = %s",
+                (job_id,),
+            ).fetchone()
+            _owned = (
+                (_row.get("active_attempt_id") if isinstance(_row, dict) else _row[0])
+                if _row
+                else None
+            )
+            if _owned:
+                log.warning(
+                    "REQUEUE REJECTED job=%s — attempt-owned (attempt=%s); "
+                    "lease engine owns its failover",
+                    job_id,
+                    _owned,
+                )
+                return None
+
+        # Cancelled is terminal for automated failover. A user may explicitly
+        # relaunch it through the authenticated requeue endpoint.
+        if j["status"] == "cancelled" and not user_initiated:
+            log.warning(
+                "REQUEUE REJECTED job=%s status=cancelled — explicit relaunch required", job_id
+            )
+            return None
+
+        if j["status"] not in (
+            "running",
+            "starting",
+            "failed",
+            "leased",
+            "assigned",
+            "cancelled",
+        ):
+            log.warning("REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"])
+            return None
+
+        old_host_id = j.get("host_id")
+        old_status = j["status"]
+
+        # Release VRAM if the job had any reserved on its host
+        reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
+        if old_host_id and reserved > 0 and old_status in ("running", "starting"):
+            _release_host_vram(conn, old_host_id, reserved)
+            log.info(
+                "REQUEUE VRAM RELEASED job=%s host=%s vram=%.2fGB", job_id, old_host_id, reserved
+            )
+
+        # Manual UI relaunch resets the failover counter — user explicitly opted in.
+        if user_initiated:
+            retries = 0
+        else:
+            retries = int(j.get("retries", 0) or 0) + 1
+        max_retries = int(j.get("max_retries", 3) or 3)
+
+        if not user_initiated and retries > max_retries:
+            j["status"] = "failed"
+            j["completed_at"] = time.time()
+            j["vram_reserved_gb"] = 0
+            _upsert_job_row(conn, j)
+            exhausted = (retries, max_retries, j.get("name", "?"), old_host_id)
+        else:
+            j["status"] = "queued"
+            j["host_id"] = None
+            j["started_at"] = None
+            j["completed_at"] = None
+            j["submitted_at"] = time.time()
+            j["retries"] = retries
+            j["vram_reserved_gb"] = 0
+            j.pop("failure_reason", None)
+            j.pop("host_gpu_model", None)
+            j.pop("host_vram_gb", None)
+            j.pop("error_message", None)
+            # **A requeue destroys the container, so the host key it presented
+            # is gone.** Clearing on host *change* (in `update_job_status`) is
+            # not sufficient here: a requeue can be re-placed on the same host
+            # and still get a new container with new keys, and even when it
+            # moves there is a window — queued, `host_id` already None,
+            # `public_ssh_port` still in the payload — where the dead
+            # container's fingerprint would still be served.
+            #
+            # It belongs in this list: like `host_gpu_model` and `host_vram_gb`
+            # it is a fact about a container that no longer exists. Ungated, so
+            # it covers automatic retries as well as user relaunches.
+            j.pop("host_key_fingerprint", None)
+            if user_initiated:
+                j["relaunch_count"] = int(j.get("relaunch_count", 0) or 0) + 1
+            _upsert_job_row(conn, j)
+            requeued = (j, retries, max_retries, old_host_id or "—", old_status)
+
+    if exhausted:
+        retries, max_retries, name, host_id = exhausted
+        log.error(
+            "FAILOVER EXHAUSTED job=%s retries=%d/%d — permanently failed",
+            job_id,
+            retries,
+            max_retries,
+        )
+        alert_job_failed(job_id, name, host_id)
+        # Detach any volumes still attached to this instance
+        try:
+            from volumes import get_volume_engine
+
+            ve = get_volume_engine()
+            detached = ve.detach_all_for_instance(job_id)
+            if detached:
+                log.info("FAILOVER EXHAUSTED: detached %d volumes from job %s", detached, job_id)
+        except Exception as e:
+            log.warning("FAILOVER EXHAUSTED: volume detach failed for job %s: %s", job_id, e)
+        return None
+
+    if requeued:
+        j, retries, max_retries, old_host, old_status = requeued
+        log.warning(
+            "FAILOVER REQUEUE job=%s retry=%d/%d old_host=%s",
+            job_id,
+            retries,
+            max_retries,
+            old_host,
+        )
+        # Starting a job over means starting its output over, and that is a
+        # property of the requeue rather than of whichever route asked for it.
+        # It lived in `/instance/{job_id}/requeue` only, so `/api/v1/instances/
+        # {job_id}/retry` — the path `retry_instance` calls — left the previous
+        # attempt's output mixed into the next run.
+        #
+        # Ordering is load-bearing and was documented at the old call site:
+        # the wipe must precede `emit_lifecycle_log`, never follow it, or it
+        # deletes the lifecycle lines that call is about to write. Here it does.
+        #
+        # Gated on `user_initiated` deliberately. Both user-facing doors pass
+        # it; automatic failover does not, and a failover that erased the logs
+        # explaining *why* it failed over would destroy the evidence for the
+        # retry it just performed.
+        if user_initiated:
+            _clear_job_output(job_id)
+        try:
+            from routes.instances import emit_lifecycle_log
+
+            emit_lifecycle_log(job_id, old_status, "queued", j)
+        except Exception:
+            pass
+        return j
+
+    return None
+
+
+def failover_dead_hosts():
+    """
+    Find all running jobs on dead hosts. Requeue them.
+    This is the core failover loop — call it after check_hosts().
+    Returns list of requeued jobs.
+    """
+    dead_host_ids = {
+        h["host_id"] for h in list_hosts(active_only=False) if h.get("status") == "dead"
+    }
+
+    if not dead_host_ids:
+        return []
+
+    jobs = load_jobs()
+    requeued = []
+
+    for j in jobs:
+        if j["status"] == "running" and j.get("host_id") in dead_host_ids:
+            log.warning("FAILOVER DETECTED job=%s on dead host=%s", j["job_id"], j["host_id"])
+            result = requeue_job(j["job_id"])
+            if result:
+                requeued.append(result)
+
+    return requeued
+
+
+def failover_and_reassign():
+    """
+    Full failover cycle:
+    1. Check hosts (ping) — dead hosts trigger _requeue_dead_host_jobs which
+       delegates to requeue_job() per-job (releases VRAM, increments retry counter)
+    2. Process queue (assign requeued jobs to alive hosts)
+    Returns newly_assigned list.
+
+    Uses _scheduler_lock on the assignment pass to prevent concurrent
+    process_queue calls with scheduler_tick.
+    """
+    check_hosts()
+
+    # check_hosts() already requeues jobs from newly-dead hosts via
+    # _requeue_dead_host_jobs → requeue_job(), so we only need to
+    # run the assignment pass here.
+    with _scheduler_lock:
+        assigned = process_queue()
+    for j, h in assigned:
+        log.info("FAILOVER REASSIGNED job=%s -> host=%s", j["job_id"], h["host_id"])
+
+    return [], assigned
+
+
+# ── Auto-Remediation: Checkpoint + Re-Queue ──────────────────────────
+# Docker CRIU Checkpoint support for transparent job migration.
+# On health check failure, checkpoint the container, snapshot its state,
+# then requeue with the checkpoint reference so the next host can resume.
+
+CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
+
+
+def checkpoint_container(host_id: str, job_id: str, container_name: str = "") -> dict | None:
+    """Create a Docker CRIU checkpoint for a running container on a remote host.
+
+    Uses `docker checkpoint create` via SSH to freeze the container state.
+    Returns checkpoint metadata or None on failure.
+    """
+    if not container_name:
+        # Match run_job() naming convention: xcl-{job_id}
+        container_name = f"xcl-{job_id}"
+
+    # Validate inputs to prevent path traversal / injection
+    _validate_name(job_id, "job_id")
+    _validate_name(container_name, "container name")
+
+    checkpoint_name = f"ckpt-{job_id}-{int(time.time())}"
+    checkpoint_path = os.path.join(CHECKPOINT_DIR, checkpoint_name)
+
+    # Ensure checkpoint_path stays under CHECKPOINT_DIR
+    resolved = os.path.realpath(checkpoint_path)
+    if not resolved.startswith(os.path.realpath(CHECKPOINT_DIR)):
+        log.error("CHECKPOINT PATH TRAVERSAL BLOCKED: %s", checkpoint_path)
+        return None
+
+    # Look up host IP for SSH
+    with _db_connection() as conn:
+        host = _get_host_by_id_conn(conn, host_id)
+    if not host or not host.get("ip"):
+        log.error("CHECKPOINT FAILED: host %s not found or missing IP", host_id)
+        return None
+    host_ip = host["ip"]
+
+    try:
+        os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+        remote_ckpt_dir = f"/tmp/xcelsior-checkpoints/{shlex.quote(checkpoint_name)}"
+        docker_cmd = (
+            f"mkdir -p {remote_ckpt_dir} && "
+            f"docker checkpoint create "
+            f"--checkpoint-dir={remote_ckpt_dir} "
+            f"--leave-running=false "
+            f"{shlex.quote(container_name)} {shlex.quote(checkpoint_name)}"
+        )
+
+        log.info(
+            "CHECKPOINT job=%s host=%s container=%s checkpoint=%s",
+            job_id,
+            host_id,
+            container_name,
+            checkpoint_name,
+        )
+
+        # Execute checkpoint on remote host via SSH
+        rc, stdout, stderr = ssh_exec(host_ip, docker_cmd)
+
+        checkpoint_meta = {
+            "checkpoint_name": checkpoint_name,
+            "checkpoint_path": remote_ckpt_dir,
+            "local_path": checkpoint_path,
+            "job_id": job_id,
+            "host_id": host_id,
+            "host_ip": host_ip,
+            "container": container_name,
+            "created_at": time.time(),
+            "success": rc == 0,
+            "stderr": (stderr or "")[:500],
+        }
+
+        # Persist metadata locally
+        meta_file = os.path.join(checkpoint_path, "meta.json")
+        os.makedirs(checkpoint_path, exist_ok=True)
+        with open(meta_file, "w") as f:
+            json.dump(checkpoint_meta, f, indent=2)
+
+        if not checkpoint_meta["success"]:
+            log.error(
+                "CHECKPOINT DOCKER FAILED job=%s host=%s: %s",
+                job_id,
+                host_id,
+                checkpoint_meta["stderr"],
+            )
+            return None
+
+        return checkpoint_meta
+
+    except Exception as e:
+        log.error("CHECKPOINT FAILED job=%s host=%s: %s", job_id, host_id, e)
+
+    return None
+
+
+def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: dict) -> bool:
+    """Resume a checkpointed job on a new host via SSH.
+
+    Transfers the checkpoint via the scheduler (source→scheduler→target)
+    since hosts don't have cross-host SSH credentials.
+    Updates job status and reserves VRAM on success.
+    """
+    checkpoint_name = checkpoint_meta.get("checkpoint_name", "")
+    checkpoint_path = checkpoint_meta.get("checkpoint_path", "")
+    source_ip = checkpoint_meta.get("host_ip", "")
+    container = checkpoint_meta.get("container", f"xcl-{job_id}")
+
+    if not checkpoint_name:
+        log.error("RESUME FAILED: no checkpoint_name for job=%s", job_id)
+        return False
+
+    # Validate inputs
+    _validate_name(checkpoint_name, "checkpoint name")
+    _validate_name(container, "container name")
+
+    # Look up target host IP
+    with _db_connection() as conn:
+        target_host = _get_host_by_id_conn(conn, target_host_id)
+    if not target_host or not target_host.get("ip"):
+        log.error("RESUME FAILED: target host %s not found or missing IP", target_host_id)
+        return False
+    target_ip = target_host["ip"]
+
+    log.info(
+        "RESUME job=%s target_host=%s checkpoint=%s",
+        job_id,
+        target_host_id,
+        checkpoint_name,
+    )
+
+    try:
+        remote_ckpt_dir = checkpoint_path or f"/tmp/xcelsior-checkpoints/{checkpoint_name}"
+
+        # Step 1: Transfer checkpoint via scheduler if source != target.
+        # Hosts don't have SSH keys to each other, so we pull to the
+        # scheduler first, then push to the target.
+        if source_ip and source_ip != target_ip:
+            local_staging = os.path.join(CHECKPOINT_DIR, checkpoint_name)
+            os.makedirs(local_staging, exist_ok=True)
+
+            # Pull from source host to scheduler
+            pull_cmd = [
+                "scp",
+                "-r",
+                "-i",
+                SSH_KEY_PATH,
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "PasswordAuthentication=no",
+                f"{SSH_USER}@{source_ip}:{remote_ckpt_dir}",
+                local_staging,
+            ]
+            pull_result = subprocess.run(pull_cmd, capture_output=True, text=True, timeout=300)
+            if pull_result.returncode != 0:
+                log.error(
+                    "RESUME TRANSFER PULL FAILED job=%s: %s",
+                    job_id,
+                    (pull_result.stderr or "")[:300],
+                )
+                return False
+
+            # Push from scheduler to target host
+            push_cmd = [
+                "scp",
+                "-r",
+                "-i",
+                SSH_KEY_PATH,
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "PasswordAuthentication=no",
+                local_staging,
+                f"{SSH_USER}@{target_ip}:/tmp/xcelsior-checkpoints/",
+            ]
+            push_result = subprocess.run(push_cmd, capture_output=True, text=True, timeout=300)
+            if push_result.returncode != 0:
+                log.error(
+                    "RESUME TRANSFER PUSH FAILED job=%s: %s",
+                    job_id,
+                    (push_result.stderr or "")[:300],
+                )
+                return False
+
+            log.info(
+                "RESUME CHECKPOINT TRANSFERRED job=%s via scheduler: %s -> %s",
+                job_id,
+                source_ip,
+                target_ip,
+            )
+
+        # Step 2: Start container from checkpoint on target host
+        docker_cmd = (
+            f"docker start "
+            f"--checkpoint-dir={shlex.quote(remote_ckpt_dir)} "
+            f"--checkpoint={shlex.quote(checkpoint_name)} "
+            f"{shlex.quote(container)}"
+        )
+        rc, stdout, stderr = ssh_exec(target_ip, docker_cmd)
+
+        if rc == 0:
+            # Step 3: Update job status and reserve VRAM
+            result = update_job_status(job_id, "running", target_host_id)
+            if not result:
+                # VRAM reservation failed — kill the orphaned container
+                log.error(
+                    "RESUME VRAM RESERVATION FAILED job=%s on host=%s — killing container",
+                    job_id,
+                    target_host_id,
+                )
+                ssh_exec(target_ip, f"docker kill {shlex.quote(container)}")
+                return False
+            log.info("RESUME SUCCESS job=%s on host=%s", job_id, target_host_id)
+            return True
+        else:
+            log.error(
+                "RESUME FAILED job=%s: %s",
+                job_id,
+                (stderr or "")[:300],
+            )
+    except subprocess.TimeoutExpired:
+        log.error("RESUME TRANSFER TIMEOUT job=%s", job_id)
+    except Exception as e:
+        log.error("RESUME EXCEPTION job=%s: %s", job_id, e)
+
+    return False
+
+
+# Health failure tracking: consecutive failures per host
+_health_failure_counts: dict[str, int] = {}
+HEALTH_FAILURE_THRESHOLD = 3  # Consecutive failures before remediation
+
+
+def remediate_unhealthy_host(host_id: str) -> list[dict]:
+    """Auto-remediate an unhealthy host: checkpoint running jobs and re-queue.
+
+    Called when a host has HEALTH_FAILURE_THRESHOLD consecutive health check
+    failures. Steps:
+    1. Checkpoint all running containers on the host (best-effort)
+    2. Re-queue jobs with checkpoint metadata for resume
+    3. Mark host as dead
+
+    Returns list of requeued job dicts with checkpoint info.
+    """
+    jobs = load_jobs()
+    running_on_host = [j for j in jobs if j["status"] == "running" and j.get("host_id") == host_id]
+
+    if not running_on_host:
+        log.info("REMEDIATE host=%s has no running jobs", host_id)
+        return []
+
+    requeued = []
+
+    for job in running_on_host:
+        job_id = job["job_id"]
+        log.warning("REMEDIATE CHECKPOINT job=%s on unhealthy host=%s", job_id, host_id)
+
+        # Step 1: Attempt checkpoint (best-effort)
+        ckpt = checkpoint_container(host_id, job_id)
+
+        # Step 2: Requeue with checkpoint reference
+        result = requeue_job(job_id)
+        if result:
+            if ckpt and ckpt.get("success"):
+                # Persist checkpoint metadata atomically via _set_job_fields
+                # (single read-modify-write transaction avoids TOCTOU race
+                # where process_queue could reassign the job between transactions)
+                _set_job_fields(result["job_id"], resume_from=ckpt)
+                result["resume_from"] = ckpt
+            requeued.append(result)
+
+    # Step 3: Record remediation
+    log.warning(
+        "REMEDIATE COMPLETE host=%s: %d jobs checkpointed and requeued",
+        host_id,
+        len(requeued),
+    )
+
+    return requeued
+
+
+def record_health_check(host_id: str, healthy: bool) -> dict | None:
+    """Record a health check result and trigger remediation if needed.
+
+    Returns remediation result if threshold exceeded, else None.
+    """
+    if healthy:
+        _health_failure_counts.pop(host_id, None)
+        return None
+
+    count = _health_failure_counts.get(host_id, 0) + 1
+    _health_failure_counts[host_id] = count
+
+    if count >= HEALTH_FAILURE_THRESHOLD:
+        log.warning(
+            "HEALTH THRESHOLD EXCEEDED host=%s failures=%d — triggering remediation",
+            host_id,
+            count,
+        )
+        _health_failure_counts.pop(host_id, None)
+        requeued = remediate_unhealthy_host(host_id)
+        return {"host_id": host_id, "action": "remediated", "requeued": requeued}
+
+    return None
+
+
+def start_failover_monitor(interval=10, callback=None):
+    """
+    Run failover checks in a background thread.
+    Ping hosts, requeue orphaned jobs, reassign.
+    """
+
+    def loop():
+        while True:
+            try:
+                requeued, assigned = failover_and_reassign()
+                if callback and (requeued or assigned):
+                    callback(requeued, assigned)
+            except Exception as e:
+                log.error("Failover monitor error: %s", e)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+# ── Phase 16: Docker Image Builder ───────────────────────────────────
+
+BUILDS_DIR = os.path.join(os.path.dirname(__file__), "builds")
+REGISTRY = os.environ.get("XCELSIOR_REGISTRY", "")
+
+
+def generate_dockerfile(model_name, base_image="python:3.11-slim", quantize=None):
+    """
+    Generate a Dockerfile for a model.
+    Supports optional quantization step (gguf, gptq, awq).
+    Returns Dockerfile contents as a string.
+    """
+    quant_step = ""
+    if quantize == "gguf":
+        quant_step = (
+            "RUN pip install --no-cache-dir llama-cpp-python && \\\n"
+            "    python -c \"print('GGUF quantize ready')\"\n"
+        )
+    elif quantize == "gptq":
+        quant_step = (
+            "RUN pip install --no-cache-dir auto-gptq && \\\n"
+            "    python -c \"print('GPTQ quantize ready')\"\n"
+        )
+    elif quantize == "awq":
+        quant_step = (
+            "RUN pip install --no-cache-dir autoawq && \\\n"
+            "    python -c \"print('AWQ quantize ready')\"\n"
+        )
+
+    dockerfile = f"""FROM {base_image}
+
+LABEL maintainer="xcelsior"
+LABEL model="{model_name}"
+
+WORKDIR /app
+
+# Install model dependencies
+RUN pip install --no-cache-dir torch transformers accelerate
+
+{quant_step}# Copy model files
+COPY . /app/
+
+# Default: run the model server
+CMD ["python", "-m", "http.server", "8080"]
+"""
+    return dockerfile
+
+
+def build_image(
+    model_name, context_dir=None, tag=None, quantize=None, base_image="python:3.11-slim"
+):
+    """
+    Build a Docker image for a model.
+    1. Generate Dockerfile
+    2. Write to build dir
+    3. docker build
+    Returns (image_tag, success).
+    """
+    build_dir = context_dir or os.path.join(BUILDS_DIR, model_name)
+    os.makedirs(build_dir, exist_ok=True)
+
+    # Generate and write Dockerfile
+    dockerfile = generate_dockerfile(model_name, base_image=base_image, quantize=quantize)
+    dockerfile_path = os.path.join(build_dir, "Dockerfile")
+    with open(dockerfile_path, "w") as f:
+        f.write(dockerfile)
+
+    tag = tag or f"xcelsior/{model_name}:latest"
+
+    log.info(
+        "BUILD START model=%s tag=%s dir=%s quantize=%s",
+        model_name,
+        tag,
+        build_dir,
+        quantize or "none",
+    )
+
+    try:
+        result = subprocess.run(
+            ["docker", "build", "-t", tag, build_dir],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if result.returncode != 0:
+            log.error("BUILD FAILED model=%s err=%s", model_name, result.stderr.strip())
+            return tag, False
+
+        log.info("BUILD SUCCESS model=%s tag=%s", model_name, tag)
+        return tag, True
+
+    except subprocess.TimeoutExpired:
+        log.error("BUILD TIMEOUT model=%s (600s)", model_name)
+        return tag, False
+    except Exception as e:
+        log.error("BUILD ERROR model=%s err=%s", model_name, e)
+        return tag, False
+
+
+def push_image(tag, registry=None):
+    """
+    Push an image to a registry.
+    If no registry configured, just tag locally.
+    Returns (remote_tag, success).
+    """
+    registry = registry or REGISTRY
+    if not registry:
+        log.warning("PUSH SKIP — no registry configured. Set XCELSIOR_REGISTRY.")
+        return tag, False
+
+    remote_tag = (
+        f"{registry}/{tag}"
+        if "/" not in tag[: tag.index(":")]
+        else f"{registry}/{tag.split('/')[-1]}"
+    )
+
+    try:
+        # Tag for remote
+        subprocess.run(
+            ["docker", "tag", tag, remote_tag], capture_output=True, text=True, timeout=30
+        )
+
+        # Push
+        result = subprocess.run(
+            ["docker", "push", remote_tag],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            log.error("PUSH FAILED tag=%s err=%s", remote_tag, result.stderr.strip())
+            return remote_tag, False
+
+        log.info("PUSH SUCCESS tag=%s", remote_tag)
+        return remote_tag, True
+
+    except Exception as e:
+        log.error("PUSH ERROR tag=%s err=%s", remote_tag, e)
+        return remote_tag, False
+
+
+def build_and_push(
+    model_name, context_dir=None, quantize=None, base_image="python:3.11-slim", push=True
+):
+    """
+    Full pipeline: generate Dockerfile, build image, optionally push.
+    Returns dict with build results.
+    """
+    tag, built = build_image(
+        model_name, context_dir=context_dir, quantize=quantize, base_image=base_image
+    )
+
+    result = {
+        "model": model_name,
+        "tag": tag,
+        "quantize": quantize,
+        "built": built,
+        "pushed": False,
+        "remote_tag": None,
+    }
+
+    if built and push:
+        remote_tag, pushed = push_image(tag)
+        result["pushed"] = pushed
+        result["remote_tag"] = remote_tag
+
+    return result
+
+
+def list_builds():
+    """List all local build directories."""
+    if not os.path.exists(BUILDS_DIR):
+        return []
+    builds = []
+    for name in sorted(os.listdir(BUILDS_DIR)):
+        build_dir = os.path.join(BUILDS_DIR, name)
+        if os.path.isdir(build_dir):
+            has_dockerfile = os.path.exists(os.path.join(build_dir, "Dockerfile"))
+            builds.append(
+                {
+                    "model": name,
+                    "path": build_dir,
+                    "has_dockerfile": has_dockerfile,
+                }
+            )
+    return builds
+
+
+# ── Phase 17: Marketplace ────────────────────────────────────────────
+
+MARKETPLACE_FILE = os.environ.get(
+    "XCELSIOR_MARKETPLACE_FILE", os.path.join(os.path.dirname(__file__), "marketplace.json")
+)
+PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))  # 15%
+# Phase 4 supply incentive: new providers pay 0% platform fee for their first
+# N days of listing, to bootstrap liquidity. Set to 0 to disable.
+PROVIDER_INTRO_FEE_DAYS = int(os.environ.get("XCELSIOR_PROVIDER_INTRO_FEE_DAYS", "90"))
+
+
+def load_marketplace():
+    """Load marketplace listings."""
+    return _load_json(MARKETPLACE_FILE)
+
+
+def save_marketplace(listings):
+    """Write marketplace listings."""
+    _save_json(MARKETPLACE_FILE, listings)
+
+
+def _infer_platform_fees_from_payout(payout: float, cut: float) -> float:
+    """Infer platform revenue from accumulated provider payout and fee cut."""
+    if payout <= 0 or not (0 < cut < 1):
+        return 0.0
+    return round(payout * cut / (1 - cut), 6)
+
+
+def _platform_cut_for_host(host_id: str, *, listed_at: float | None = None) -> float:
+    """Resolve the platform cut for a host's listing.
+
+    Flat ``PLATFORM_CUT`` for everyone (reputation-based discounts deferred), except
+    the Phase 4 new-provider incentive: listings within their first
+    ``PROVIDER_INTRO_FEE_DAYS`` pay 0% platform fee to bootstrap supply. The window
+    is keyed off the listing date (``listed_at``); a stricter per-provider window
+    could later key off the host's registration date.
+    """
+    if listed_at and PROVIDER_INTRO_FEE_DAYS > 0:
+        if time.time() - float(listed_at) < PROVIDER_INTRO_FEE_DAYS * 86400:
+            return 0.0
+    return PLATFORM_CUT
+
+
+def _sync_marketplace_listing(listing: dict) -> bool:
+    """Upgrade legacy listing fee metadata and apply reputation-managed cuts."""
+    if not isinstance(listing, dict):
+        return False
+
+    changed = False
+    current_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
+
+    if "total_platform_fees" not in listing:
+        listing["total_platform_fees"] = _infer_platform_fees_from_payout(
+            float(listing.get("total_earned", 0.0) or 0.0),
+            current_cut,
+        )
+        changed = True
+
+    source = listing.get("platform_cut_source")
+    if source == "manual":
+        return changed
+
+    if (
+        source is None
+        and "platform_cut" in listing
+        and not math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9)
+    ):
+        listing["platform_cut_source"] = "manual"
+        return True
+
+    desired_cut = _platform_cut_for_host(
+        str(listing.get("host_id", "")).strip(),
+        listed_at=listing.get("listed_at"),
+    )
+    if (
+        source == "reputation"
+        or "platform_cut" not in listing
+        or math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9)
+    ):
+        if not math.isclose(current_cut, desired_cut, rel_tol=0, abs_tol=1e-9):
+            listing["platform_cut"] = desired_cut
+            changed = True
+        if listing.get("platform_cut_source") != "reputation":
+            listing["platform_cut_source"] = "reputation"
+            changed = True
+
+    return changed
+
+
+def _sync_marketplace_listings(listings: list[dict], persist: bool = False) -> list[dict]:
+    """Apply marketplace listing fee upgrades in-memory and optionally persist."""
+    changed = False
+    for listing in listings:
+        if _sync_marketplace_listing(listing):
+            changed = True
+    if changed and persist:
+        save_marketplace(listings)
+    return listings
+
+
+def list_rig(
+    host_id,
+    gpu_model,
+    vram_gb,
+    price_per_hour,
+    description="",
+    owner="anonymous",
+    region="",
+    province="",
+):
+    """
+    List a rig on the marketplace.
+    Hosts set their price. Xcelsior takes its cut on every job.
+    """
+    from host_metadata import normalize_region
+
+    listings = load_marketplace()
+    normalized_region = normalize_region(region, province=province)
+
+    # Update if exists
+    for i, l in enumerate(listings):
+        if l["host_id"] == host_id:
+            listings[i].update(
+                {
+                    "gpu_model": gpu_model,
+                    "vram_gb": vram_gb,
+                    "price_per_hour": price_per_hour,
+                    "description": description,
+                    "owner": owner,
+                    "region": normalized_region,
+                    "province": province.upper() if province else "",
+                    "updated_at": time.time(),
+                    "active": True,
+                }
+            )
+            _sync_marketplace_listing(listings[i])
+            save_marketplace(listings)
+            log.info(
+                "MARKETPLACE UPDATED listing=%s | %s | $%s/hr", host_id, gpu_model, price_per_hour
+            )
+            return listings[i]
+
+    now = time.time()
+    platform_cut = _platform_cut_for_host(host_id, listed_at=now)
+    listing = {
+        "host_id": host_id,
+        "gpu_model": gpu_model,
+        "vram_gb": vram_gb,
+        "price_per_hour": price_per_hour,
+        "description": description,
+        "owner": owner,
+        "region": normalized_region,
+        "province": province.upper() if province else "",
+        "platform_cut": platform_cut,
+        "platform_cut_source": "reputation",
+        "listed_at": now,
+        "updated_at": now,
+        "active": True,
+        "total_jobs": 0,
+        "total_earned": 0.0,
+        "total_platform_fees": 0.0,
+    }
+
+    listings.append(listing)
+    save_marketplace(listings)
+    log.info(
+        "MARKETPLACE LISTED %s | %s | %sGB | $%s/hr | owner=%s",
+        host_id,
+        gpu_model,
+        vram_gb,
+        price_per_hour,
+        owner,
+    )
+    return listing
+
+
+def unlist_rig(host_id):
+    """Remove a rig from the marketplace."""
+    listings = load_marketplace()
+    for l in listings:
+        if l["host_id"] == host_id:
+            l["active"] = False
+            save_marketplace(listings)
+            log.info("MARKETPLACE UNLISTED %s", host_id)
+            return True
+    return False
+
+
+def get_marketplace(active_only=True):
+    """Get all marketplace listings."""
+    listings = _sync_marketplace_listings(load_marketplace(), persist=True)
+    changed = False
+    try:
+        from host_metadata import normalize_region
+
+        hosts_by_id = {h.get("host_id"): h for h in list_hosts(active_only=False)}
+        for listing in listings:
+            host = hosts_by_id.get(listing.get("host_id")) or {}
+            province = str(listing.get("province") or host.get("province") or "").upper()
+            region = normalize_region(
+                str(listing.get("region") or ""),
+                country=str(host.get("country") or ""),
+                province=province,
+            )
+            if listing.get("region") != region:
+                listing["region"] = region
+                changed = True
+            if province and listing.get("province") != province:
+                listing["province"] = province
+                changed = True
+        if changed:
+            save_marketplace(listings)
+    except Exception as exc:
+        log.debug("Marketplace listing region sync skipped: %s", exc)
+    if active_only:
+        return [l for l in listings if l.get("active", True)]
+    return listings
+
+
+def marketplace_bill(job_id):
+    """
+    Bill a marketplace job. Host gets paid, Xcelsior takes its cut.
+    Returns (host_payout, platform_fee, total_cost) or None.
+    """
+    jobs = load_jobs()
+    job = None
+    for j in jobs:
+        if j["job_id"] == job_id:
+            job = j
+            break
+
+    if not job or not job.get("host_id"):
+        return None
+
+    if not job.get("started_at") or not job.get("completed_at"):
+        return None
+
+    # Find marketplace listing for this host
+    listings = _sync_marketplace_listings(load_marketplace(), persist=True)
+    listing = None
+    for l in listings:
+        if l["host_id"] == job["host_id"]:
+            listing = l
+            break
+
+    if not listing:
+        return None
+
+    duration_sec = job["completed_at"] - job["started_at"]
+    duration_hr = duration_sec / 3600
+
+    rate_per_hour = None
+    allocation_type = "on_demand"
+    try:
+        from marketplace import get_marketplace_engine
+
+        me = get_marketplace_engine()
+        with me._conn() as conn:
+            alloc = conn.execute(
+                """SELECT price_cents_per_hour, allocation_type
+                   FROM gpu_allocations WHERE job_id = %s
+                   ORDER BY created_at DESC LIMIT 1""",
+                (job_id,),
+            ).fetchone()
+        if alloc:
+            rate_per_hour = float(alloc["price_cents_per_hour"]) / 100.0
+            allocation_type = alloc.get("allocation_type") or "on_demand"
+    except Exception:
+        pass
+
+    if rate_per_hour is None:
+        from billing import resolve_compute_rate_cad
+
+        hosts = load_hosts(active_only=False)
+        host_data = next((h for h in hosts if h["host_id"] == job["host_id"]), {})
+        rate_per_hour, allocation_type = resolve_compute_rate_cad(job, host_data)
+        if allocation_type != "spot":
+            rate_per_hour = listing["price_per_hour"]
+
+    total_cost = round(duration_hr * rate_per_hour, 6)
+
+    tier = job.get("tier", "free")
+    if allocation_type != "spot":
+        tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
+        total_cost = round(total_cost * tier_info["multiplier"], 6)
+
+    platform_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
+    platform_fee = round(total_cost * platform_cut, 6)
+    host_payout = round(total_cost - platform_fee, 6)
+
+    # Update listing stats
+    listing["total_jobs"] = listing.get("total_jobs", 0) + 1
+    listing["total_earned"] = round(listing.get("total_earned", 0) + host_payout, 6)
+    listing["total_platform_fees"] = round(listing.get("total_platform_fees", 0) + platform_fee, 6)
+    save_marketplace(listings)
+
+    log.info(
+        "MARKETPLACE BILLED job=%s | total=$%s | host_payout=$%s | platform_fee=$%s",
+        job_id,
+        total_cost,
+        host_payout,
+        platform_fee,
+    )
+
+    return {
+        "job_id": job_id,
+        "host_id": job["host_id"],
+        "total_cost": total_cost,
+        "platform_fee": platform_fee,
+        "host_payout": host_payout,
+        "platform_cut_pct": platform_cut,
+        "duration_sec": round(duration_sec, 2),
+        "tier": tier,
+    }
+
+
+def marketplace_stats():
+    """Aggregate marketplace stats."""
+    listings = _sync_marketplace_listings(load_marketplace(), persist=True)
+    active = [l for l in listings if l.get("active", True)]
+    total_earned = sum(l.get("total_earned", 0) for l in listings)
+    total_jobs = sum(l.get("total_jobs", 0) for l in listings)
+    platform_revenue = 0.0
+    for l in listings:
+        if "total_platform_fees" in l:
+            platform_revenue += float(l.get("total_platform_fees", 0) or 0)
+            continue
+        payout = float(l.get("total_earned", 0) or 0)
+        cut = float(l.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
+        platform_revenue += _infer_platform_fees_from_payout(payout, cut)
+    platform_revenue = round(platform_revenue, 6)
+
+    return {
+        "total_listings": len(listings),
+        "active_listings": len(active),
+        "total_jobs_completed": total_jobs,
+        "total_host_payouts": round(total_earned, 6),
+        "platform_revenue": platform_revenue,
+        "default_platform_cut_pct": PLATFORM_CUT,
+    }
+
+
+def register_host_located(
+    host_id,
+    ip,
+    gpu_model,
+    total_vram_gb,
+    free_vram_gb,
+    cost_per_hour=0.20,
+    country="",
+    province="",
+):
+    """Register a host, recording where it is.
+
+    Location is metadata: it appears on the invoice line and lets a caller
+    filter for latency. It is not a placement constraint and carries no
+    default — a host in Frankfurt is as valid as one in Toronto.
+    """
+    entry = register_host(
+        host_id,
+        ip,
+        gpu_model,
+        total_vram_gb,
+        free_vram_gb,
+        cost_per_hour,
+        country=country,
+        province=province,
+    )
+    # Ensure country is set even if register_host didn't receive it
+    if not entry.get("country"):
+        _set_host_fields(host_id, country=country.upper())
+        entry["country"] = country.upper()
+    if province and not entry.get("province"):
+        _set_host_fields(host_id, province=province.upper())
+        entry["province"] = province.upper()
+
+    log.info(
+        "HOST REGISTERED (country=%s, province=%s) %s | %s",
+        entry.get("country", ""),
+        entry.get("province", ""),
+        host_id,
+        ip,
+    )
+    return entry
+
+
+def list_hosts_filtered(active_only=True):
+    """List hosts. Kept as a thin alias; geography is not a filter."""
+    return list_hosts(active_only=active_only)
+
+
+def process_queue_filtered():
+    """Process the queue against the whole fleet."""
+    hosts = list_hosts_filtered(active_only=True)
+    assigned = []
+
+    queued = list_jobs(status="queued")
+    # Phase 4 partition: jobs owned by the transactional scheduler are
+    # placed by _control_plane_tick; the legacy walkers must skip them.
+    queued = [j for j in queued if not _control_plane_owns_job(j)]
+    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
+
+    for job in queued:
+        if not hosts:
+            break
+
+        host = allocate(job, hosts)
+        if not host:
+            continue
+
+        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        if not updated or updated.get("status") != "running":
+            continue
+        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
+        assigned.append((updated, host))
+
+    return assigned
+
+
+# ── Phase 19: Auto-Scaling ───────────────────────────────────────────
+
+AUTOSCALE_ENABLED = os.environ.get("XCELSIOR_AUTOSCALE", "").lower() in ("1", "true", "yes")
+AUTOSCALE_MAX_HOSTS = int(os.environ.get("XCELSIOR_AUTOSCALE_MAX", "20"))
+AUTOSCALE_PROVIDER = os.environ.get("XCELSIOR_AUTOSCALE_PROVIDER", "")  # e.g. "ssh", "api"
+AUTOSCALE_POOL_FILE = os.environ.get(
+    "XCELSIOR_AUTOSCALE_FILE", os.path.join(os.path.dirname(__file__), "autoscale_pool.json")
+)
+
+
+def load_autoscale_pool():
+    """Load the pool of available-on-demand hosts."""
+    return _load_json(AUTOSCALE_POOL_FILE)
+
+
+def save_autoscale_pool(pool):
+    """Write the autoscale pool."""
+    _save_json(AUTOSCALE_POOL_FILE, pool)
+
+
+def add_to_pool(host_id, ip, gpu_model, vram_gb, cost_per_hour=0.20, country="CA"):
+    """Add a host to the autoscale pool (available but not yet active)."""
+    pool = load_autoscale_pool()
+
+    for p in pool:
+        if p["host_id"] == host_id:
+            p.update(
+                {
+                    "ip": ip,
+                    "gpu_model": gpu_model,
+                    "vram_gb": vram_gb,
+                    "cost_per_hour": cost_per_hour,
+                    "country": country,
+                }
+            )
+            save_autoscale_pool(pool)
+            return p
+
+    entry = {
+        "host_id": host_id,
+        "ip": ip,
+        "gpu_model": gpu_model,
+        "vram_gb": vram_gb,
+        "cost_per_hour": cost_per_hour,
+        "country": country,
+        "provisioned": False,
+    }
+    pool.append(entry)
+    save_autoscale_pool(pool)
+    log.info("AUTOSCALE POOL ADD %s | %s | %sGB", host_id, gpu_model, vram_gb)
+    return entry
+
+
+def remove_from_pool(host_id):
+    """Remove a host from the autoscale pool."""
+    pool = load_autoscale_pool()
+    pool = [p for p in pool if p["host_id"] != host_id]
+    save_autoscale_pool(pool)
+    log.info("AUTOSCALE POOL REMOVE %s", host_id)
+
+
+def provision_host(pool_entry):
+    """
+    Provision a host from the pool — make it active.
+    SSH provider: connects to the host and starts the worker agent container.
+    """
+    entry = register_host(
+        pool_entry["host_id"],
+        pool_entry["ip"],
+        pool_entry["gpu_model"],
+        pool_entry["vram_gb"],
+        pool_entry["vram_gb"],  # starts fully free
+        pool_entry.get("cost_per_hour", 0.20),
+    )
+
+    _set_host_fields(
+        pool_entry["host_id"],
+        country=pool_entry.get("country", "CA"),
+        autoscaled=True,
+    )
+
+    # Mark as provisioned in pool
+    pool = load_autoscale_pool()
+    for p in pool:
+        if p["host_id"] == pool_entry["host_id"]:
+            p["provisioned"] = True
+            break
+    save_autoscale_pool(pool)
+
+    # SSH into host and start the worker agent container
+    if AUTOSCALE_PROVIDER == "ssh":
+        ip = pool_entry["ip"]
+        host_id = pool_entry["host_id"]
+        base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+        registry = os.environ.get("XCELSIOR_REGISTRY", "")
+        image = f"{registry}/xcelsior-worker:latest" if registry else "xcelsior-worker:latest"
+        cost = float(pool_entry.get("cost_per_hour", 0.20))
+        docker_cmd = (
+            f"docker pull {shlex.quote(image)} 2>/dev/null; "
+            f"docker rm -f xcelsior-worker 2>/dev/null; "
+            f"docker run -d --restart unless-stopped --name xcelsior-worker "
+            f"--gpus all "
+            f"-e XCELSIOR_HOST_ID={shlex.quote(host_id)} "
+            f"-e XCELSIOR_SCHEDULER_URL={shlex.quote(base_url)} "
+            f"-e XCELSIOR_API_TOKEN={shlex.quote(API_TOKEN)} "
+            f"-e XCELSIOR_COST_PER_HOUR={cost:.4f} "
+            f"-v /var/run/docker.sock:/var/run/docker.sock "
+            f"{shlex.quote(image)}"
+        )
+        rc, stdout, stderr = ssh_exec(ip, docker_cmd)
+        if rc != 0:
+            log.error(
+                "AUTOSCALE SSH PROVISION FAILED host=%s ip=%s rc=%d stderr=%s",
+                host_id,
+                ip,
+                rc,
+                stderr,
+            )
+        else:
+            log.info("AUTOSCALE SSH PROVISION OK host=%s container=%s", host_id, stdout[:12])
+
+            # Wait for the worker to register via heartbeat (up to 90s)
+            for _ in range(18):
+                time.sleep(5)
+                hosts = load_hosts(active_only=True)
+                for h in hosts:
+                    if h["host_id"] == host_id and h.get("last_heartbeat", 0) > time.time() - 30:
+                        log.info("AUTOSCALE WORKER READY host=%s", host_id)
+                        break
+                else:
+                    continue
+                break
+            else:
+                log.warning("AUTOSCALE WORKER TIMEOUT host=%s — no heartbeat after 90s", host_id)
+
+    log.info(
+        "AUTOSCALE PROVISIONED %s | %s | %sGB",
+        pool_entry["host_id"],
+        pool_entry["gpu_model"],
+        pool_entry["vram_gb"],
+    )
+    return entry
+
+
+def deprovision_host(host_id):
+    """
+    Deprovision: stop worker container, remove from active hosts,
+    mark pool entry as unprovisioned.
+    """
+    # SSH into host and stop the worker container before removing
+    if AUTOSCALE_PROVIDER == "ssh":
+        pool = load_autoscale_pool()
+        ip = None
+        for p in pool:
+            if p["host_id"] == host_id:
+                ip = p.get("ip")
+                break
+        if ip:
+            rc, _, stderr = ssh_exec(ip, "docker stop xcl-worker && docker rm xcl-worker")
+            if rc != 0:
+                log.warning("AUTOSCALE SSH DEPROVISION warn host=%s: %s", host_id, stderr)
+            else:
+                log.info("AUTOSCALE SSH DEPROVISION OK host=%s", host_id)
+
+    remove_host(host_id)
+
+    pool = load_autoscale_pool()
+    for p in pool:
+        if p["host_id"] == host_id:
+            p["provisioned"] = False
+            break
+    save_autoscale_pool(pool)
+
+    log.info("AUTOSCALE DEPROVISIONED %s", host_id)
+
+
+def autoscale_up():
+    """
+    Scale up: check queued jobs, provision hosts from pool to match demand.
+    Returns list of newly provisioned hosts.
+    """
+    jobs = load_jobs()
+    queued = [j for j in jobs if j["status"] == "queued"]
+
+    if not queued:
+        return []
+
+    active_hosts = list_hosts(active_only=True)
+    active_count = len(active_hosts)
+
+    pool = load_autoscale_pool()
+    available = [p for p in pool if not p.get("provisioned", False)]
+
+    if not available:
+        log.info("AUTOSCALE UP — no hosts available in pool")
+        return []
+
+    # How many more hosts do we need?
+    needed = len(queued)
+    can_add = min(needed, len(available), AUTOSCALE_MAX_HOSTS - active_count)
+
+    if can_add <= 0:
+        return []
+
+    # Sort by VRAM descending — provision biggest first
+    available.sort(key=lambda p: -p.get("vram_gb", 0))
+
+    provisioned = []
+    for i in range(can_add):
+        entry = provision_host(available[i])
+        provisioned.append(entry)
+
+    log.info(
+        "AUTOSCALE UP — provisioned %d hosts for %d queued jobs", len(provisioned), len(queued)
+    )
+    return provisioned
+
+
+def autoscale_down():
+    """
+    Scale down: deprovision idle autoscaled hosts with no running jobs.
+    Returns list of deprovisioned host IDs.
+    """
+    hosts = load_hosts(active_only=True)
+    jobs = load_jobs()
+    busy_host_ids = {j["host_id"] for j in jobs if j["status"] == "running" and j.get("host_id")}
+
+    deprovisioned = []
+    for h in hosts:
+        if h.get("autoscaled") and h["host_id"] not in busy_host_ids:
+            deprovision_host(h["host_id"])
+            deprovisioned.append(h["host_id"])
+
+    if deprovisioned:
+        log.info("AUTOSCALE DOWN — deprovisioned %d idle hosts", len(deprovisioned))
+    return deprovisioned
+
+
+def autoscale_cycle():
+    """
+    Full autoscale cycle:
+    1. Scale up if jobs are queued
+    2. Process queue with new hosts
+    3. Scale down idle autoscaled hosts
+    Returns (provisioned, assigned, deprovisioned).
+    """
+    provisioned = autoscale_up()
+
+    assigned = []
+    if provisioned:
+        assigned = process_queue()
+
+    deprovisioned = autoscale_down()
+
+    return provisioned, assigned, deprovisioned
+
+
+def start_autoscale_monitor(interval=15, callback=None):
+    """Run autoscale checks in a background thread."""
+
+    def loop():
+        while True:
+            if AUTOSCALE_ENABLED:
+                provisioned, assigned, deprovisioned = autoscale_cycle()
+                if callback and (provisioned or assigned or deprovisioned):
+                    callback(provisioned, assigned, deprovisioned)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+# ── Run it ────────────────────────────────────────────────────────────
+
+
+def storage_healthcheck():
+    """Basic readiness check for PostgreSQL persistence."""
+    try:
+        with _db_connection() as conn:
+            conn.execute("SELECT 1")
+        return {"ok": True, "backend": "postgresql"}
+    except Exception as exc:
+        log.error("STORAGE HEALTHCHECK FAILED err=%s", exc)
+        return {"ok": False, "backend": "postgresql", "error": str(exc)}
+
+
+def get_metrics_snapshot():
+    """Return scheduler metrics for observability endpoints."""
+    jobs = load_jobs()
+    hosts = load_hosts(active_only=False)
+    queued = [j for j in jobs if j.get("status") == "queued"]
+    running = [j for j in jobs if j.get("status") == "running"]
+    failed = [j for j in jobs if j.get("status") == "failed"]
+    snapshot = {
+        "queue_depth": len(queued),
+        "active_hosts": len([h for h in hosts if h.get("status") == "active"]),
+        "failed_jobs": len(failed),
+        "running_jobs": len(running),
+        "billing_totals": {
+            "total_revenue": get_total_revenue(),
+            "records": len(load_billing()),
+        },
+    }
+
+    try:
+        from db import NotificationStore
+
+        snapshot["notifications"] = {
+            "retained_total": NotificationStore.total_count(),
+        }
+    except Exception as exc:
+        log.debug("Notification metrics unavailable: %s", exc)
+
+    try:
+        from web_push import get_web_push_observability_snapshot
+
+        snapshot["web_push"] = get_web_push_observability_snapshot()
+    except Exception as exc:
+        log.debug("Web push metrics unavailable: %s", exc)
+
+    try:
+        from volumes import get_volume_metrics
+
+        snapshot["volumes"] = get_volume_metrics()
+    except Exception as exc:
+        log.debug("Volume metrics unavailable: %s", exc)
+
+    try:
+        from spot_metrics import get_spot_metrics_snapshot
+
+        snapshot["spot"] = get_spot_metrics_snapshot(jobs)
+    except Exception as exc:
+        log.debug("Spot metrics unavailable: %s", exc)
+
+    return snapshot
+
+
+# ── Spot Pricing & Preemption ─────────────────────────────────────────
+# Supply/demand multiplier curve per REPORT_EXCELSIOR_TECHNICAL_2.md §3.3
+# SpotPrice = BasePrice * e^(k * (D/S - threshold))
+
+SPOT_SENSITIVITY = float(os.environ.get("XCELSIOR_SPOT_SENSITIVITY", "0.5"))
+SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
+SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
+PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
+SPOT_REQUEUE_BACKOFF = os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+SPOT_REQUEUE_BACKOFF_BASE_SEC = float(os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF_BASE", "30"))
+
+
+def load_spot_prices():
+    """Load recent spot price history (in-memory / DB-backed via spot_pricing)."""
+    from spot_pricing import get_in_memory_history
+
+    return get_in_memory_history()
+
+
+def save_spot_prices(_prices):
+    """No-op — spot history is persisted by spot_pricing.record_spot_history."""
+
+
+def compute_spot_price(base_price, demand, supply, k=None, threshold=None):
+    """Compute spot price using unified supply/demand surge curve (CAD/hr)."""
+    del k, threshold
+    from spot_pricing import apply_surge
+
+    return apply_surge(float(base_price), int(demand), int(supply))
+
+
+def update_spot_prices():
+    """Recalculate spot prices via unified spot_pricing service."""
+    from spot_pricing import update_all_spot_prices
+
+    spot_prices = update_all_spot_prices()
+    # Durable SSE after history persistence (update_all_spot_prices records
+    # spot_price_history). Process-local emit only when outbox is not durable.
+    outbox_enqueued = False
+    if _active_backend() == "postgres" and spot_prices:
+        try:
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            # Bounded price map for NOTIFY — same shape clients already consume.
+            # Cap to model→rate pairs (floats); drop oversized maps to summary.
+            prices_payload = dict(spot_prices)
+            raw = json.dumps(prices_payload)
+            if len(raw) > 7000:
+                prices_payload = {
+                    "_truncated": True,
+                    "models": sorted(spot_prices.keys())[:32],
+                    "count": len(spot_prices),
+                }
+            with _atomic_mutation() as conn:
+                outbox_enqueued = try_append_lifecycle_outbox(
+                    _pg_conn(conn),
+                    aggregate_type="pricing",
+                    aggregate_id="spot",
+                    event_type="pricing.v1.spot_prices_updated",
+                    payload={"prices": prices_payload},
+                    # One durable fan-out per minute epoch (refresh interval
+                    # is typically longer); within-minute repeats collapse.
+                    idempotency_key=f"spot_prices:{int(time.time() // 60)}",
+                )
+        except Exception as exc:
+            log.warning("spot_prices outbox append failed: %s", exc)
+            outbox_enqueued = False
+    if not outbox_enqueued:
+        emit_event("spot_prices", spot_prices)
+    log.info(
+        "spot.price_updated prices=%s models=%d",
+        json.dumps(spot_prices),
+        len(spot_prices),
+    )
+    try:
+        from spot_metrics import refresh_spot_gauges
+
+        refresh_spot_gauges()
+    except Exception as exc:
+        log.debug("Spot gauge refresh after price update skipped: %s", exc)
+    return spot_prices
+
+
+def get_current_spot_prices():
+    """Get the latest spot prices per GPU model (CAD/hr)."""
+    from spot_pricing import get_current_spot_prices as _current
+
+    return _current()
+
+
+def identify_preemptible_jobs(spot_prices=None):
+    """Return preemptible jobs that block queued on-demand workloads (capacity model)."""
+    del spot_prices
+    jobs = list_jobs()
+    hosts = list_hosts()
+    queued = [j for j in jobs if j.get("status") == "queued"]
+    queued.sort(key=lambda j: (-int(j.get("priority", 0) or 0), j.get("submitted_at", 0)))
+
+    victims: list[tuple[dict, str]] = []
+    seen: set[str] = set()
+    for job in queued:
+        if not _job_may_trigger_preemption(job):
+            continue
+        candidates = _allocate_candidates(job, hosts, jobs)
+        blocked = [h for h in candidates if not host_accepts_job(h, job, jobs)]
+        needed = max(1, int(job.get("num_gpus", 1) or 1))
+        for host in blocked:
+            found = identify_preemption_candidates(host["host_id"], needed, jobs)
+            if not found:
+                continue
+            for victim in found:
+                jid = victim["job_id"]
+                if jid not in seen:
+                    seen.add(jid)
+                    victims.append((victim, f"capacity for queued {job['job_id']}"))
+            break
+    return victims
+
+
+def preempt_job(job_id):
+    """Preempt a running spot job.
+
+    Lifecycle: running → preempted → queued (auto-requeue, preserve pricing_mode).
+
+    Returns the updated job or None.
+    """
+    preempted_job = None
+    worker_host_id = None
+    outbox_enqueued = False
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j or j["status"] != "running":
+            return None
+
+        worker_host_id = j.get("host_id")
+
+        try:
+            from billing import get_billing_engine
+
+            get_billing_engine().bill_running_period(job_id, period_end=time.time(), min_seconds=0)
+        except Exception as exc:
+            log.warning("Preempt billing close failed for %s: %s", job_id, exc)
+
+        j["status"] = "preempted"
+        j["preempted_at"] = time.time()
+        j["preemption_count"] = int(j.get("preemption_count", 0) or 0) + 1
+        j["host_id"] = None
+        j["started_at"] = None
+        j["retries"] = j.get("retries", 0)  # Don't count preemption as retry
+        _upsert_job_row(conn, j)
+        preempted_job = dict(j)
+        if _active_backend() == "postgres":
+            from control_plane.outbox_runtime import try_append_lifecycle_outbox
+
+            outbox_enqueued = try_append_lifecycle_outbox(
+                _pg_conn(conn),
+                aggregate_type="job",
+                aggregate_id=str(job_id),
+                event_type="job.v1.preempted",
+                payload={
+                    "name": preempted_job.get("name"),
+                    "preemption_count": preempted_job.get("preemption_count"),
+                    "previous_host_id": worker_host_id,
+                },
+                idempotency_key=(
+                    f"job_preempted:{job_id}:" f"{preempted_job.get('preemption_count')}"
+                ),
+            )
+
+    if worker_host_id:
+        try:
+            from agent_preempt import schedule_host_preemptions
+
+            schedule_host_preemptions(worker_host_id, [job_id])
+        except Exception as exc:
+            log.debug("Agent preemption schedule skipped for %s: %s", job_id, exc)
+
+    if not outbox_enqueued:
+        emit_event(
+            "job_preempted",
+            {"job_id": job_id, "name": preempted_job.get("name")},
+        )
+    log.warning(
+        "spot.preempted job_id=%s name=%s host_id=%s preemption_count=%s",
+        job_id,
+        preempted_job.get("name"),
+        worker_host_id,
+        preempted_job.get("preemption_count"),
+    )
+    try:
+        from spot_metrics import record_spot_preemption
+
+        record_spot_preemption()
+    except Exception as exc:
+        log.debug("Spot preemption metric skipped: %s", exc)
+
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if j and j["status"] == "preempted":
+            j["status"] = "queued"
+            if SPOT_REQUEUE_BACKOFF and _is_spot_job(j):
+                count = max(1, int(j.get("preemption_count", 1) or 1))
+                delay = SPOT_REQUEUE_BACKOFF_BASE_SEC * (2 ** (count - 1))
+                j["submitted_at"] = time.time() + delay
+            _upsert_job_row(conn, j)
+            preempted_job = dict(j)
+            log.info(
+                "spot.requeued job_id=%s preemption_count=%s pricing_mode=%s",
+                job_id,
+                preempted_job.get("preemption_count"),
+                preempted_job.get("pricing_mode"),
+            )
+
+    # Detach volumes — job is leaving this host
+    try:
+        from volumes import get_volume_engine
+
+        get_volume_engine().detach_all_for_instance(job_id)
+    except Exception as e:
+        log.warning("Volume detach on preempt failed for %s: %s", job_id, e)
+
+    return preempted_job
+
+
+def preemption_cycle(*, dry_run: bool = False):
+    """Run a capacity preemption cycle (or dry-run preview for ops).
+
+    1. Update spot prices
+    2. Find preemptible jobs blocking on-demand capacity
+    3. Preempt them (+ drain hosts) unless ``dry_run``
+    Returns (spot_prices, preempted_jobs_or_candidates).
+    """
+    prices = update_spot_prices()
+    preemptible = identify_preemptible_jobs(prices)
+
+    if dry_run:
+        candidates = [
+            {
+                "job_id": job["job_id"],
+                "host_id": job.get("host_id"),
+                "reason": reason,
+            }
+            for job, reason in preemptible
+        ]
+        for host in list_hosts(active_only=False):
+            if host.get("status") == "draining":
+                for victim in identify_drain_preemption_candidates(host["host_id"]):
+                    candidates.append(
+                        {
+                            "job_id": victim["job_id"],
+                            "host_id": victim.get("host_id"),
+                            "reason": f"host drain ({host['host_id']})",
+                        }
+                    )
+        return prices, candidates
+
+    preempted = []
+    for job, reason in preemptible:
+        result = preempt_job(job["job_id"])
+        if result:
+            preempted.append(result)
+            log.info("PREEMPTION: %s — %s", job["job_id"], reason)
+
+    for host in list_hosts(active_only=False):
+        if host.get("status") == "draining":
+            for result in run_drain_preemptions(host["host_id"]):
+                if result not in preempted:
+                    preempted.append(result)
+
+    return prices, preempted
+
+
+def start_spot_price_monitor(interval=None, callback=None):
+    """Run spot price updates and preemption in a background thread."""
+    interval = interval or SPOT_UPDATE_INTERVAL
+
+    def loop():
+        while True:
+            try:
+                prices, preempted = preemption_cycle()
+                if callback and (prices or preempted):
+                    callback(prices, preempted)
+            except Exception as e:
+                log.error("Spot price monitor error: %s", e)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+# ── Compute Score (XCU) ──────────────────────────────────────────────
+# Xcelsior Compute Unit: normalize GPU performance across consumer cards.
+# RTX 3090 and 4090 both have 24GB VRAM but 4090 has ~2x TFLOPS.
+
+COMPUTE_SCORES_FILE = os.environ.get(
+    "XCELSIOR_COMPUTE_SCORES_FILE", os.path.join(os.path.dirname(__file__), "compute_scores.json")
+)
+
+# Reference TFLOPS for common GPUs (FP16 tensor core)
+GPU_REFERENCE_TFLOPS = {
+    "RTX 2060": 13.0,
+    "RTX 2070": 14.9,
+    "RTX 2080": 20.3,
+    "RTX 2080 Ti": 26.9,
+    "RTX 3060": 12.7,
+    "RTX 3060 Ti": 16.2,
+    "RTX 3070": 20.3,
+    "RTX 3070 Ti": 21.7,
+    "RTX 3080": 29.8,
+    "RTX 3080 Ti": 34.1,
+    "RTX 3090": 35.6,
+    "RTX 3090 Ti": 40.0,
+    "RTX 4060": 15.1,
+    "RTX 4060 Ti": 22.1,
+    "RTX 4070": 29.1,
+    "RTX 4070 Ti": 40.1,
+    "RTX 4080": 48.7,
+    "RTX 4090": 82.6,
+    "A100": 312.0,
+    "A10G": 31.2,
+    "H100": 989.5,
+    "L4": 30.3,
+    "T4": 8.1,
+}
+
+
+def load_compute_scores():
+    """Load compute score records."""
+    return _load_json(COMPUTE_SCORES_FILE)
+
+
+def save_compute_scores(scores):
+    """Write compute score records."""
+    _save_json(COMPUTE_SCORES_FILE, scores)
+
+
+def estimate_compute_score(gpu_model, benchmark_result=None):
+    """Estimate compute score (XCU) for a GPU.
+
+    If benchmark_result is provided, use actual measurement.
+    Otherwise, use reference TFLOPS table.
+
+    XCU = TFLOPS / 10 (normalized so RTX 4090 ≈ 8.3 XCU)
+    """
+    if benchmark_result and "tflops" in benchmark_result:
+        return round(benchmark_result["tflops"] / 10.0, 2)
+
+    # Fuzzy match GPU model to reference table
+    for ref_name, tflops in GPU_REFERENCE_TFLOPS.items():
+        if ref_name.lower() in gpu_model.lower():
+            return round(tflops / 10.0, 2)
+
+    # Unknown GPU — conservative estimate
+    return 1.0
+
+
+def register_compute_score(host_id, gpu_model, score, benchmark_details=None):
+    """Register a compute score for a host."""
+    scores = load_compute_scores()
+
+    entry = {
+        "host_id": host_id,
+        "gpu_model": gpu_model,
+        "score": score,
+        "details": benchmark_details,
+        "run_at": time.time(),
+    }
+
+    # Update existing or append
+    for i, s in enumerate(scores):
+        if s["host_id"] == host_id:
+            scores[i] = entry
+            break
+    else:
+        scores.append(entry)
+
+    save_compute_scores(scores)
+    _set_host_fields(host_id, compute_score=score)
+
+    log.info("COMPUTE SCORE host=%s gpu=%s score=%.2f XCU", host_id, gpu_model, score)
+    return entry
+
+
+def get_compute_score(host_id):
+    """Get the compute score for a host."""
+    scores = load_compute_scores()
+    for s in scores:
+        if s["host_id"] == host_id:
+            return s["score"]
+    return None
+
+
+# ── Enhanced Allocation (Compute-Aware) ───────────────────────────────
+
+
+def allocate_compute_aware(job, hosts):
+    """Compute-aware allocation — delegates to allocate() which already
+    includes XCU/dollar efficiency scoring alongside admission gating,
+    GPU count, isolation tier, and VRAM checks."""
+    return allocate(job, hosts)
+
+
+# ── Host allocation ───────────────────────────────────────────────────
+
+
+def allocate_best_host(job, hosts):
+    """Pick the best host for a job on merit alone.
+
+    1. Prefer verified hosts
+    2. Require the VRAM to fit
+    3. Rank by compute efficiency (XCU per $/hr), weighted by reputation
+
+    Geography is not a factor. Xcelsior is a global marketplace: capacity is
+    selected on price, availability, hardware, and host reputation.
+    """
+    if not hosts:
+        return None
+
+    # 1. Verification filter — prefer verified hosts, but fall back to all.
+    #
+    # **This is the silent fallback Gate P5 names as "the failure mode that
+    # would quietly destroy trust", and it is already shipped.** It is left in
+    # place here deliberately rather than changed in passing: this is the
+    # unconstrained placement path, every job goes through it, and removing the
+    # cold-start fallback would change where every job lands. That is a P5 C2
+    # decision — `docs/placement-preference-plan.md` §5.4 — not a drive-by edit.
+    #
+    # What C2 must reconcile: a `require_verified` preference cannot be honoured
+    # by a scheduler whose behaviour is to fall back when the constraint cannot
+    # be met. Either the preference decides authoritatively for constrained
+    # requests, or this fallback is skipped for them. A correct preference
+    # module wired into this block would still fail the gate end to end.
+    try:
+        ve = get_verification_engine()
+        verified_ids = set(ve.get_verified_hosts())
+        verified_hosts = [h for h in hosts if h["host_id"] in verified_ids]
+        if verified_hosts:
+            hosts = verified_hosts
+        # If no verified hosts, fall back to all (for cold-start)
+    except Exception as exc:
+        # Was a bare `except: pass`, which made "the verification store is
+        # unreachable" indistinguishable from "every host is verified" — the
+        # placement proceeded across all hosts either way and said nothing. A
+        # constrained request must not be told it got a verified host after
+        # this branch; that would be a false statement in the audit trail C1
+        # is built to hold.
+        log.warning("verification filter unavailable, placing across all hosts: %s", exc)
+
+    # 2. VRAM filter (with driver-overhead tolerance)
+    _needed = job.get("vram_needed_gb", 0) or 0
+    candidates = [h for h in hosts if _vram_fits(h, _needed)]
+    if not candidates:
+        return None
+
+    # 3. Sort by compute efficiency * reputation boost.
+    #
+    # The ranker lives in `control_plane.scheduler.ranking` and neither path
+    # owns it. It used to be a closure here, and `preference.choose_host` picked
+    # the cheapest survivor instead — two selection policies, not two
+    # implementations of one. A constrained request would have been placed by a
+    # different rule than an unconstrained one, silently: jobs landing elsewhere
+    # with nothing erroring.
+    from control_plane.scheduler.ranking import host_efficiency_score
+
+    best = max(candidates, key=host_efficiency_score)
+    log.info(
+        "ALLOCATE job=%s -> host=%s (%s, %sGB free)",
+        job.get("name", "?"),
+        best["host_id"],
+        best.get("gpu_model"),
+        best.get("free_vram_gb"),
+    )
+    return best
+
+
+def process_queue_ranked():
+    """Process the queue with verification + reputation-weighted ranking.
+
+    - Verified hosts preferred
+    - Reputation-boosted ordering
+    - Event-sourced state transitions
+    """
+    hosts = list_hosts(active_only=True)
+    assigned = []
+
+    queued = list_jobs(status="queued")
+    # Phase 4 partition: jobs owned by the transactional scheduler are
+    # placed by _control_plane_tick; the legacy walkers must skip them.
+    queued = [j for j in queued if not _control_plane_owns_job(j)]
+    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
+
+    for job in queued:
+        if not hosts:
+            break
+
+        host = allocate_best_host(job, hosts)
+        if not host:
+            continue
+
+        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        if not updated or updated.get("status") != "running":
+            continue
+        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
+        assigned.append((updated, host))
+
+    return assigned
+
+
+if __name__ == "__main__":
+    # Clean slate
+    for f in (HOSTS_FILE, JOBS_FILE):
+        if os.path.exists(f):
+            os.remove(f)
+
+    # Phase 2: Register hosts
+    register_host("rig-01", "127.0.0.1", "RTX 4090", 24, 24)
+    register_host("rig-02", "192.0.2.1", "RTX 3090", 24, 16)
+    register_host("rig-03", "127.0.0.1", "A100", 80, 80, cost_per_hour=0.50)
+
+    print("=== REGISTERED HOSTS ===")
+    for h in list_hosts(active_only=False):
+        print(
+            f"  {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
+        )
+
+    # Phase 4: Health check
+    print("\n=== HEALTH CHECK ===")
+    results = check_hosts()
+    for host_id, status in results.items():
+        print(f"  {host_id}: {status}")
+
+    # Phase 3: Submit + allocate
+    job = submit_job("test-job", vram_needed_gb=8, priority=1)
+    assigned = process_queue()
+
+    print("\n=== ASSIGNED ===")
+    for j, h in assigned:
+        print(f"  {j['name']} -> {h['host_id']}")
+
+    # Phase 5 & 6: Run a real local container, watch it, kill it
+    print("\n=== PHASE 5 & 6: LOCAL DOCKER TEST ===")
+    test_job = submit_job("alpine-test", vram_needed_gb=0, priority=0)
+    update_job_status(test_job["job_id"], "running")
+
+    # Run alpine with a 3-second sleep — simulates a short job
+    cid, cname = run_job_local(test_job, docker_image="alpine:latest")
+    if cid:
+        # Re-run with a command: sleep 2 then exit
+        kill_job_local(cname)
+        cname = f"xcl-{test_job['job_id']}-demo"
+        result = subprocess.run(
+            ["docker", "run", "-d", "--name", cname, "alpine:latest", "sleep", "2"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            print(f"  Container started: {cname}")
+            # Poll until done
+            while True:
+                inspect = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.Status}}", cname],
+                    capture_output=True,
+                    text=True,
+                )
+                status = inspect.stdout.strip()
+                print(f"  Status: {status}")
+                if status == "exited":
+                    break
+                time.sleep(1)
+
+            # Clean up
+            subprocess.run(["docker", "rm", "-f", cname], capture_output=True)
+            update_job_status(test_job["job_id"], "completed")
+            print(f"  Job {test_job['job_id']} COMPLETED. Container removed.")
+        else:
+            print(f"  Docker run failed: {result.stderr.strip()}")
+    else:
+        print("  Docker not available — skipping live test.")
+        print("  (Phase 5 & 6 functions are written and ready for real hosts.)")
+
+    print("\n=== FINAL JOB STATUS ===")
+    for j in list_jobs():
+        host = j["host_id"] or "—"
+        print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | host: {host}")
+
+    # Phase 8: Bill completed jobs
+    print("\n=== BILLING ===")
+    bills = bill_all_completed()
+    for b in bills:
+        print(f"  {b['job_name']} | {b['duration_sec']}s | ${b['cost']} @ ${b['rate_per_hour']}/hr")
+    print(f"\n  TOTAL REVENUE: ${get_total_revenue()}")
+
+    # Cleanup
+    for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE, BILLING_FILE):
+        if os.path.exists(f):
+            os.remove(f)
+
+
+# ── Crypto Confirmation Watcher ───────────────────────────────────────
+
+
+def _process_crypto_confirmations():
+    """Check pending BTC deposits and credit wallets on confirmation."""
+    try:
+        import bitcoin as btc
+    except ImportError:
+        return []
+    if not btc.BTC_ENABLED:
+        return []
+
+    from billing import BillingEngine
+
+    credited = []
+    pending = btc.get_pending_deposits()
+    if not pending:
+        return credited
+
+    be = BillingEngine()
+
+    for dep in pending:
+        try:
+            updated = btc.check_and_update_deposit(dep)
+            if updated["status"] == "confirmed":
+                # Credit the CAD wallet
+                be.deposit(
+                    updated["customer_id"],
+                    updated["amount_cad"],
+                    f"Bitcoin deposit {updated['deposit_id']} ({updated['amount_btc']:.8f} BTC)",
+                )
+                btc.mark_credited(updated["deposit_id"])
+                credited.append(updated)
+                log.info(
+                    "BTC wallet credited: %s +$%.2f CAD (%s)",
+                    updated["customer_id"],
+                    updated["amount_cad"],
+                    updated["deposit_id"],
+                )
+        except Exception as e:
+            log.error("Crypto watcher error for %s: %s", dep["deposit_id"], e)
+
+    return credited
+
+
+def start_crypto_watcher(interval: int = 60, callback=None):
+    """Run BTC confirmation checks in a background thread."""
+
+    def loop():
+        while True:
+            try:
+                credited = _process_crypto_confirmations()
+                if callback and credited:
+                    callback(credited)
+            except Exception as e:
+                log.error("Crypto watcher error: %s", e)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True, name="crypto-watcher")
+    t.start()
+    log.info("Crypto confirmation watcher started (interval=%ds)", interval)
+    return t
+
+
+# ── Stripe Webhook Inbox Processor ───────────────────────────────────
+# Per Phase 1.1: background worker loop in scheduler.py to process inbox rows.
+# Delegates to stripe_connect._process_single_event() for actual handling.
+
+
+def process_webhook_inbox():
+    """Process pending Stripe webhook events from the inbox.
+
+    Claims events via UPDATE ... WHERE status='pending' AND next_retry_at <= now()
+    with row lock (FOR UPDATE SKIP LOCKED) to prevent double processing.
+    Called periodically by the background scheduler.
+    """
+    if _active_backend() == "sqlite":
+        return {"processed": 0, "errors": 0}
+
+    try:
+        from stripe_connect import get_stripe_manager
+
+        engine = get_stripe_manager()
+    except Exception as e:
+        log.debug("Stripe Connect not available: %s", e)
+        return {"processed": 0, "errors": 0}
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    processed = 0
+    errors = 0
+
+    try:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            pending = conn.execute(
+                """SELECT event_id FROM stripe_event_inbox
+                   WHERE status = 'pending'
+                     AND (next_retry_at IS NULL OR next_retry_at <= %s)
+                   ORDER BY received_at ASC
+                   LIMIT 50
+                   FOR UPDATE SKIP LOCKED""",
+                (time.time(),),
+            ).fetchall()
+
+        for row in pending:
+            try:
+                result = engine._process_single_event(row["event_id"])
+                if result:
+                    processed += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                errors += 1
+                log.error("Webhook inbox processing error for %s: %s", row["event_id"], e)
+
+    except Exception as e:
+        log.debug("Webhook inbox sweep skipped: %s", e)
+
+    if processed or errors:
+        log.info("WEBHOOK INBOX: processed=%d errors=%d", processed, errors)
+    return {"processed": processed, "errors": errors}

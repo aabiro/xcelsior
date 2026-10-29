@@ -1,0 +1,61 @@
+---
+title: Payments & Metering
+subtitle: How credits enter your wallet and how usage is metered.
+slug: payments
+---
+
+# Payments & Metering
+
+Xcelsior runs on a prepaid wallet in **Canadian dollars**. You add credits, and compute and storage draw down that balance as they are used. This page covers how money gets in and exactly how it is metered out.
+
+## Adding credits
+
+Credits can be added through three rails, all from the Billing page:
+
+- **Card** — via Stripe. Create a payment intent and complete the card flow, including any 3-D Secure challenge your bank requires.
+- **PayPal** — create an order and capture it.
+- **Crypto** — on-chain deposits, or Lightning invoices for smaller, faster top-ups.
+
+Whichever rail you use, the money lands in the same CAD wallet. There is no separate per-rail balance.
+
+**A note on PayPal:** paying with PayPal tops up your Xcelsior wallet. It does not route money directly to the GPU provider running your job. All compute is paid for out of your central wallet balance regardless of how the credits arrived.
+
+### Why direct deposits are blocked
+
+The raw wallet-deposit API endpoint is deliberately disabled and returns a `403`. Credits must arrive through an actual payment rail — a Stripe webhook, a PayPal capture, or a confirmed crypto or Lightning payment — so that every credit in the ledger corresponds to a real settled payment. This is a safeguard, not a defect.
+
+### Signup credit
+
+New accounts receive a one-time **$10 CAD** credit. It is granted once per customer and cannot be claimed repeatedly.
+
+## How compute is metered
+
+Compute is billed **by the second**, not rounded up to the hour.
+
+**On-Demand instances** bill at the rate fixed when the instance was created. That rate does not change while the instance runs.
+
+**Spot instances** bill at the spot rate locked at the moment the scheduler assigns your job to a host. Three things follow from that:
+
+1. **Launch preflight.** Before starting, the platform estimates roughly one hour at the live spot quote and checks your wallet can cover it. This is a check, not a charge.
+2. **While running.** Usage is debited progressively against your wallet at the locked rate.
+3. **On preemption.** Metering stops at the moment of preemption. Partial hours are billed pro-rata to the second — you are never charged for time you did not get.
+
+## How storage is metered
+
+Persistent volumes bill at **$0.03 CAD per GB-month**, prorated to the second, and they bill independently of whether an instance is attached. A stopped instance stops compute billing; it does not stop storage billing. Delete volumes you no longer need.
+
+## Low balance and hard stop
+
+Your account has a low-balance threshold that triggers a warning notification while you still have room to act. If the available balance reaches zero, billing enters a hard-stop state and running work is halted rather than accumulating debt.
+
+## Taxes
+
+Xcelsior bills in CAD with full Canadian provincial tax handling — GST, HST, and QST across all thirteen provinces and territories, applied according to your account's location. Invoices itemise the tax component separately from the compute and storage charges.
+
+## Invoices
+
+Invoices are available from the Billing page. Each itemises the underlying jobs, their durations, the rates applied, and the tax breakdown. Use the invoice number when raising any billing question with support.
+
+## Provider payouts
+
+If you are earning by hosting a GPU, payouts are a separate flow from customer top-ups. Providers earn CAD for completed jobs, less the platform fee, and each job creates a payout split assigned to a single rail — either **Stripe Connect** or **PayPal**. You configure which rail your account uses when you onboard as a provider. See the Earn page for provider economics.

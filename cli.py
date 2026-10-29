@@ -1,0 +1,1567 @@
+#!/usr/bin/env python3
+# Xcelsior CLI v2.3.0
+# argparse + Rich tables. No npm. No node. Just Python.
+
+import argparse
+import json
+import os
+import secrets
+import sys
+import time
+
+try:
+    from rich.console import Console
+    from rich.table import Table
+
+    RICH_AVAILABLE = True
+    console = Console()
+except ImportError:
+    RICH_AVAILABLE = False
+    console = None
+
+from scheduler import (
+    register_host,
+    remove_host,
+    list_hosts,
+    check_hosts,
+    submit_job,
+    list_jobs,
+    update_job_status,
+    process_queue,
+    bill_job,
+    bill_all_completed,
+    get_total_revenue,
+    load_billing,
+    start_health_monitor,
+    generate_ssh_keypair,
+    get_public_key,
+    failover_and_reassign,
+    requeue_job,
+    list_tiers,
+    PRIORITY_TIERS,
+    build_and_push,
+    list_builds,
+    generate_dockerfile,
+    list_rig,
+    unlist_rig,
+    get_marketplace,
+    marketplace_bill,
+    marketplace_stats,
+    register_host_located,
+    list_hosts_filtered,
+    process_queue_filtered,
+    add_to_pool,
+    remove_from_pool,
+    load_autoscale_pool,
+    autoscale_cycle,
+)
+
+
+def cmd_run(args):
+    """Submit a job and optionally process the queue."""
+    job = submit_job(
+        args.model,
+        args.vram,
+        args.priority,
+        tier=args.tier,
+        num_gpus=getattr(args, "gpus", 1),
+        gpu_model=getattr(args, "gpu", None),
+        nfs_server=getattr(args, "nfs_server", None),
+        nfs_path=getattr(args, "nfs_path", None),
+        image=getattr(args, "image", None),
+    )
+    gpus_str = f" | {job.get('num_gpus', 1)} GPUs" if job.get("num_gpus", 1) > 1 else ""
+    gpu_str = f" | gpu={job.get('gpu_model')}" if job.get("gpu_model") else ""
+    print(
+        f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB{gpus_str}{gpu_str} | tier={job['tier']} (priority {job['priority']})"
+    )
+
+    if not args.no_assign:
+        assigned = process_queue()
+        if assigned:
+            for j, h in assigned:
+                print(f"  Assigned: {j['name']} -> {h['host_id']} ({h['gpu_model']})")
+        else:
+            print("  No host available. Job queued.")
+
+
+def cmd_jobs(args):
+    """List jobs."""
+    jobs = list_jobs(status=args.status)
+    if not jobs:
+        print("No jobs.")
+        return
+    if console is not None:
+        table = Table(title="Jobs")
+        table.add_column("Status", style="bold")
+        table.add_column("Job ID")
+        table.add_column("Name")
+        table.add_column("VRAM", justify="right")
+        table.add_column("Tier")
+        table.add_column("Host")
+        for j in jobs:
+            status = j["status"]
+            style = {
+                "running": "green",
+                "queued": "yellow",
+                "failed": "red",
+                "completed": "dim",
+            }.get(status, "")
+            table.add_row(
+                f"[{style}]{status}[/{style}]" if style else status,
+                j["job_id"],
+                j["name"],
+                f"{j['vram_needed_gb']}GB",
+                j.get("tier", "free"),
+                j.get("host_id") or "—",
+            )
+        console.print(table)
+    else:
+        for j in jobs:
+            host = j.get("host_id") or "—"
+            tier = j.get("tier", "free")
+            print(
+                f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | {tier} | host: {host}"
+            )
+
+
+def cmd_job(args):
+    """Get a specific job."""
+    for j in list_jobs():
+        if j["job_id"] == args.job_id:
+            print(json.dumps(j, indent=2))
+            return
+    print(f"Job {args.job_id} not found.", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_cancel(args):
+    """Cancel a job."""
+    update_job_status(args.job_id, "failed")
+    print(f"Job {args.job_id} cancelled.")
+
+
+def cmd_process(args):
+    """Process the queue."""
+    assigned = process_queue()
+    if not assigned:
+        print("Nothing to assign.")
+        return
+    for j, h in assigned:
+        print(f"  {j['name']} ({j['job_id']}) -> {h['host_id']} ({h['gpu_model']})")
+
+
+def cmd_host_add(args):
+    """Register a host."""
+    entry = register_host(
+        args.id,
+        args.ip,
+        args.gpu,
+        args.vram,
+        args.free_vram,
+        args.rate,
+        country=getattr(args, "country", "CA"),
+        province=getattr(args, "province", ""),
+    )
+    prov = entry.get("province", "")
+    print(
+        f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', 'CA')}{(' ' + prov) if prov else ''} | {entry['total_vram_gb']}GB | ${entry['cost_per_hour']}/hr"
+    )
+
+
+def cmd_host_rm(args):
+    """Remove a host."""
+    remove_host(args.id)
+    print(f"Host removed: {args.id}")
+
+
+def cmd_hosts(args):
+    """List hosts."""
+    hosts = list_hosts(active_only=not args.all)
+    if not hosts:
+        print("No hosts.")
+        return
+    if console is not None:
+        table = Table(title="Hosts")
+        table.add_column("Status", style="bold")
+        table.add_column("Host ID")
+        table.add_column("IP")
+        table.add_column("GPU")
+        table.add_column("Free VRAM", justify="right")
+        table.add_column("Rate", justify="right")
+        for h in hosts:
+            status_style = "green" if h["status"] == "active" else "red"
+            table.add_row(
+                f"[{status_style}]{h['status']}[/{status_style}]",
+                h["host_id"],
+                h["ip"],
+                h["gpu_model"],
+                f"{h['free_vram_gb']}GB",
+                f"${h['cost_per_hour']}/hr",
+            )
+        console.print(table)
+    else:
+        for h in hosts:
+            print(
+                f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
+            )
+
+
+def cmd_ping(args):
+    """Health check all hosts."""
+    results = check_hosts()
+    for host_id, status in results.items():
+        print(f"  {host_id}: {status}")
+
+
+def cmd_bill(args):
+    """Bill completed jobs."""
+    if args.job_id:
+        record = bill_job(args.job_id)
+        if record:
+            print(f"  Billed: {record['job_name']} | {record['duration_sec']}s | ${record['cost']}")
+        else:
+            print("Billing failed.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        bills = bill_all_completed()
+        for b in bills:
+            print(f"  {b['job_name']} | {b['duration_sec']}s | ${b['cost']}")
+        if not bills:
+            print("Nothing to bill.")
+
+
+def cmd_revenue(args):
+    """Show total revenue."""
+    total = get_total_revenue()
+    records = load_billing()
+    print(f"Total jobs billed: {len(records)}")
+    print(f"Total revenue:     ${total}")
+
+
+def cmd_failover(args):
+    """Run failover: check hosts, requeue orphaned jobs, reassign."""
+    requeued, assigned = failover_and_reassign()
+    if requeued:
+        print(f"Requeued {len(requeued)} jobs:")
+        for j in requeued:
+            print(f"  {j['job_id']} | {j['name']} | retry {j.get('retries', 0)}")
+    else:
+        print("No jobs to failover.")
+
+    if assigned:
+        print(f"\nReassigned {len(assigned)} jobs:")
+        for j, h in assigned:
+            print(f"  {j['name']} -> {h['host_id']}")
+
+
+def cmd_requeue(args):
+    """Manually requeue a job."""
+    result = requeue_job(args.job_id)
+    if result:
+        print(f"Job {args.job_id} requeued (retry {result.get('retries', 0)})")
+    else:
+        print(
+            f"Failed to requeue {args.job_id} (max retries exceeded or not found)", file=sys.stderr
+        )
+        sys.exit(1)
+
+
+def cmd_ssh_keygen(args):
+    """Generate SSH keypair."""
+    path = generate_ssh_keypair()
+    pub = get_public_key(path)
+    print(f"Key generated: {path}")
+    print(f"Public key:    {path}.pub")
+    if pub:
+        print(f"\nAdd this to your hosts' ~/.ssh/authorized_keys:")
+        print(f"  {pub}")
+
+
+def cmd_ssh_pubkey(args):
+    """Show SSH public key."""
+    pub = get_public_key()
+    if pub:
+        print(pub)
+    else:
+        print("No SSH key found. Run: xcelsior ssh-keygen", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_token_gen(args):
+    """Generate a secure API token."""
+    token = secrets.token_urlsafe(32)
+    print(f"Token: {token}")
+    print(f"\nAdd to .env:")
+    print(f"  XCELSIOR_API_TOKEN={token}")
+
+
+def cmd_host_add_located(args):
+    """Register a host, recording where it is."""
+    entry = register_host_located(
+        args.id,
+        args.ip,
+        args.gpu,
+        args.vram,
+        args.free_vram,
+        args.rate,
+        country=args.country,
+        province=getattr(args, "region", ""),
+    )
+    prov = entry.get("province", "")
+    print(
+        f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | "
+        f"{entry.get('country') or '—'}{(' ' + prov) if prov else ''} | ${entry['cost_per_hour']}/hr"
+    )
+
+
+def cmd_pool(args):
+    """List the autoscale pool."""
+    pool = load_autoscale_pool()
+    if not pool:
+        print("Autoscale pool is empty.")
+        return
+    for p in pool:
+        status = "provisioned" if p.get("provisioned") else "available"
+        print(
+            f"  [{status:>12}] {p['host_id']} | {p['ip']} | {p['gpu_model']} | {p['vram_gb']}GB | ${p['cost_per_hour']}/hr | {p.get('country', '?')}"
+        )
+
+
+def cmd_pool_add(args):
+    """Add a host to the autoscale pool."""
+    entry = add_to_pool(args.host_id, args.ip, args.gpu, args.vram, args.rate, args.country)
+    print(f"Added to pool: {entry['host_id']} | {entry['gpu_model']} | {entry['vram_gb']}GB")
+
+
+def cmd_pool_rm(args):
+    """Remove a host from the autoscale pool."""
+    remove_from_pool(args.host_id)
+    print(f"Removed from pool: {args.host_id}")
+
+
+def cmd_autoscale(args):
+    """Run an autoscale cycle."""
+    provisioned, assigned, deprovisioned = autoscale_cycle()
+    if provisioned:
+        print(f"Provisioned {len(provisioned)} hosts:")
+        for h in provisioned:
+            print(f"  {h['host_id']} | {h['gpu_model']}")
+    else:
+        print("No hosts provisioned.")
+
+    if assigned:
+        print(f"\nAssigned {len(assigned)} jobs:")
+        for j, h in assigned:
+            print(f"  {j['name']} -> {h['host_id']}")
+
+    if deprovisioned:
+        print(f"\nDeprovisioned {len(deprovisioned)} idle hosts:")
+        for hid in deprovisioned:
+            print(f"  {hid}")
+
+
+def cmd_market(args):
+    """Browse the marketplace."""
+    listings = get_marketplace(active_only=not args.all)
+    if not listings:
+        print("No listings.")
+        return
+    if console is not None:
+        table = Table(title="Marketplace")
+        table.add_column("Host ID")
+        table.add_column("GPU")
+        table.add_column("VRAM", justify="right")
+        table.add_column("Price", justify="right")
+        table.add_column("Owner")
+        table.add_column("Jobs", justify="right")
+        table.add_column("Earned", justify="right")
+        for l in listings:
+            table.add_row(
+                l["host_id"],
+                l["gpu_model"],
+                f"{l['vram_gb']}GB",
+                f"${l['price_per_hour']}/hr",
+                l["owner"],
+                str(l.get("total_jobs", 0)),
+                f"${l.get('total_earned', 0)}",
+            )
+        console.print(table)
+    else:
+        for l in listings:
+            print(
+                f"  {l['host_id']} | {l['gpu_model']} | {l['vram_gb']}GB | ${l['price_per_hour']}/hr | {l['owner']} | jobs: {l.get('total_jobs', 0)} | earned: ${l.get('total_earned', 0)}"
+            )
+
+
+def cmd_market_list(args):
+    """List a rig on the marketplace."""
+    listing = list_rig(
+        args.host_id,
+        args.gpu,
+        args.vram,
+        args.price,
+        description=args.desc,
+        owner=args.owner,
+        region=getattr(args, "region", ""),
+        province=getattr(args, "province", ""),
+    )
+    print(
+        f"Listed: {listing['host_id']} | {listing['gpu_model']} | ${listing['price_per_hour']}/hr | owner={listing['owner']}"
+    )
+
+
+def cmd_market_unlist(args):
+    """Unlist a rig."""
+    if unlist_rig(args.host_id):
+        print(f"Unlisted: {args.host_id}")
+    else:
+        print(f"Listing {args.host_id} not found.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_market_stats(args):
+    """Marketplace stats."""
+    stats = marketplace_stats()
+    print(f"  Active listings:   {stats['active_listings']}")
+    print(f"  Total listings:    {stats['total_listings']}")
+    print(f"  Jobs completed:    {stats['total_jobs_completed']}")
+    print(f"  Host payouts:      ${stats['total_host_payouts']}")
+    print(f"  Platform revenue:  ${stats.get('platform_revenue', 0)}")
+    print(f"  Platform cut:      {stats['default_platform_cut_pct'] * 100:.0f}%")
+
+
+def cmd_build(args):
+    """Build a Docker image for a model."""
+    print(f"Building image for {args.model}...")
+    if args.dockerfile_only:
+        content = generate_dockerfile(args.model, base_image=args.base, quantize=args.quantize)
+        print(content)
+        return
+
+    result = build_and_push(
+        args.model,
+        context_dir=args.context,
+        quantize=args.quantize,
+        base_image=args.base,
+        push=args.push,
+    )
+    if result["built"]:
+        print(f"  Built: {result['tag']}")
+        if result["pushed"]:
+            print(f"  Pushed: {result['remote_tag']}")
+        elif args.push:
+            print("  Push failed. Check registry config.")
+    else:
+        print("  Build failed.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_builds(args):
+    """List local builds."""
+    builds = list_builds()
+    if not builds:
+        print("No builds.")
+        return
+    for b in builds:
+        df = "Dockerfile" if b["has_dockerfile"] else "no Dockerfile"
+        print(f"  {b['model']} | {b['path']} | {df}")
+
+
+def cmd_tiers(args):
+    """List available priority tiers."""
+    tiers = list_tiers()
+    if console is not None:
+        table = Table(title="Priority Tiers")
+        table.add_column("Tier", style="bold")
+        table.add_column("Priority", justify="right")
+        table.add_column("Multiplier", justify="right")
+        table.add_column("Label")
+        for name, info in tiers.items():
+            table.add_row(name, str(info["priority"]), f"{info['multiplier']}x", info["label"])
+        console.print(table)
+    else:
+        print("Priority tiers:")
+        for name, info in tiers.items():
+            print(
+                f"  {name:>10} | priority {info['priority']} | {info['multiplier']}x billing | {info['label']}"
+            )
+
+
+def cmd_serve(args):
+    """Start the API server."""
+    import uvicorn
+    from api import app
+
+    print(f"Starting Xcelsior API on port {args.port}...")
+    uvicorn.run(app, host=args.bind, port=args.port)
+
+
+def cmd_health_start(args):
+    """Start continuous host health monitoring."""
+    print(f"Starting health monitor (interval: {args.interval}s)...")
+    start_health_monitor(interval=args.interval)
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        print("\nHealth monitor stopped.")
+
+
+# ── v2.1 CLI Command Handlers ────────────────────────────────────────
+
+
+def cmd_reputation(args):
+    """Get reputation score and tier for a host or user."""
+    from reputation import get_reputation_engine
+
+    re = get_reputation_engine()
+    score = re.compute_score(args.entity_id)
+    d = score.to_dict()
+    print(f"Entity: {args.entity_id}")
+    print(f"  Tier:   {d.get('tier', 'unknown')}")
+    print(f"  Score:  {d.get('total_score', 0)}")
+    print(f"  Trust:  {d.get('reliability_score', 0):.2f}")
+    for k, v in d.get("components", {}).items():
+        print(f"  {k}: {v}")
+
+
+def cmd_verify(args):
+    """Get verification status for a host."""
+    from verification import get_verification_engine
+
+    ve = get_verification_engine()
+    v = ve.store.get_verification(args.host_id)
+    if not v:
+        print(f"No verification record for host {args.host_id}")
+        return
+    print(f"Host: {args.host_id}")
+    print(f"  State: {v.state}")
+    print(f"  Score: {v.overall_score}")
+    for check in v.checks:
+        name = check.get("check_name", "?")
+        outcome = "PASS" if check.get("passed") else "FAIL"
+        details = check.get("details", "")
+        print(f"  {name}: {outcome}{' — ' + details if details else ''}")
+
+
+def cmd_wallet(args):
+    """Get billing wallet balance."""
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    wallet = be.get_wallet(args.customer_id)
+    print(f"Customer: {args.customer_id}")
+    print(f"  Balance: ${wallet.get('balance_cad', 0):.2f} CAD")
+    print(f"  Deposits: ${wallet.get('total_deposits_cad', 0):.2f}")
+    print(f"  Spent:    ${wallet.get('total_spent_cad', 0):.2f}")
+
+
+def cmd_deposit(args):
+    """Deposit credits into a customer wallet."""
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    result = be.deposit(args.customer_id, args.amount)
+    print(f"Deposited ${args.amount:.2f} CAD into {args.customer_id}")
+    print(f"  New balance: ${result.get('balance_cad', 0):.2f} CAD")
+
+
+def cmd_invoice(args):
+    """Generate invoice with tax breakdown."""
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    # Full-history invoice (period 0 → now); name blank, tax auto-detected by province.
+    invoice = be.generate_invoice(args.customer_id, "", 0, time.time())
+    print(f"Invoice for {args.customer_id}:")
+    print(f"  Subtotal: ${invoice.subtotal_cad:.2f}")
+    print(f"  Tax:      ${invoice.tax_amount_cad:.2f}")
+    print(f"  Total:    ${invoice.total_cad:.2f}")
+    for line in invoice.line_items:
+        print(f"    {line.get('description', '')}: ${line.get('subtotal_cad', 0):.2f}")
+
+
+def cmd_sla(args):
+    """Get SLA uptime and violations for a host."""
+    from sla import get_sla_engine
+
+    engine = get_sla_engine()
+    uptime = engine.get_host_uptime_pct(args.host_id)
+    print(f"Host: {args.host_id}")
+    print(f"  30-day Uptime: {uptime:.2f}%")
+    if args.month:
+        rec = engine.get_host_sla(args.host_id, args.month)
+        if rec:
+            print(f"  Month {args.month}: {rec.uptime_pct:.2f}% uptime, {rec.incidents} incidents")
+            if rec.credit_pct > 0:
+                print(f"  Credit: {rec.credit_pct}% (${rec.credit_cad:.2f} CAD)")
+    violations = engine.get_violations(args.host_id, since=time.time() - 2592000)
+    if violations:
+        print(f"  Recent violations: {len(violations)}")
+        for v in violations[:5]:
+            print(
+                f"    {v.get('violation_type')}: {v.get('severity')} "
+                f"({v.get('metric_value'):.1f} vs {v.get('threshold'):.1f})"
+            )
+
+
+def cmd_provider_register(args):
+    """Register a GPU provider with Stripe Connect."""
+    from stripe_connect import get_stripe_manager
+
+    mgr = get_stripe_manager()
+    result = mgr.create_provider_account(
+        provider_id=args.provider_id,
+        email=args.email,
+        provider_type=args.type,
+        corporation_name=args.corp_name,
+        business_number=args.bn,
+        gst_hst_number=args.gst,
+        province=args.province,
+    )
+    print(f"Provider registered: {args.provider_id}")
+    print(f"  Status: {result.get('status')}")
+    print(f"  Stripe ID: {result.get('stripe_account_id', 'not configured')}")
+    url = result.get("onboarding_url", "")
+    if url:
+        print(f"  Onboarding URL: {url}")
+
+
+def cmd_provider_info(args):
+    """Get provider account details."""
+    from stripe_connect import get_stripe_manager
+
+    mgr = get_stripe_manager()
+    provider = mgr.get_provider(args.provider_id)
+    if not provider:
+        print(f"Provider {args.provider_id} not found")
+        return
+    print(f"Provider: {args.provider_id}")
+    for k, v in provider.items():
+        if k not in ("stripe_account_id",) and v:
+            print(f"  {k}: {v}")
+
+
+def cmd_leaderboard(args):
+    """Show reputation leaderboard."""
+    from reputation import get_reputation_engine
+
+    re = get_reputation_engine()
+    lb = re.get_leaderboard(entity_type=args.type, limit=args.limit)
+    if console is not None:
+        table = Table(title=f"Reputation Leaderboard (top {args.limit} {args.type}s)")
+        table.add_column("#", justify="right")
+        table.add_column("Entity ID")
+        table.add_column("Tier", style="bold")
+        table.add_column("Score", justify="right")
+        for i, entry in enumerate(lb, 1):
+            table.add_row(
+                str(i),
+                entry.get("entity_id", "?"),
+                entry.get("tier", "?"),
+                str(entry.get("total_score", 0)),
+            )
+        console.print(table)
+    else:
+        print(f"Reputation Leaderboard (top {args.limit} {args.type}s):")
+        for i, entry in enumerate(lb, 1):
+            print(
+                f"  {i}. {entry.get('entity_id', '?')} — "
+                f"{entry.get('tier', '?')} ({entry.get('total_score', 0)} pts)"
+            )
+
+
+def cmd_host_profile(args):
+    """Show reusable host profile defaults and setup commands."""
+    from host_profiles import (
+        build_host_add_command,
+        build_market_list_command,
+        get_host_profile,
+        list_host_profiles,
+    )
+
+    if not args.profile:
+        profiles = list_host_profiles()
+        if console is not None:
+            table = Table(title="Host Profiles")
+            table.add_column("Profile")
+            table.add_column("GPU")
+            table.add_column("VRAM", justify="right")
+            table.add_column("Rate", justify="right")
+            table.add_column("Use")
+            for profile in profiles:
+                table.add_row(
+                    profile["profile_id"],
+                    profile["gpu_model"],
+                    f'{profile["total_vram_gb"]:g}GB',
+                    f'${profile["default_rate_cad_per_hour"]:.2f}/hr',
+                    profile["description"],
+                )
+            console.print(table)
+        else:
+            for profile in profiles:
+                print(
+                    f'{profile["profile_id"]}: {profile["gpu_model"]} '
+                    f'{profile["total_vram_gb"]:g}GB '
+                    f'${profile["default_rate_cad_per_hour"]:.2f}/hr'
+                )
+        return
+
+    try:
+        profile = get_host_profile(args.profile)
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(profile, indent=2))
+        return
+
+    print(profile["label"])
+    print(f"  Profile: {profile['profile_id']}")
+    print(f"  GPU:     {profile['gpu_model']} ({profile['architecture']})")
+    print(
+        f"  VRAM:    {profile['total_vram_gb']:g}GB total, "
+        f"{profile['usable_vram_gb']:g}GB usable"
+    )
+    print(f"  Rate:    ${profile['default_rate_cad_per_hour']:.2f}/hr CAD")
+    print(f"  Runtime: {profile['recommended_runtime']}")
+    print()
+    print("Recommended workloads:")
+    for item in profile["recommended_workloads"]:
+        print(f"  - {item}")
+    print("Avoid:")
+    for item in profile["avoid_workloads"]:
+        print(f"  - {item}")
+    print()
+    print("Register command:")
+    print(
+        "  "
+        + build_host_add_command(
+            profile["profile_id"],
+            args.host_id,
+            args.ip,
+            country=args.country,
+            province=args.province,
+        )
+    )
+    print("Marketplace command:")
+    print("  " + build_market_list_command(profile["profile_id"], args.host_id, owner=args.owner))
+
+
+def cmd_host_accept(args):
+    """Run local provider acceptance checks."""
+    from host_acceptance import probe_local_host
+
+    report = probe_local_host(
+        host_id=args.host_id,
+        expected_gpu_model=args.expected_gpu,
+        min_vram_gb=args.min_vram,
+        docker_probe=args.docker_probe,
+        docker_image=args.docker_image,
+    )
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    elif console is not None:
+        title = f"Host Acceptance: {report['host_id']}"
+        table = Table(title=title)
+        table.add_column("Check")
+        table.add_column("Status")
+        table.add_column("Detail")
+        for check in report["checks"]:
+            status = "[green]PASS[/green]" if check["ok"] else "[red]FAIL[/red]"
+            if check["severity"] == "info":
+                status = "[cyan]INFO[/cyan]"
+            table.add_row(check["name"], status, check["detail"])
+        console.print(table)
+        print(f"Ready: {'yes' if report['ready'] else 'no'}")
+    else:
+        print(f"Host acceptance: {report['host_id']}")
+        for check in report["checks"]:
+            if check["severity"] == "info":
+                status = "INFO"
+            else:
+                status = "PASS" if check["ok"] else "FAIL"
+            print(f"  {status:>4} {check['name']}: {check['detail']}")
+        print(f"Ready: {'yes' if report['ready'] else 'no'}")
+
+    if not report["ready"]:
+        sys.exit(1)
+
+
+# ── Config File (~/.xcelsior/config.toml) ─────────────────────────────
+
+CONFIG_DIR = os.path.expanduser("~/.xcelsior")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
+
+
+def _load_config() -> dict:
+    """Load config from ~/.xcelsior/config.toml (TOML format)."""
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+    try:
+        if sys.version_info >= (3, 11):
+            import tomllib
+
+            with open(CONFIG_FILE, "rb") as f:
+                return tomllib.load(f)
+        else:
+            # Minimal TOML parser for simple key=value files
+            cfg: dict = {}
+            section = cfg
+            with open(CONFIG_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("["):
+                        name = line.strip("[]").strip()
+                        cfg[name] = {}
+                        section = cfg[name]
+                    elif "=" in line:
+                        k, v = line.split("=", 1)
+                        v = v.strip().strip('"').strip("'")
+                        if v.lower() in ("true", "false"):
+                            v = v.lower() == "true"
+                        section[k.strip()] = v
+            return cfg
+    except Exception:
+        return {}
+
+
+def _save_config(cfg: dict) -> None:
+    """Persist config dict to ~/.xcelsior/config.toml."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    lines: list[str] = []
+    top_keys = {k: v for k, v in cfg.items() if not isinstance(v, dict)}
+    sub_keys = {k: v for k, v in cfg.items() if isinstance(v, dict)}
+    for k, v in top_keys.items():
+        if isinstance(v, bool):
+            lines.append(f"{k} = {'true' if v else 'false'}")
+        elif isinstance(v, (int, float)):
+            lines.append(f"{k} = {v}")
+        else:
+            lines.append(f'{k} = "{v}"')
+    for section, vals in sub_keys.items():
+        lines.append(f"\n[{section}]")
+        for k, v in vals.items():
+            if isinstance(v, bool):
+                lines.append(f"{k} = {'true' if v else 'false'}")
+            elif isinstance(v, (int, float)):
+                lines.append(f"{k} = {v}")
+            else:
+                lines.append(f'{k} = "{v}"')
+    with open(CONFIG_FILE, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(CONFIG_FILE, 0o600)
+
+
+def _cfg_get(key: str, default: str = "") -> str:
+    """Get a config value. Supports dotted keys like 'defaults.region'."""
+    cfg = _load_config()
+    parts = key.split(".")
+    node = cfg
+    for p in parts[:-1]:
+        node = node.get(p, {})
+        if not isinstance(node, dict):
+            return default
+    return str(node.get(parts[-1], default))
+
+
+def get_api_url() -> str:
+    """Resolve API URL from: --api-url flag env > config > default."""
+    return os.environ.get("XCELSIOR_API_URL", "") or _cfg_get("api_url") or "http://localhost:8000"
+
+
+def get_default_region() -> str:
+    """Resolve default region from config."""
+    return os.environ.get("XCELSIOR_REGION", "") or _cfg_get("defaults.region") or ""
+
+
+# ── OAuth2 Device Flow (CLI-to-Web Auth) ─────────────────────────────
+
+TOKEN_FILE = os.path.join(CONFIG_DIR, "token.json")
+
+
+def _save_token(token_data):
+    """Save OAuth token to disk."""
+    os.makedirs(os.path.dirname(TOKEN_FILE), exist_ok=True)
+    with open(TOKEN_FILE, "w") as f:
+        json.dump(token_data, f, indent=2)
+    os.chmod(TOKEN_FILE, 0o600)
+
+
+def _load_token():
+    """Load saved OAuth token from disk."""
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE) as f:
+            return json.load(f)
+    return None
+
+
+def get_api_token():
+    """Get bearer auth from env var or saved OAuth user token."""
+    env_token = os.environ.get("XCELSIOR_API_TOKEN", "")
+    if env_token:
+        return env_token
+    saved = _load_token()
+    if saved:
+        return saved.get("access_token", "")
+    return ""
+
+
+#: This CLI's OAuth client. `xcelsior-cli` is seeded first-party and *public*
+#: (no client secret — a CLI on a user's laptop cannot keep one), with the
+#: device_code and refresh_token grants. Both device-flow calls must carry it:
+#: `authenticate_client` looks the client up before anything else and answers
+#: 401 `invalid_client` when the id is absent, which is what `xcelsior login`
+#: was doing on every invocation.
+OAUTH_CLIENT_ID = "xcelsior-cli"
+OAUTH_SCOPES = ("profile", "email", "offline_access")
+
+
+def cmd_login(args):
+    """Authenticate via OAuth2 device flow (RFC 8628).
+
+    Opens browser to verification URL where user enters the displayed code.
+    Polls for authorization and saves the bearer token to ~/.xcelsior/token.json.
+
+    Talks to `/oauth/device/authorize` and `/oauth/token` rather than the
+    `/api/auth/*` compatibility aliases: the aliases are marked deprecated and
+    serve `Sunset` headers, and there is no reason for the first-party client to
+    depend on a surface that exists for other people's older integrations.
+    """
+    import webbrowser
+
+    api_url = getattr(args, "api_url", None) or get_api_url()
+
+    import requests as req
+
+    # Step 1: Request device code.
+    #
+    # The two ways this fails need different answers, so they are caught
+    # separately. A transport error really is "we could not reach the API" —
+    # check DNS, the VPN, the URL. An HTTP status is the opposite: the API
+    # answered, and answered that it would not do this. Reporting both as
+    # unreachability is what hid this command being broken for so long, because
+    # `401 invalid_client` read as an outage and nobody looked at the body.
+    try:
+        resp = req.post(
+            f"{api_url}/oauth/device/authorize",
+            json={"client_id": OAUTH_CLIENT_ID, "scope": " ".join(OAUTH_SCOPES)},
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except req.exceptions.HTTPError as e:
+        refusal = e.response
+        try:
+            detail = f" — {refusal.json()}"
+        except Exception:
+            detail = f" — {refusal.text[:200]}" if refusal.text else ""
+        print(
+            f"Error: {api_url} refused the device authorization request "
+            f"(HTTP {refusal.status_code}){detail}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: Could not reach Xcelsior API at {api_url}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    data = resp.json()
+    device_code = data["device_code"]
+    user_code = data["user_code"]
+    verification_uri = data["verification_uri"]
+    interval = data.get("interval", 5)
+    expires_in = data.get("expires_in", 600)
+
+    # Step 2: Show code and open browser
+    print()
+    print("  ┌─────────────────────────────────────────┐")
+    print(f"  │  Your code:  {user_code:^25s}  │")
+    print("  └─────────────────────────────────────────┘")
+    print()
+    print(f"  Open {verification_uri} and enter the code above.")
+    print()
+
+    try:
+        webbrowser.open(verification_uri)
+        print("  Browser opened. Waiting for authorization...")
+    except Exception:
+        print("  Could not open browser. Please open the URL manually.")
+
+    # Step 3: Poll for token
+    deadline = time.time() + expires_in
+    while time.time() < deadline:
+        time.sleep(interval)
+        try:
+            poll = req.post(
+                f"{api_url}/oauth/token",
+                json={
+                    "client_id": OAUTH_CLIENT_ID,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": device_code,
+                },
+                timeout=10,
+            )
+            if poll.status_code == 200:
+                token_data = poll.json()
+                _save_token(token_data)
+                print(f"\n  ✓ Authenticated! Token saved to {TOKEN_FILE}")
+                return
+            elif poll.status_code == 428:
+                # authorization_pending — keep polling
+                sys.stdout.write(".")
+                sys.stdout.flush()
+                continue
+            elif poll.status_code == 410:
+                print("\n  ✗ Code expired. Run 'xcelsior login' again.", file=sys.stderr)
+                sys.exit(1)
+            else:
+                print(f"\n  ✗ Unexpected response: {poll.status_code}", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            print(f"\n  ✗ Poll error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    print("\n  ✗ Authorization timed out. Run 'xcelsior login' again.", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_logout(args):
+    """Remove saved authentication token."""
+    if os.path.exists(TOKEN_FILE):
+        os.remove(TOKEN_FILE)
+        print("Logged out. Token removed.")
+    else:
+        print("Not logged in (no saved token).")
+
+
+def cmd_whoami(args):
+    """Show current authentication status."""
+    token = get_api_token()
+    if not token:
+        print("Not authenticated. Run 'xcelsior login' to authenticate.")
+        return
+
+    source = "env bearer" if os.environ.get("XCELSIOR_API_TOKEN") else "saved oauth"
+    masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "****"
+    print(f"Authenticated ({source}): {masked}")
+    if source == "saved oauth":
+        print(f"Token file: {TOKEN_FILE}")
+
+
+# ── Slurm Commands ───────────────────────────────────────────────────
+
+
+def cmd_slurm_submit(args):
+    """Submit a job to a Slurm cluster."""
+    from slurm_adapter import slurm_submit_cli
+
+    job_dict = {
+        "job_id": secrets.token_hex(4),
+        "name": args.model,
+        "vram_needed_gb": args.vram,
+        "priority": args.priority,
+        "tier": args.tier or "free",
+        "image": getattr(args, "image", ""),
+    }
+    if args.gpus:
+        job_dict["num_gpus"] = args.gpus
+
+    result = slurm_submit_cli(job_dict, profile=args.profile, dry_run=args.dry_run)
+    print(result)
+
+
+def cmd_slurm_status(args):
+    """Check Slurm job status."""
+    from slurm_adapter import slurm_status_cli
+
+    result = slurm_status_cli(
+        xcelsior_job_id=args.job_id,
+        slurm_job_id=args.slurm_id,
+    )
+    print(result)
+
+
+def cmd_slurm_cancel(args):
+    """Cancel a Slurm job."""
+    from slurm_adapter import cancel_slurm_job
+
+    result = cancel_slurm_job(args.slurm_id)
+    if result.get("cancelled"):
+        print(f"Slurm job {args.slurm_id} cancelled.")
+    else:
+        print(f"Error: {result.get('error', 'Unknown error')}")
+
+
+def cmd_config(args):
+    """Get or set config values in ~/.xcelsior/config.toml."""
+    cfg = _load_config()
+    if args.action == "set":
+        parts = args.key.split(".")
+        if len(parts) == 2:
+            section, k = parts
+            if section not in cfg:
+                cfg[section] = {}
+            cfg[section][k] = args.value
+        else:
+            cfg[args.key] = args.value
+        _save_config(cfg)
+        print(f"Set {args.key} = {args.value}")
+    elif args.action == "get":
+        val = _cfg_get(args.key)
+        if val:
+            print(val)
+        else:
+            print(f"Key '{args.key}' not set.", file=sys.stderr)
+            sys.exit(1)
+    elif args.action == "list":
+        if not cfg:
+            print("No config set. Use 'xcelsior config set <key> <value>' to configure.")
+            return
+        if console is not None:
+            table = Table(title="~/.xcelsior/config.toml")
+            table.add_column("Key", style="cyan")
+            table.add_column("Value", style="green")
+            for k, v in cfg.items():
+                if isinstance(v, dict):
+                    for sk, sv in v.items():
+                        table.add_row(f"{k}.{sk}", str(sv))
+                else:
+                    table.add_row(k, str(v))
+            console.print(table)
+        else:
+            for k, v in cfg.items():
+                if isinstance(v, dict):
+                    for sk, sv in v.items():
+                        print(f"{k}.{sk} = {sv}")
+                else:
+                    print(f"{k} = {v}")
+    elif args.action == "unset":
+        parts = args.key.split(".")
+        if len(parts) == 2:
+            section, k = parts
+            if section in cfg and k in cfg[section]:
+                del cfg[section][k]
+                if not cfg[section]:
+                    del cfg[section]
+        elif args.key in cfg:
+            del cfg[args.key]
+        _save_config(cfg)
+        print(f"Unset {args.key}")
+    elif args.action == "path":
+        print(CONFIG_FILE)
+
+
+def main():
+    import sys
+
+    if "-h" not in sys.argv and "--help" not in sys.argv:
+        print(
+            "Note: xcelsior CLI is an ADMIN-ONLY operator tool with in-process scheduler access.",
+            file=sys.stderr,
+        )
+        print(
+            "It bypasses API auth/tenancy — never ship in provider or customer artifacts.",
+            file=sys.stderr,
+        )
+    parser = argparse.ArgumentParser(
+        prog="xcelsior",
+        description="Xcelsior — distributed GPU scheduler",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    # xcelsior run
+    p_run = sub.add_parser("run", help="Submit a job")
+    p_run.add_argument("--model", required=True, help="Model name")
+    p_run.add_argument("--vram", type=float, default=0, help="VRAM needed (GB)")
+    p_run.add_argument("--priority", type=int, default=0, help="Job priority")
+    p_run.add_argument(
+        "--tier",
+        choices=list(PRIORITY_TIERS.keys()),
+        default=None,
+        help="Priority tier (overrides --priority)",
+    )
+    p_run.add_argument("--gpus", type=int, default=1, help="Number of GPUs needed (default 1)")
+    p_run.add_argument("--gpu", default=None, help="Required GPU model, e.g. RTX 3060")
+    p_run.add_argument("--nfs-server", default=None, help="NFS server for shared storage")
+    p_run.add_argument("--nfs-path", default=None, help="NFS export path")
+    p_run.add_argument("--image", default=None, help="Docker image to run")
+    p_run.add_argument("--no-assign", action="store_true", help="Submit only, don't assign")
+    p_run.set_defaults(func=cmd_run)
+
+    # xcelsior jobs
+    p_jobs = sub.add_parser("jobs", help="List jobs")
+    p_jobs.add_argument("--status", help="Filter by status")
+    p_jobs.set_defaults(func=cmd_jobs)
+
+    # xcelsior job <id>
+    p_job = sub.add_parser("job", help="Get a specific job")
+    p_job.add_argument("job_id", help="Job ID")
+    p_job.set_defaults(func=cmd_job)
+
+    # xcelsior cancel <id>
+    p_cancel = sub.add_parser("cancel", help="Cancel a job")
+    p_cancel.add_argument("job_id", help="Job ID")
+    p_cancel.set_defaults(func=cmd_cancel)
+
+    # xcelsior process
+    p_proc = sub.add_parser("process", help="Process the job queue")
+    p_proc.set_defaults(func=cmd_process)
+
+    CA_PROVINCES = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
+
+    # xcelsior host add
+    p_hadd = sub.add_parser("host-add", help="Register a host")
+    p_hadd.add_argument("--id", required=True, help="Host ID")
+    p_hadd.add_argument("--ip", required=True, help="Host IP")
+    p_hadd.add_argument("--gpu", required=True, help="GPU model")
+    p_hadd.add_argument("--vram", type=float, required=True, help="Total VRAM (GB)")
+    p_hadd.add_argument(
+        "--free-vram", type=float, default=None, help="Free VRAM (GB), defaults to --vram"
+    )
+    p_hadd.add_argument("--rate", type=float, default=0.20, help="Cost per hour (default $0.20)")
+    p_hadd.add_argument("--country", default="CA", help="Country code (default CA)")
+    p_hadd.add_argument(
+        "--province",
+        default="",
+        choices=CA_PROVINCES,
+        help="Province/territory code (e.g. ON, BC, QC)",
+    )
+    p_hadd.set_defaults(func=cmd_host_add)
+
+    # xcelsior host-rm
+    p_hrm = sub.add_parser("host-rm", help="Remove a host")
+    p_hrm.add_argument("id", help="Host ID")
+    p_hrm.set_defaults(func=cmd_host_rm)
+
+    # xcelsior hosts
+    p_hosts = sub.add_parser("hosts", help="List hosts")
+    p_hosts.add_argument("--all", action="store_true", help="Include dead hosts")
+    p_hosts.set_defaults(func=cmd_hosts)
+
+    # xcelsior ping
+    p_ping = sub.add_parser("ping", help="Health check all hosts")
+    p_ping.set_defaults(func=cmd_ping)
+
+    # xcelsior bill
+    p_bill = sub.add_parser("bill", help="Bill completed jobs")
+    p_bill.add_argument("job_id", nargs="?", help="Bill a specific job (or all if omitted)")
+    p_bill.set_defaults(func=cmd_bill)
+
+    # xcelsior revenue
+    p_rev = sub.add_parser("revenue", help="Show total revenue")
+    p_rev.set_defaults(func=cmd_revenue)
+
+    # xcelsior failover
+    p_fo = sub.add_parser("failover", help="Run failover: requeue jobs from dead hosts")
+    p_fo.set_defaults(func=cmd_failover)
+
+    # xcelsior requeue
+    p_rq = sub.add_parser("requeue", help="Manually requeue a job")
+    p_rq.add_argument("job_id", help="Job ID to requeue")
+    p_rq.set_defaults(func=cmd_requeue)
+
+    # xcelsior ssh-keygen
+    p_sshkg = sub.add_parser("ssh-keygen", help="Generate SSH keypair for host access")
+    p_sshkg.set_defaults(func=cmd_ssh_keygen)
+
+    # xcelsior ssh-pubkey
+    p_sshpk = sub.add_parser("ssh-pubkey", help="Show SSH public key")
+    p_sshpk.set_defaults(func=cmd_ssh_pubkey)
+
+    # xcelsior token-gen
+    p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
+    p_tgen.set_defaults(func=cmd_token_gen)
+
+    # xcelsior host-add-located
+    p_haddca = sub.add_parser("host-add-located", help="Register a host, recording its location")
+    p_haddca.add_argument("--id", required=True, help="Host ID")
+    p_haddca.add_argument("--ip", required=True, help="Host IP")
+    p_haddca.add_argument("--gpu", required=True, help="GPU model")
+    p_haddca.add_argument("--vram", type=float, required=True, help="Total VRAM (GB)")
+    p_haddca.add_argument("--free-vram", type=float, default=None, help="Free VRAM (GB)")
+    p_haddca.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
+    p_haddca.add_argument("--country", default="", help="ISO country code, e.g. CA, US, DE")
+    p_haddca.add_argument(
+        "--region", default="", help="Region or sub-national code, e.g. ON, CA-west"
+    )
+    p_haddca.set_defaults(func=cmd_host_add_located)
+
+    # xcelsior host-profile [profile]
+    p_hprofile = sub.add_parser("host-profile", help="Show reusable provider host profiles")
+    p_hprofile.add_argument("profile", nargs="?", help="Profile ID or alias, e.g. rtx3060-local")
+    p_hprofile.add_argument("--host-id", default="tower-server", help="Host ID for command output")
+    p_hprofile.add_argument(
+        "--ip", default="tower-server", help="Host IP/hostname for command output"
+    )
+    p_hprofile.add_argument("--country", default="CA", help="Country code for command output")
+    p_hprofile.add_argument(
+        "--province",
+        default="ON",
+        choices=CA_PROVINCES,
+        help="Province/territory code for command output",
+    )
+    p_hprofile.add_argument("--owner", default="internal", help="Marketplace owner label")
+    p_hprofile.add_argument("--json", action="store_true", help="Print profile JSON")
+    p_hprofile.set_defaults(func=cmd_host_profile)
+
+    # xcelsior host-accept
+    p_haccept = sub.add_parser("host-accept", help="Run local provider acceptance checks")
+    p_haccept.add_argument("--host-id", default="local", help="Host ID label for the report")
+    p_haccept.add_argument("--expected-gpu", default="", help="Expected GPU model substring")
+    p_haccept.add_argument("--min-vram", type=float, default=0, help="Required minimum VRAM in GB")
+    p_haccept.add_argument(
+        "--docker-probe",
+        action="store_true",
+        help="Run a Docker GPU visibility probe using the configured image",
+    )
+    p_haccept.add_argument(
+        "--docker-image",
+        default="nvidia/cuda:12.4.1-base-ubuntu22.04",
+        help="Container image for --docker-probe",
+    )
+    p_haccept.add_argument("--json", action="store_true", help="Print report JSON")
+    p_haccept.set_defaults(func=cmd_host_accept)
+
+    # xcelsior pool
+    p_pool = sub.add_parser("pool", help="List autoscale pool")
+    p_pool.set_defaults(func=cmd_pool)
+
+    # xcelsior pool-add
+    p_pooladd = sub.add_parser("pool-add", help="Add host to autoscale pool")
+    p_pooladd.add_argument("host_id", help="Host ID")
+    p_pooladd.add_argument("--ip", required=True, help="Host IP")
+    p_pooladd.add_argument("--gpu", required=True, help="GPU model")
+    p_pooladd.add_argument("--vram", type=float, required=True, help="VRAM (GB)")
+    p_pooladd.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
+    p_pooladd.add_argument("--country", default="CA", help="Country code")
+    p_pooladd.set_defaults(func=cmd_pool_add)
+
+    # xcelsior pool-rm
+    p_poolrm = sub.add_parser("pool-rm", help="Remove host from autoscale pool")
+    p_poolrm.add_argument("host_id", help="Host ID")
+    p_poolrm.set_defaults(func=cmd_pool_rm)
+
+    # xcelsior autoscale
+    p_autoscale = sub.add_parser("autoscale", help="Run an autoscale cycle")
+    p_autoscale.set_defaults(func=cmd_autoscale)
+
+    # xcelsior market
+    p_market = sub.add_parser("market", help="Browse marketplace listings")
+    p_market.add_argument("--all", action="store_true", help="Include inactive listings")
+    p_market.set_defaults(func=cmd_market)
+
+    # xcelsior market-list
+    p_mlist = sub.add_parser("market-list", help="List a rig on the marketplace")
+    p_mlist.add_argument("host_id", help="Host ID")
+    p_mlist.add_argument("--gpu", required=True, help="GPU model")
+    p_mlist.add_argument("--vram", type=float, required=True, help="VRAM (GB)")
+    p_mlist.add_argument("--price", type=float, required=True, help="Price per hour")
+    p_mlist.add_argument("--region", default="", help="Region (e.g. ca-on, us-east)")
+    p_mlist.add_argument(
+        "--province", default="", choices=[""] + CA_PROVINCES, help="Province/territory code"
+    )
+    p_mlist.add_argument("--desc", default="", help="Description")
+    p_mlist.add_argument("--owner", default="anonymous", help="Owner name")
+    p_mlist.set_defaults(func=cmd_market_list)
+
+    # xcelsior market-unlist
+    p_munlist = sub.add_parser("market-unlist", help="Unlist a rig from the marketplace")
+    p_munlist.add_argument("host_id", help="Host ID to unlist")
+    p_munlist.set_defaults(func=cmd_market_unlist)
+
+    # xcelsior market-stats
+    p_mstats = sub.add_parser("market-stats", help="Marketplace aggregate stats")
+    p_mstats.set_defaults(func=cmd_market_stats)
+
+    # xcelsior build
+    p_build = sub.add_parser("build", help="Build a Docker image for a model")
+    p_build.add_argument("model", help="Model name")
+    p_build.add_argument("--base", default="python:3.11-slim", help="Base Docker image")
+    p_build.add_argument(
+        "--quantize", choices=["gguf", "gptq", "awq"], default=None, help="Quantization method"
+    )
+    p_build.add_argument("--context", default=None, help="Build context directory")
+    p_build.add_argument("--push", action="store_true", help="Push to registry after build")
+    p_build.add_argument(
+        "--dockerfile-only", action="store_true", help="Print Dockerfile, don't build"
+    )
+    p_build.set_defaults(func=cmd_build)
+
+    # xcelsior builds
+    p_builds = sub.add_parser("builds", help="List local builds")
+    p_builds.set_defaults(func=cmd_builds)
+
+    # xcelsior tiers
+    p_tiers = sub.add_parser("tiers", help="List priority tiers and billing multipliers")
+    p_tiers.set_defaults(func=cmd_tiers)
+
+    # xcelsior serve
+    p_serve = sub.add_parser("serve", help="Start the API server")
+    p_serve.add_argument("--port", type=int, default=8000, help="Port (default 8000)")
+    p_serve.add_argument("--bind", default="0.0.0.0", help="Bind address")
+    p_serve.set_defaults(func=cmd_serve)
+
+    # xcelsior health-start
+    p_health = sub.add_parser("health-start", help="Start host health monitor loop")
+    p_health.add_argument("--interval", type=int, default=5, help="Check interval in seconds")
+    p_health.set_defaults(func=cmd_health_start)
+
+    # ── v2.1 CLI Commands ─────────────────────────────────────────────
+
+    # xcelsior reputation <entity_id>
+    p_rep = sub.add_parser("reputation", help="Get reputation score and tier for a host/user")
+    p_rep.add_argument("entity_id", help="Host or user ID")
+    p_rep.set_defaults(func=cmd_reputation)
+
+    # xcelsior verify <host_id>
+    p_verify = sub.add_parser("verify", help="Get verification status for a host")
+    p_verify.add_argument("host_id", help="Host ID to check verification status")
+    p_verify.set_defaults(func=cmd_verify)
+
+    # xcelsior wallet <customer_id>
+    p_wallet = sub.add_parser("wallet", help="Get billing wallet balance for a customer")
+    p_wallet.add_argument("customer_id", help="Customer ID")
+    p_wallet.set_defaults(func=cmd_wallet)
+
+    # xcelsior deposit <customer_id> <amount>
+    p_deposit = sub.add_parser("deposit", help="Deposit CAD credits into a customer wallet")
+    p_deposit.add_argument("customer_id", help="Customer ID")
+    p_deposit.add_argument("amount", type=float, help="Amount in CAD")
+    p_deposit.set_defaults(func=cmd_deposit)
+
+    # xcelsior invoice <customer_id>
+    p_invoice = sub.add_parser("invoice", help="Generate invoice with tax breakdown")
+    p_invoice.add_argument("customer_id", help="Customer ID")
+    p_invoice.set_defaults(func=cmd_invoice)
+
+    # xcelsior sla <host_id>
+    p_sla = sub.add_parser("sla", help="Get SLA uptime and violations for a host")
+    p_sla.add_argument("host_id", help="Host ID")
+    p_sla.add_argument("--month", default="", help="Month in YYYY-MM format")
+    p_sla.set_defaults(func=cmd_sla)
+
+    # xcelsior provider-register
+    p_preg = sub.add_parser("provider-register", help="Register a GPU provider (Stripe Connect)")
+    p_preg.add_argument("provider_id", help="Unique provider ID")
+    p_preg.add_argument("--email", required=True, help="Provider email")
+    p_preg.add_argument(
+        "--type", default="individual", choices=["individual", "company"], help="Provider type"
+    )
+    p_preg.add_argument("--corp-name", default="", help="Corporation name (for company type)")
+    p_preg.add_argument("--bn", default="", help="CRA Business Number")
+    p_preg.add_argument("--gst", default="", help="GST/HST registration number")
+    p_preg.add_argument(
+        "--province",
+        default="ON",
+        choices=CA_PROVINCES,
+        help="Province/territory code (default ON)",
+    )
+    p_preg.set_defaults(func=cmd_provider_register)
+
+    # xcelsior provider <provider_id>
+    p_prov = sub.add_parser("provider", help="Get provider account details")
+    p_prov.add_argument("provider_id", help="Provider ID")
+    p_prov.set_defaults(func=cmd_provider_info)
+
+    # xcelsior leaderboard
+    p_lb = sub.add_parser("leaderboard", help="Show reputation leaderboard")
+    p_lb.add_argument("--type", default="host", help="Entity type (host/user)")
+    p_lb.add_argument("--limit", type=int, default=10, help="Number of entries")
+    p_lb.set_defaults(func=cmd_leaderboard)
+
+    # ── v2.2 CLI Commands ─────────────────────────────────────────────
+
+    # xcelsior login
+    p_login = sub.add_parser("login", help="Authenticate via browser (OAuth2 device flow)")
+    p_login.add_argument(
+        "--api-url",
+        dest="api_url",
+        default=None,
+        help="API base URL (default: XCELSIOR_API_URL or localhost:8000)",
+    )
+    p_login.set_defaults(func=cmd_login)
+
+    # xcelsior logout
+    p_logout = sub.add_parser("logout", help="Remove saved authentication token")
+    p_logout.set_defaults(func=cmd_logout)
+
+    # xcelsior whoami
+    p_whoami = sub.add_parser("whoami", help="Show current authentication status")
+    p_whoami.set_defaults(func=cmd_whoami)
+
+    # xcelsior slurm-submit
+    p_slurm_sub = sub.add_parser("slurm-submit", help="Submit a job to Slurm cluster")
+    p_slurm_sub.add_argument("--model", required=True, help="Model name")
+    p_slurm_sub.add_argument("--vram", type=float, default=0, help="VRAM needed (GB)")
+    p_slurm_sub.add_argument("--priority", type=int, default=0, help="Priority")
+    p_slurm_sub.add_argument("--tier", default=None, help="Priority tier")
+    p_slurm_sub.add_argument(
+        "--profile",
+        default=None,
+        choices=["nibi", "graham", "narval", "generic"],
+        help="Cluster profile",
+    )
+    p_slurm_sub.add_argument("--image", default="", help="Docker/Apptainer image")
+    p_slurm_sub.add_argument("--gpus", type=int, default=None, help="Number of GPUs")
+    p_slurm_sub.add_argument(
+        "--dry-run", action="store_true", help="Print script without submitting"
+    )
+    p_slurm_sub.set_defaults(func=cmd_slurm_submit)
+
+    # xcelsior slurm-status
+    p_slurm_st = sub.add_parser("slurm-status", help="Check Slurm job status")
+    p_slurm_st.add_argument("--job-id", default=None, help="Xcelsior job ID")
+    p_slurm_st.add_argument("--slurm-id", default=None, help="Slurm job ID")
+    p_slurm_st.set_defaults(func=cmd_slurm_status)
+
+    # xcelsior slurm-cancel
+    p_slurm_cancel = sub.add_parser("slurm-cancel", help="Cancel a Slurm job")
+    p_slurm_cancel.add_argument("slurm_id", help="Slurm job ID")
+    p_slurm_cancel.set_defaults(func=cmd_slurm_cancel)
+
+    # xcelsior config <action> [key] [value]
+    p_cfg = sub.add_parser("config", help="Manage ~/.xcelsior/config.toml settings")
+    p_cfg_sub = p_cfg.add_subparsers(dest="action")
+    p_cfg_set = p_cfg_sub.add_parser("set", help="Set a config value")
+    p_cfg_set.add_argument("key", help="Config key (e.g. api_url, defaults.region)")
+    p_cfg_set.add_argument("value", help="Config value")
+    p_cfg_get = p_cfg_sub.add_parser("get", help="Get a config value")
+    p_cfg_get.add_argument("key", help="Config key")
+    p_cfg_list = p_cfg_sub.add_parser("list", help="List all config values")
+    p_cfg_unset = p_cfg_sub.add_parser("unset", help="Remove a config key")
+    p_cfg_unset.add_argument("key", help="Config key to remove")
+    p_cfg_path = p_cfg_sub.add_parser("path", help="Show config file path")
+    p_cfg.set_defaults(func=cmd_config)
+
+    # ── argcomplete shell completion ──────────────────────────────────
+    try:
+        import argcomplete
+
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    # Config subcommand needs action
+    if args.command == "config" and not getattr(args, "action", None):
+        p_cfg.print_help()
+        sys.exit(1)
+
+    # Default free_vram to total vram for host-add commands
+    if args.command in ("host-add", "host-add-located") and args.free_vram is None:
+        args.free_vram = args.vram
+
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

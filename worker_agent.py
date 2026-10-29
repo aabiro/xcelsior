@@ -1,0 +1,8100 @@
+#!/usr/bin/env python3
+# Xcelsior Worker Agent v2.2.0
+# Pull-based GPU worker agent for distributed GPU scheduling.
+#
+# Architecture change from v1.0.0 (push-based):
+#   - Agents POLL the scheduler for work instead of scheduler SSHing in
+#   - Works behind CGNAT / firewalls (no inbound ports needed)
+#   - Integrates Tailscale/Headscale for optional mesh networking
+#   - Container lifecycle management with defense-in-depth security
+#   - Mining detection heuristics
+#   - Compute score benchmarking (XCU)
+#   - Graceful preemption handling
+
+import os
+
+# Auto-load .env file (must be before any os.environ reads) — except under the
+# test suite. `.env` is the developer's own config, and it holds real
+# credentials; loaded here, it silently filled every variable `.env.test` did
+# not set, so tests passed or failed by whose machine ran them, and could reach
+# live services with live keys. conftest sets XCELSIOR_SKIP_DOTENV before
+# anything imports this module.
+from dotenv import load_dotenv
+
+if not os.environ.get("XCELSIOR_SKIP_DOTENV"):
+    load_dotenv()
+
+import json
+import logging
+import os
+import re
+import hashlib
+import secrets
+import signal
+import shutil
+import subprocess
+import shlex
+import sys
+import threading
+import time
+import uuid
+from contextlib import suppress
+from datetime import datetime
+from pathlib import Path
+
+# When launched as `python worker_agent.py`, this module is loaded as
+# `__main__`. Some extracted helper modules lazily `import worker_agent`
+# to access shared state; without this alias Python would import the file a
+# second time under the `worker_agent` name, re-running top-level metric
+# registration and crashing with duplicate Prometheus timeseries.
+if __name__ == "__main__":
+    sys.modules.setdefault("worker_agent", sys.modules[__name__])
+
+try:
+    import requests
+except ImportError:
+    print("Error: 'requests' module not found. Install with: pip install requests")
+    sys.exit(1)
+
+try:  # P2.4 — bandwidth / disk IO metrics. Optional: if psutil is missing, we
+    # silently omit the fields rather than failing the agent.
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover
+    psutil = None  # type: ignore
+
+from security import (
+    admit_node,
+    build_secure_docker_args,
+    build_egress_iptables_rules,
+    check_mining_heuristic,
+    get_gpu_telemetry,
+    get_local_versions,
+    install_gvisor,
+    is_gvisor_available,
+    recommend_runtime,
+)
+import worker_privileged  # root helper client: mounts, LUKS, other users' processes
+
+# ── NVML Telemetry (REPORT_FEATURE_1.md §Lightweight Monitoring) ─────
+# Use pynvml bindings when available; security.py's get_gpu_telemetry()
+# already delegates to nvml_telemetry when NVML is initialized.
+
+try:
+    from nvml_telemetry import (
+        nvml_init,
+        nvml_shutdown,
+        is_nvml_available,
+        collect_all_gpus,
+        get_gpu_info_nvml,
+        build_verification_report,
+        get_gpu_compute_pids,
+    )
+
+    _nvml_imported = True
+except ImportError:
+    _nvml_imported = False
+
+    def nvml_init():
+        return False
+
+    def nvml_shutdown():
+        pass
+
+    def is_nvml_available():
+        return False
+
+    def collect_all_gpus():
+        return []
+
+    def get_gpu_info_nvml():
+        return None
+
+    def build_verification_report(gpu_index=0):
+        return None
+
+    def get_gpu_compute_pids(gpu_index):
+        return None
+
+
+# ── Configuration ─────────────────────────────────────────────────────
+
+# Required
+HOST_ID = os.environ.get("XCELSIOR_HOST_ID")
+SCHEDULER_URL = os.environ.get("XCELSIOR_SCHEDULER_URL")
+
+# Auth
+API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN", "")
+OAUTH_CLIENT_ID = os.environ.get("XCELSIOR_OAUTH_CLIENT_ID", "")
+OAUTH_CLIENT_SECRET = os.environ.get("XCELSIOR_OAUTH_CLIENT_SECRET", "")
+OAUTH_SCOPE = os.environ.get("XCELSIOR_OAUTH_SCOPE", "api").strip()
+OAUTH_TOKEN_URL = os.environ.get("XCELSIOR_OAUTH_TOKEN_URL", "")
+OAUTH_TOKEN_TIMEOUT_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_TIMEOUT_SEC", "10"))
+OAUTH_TOKEN_REFRESH_SKEW_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_REFRESH_SKEW_SEC", "60"))
+
+# Optional tuning
+COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
+HOST_COUNTRY = os.environ.get("XCELSIOR_COUNTRY", "").strip().upper()
+HOST_REGION = os.environ.get("XCELSIOR_REGION", "").strip()
+HOST_SSH_USER = os.environ.get("XCELSIOR_HOST_SSH_USER", "").strip()
+HEARTBEAT_INTERVAL = int(os.environ.get("XCELSIOR_HEARTBEAT_INTERVAL", "10"))
+POLL_INTERVAL = int(os.environ.get("XCELSIOR_POLL_INTERVAL", "5"))
+MINING_CHECK_INTERVAL = int(os.environ.get("XCELSIOR_MINING_CHECK_INTERVAL", "60"))
+MAX_CONSECUTIVE_FAILURES = int(os.environ.get("XCELSIOR_MAX_FAILURES", "30"))
+CONTAINER_START_TIMEOUT = int(os.environ.get("XCELSIOR_CONTAINER_START_TIMEOUT", "180"))
+IMAGE_PREPULL_ENABLED = os.environ.get("XCELSIOR_IMAGE_PREPULL_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+IMAGE_PREPULL_INTERVAL = int(os.environ.get("XCELSIOR_IMAGE_PREPULL_INTERVAL", "60"))
+IMAGE_WARMER_ENABLED = os.environ.get("XCELSIOR_IMAGE_WARMER_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+# Tailscale / Headscale
+TAILSCALE_ENABLED = os.environ.get("XCELSIOR_TAILSCALE_ENABLED", "").lower() in ("1", "true", "yes")
+TAILSCALE_AUTHKEY = os.environ.get("XCELSIOR_TAILSCALE_AUTHKEY", "")
+HEADSCALE_URL = os.environ.get("XCELSIOR_HEADSCALE_URL", "")
+TAILSCALE_SOCKET = os.environ.get("XCELSIOR_TAILSCALE_SOCKET", "").strip()
+
+# gVisor preference
+PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1", "true", "yes")
+
+VERSION = "2.2.0"
+_HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
+
+
+def _reported_host_ssh_user() -> str:
+    """Unix account the API should use for Docker-over-SSH host control.
+
+    The provider wizard writes XCELSIOR_HOST_SSH_USER after it authorizes the
+    platform public key in that account's authorized_keys. Do not infer root
+    from a systemd process; that would break older installs that still rely on
+    the deployment default XCELSIOR_SSH_USER.
+    """
+    if not HOST_SSH_USER:
+        return ""
+    if _HOST_SSH_USER_RE.fullmatch(HOST_SSH_USER):
+        return HOST_SSH_USER
+    log.warning("Ignoring invalid XCELSIOR_HOST_SSH_USER=%r", HOST_SSH_USER)
+    return ""
+
+
+def _self_sha256() -> str:
+    """Return the sha256 of this worker_agent.py file (best-effort).
+
+    Used for:
+      - Reporting agent_sha256 in /host heartbeats so the control plane
+        knows which bytes are actually running on this host.
+      - Deciding whether an ``upgrade_agent`` directive is a no-op.
+    Returns empty string on any error (the file must exist; this is
+    almost always successful).
+    """
+    try:
+        import hashlib
+
+        return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    except Exception:
+        return ""
+
+
+# Reserved env-var keys the platform always injects into every container.
+# User-supplied `environment` values for these keys are always overridden.
+PLATFORM_ENV_KEYS = (
+    "XCELSIOR_JOB_ID",
+    "XCELSIOR_HOST_ID",
+    "XCELSIOR_OWNER",
+    "XCELSIOR_API_URL",
+    "XCELSIOR_GPU_MODEL",
+    "XCELSIOR_GPU_VRAM_GB",
+    "XCELSIOR_INSTANCE_NAME",
+    "XCELSIOR_PUBLIC_SSH_HOST",
+    "XCELSIOR_PUBLIC_SSH_PORT",
+    "XCELSIOR_TOOLS_PATH",
+    "XCELSIOR_EXPOSED_PORTS",
+    "XCELSIOR_AUTO_LAUNCH",
+)
+
+SERVERLESS_PLATFORM_ENV_KEYS = (
+    "XCELSIOR_JOB_TYPE",
+    "XCELSIOR_WORKER_ID",
+    "XCELSIOR_ENDPOINT_ID",
+    "XCELSIOR_HTTP_PORT",
+    "XCELSIOR_HEALTH_CHECK_PATH",
+    "XCELSIOR_API_TOKEN",
+)
+
+
+def _compute_public_ssh_port(job_id: str) -> int:
+    """Deterministic public SSH port for a job (mirrors SSH gateway mapping)."""
+    try:
+        return 10000 + (int(str(job_id)[:4], 16) % 55000)
+    except (ValueError, TypeError):
+        return 0
+
+
+def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
+    """Return the reserved platform env-var dict for ``job``.
+
+    These keys are injected *after* user-supplied env so users cannot override
+    them. Always returns strings (docker env requires string values).
+    """
+    job = job or {}
+    job_id = str(job.get("job_id", "") or "")
+    gi = gpu_info or {}
+    api_url = os.environ.get("XCELSIOR_API_URL", "https://xcelsior.ca")
+    # P2.1: surface tools path and user-requested exposed ports / auto-launch
+    # services so containers can discover them without a second API round-trip.
+    exposed_ports = job.get("exposed_ports") or []
+    if isinstance(exposed_ports, (list, tuple)):
+        exposed_ports_s = ",".join(str(int(p)) for p in exposed_ports if str(p).strip())
+    else:
+        exposed_ports_s = ""
+    auto_launch = job.get("auto_launch") or []
+    if isinstance(auto_launch, (list, tuple)):
+        auto_launch_s = ",".join(str(s).strip().lower() for s in auto_launch if str(s).strip())
+    else:
+        auto_launch_s = ""
+    env = {
+        "XCELSIOR_JOB_ID": job_id,
+        "XCELSIOR_HOST_ID": str(HOST_ID or ""),
+        "XCELSIOR_OWNER": str(job.get("owner", "") or ""),
+        "XCELSIOR_API_URL": str(api_url),
+        "XCELSIOR_GPU_MODEL": str(gi.get("gpu_model", "") or ""),
+        "XCELSIOR_GPU_VRAM_GB": str(gi.get("total_vram_gb", "") or ""),
+        "XCELSIOR_INSTANCE_NAME": str(job.get("name", "") or job_id),
+        "XCELSIOR_PUBLIC_SSH_HOST": "connect.xcelsior.ca",
+        "XCELSIOR_PUBLIC_SSH_PORT": str(_compute_public_ssh_port(job_id)),
+        "XCELSIOR_TOOLS_PATH": "/opt/xcelsior/bin",
+        "XCELSIOR_EXPOSED_PORTS": exposed_ports_s,
+        "XCELSIOR_AUTO_LAUNCH": auto_launch_s,
+    }
+    if str(job.get("job_type") or "").strip() == "serverless_worker":
+        env.update(
+            {
+                "XCELSIOR_JOB_TYPE": "serverless_worker",
+                "XCELSIOR_WORKER_ID": str(job.get("serverless_worker_id") or ""),
+                "XCELSIOR_ENDPOINT_ID": str(job.get("serverless_endpoint_id") or ""),
+                "XCELSIOR_HTTP_PORT": str(job.get("http_port") or 8080),
+                "XCELSIOR_HEALTH_CHECK_PATH": str(job.get("health_check_path") or "/health"),
+            }
+        )
+        if API_TOKEN:
+            env["XCELSIOR_API_TOKEN"] = str(API_TOKEN)
+    return env
+
+
+# ── Logging ───────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)-8s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("xcelsior-worker")
+
+# ── Metrics ──────────────────────────────────────────────────────────
+from prometheus_client import Counter as _PromCounter
+from prometheus_client import REGISTRY as _PROM_REGISTRY
+
+
+def _register_counter_once(name: str, doc: str, labels: list[str]):
+    """Register a prometheus Counter, reusing an existing collector if present.
+
+    Worker processes can import this module through multiple paths
+    (`__main__` + `worker_agent`) during warm reload / lazy helper imports.
+    Prometheus raises `ValueError: Duplicated timeseries ...` on duplicate
+    registration; in that case reuse the already-registered collector.
+    """
+    try:
+        return _PromCounter(name, doc, labels)
+    except ValueError:
+        # prometheus_client does not expose a public "get collector by name"
+        # API; `_names_to_collectors` is the canonical internal map used for
+        # duplicate detection.
+        existing = getattr(_PROM_REGISTRY, "_names_to_collectors", {}).get(name)
+        if existing is None:
+            raise
+        return existing
+
+
+_motd_reinjection_total = _register_counter_once(
+    "xcelsior_worker_motd_reinjection_total",
+    "Shell/MOTD re-injection attempts by outcome",
+    ["result"],
+)
+
+# P3/C7 — unknown/rejected commands at the drain-side allowlist gate.
+_agent_commands_rejected_total = _register_counter_once(
+    "xcelsior_worker_agent_commands_rejected_total",
+    "Agent commands rejected by worker-side allowlist (defence-in-depth)",
+    ["command"],
+)
+
+# ── Shutdown Coordination ────────────────────────────────────────────
+
+_shutdown = threading.Event()
+_active_containers = {}  # job_id -> container_name
+_missing_stop_container_log_at = {}  # container_name -> last absent-stop log time
+_adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
+_active_lock = threading.Lock()
+_image_pull_lock = threading.Lock()  # serialize job pulls vs idle/startup warmers
+_oauth_lock = threading.Lock()
+_oauth_access_token = ""
+_oauth_access_token_expires_at = 0.0
+
+
+def _signal_handler(signum, frame):
+    """Handle SIGTERM/SIGINT — graceful shutdown."""
+    sig_name = signal.Signals(signum).name
+    log.info("Received %s — initiating graceful shutdown", sig_name)
+    _shutdown.set()
+
+
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
+
+
+# ── GPU Queries ──────────────────────────────────────────────────────
+
+
+# Explicit 1:1 map from raw ``nvidia-smi --query-gpu=name`` output to the
+# canonical short title used everywhere else in the platform (matches
+# db.py _GPU_PRICING_BASE and frontend/src/lib/gpu-models.ts). This map
+# is the ONLY place raw vendor names are translated — no fuzzy matching,
+# no regex normalizer. Unknown names cause the host to quarantine.
+_NVIDIA_SMI_NAME_MAP: dict[str, str] = {
+    # ── NVIDIA Data Center ──
+    "NVIDIA B200": "B200",
+    "NVIDIA H200": "H200",
+    "NVIDIA H100 80GB HBM3": "H100",
+    "NVIDIA H100 PCIe": "H100",
+    "NVIDIA H100": "H100",
+    "NVIDIA H100 NVL": "H100 NVL",
+    "NVIDIA A100-SXM4-80GB": "A100",
+    "NVIDIA A100-SXM4-40GB": "A100",
+    "NVIDIA A100-PCIE-40GB": "A100",
+    "NVIDIA A100 80GB PCIe": "A100",
+    "NVIDIA A40": "A40",
+    "NVIDIA A30": "A30",
+    "NVIDIA A10": "A10",
+    "NVIDIA A16": "A16",
+    "NVIDIA L40S": "L40S",
+    "NVIDIA L40": "L40",
+    "NVIDIA L4": "L4",
+    "Tesla T4": "T4",
+    "Tesla V100-SXM2-32GB": "V100",
+    "Tesla V100-PCIE-32GB": "V100",
+    "Tesla V100-SXM2-16GB": "V100",
+    "Tesla V100-PCIE-16GB": "V100",
+    # ── NVIDIA RTX 50 Series ──
+    "NVIDIA GeForce RTX 5090": "RTX 5090",
+    "NVIDIA GeForce RTX 5080": "RTX 5080",
+    "NVIDIA GeForce RTX 5070 Ti": "RTX 5070 Ti",
+    "NVIDIA GeForce RTX 5070": "RTX 5070",
+    "NVIDIA GeForce RTX 5060 Ti": "RTX 5060 Ti",
+    "NVIDIA GeForce RTX 5060": "RTX 5060",
+    # ── NVIDIA RTX 40 Series ──
+    "NVIDIA GeForce RTX 4090": "RTX 4090",
+    "NVIDIA GeForce RTX 4080 SUPER": "RTX 4080 Super",
+    "NVIDIA GeForce RTX 4080": "RTX 4080",
+    "NVIDIA GeForce RTX 4070 Ti SUPER": "RTX 4070 Ti Super",
+    "NVIDIA GeForce RTX 4070 Ti": "RTX 4070 Ti",
+    "NVIDIA GeForce RTX 4070 SUPER": "RTX 4070 Super",
+    "NVIDIA GeForce RTX 4070": "RTX 4070",
+    "NVIDIA GeForce RTX 4060 Ti": "RTX 4060 Ti",
+    "NVIDIA GeForce RTX 4060": "RTX 4060",
+    # ── NVIDIA RTX 30 Series ──
+    "NVIDIA GeForce RTX 3090 Ti": "RTX 3090 Ti",
+    "NVIDIA GeForce RTX 3090": "RTX 3090",
+    "NVIDIA GeForce RTX 3080 Ti": "RTX 3080 Ti",
+    "NVIDIA GeForce RTX 3080": "RTX 3080",
+    "NVIDIA GeForce RTX 3070 Ti": "RTX 3070 Ti",
+    "NVIDIA GeForce RTX 3070": "RTX 3070",
+    "NVIDIA GeForce RTX 3060 Ti": "RTX 3060 Ti",
+    "NVIDIA GeForce RTX 3060": "RTX 3060",
+    # ── NVIDIA RTX 20 Series ──
+    "NVIDIA GeForce RTX 2080 Ti": "RTX 2080 Ti",
+    "NVIDIA GeForce RTX 2080 SUPER": "RTX 2080 Super",
+    "NVIDIA GeForce RTX 2080": "RTX 2080",
+    "NVIDIA GeForce RTX 2070 SUPER": "RTX 2070 Super",
+    "NVIDIA GeForce RTX 2070": "RTX 2070",
+    "NVIDIA GeForce RTX 2060 SUPER": "RTX 2060 Super",
+    "NVIDIA GeForce RTX 2060": "RTX 2060",
+    # ── NVIDIA Workstation ──
+    "NVIDIA RTX 6000 Ada Generation": "RTX 6000 Ada",
+    "NVIDIA RTX 5000 Ada Generation": "RTX 5000 Ada",
+    "NVIDIA RTX 4000 Ada Generation": "RTX 4000 Ada",
+    "NVIDIA RTX A6000": "RTX A6000",
+    "NVIDIA RTX A5000": "RTX A5000",
+    "NVIDIA RTX A4000": "RTX A4000",
+    # ── AMD Data Center ──
+    "AMD Instinct MI300X": "MI300X",
+    "AMD Instinct MI250X": "MI250X",
+    "AMD Instinct MI210": "MI210",
+    # ── AMD Consumer ──
+    "AMD Radeon RX 7900 XTX": "RX 7900 XTX",
+    "AMD Radeon RX 7900 XT": "RX 7900 XT",
+}
+
+
+def _canonicalize_gpu_model(raw_name: str) -> str:
+    """Translate a raw nvidia-smi GPU name to its canonical short title.
+
+    Returns the canonical short title (e.g. ``RTX 4090``) if known, or
+    the raw name as a last-resort fallback so the scheduler can still
+    see the host. Unknown names should be added to
+    ``_NVIDIA_SMI_NAME_MAP`` and the corresponding pricing row added to
+    ``db.py _GPU_PRICING_BASE``.
+    """
+    name = (raw_name or "").strip()
+    if not name:
+        return ""
+    mapped = _NVIDIA_SMI_NAME_MAP.get(name)
+    if mapped:
+        return mapped
+    log.warning(
+        "Unknown nvidia-smi GPU name %r — add to _NVIDIA_SMI_NAME_MAP",
+        name,
+    )
+    return name
+
+
+def _gpu_info_from_env() -> dict | None:
+    """Optional overrides when auto-detection fails or returns an unmapped name."""
+    model_raw = os.environ.get("XCELSIOR_GPU_MODEL", "").strip()
+    if not model_raw:
+        return None
+    model = _canonicalize_gpu_model(model_raw)
+    if not model:
+        return None
+    vram_raw = os.environ.get("XCELSIOR_GPU_VRAM_GB", "").strip()
+    try:
+        total_vram = round(float(vram_raw), 2) if vram_raw else 0.0
+    except ValueError:
+        total_vram = 0.0
+    if total_vram <= 0:
+        try:
+            from host_metadata import default_vram_gb
+
+            total_vram = default_vram_gb(model)
+        except Exception:
+            total_vram = 0.0
+    if total_vram <= 0:
+        return None
+    return {
+        "gpu_model": model,
+        "total_vram_gb": total_vram,
+        "free_vram_gb": total_vram,
+    }
+
+
+def get_gpu_info():
+    """Query GPU name, total VRAM, free VRAM.
+
+    Prefers NVML (pynvml) when available per REPORT_FEATURE_1.md:
+    "avoid calling the nvidia-smi binary... use Python bindings to
+    interact with libnvidia-ml.so directly."
+
+    Falls back to nvidia-smi subprocess if NVML is not initialized.
+    Returns dict with gpu_model, total_vram_gb, free_vram_gb.
+    Raises RuntimeError on failure.
+    """
+
+    def _finish(info: dict | None) -> dict:
+        if info and info.get("gpu_model"):
+            return info
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("GPU auto-detection incomplete; using XCELSIOR_GPU_* env overrides")
+            return env_info
+        if info:
+            return info
+        raise RuntimeError("No GPU detected")
+
+    # Try NVML first
+    if is_nvml_available():
+        info = get_gpu_info_nvml()
+        if info:
+            info["gpu_model"] = _canonicalize_gpu_model(info.get("gpu_model", ""))
+            return _finish(info)
+
+    # Fallback: nvidia-smi subprocess
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        lines = result.stdout.strip().split("\n")
+        if not lines or not lines[0]:
+            raise RuntimeError("No GPU found in nvidia-smi output")
+
+        parts = [p.strip() for p in lines[0].split(",")]
+        if len(parts) != 3:
+            raise RuntimeError(f"Unexpected nvidia-smi format: {lines[0]}")
+
+        return _finish(
+            {
+                "gpu_model": _canonicalize_gpu_model(parts[0]),
+                "total_vram_gb": round(float(parts[1]) / 1024, 2),
+                "free_vram_gb": round(float(parts[2]) / 1024, 2),
+            }
+        )
+    except subprocess.TimeoutExpired as e:
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("nvidia-smi timed out; using XCELSIOR_GPU_* env overrides")
+            return env_info
+        raise RuntimeError("nvidia-smi timed out") from e
+    except subprocess.CalledProcessError as e:
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("nvidia-smi failed; using XCELSIOR_GPU_* env overrides")
+            return env_info
+        raise RuntimeError(f"nvidia-smi failed: {e.stderr}") from e
+    except (ValueError, IndexError) as e:
+        env_info = _gpu_info_from_env()
+        if env_info:
+            log.warning("nvidia-smi parse failed (%s); using XCELSIOR_GPU_* env overrides", e)
+            return env_info
+        raise RuntimeError(f"Failed to parse nvidia-smi output: {e}") from e
+
+
+def get_host_ip():
+    """Best-effort detection of the primary host IP.
+
+    Priority:
+      1. Explicit XCELSIOR_HOST_IP env override.
+      2. Tailscale mesh IP — but *only* when tailscaled is actually running and
+         the IP is bound to a local interface.  A stale IP from a previous
+         session (tailscaled stopped, interface gone) is silently skipped so
+         the API never tries to SSH into an unreachable 100.64.x.x address.
+      3. hostname -I (first non-loopback IPv4).
+      4. ip-route src fallback.
+    """
+    # Allow explicit override via env var (useful when Tailscale and Headscale
+    # assign different IPs and the scheduler sees a different one)
+    override = os.environ.get("XCELSIOR_HOST_IP")
+    if override:
+        return override
+
+    # Prefer mesh IP when tailscale is installed and joined — reachable from the
+    # API gateway for SSH/terminal even if XCELSIOR_TAILSCALE_ENABLED is off.
+    try:
+        r = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            ts_ip = r.stdout.strip().split("\n")[0]
+            # Verify the IP is actually bound to a local interface. When
+            # tailscaled has stopped the IP lingers in its state file but
+            # isn't routable — reporting it would make the web terminal fail
+            # with "tcp/22 timeout".
+            if _ip_is_local(ts_ip):
+                return ts_ip
+            else:
+                log.info(
+                    "Tailscale reports IP %s but it is not bound to any "
+                    "local interface — skipping (tailscaled may be stopped)",
+                    ts_ip,
+                )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # hostname -I
+    try:
+        r = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            ips = r.stdout.strip().split()
+            if ips:
+                return ips[0]
+    except Exception as e:
+        log.debug("hostname -I failed: %s", e)
+
+    # ip route fallback
+    try:
+        r = subprocess.run(["ip", "route", "get", "1"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            match = re.search(r"src (\S+)", r.stdout)
+            if match:
+                return match.group(1)
+    except Exception as e:
+        log.debug("ip route fallback failed: %s", e)
+
+    return "unknown"
+
+
+def _ip_is_local(ip: str) -> bool:
+    """Return True when *ip* is bound to a local network interface.
+
+    Uses ``ip -o addr show`` which is available on every Linux distro that
+    ships iproute2.  Falls back to True (optimistic) if the check fails —
+    better to report a possibly-stale IP than silently hide it.
+    """
+    try:
+        r = subprocess.run(
+            ["ip", "-o", "addr", "show"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if r.returncode == 0:
+            return ip in r.stdout
+    except Exception:
+        pass
+    # Optimistic fallback — can't tell, assume reachable.
+    return True
+
+
+# ── Compute Score Benchmark ──────────────────────────────────────────
+
+
+#: The verification benchmark, run by the agent's own Python or in BENCHMARK_IMAGE.
+_BENCHMARK_SCRIPT = """
+import time, json, subprocess, re
+report = {}
+
+try:
+    import torch
+    if not torch.cuda.is_available():
+        print(json.dumps({"error": "no_cuda"}))
+        raise SystemExit
+
+    device = torch.device("cuda:0")
+    props = torch.cuda.get_device_properties(device)
+
+    # ── GPU Identity ──
+    report["gpu_model"] = props.name
+    report["total_vram_gb"] = round(props.total_memory / (1024**3), 2)
+    report["compute_capability"] = f"{props.major}.{props.minor}"
+
+    # ── CUDA / Driver Versions ──
+    report["cuda_version"] = torch.version.cuda or ""
+    try:
+        smi = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        report["driver_version"] = smi.stdout.strip().split("\\n")[0].strip() if smi.returncode == 0 else ""
+    except Exception as e:
+        log.debug("nvidia-smi driver query failed: %s", e)
+        report["driver_version"] = ""
+
+    # ── FP16 Matmul Benchmark (TFLOPS) ──
+    a = torch.randn(4096, 4096, dtype=torch.float16, device=device)
+    b = torch.randn(4096, 4096, dtype=torch.float16, device=device)
+    for _ in range(5):
+        torch.mm(a, b)
+    torch.cuda.synchronize()
+    iters = 50
+    start = time.perf_counter()
+    for _ in range(iters):
+        torch.mm(a, b)
+    torch.cuda.synchronize()
+    elapsed = time.perf_counter() - start
+    flops_per_iter = 2 * 4096**3
+    report["tflops"] = round((flops_per_iter * iters) / elapsed / 1e12, 2)
+    report["elapsed_s"] = round(elapsed, 3)
+    report["iters"] = iters
+
+    # ── PCIe Bandwidth (Host→Device→Host) ──
+    # Pinned host memory, a device buffer allocated before timing, one warm-up,
+    # then the median of five copies each way. A single cold copy from pageable
+    # memory also timed the device allocation and the driver's staging copy, so
+    # an RTX 3060 on PCIe 4.0 x16 read about 5 GB/s.
+    try:
+        size_mb = 256
+        data_h = torch.empty(size_mb * 1024 * 1024, dtype=torch.uint8).pin_memory()
+        data_d = torch.empty(size_mb * 1024 * 1024, dtype=torch.uint8, device=device)
+        data_d.copy_(data_h)
+        data_h.copy_(data_d)
+        torch.cuda.synchronize()
+        h2d, d2h = [], []
+        for _ in range(5):
+            t0 = time.perf_counter()
+            data_d.copy_(data_h, non_blocking=True)
+            torch.cuda.synchronize()
+            t1 = time.perf_counter()
+            data_h.copy_(data_d, non_blocking=True)
+            torch.cuda.synchronize()
+            t2 = time.perf_counter()
+            h2d.append(size_mb / 1024 / (t1 - t0))
+            d2h.append(size_mb / 1024 / (t2 - t1))
+        h2d_gbps = round(sorted(h2d)[2], 2)
+        d2h_gbps = round(sorted(d2h)[2], 2)
+        report["pcie_bandwidth_gbps"] = round((h2d_gbps + d2h_gbps) / 2, 2)
+        report["pcie_h2d_gbps"] = h2d_gbps
+        report["pcie_d2h_gbps"] = d2h_gbps
+        del data_h, data_d
+    except Exception as e:
+        log.debug("PCIe bandwidth test failed: %s", e)
+        report["pcie_bandwidth_gbps"] = 0
+        report["pcie_error"] = str(e)
+
+    # ── Thermal Stability (sustained load for 15s, sample temp) ──
+    try:
+        temps = []
+        stress_start = time.perf_counter()
+        while time.perf_counter() - stress_start < 15:
+            torch.mm(a, b)
+            torch.cuda.synchronize()
+            try:
+                tsmi = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=temperature.gpu",
+                     "--format=csv,noheader,nounits", "--id=0"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if tsmi.returncode == 0:
+                    temps.append(float(tsmi.stdout.strip()))
+            except Exception as e:
+                log.debug("nvidia-smi temp query failed: %s", e)
+            time.sleep(0.5)
+        if temps:
+            report["gpu_temp_celsius"] = max(temps)
+            report["gpu_temp_avg_celsius"] = round(sum(temps) / len(temps), 1)
+            report["gpu_temp_samples"] = len(temps)
+        else:
+            report["gpu_temp_celsius"] = 0
+    except Exception as e:
+        log.debug("thermal stability test failed: %s", e)
+        report["gpu_temp_celsius"] = 0
+        report["thermal_error"] = str(e)
+
+    # Clean up GPU memory
+    del a, b
+    torch.cuda.empty_cache()
+
+    print(json.dumps(report))
+
+except ImportError:
+    print(json.dumps({"error": "no_torch"}))
+"""
+
+#: Where the benchmark runs when the agent's venv has no PyTorch, which is how
+#: install.sh sets it up (the wheels are ~2.5 GB that only this benchmark needs).
+#: Without a benchmark the host never sends a verification report and stays
+#: pending. CUDA 12.4 runtime: needs driver 550+, the documented minimum.
+BENCHMARK_IMAGE = os.environ.get(
+    "XCELSIOR_BENCHMARK_IMAGE", "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime"
+)
+
+
+def _run_benchmark(cmd: list[str], timeout: int) -> dict | None:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0 and result.stdout.strip():
+            return json.loads(result.stdout.strip().splitlines()[-1])
+        log.warning("Benchmark exited %s: %s", result.returncode, result.stderr.strip()[-300:])
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
+        log.warning("Benchmark failed: %s", e)
+    return None
+
+
+def _ensure_image(image: str) -> bool:
+    try:
+        if (
+            subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode
+            == 0
+        ):
+            return True
+        log.info("Pulling benchmark image %s (first run only)...", image)
+        pulled = subprocess.run(
+            ["docker", "pull", image], capture_output=True, text=True, timeout=1800
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.warning("Benchmark image %s unavailable: %s", image, e)
+        return False
+    if pulled.returncode != 0:
+        log.warning("Could not pull %s: %s", image, pulled.stderr.strip()[-300:])
+    return pulled.returncode == 0
+
+
+def run_compute_benchmark():
+    """Run comprehensive benchmark suite for all 6 verification checks.
+
+    Collects: TFLOPS (FP16 matmul), CUDA/driver versions, compute capability,
+    PCIe bandwidth, sustained thermal readings, and GPU identity data.
+    Returns a full report dict that verification.py can consume, or None.
+    """
+    data = _run_benchmark([sys.executable, "-c", _BENCHMARK_SCRIPT], timeout=300)
+    if data == {"error": "no_torch"} and _ensure_image(BENCHMARK_IMAGE):
+        log.info("No PyTorch in the agent's venv; benchmarking in %s", BENCHMARK_IMAGE)
+        data = _run_benchmark(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--gpus",
+                "all",
+                "--network",
+                "none",
+                "--label",
+                "ai.xcelsior.benchmark=true",
+                "--entrypoint",
+                "python",
+                BENCHMARK_IMAGE,
+                "-c",
+                _BENCHMARK_SCRIPT,
+            ],
+            timeout=420,
+        )
+    if data and "error" in data:
+        log.warning("Benchmark skipped: %s", data["error"])
+        return None
+    return data
+
+
+def run_network_benchmark(scheduler_url: str | None = None):
+    """Benchmark network quality to the scheduler (throughput, jitter, loss).
+
+    Returns dict with throughput_mbps, jitter_ms, packet_loss_pct.
+    """
+    target = scheduler_url or SCHEDULER_URL
+    if not target:
+        return {}
+
+    from urllib.parse import urlparse
+
+    parsed = urlparse(target)
+    host = parsed.hostname or "127.0.0.1"
+
+    # Missing ICMP evidence must not report a perfect connection.
+    report = {"packet_loss_pct": 100.0, "jitter_ms": 0.0, "throughput_mbps": 0.0}
+
+    # ── Latency + Jitter + Loss via ping ──
+    try:
+        r = subprocess.run(
+            ["ping", "-c", "20", "-i", "0.2", "-W", "2", host],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode == 0:
+            # Parse packet loss
+            loss_match = re.search(r"(\d+(?:\.\d+)?)% packet loss", r.stdout)
+            if loss_match:
+                report["packet_loss_pct"] = float(loss_match.group(1))
+
+            # Parse rtt min/avg/max/mdev
+            rtt_match = re.search(
+                r"rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)",
+                r.stdout,
+            )
+            if rtt_match:
+                report["latency_min_ms"] = float(rtt_match.group(1))
+                report["latency_avg_ms"] = float(rtt_match.group(2))
+                report["latency_max_ms"] = float(rtt_match.group(3))
+                report["jitter_ms"] = float(rtt_match.group(4))  # mdev ≈ jitter
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Use the same fixed, incompressible payload as provider onboarding.
+    # /metrics is too small to measure throughput, and an HTTP error page
+    # must never count as a successful measurement. Use the worker surface
+    # so per-host credentials remain valid after fleet-token retirement.
+    #
+    # Four parallel pulls (the endpoint allows four per minute per host), timed
+    # from each response's first byte. Two sequential single-stream pulls timed
+    # from the request mostly measured TLS setup and TCP slow start: on a 110 ms
+    # link a host with 115 Mbps of real bandwidth read as 35 Mbps.
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        from urllib.parse import quote
+
+        url = f"{target.rstrip('/')}/agent/network-download/{quote(str(HOST_ID), safe='')}"
+        headers = {**_api_headers(), "Accept-Encoding": "identity"}
+
+        def _pull():
+            resp = _api_request("get", url, timeout=30, headers=headers, stream=True)
+            resp.raise_for_status()
+            first_byte = None
+            size = 0
+            for chunk in resp.iter_content(chunk_size=256 * 1024):
+                if first_byte is None:
+                    first_byte = time.perf_counter()
+                size += len(chunk)
+            finished = time.perf_counter()
+            if first_byte is None or size != 8 * 1024 * 1024:
+                raise ValueError("Incomplete network diagnostic payload")
+            return first_byte, finished, size
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            pulls = list(pool.map(lambda _: _pull(), range(4)))
+        total_time = max(p[1] for p in pulls) - min(p[0] for p in pulls)
+        if total_time > 0:
+            total_bytes = sum(p[2] for p in pulls)
+            report["throughput_mbps"] = round(total_bytes * 8 / total_time / 1_000_000, 2)
+    except Exception as e:
+        log.debug("HTTP throughput test failed: %s", e)
+
+    return report
+
+
+# ── Tailscale / Headscale Integration ────────────────────────────────
+
+
+def _tailscale_cmd(*args):
+    cmd = ["tailscale"]
+    if TAILSCALE_SOCKET:
+        cmd.append(f"--socket={TAILSCALE_SOCKET}")
+    cmd.extend(args)
+    return cmd
+
+
+def setup_tailscale():
+    """Join the Tailscale/Headscale mesh network if configured."""
+    if not TAILSCALE_ENABLED:
+        return False
+
+    try:
+        # Check if already running
+        r = subprocess.run(
+            _tailscale_cmd("status", "--json"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0:
+            status = json.loads(r.stdout)
+            if status.get("BackendState") == "Running":
+                log.info(
+                    "Headscale mesh already connected (IP: %s)",
+                    status.get("TailscaleIPs", ["?"])[0],
+                )
+                return True
+
+        # Bring up tailscale
+        up_cmd = _tailscale_cmd("up", "--hostname", HOST_ID or "xcelsior-worker")
+        if TAILSCALE_AUTHKEY:
+            up_cmd.extend(["--authkey", TAILSCALE_AUTHKEY])
+        if HEADSCALE_URL:
+            up_cmd.extend(["--login-server", HEADSCALE_URL])
+
+        r = subprocess.run(up_cmd, capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            log.info("Headscale mesh connected successfully")
+            return True
+        else:
+            log.warning("Headscale mesh up failed: %s", r.stderr.strip())
+            return False
+
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log.warning("Headscale mesh setup failed: %s", e)
+        return False
+
+
+# ── Scheduler Communication (Pull-Based) ────────────────────────────
+
+
+def _oauth_client_credentials_enabled():
+    """Return True when the worker is configured for OAuth client_credentials."""
+    return bool(OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET)
+
+
+def _clear_oauth_access_token_cache():
+    """Reset the cached OAuth access token."""
+    global _oauth_access_token, _oauth_access_token_expires_at
+    with _oauth_lock:
+        _oauth_access_token = ""
+        _oauth_access_token_expires_at = 0.0
+
+
+def _oauth_token_endpoint():
+    """Resolve the OAuth token endpoint for client_credentials exchange."""
+    if OAUTH_TOKEN_URL.strip():
+        return OAUTH_TOKEN_URL.strip()
+    return _api_url("/oauth/token")
+
+
+def _oauth_access_token_is_fresh(now=None):
+    """Return True when the cached OAuth access token is still usable."""
+    now = time.time() if now is None else now
+    refresh_skew = max(5, OAUTH_TOKEN_REFRESH_SKEW_SEC)
+    return bool(_oauth_access_token) and (_oauth_access_token_expires_at - now) > refresh_skew
+
+
+def _request_oauth_access_token():
+    """Exchange OAuth client credentials for a short-lived bearer token."""
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": OAUTH_CLIENT_ID,
+        "client_secret": OAUTH_CLIENT_SECRET,
+    }
+    if OAUTH_SCOPE:
+        data["scope"] = OAUTH_SCOPE
+
+    resp = _api_request(
+        "post",
+        _oauth_token_endpoint(),
+        data=data,
+        timeout=OAUTH_TOKEN_TIMEOUT_SEC,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    access_token = str(payload.get("access_token", "")).strip()
+    token_type = str(payload.get("token_type", "Bearer")).strip().lower()
+    try:
+        expires_in = int(payload.get("expires_in", 0) or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if token_type != "bearer":
+        raise RuntimeError("OAuth token endpoint returned a non-bearer token")
+    if not access_token or expires_in <= 0:
+        raise RuntimeError("OAuth token response missing access_token or expires_in")
+    return access_token, time.time() + expires_in
+
+
+def _get_oauth_access_token(force_refresh=False):
+    """Fetch and cache an OAuth access token for worker API calls."""
+    global _oauth_access_token, _oauth_access_token_expires_at
+    if not _oauth_client_credentials_enabled():
+        return ""
+
+    now = time.time()
+    if not force_refresh and _oauth_access_token_is_fresh(now):
+        return _oauth_access_token
+
+    with _oauth_lock:
+        now = time.time()
+        if not force_refresh and _oauth_access_token_is_fresh(now):
+            return _oauth_access_token
+        try:
+            access_token, expires_at = _request_oauth_access_token()
+        except Exception as exc:
+            _oauth_access_token = ""
+            _oauth_access_token_expires_at = 0.0
+            log.warning("OAuth client_credentials token request failed: %s", exc)
+            return ""
+        _oauth_access_token = access_token
+        _oauth_access_token_expires_at = expires_at
+        return access_token
+
+
+# ── Per-host agent token (blueprint §19.2 — field-wide bearer rotation) ──
+#
+# The shared platform token authenticates the whole fleet: lifting it off
+# one GPU host yields authority over every host. A per-host token is
+# scoped to this host_id and rotated on a schedule. The credential lives
+# in one 0600 file that is written atomically, so a crash mid-rotation
+# leaves either the old token or the new one — never a truncated file.
+
+AGENT_TOKEN_FILE = os.environ.get(
+    "XCELSIOR_AGENT_TOKEN_FILE",
+    os.path.join(os.path.expanduser("~"), ".xcelsior", "agent-token.json"),
+)
+
+#: Rotate once this fraction of the token's lifetime remains. A wide
+#: margin matters: a host that is offline for a few days must still come
+#: back with a usable credential.
+_TOKEN_ROTATE_AT_REMAINING = 0.25
+_TOKEN_ROTATE_MIN_INTERVAL_SEC = 3600.0
+
+_host_token_lock = threading.Lock()
+# Re-read the credential file only when its mtime changes; rotation
+# rewrites it in place and the poll loop reads it on every request.
+_host_token_mtime: float | None = None
+_host_token_data: dict = {}
+_last_token_rotation_attempt = 0.0
+
+
+def _clear_host_token_cache() -> None:
+    global _host_token_mtime, _host_token_data
+    _host_token_mtime = None
+    _host_token_data = {}
+
+
+def _read_host_token() -> dict:
+    """Load the persisted per-host credential (``{}`` when absent)."""
+    global _host_token_mtime, _host_token_data
+    with _host_token_lock:
+        try:
+            mtime = os.path.getmtime(AGENT_TOKEN_FILE)
+        except OSError:
+            _clear_host_token_cache()
+            return {}
+        if _host_token_mtime == mtime:
+            return dict(_host_token_data)
+        try:
+            with open(AGENT_TOKEN_FILE, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            log.warning("agent token file unreadable (%s): %s", AGENT_TOKEN_FILE, exc)
+            return {}
+        if not isinstance(data, dict) or not data.get("token"):
+            return {}
+        _host_token_mtime = mtime
+        _host_token_data = data
+        return dict(data)
+
+
+def _write_host_token(data: dict) -> bool:
+    """Persist the credential atomically with 0600 permissions."""
+    directory = os.path.dirname(AGENT_TOKEN_FILE) or "."
+    tmp_path = f"{AGENT_TOKEN_FILE}.tmp"
+    try:
+        os.makedirs(directory, exist_ok=True)
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh)
+                fh.flush()
+                os.fsync(fh.fileno())
+        finally:
+            pass
+        os.replace(tmp_path, AGENT_TOKEN_FILE)
+        os.chmod(AGENT_TOKEN_FILE, 0o600)
+    except Exception as exc:
+        log.error("failed to persist agent token: %s", exc)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+    with _host_token_lock:
+        _clear_host_token_cache()
+    return True
+
+
+def _host_token_value() -> str:
+    """This host's agent token, or '' when none has been issued."""
+    data = _read_host_token()
+    token = str(data.get("token") or "")
+    # A credential issued for a different host must never be presented —
+    # it would be rejected server-side anyway, but presenting it would
+    # also suppress the shared-bearer fallback and strand this host.
+    if token and data.get("host_id") and str(data["host_id"]) != HOST_ID:
+        log.warning(
+            "agent token file belongs to host %s, not %s — ignoring",
+            data.get("host_id"),
+            HOST_ID,
+        )
+        return ""
+    return token
+
+
+def _host_token_expiry() -> float:
+    data = _read_host_token()
+    try:
+        return float(data.get("expires_at_epoch") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def maybe_rotate_host_token() -> bool:
+    """Rotate the per-host credential when it is nearing expiry.
+
+    Authenticated by the token being replaced, so no operator step is
+    needed. The server keeps the old token valid through a grace window,
+    which is what makes this safe to run unattended on every host.
+    """
+    global _last_token_rotation_attempt
+
+    token = _host_token_value()
+    if not token:
+        return False
+    now = time.time()
+    if now - _last_token_rotation_attempt < _TOKEN_ROTATE_MIN_INTERVAL_SEC:
+        return False
+
+    data = _read_host_token()
+    expires_at = _host_token_expiry()
+    issued_at = float(data.get("issued_at_epoch") or 0.0)
+    if expires_at <= 0:
+        return False
+    lifetime = max(expires_at - issued_at, 1.0) if issued_at else (expires_at - now)
+    remaining = expires_at - now
+    if remaining > lifetime * _TOKEN_ROTATE_AT_REMAINING:
+        return False
+
+    _last_token_rotation_attempt = now
+    try:
+        resp = _api_request(
+            "post",
+            _api_url("/agent/v2/tokens/rotate"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("agent token rotation request failed: %s", exc)
+        return False
+    if resp.status_code != 200:
+        log.warning("agent token rotation rejected (%s): %s", resp.status_code, resp.text[:200])
+        return False
+    try:
+        body = resp.json()
+        new_token = str(body["token"])
+        expires_iso = str(body.get("expires_at") or "")
+    except Exception as exc:
+        log.warning("agent token rotation response unusable: %s", exc)
+        return False
+
+    expires_epoch = 0.0
+    if expires_iso:
+        try:
+            from datetime import datetime as _dt
+
+            expires_epoch = _dt.fromisoformat(expires_iso).timestamp()
+        except Exception:
+            expires_epoch = 0.0
+
+    ok = _write_host_token(
+        {
+            "token": new_token,
+            "host_id": HOST_ID,
+            "token_id": body.get("token_id"),
+            "expires_at": expires_iso,
+            "expires_at_epoch": expires_epoch,
+            "issued_at_epoch": now,
+        }
+    )
+    if ok:
+        log.info("rotated per-host agent token (expires %s)", expires_iso or "unknown")
+    return ok
+
+
+def _api_headers():
+    """Build standard API headers.
+
+    Credential precedence is strongest-first: a per-host agent token
+    (§19.2) beats an OAuth access token, which beats the shared fleet
+    bearer that rotation is retiring.
+    """
+    headers = {"Content-Type": "application/json"}
+    # Private-gateway shared secret, when this host has been given one.
+    #
+    # `AgentIngressMiddleware` refuses every worker path with 410 when
+    # `XCELSIOR_AGENT_PUBLIC_INGRESS=deny`, *unless* the request proves it came
+    # through the private gateway — `gateway_headers_authenticated` compares
+    # this header against `XCELSIOR_AGENT_GATEWAY_SECRET` with
+    # `hmac.compare_digest`. A bare `X-Xcelsior-Agent-Gateway: 1` is forgeable
+    # on public ingress; the secret is the proof.
+    #
+    # The check is hostname-independent, so a worker carrying this keeps using
+    # the existing origin — real certificate, working DNS, no nginx change and
+    # no client CA. That is what makes it usable before the mTLS cutover exists
+    # rather than after it.
+    #
+    # **Same variable name the server reads.** A translation layer here would be
+    # one more place for the two to disagree silently.
+    #
+    # Env only: never a literal, never a default, never logged. Absent means the
+    # header is simply not sent, which is the correct behaviour for a host that
+    # has not been enrolled — it then fails the same way it does today.
+    gateway_secret = (os.environ.get("XCELSIOR_AGENT_GATEWAY_SECRET") or "").strip()
+    if gateway_secret:
+        headers["X-Xcelsior-Gateway-Auth"] = gateway_secret
+    host_token = _host_token_value()
+    if host_token:
+        headers["Authorization"] = f"Bearer {host_token}"
+        return headers
+    access_token = _get_oauth_access_token() if _oauth_client_credentials_enabled() else ""
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    elif API_TOKEN:
+        headers["Authorization"] = f"Bearer {API_TOKEN}"
+    return headers
+
+
+#: Client certificate for the private agent gateway (mTLS).
+#:
+#: `agent.xcelsior.ca` verifies a client certificate and derives this worker's
+#: `host_id` from its CN — see `nginx/agent-xcelsior.conf`. Without one the
+#: gateway answers 400 before the request reaches the API at all, which reads
+#: as a network fault rather than a missing credential.
+#:
+#: Both halves are required together. One alone is a misconfiguration, not a
+#: partial credential, and quietly sending none would produce exactly that
+#: unexplained 400.
+_AGENT_CLIENT_CERT = os.environ.get("XCELSIOR_AGENT_CLIENT_CERT", "").strip()
+_AGENT_CLIENT_KEY = os.environ.get("XCELSIOR_AGENT_CLIENT_KEY", "").strip()
+
+
+def _api_client_cert():
+    """`(cert, key)` for mTLS, or `None` when this host has no certificate."""
+    if _AGENT_CLIENT_CERT and _AGENT_CLIENT_KEY:
+        return (_AGENT_CLIENT_CERT, _AGENT_CLIENT_KEY)
+    return None
+
+
+def _api_request(method, url, **kwargs):
+    """The single seam every worker→API call goes through.
+
+    Transport concerns belong in one place. Adding `cert=` to each call site
+    instead was the first attempt: 31 edits, nothing to stop the 32nd forgetting
+    it, and it broke 52 tests at once because their fakes are declared
+    `(url, json=None, headers=None, timeout=None)` — an unexpected keyword
+    raises `TypeError`, which the worker's `except` swallows into a silent
+    no-op. A credential that fails by doing nothing is the worst shape available.
+
+    **`cert` is passed only when one is configured**, so a worker still on the
+    public ingress calls `requests` with exactly the arguments it always did.
+    `getattr(requests, method)` rather than a `Session` keeps
+    `mock.patch.object(worker_agent.requests, "post", ...)` working — a session
+    hides the call from anything patching `requests`, which is how the second
+    attempt broke the same tests a different way.
+    """
+    cert = _api_client_cert()
+    if cert is not None:
+        kwargs["cert"] = cert
+    return getattr(requests, method)(url, **kwargs)
+
+
+#: v1 path -> `/agent/v2` path, for every call this worker makes.
+#:
+#: Blueprint §22.3 requires the agent gateway to serve `/agent/v2/*` and nothing
+#: else, and `infra/envoy/agent-gateway.yaml` answers 404 to the rest. So after
+#: the Envoy cutover a worker still calling `/host` has no heartbeat and the
+#: fleet goes dark.
+#:
+#: The server mounts these as **aliases onto the same handler**
+#: (`routes/agent_v2_aliases.ALIASES`), so a v2 path is not a different
+#: endpoint — it is the same one, reachable through the private gateway.
+#:
+#: This table is a second copy of that mapping, and it exists only because the
+#: worker ships as a single file to GPU hosts and cannot import the server's.
+#: `tests/test_worker_v2_paths_match_the_server.py` pins the two together; a
+#: copy without that guard is how the two come to disagree in the direction of
+#: the worker silently calling something that no longer exists.
+#:
+#: Ordered as `ALIASES` is. Keys are the literal prefixes `_api_url` receives —
+#: matched longest-first so `/host/{id}` cannot be shadowed by `/host`.
+_AGENT_V2_PATH_MAP: dict[str, str] = {
+    "/host": "/agent/v2/hosts/heartbeat",
+    "/agent/work/": "/agent/v2/work/",
+    "/agent/telemetry": "/agent/v2/telemetry",
+    "/agent/preempt/": "/agent/v2/preempt/",
+    "/agent/logs/": "/agent/v2/logs/",
+    "/agent/benchmark": "/agent/v2/benchmark",
+    "/agent/degraded": "/agent/v2/degraded",
+    "/agent/mining-alert": "/agent/v2/mining-alert",
+    "/agent/ssh-keys/": "/agent/v2/ssh-keys/",
+    "/agent/ssh-status/": "/agent/v2/ssh-status/",
+    "/agent/verify": "/agent/v2/verify",
+    "/agent/versions": "/agent/v2/versions",
+    "/host/": "/agent/v2/hosts/",
+    "/instance/": "/agent/v2/instances/",
+    "/instances/": "/agent/v2/instances/",
+    "/user-images/": "/agent/v2/user-images/",
+    "/api/v1/promotions/": "/agent/v2/promotions/",
+    "/api/v1/image-sweeps/": "/agent/v2/image-sweeps/",
+    "/api/v2/serverless/workers/": "/agent/v2/serverless/workers/",
+}
+
+#: Longest prefix first: `/host/` must win over `/host`, and `/instances/` over
+#: `/instance/`. Sorting once here keeps the lookup honest without the caller
+#: having to know the ordering matters.
+_AGENT_V2_PREFIXES: tuple[tuple[str, str], ...] = tuple(
+    sorted(_AGENT_V2_PATH_MAP.items(), key=lambda kv: -len(kv[0]))
+)
+
+#: Off by default. The v2 aliases must be live on the API before a worker may
+#: rely on them, and a worker that switches early loses its heartbeat with no
+#: way back other than an operator editing this host. `1` opts in; the interim
+#: Nginx gateway proxies both spellings, so this can be verified against the
+#: running fleet *before* Envoy makes v2 the only option.
+_AGENT_V2_PATHS = (os.environ.get("XCELSIOR_AGENT_V2_PATHS", "") or "").strip() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+#: Opt-in decommission. Default OFF — see the shutdown path for why: this used
+#: to fire on every restart and cascade-deleted the host's admission decision
+#: and evidence. Set it only when the host is genuinely being retired.
+_DEREGISTER_ON_EXIT = (
+    os.environ.get("XCELSIOR_WORKER_DEREGISTER_ON_EXIT", "") or ""
+).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def _to_agent_v2_path(path):
+    """Translate one v1 path to its `/agent/v2` equivalent.
+
+    Returns `path` unchanged when nothing matches. That is deliberate: an
+    unmapped path is a call this migration has not covered, and rewriting it by
+    guesswork would produce a 404 that looks like a server fault. It keeps
+    working on v1, and `tests/test_worker_surface_is_reachable_under_agent_v2.py`
+    is what makes the omission visible.
+    """
+    for v1, v2 in _AGENT_V2_PREFIXES:
+        if path == v1:
+            return v2
+        if v1.endswith("/") and path.startswith(v1):
+            return v2 + path[len(v1) :]
+    return path
+
+
+def _api_url(path):
+    """Build absolute API URL, in the spelling this deployment speaks."""
+    if not SCHEDULER_URL:
+        raise RuntimeError("XCELSIOR_SCHEDULER_URL is not set")
+    if _AGENT_V2_PATHS:
+        path = _to_agent_v2_path(path)
+    return f"{SCHEDULER_URL.rstrip('/')}{path}"
+
+
+def heartbeat(gpu_info, host_ip, compute_score=None):
+    """Send heartbeat / register with scheduler.
+
+    PUT /host — same as v1 but with optional compute_score.
+    Returns True on success.
+    """
+    cpu_count = os.cpu_count() or 0
+    data = {
+        "host_id": HOST_ID,
+        "ip": host_ip,
+        "gpu_model": gpu_info["gpu_model"],
+        "total_vram_gb": gpu_info["total_vram_gb"],
+        "free_vram_gb": gpu_info["free_vram_gb"],
+        "cpu_count": cpu_count,
+        "cost_per_hour": COST_PER_HOUR,
+        # P1.2: report our own version + sha so the control plane knows
+        # which bytes are running and can schedule rolling self-updates.
+        "agent_version": VERSION,
+        "agent_sha256": _self_sha256(),
+    }
+    if HOST_COUNTRY:
+        data["country"] = HOST_COUNTRY
+    if HOST_REGION:
+        data["region"] = HOST_REGION
+    host_ssh_user = _reported_host_ssh_user()
+    if host_ssh_user:
+        data["ssh_user"] = host_ssh_user
+
+    try:
+        from criu_hosts import merge_checkpoint_capabilities, probe_checkpoint_stack
+
+        probe = probe_checkpoint_stack()
+        merge_checkpoint_capabilities(data, probe)
+    except Exception as exc:
+        log.debug("checkpoint probe skipped on heartbeat: %s", exc)
+
+    # The scheduler sends restricted-egress work only to hosts reporting this.
+    caps = dict(data.get("capabilities") or {})
+    try:
+        from egress_isolation import isolation_ready
+
+        caps["egress_isolation"] = isolation_ready()
+    except ImportError:
+        caps["egress_isolation"] = False
+    data["capabilities"] = caps
+
+    try:
+        resp = _api_request(
+            "put",
+            _api_url("/host"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        log.error("Heartbeat failed: %s", e)
+        return False
+
+
+def report_versions(versions):
+    """Report node component versions for admission control.
+
+    POST /agent/versions
+    """
+    data = {"host_id": HOST_ID, "versions": versions}
+    try:
+        resp = _api_request(
+            "post",
+            _api_url("/agent/versions"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            return result.get("admitted", False), result.get("details", {})
+        return False, {"error": f"HTTP {resp.status_code}"}
+    except requests.RequestException as e:
+        log.warning("Version report failed: %s", e)
+        return False, {"error": str(e)}
+
+
+def _report_agent_degraded(reason: str, *, context: str = "", level: str = "warning") -> None:
+    """Surface hot-loop failures to logs + control plane (B11)."""
+    msg = f"agent_degraded reason={reason}"
+    if context:
+        msg = f"{msg} context={context}"
+    if level == "error":
+        log.error(msg)
+    else:
+        log.warning(msg)
+    try:
+        _api_request(
+            "post",
+            _api_url("/agent/degraded"),
+            json={"host_id": HOST_ID, "reason": reason, "context": context},
+            headers=_api_headers(),
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass  # best-effort — heartbeat will also reflect degraded state
+
+
+def poll_for_work():
+    """Poll the scheduler for work assigned to this host.
+
+    GET /agent/work/{host_id}
+    Returns list of job dicts, or empty list.
+    """
+    try:
+        resp = _api_request(
+            "get",
+            _api_url(f"/agent/work/{HOST_ID}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("instances", [])
+        elif resp.status_code == 204:
+            return []
+        else:
+            _report_agent_degraded("poll_non_200", context=f"status={resp.status_code}")
+            return []
+    except requests.RequestException as e:
+        _report_agent_degraded("poll_transport_error", context=str(e))
+        return []
+
+
+def check_preemption():
+    """Check if any jobs on this host are being preempted.
+
+    GET /agent/preempt/{host_id}
+    Returns list of job_ids to preempt.
+    """
+    try:
+        resp = _api_request(
+            "get",
+            _api_url(f"/agent/preempt/{HOST_ID}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("preempt_jobs", [])
+        return []
+    except requests.RequestException:
+        return []
+
+
+#: Sibling modules that were split out of worker_agent.py (image cache, NFS,
+#: NVMe cache, LUKS volumes). worker_agent.py imports these at load time, so
+#: any host still running a pre-split agent needs them fetched + verified
+#: alongside the main file during self-update, or the restarted process will
+#: crash on ``import``. Must stay in sync with
+#: scripts/sign-static-agent.py::SIGNABLE / routes/static.py::_SIGNABLE.
+_SIBLING_MODULES = (
+    "worker_image_cache.py",
+    "worker_nfs.py",
+    "worker_nvme_cache.py",
+    "worker_luks_volumes.py",
+)
+
+
+def _sibling_module_dir(name: str) -> Path:
+    """Directory a sibling module should be (re)written to.
+
+    Uses the module's own ``__file__`` if it's already importable (i.e. this
+    is where it was actually loaded from — repo root in dev, ``lib/`` under
+    ``PYTHONPATH`` in prod installs). Falls back to the directory containing
+    this agent file for hosts that don't have the module yet.
+    """
+    mod_name = name[: -len(".py")] if name.endswith(".py") else name
+    try:
+        import importlib
+
+        mod = importlib.import_module(mod_name)
+        mod_file = getattr(mod, "__file__", None)
+        if mod_file:
+            return Path(mod_file).resolve().parent
+        return Path(__file__).resolve().parent
+    except Exception:
+        return Path(__file__).resolve().parent
+
+
+def _download_and_verify(
+    url: str, expected_sha: str, max_bytes: int = 10 * 1024 * 1024
+) -> bytes | None:
+    """Download ``url``, verify its sha256, and return the bytes (or None on failure)."""
+    import hashlib
+
+    try:
+        resp = requests.get(url, timeout=30, stream=True)
+    except requests.RequestException as e:
+        log.warning("upgrade_agent download error for %s: %s", url, e)
+        return None
+    if resp.status_code != 200:
+        log.warning("upgrade_agent download failed for %s: status=%s", url, resp.status_code)
+        return None
+    hasher = hashlib.sha256()
+    buf = bytearray()
+    for chunk in resp.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        buf.extend(chunk)
+        hasher.update(chunk)
+        if len(buf) > max_bytes:
+            log.error("upgrade_agent refusing oversized body for %s (> %d bytes)", url, max_bytes)
+            return None
+    data = bytes(buf)
+    actual_sha = hasher.hexdigest()
+    if actual_sha != expected_sha:
+        log.error(
+            "upgrade_agent sha mismatch for %s: expected=%s got=%s — aborting",
+            url,
+            expected_sha,
+            actual_sha,
+        )
+        return None
+    return data
+
+
+def _fetch_sibling_modules(base_url: str, modules: dict) -> dict[Path, bytes] | None:
+    """Fetch + verify every entry in ``modules`` ({filename: sha256}).
+
+    ``base_url`` is the primary ``worker_agent.py`` download URL — sibling
+    URLs are derived by swapping the filename component so callers only need
+    to pass a sha256 map, matching how ``/static/{filename}`` is served.
+
+    Returns a dict of {destination_path: verified_bytes} on full success, or
+    None if any single module fails to download/verify (all-or-nothing — we
+    never want to restart with a mix of old/new sibling modules).
+    """
+    if not modules:
+        return {}
+    staged: dict[Path, bytes] = {}
+    base = base_url.rsplit("/", 1)[0]
+    for name, expected_sha in modules.items():
+        if name not in _SIBLING_MODULES:
+            log.warning("upgrade_agent ignoring unknown sibling module %s", name)
+            continue
+        expected_sha = (expected_sha or "").lower().strip()
+        if len(expected_sha) != 64 or any(c not in "0123456789abcdef" for c in expected_sha):
+            log.warning("upgrade_agent bad sha256 for sibling module %s", name)
+            return None
+        data = _download_and_verify(f"{base}/{name}", expected_sha)
+        if data is None:
+            return None
+        staged[_sibling_module_dir(name) / name] = data
+    return staged
+
+
+def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
+    """Handle an ``upgrade_agent`` directive from the control plane (P1.2).
+
+    args: {
+        "url": "https://xcelsior.ca/static/worker_agent.py",
+        "sha256": "<hex>",          # required — we refuse to install unverified bytes
+        "min_version": "2.2.0",      # optional — skip if our VERSION >= this
+        "modules": {                 # optional — sibling modules worker_agent.py
+            "worker_image_cache.py": "<sha256>",  # imports (split out of the
+            "worker_nfs.py": "<sha256>",           # monolith); fetched from
+            "worker_nvme_cache.py": "<sha256>",    # the same base URL dir as
+            "worker_luks_volumes.py": "<sha256>",  # `url` above.
+        },
+    }
+
+    Flow:
+      1. If ``min_version`` <= VERSION, log + skip (we're already at/above target).
+      2. Download ``url`` to ``~/.xcelsior/worker_agent.py.new``.
+      3. Verify sha256 matches ``args["sha256"]``. Abort on mismatch.
+      4. If ``modules`` given, download + verify each one too — all-or-nothing;
+         abort the whole upgrade (leaving everything untouched) if any fails.
+      5. Copy current file(s) to ``.bak`` next to each.
+      6. ``os.replace`` new → current path for the main file and every
+         sibling module (atomic per-file on the same filesystem).
+      7. Log + ``sys.exit(0)`` — systemd ``Restart=always`` respawns with the
+         new bytes. If the new bytes fail to start, the old VERSION heartbeat
+         will cease and the control plane will see the upgrade stalled (the
+         rolling-upgrade driver can then roll back from .bak).
+
+    Returns True on successful install (won't return if process exits).
+    """
+    import hashlib
+
+    url = (args or {}).get("url") or ""
+    expected_sha = ((args or {}).get("sha256") or "").lower().strip()
+    min_version = (args or {}).get("min_version") or ""
+
+    if not url or not expected_sha or len(expected_sha) != 64:
+        log.warning("upgrade_agent cmd=%s bad args: %r", cmd_id, args)
+        return False
+
+    # Refuse plaintext URLs — integrity is enforced by sha256 but we also want
+    # transport confidentiality + to avoid DNS/HTTP MITM feeding us a valid
+    # (attacker-signed) blob alongside a poisoned sha. If your API_URL is
+    # http://localhost for local dev, set XCELSIOR_ALLOW_INSECURE_UPGRADE=1.
+    if not url.startswith("https://") and os.environ.get("XCELSIOR_ALLOW_INSECURE_UPGRADE") != "1":
+        log.error("upgrade_agent refusing non-https url: %s", url)
+        return False
+
+    # Sanity check hex before we do any I/O.
+    if any(c not in "0123456789abcdef" for c in expected_sha):
+        log.warning("upgrade_agent cmd=%s non-hex sha256", cmd_id)
+        return False
+
+    # Version gating — compare as tuples of ints where possible.
+    def _vtuple(v: str) -> tuple:
+        try:
+            return tuple(int(p) for p in v.split(".") if p.isdigit())
+        except Exception:
+            return ()
+
+    if min_version and _vtuple(VERSION) >= _vtuple(min_version) and _vtuple(min_version):
+        # Already at or beyond target and args also asked for the same sha as us: skip.
+        if expected_sha == _self_sha256():
+            log.info("upgrade_agent cmd=%s already at %s (sha matches) — skipped", cmd_id, VERSION)
+            return True
+
+    self_path = Path(__file__).resolve()
+    new_path = self_path.with_suffix(".py.new")
+    bak_path = self_path.with_suffix(".py.bak")
+    modules = (args or {}).get("modules") or {}
+
+    try:
+        log.info(
+            "upgrade_agent cmd=%s by=%s downloading %s (expect sha=%s)",
+            cmd_id,
+            by,
+            url,
+            expected_sha[:12],
+        )
+        resp = requests.get(url, timeout=30, stream=True)
+        if resp.status_code != 200:
+            log.warning("upgrade_agent download failed: status=%s", resp.status_code)
+            return False
+        # Cap download at 10 MB — worker_agent.py is ~160 KB today; anything
+        # an order of magnitude larger is a misconfiguration or attack.
+        MAX_BYTES = 10 * 1024 * 1024
+        hasher = hashlib.sha256()
+        buf = bytearray()
+        for chunk in resp.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            hasher.update(chunk)
+            if len(buf) > MAX_BYTES:
+                log.error("upgrade_agent refusing oversized body (> %d bytes)", MAX_BYTES)
+                return False
+        data = bytes(buf)
+        actual_sha = hasher.hexdigest()
+        if actual_sha != expected_sha:
+            log.error(
+                "upgrade_agent sha mismatch: expected=%s got=%s — aborting",
+                expected_sha,
+                actual_sha,
+            )
+            return False
+
+        # Fetch + verify sibling modules (worker_image_cache.py etc.) *before*
+        # touching anything on disk — all-or-nothing so we never restart with
+        # a stale sibling that the new worker_agent.py can't import.
+        sibling_staged = _fetch_sibling_modules(url, modules)
+        if sibling_staged is None:
+            log.error("upgrade_agent cmd=%s aborting: sibling module fetch/verify failed", cmd_id)
+            return False
+
+        new_path.write_bytes(data)
+        try:
+            os.chmod(new_path, 0o755)
+        except OSError:
+            pass
+
+        # Backup current before replacing. Best effort — if the copy fails we
+        # still proceed (the old bytes exist in the systemd journal + git).
+        try:
+            bak_path.write_bytes(self_path.read_bytes())
+        except OSError as e:
+            log.warning("upgrade_agent backup failed (continuing): %s", e)
+
+        os.replace(new_path, self_path)
+
+        # Swap in verified sibling modules the same way (backup + atomic replace).
+        for dest_path, sib_data in sibling_staged.items():
+            sib_new = dest_path.with_suffix(".py.new")
+            sib_bak = dest_path.with_suffix(".py.bak")
+            try:
+                sib_new.write_bytes(sib_data)
+                if dest_path.exists():
+                    try:
+                        sib_bak.write_bytes(dest_path.read_bytes())
+                    except OSError as e:
+                        log.warning(
+                            "upgrade_agent sibling backup failed for %s (continuing): %s",
+                            dest_path,
+                            e,
+                        )
+                os.replace(sib_new, dest_path)
+                log.info("upgrade_agent cmd=%s updated sibling module %s", cmd_id, dest_path)
+            except OSError as e:
+                # Sibling swap failures are logged but not fatal to the main
+                # upgrade — the new worker_agent.py may still import fine if
+                # this particular sibling module's contents are unchanged.
+                log.error(
+                    "upgrade_agent cmd=%s failed to install sibling %s: %s", cmd_id, dest_path, e
+                )
+
+        # B12 — mark post-upgrade boot so heartbeat_loop can auto-rollback on failure.
+        try:
+            (self_path.parent / ".upgrade_boot").write_text(actual_sha[:12], encoding="utf-8")
+        except OSError:
+            pass
+        log.warning(
+            "upgrade_agent cmd=%s installed new agent sha=%s — exiting for systemd restart",
+            cmd_id,
+            actual_sha[:12],
+        )
+        logging.shutdown()
+        os._exit(0)
+    except Exception as e:
+        log.exception("upgrade_agent cmd=%s failed: %s", cmd_id, e)
+        # Clean up partial file
+        try:
+            if new_path.exists():
+                new_path.unlink()
+        except OSError:
+            pass
+        return False
+
+
+#: P3/C7 — drain-side allowlist. Defence-in-depth against an API-side
+#: bypass: the worker only executes commands on this list. Must stay in
+#: sync with routes/agent.py::_AGENT_COMMAND_ALLOWED.
+_AGENT_COMMAND_ALLOWED = frozenset(
+    {
+        "reinject_shell",
+        "upgrade_agent",
+        "rollback_agent",  # P1.2 — auto-rollback driver restores .bak
+        "stop_container",
+        "pause_container",
+        "start_container",
+        "reset_container",  # P2 — fresh /workspace, preserve volumes
+        "snapshot_container",
+        "mount_volume",  # hot-attach: NFS mount + nsenter bind into running container
+        "unmount_volume",
+        "prepull_image",  # serverless cold-start: pull image on idle host
+        "promote_artifacts",  # P3 A1: artifact -> attached volume, sha256 verified
+        # P5 C2: re-run the benchmark and resubmit the verification report. The
+        # server cannot produce this report — only the host can — so before this
+        # existed the agent submitted one at startup and never again, and a
+        # verified stamp aged indefinitely against a one-day reverification
+        # interval.
+        "reverify",
+        # P7: fingerprint this container's own environment. The collector runs
+        # *inside* the container because the control plane comparing the image
+        # ref it just sent to all N members compares the request against
+        # itself.
+        "fingerprint_environment",
+    }
+)
+
+
+def drain_agent_commands() -> int:
+    """Drain admin control-plane commands from the API and dispatch them.
+
+    GET /agent/commands/{host_id} returns up to 50 pending commands and
+    atomically deletes them. Each command dict has id/command/args/created_by.
+    Unknown commands are hard-refused (P3/C7) — no forward-compat dispatch:
+    if a newer API ships a command this agent doesn't recognise, fail
+    loudly rather than silently drop, so operators upgrade agents before
+    relying on new behaviour.
+
+    Returns the number of commands successfully dispatched.
+    """
+    try:
+        resp = _api_request(
+            "get",
+            _api_url(f"/agent/commands/{HOST_ID}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return 0
+        commands = resp.json().get("commands", []) or []
+    except requests.RequestException as e:
+        _report_agent_degraded("drain_commands_error", context=str(e))
+        return 0
+
+    dispatched = 0
+    for cmd in commands:
+        name = cmd.get("command")
+        args = cmd.get("args") or {}
+        cmd_id = cmd.get("id")
+        by = cmd.get("created_by") or "?"
+        # P3/C7 — enforce allowlist before entering any branch.
+        if name not in _AGENT_COMMAND_ALLOWED:
+            log.warning(
+                "drain_agent_commands refused unknown cmd=%s name=%r by=%s",
+                cmd_id,
+                name,
+                by,
+            )
+            _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
+            continue
+        try:
+            if name == "reinject_shell":
+                job_id = args.get("job_id") or ""
+                container_name = args.get("container_name") or (f"xcl-{job_id}" if job_id else "")
+                if not job_id or not container_name:
+                    log.warning("reinject_shell cmd=%s missing args: %r", cmd_id, args)
+                    _motd_reinjection_total.labels(result="bad_args").inc()
+                    continue
+                # Verify container still belongs to us and is running
+                inspect = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+                    log.info(
+                        "reinject_shell cmd=%s container=%s not running — skipped",
+                        cmd_id,
+                        container_name,
+                    )
+                    _motd_reinjection_total.labels(result="skipped").inc()
+                    continue
+                log.info(
+                    "Executing admin reinject_shell cmd=%s job=%s by=%s", cmd_id, job_id[:8], by
+                )
+                _inject_ssh_keys(job_id, container_name)
+                _motd_reinjection_total.labels(result="success").inc()
+                dispatched += 1
+            elif name == "upgrade_agent":
+                log.info("Executing admin upgrade_agent cmd=%s by=%s", cmd_id, by)
+                if _handle_upgrade_agent(args, cmd_id=str(cmd_id or ""), by=str(by)):
+                    dispatched += 1
+            elif name == "rollback_agent":
+                # P1.2 — auto-rollback driver: swap the previously-written
+                # ``.bak`` back into place and exit so systemd respawns the
+                # old bytes. No network I/O, no sha verification (we trust
+                # our own backup). Idempotent: if .bak is absent (e.g. first
+                # upgrade never happened or file has been GC'd) we log and
+                # skip so the drain loop doesn't keep retrying.
+                try:
+                    from pathlib import Path as _P
+
+                    _self = _P(__file__).resolve()
+                    _bak = _self.with_suffix(".py.bak")
+                    if not _bak.exists():
+                        log.warning(
+                            "rollback_agent cmd=%s no .bak file at %s — skipping", cmd_id, _bak
+                        )
+                        continue
+                    # Keep the current bytes around one level deeper so a
+                    # subsequent re-upgrade has a recovery path (rotates
+                    # .bak → .bak.old → dropped).
+                    _old = _self.with_suffix(".py.bak.old")
+                    try:
+                        _old.write_bytes(_self.read_bytes())
+                    except OSError:
+                        pass
+                    import os as _os
+
+                    _os.replace(_bak, _self)
+                    log.warning("rollback_agent cmd=%s restored .bak — exiting for restart", cmd_id)
+                    logging.shutdown()
+                    _os._exit(0)
+                except Exception as e:
+                    log.exception("rollback_agent cmd=%s failed: %s", cmd_id, e)
+            elif name == "stop_container":
+                # P3.2 — billing/admin initiated graceful stop + remove.
+                # Replaces the legacy VPS→host `ssh_exec docker kill` path;
+                # works over CGNAT because the agent pulls the directive.
+                _job_id = str(args.get("job_id") or "")
+                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
+                if not cname:
+                    log.warning("stop_container cmd=%s missing container_name", cmd_id)
+                    continue
+                try:
+                    inspect = subprocess.run(
+                        ["docker", "inspect", "-f", "{{.Id}}", cname],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if inspect.returncode != 0:
+                        _active_containers.pop(_job_id, None)
+                        now = time.time()
+                        last_log = _missing_stop_container_log_at.get(cname, 0.0)
+                        if now - last_log >= 300:
+                            log.info(
+                                "stop_container cmd=%s container=%s already absent; acknowledged",
+                                cmd_id,
+                                cname,
+                            )
+                            _missing_stop_container_log_at[cname] = now
+                        else:
+                            log.debug(
+                                "stop_container cmd=%s container=%s already absent; acknowledged",
+                                cmd_id,
+                                cname,
+                            )
+                        dispatched += 1
+                        continue
+                    log.info(
+                        "Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by
+                    )
+                    subprocess.run(
+                        ["docker", "stop", "-t", "30", cname],
+                        capture_output=True,
+                        text=True,
+                        timeout=45,
+                    )
+                    subprocess.run(
+                        ["docker", "rm", "-f", cname],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    _active_containers.pop(_job_id, None)
+                    dispatched += 1
+                except subprocess.TimeoutExpired:
+                    log.warning("stop_container cmd=%s container=%s timed out", cmd_id, cname)
+            elif name == "pause_container":
+                # P3/A3 — billing-initiated PAUSE (state-preserving).
+                # Unlike stop_container, does NOT `docker rm`, so the container
+                # can later be restarted cheaply with `docker start`. Used for
+                # wallet-low-balance pauses where we expect the user to resume.
+                _job_id = str(args.get("job_id") or "")
+                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
+                if not cname:
+                    log.warning("pause_container cmd=%s missing container_name", cmd_id)
+                    continue
+                log.info("Executing pause_container cmd=%s container=%s by=%s", cmd_id, cname, by)
+                try:
+                    r = subprocess.run(
+                        ["docker", "stop", "-t", "30", cname],
+                        capture_output=True,
+                        text=True,
+                        timeout=45,
+                    )
+                    if r.returncode == 0:
+                        dispatched += 1
+                    else:
+                        log.warning(
+                            "pause_container cmd=%s rc=%s stderr=%s",
+                            cmd_id,
+                            r.returncode,
+                            (r.stderr or "")[:200],
+                        )
+                except subprocess.TimeoutExpired:
+                    log.warning("pause_container cmd=%s container=%s timed out", cmd_id, cname)
+            elif name == "start_container":
+                # P3.2 — resume a previously-stopped container. The image +
+                # volumes are preserved so `docker start` is a cheap restart.
+                cname = str(args.get("container_name") or "")
+                if not cname:
+                    log.warning("start_container cmd=%s missing container_name", cmd_id)
+                    continue
+                start_job_id = str(args.get("job_id") or "")
+                log.info("Executing start_container cmd=%s container=%s by=%s", cmd_id, cname, by)
+                try:
+                    r = subprocess.run(
+                        ["docker", "start", cname],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    if r.returncode == 0:
+                        dispatched += 1
+                    else:
+                        stderr_trim = (r.stderr or "").strip()[:400]
+                        log.warning(
+                            "start_container cmd=%s rc=%s stderr=%s",
+                            cmd_id,
+                            r.returncode,
+                            stderr_trim,
+                        )
+                        # P3/B8 — previous code left the job stuck at status
+                        # 'running' (set optimistically by the start path) even
+                        # though the container never started. Revert to
+                        # 'stopped' with an error message so the UI unsticks
+                        # and the user sees a real reason. (Pre-phase-2 this
+                        # used 'user_paused'; pause/resume were collapsed into
+                        # stop/start.)
+                        if start_job_id:
+                            try:
+                                report_job_status(
+                                    start_job_id,
+                                    "stopped",
+                                    error_message=f"start failed: {stderr_trim}"
+                                    or "start failed: docker start exited non-zero",
+                                )
+                            except Exception as cb_err:
+                                log.warning(
+                                    "start_container failure-callback cmd=%s job=%s failed: %s",
+                                    cmd_id,
+                                    start_job_id,
+                                    cb_err,
+                                )
+                except subprocess.TimeoutExpired:
+                    log.warning("start_container cmd=%s container=%s timed out", cmd_id, cname)
+                    if start_job_id:
+                        try:
+                            report_job_status(
+                                start_job_id,
+                                "stopped",
+                                error_message="start failed: docker start timed out",
+                            )
+                        except Exception as cb_err:
+                            log.warning(
+                                "start_container timeout-callback cmd=%s job=%s failed: %s",
+                                cmd_id,
+                                start_job_id,
+                                cb_err,
+                            )
+            elif name == "reset_container":
+                # P2 — restart the container with a fresh /workspace scratch
+                # dir. Named/bind-mount volumes are untouched; only the
+                # container's own ephemeral /workspace gets wiped so the
+                # user gets a clean slate without losing mounted data.
+                cname = str(args.get("container_name") or "")
+                if not cname:
+                    log.warning("reset_container cmd=%s missing container_name", cmd_id)
+                else:
+                    try:
+                        # `docker exec <cname> sh -c 'rm -rf /workspace/* /workspace/.[!.]*'`
+                        # wipes /workspace in-place, then restart the container
+                        # so tmp/log state resets as well.
+                        subprocess.run(
+                            [
+                                "docker",
+                                "exec",
+                                cname,
+                                "sh",
+                                "-c",
+                                "rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
+                        r = subprocess.run(
+                            ["docker", "restart", cname],
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
+                        if r.returncode == 0:
+                            dispatched += 1
+                        else:
+                            log.warning(
+                                "reset_container cmd=%s rc=%s stderr=%s",
+                                cmd_id,
+                                r.returncode,
+                                (r.stderr or "").strip()[:400],
+                            )
+                    except subprocess.TimeoutExpired:
+                        log.warning("reset_container cmd=%s container=%s timed out", cmd_id, cname)
+            elif name == "snapshot_container":
+                # P3.1 — `docker commit` the running container to a user
+                # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL
+                # is set; otherwise the tag remains local to this host.
+                image_id = str(args.get("image_id") or "")
+                cname = str(args.get("container_name") or "")
+                image_ref = str(args.get("image_ref") or "")
+                if not (image_id and cname and image_ref):
+                    log.warning("snapshot_container cmd=%s missing required args", cmd_id)
+                    continue
+                log.info(
+                    "Executing snapshot_container cmd=%s container=%s ref=%s by=%s",
+                    cmd_id,
+                    cname,
+                    image_ref,
+                    by,
+                )
+                status = "failed"
+                size_bytes = 0
+                err_msg = ""
+                # Empty on every path that does not reach a successful push.
+                # "Unknown" is the honest value for a snapshot that never
+                # produced a manifest, and the column is nullable so it can say
+                # so rather than claim a digest it does not have.
+                image_digest = ""
+                committed_locally = False  # P3/B6 — track so we can rmi on push fail
+                try:
+                    # Step 1: docker commit (local tag created).
+                    commit = subprocess.run(
+                        ["docker", "commit", cname, image_ref],
+                        capture_output=True,
+                        text=True,
+                        timeout=900,
+                    )
+                    if commit.returncode != 0:
+                        # P3/B7 — distinguish commit vs push failures so the
+                        # UI can surface actionable errors.
+                        err_msg = f"commit failed: {(commit.stderr or '').strip()[:480]}"
+                    else:
+                        committed_locally = True
+                        # Best-effort size inspection.
+                        try:
+                            insp = subprocess.run(
+                                ["docker", "image", "inspect", "-f", "{{.Size}}", image_ref],
+                                capture_output=True,
+                                text=True,
+                                timeout=10,
+                            )
+                            if insp.returncode == 0:
+                                size_bytes = int((insp.stdout or "0").strip() or 0)
+                        except (subprocess.TimeoutExpired, ValueError):
+                            pass
+                        registry_url = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip()
+                        if not registry_url:
+                            # No host-local fallback. API refuses new
+                            # snapshots when registry is unset, but a
+                            # stale queued command could still arrive here.
+                            # Clean up the local commit + report failure.
+                            err_msg = "registry_not_configured"
+                            try:
+                                subprocess.run(
+                                    ["docker", "rmi", image_ref],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30,
+                                )
+                                committed_locally = False
+                            except subprocess.TimeoutExpired:
+                                pass
+                        elif image_ref.startswith(registry_url.rstrip("/")):
+                            # Step 2: docker push.
+                            push = subprocess.run(
+                                ["docker", "push", image_ref],
+                                capture_output=True,
+                                text=True,
+                                timeout=900,
+                            )
+                            if push.returncode != 0:
+                                err_msg = f"push failed: {(push.stderr or '').strip()[:480]}"
+                                # P3/B6 — clean up local tag so this host's
+                                # disk doesn't fill with orphaned layers from
+                                # retried-and-failed pushes.
+                                try:
+                                    subprocess.run(
+                                        ["docker", "rmi", image_ref],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=30,
+                                    )
+                                    committed_locally = False
+                                except subprocess.TimeoutExpired:
+                                    log.warning(
+                                        "snapshot_container rmi-after-push-fail "
+                                        "cmd=%s ref=%s timed out",
+                                        cmd_id,
+                                        image_ref,
+                                    )
+                            else:
+                                status = "ready"
+                                # The manifest digest, read straight after the
+                                # push that produced it. Gate P7 asks a sweep of
+                                # N nodes to be byte-identical, and N containers
+                                # launched from a *tag* are not evidence of
+                                # that — a tag is mutable, so "same tag" and
+                                # "same bytes" are different claims.
+                                #
+                                # Captured here rather than resolved later from
+                                # the registry because this is the only moment
+                                # anything knows the digest belongs to the bytes
+                                # just pushed; a later lookup answers "what does
+                                # the tag point at now".
+                                image_digest = _read_repo_digest(image_ref)
+                        else:
+                            # image_ref doesn't match registry prefix.
+                            # Shouldn't happen (API builds the ref from the
+                            # same env), but fail loudly rather than silently
+                            # keeping an unpushable tag.
+                            err_msg = (
+                                f"image_ref {image_ref!r} does not match registry {registry_url!r}"
+                            )
+                            try:
+                                subprocess.run(
+                                    ["docker", "rmi", image_ref],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30,
+                                )
+                                committed_locally = False
+                            except subprocess.TimeoutExpired:
+                                pass
+                        dispatched += 1
+                except subprocess.TimeoutExpired:
+                    err_msg = "commit/push timeout"
+                    log.warning("snapshot_container cmd=%s container=%s timed out", cmd_id, cname)
+                # Report back to API so the user_images row flips out of
+                # 'pending'. Best-effort — a lost callback is recoverable
+                # by a reconcile sweep that inspects docker images directly.
+                try:
+                    resp = _api_request(
+                        "post",
+                        _api_url(f"/user-images/{image_id}/complete"),
+                        headers=_api_headers(),
+                        json={
+                            "status": status,
+                            "size_bytes": size_bytes,
+                            "error": err_msg,
+                            "image_digest": image_digest,
+                        },
+                        timeout=10,
+                    )
+                    if resp.status_code >= 400:
+                        log.warning(
+                            "snapshot_container callback cmd=%s got HTTP %s: %s",
+                            cmd_id,
+                            resp.status_code,
+                            (getattr(resp, "text", "") or "")[:200],
+                        )
+                except requests.RequestException as e:
+                    log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
+            elif name == "mount_volume":
+                log.info(
+                    "Executing mount_volume cmd=%s job=%s vol=%s by=%s",
+                    cmd_id,
+                    (args.get("job_id") or "")[:8],
+                    args.get("volume_id"),
+                    by,
+                )
+                if _hot_mount_volume(args):
+                    dispatched += 1
+            elif name == "unmount_volume":
+                log.info(
+                    "Executing unmount_volume cmd=%s job=%s vol=%s by=%s",
+                    cmd_id,
+                    (args.get("job_id") or "")[:8],
+                    args.get("volume_id"),
+                    by,
+                )
+                if _hot_unmount_volume(args):
+                    dispatched += 1
+            elif name == "promote_artifacts":
+                log.info(
+                    "Executing promote_artifacts cmd=%s promotion=%s by=%s",
+                    cmd_id,
+                    args.get("promotion_id"),
+                    by,
+                )
+                if _promote_artifacts(args):
+                    dispatched += 1
+            elif name == "reverify":
+                log.info(
+                    "Executing reverify cmd=%s reason=%s by=%s",
+                    cmd_id,
+                    args.get("reason", "?"),
+                    by,
+                )
+                if _start_reverification():
+                    dispatched += 1
+            elif name == "fingerprint_environment":
+                sweep_id = str(args.get("sweep_id") or "")
+                member_index = args.get("member_index")
+                container = str(args.get("container_name") or "")
+                if not (sweep_id and container) or member_index is None:
+                    log.warning(
+                        "fingerprint_environment cmd=%s missing sweep_id/"
+                        "member_index/container_name",
+                        cmd_id,
+                    )
+                    continue
+                log.info(
+                    "Executing fingerprint_environment cmd=%s sweep=%s member=%s by=%s",
+                    cmd_id,
+                    sweep_id,
+                    member_index,
+                    by,
+                )
+                if _report_environment_fingerprint(
+                    sweep_id,
+                    int(member_index),
+                    container,
+                    str(args.get("image_digest") or ""),
+                ):
+                    dispatched += 1
+            elif name == "prepull_image":
+                image_tag = str(args.get("image") or "").strip()
+                if not image_tag:
+                    log.warning("prepull_image cmd=%s missing image arg", cmd_id)
+                    continue
+                log.info("Executing prepull_image cmd=%s image=%s by=%s", cmd_id, image_tag, by)
+                cache_prepull_popular([image_tag], max_concurrent=1)
+                dispatched += 1
+            # P3/C7 — no `else` branch: unknown commands are rejected at
+            # the top of the loop via _AGENT_COMMAND_ALLOWED before we
+            # reach any if/elif block.
+        except Exception as e:
+            log.warning("agent command cmd=%s name=%s failed: %s", cmd_id, name, e)
+            if name == "reinject_shell":
+                _motd_reinjection_total.labels(result="failure").inc()
+    return dispatched
+
+
+def report_job_status(
+    job_id,
+    status,
+    host_id=None,
+    container_id=None,
+    container_name=None,
+    ssh_port=None,
+    interactive=None,
+    error_message=None,
+    resume_from=None,
+    policy_reason=None,
+):
+    """Update job status on the scheduler.
+
+    PATCH /instance/{job_id}
+    """
+    # Capture authority before the mirror: a terminal v2 report removes the
+    # local journal entry, but the compatibility PATCH still needs the exact
+    # tuple so the API can distinguish it from a stale worker.
+    with _v2_attempts_lock:
+        v2_auth = dict(_v2_attempts.get(job_id) or {})
+
+    # Phase 5: mirror lifecycle onto the fenced attempt when this job is
+    # v2-owned (no-op otherwise). Runs first so the fenced report cannot
+    # be skipped by a v1 transport failure.
+    mirror_outcome = "not_v2"
+    try:
+        mirror_outcome = _v2_on_job_status(
+            job_id, status, error_message=error_message, policy_reason=policy_reason
+        )
+    except Exception as _v2_exc:
+        log.warning("v2 status mirror failed for job %s: %s", job_id, _v2_exc)
+        mirror_outcome = "error"
+
+    # The compatibility PATCH is not a fallback state machine. If the
+    # fenced write was rejected or unavailable, allowing a raw legacy status
+    # mutation would strand the active attempt/lease/allocation out of sync.
+    if v2_auth and mirror_outcome != "ok":
+        log.error(
+            "refusing legacy status fallback for v2 job %s: fenced mirror=%s",
+            job_id,
+            mirror_outcome,
+        )
+        return False
+
+    data = {"status": status}
+    if policy_reason:
+        data["policy_reason"] = policy_reason
+        data["host_id"] = HOST_ID
+    if v2_auth:
+        data["host_id"] = HOST_ID
+        data["attempt_id"] = v2_auth.get("attempt_id")
+        data["fencing_token"] = v2_auth.get("fencing_token")
+    elif host_id:
+        data["host_id"] = host_id
+    if container_id:
+        data["container_id"] = container_id
+    if container_name:
+        data["container_name"] = container_name
+    if ssh_port is not None:
+        data["ssh_port"] = ssh_port
+    if interactive is not None:
+        data["interactive"] = interactive
+    if error_message:
+        data["error_message"] = error_message[:500]
+    if resume_from:
+        data["resume_from"] = resume_from
+        data["resumable"] = bool(resume_from.get("success"))
+    try:
+        resp = _api_request(
+            "patch",
+            _api_url(f"/instance/{job_id}"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            log.warning(
+                "Status update %s for job %s failed: HTTP %s %s",
+                status,
+                job_id,
+                resp.status_code,
+                (getattr(resp, "text", "") or "")[:200],
+            )
+            return False
+        return True
+    except requests.RequestException as e:
+        log.error("Status update failed for job %s: %s", job_id, e)
+        return False
+
+
+def _push_log_lines(job_id, lines):
+    """Push log lines directly to the API (used during pull phase before LogForwarder starts)."""
+    body = json.dumps({"lines": lines}).encode()
+    try:
+        _api_request(
+            "post",
+            _api_url(f"/agent/logs/{job_id}"),
+            data=body,
+            headers=_api_headers(),
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass  # best-effort — don't block job execution
+
+
+def _report_http_ports(job_id, port_map):
+    """Report the final {container_port: host_port} mapping to the API.
+
+    Used by the P2.2 subdomain router to resolve
+    ``{slug}-{cport}.xcelsior.ca`` without having to re-derive the
+    deterministic-with-linear-probe allocation. Best-effort — a failed
+    call leaves the public URL unresolved; users can simply retry
+    ``POST /instances/{id}/expose`` once the next report lands.
+    """
+    if not port_map:
+        return False
+    try:
+        resp = _api_request(
+            "post",
+            _api_url(f"/instances/{job_id}/http-ports/report"),
+            json={"host_id": HOST_ID, "ports": {str(k): int(v) for k, v in port_map.items()}},
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            log.info("Reported http_ports for job %s: %s", job_id, port_map)
+            return True
+        log.warning(
+            "http_ports report for job %s returned %d: %s",
+            job_id,
+            resp.status_code,
+            (getattr(resp, "text", "") or "")[:200],
+        )
+    except requests.RequestException as e:
+        log.error("http_ports report failed for job %s: %s", job_id, e)
+    return False
+
+
+# ── Lease Protocol ────────────────────────────────────────────────────
+# Per REPORT_FEATURE_FINAL.md: clean "lease/claim" protocol instead of
+# conflating "assigned" with "running."
+#   assign → lease claim → lease renewal → completion/release
+
+
+def claim_lease(job_id):
+    """Claim a lease for a job (assigned → leased).
+
+    POST /agent/lease/claim
+    Returns lease details or None on failure.
+    """
+    data = {"host_id": HOST_ID, "job_id": job_id}
+    try:
+        resp = _api_request(
+            "post",
+            _api_url("/agent/lease/claim"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            log.info(
+                "Lease claimed: job=%s lease=%s expires=%.0f",
+                job_id,
+                result.get("lease_id"),
+                result.get("expires_at", 0),
+            )
+            return result
+        else:
+            log.warning("Lease claim failed for job %s: HTTP %d", job_id, resp.status_code)
+            return None
+    except requests.RequestException as e:
+        log.error("Lease claim error for job %s: %s", job_id, e)
+        return None
+
+
+def renew_lease(job_id):
+    """Renew a lease on a job.
+
+    POST /agent/lease/renew
+    Returns lease details or None if expired.
+    """
+    data = {"host_id": HOST_ID, "job_id": job_id}
+    try:
+        resp = _api_request(
+            "post",
+            _api_url("/agent/lease/renew"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            log.warning("Lease renewal failed for job %s: HTTP %d", job_id, resp.status_code)
+            return None
+    except requests.RequestException as e:
+        _report_agent_degraded("lease_renew_error", context=f"job={job_id} err={e}")
+        return None
+
+
+def release_lease(job_id, reason="completed"):
+    """Release a lease (job done/failed/preempted).
+
+    POST /agent/lease/release
+    """
+    data = {"job_id": job_id, "reason": reason}
+    try:
+        resp = _api_request(
+            "post",
+            _api_url("/agent/lease/release"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code not in (200, 204):
+            _report_agent_degraded(
+                "lease_release_non_200", context=f"job={job_id} status={resp.status_code}"
+            )
+    except requests.RequestException as e:
+        _report_agent_degraded("lease_release_error", context=f"job={job_id} err={e}")
+
+
+# ── /agent/v2 fenced protocol (Track A Phase 5) ──────────────────────
+# Claim + ACK work delivery, hard lease gate before any container start,
+# and fenced status reporting. Negotiated per host at startup; hosts the
+# server hasn't enrolled keep the v1 poll/drain path untouched.
+
+WORKER_SESSION_ID = uuid.uuid4().hex
+
+_v2_enabled = False
+# job_id -> v2 authority dict while an attempt runs on this host:
+# {lease_id, job_id, attempt_id, host_id, fencing_token,
+#  worker_session_id, renewal_ttl_sec, stop: threading.Event}
+_v2_attempts: dict = {}
+_v2_attempts_lock = threading.Lock()
+
+
+def negotiate_protocol_v2() -> bool:
+    """Ask the API which protocol this host should speak (canary rollout)."""
+    global _v2_enabled
+    try:
+        resp = _api_request(
+            "get",
+            _api_url(f"/agent/v2/negotiate/{HOST_ID}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200 and resp.json().get("v2"):
+            _v2_enabled = True
+            log.info(
+                "Protocol v2 negotiated (session=%s features=%s)",
+                WORKER_SESSION_ID[:8],
+                resp.json().get("features"),
+            )
+        else:
+            _v2_enabled = False
+            # Say why. This branch used to be silent, so a worker sitting on v1
+            # looked identical to one that had never tried — and the actual
+            # reason (a 403 for a host that was not admitted) was only findable
+            # in the API's access log on the server.
+            try:
+                detail = resp.json()
+            except ValueError:
+                detail = (resp.text or "")[:200]
+            log.warning(
+                "Protocol v2 declined (HTTP %s) — staying on v1: %s",
+                resp.status_code,
+                detail,
+            )
+    except requests.RequestException as e:
+        _v2_enabled = False
+        log.info("Protocol negotiation unavailable (%s) — staying on v1", e)
+    return _v2_enabled
+
+
+def _v2_post(path: str, payload: dict, timeout: int = 10):
+    """POST helper: returns (status_code, parsed_json_or_empty_dict)."""
+    try:
+        resp = _api_request(
+            "post", _api_url(path), json=payload, headers=_api_headers(), timeout=timeout
+        )
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        return resp.status_code, body
+    except requests.RequestException as e:
+        log.warning("v2 POST %s transport error: %s", path, e)
+        return 0, {}
+
+
+def v2_claim_commands(limit: int = 5) -> list:
+    code, body = _v2_post(
+        "/agent/v2/commands/claim",
+        {"host_id": HOST_ID, "worker_session_id": WORKER_SESSION_ID, "limit": limit},
+    )
+    if code != 200:
+        return []
+    return body.get("commands", []) or []
+
+
+def v2_ack_command(command_id: str, result: dict | None = None) -> bool:
+    code, _ = _v2_post(
+        f"/agent/v2/commands/{command_id}/ack",
+        {"host_id": HOST_ID, "result": result or {}},
+    )
+    return code == 200
+
+
+def v2_nack_command(
+    command_id: str, error_code: str, details: dict | None = None, retryable: bool = True
+) -> bool:
+    code, _ = _v2_post(
+        f"/agent/v2/commands/{command_id}/nack",
+        {
+            "host_id": HOST_ID,
+            "error_code": error_code,
+            "error_details": details or {},
+            "retryable": retryable,
+        },
+    )
+    return code == 200
+
+
+def _v2_auth_payload(auth: dict) -> dict:
+    return {
+        "lease_id": auth["lease_id"],
+        "job_id": auth["job_id"],
+        "attempt_id": auth["attempt_id"],
+        "host_id": HOST_ID,
+        "fencing_token": auth["fencing_token"],
+        "worker_session_id": WORKER_SESSION_ID,
+    }
+
+
+def v2_claim_lease_fenced(auth: dict) -> dict | None:
+    """§11.2 HARD GATE: no grant → no container start, ever."""
+    code, body = _v2_post("/agent/v2/leases/claim", _v2_auth_payload(auth))
+    if code == 200:
+        response_matches = (
+            str(body.get("lease_id") or "") == str(auth["lease_id"])
+            and str(body.get("job_id") or "") == str(auth["job_id"])
+            and str(body.get("attempt_id") or "") == str(auth["attempt_id"])
+            and int(body.get("fencing_token") or 0) == int(auth["fencing_token"])
+        )
+        if response_matches:
+            return body
+        log.error(
+            "v2 lease claim response authority mismatch job=%s attempt=%s",
+            auth["job_id"],
+            auth["attempt_id"][:8],
+        )
+        return None
+    log.error(
+        "v2 lease claim REJECTED job=%s attempt=%s fence=%s: HTTP %s %s",
+        auth["job_id"],
+        auth["attempt_id"][:8],
+        auth["fencing_token"],
+        code,
+        (body.get("detail") or body) if body else "",
+    )
+    return None
+
+
+def v2_report_attempt_status(
+    auth: dict, status: str, failure_code: str | None = None, detail: dict | None = None
+) -> str:
+    """Fenced status report. Returns 'ok', 'fenced', or 'error'."""
+    payload = {
+        "job_id": auth["job_id"],
+        "attempt_id": auth["attempt_id"],
+        "host_id": HOST_ID,
+        "fencing_token": auth["fencing_token"],
+        "status": status,
+    }
+    if failure_code:
+        payload["failure_code"] = failure_code
+    if detail:
+        payload["detail"] = detail
+    code, _body = _v2_post("/agent/v2/attempts/status", payload)
+    if code == 200:
+        return "ok"
+    if code == 409:
+        return "fenced"
+    return "error"
+
+
+def _v2_container_name(job_id: str, attempt_id: str) -> str:
+    """Stable attempt-specific identity; a newer fence never shares a name."""
+    return f"xcl-{job_id}-{attempt_id[:8]}"
+
+
+def _v2_stop_container(
+    job_id: str,
+    why: str,
+    container_name: str | None = None,
+    expected_attempt_id: str | None = None,
+) -> None:
+    """Definitive fence-loss behavior (§11.5): authority gone → stop now."""
+    container_name = container_name or f"xcl-{job_id}"
+    if expected_attempt_id:
+        state, _exit_code, observed_attempt_id = _v2_container_state(job_id, container_name)
+        if state == "missing":
+            return
+        if observed_attempt_id != expected_attempt_id:
+            log.critical(
+                "FENCE STOP REFUSED job=%s container=%s expected_attempt=%s observed_attempt=%s",
+                job_id,
+                container_name,
+                expected_attempt_id,
+                observed_attempt_id or "(unlabeled)",
+            )
+            return
+    log.error("FENCE LOST job=%s (%s) — stopping container %s", job_id, why, container_name)
+    try:
+        subprocess.run(
+            ["docker", "kill", container_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as e:
+        log.error("fence-loss docker kill failed for %s: %s", container_name, e)
+
+
+# §11.3 local idempotency journal: authority records persisted across
+# agent restarts so running containers can be re-adopted instead of
+# orphaned (renewals stop → lease expires → attempt fenced → killed).
+#
+# NODE-LOCAL RECOVERY STATE — NOT CONTROL-PLANE AUTHORITY.
+# Companion §10.2 permits exactly one kind of local durable state on a
+# worker: "a host worker's local command/execution journal ... scoped to
+# one host and can be rebuilt or reconciled with PostgreSQL". This file is
+# that, and nothing more. It records the last command, fencing token,
+# local container identity, ACK state, and cleanup status so the agent can
+# recover after a restart.
+#
+# It holds no allocation authority. It cannot grant a lease, extend a
+# fence, or make an attempt current — every one of those decisions is a
+# PostgreSQL row, and adoption still requires the API to confirm the exact
+# attempt/fence is current (§11.6). If this file is lost, corrupt, or
+# stale, the correct outcome is that running work is re-adopted or fenced
+# and killed by the control plane — never that the worker acts on it
+# unilaterally.
+#
+# Implementation is an atomically-replaced JSON document rather than
+# SQLite. §10.2 allows SQLite here; it does not require it, and a
+# single-writer snapshot rewritten via os.replace() has the durability
+# this needs without adding a database to the agent bundle.
+def _worker_state_dir() -> str:
+    """Directory for durable worker state (the attempt journal, staged host tools).
+
+    Under systemd this is StateDirectory=xcelsior, passed as $STATE_DIRECTORY and
+    created with the right owner for whichever User= the unit runs as. Outside
+    systemd, /var/lib/xcelsior when this process can write there; otherwise
+    ~/.xcelsior/state, so an unprivileged run can still save its journal.
+    """
+    from_systemd = os.environ.get("STATE_DIRECTORY", "").split(":")[0]
+    if from_systemd:
+        return from_systemd
+    default = "/var/lib/xcelsior"
+    if os.access(default if os.path.isdir(default) else os.path.dirname(default), os.W_OK):
+        return default
+    return os.path.join(os.path.expanduser("~"), ".xcelsior", "state")
+
+
+_WORKER_STATE_DIR = _worker_state_dir()
+_V2_JOURNAL_PATH = os.environ.get(
+    "XCELSIOR_V2_JOURNAL_PATH", os.path.join(_WORKER_STATE_DIR, "v2_attempts.json")
+)
+_V2_COMPLETED_COMMANDS_KEY = "__completed_commands__"
+_V2_COMMAND_RESULT_RETENTION_SEC = 24 * 3600
+_v2_completed_commands: dict[str, dict] = {}
+
+
+def _v2_journal_save() -> None:
+    """Persist attempt authority and replayable command results atomically."""
+    with _v2_attempts_lock:
+        cutoff = time.time() - _V2_COMMAND_RESULT_RETENTION_SEC
+        expired = [
+            command_id
+            for command_id, record in _v2_completed_commands.items()
+            if float(record.get("completed_at") or 0) < cutoff
+        ]
+        for command_id in expired:
+            _v2_completed_commands.pop(command_id, None)
+        snapshot = {
+            job_id: {
+                "lease_id": a["lease_id"],
+                "job_id": a["job_id"],
+                "attempt_id": a["attempt_id"],
+                "fencing_token": a["fencing_token"],
+                "renewal_ttl_sec": a.get("renewal_ttl_sec", 300),
+                "container_name": a.get("container_name")
+                or _v2_container_name(a["job_id"], a["attempt_id"]),
+                "spec_hash": a.get("spec_hash"),
+                **(
+                    {"pending_command": dict(a["pending_command"])}
+                    if isinstance(a.get("pending_command"), dict)
+                    else {}
+                ),
+            }
+            for job_id, a in _v2_attempts.items()
+        }
+        snapshot[_V2_COMPLETED_COMMANDS_KEY] = {
+            command_id: dict(record) for command_id, record in _v2_completed_commands.items()
+        }
+    try:
+        os.makedirs(os.path.dirname(_V2_JOURNAL_PATH), exist_ok=True)
+        tmp = _V2_JOURNAL_PATH + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(snapshot, fh)
+        os.replace(tmp, _V2_JOURNAL_PATH)
+    except OSError as e:
+        log.warning("v2 journal save failed (%s) — adoption unavailable", e)
+
+
+def _v2_journal_load() -> dict:
+    global _v2_completed_commands
+    try:
+        with open(_V2_JOURNAL_PATH) as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return {}
+        raw_completed = data.pop(_V2_COMPLETED_COMMANDS_KEY, {})
+        with _v2_attempts_lock:
+            _v2_completed_commands = (
+                {
+                    str(command_id): dict(record)
+                    for command_id, record in raw_completed.items()
+                    if isinstance(record, dict)
+                }
+                if isinstance(raw_completed, dict)
+                else {}
+            )
+        return data
+    except (OSError, ValueError):
+        return {}
+
+
+def _v2_mark_command_complete(command_id: str, result: dict) -> None:
+    """Durably remember an outcome before relying on its network ACK."""
+    with _v2_attempts_lock:
+        _v2_completed_commands[command_id] = {
+            "result": dict(result),
+            "completed_at": time.time(),
+        }
+    _v2_journal_save()
+
+
+def _v2_completed_command_result(command_id: str) -> dict | None:
+    with _v2_attempts_lock:
+        record = _v2_completed_commands.get(command_id)
+        if not record:
+            return None
+        result = record.get("result")
+        return dict(result) if isinstance(result, dict) else {}
+
+
+def _v2_forget_attempt(job_id: str) -> None:
+    with _v2_attempts_lock:
+        auth = _v2_attempts.pop(job_id, None)
+    if auth is not None:
+        auth["stop"].set()
+        _v2_journal_save()
+
+
+def _v2_container_state(job_id: str, container_name: str | None = None) -> tuple[str, int, str]:
+    """Return state, exit code, and attempt label for one owned container.
+
+    state is 'running', 'exited', or 'missing'.
+    """
+    container_name = container_name or f"xcl-{job_id}"
+    try:
+        inspect = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Running}} {{.State.ExitCode}} "
+                '{{index .Config.Labels "ai.xcelsior.attempt_id"}}',
+                container_name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return ("missing", -1, "")
+    if inspect.returncode != 0:
+        return ("missing", -1, "")
+    parts = (inspect.stdout or "").strip().split()
+    running = len(parts) > 0 and parts[0] == "true"
+    try:
+        exit_code = int(parts[1]) if len(parts) > 1 else -1
+    except ValueError:
+        exit_code = -1
+    label = parts[2] if len(parts) > 2 else ""
+    return ("running" if running else "exited", exit_code, label)
+
+
+def _v2_pending_adoption_loop(auth: dict) -> None:
+    """Bound restart uncertainty; adopt only after an exact renew succeeds."""
+    job_id = str(auth["job_id"])
+    ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
+    deadline = time.monotonic() + ttl
+    stop: threading.Event = auth["stop"]
+    while not stop.is_set():
+        code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        if code == 200:
+            threading.Thread(
+                target=_v2_renewal_loop,
+                args=(auth,),
+                name=f"v2-renew-{job_id[:8]}",
+                daemon=True,
+            ).start()
+            log.info(
+                "adoption confirmed after retry: attempt %s job %s",
+                auth["attempt_id"][:8],
+                job_id,
+            )
+            return
+        if code == 409 or time.monotonic() >= deadline:
+            reason = (
+                "adoption renewal rejected"
+                if code == 409
+                else "adoption confirmation grace expired"
+            )
+            container_name = auth.get("container_name")
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(
+                job_id,
+                reason,
+                container_name,
+                str(auth["attempt_id"]),
+            )
+            return
+        stop.wait(min(10.0, max(0.1, deadline - time.monotonic())))
+
+
+def v2_adopt_attempts() -> int:
+    """§11.6 restart adoption: re-arm authority for surviving containers.
+
+    For each journaled attempt: a running container whose attempt label
+    matches gets its renewal loop restarted (one immediate renewal
+    verifies authority; a definitive rejection kills it). An exited
+    container gets its terminal status reported. A missing or
+    mismatched-label container just drops the record — never kill a
+    container we cannot prove is ours.
+    """
+    if not _v2_enabled:
+        return 0
+    journal = _v2_journal_load()
+    adopted = 0
+    for job_id, rec in journal.items():
+        try:
+            auth = {
+                "lease_id": str(rec["lease_id"]),
+                "job_id": str(rec["job_id"]),
+                "attempt_id": str(rec["attempt_id"]),
+                "fencing_token": int(rec["fencing_token"]),
+                "renewal_ttl_sec": int(rec.get("renewal_ttl_sec", 300)),
+                "container_name": str(
+                    rec.get("container_name")
+                    or _v2_container_name(str(rec["job_id"]), str(rec["attempt_id"]))
+                ),
+                "spec_hash": rec.get("spec_hash"),
+                "stop": threading.Event(),
+            }
+            if isinstance(rec.get("pending_command"), dict):
+                auth["pending_command"] = dict(rec["pending_command"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        state, exit_code, label = _v2_container_state(job_id, auth["container_name"])
+        if state != "missing" and label != auth["attempt_id"]:
+            log.warning(
+                "adoption: container for job %s belongs to attempt %s "
+                "(journal has %s) — dropping record",
+                job_id,
+                label[:8],
+                auth["attempt_id"][:8],
+            )
+            continue
+        if state == "running":
+            code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+            if code == 409:
+                _v2_stop_container(
+                    job_id,
+                    "adoption renewal rejected",
+                    auth["container_name"],
+                    auth["attempt_id"],
+                )
+                continue
+            with _v2_attempts_lock:
+                _v2_attempts[job_id] = auth
+            if code == 200:
+                threading.Thread(
+                    target=_v2_renewal_loop,
+                    args=(auth,),
+                    name=f"v2-renew-{job_id[:8]}",
+                    daemon=True,
+                ).start()
+                adopted += 1
+                log.info(
+                    "adopted running attempt %s for job %s (fence=%s)",
+                    auth["attempt_id"][:8],
+                    job_id,
+                    auth["fencing_token"],
+                )
+            else:
+                # Transport/server uncertainty is not confirmation. Keep the
+                # labeled container only for one bounded lease window while a
+                # dedicated retry loop seeks exact authority.
+                threading.Thread(
+                    target=_v2_pending_adoption_loop,
+                    args=(auth,),
+                    name=f"v2-adopt-{job_id[:8]}",
+                    daemon=True,
+                ).start()
+        elif state == "exited":
+            pending = auth.get("pending_command")
+            outcome = (
+                str(pending.get("terminal_status"))
+                if isinstance(pending, dict) and pending.get("terminal_status")
+                else "succeeded" if exit_code == 0 else "failed"
+            )
+            report_outcome = v2_report_attempt_status(
+                auth,
+                outcome,
+                None if outcome != "failed" else "container_exited",
+                None if outcome != "failed" else {"exit_code": exit_code},
+            )
+            if report_outcome == "ok" and isinstance(pending, dict):
+                command_id = str(pending.get("command_id") or "")
+                result = pending.get("result")
+                if command_id and isinstance(result, dict):
+                    _v2_mark_command_complete(command_id, result)
+                    v2_ack_command(command_id, result)
+            elif report_outcome == "error":
+                # Retain the terminal intent so the next redelivery/restart
+                # retries the fenced report instead of misclassifying a
+                # deliberately stopped container as a successful workload.
+                with _v2_attempts_lock:
+                    _v2_attempts[job_id] = auth
+            log.info(
+                "adoption: job %s container exited (%d) — reported %s",
+                job_id,
+                exit_code,
+                outcome,
+            )
+        else:
+            report_outcome = v2_report_attempt_status(
+                auth,
+                "failed",
+                "container_missing",
+                {"note": "agent restarted; container not found"},
+            )
+            if report_outcome == "error":
+                with _v2_attempts_lock:
+                    _v2_attempts[job_id] = auth
+    _v2_journal_save()
+    return adopted
+
+
+def _v2_renewal_loop(auth: dict) -> None:
+    """Renew the lease; any definitive rejection or expiry stops the job.
+
+    Disconnected grace: transport errors are tolerated until the last
+    successful renewal is older than the lease's renewal TTL — past that
+    the worker must assume it has been fenced out (§11.5).
+    """
+    job_id = auth["job_id"]
+    ttl = max(30, int(auth.get("renewal_ttl_sec") or 300))
+    interval = max(10, ttl // 3)
+    last_ok = time.time()
+    stop: threading.Event = auth["stop"]
+    while not stop.wait(interval):
+        code, body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+        if code == 200:
+            last_ok = time.time()
+            continue
+        if code == 409:
+            container_name = auth.get("container_name")
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(
+                job_id,
+                "lease renewal rejected",
+                container_name,
+                auth["attempt_id"],
+            )
+            return
+        # Transport / server error: keep the container while inside the
+        # authority window, but no further.
+        if time.time() - last_ok > ttl:
+            container_name = auth.get("container_name")
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(
+                job_id,
+                "renewal window expired while disconnected",
+                container_name,
+                auth["attempt_id"],
+            )
+            return
+
+
+_V2_STATUS_MAP = {
+    "starting": "starting",
+    "running": "running",
+    "completed": "succeeded",
+    "failed": "failed",
+    "stopped": "stopped",
+    "terminated": "failed",
+}
+
+
+def _v2_on_job_status(
+    job_id: str, status: str, error_message: str | None = None, policy_reason: str | None = None
+) -> str:
+    """v1 report funnel hook: mirror lifecycle onto the fenced attempt.
+
+    report_job_status() is the single funnel every v1 code path uses, so
+    hooking here covers all of run_job's exit points without forking its
+    control flow. Terminal statuses release the local authority record;
+    the server settles allocations/lease atomically in the same report.
+    """
+    v2_status = _V2_STATUS_MAP.get(status)
+    if v2_status is None:
+        return "unsupported"
+    with _v2_attempts_lock:
+        auth = _v2_attempts.get(job_id)
+    if auth is None:
+        return "not_v2"
+    failure_code = (policy_reason or "container_failed") if v2_status == "failed" else None
+    detail = {"error": error_message[:300]} if (error_message and failure_code) else None
+    outcome = v2_report_attempt_status(auth, v2_status, failure_code, detail)
+    if outcome == "fenced":
+        container_name = auth.get("container_name")
+        _v2_forget_attempt(job_id)
+        _v2_stop_container(job_id, "status report fenced", container_name, auth["attempt_id"])
+        return outcome
+    if outcome == "ok" and v2_status in ("succeeded", "failed", "stopped"):
+        _v2_forget_attempt(job_id)
+    return outcome
+
+
+def compute_spec_hash(spec: dict) -> str:
+    """Worker-side canonical spec hash — the tamper check at start_attempt.
+
+    Kept as an *independent* implementation of the control-plane's
+    ``canonical_spec_hash`` (the worker deliberately recomputes rather than
+    trusting the control plane), but extracted into a function so a drift
+    guard (Track B B2.2) can assert the two agree byte-for-byte. Any change
+    to either side without the other fails that test.
+    """
+    canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"), default=str)
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def handle_start_attempt(cmd: dict) -> None:
+    """Execute one fenced start_attempt command (thread body).
+
+    Order is the whole point: lease claim FIRST (abort on rejection —
+    the container is never started without authority), then ACK the
+    command (execution has begun; the job itself outlives any command
+    claim TTL), then the existing run_job machinery with the v1 status
+    funnel mirroring every transition onto the fenced attempt.
+    """
+    command_id = str(cmd.get("command_id"))
+    args = cmd.get("args") or {}
+    job_id = str(cmd.get("job_id") or args.get("job_id") or "")
+    auth = {
+        "lease_id": str(args.get("lease_id") or ""),
+        "job_id": job_id,
+        "attempt_id": str(cmd.get("attempt_id") or args.get("attempt_id") or ""),
+        "fencing_token": int(cmd.get("fencing_token") or args.get("fencing_token") or 0),
+        "spec_hash": cmd.get("spec_hash") or args.get("spec_hash"),
+        "stop": threading.Event(),
+    }
+    if not (job_id and auth["lease_id"] and auth["attempt_id"] and auth["fencing_token"]):
+        v2_nack_command(
+            command_id, "malformed_start_attempt", {"args_keys": sorted(args)}, retryable=False
+        )
+        return
+
+    spec = args.get("spec")
+    expected_spec_hash = str(auth.get("spec_hash") or "")
+    if not isinstance(spec, dict) or not expected_spec_hash:
+        v2_nack_command(
+            command_id,
+            "malformed_start_attempt",
+            {"missing": "spec_or_spec_hash"},
+            retryable=False,
+        )
+        return
+    actual_spec_hash = compute_spec_hash(spec)
+    if not secrets.compare_digest(actual_spec_hash, expected_spec_hash):
+        v2_nack_command(
+            command_id,
+            "spec_hash_mismatch",
+            {"expected": expected_spec_hash, "actual": actual_spec_hash},
+            retryable=False,
+        )
+        return
+
+    # §11.2 hard gate — no grant, no container. Non-retryable: the offer
+    # is single-shot; the lease-expiry sweep requeues with a new fence.
+    grant = v2_claim_lease_fenced(auth)
+    if grant is None:
+        v2_nack_command(command_id, "lease_claim_rejected", retryable=False)
+        return
+    auth["renewal_ttl_sec"] = grant.get("renewal_ttl_sec") or 300
+    auth["container_name"] = _v2_container_name(job_id, auth["attempt_id"])
+
+    with _v2_attempts_lock:
+        _v2_attempts[job_id] = auth
+    _v2_journal_save()
+    lease_report = v2_report_attempt_status(auth, "lease_claimed")
+    if lease_report == "fenced":
+        _v2_forget_attempt(job_id)
+        v2_nack_command(command_id, "lease_authority_lost_before_start", retryable=False)
+        return
+    start_result = {"lease_claimed": True, "session": WORKER_SESSION_ID}
+    _v2_mark_command_complete(command_id, start_result)
+    v2_ack_command(command_id, start_result)
+
+    threading.Thread(
+        target=_v2_renewal_loop,
+        args=(auth,),
+        name=f"v2-renew-{job_id[:8]}",
+        daemon=True,
+    ).start()
+
+    job = dict(spec)
+    job.setdefault("job_id", job_id)
+    job["_v2_attempt_id"] = auth["attempt_id"]
+    job["_v2_fencing_token"] = auth["fencing_token"]
+    job["_v2_spec_hash"] = auth.get("spec_hash") or ""
+    job["_v2_container_name"] = auth["container_name"]
+    try:
+        run_job(job)
+    except Exception as e:
+        log.exception("start_attempt run_job crashed for job %s", job_id)
+        v2_report_attempt_status(auth, "failed", "agent_exception", {"error": str(e)[:300]})
+        _v2_forget_attempt(job_id)
+
+
+def handle_stop_attempt(cmd: dict) -> None:
+    """Stop a container only while the command's attempt/fence is current.
+
+    User-stop enqueues ``preserve=True`` (docker stop only). Terminate/cancel
+    enqueue ``preserve=False`` (stop + rm). The fenced terminal status report
+    then releases lease/allocation and projects the job; only then is the
+    command ACKed.
+    """
+    command_id = str(cmd.get("command_id") or "")
+    args = cmd.get("args") or {}
+    result = {
+        "stopped": True,
+        "preserved": bool(args.get("preserve", True)),
+        "intent": args.get("intent"),
+    }
+    job_id = str(cmd.get("job_id") or args.get("job_id") or "")
+    attempt_id = str(cmd.get("attempt_id") or args.get("attempt_id") or "")
+    fencing_token = int(cmd.get("fencing_token") or args.get("fencing_token") or 0)
+    with _v2_attempts_lock:
+        local = _v2_attempts.get(job_id)
+    if not local or (
+        str(local.get("attempt_id")) != attempt_id
+        or int(local.get("fencing_token") or 0) != fencing_token
+    ):
+        v2_nack_command(
+            command_id,
+            "authority_not_local",
+            {"job_id": job_id, "attempt_id": attempt_id},
+            retryable=False,
+        )
+        return
+
+    auth = local
+    # Revalidate immediately before the side effect; a stale command that
+    # survived re-placement must never touch the new container.
+    code, _body = _v2_post("/agent/v2/leases/renew", _v2_auth_payload(auth))
+    if code != 200:
+        v2_nack_command(
+            command_id,
+            "stop_authority_rejected" if code == 409 else "stop_authority_unavailable",
+            retryable=code != 409,
+        )
+        if code == 409:
+            container_name = auth.get("container_name")
+            _v2_forget_attempt(job_id)
+            _v2_stop_container(
+                job_id,
+                "stop command authority rejected",
+                container_name,
+                auth["attempt_id"],
+            )
+        return
+
+    container_name = str(auth.get("container_name") or _v2_container_name(job_id, attempt_id))
+    state, _exit_code, label = _v2_container_state(job_id, container_name)
+    if label != attempt_id:
+        v2_nack_command(
+            command_id,
+            "container_attempt_mismatch",
+            {"expected": attempt_id, "observed": label},
+            retryable=False,
+        )
+        return
+
+    # Persist the intended terminal interpretation before the Docker side
+    # effect. If the process dies after `docker stop` but before the status
+    # report/ACK, restart adoption must report `stopped` (not `succeeded`) and
+    # replay the command outcome.
+    with _v2_attempts_lock:
+        current = _v2_attempts.get(job_id)
+        authority_changed = current is not auth
+        if not authority_changed:
+            auth["pending_command"] = {
+                "command_id": command_id,
+                "terminal_status": "stopped",
+                "result": result,
+            }
+    if authority_changed:
+        v2_nack_command(command_id, "authority_changed_before_stop", retryable=False)
+        return
+    _v2_journal_save()
+    if state == "running":
+        try:
+            stopped = subprocess.run(
+                ["docker", "stop", "-t", "30", container_name],
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+        except subprocess.TimeoutExpired:
+            v2_nack_command(command_id, "container_stop_timeout", retryable=True)
+            return
+        if stopped.returncode != 0:
+            v2_nack_command(
+                command_id,
+                "container_stop_failed",
+                {"stderr": (stopped.stderr or "")[:300]},
+                retryable=True,
+            )
+            return
+    elif state not in ("exited", "missing"):
+        v2_nack_command(command_id, "container_state_unknown", {"state": state}, retryable=True)
+        return
+
+    # Terminate/cancel controllers enqueue preserve=False so the attempt
+    # container is removed after stop; user-stop keeps the container.
+    preserve = bool(args.get("preserve", True))
+    result = {"stopped": True, "preserved": preserve, "intent": args.get("intent")}
+    if not preserve and state != "missing":
+        try:
+            removed = subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            v2_nack_command(command_id, "container_remove_timeout", retryable=True)
+            return
+        # "No such container" is success (already gone); other failures retry.
+        if removed.returncode != 0:
+            err = (removed.stderr or "") + (removed.stdout or "")
+            if "No such container" not in err and "no such container" not in err.lower():
+                v2_nack_command(
+                    command_id,
+                    "container_remove_failed",
+                    {"stderr": err[:300]},
+                    retryable=True,
+                )
+                return
+
+    # Refresh pending terminal result after preserve/remove decision.
+    with _v2_attempts_lock:
+        current = _v2_attempts.get(job_id)
+        if (
+            current is not None
+            and current is auth
+            and isinstance(current.get("pending_command"), dict)
+        ):
+            current["pending_command"]["result"] = result
+            current["pending_command"]["terminal_status"] = "stopped"
+    _v2_journal_save()
+
+    stop_event = auth.get("stop")
+    if stop_event is not None:
+        stop_event.set()
+    outcome = v2_report_attempt_status(auth, "stopped")
+    if outcome == "ok":
+        _v2_mark_command_complete(command_id, result)
+        v2_ack_command(command_id, result)
+        _v2_forget_attempt(job_id)
+    elif outcome == "fenced":
+        v2_nack_command(command_id, "stop_status_fenced", retryable=False)
+        _v2_forget_attempt(job_id)
+    else:
+        v2_nack_command(command_id, "stop_status_error", retryable=True)
+
+
+_OBSERVATION_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OBSERVATION_INTERVAL", "60"))
+_last_observation_at = 0.0
+
+
+def _collect_local_workloads() -> list[dict]:
+    """Everything actually running here: xcl-* containers with labels."""
+    try:
+        ps = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "name=xcl-",
+                "--format",
+                "{{.ID}}\t{{.Names}}\t{{.State}}\t"
+                '{{.Label "ai.xcelsior.job_id"}}\t'
+                '{{.Label "ai.xcelsior.attempt_id"}}\t'
+                '{{.Label "ai.xcelsior.fencing_token"}}\t'
+                '{{.Label "ai.xcelsior.spec_hash"}}\t'
+                '{{.Label "xcelsior.job_id"}}\t'
+                '{{.Label "xcelsior.attempt_id"}}\t'
+                '{{.Label "xcelsior.fencing_token"}}\t'
+                '{{.Label "xcelsior.spec_hash"}}',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception as e:
+        log.warning("observation: docker ps failed: %s", e)
+        return []
+    if ps.returncode != 0:
+        return []
+    state_map = {
+        "running": "running",
+        "paused": "paused",
+        "exited": "exited",
+        "created": "preparing",
+        "restarting": "preparing",
+        "removing": "removing",
+        "dead": "exited",
+    }
+    workloads = []
+    for line in (ps.stdout or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        cid, name, state = parts[0], parts[1], parts[2]
+        label_job = (parts[7] if len(parts) > 7 else "") or (parts[3] if len(parts) > 3 else "")
+        attempt = (parts[8] if len(parts) > 8 else "") or (parts[4] if len(parts) > 4 else "")
+        fence = (parts[9] if len(parts) > 9 else "") or (parts[5] if len(parts) > 5 else "")
+        spec_hash = (parts[10] if len(parts) > 10 else "") or (parts[6] if len(parts) > 6 else "")
+        # Container name is xcl-{job_id}; the label wins when present.
+        job_id = label_job or (name[4:] if name.startswith("xcl-") else "")
+        workloads.append(
+            {
+                "job_id": job_id or None,
+                "attempt_id": attempt or None,
+                "fencing_token": int(fence) if fence.isdigit() else None,
+                "container_id": cid,
+                "container_name": name,
+                "spec_hash": spec_hash or None,
+                "state": state_map.get(state.strip().lower(), "unknown"),
+            }
+        )
+    return workloads
+
+
+def report_observations_v2(force: bool = False) -> bool:
+    """§12.2 full-state report, throttled to the observation interval."""
+    global _last_observation_at
+    if not _v2_enabled:
+        return False
+    now = time.time()
+    if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
+        return False
+    _last_observation_at = now
+    code, _body = _v2_post(
+        "/agent/v2/observations",
+        {
+            "host_id": HOST_ID,
+            "worker_session_id": WORKER_SESSION_ID,
+            # Monotonic per session: epoch seconds — each report is a new
+            # immutable snapshot; duplicates within a second collapse.
+            "observation_generation": int(now),
+            "workloads": _collect_local_workloads(),
+            "agent_version": VERSION,
+            "worker_reported_at": now,
+        },
+        timeout=15,
+    )
+    return code == 200
+
+
+def drain_v2_commands() -> int:
+    """Claim + dispatch attempt-bound commands (v2 work delivery)."""
+    if not _v2_enabled:
+        return 0
+    commands = v2_claim_commands()
+    dispatched = 0
+    for cmd in commands:
+        command_id = str(cmd.get("command_id") or "")
+        completed_result = _v2_completed_command_result(command_id)
+        if completed_result is not None:
+            # The side effect and terminal status completed before an earlier
+            # ACK reached the API. Replay only the durable result; never touch
+            # Docker twice.
+            if v2_ack_command(command_id, completed_result):
+                dispatched += 1
+            continue
+        name = cmd.get("command")
+        if name == "start_attempt":
+            job_ref = str(cmd.get("job_id") or "?")
+            threading.Thread(
+                target=handle_start_attempt,
+                args=(cmd,),
+                name=f"v2-start-{job_ref[:8]}",
+                daemon=True,
+            ).start()
+            dispatched += 1
+        elif name == "stop_attempt":
+            job_ref = str(cmd.get("job_id") or "?")
+            threading.Thread(
+                target=handle_stop_attempt,
+                args=(cmd,),
+                name=f"v2-stop-{job_ref[:8]}",
+                daemon=True,
+            ).start()
+            dispatched += 1
+        else:
+            v2_nack_command(
+                command_id,
+                "unsupported_command",
+                {"command": str(name)},
+                retryable=False,
+            )
+    return dispatched
+
+
+def report_mining_alert(gpu_index, confidence, reason):
+    """Alert the scheduler about a mining detection.
+
+    POST /agent/mining-alert
+    """
+    data = {
+        "host_id": HOST_ID,
+        "gpu_index": gpu_index,
+        "confidence": confidence,
+        "reason": reason,
+        "timestamp": time.time(),
+    }
+    try:
+        _api_request(
+            "post",
+            _api_url("/agent/mining-alert"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+    except requests.RequestException:
+        pass  # Best-effort
+
+
+def report_benchmark(score_data, gpu_model):
+    """Report compute benchmark score to scheduler.
+
+    POST /agent/benchmark
+    """
+    data = {
+        "host_id": HOST_ID,
+        "gpu_model": gpu_model,
+        "score": score_data.get("tflops", 0) / 10,  # XCU = TFLOPS / 10
+        "tflops": score_data.get("tflops", 0),
+        "details": score_data,
+    }
+    try:
+        _api_request(
+            "post",
+            _api_url("/agent/benchmark"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+    except requests.RequestException:
+        pass
+
+
+def report_verification(full_report):
+    """Submit full verification report to scheduler.
+
+    POST /agent/verify — feeds verification.py's run_verification().
+    """
+    payload = {
+        "host_id": HOST_ID,
+        "report": full_report,
+    }
+    try:
+        r = _api_request(
+            "post",
+            _api_url("/agent/verify"),
+            json=payload,
+            headers=_api_headers(),
+            timeout=15,
+        )
+        if r.ok:
+            result = r.json()
+            log.info(
+                "Verification result: state=%s score=%.0f",
+                result.get("state", "?"),
+                result.get("score", 0),
+            )
+        else:
+            log.warning("Verification submission failed: %s", r.status_code)
+    except requests.RequestException as e:
+        log.warning("Verification report failed: %s", e)
+
+
+#: Set while a reverification is in flight. A `reverify` command arriving during
+#: one is dropped rather than queued: two concurrent benchmarks contend for the
+#: same GPU and both report worse numbers than either would alone, which would
+#: deverify a healthy host for being asked twice.
+_reverify_running = threading.Event()
+
+
+#: Set by run_verification_cycle; the heartbeat loop reports it once known.
+_latest_compute_score: float | None = None
+
+
+def run_verification_cycle(gpu_info: dict, versions: dict):
+    """Benchmark this host and submit its verification report. Returns the XCU score.
+
+    **One builder, two callers** — startup and the `reverify` command. Two
+    builders would let a scheduled report differ in shape from a startup report,
+    and `run_verification`'s checks would then disagree for reasons invisible
+    from either side. The server cannot assemble this: PCIe bandwidth, sustained
+    temperature, packet loss and jitter are facts only the host can measure,
+    which is precisely why a stamp goes stale with nothing able to refresh it.
+    """
+    log.info("Running comprehensive benchmark (GPU + network, ~60 seconds)...")
+    bench = run_compute_benchmark()
+    if not bench:
+        log.info("Benchmark skipped (PyTorch/CUDA not available)")
+        return None
+
+    global _latest_compute_score
+    compute_score = bench.get("tflops", 0) / 10  # XCU
+    _latest_compute_score = compute_score
+    log.info("GPU Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
+    log.info(
+        "  CUDA %s | Driver %s | CC %s",
+        bench.get("cuda_version", "?"),
+        bench.get("driver_version", "?"),
+        bench.get("compute_capability", "?"),
+    )
+    log.info(
+        "  PCIe: %.2f GB/s | Peak Temp: %s°C",
+        bench.get("pcie_bandwidth_gbps", 0),
+        bench.get("gpu_temp_celsius", "?"),
+    )
+    report_benchmark(bench, gpu_info["gpu_model"])
+
+    # Network benchmark (ping + throughput to scheduler)
+    log.info("Running network quality benchmark...")
+    net_bench = run_network_benchmark()
+    if net_bench:
+        log.info(
+            "  Latency: %.1fms avg | Jitter: %.1fms | Loss: %.1f%% | Throughput: %.1f Mbps",
+            net_bench.get("latency_avg_ms", 0),
+            net_bench.get("jitter_ms", 0),
+            net_bench.get("packet_loss_pct", 0),
+            net_bench.get("throughput_mbps", 0),
+        )
+        bench.update(net_bench)
+
+    # Merge benchmark data with security versions for the complete check set.
+    full_report = {**bench}
+    full_report["claimed_gpu_model"] = gpu_info["gpu_model"]
+    full_report["claimed_vram_gb"] = gpu_info["total_vram_gb"]
+    full_report["versions"] = versions
+    report_verification(full_report)
+    return compute_score
+
+
+def _reverification_worker():
+    try:
+        run_verification_cycle(get_gpu_info(), get_local_versions())
+    except Exception as exc:
+        log.warning("scheduled reverification failed: %s", exc)
+    finally:
+        _reverify_running.clear()
+
+
+def _start_reverification() -> bool:
+    """Begin a scheduled reverification, or decline and say why.
+
+    **Off the drain loop.** `drain_agent_commands` also owns preemption checks
+    and job polling, and the benchmark takes about a minute — running it inline
+    would stall this host's ability to notice it had been preempted.
+
+    **Declined while a job is running.** The benchmark saturates the GPU, so
+    running one under a customer's workload would corrupt their timings to
+    refresh a stamp. A permanently busy host therefore stays stale, and the
+    placement gate says exactly that — which is the honest answer, and better
+    than a fresh stamp bought out of someone's paid run.
+    """
+    if _reverify_running.is_set():
+        log.info("reverify: a verification is already running — request dropped")
+        return False
+
+    with _active_lock:
+        busy = dict(_active_containers)
+    if busy:
+        log.info(
+            "reverify: deferred, %d container(s) running (%s). The benchmark "
+            "saturates the GPU and would corrupt a paying job's timings.",
+            len(busy),
+            ", ".join(sorted(busy)[:5]),
+        )
+        return False
+
+    _reverify_running.set()
+    thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
+    thread.start()
+    return True
+
+
+def report_telemetry(metrics):
+    """Push periodic GPU telemetry to scheduler.
+
+    POST /agent/telemetry — stores metrics for monitoring and SLA.
+    """
+    payload = {
+        "host_id": HOST_ID,
+        "timestamp": time.time(),
+        "metrics": metrics,
+    }
+    try:
+        _api_request(
+            "post",
+            _api_url("/agent/telemetry"),
+            json=payload,
+            headers=_api_headers(),
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass  # Best-effort; don't log every failure
+
+
+# ── Container Image Cache Manager ─────────────────────────────────────
+# Per REPORT_XCELSIOR_TECHNICAL_FINAL.md: pull-based agent enables
+# "local image caching" (REPORT_EXCELSIOR_TECHNICAL_2.md §3.4).
+# LRU tracking, cache eviction, and idle-time pre-pulling.
+# Extracted to worker_image_cache.py; re-imported here so existing
+# worker_agent.* call sites (and tests patching worker_agent globals)
+# keep working unchanged.
+from worker_image_cache import (  # noqa: E402
+    IMAGE_CACHE_EVICT_LOW_GB,
+    IMAGE_CACHE_MAX_GB,
+    _get_local_images,
+    _image_cache_index,
+    _image_cache_lock,
+    _parse_docker_size,
+    _total_cache_size_mb,
+    cache_evict_lru,
+    cache_init,
+    cache_prepull_popular,
+    cache_track_pull,
+    fetch_popular_images,
+)
+
+# ── NFS Support ──────────────────────────────────────────────────────
+# Extracted to worker_nfs.py (NFS mounts + hot-mounting volumes into
+# running containers); re-imported here for existing call sites/tests.
+from worker_nfs import (  # noqa: E402
+    MANAGED_VOLUME_HOST_DIR,
+    _container_bind,
+    _container_unbind,
+    _hot_mount_volume,
+    _hot_unmount_volume,
+    _mount_nfs,
+    _unmount_nfs,
+)
+
+# ── NVMe Model Cache (Cold Start Optimization) ──────────────────────
+# Per Phase 3.4: pre-pull model weights to local NVMe cache on first deploy.
+# Tiered cache hierarchy: VRAM → NVMe SSD → Network Storage (NFS)
+# Extracted to worker_nvme_cache.py; re-imported here for existing call
+# sites/tests.
+from worker_nvme_cache import (  # noqa: E402
+    NVME_CACHE_DIR,
+    NVME_CACHE_MAX_GB,
+    nvme_cache_evict_lru,
+    nvme_cache_has,
+    nvme_cache_init,
+    nvme_cache_path,
+    nvme_cache_size_gb,
+    nvme_prepull_model,
+)
+
+# ── LUKS Encrypted Volume Provisioning ───────────────────────────────
+# Per Phase 10.2: encrypted at rest via LUKS with per-volume key.
+# Provides cryptographic erasure on volume delete (destroy LUKS key).
+# Extracted to worker_luks_volumes.py; re-imported here for existing call
+# sites/tests.
+from worker_luks_volumes import (  # noqa: E402
+    VOLUME_BASE_DIR,
+    VOLUME_KEY_DIR,
+    _cleanup_partial_volume,
+    attach_encrypted_volume,
+    destroy_encrypted_volume,
+    detach_encrypted_volume,
+    provision_encrypted_volume,
+)
+
+# ── Phase 7 / §3: exclusive_gpu lifecycle ────────────────────────────
+#
+# A tier-1 (exclusive_gpu=true) tenant gets the entire 3060 to itself.
+# Acquire flow:
+#   1) flock /run/xcelsior/gpu.lock              (mutex against other tenants)
+#   2) POST /admin/drain  → tower-serverless     (rejects new inference)
+#   3) `ollama stop`                             (graceful unload)
+#   4) SIGSTOP ollama runner pids                (free VRAM driver state)
+#   5) SIGTERM tier3- background jobs            (they checkpoint)
+# Steps 4-5 signal other users' processes, so the root helper does them
+# (worker_privileged "gpu_tenants"); it matches ollama by executable, not by
+# command-line text. Release reverses it (SIGCONT, /admin/resume, flock release).
+#
+# All steps are best-effort: a missing ollama binary or a non-running
+# tower-serverless does not abort the job.
+GPU_LOCK_PATH = "/run/xcelsior/gpu.lock"
+TOWER_SERVERLESS_URL = os.environ.get("TOWER_SERVERLESS_URL", "http://127.0.0.1:8001")
+EXCLUSIVE_GPU_LOCK_TIMEOUT_S = 60
+
+
+def _acquire_exclusive_gpu(job_id: str) -> dict:
+    """Acquire exclusive access to the local GPU. See module-level docstring.
+    Returns a state dict with keys: ok, lock_fd, ollama_pids, error.
+    """
+    import fcntl
+
+    state: dict = {"ok": False, "lock_fd": None, "ollama_pids": []}
+
+    # 1. flock (blocking with timeout)
+    try:
+        fd = os.open(GPU_LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o664)
+    except OSError as e:
+        state["error"] = f"open(gpu.lock): {e}"
+        return state
+    deadline = time.time() + EXCLUSIVE_GPU_LOCK_TIMEOUT_S
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.time() >= deadline:
+                with suppress(Exception):
+                    os.close(fd)
+                state["error"] = (
+                    f"flock timeout ({EXCLUSIVE_GPU_LOCK_TIMEOUT_S}s) — "
+                    "another tier-1 tenant holds the GPU"
+                )
+                return state
+            time.sleep(0.5)
+    state["lock_fd"] = fd
+    log.info("exclusive_gpu[%s]: flock acquired", job_id)
+
+    # 2. drain serverless
+    try:
+        r = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
+        log.info(
+            "exclusive_gpu[%s]: drain rc=%s body=%s",
+            job_id,
+            r.status_code,
+            r.text[:120],
+        )
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: drain skipped (%s)", job_id, e)
+
+    # 3. ollama stop (graceful unload)
+    try:
+        subprocess.run(["ollama", "stop"], timeout=10, capture_output=True)
+        log.info("exclusive_gpu[%s]: ollama stop sent", job_id)
+    except FileNotFoundError:
+        log.info("exclusive_gpu[%s]: ollama not installed — skipping", job_id)
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: ollama stop failed (%s)", job_id, e)
+
+    # 4-5. SIGSTOP ollama, SIGTERM tier3- jobs (root helper: other users' processes)
+    try:
+        reply = worker_privileged.call("gpu_tenants", action="pause")
+        if reply.get("ok"):
+            state["ollama_pids"] = list(reply.get("stopped") or [])
+            if state["ollama_pids"]:
+                log.info(
+                    "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s", job_id, state["ollama_pids"]
+                )
+        else:
+            log.warning(
+                "exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, reply.get("error")
+            )
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: pausing GPU tenants failed (%s)", job_id, e)
+
+    state["ok"] = True
+    return state
+
+
+def _release_exclusive_gpu(job_id: str, state: dict) -> None:
+    """Reverse of _acquire_exclusive_gpu. Idempotent and best-effort."""
+    import fcntl
+
+    if not state:
+        return
+
+    # 1. SIGCONT ollama runners
+    if state.get("ollama_pids"):
+        try:
+            worker_privileged.call("gpu_tenants", action="resume", pids=state["ollama_pids"])
+        except Exception as e:
+            log.warning("exclusive_gpu[%s]: resuming ollama failed (%s)", job_id, e)
+
+    # 2. resume serverless
+    try:
+        requests.post(f"{TOWER_SERVERLESS_URL}/admin/resume", timeout=5)
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: resume failed (%s)", job_id, e)
+
+    # 3. release flock
+    fd = state.get("lock_fd")
+    if fd is not None:
+        with suppress(Exception):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        with suppress(Exception):
+            os.close(fd)
+
+    log.info("exclusive_gpu[%s]: released", job_id)
+
+
+# ── Serverless worker helpers ────────────────────────────────────────
+
+
+def _is_serverless_job(job: dict) -> bool:
+    return str(job.get("job_type") or "").strip() == "serverless_worker"
+
+
+def _container_command(command, *, serverless: bool):
+    """Return Docker arguments and entrypoint overrides for a noninteractive job."""
+    if not isinstance(command, str) or not command.strip():
+        return command, []
+    stripped = command.strip()
+    # Managed engines supply flags to the image's ENTRYPOINT. Running those
+    # through sh -c replaces the server with a shell trying to execute --model.
+    if serverless and stripped.startswith("-"):
+        return shlex.split(stripped), []
+    if stripped.startswith("sh -c "):
+        stripped = stripped[6:].strip().strip('"').strip("'")
+    return ["-c", stripped], ["--entrypoint", "sh"]
+
+
+def _allocate_host_port_mappings(
+    job_id: str, container_ports: list
+) -> tuple[dict[str, int], list[str]]:
+    """Map container ports to deterministic host ports (55000–59999)."""
+    port_map: dict[str, int] = {}
+    extra_args: list[str] = []
+    _seen: set[int] = set()
+    _hports_used: set[int] = set()
+    try:
+        _base = int(str(job_id)[:4], 16)
+    except (ValueError, TypeError):
+        _base = 0
+    for _p in container_ports:
+        try:
+            cport = int(_p)
+        except (TypeError, ValueError):
+            continue
+        if cport < 1 or cport > 65535 or cport == 22 or cport in _seen:
+            continue
+        _seen.add(cport)
+        hport = 55000 + (_base + cport) % 5000
+        for _attempt in range(5000):
+            if hport not in _hports_used:
+                break
+            hport = 55000 + (hport - 55000 + 1) % 5000
+        else:
+            log.warning("No free host port for cport=%d; skipping", cport)
+            continue
+        _hports_used.add(hport)
+        extra_args.extend(["-p", f"{hport}:{cport}"])
+        port_map[str(cport)] = hport
+        log.info("Serverless expose port: host:%d -> container:%d", hport, cport)
+    return port_map, extra_args
+
+
+def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: int = 600) -> bool:
+    path = health_path if str(health_path).startswith("/") else f"/{health_path}"
+    url = f"http://127.0.0.1:{int(host_port)}{path}"
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline and not _shutdown.is_set():
+        try:
+            resp = requests.get(url, timeout=5)
+            if resp.status_code < 500:
+                log.info("Serverless health OK: %s → %d", url, resp.status_code)
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(3)
+    log.error("Serverless health check timed out: %s", url)
+    return False
+
+
+def _serverless_callback(worker_id: str, suffix: str, body: dict | None = None) -> bool:
+    if not worker_id:
+        return False
+    try:
+        resp = _api_request(
+            "post",
+            _api_url(f"/api/v2/serverless/workers/{worker_id}/{suffix}"),
+            json=body or {},
+            headers=_api_headers(),
+            timeout=30,
+        )
+        return resp.status_code == 200
+    except requests.RequestException as e:
+        log.warning("Serverless callback %s failed for %s: %s", suffix, worker_id, e)
+        return False
+
+
+def _monitor_serverless_worker(
+    job_id, container_name, worker_id, log_forwarder=None, is_v2_attempt=False
+):
+    """Monitor a serverless worker container until exit; notify control plane."""
+    check_interval = 5
+    while not _shutdown.is_set():
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            status = result.stdout.strip()
+            if status == "exited":
+                exit_result = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
+                err_msg = "" if exit_code == 0 else f"container exited with code {exit_code}"
+                _serverless_callback(
+                    worker_id,
+                    "exited",
+                    {"exit_code": exit_code, "error_message": err_msg},
+                )
+                if exit_code == 0:
+                    log.info("Serverless worker %s completed (job %s)", worker_id, job_id)
+                    report_job_status(job_id, "completed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "completed")
+                else:
+                    log.warning(
+                        "Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id
+                    )
+                    report_job_status(job_id, "failed", error_message=err_msg)
+                    if not is_v2_attempt:
+                        release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+            if status not in ("running", "created"):
+                _serverless_callback(
+                    worker_id,
+                    "exited",
+                    {"exit_code": 1, "error_message": f"unexpected state: {status}"},
+                )
+                report_job_status(job_id, "failed", error_message=f"unexpected state: {status}")
+                if not is_v2_attempt:
+                    release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            report_job_status(job_id, "failed")
+            return
+        for _ in range(check_interval):
+            if _shutdown.is_set():
+                return
+            with _active_lock:
+                if job_id not in _active_containers:
+                    return
+            time.sleep(1)
+
+
+# ── Container Lifecycle ──────────────────────────────────────────────
+
+
+def run_job(job):
+    """Execute a job in a hardened Docker container.
+
+    Lifecycle:
+      1. Mount NFS volume (if configured)
+      1b. Attach encrypted volumes (if specified)
+      2. Pull/verify image
+      3. Build secure Docker args (from security.py)
+      4. Start container
+      5. Apply egress rules
+      6. Monitor until completion
+      7. Report final status
+      8. Unmount NFS (if mounted)
+      8b. Detach encrypted volumes
+    """
+    job_id = job.get("job_id", "unknown")
+    job_name = job.get("name", "unnamed")
+    image = job.get("image", job.get("docker_image", ""))
+    command = job.get("command")
+    env_vars = job.get("environment", {}) or {}
+    # P1.4: inject platform env AFTER user env so the reserved XCELSIOR_* keys
+    # always win (user containers cannot spoof job id / owner / api url).
+    try:
+        _gpu_info_for_env = get_gpu_info()
+    except Exception:
+        _gpu_info_for_env = {}
+    env_vars = {**env_vars, **build_platform_env(job, _gpu_info_for_env)}
+    volumes = job.get("volumes", [])
+
+    # NFS configuration — from job dict or env vars
+    nfs_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
+    nfs_path = job.get("nfs_path") or os.environ.get("XCELSIOR_NFS_PATH", "")
+    nfs_mount_point = job.get("nfs_mount_point") or os.environ.get(
+        "XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs"
+    )
+    nfs_mounted = False
+    log_fwd = None
+    is_interactive = bool(job.get("interactive", False))
+    is_serverless = _is_serverless_job(job)
+    if is_serverless:
+        is_interactive = False
+
+    if not image:
+        log.error("Job %s has no image specified — skipping", job_id)
+        report_job_status(job_id, "failed")
+        return
+
+    v2_attempt_id = str(job.get("_v2_attempt_id") or "")
+    is_v2_attempt = bool(v2_attempt_id)
+    container_name = str(
+        job.get("_v2_container_name")
+        or (_v2_container_name(job_id, v2_attempt_id) if is_v2_attempt else f"xcl-{job_id}")
+    )
+
+    # ── Requeue guard: stop old container if this job was already running ──
+    with _active_lock:
+        if job_id in _active_containers:
+            log.info("Job %s already has active container — stopping for requeue", job_id)
+            del _active_containers[job_id]
+    _kill_container(container_name)  # No-op if container doesn't exist
+    _remove_container(container_name)  # Force remove stale container to prevent name conflict
+    time.sleep(2)  # Let old monitor thread notice removal and exit
+
+    log.info("Starting job %s (%s) — image=%s", job_id, job_name, image)
+
+    # ── Lease Protocol: claim lease before starting work ──
+    # Job arrives as "assigned"; agent claims lease → "leased" → then "running"
+    lease_info = None if is_v2_attempt else claim_lease(job_id)
+    lease_interval = (lease_info or {}).get("duration_sec", 300) // 2  # Renew at half-life
+
+    # Report starting status (leased → starting); will become "running" after
+    # the container is actually created (image pull + docker run may take minutes).
+    starting_reported = report_job_status(job_id, "starting", host_id=HOST_ID)
+    if is_v2_attempt and not starting_reported:
+        log.error(
+            "Job %s: fenced starting report failed — refusing container setup",
+            job_id,
+        )
+        return
+
+    with _active_lock:
+        _active_containers[job_id] = container_name
+
+    # Start lease renewal thread (only when we have an active lease)
+    _lease_stop = threading.Event()
+
+    def _lease_renewal_loop():
+        consecutive_failures = 0
+        while not _lease_stop.is_set() and not _shutdown.is_set():
+            _lease_stop.wait(lease_interval)
+            if _lease_stop.is_set() or _shutdown.is_set():
+                break
+            result = renew_lease(job_id)
+            if not result:
+                consecutive_failures += 1
+                log.warning(
+                    "Lease renewal failed for job %s — attempt %d",
+                    job_id,
+                    consecutive_failures,
+                )
+                if consecutive_failures >= 3:
+                    # Lease may have expired after a VPS restart; try to reclaim.
+                    new_lease = claim_lease(job_id)
+                    if new_lease:
+                        consecutive_failures = 0
+                        log.info("Lease reclaimed for running job %s", job_id)
+                    else:
+                        log.error(
+                            "Lease reclaim failed for job %s — giving up renewal loop",
+                            job_id,
+                        )
+                        break
+            else:
+                consecutive_failures = 0
+
+    if lease_info:
+        lease_thread = threading.Thread(
+            target=_lease_renewal_loop,
+            name=f"lease-{job_id[:8]}",
+            daemon=True,
+        )
+        lease_thread.start()
+    elif not is_v2_attempt:
+        log.warning(
+            "Job %s: no active lease — skipping renewal loop (lease claim failed)",
+            job_id,
+        )
+
+    def _release_execution_lease(reason: str) -> None:
+        # A v2 terminal status report settles the placement lease atomically.
+        # Calling the compatibility lease endpoint as well would create a
+        # second, unfenced lifecycle writer for the same workload.
+        if not is_v2_attempt:
+            release_lease(job_id, reason)
+
+    encrypted_vol_ids = []
+    encrypted_ws_vid = None
+    managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
+    current_stage = "preparing instance"
+
+    # ── Phase 7 / §3: acquire exclusive GPU before any container/IO setup ──
+    exclusive_gpu = bool(job.get("exclusive_gpu"))
+    _excl_state: dict = {}
+    try:
+        if exclusive_gpu:
+            log.info(
+                "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
+                job_id,
+            )
+            _excl_state = _acquire_exclusive_gpu(job_id)
+            if not _excl_state.get("ok"):
+                err = _excl_state.get("error", "unknown")
+                log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
+                report_job_status(
+                    job_id,
+                    "failed",
+                    error_message=f"exclusive_gpu acquire failed: {err}",
+                )
+                _release_execution_lease("failed")
+                return
+
+        # 0. Mount legacy shared NFS (models/datasets). Skip when managed
+        # volume_ids are present — those mount per-volume under /mnt/xcelsior-volumes/{id}.
+        # Also skip interactive instances (30s mount timeout blocks SSH startup).
+        has_managed_volumes = bool(job.get("volume_ids"))
+        job_requires_nfs = bool(
+            job.get("require_nfs") or job.get("nfs_server") or job.get("nfs_path")
+        )
+        if job_requires_nfs and not has_managed_volumes and not (nfs_server and nfs_path):
+            err = "required NFS configuration incomplete"
+            log.error("Job %s aborting — %s", job_id, err)
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
+        if (
+            nfs_server
+            and nfs_path
+            and not has_managed_volumes
+            and (not is_interactive or job_requires_nfs)
+        ):
+            nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
+            if nfs_mounted:
+                log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
+                volumes = list(volumes) + [f"{nfs_mount_point}:/data/nfs:rw"]
+            else:
+                if job_requires_nfs:
+                    err = "required NFS mount failed"
+                    log.error("Job %s aborting — %s", job_id, err)
+                    report_job_status(job_id, "failed", error_message=err)
+                    _release_execution_lease("failed")
+                    return
+                log.warning("NFS mount failed — optional shared storage unavailable")
+
+        # 0b. Attach encrypted volumes (if specified)
+        failed_encrypted_vol_ids: list[str] = []
+        for vol in job.get("encrypted_volumes", []):
+            vol_id = vol.get("volume_id")
+            vol_mount = vol.get("mount_path", f"/data/vol-{vol_id[:8]}")
+            vol_mode = vol.get("mode", "rw")
+            if vol_id:
+                mount_path = attach_encrypted_volume(vol_id)
+                if mount_path:
+                    volumes = list(volumes) + [f"{mount_path}:{vol_mount}:{vol_mode}"]
+                    encrypted_vol_ids.append(vol_id)
+                    log.info("Encrypted volume %s attached at %s", vol_id, vol_mount)
+                else:
+                    log.error("Encrypted volume %s attach failed", vol_id)
+                    failed_encrypted_vol_ids.append(str(vol_id))
+
+        if failed_encrypted_vol_ids:
+            err = "required encrypted volume attach failed: " + ", ".join(failed_encrypted_vol_ids)
+            log.error("Job %s aborting — %s", job_id, err)
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
+
+        # 0c. Mount managed volumes (volume_ids from job payload)
+        # Prefer API-injected nfs_server (prod Mac appliance); fall back to worker env.
+        nfs_vol_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
+        nfs_vol_export_base = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+        vol_mount_paths = job.get("volume_mounts", {})  # vid → container path from API
+        required_volume_ids = list(job.get("volume_ids") or [])
+        failed_volume_ids: list[str] = []
+        _vol_idx = 0
+        for vid in required_volume_ids:
+            vol_host_mount = f"/mnt/xcelsior-volumes/{vid}"
+            vol_nfs_path = f"{nfs_vol_export_base}/{vid}"
+            # Determine container mount path — from payload or auto-assign
+            container_path = vol_mount_paths.get(vid)
+            if not container_path:
+                container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
+            if nfs_vol_server:
+                mounted = _mount_nfs(nfs_vol_server, vol_nfs_path, vol_host_mount)
+                if mounted:
+                    volumes = list(volumes) + [f"{vol_host_mount}:{container_path}:rw"]
+                    managed_vol_mounts.append(vol_host_mount)
+                    log.info(
+                        "Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path
+                    )
+                else:
+                    log.error("Managed volume %s mount failed", vid)
+                    failed_volume_ids.append(vid)
+            else:
+                log.error("Managed volume %s: NFS server not configured", vid)
+                failed_volume_ids.append(vid)
+            _vol_idx += 1
+
+        if required_volume_ids and failed_volume_ids:
+            err = f"required volume mount failed: {', '.join(failed_volume_ids)}"
+            log.error("Job %s aborting — %s", job_id, err)
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
+
+        # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
+        if job.get("encrypted_workspace"):
+            encrypted_ws_vid = f"ws-{job_id}"
+            ws_size_gb = 20  # Default ephemeral workspace size
+            if provision_encrypted_volume(encrypted_ws_vid, ws_size_gb):
+                ws_mount = os.path.join(VOLUME_BASE_DIR, encrypted_ws_vid)
+                # Ensure container user can write
+                subprocess.run(["chmod", "1777", ws_mount], capture_output=True, timeout=10)
+                volumes = list(volumes) + [f"{ws_mount}:/workspace:rw"]
+                log.info(
+                    "Encrypted workspace provisioned for job %s: %dGB LUKS at %s",
+                    job_id,
+                    ws_size_gb,
+                    ws_mount,
+                )
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": "Encrypted workspace ready (LUKS2+AES-256)",
+                            "level": "info",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+            else:
+                log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
+                report_job_status(
+                    job_id, "failed", error_message="encrypted workspace provisioning failed"
+                )
+                _release_execution_lease("failed")
+                return
+
+        # 1. Pull image (with cache tracking + LRU eviction)
+        current_stage = "pulling image"
+
+        if job.get("require_image_signature"):
+            cosign = shutil.which("cosign")
+            public_key = str(
+                job.get("image_signature_key") or os.environ.get("XCELSIOR_COSIGN_PUBLIC_KEY", "")
+            ).strip()
+            if not cosign or not public_key:
+                err = "required image signature verifier/key is unavailable"
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+            verified = subprocess.run(
+                [cosign, "verify", "--key", public_key, image],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if verified.returncode != 0:
+                err = "required image signature verification failed"
+                log.error("Job %s: %s: %s", job_id, err, verified.stderr[:300])
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+
+        # Check if image already cached — skip eviction + pull if so
+        with _image_cache_lock:
+            image_already_cached = image in _image_cache_index
+
+        if image_already_cached:
+            log.info("Image %s already cached — skipping pull", image)
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Image {image} (cached ✓)",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+            cache_track_pull(image)
+        else:
+            cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
+            log.info("Pulling image %s...", image)
+            _push_log_lines(
+                job_id,
+                [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}],
+            )
+
+            with _image_pull_lock:
+                pull_proc = subprocess.Popen(
+                    ["docker", "pull", image],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                pull_last_send = time.time()
+                pull_lines = []
+                for raw_line in pull_proc.stdout:
+                    line = raw_line.rstrip("\n")
+                    if not line:
+                        continue
+                    # Send pull progress to API every 3 seconds (avoid flooding)
+                    now = time.time()
+                    if now - pull_last_send >= 3.0:
+                        pull_lines.append({"message": line, "level": "info", "timestamp": now})
+                        _push_log_lines(job_id, pull_lines)
+                        pull_lines = []
+                        pull_last_send = now
+                    else:
+                        pull_lines.append({"message": line, "level": "info", "timestamp": now})
+                # Flush remaining
+                if pull_lines:
+                    _push_log_lines(job_id, pull_lines)
+
+                pull_rc = pull_proc.wait(timeout=1800)
+            if pull_rc != 0:
+                err = f"Image pull failed (exit {pull_rc})"
+                log.error("Image pull failed for %s (exit %d)", image, pull_rc)
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": err,
+                            "level": "error",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+                report_job_status(job_id, "failed", error_message=err)
+                return
+
+            # Track in LRU cache index
+            local_images = _get_local_images()
+            cache_track_pull(image, local_images.get(image, 0))
+
+        # 2. Determine runtime
+        gpu_info = get_gpu_info()
+        runtime_name = "runc"
+        is_interactive = bool(job.get("interactive", False))
+        required_runtime = str(job.get("required_runtime") or "").strip().lower()
+        if required_runtime in ("gvisor", "runsc"):
+            if has_managed_volumes or is_interactive:
+                err = (
+                    "required gVisor runtime is incompatible with this "
+                    "interactive/managed-volume workload"
+                )
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+            if not is_gvisor_available():
+                err = "required gVisor runtime is unavailable"
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                return
+            runtime_name = "runsc"
+            log.info("Runtime: runsc (hard requirement)")
+        elif required_runtime and required_runtime != "runc":
+            err = f"unsupported required runtime: {required_runtime}"
+            report_job_status(job_id, "failed", error_message=err)
+            _release_execution_lease("failed")
+            return
+        elif has_managed_volumes:
+            log.info("Runtime: runc (managed NFS volume bind-mount)")
+        elif PREFER_GVISOR and not is_interactive:
+            runtime_name, reason = recommend_runtime(gpu_info["gpu_model"])
+            log.info("Runtime: %s (%s)", runtime_name, reason)
+        elif is_interactive:
+            log.info("Runtime: runc (interactive GPU — gVisor nvproxy incompatible)")
+
+        # Multi-GPU: get requested GPU count from job
+        num_gpus = job.get("num_gpus", 1) or 1
+        if num_gpus > 1:
+            log.info("Multi-GPU job: requesting %d GPUs", num_gpus)
+
+        # 3. Build secure Docker args
+        # Container-side SSH port is always 22 (OpenSSH default). The
+        # `ssh_port` we report back to the control plane is the PUBLIC
+        # host port users connect to — if we read it back here from the
+        # job payload on a requeue we'd end up with `-p 14096:14096`
+        # and sshd (listening on 22) would refuse the gateway's relay,
+        # producing "Connection closed by <vps>" on the client. See
+        # incident 2026-04-23. Keep this value hardcoded.
+        ssh_port = 22
+
+        # Interactive mode: override entrypoint to keep container alive
+        # and expose SSH port for user access
+        extra_docker_args = []
+        # Phase 5 (§11.4): attempt-specific container identity. Labels
+        # let restart adoption verify a container belongs to the exact
+        # attempt it holds authority for — same job, different fence,
+        # different container.
+        _v2_attempt = job.get("_v2_attempt_id")
+        container_labels = {
+            "xcelsior.managed": "true",
+            "xcelsior.job_id": job_id,
+            "xcelsior.container_name": container_name,
+        }
+        if _v2_attempt:
+            v2_labels = {
+                "xcelsior.attempt_id": str(_v2_attempt),
+                "xcelsior.fencing_token": str(job.get("_v2_fencing_token") or ""),
+                "xcelsior.spec_hash": str(job.get("_v2_spec_hash") or ""),
+                # Transitional aliases consumed by the Phase 6 observation
+                # parser on already-enrolled workers.
+                "ai.xcelsior.managed": "true",
+                "ai.xcelsior.job_id": job_id,
+                "ai.xcelsior.attempt_id": str(_v2_attempt),
+                "ai.xcelsior.fencing_token": str(job.get("_v2_fencing_token") or ""),
+                "ai.xcelsior.spec_hash": str(job.get("_v2_spec_hash") or ""),
+            }
+            container_labels.update(v2_labels)
+        port_map: dict[str, int] = {}
+        effective_command = command
+        if is_serverless:
+            http_port = int(job.get("http_port") or 8080)
+            _sl_ports = job.get("exposed_ports") or [http_port]
+            port_map, _sl_port_args = _allocate_host_port_mappings(job_id, list(_sl_ports))
+            extra_docker_args.extend(_sl_port_args)
+        if effective_command and not is_interactive:
+            effective_command, entrypoint_args = _container_command(
+                effective_command,
+                serverless=is_serverless,
+            )
+            extra_docker_args.extend(entrypoint_args)
+        if is_interactive:
+            log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
+            # --- Interactive terminal UI (stdout banner + status notes) ---
+            # This whole section is LOCKED at TERMINAL_UI_VERSION = "v2" per
+            # user approval on 2026-04-22. Do not edit the echo lines, the
+            # final 'Terminal ready …' summary lines, or the 'Tip:'/'SSH
+            # daemon …'/'OpenSSH server …' notes without bumping the version
+            # marker AND updating tests/test_terminal_ui_v1.py in lockstep.
+            TERMINAL_UI_VERSION = "v2"  # noqa: F841 — referenced by tests via regex
+            # Override entrypoint with an init script that prints startup info
+            # (forwarded to UI via LogForwarder) then keeps the container alive.
+            init_script = (
+                "echo '[xcelsior] Initialising interactive instance…';"
+                "echo '[xcelsior] GPU:' $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'not detected');"
+                "echo '[xcelsior] CUDA:' $(nvcc --version 2>/dev/null | grep -oP 'release \\K[0-9.]+' || echo 'N/A');"
+                "echo '[xcelsior] Python:' $(python3 --version 2>/dev/null || python --version 2>/dev/null || echo 'N/A');"
+                "echo '[xcelsior] PyTorch:' $(python3 -c 'import torch;print(torch.__version__)' 2>/dev/null || echo 'N/A');"
+                "echo '[xcelsior] Setting up SSH…';"
+                "exec tail -f /dev/null"
+            )
+            extra_docker_args.extend(["--entrypoint", "sh"])
+            effective_command = ["-c", init_script]
+            # Expose SSH port (map to a unique host port based on job_id hash)
+            host_port = 10000 + (int(job_id[:4], 16) % 55000)
+            extra_docker_args.extend(["-p", f"{host_port}:{ssh_port}"])
+            # P2.1: bind-mount host-side tools dir (rsync, git, etc) read-only
+            # so interactive instances have these on $PATH without paying an
+            # apt-install tax at boot. We skip the mount when the dir doesn't
+            # exist on the host so unprovisioned dev machines still work.
+            host_tools_dir = os.environ.get(
+                "XCELSIOR_TOOLS_DIR", os.path.join(_WORKER_STATE_DIR, "tools")
+            )
+            try:
+                if os.path.isdir(host_tools_dir):
+                    extra_docker_args.extend(["-v", f"{host_tools_dir}:/opt/xcelsior/bin:ro"])
+                    log.info("Mounted host tools: %s -> /opt/xcelsior/bin (ro)", host_tools_dir)
+            except Exception as e:
+                log.debug("Tools mount skipped: %s", e)
+            # P2.1: publish user-requested HTTP ports. We allocate each host
+            # port deterministically in the 55000-59999 range so the public
+            # reverse proxy (P2.2) can resolve {job}-{port}.xcelsior.ca without
+            # a lookup. Port 22 is reserved — validated at the API boundary.
+            _user_ports = job.get("exposed_ports") or []
+            # P2.2: capture the final {container_port: host_port} mapping so
+            # we can report it back after docker run succeeds. The API uses
+            # this to serve `/instances/{id}/expose` and the nginx internal
+            # route lookup — without this, collisions from the linear probe
+            # are invisible to the control plane.
+            if isinstance(_user_ports, (list, tuple)):
+                _seen: set[int] = set()
+                _hports_used: set[int] = set()
+                try:
+                    _base = int(job_id[:4], 16)
+                except (ValueError, TypeError):
+                    _base = 0
+                for _p in _user_ports:
+                    try:
+                        cport = int(_p)
+                    except (TypeError, ValueError):
+                        continue
+                    # Port 22 is reserved for our SSH gateway path — silently
+                    # skip if a user re-lists it in exposed_ports rather than
+                    # erroring (RunPod / Vast both treat 22 as implicit SSH).
+                    if cport < 1 or cport > 65535 or cport == 22 or cport in _seen:
+                        continue
+                    _seen.add(cport)
+                    # Linear-probe to avoid host-port collisions when two
+                    # different cports hash to the same hport (rare but real
+                    # — without this, the second -p silently shadows the
+                    # first and the user sees a confusing "port already
+                    # bound" error from dockerd).
+                    hport = 55000 + (_base + cport) % 5000
+                    for _attempt in range(5000):
+                        if hport not in _hports_used:
+                            break
+                        hport = 55000 + (hport - 55000 + 1) % 5000
+                    else:
+                        log.warning("No free host port for cport=%d; skipping", cport)
+                        continue
+                    _hports_used.add(hport)
+                    extra_docker_args.extend(["-p", f"{hport}:{cport}"])
+                    port_map[str(cport)] = hport
+                    log.info("Expose port: host:%d -> container:%d", hport, cport)
+            # Interactive containers need writable filesystem for SSH
+            # Remove --read-only and add writable tmpfs for home/ssh
+            extra_docker_args.extend(
+                [
+                    "-w",
+                    "/workspace",
+                    "--tmpfs",
+                    "/home:rw,size=1g",
+                    "--tmpfs",
+                    "/run:rw,size=64m",
+                    "--tmpfs",
+                    "/var/log:rw,size=256m",
+                ]
+            )
+            log.info("SSH port mapping: host:%d → container:%d", host_port, ssh_port)
+
+        # Tenant egress: restricted jobs join the isolated bridge and reach the
+        # internet only through the allowlisting proxy. Checked here, at the
+        # last moment, so a host whose isolation broke never starts one open.
+        try:
+            from egress_isolation import EgressUnavailable, launch_args
+
+            egress_args, env_vars = launch_args(job, env_vars)
+        except (ImportError, EgressUnavailable) as exc:
+            log.error("Job %s not started: egress isolation unavailable: %s", job_id, exc)
+            report_job_status(
+                job_id,
+                "failed",
+                error_message=(
+                    "This machine could not start your instance with its network "
+                    "protection in place. Launch it again to use another machine."
+                ),
+            )
+            _release_execution_lease("failed")
+            return
+        extra_docker_args.extend(egress_args)
+
+        docker_args = build_secure_docker_args(
+            image=image,
+            container_name=container_name,
+            gpu=True,
+            num_gpus=num_gpus,
+            runtime=runtime_name,
+            environment=env_vars,
+            volumes=volumes,
+            labels=container_labels,
+            command=effective_command,
+            extra_args=extra_docker_args if extra_docker_args else None,
+            interactive=is_interactive,
+        )
+
+        # 4. Start container — remove stale container with same name (e.g. requeue)
+        current_stage = "starting container"
+        _remove_container(container_name)
+        log.info("Starting container %s", container_name)
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": "Pull complete — starting container…",
+                    "level": "info",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
+        start = subprocess.run(
+            docker_args,
+            capture_output=True,
+            text=True,
+            timeout=CONTAINER_START_TIMEOUT,
+        )
+        if start.returncode != 0:
+            err = f"Container start failed: {start.stderr.strip()}"
+            log.error("%s", err)
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": err,
+                        "level": "error",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+            report_job_status(job_id, "failed", error_message=err[:500])
+            return
+
+        container_id = start.stdout.strip()[:12]
+        log.info("Container started: %s", container_id)
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"Container started ({container_id})",
+                    "level": "info",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
+
+        # 4a. Register container metadata with scheduler (status still "starting")
+        #     so the web terminal backend can resolve container_name before we
+        #     flip to "running". Keeping the UI badge on "starting" until SSH
+        #     injection actually finishes means "Running" is a truthful signal.
+        report_job_status(
+            job_id,
+            "starting",
+            host_id=HOST_ID,
+            container_id=container_id,
+            container_name=container_name,
+        )
+
+        if is_serverless:
+            worker_id = str(job.get("serverless_worker_id") or "")
+            http_port = int(job.get("http_port") or 8080)
+            health_path = str(job.get("health_check_path") or "/health")
+            host_http_port = int(port_map.get(str(http_port)) or http_port)
+            if port_map:
+                _report_http_ports(job_id, port_map)
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Waiting for serverless health on :{host_http_port}{health_path}",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+            if not _wait_serverless_health(host_http_port, health_path):
+                err = f"health check failed on :{host_http_port}{health_path}"
+                _serverless_callback(
+                    worker_id,
+                    "exited",
+                    {"exit_code": 1, "error_message": err},
+                )
+                report_job_status(job_id, "failed", error_message=err)
+                _release_execution_lease("failed")
+                _kill_container(container_name)
+                return
+            _serverless_callback(worker_id, "ready", {"host_id": str(HOST_ID or "")})
+            report_job_status(
+                job_id,
+                "running",
+                host_id=HOST_ID,
+                container_id=container_id,
+                container_name=container_name,
+            )
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Serverless worker {worker_id} ready",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        else:
+            # 4b. Inject user's SSH keys into the container (best-effort, 45s base
+            #     budget, extended by 45s when openssh-server must be installed).
+            #     _inject_ssh_keys is guaranteed to emit a final summary line via
+            #     both the log stream AND the container's PID-1 stdout, so the user
+            #     never sees "Setting up SSH…" hang indefinitely.
+            _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
+
+            # 4c. SSH is either ready or has emitted a reason — flip to "running".
+            report_job_status(
+                job_id,
+                "running",
+                host_id=HOST_ID,
+                container_id=container_id,
+                container_name=container_name,
+            )
+
+            # P2.2: report the final HTTP port mapping to the API so
+            # `/instances/{id}/expose` and the nginx subdomain router can
+            # resolve public URLs. Best-effort — a failed report just means
+            # the public URL won't resolve yet; the next heartbeat cycle
+            # will retry via _report_http_ports_with_retry.
+            if is_interactive and port_map:
+                _report_http_ports(job_id, port_map)
+
+            # For interactive jobs, report SSH connection info
+            if is_interactive:
+                report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
+                log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
+                            "level": "info",
+                            "timestamp": time.time(),
+                        },
+                    ],
+                )
+
+            # P2.1: user-supplied provisioning hooks. These run AFTER SSH is ready
+            # so the banner timing is not affected, each capped at 15 s via the
+            # `timeout` coreutil so a stuck clone or hanging init can't strand
+            # the instance.
+            _run_provisioning_hooks(job_id, container_name, job)
+
+            # P2.3: Jupyter / VSCode (code-server) auto-launch. Runs after
+            # provisioning hooks so user init scripts can seed a venv /
+            # conda env before Jupyter installs into the default python.
+            # Never fatal — a failed auto-launch must not kill the instance.
+            try:
+                _run_auto_launch(job_id, container_name, job)
+            except Exception as e:
+                log.debug("auto_launch error (non-fatal): %s", e)
+
+        # 5. Apply egress rules (best-effort)
+        try:
+            egress_rules = build_egress_iptables_rules(container_name)
+            for rule in egress_rules:
+                subprocess.run(
+                    rule.split(),
+                    capture_output=True,
+                    timeout=5,
+                )
+        except Exception as e:
+            log.debug("Egress rules failed (non-fatal): %s", e)
+
+        # 6. Start log forwarding (container → API → SSE → frontend)
+        log_fwd = LogForwarder(job_id, container_name)
+        log_fwd.start()
+
+        # 7. Monitor container until completion
+        current_stage = "monitoring container"
+        if is_serverless:
+            _monitor_serverless_worker(
+                job_id,
+                container_name,
+                str(job.get("serverless_worker_id") or ""),
+                log_forwarder=log_fwd,
+                is_v2_attempt=is_v2_attempt,
+            )
+        elif is_interactive:
+            _monitor_interactive(
+                job_id,
+                container_name,
+                log_forwarder=log_fwd,
+                is_v2_attempt=is_v2_attempt,
+            )
+        else:
+            _monitor_container(
+                job_id,
+                container_name,
+                log_forwarder=log_fwd,
+                is_v2_attempt=is_v2_attempt,
+            )
+
+    except subprocess.TimeoutExpired:
+        log.error("Job %s timed out while %s", job_id, current_stage)
+        timeout_msg = f"timed out while {current_stage}"
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"Timed out while {current_stage}",
+                    "level": "error",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
+        _kill_container(container_name)
+        report_job_status(job_id, "failed", error_message=timeout_msg)
+        _release_execution_lease("failed")
+    except Exception as e:
+        stage_msg = f"{current_stage}: {e}"
+        log.error("Job %s failed during %s: %s", job_id, current_stage, e, exc_info=True)
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"Instance failed during {current_stage}: {e}",
+                    "level": "error",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
+        _kill_container(container_name)
+        report_job_status(job_id, "failed", error_message=stage_msg)
+        _release_execution_lease("failed")
+    finally:
+        # Stop log forwarding (final flush)
+        if log_fwd:
+            try:
+                log_fwd.stop()
+            except Exception:
+                pass
+
+        # Stop lease renewal thread
+        _lease_stop.set()
+        with _active_lock:
+            _active_containers.pop(job_id, None)
+
+        # Release exclusive GPU lock (Phase 7 / §3) — must run last so any
+        # checkpoint/cleanup work above completes while we still own the GPU.
+        if exclusive_gpu and _excl_state.get("ok"):
+            _release_exclusive_gpu(job_id, _excl_state)
+
+        # Unmount NFS if we mounted it
+        if nfs_mounted:
+            _unmount_nfs(nfs_mount_point)
+
+        # Unmount managed volumes
+        for vol_mount in managed_vol_mounts:
+            try:
+                _unmount_nfs(vol_mount)
+            except Exception as e:
+                log.warning("Failed to unmount managed volume %s: %s", vol_mount, e)
+
+        # Detach encrypted volumes
+        for vol_id in encrypted_vol_ids:
+            detach_encrypted_volume(vol_id)
+
+        # Destroy ephemeral encrypted workspace (cryptographic erasure)
+        if encrypted_ws_vid:
+            destroy_encrypted_volume(encrypted_ws_vid)
+            log.info("Encrypted workspace destroyed for job %s (cryptographic erasure)", job_id)
+
+
+# ── Log Forwarding ───────────────────────────────────────────────────
+# Streams container stdout/stderr to the API via HTTP POST batches.
+# Disk-backed buffer survives transient API downtime.
+# Gzip compression on batches > 1KB, exponential backoff retry.
+
+import gzip as _gzip
+import tempfile as _tempfile
+
+_LOG_BATCH_SIZE = 50  # flush every N lines
+_LOG_FLUSH_INTERVAL = 1.0  # or every N seconds
+_LOG_BACKOFF_MAX = 60  # max retry delay (seconds)
+_LOG_SPOOL_MAX = 50_000  # max lines in disk spool before dropping oldest
+
+
+class LogForwarder:
+    """Forward container stdout/stderr to the API server.
+
+    Runs two threads:
+    - _tail_thread: reads `docker logs --follow --timestamps`
+    - _flush_thread: batches lines and POSTs them to /agent/logs/{job_id}
+    """
+
+    def __init__(self, job_id: str, container_name: str):
+        self.job_id = job_id
+        self.container_name = container_name
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._buffer: list[dict] = []
+        self._spool_path = os.path.join(_tempfile.gettempdir(), f"xcelsior-logs-{job_id}.jsonl")
+        self._tail_proc = None
+        self._tail_thread = None
+        self._flush_thread = None
+        self._backoff = 1.0
+
+    def start(self):
+        """Start tailing container logs and flushing to the API."""
+        self._tail_thread = threading.Thread(
+            target=self._tail_loop, daemon=True, name=f"log-tail-{self.job_id[:8]}"
+        )
+        self._flush_thread = threading.Thread(
+            target=self._flush_loop, daemon=True, name=f"log-flush-{self.job_id[:8]}"
+        )
+        self._tail_thread.start()
+        self._flush_thread.start()
+        log.debug("LogForwarder started for %s", self.job_id)
+
+    def stop(self):
+        """Stop tailing and do a final flush."""
+        self._stop.set()
+        if self._tail_proc:
+            with suppress(Exception):
+                self._tail_proc.kill()
+        # Wait for threads to finish processing
+        if self._tail_thread:
+            self._tail_thread.join(timeout=5)
+        if self._flush_thread:
+            self._flush_thread.join(timeout=5)
+        # Final flush of remaining lines after threads have stopped
+        self._flush_batch()
+        # Clean up spool file
+        with suppress(FileNotFoundError):
+            os.remove(self._spool_path)
+        log.debug("LogForwarder stopped for %s", self.job_id)
+
+    def _tail_loop(self):
+        """Run `docker logs --follow --timestamps` and buffer lines."""
+        try:
+            self._tail_proc = subprocess.Popen(
+                ["docker", "logs", "--follow", "--timestamps", self.container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for raw_line in self._tail_proc.stdout:
+                if self._stop.is_set():
+                    break
+                line = raw_line.rstrip("\n")
+                if not line:
+                    continue
+
+                # Docker --timestamps format: "2026-04-05T12:00:00.123456789Z <message>"
+                ts = time.time()
+                msg = line
+                if len(line) > 31 and line[0].isdigit() and "T" in line[:30]:
+                    # Try to parse the Docker timestamp
+                    space = line.find(" ")
+                    if space > 0:
+                        try:
+                            dt = datetime.fromisoformat(line[:space].rstrip("Z"))
+                            ts = dt.timestamp()
+                            msg = line[space + 1 :]
+                        except (ValueError, IndexError):
+                            pass
+
+                level = "stderr" if "ERROR" in msg[:50] or "FATAL" in msg[:50] else "info"
+
+                entry = {"message": msg, "level": level, "timestamp": ts}
+                with self._lock:
+                    self._buffer.append(entry)
+
+                # Flush if batch is full
+                if len(self._buffer) >= _LOG_BATCH_SIZE:
+                    self._flush_batch()
+
+        except Exception as e:
+            if not self._stop.is_set():
+                log.debug("Log tail ended for %s: %s", self.job_id, e)
+        finally:
+            if self._tail_proc:
+                with suppress(Exception):
+                    self._tail_proc.kill()
+
+    def _flush_loop(self):
+        """Periodically flush buffered log lines to the API."""
+        while not self._stop.is_set():
+            self._stop.wait(_LOG_FLUSH_INTERVAL)
+            if self._buffer:
+                self._flush_batch()
+
+    def _flush_batch(self):
+        """Send buffered lines to the API. Retry with exponential backoff."""
+        with self._lock:
+            if not self._buffer:
+                return
+            batch = self._buffer[:_LOG_BATCH_SIZE]
+            self._buffer = self._buffer[_LOG_BATCH_SIZE:]
+
+        # Spool to disk (WAL-style) so we don't lose lines if API is down
+        try:
+            spool_size = (
+                os.path.getsize(self._spool_path) if os.path.exists(self._spool_path) else 0
+            )
+        except OSError:
+            spool_size = 0
+        if spool_size < 10_000_000:  # 10MB cap
+            try:
+                with open(self._spool_path, "a") as f:
+                    for entry in batch:
+                        f.write(json.dumps(entry) + "\n")
+            except OSError:
+                pass  # disk full — best-effort
+
+        body = json.dumps({"lines": batch}).encode()
+
+        # Gzip compress if > 1KB
+        headers = {**_api_headers()}
+        if len(body) > 1024:
+            body = _gzip.compress(body)
+            headers["Content-Encoding"] = "gzip"
+
+        try:
+            resp = _api_request(
+                "post",
+                _api_url(f"/agent/logs/{self.job_id}"),
+                data=body,
+                headers=headers,
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                self._backoff = 1.0  # reset on success
+                # Drain from disk spool what we successfully sent
+                self._drain_spool(len(batch))
+            else:
+                log.debug("Log POST returned %d for %s", resp.status_code, self.job_id)
+                self._backoff_wait()
+        except requests.RequestException:
+            self._backoff_wait()
+
+    def _backoff_wait(self):
+        """Wait with exponential backoff, capped at _LOG_BACKOFF_MAX."""
+        self._stop.wait(self._backoff)
+        self._backoff = min(self._backoff * 2, _LOG_BACKOFF_MAX)
+
+    def _drain_spool(self, count: int):
+        """Remove successfully sent lines from disk spool."""
+        try:
+            with open(self._spool_path, "r") as f:
+                remaining = f.readlines()[count:]
+            if remaining:
+                with open(self._spool_path, "w") as f:
+                    f.writelines(remaining[-_LOG_SPOOL_MAX:])
+            else:
+                os.remove(self._spool_path)
+        except (FileNotFoundError, OSError):
+            pass
+
+
+def _monitor_container(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
+    """Monitor a running container until it exits or is preempted."""
+    check_interval = 5  # seconds
+
+    while not _shutdown.is_set():
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            status = result.stdout.strip()
+
+            if status == "exited":
+                # Check exit code
+                exit_result = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
+
+                if exit_code == 0:
+                    log.info("Job %s completed successfully", job_id)
+                    report_job_status(job_id, "completed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "completed")
+                else:
+                    log.warning("Job %s exited with code %d", job_id, exit_code)
+                    # Collect logs for debugging
+                    try:
+                        logs = subprocess.run(
+                            ["docker", "logs", "--tail", "50", container_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        if logs.stdout:
+                            log.info("Container output (last 50 lines):\n%s", logs.stdout[-2000:])
+                    except Exception as e:
+                        log.debug("docker logs retrieval failed: %s", e)
+                    report_job_status(job_id, "failed")
+                    if not is_v2_attempt:
+                        release_lease(job_id, "failed")
+
+                # Cleanup container
+                _remove_container(container_name)
+                return
+
+            elif status not in ("running", "created"):
+                log.warning("Container %s in unexpected state: %s", container_name, status)
+                report_job_status(job_id, "failed")
+                if not is_v2_attempt:
+                    release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            log.debug("Container inspect failed — may have been removed")
+            report_job_status(job_id, "failed")
+            return
+
+        # Sleep in small increments to respond to shutdown/requeue quickly
+        for _ in range(check_interval):
+            if _shutdown.is_set():
+                return
+            with _active_lock:
+                if job_id not in _active_containers:
+                    return  # Requeued or preempted — let new run_job take over
+            time.sleep(1)
+
+
+def _monitor_interactive(job_id, container_name, log_forwarder=None, is_v2_attempt=False):
+    """Monitor an interactive container — stays running until cancelled or shutdown.
+
+    Unlike batch containers, interactive containers run indefinitely.
+    The container is only stopped when:
+    - User cancels via API (preemption signal)
+    - Worker shuts down gracefully
+    - Container crashes unexpectedly
+    """
+    check_interval = 10  # Check less frequently — container is meant to stay alive
+
+    log.info(
+        "Monitoring interactive container %s (job %s) — will run until stopped",
+        container_name,
+        job_id,
+    )
+
+    while not _shutdown.is_set():
+        # Another control path removed this job from tracking (requeue,
+        # graceful shutdown, preemption, billing pause/restart). That path
+        # already owns the DB status — do not clobber it with "cancelled".
+        with _active_lock:
+            if job_id not in _active_containers:
+                log.info(
+                    "Interactive job %s removed from active containers — monitor exiting",
+                    job_id,
+                )
+                return
+
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            status = result.stdout.strip()
+
+            if status == "exited":
+                # Interactive container has stopped. This happens in three
+                # scenarios, all of which we must handle correctly:
+                #   1. `docker stop` via the agent command queue (billing
+                #      stop/pause, admin kill) — the DB has already been
+                #      flipped to stopped/paused/cancelled/terminated; don't
+                #      overwrite it with "failed".
+                #   2. User cleanly exited their shell (exit_code 0) or the
+                #      process received SIGTERM/SIGINT/SIGKILL from a stop
+                #      (exit codes 130/137/143). Report "stopped", not
+                #      "failed" — the instance is resumable via restart.
+                #   3. Non-zero, non-signal exit (e.g. OOM, segfault in the
+                #      user's entrypoint). This is the only genuine "failed"
+                #      case.
+                exit_result = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                try:
+                    exit_code = int(exit_result.stdout.strip())
+                except (TypeError, ValueError):
+                    exit_code = -1
+
+                # Clean-exit codes: 0 (explicit exit), 130 (SIGINT/Ctrl-C),
+                # 137 (SIGKILL from `docker stop` timeout), 143 (SIGTERM
+                # graceful). Anything else is a real crash.
+                _CLEAN_EXIT_CODES = {0, 130, 137, 143}
+                reported_status = "stopped" if exit_code in _CLEAN_EXIT_CODES else "failed"
+                log.info(
+                    "Interactive container %s exited (code %d) — reporting %s",
+                    container_name,
+                    exit_code,
+                    reported_status,
+                )
+                report_job_status(job_id, reported_status)
+                if not is_v2_attempt:
+                    release_lease(job_id, reported_status)
+                _remove_container(container_name)
+                return
+
+            elif status not in ("running", "created", "restarting", "paused"):
+                # A paused container still exists and must remain managed.
+                # Keep polling so termination and shutdown retain ownership.
+                log.warning(
+                    "Interactive container %s in unexpected state: %s", container_name, status
+                )
+                report_job_status(job_id, "failed")
+                if not is_v2_attempt:
+                    release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            # `docker inspect` failed — the container was almost certainly
+            # removed by the `stop_container` agent handler in another
+            # drain cycle. That handler already flipped the DB status, so
+            # reporting "failed" here would clobber the correct state.
+            log.debug(
+                "Interactive container %s inspect failed — assuming removed by stop_container",
+                container_name,
+            )
+            return
+
+        # Sleep in small increments to respond to shutdown/cancel/requeue quickly
+        for _ in range(check_interval):
+            if _shutdown.is_set():
+                # graceful_shutdown() stops agent-started containers and marks
+                # them queued; adopted containers are left running. Either way
+                # this monitor must not report "cancelled" on worker restart.
+                return
+            with _active_lock:
+                if job_id not in _active_containers:
+                    break  # Requeued — exit sleep, handle at top of loop
+            time.sleep(1)
+
+
+def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
+    """P2.1 — apply optional init_script and git_repo, both capped at 15 s.
+
+    Runs via ``docker exec`` against an already-running container. Each hook
+    fails open so a broken hook can never wedge the instance: a timeout just
+    surfaces as a warning in the user's log stream and execution proceeds. The
+    interactive terminal UI v1 banner has already finished by the time we
+    reach here, so these hooks do not affect the "SSH ready" perceived boot
+    time.
+    """
+    if not job.get("interactive"):
+        return
+    init_script = (job.get("init_script") or "").strip()
+    git_repo = (job.get("git_repo") or "").strip()
+    if not init_script and not git_repo:
+        return
+
+    def _exec_capped(tag: str, shell_cmd: str, seconds: int = 15) -> None:
+        # `timeout --kill-after=2 15 bash -c …` — hard-kill after grace so a
+        # runaway process doesn't hold the agent thread. We still honour the
+        # agent's outer timeout as a belt-and-braces measure.
+        started = time.time()
+        cmd = [
+            "docker",
+            "exec",
+            container_name,
+            "sh",
+            "-c",
+            f"timeout --kill-after=2 {seconds} bash -c {shlex.quote(shell_cmd)}"
+            f" 2>&1 | tail -c 4096",
+        ]
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"[xcelsior] {tag} starting (≤{seconds}s)…",
+                    "level": "info",
+                    "timestamp": started,
+                }
+            ],
+        )
+        try:
+            # Outer timeout is slightly larger to let `timeout` emit its own
+            # exit code first, giving us a cleaner message.
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=seconds + 5)
+            out = (proc.stdout or "").strip()
+            if proc.returncode == 124:  # coreutils timeout signal
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] {tag} exceeded {seconds}s — continuing without waiting",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+                return
+            if proc.returncode != 0:
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] {tag} failed (rc={proc.returncode}): {out[-512:]}",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+                return
+            elapsed = int((time.time() - started) * 1000)
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] {tag} ok ({elapsed} ms)",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] {tag} hung — abandoned",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except Exception as e:
+            log.debug("provisioning %s error: %s", tag, e)
+
+    # Git clone first — users' init scripts often want the repo present.
+    if git_repo:
+        # git_repo has been validated at the API boundary to be a plain
+        # https:// URL with no credentials; we still wrap in quotes.
+        safe_repo = shlex.quote(git_repo)
+        clone_cmd = (
+            "mkdir -p /workspace && cd /workspace && "
+            # Idempotency: a relaunch with the same persistent volume will
+            # already have /workspace/repo. Remove it so the user always
+            # gets a fresh clone of the requested URL (matches `git clone`
+            # semantics on a clean dir).
+            "rm -rf /workspace/repo && "
+            "if command -v git >/dev/null 2>&1; then "
+            f"git clone --depth 1 {safe_repo} repo 2>&1 | tail -n 10; "
+            "else echo 'git not installed in image'; fi"
+        )
+        _exec_capped("git_repo", clone_cmd, seconds=15)
+
+    if init_script:
+        # Caller's script runs under bash -lc so profile is loaded. We write
+        # it to a file inside the container (via stdin) rather than inlining
+        # to avoid shell-escaping pitfalls with multiline scripts.
+        # docker exec -i streams stdin → temp file → bash -l.
+        try:
+            started = time.time()
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": "[xcelsior] init_script starting (≤15s)…",
+                        "level": "info",
+                        "timestamp": started,
+                    }
+                ],
+            )
+            write_cmd = [
+                "docker",
+                "exec",
+                "-i",
+                container_name,
+                "sh",
+                "-c",
+                "cat > /tmp/xcelsior_init.sh && chmod +x /tmp/xcelsior_init.sh && "
+                "timeout --kill-after=2 15 bash -l /tmp/xcelsior_init.sh 2>&1 | tail -c 4096",
+            ]
+            proc = subprocess.run(
+                write_cmd,
+                input=init_script,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            out = (proc.stdout or "").strip()
+            if proc.returncode == 124:
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": "[xcelsior] init_script exceeded 15s — continuing without waiting",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+            elif proc.returncode != 0:
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] init_script failed (rc={proc.returncode}): {out[-512:]}",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+            else:
+                elapsed = int((time.time() - started) * 1000)
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] init_script ok ({elapsed} ms)",
+                            "level": "info",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+        except subprocess.TimeoutExpired:
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": "[xcelsior] init_script hung — abandoned",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except Exception as e:
+            log.debug("provisioning init_script error: %s", e)
+
+
+def _auto_launch_token(job_id: str) -> str:
+    """Derive a per-instance secret for Jupyter / code-server auth.
+
+    Combines the job_id with a host-side secret so leaked job_ids alone
+    can't be used to log in. Falls back to a job-id-only hash when no
+    host secret is configured (still opaque to the outside world; just
+    predictable across hosts that share a job_id which never happens
+    in practice).
+    """
+    host_secret = os.environ.get("HOST_SECRET") or os.environ.get("XCELSIOR_HOST_SECRET", "")
+    return hashlib.sha256(f"{job_id}:{host_secret}".encode()).hexdigest()[:32]
+
+
+def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
+    """P2.3 — bring up Jupyter and/or code-server inside the container.
+
+    Mirrors the safety posture of ``_run_provisioning_hooks``: each
+    launcher has a 15 s wall-clock cap, never blocks the agent thread,
+    and surfaces one user-visible log line per service (the pip /
+    curl install can take most of the budget on a cold image so a
+    longer grace would just waste the user's perception of boot time).
+
+    Security:
+      * Token = sha256(job_id + HOST_SECRET)[:32] — 128 bits.
+      * Token is never echoed to stdout; we print a prefix hash only
+        (`token_sha=xxxxxxxx`) and the user retrieves it via the API.
+      * ``--allow-root`` is acceptable because the container is
+        ephemeral and already isolated by gVisor/Kata (see security.py).
+    """
+    if not job.get("interactive"):
+        return
+    services = job.get("auto_launch") or []
+    if isinstance(services, str):
+        services = [s.strip().lower() for s in services.split(",") if s.strip()]
+    else:
+        services = [str(s).strip().lower() for s in services if str(s).strip()]
+    if not services:
+        return
+
+    token = _auto_launch_token(job_id)
+    token_prefix = hashlib.sha256(token.encode()).hexdigest()[:8]
+
+    def _exec_bg(tag: str, shell_cmd: str, seconds: int = 15) -> None:
+        started = time.time()
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"[xcelsior] auto-launch {tag} starting…",
+                    "level": "info",
+                    "timestamp": started,
+                }
+            ],
+        )
+        # ``docker exec -d`` detaches the exec process so the agent
+        # returns immediately; we still wrap the inner command with
+        # ``nohup`` + ``&`` so the process survives the exec session.
+        cmd = [
+            "docker",
+            "exec",
+            "-d",
+            container_name,
+            "bash",
+            "-lc",
+            shell_cmd,
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=seconds)
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()[-256:]
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] auto-launch {tag} rc={proc.returncode}: {err}",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+                return
+            elapsed_ms = int((time.time() - started) * 1000)
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] auto-launch {tag} ok ({elapsed_ms} ms) token_sha={token_prefix}",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] auto-launch {tag} exceeded {seconds}s — abandoned",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except Exception as e:
+            log.debug("auto_launch %s error: %s", tag, e)
+
+    ports: dict[str, int] = {}
+    for svc in services:
+        if svc == "jupyter":
+            # JupyterLab on :8888. We install to a user-writable path
+            # if pip is available and lab is not already present; if
+            # both fail we try ``jupyter`` (classic notebook) as a
+            # last resort. Token is passed via env so it doesn't show
+            # up in ``ps``.
+            shell = (
+                f"export JUPY_TOKEN={shlex.quote(token)}; "
+                "mkdir -p /workspace && cd /workspace && "
+                "( command -v jupyter >/dev/null 2>&1 || "
+                "  pip install --quiet --no-cache-dir jupyterlab 2>/dev/null || "
+                "  pip3 install --quiet --no-cache-dir jupyterlab 2>/dev/null || true ); "
+                "nohup jupyter lab --allow-root --no-browser --ip=0.0.0.0 "
+                '--port=8888 --ServerApp.token="$JUPY_TOKEN" '
+                "--ServerApp.password='' "
+                ">/tmp/xcelsior-jupyter.log 2>&1 &"
+            )
+            _exec_bg("jupyter", shell, seconds=30)
+            ports["jupyter"] = 8888
+        elif svc == "vscode":
+            # code-server on :8443. Install via the official script if
+            # not already present (fast if present; ~15 s on first boot).
+            shell = (
+                f"export PASSWORD={shlex.quote(token)}; "
+                "( command -v code-server >/dev/null 2>&1 || "
+                "  (curl -fsSL https://code-server.dev/install.sh | sh -s -- --quiet 2>/dev/null) || true ); "
+                "nohup code-server --bind-addr 0.0.0.0:8443 --auth password "
+                ">/tmp/xcelsior-code-server.log 2>&1 &"
+            )
+            _exec_bg("vscode", shell, seconds=45)
+            ports["vscode"] = 8443
+        else:
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] auto-launch {svc} not supported — skipping",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+
+    # Stash the port mapping in job.payload.http_ports so P2.2's
+    # subdomain proxy can route `<job>-8888.xcelsior.ca` → host:port.
+    # Best-effort: failing to record the mapping just means the user
+    # must SSH-tunnel manually. Report back via the API so the UI can
+    # display the URL.
+    if ports:
+        try:
+            api_url = os.environ.get("XCELSIOR_API_URL", "").rstrip("/")
+            if api_url:
+                host_id = os.environ.get("HOST_ID") or os.environ.get("XCELSIOR_HOST_ID", "")
+                payload = {
+                    "host_id": host_id,
+                    "ports": ports,
+                    "token_sha": token_prefix,
+                    "token": token,
+                }
+                try:
+                    _api_request(
+                        "post",
+                        f"{api_url}/instances/{job_id}/auto-launch/report",
+                        json=payload,
+                        timeout=5,
+                        headers={"X-Host-Secret": os.environ.get("HOST_SECRET", "")},
+                    )
+                except Exception as e:
+                    log.debug("auto_launch report failed: %s", e)
+        except Exception as e:
+            log.debug("auto_launch report outer error: %s", e)
+
+
+#: `ssh-keygen -lf` prints "<bits> <hash> <comment> (<TYPE>)". The middle field
+#: is the fingerprint; the comment can contain spaces, so this takes field two
+#: rather than splitting and hoping.
+_HOST_KEY_FINGERPRINT = re.compile(r"\bSHA256:[A-Za-z0-9+/]{43}\b")
+
+
+def read_container_host_key_fingerprint(container_name: str) -> str:
+    """The host-key fingerprint the container's sshd will present, or "".
+
+    Read in the client's own negotiation order — Ed25519 first, then ECDSA, then
+    RSA — and the first that exists wins. **The first draft read Ed25519 only**,
+    on the reasoning that it is OpenSSH's default `HostKeyAlgorithms` preference
+    and therefore the key a modern client negotiates. That is true only when the
+    server offers one. Checked against a real GPU host on 2026-08-09, the
+    endpoint presented **RSA-2048 and no Ed25519 at all**, so the original code
+    would have reported "unknown" for a host whose key was perfectly verifiable.
+
+    Returns `""` when nothing can be read — no key files, no `ssh-keygen`, an
+    exec that times out. **Empty is a real answer here**, and the caller must
+    treat it as "unknown" rather than substituting anything: a fingerprint the
+    platform did not observe is worse than none, because `null` makes a model
+    say "this cannot be verified" while a wrong value makes it say "verified".
+
+    **This is only meaningful where SSH terminates in the container.** Xcelsior's
+    own gateway DNATs to the container's sshd, so the container's key is the key
+    the user sees. A proxy-terminated provider is the opposite: the same 2026-08-09
+    check found a cloud host with *no sshd and no host keys in the container at
+    all*, because the provider's proxy terminates SSH and pipes in. There, the key
+    a client verifies belongs to the proxy, and reading the container would
+    publish the wrong one — so returning "" is not a degraded answer, it is the
+    correct one.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "exec",
+                container_name,
+                "sh",
+                "-c",
+                # Client negotiation order. `ssh-keygen -lf` on the first file
+                # that exists; a host offering only RSA still yields a usable
+                # fingerprint instead of an unnecessary "unknown".
+                "for t in ed25519 ecdsa rsa; do "
+                "  f=/etc/ssh/ssh_host_${t}_key.pub; "
+                '  [ -f "$f" ] && ssh-keygen -lf "$f" 2>/dev/null && break; '
+                "done",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        return ""
+    match = _HOST_KEY_FINGERPRINT.search(proc.stdout or "")
+    return match.group(0) if match else ""
+
+
+#: Last fingerprint logged per container, so a re-observation is not a new
+#: data point. See `_log_container_host_key_fingerprint`.
+_host_key_seen: dict[str, str] = {}
+
+
+def _log_container_host_key_fingerprint(container_name: str, job_id: str) -> None:
+    """Observe only. Never raises, never changes what the caller returns.
+
+    SSH setup is on the launch path, so a failure here must cost the user
+    nothing — the instance is more important than the telemetry about it.
+
+    **Logged at INFO only when the value is new or has changed**, because
+    `_inject_ssh_keys` also runs on the periodic shell re-injection pass over
+    adopted containers, not only at launch. A0's purpose is to measure the blank
+    rate across *images*, and a count that tracks re-injection cadence instead of
+    launches invites reading n=1 as n=54.
+
+    **This dedupe is in-memory and therefore restart-scoped.** It suppresses
+    repeats within one agent lifetime and nothing more. The 54 identical lines
+    that prompted it were *not* re-injection at all — they were one line per
+    process start, from a worker crash-looping every 15m20s against a 410 from
+    the retired public agent ingress. This mechanism would not have prevented
+    them. Recorded because the justification and the mechanism were sound
+    separately and never checked against each other, which is how the same shape
+    got past review three times in one phase.
+
+    **Do not persist this across restarts.** Making it survive would "complete"
+    the fix and silence a crash loop: a repeat across restarts is not noise the
+    dedupe missed, it is the agent announcing a restart. The 15m20s
+    cadence in those 54 lines is what surfaced a half-finished agent-ingress
+    cutover that had the whole fleet locked out — persisting the dedupe deletes
+    exactly that evidence.
+
+    The wider rule, since it is easy to get backwards: a limiter that can drop a
+    *distinct* fact is worse than one that duplicates a *known* fact. Duplicate a
+    fact you already hold and you pay storage; collapse a repeat and you lose
+    that it recurred — which here was the entire information content.
+
+    A fingerprint that *changes* for one container is worth an INFO line on its
+    own: it means the container was recreated underneath the job.
+    """
+    try:
+        fingerprint = read_container_host_key_fingerprint(container_name)
+        value = fingerprint or ""
+        previous = _host_key_seen.get(container_name)
+        _host_key_seen[container_name] = value
+        if previous == value:
+            log.debug("host_key.unchanged job=%s container=%s", job_id, container_name)
+            return
+        if value:
+            log.info(
+                "host_key.observed job=%s fingerprint=%s%s",
+                job_id,
+                value,
+                " (changed)" if previous else "",
+            )
+        else:
+            log.info("host_key.unreadable job=%s container=%s", job_id, container_name)
+    except Exception:  # pragma: no cover - observation must never break a launch
+        pass
+
+
+def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False):
+    """Fetch the job owner's SSH public keys from the API and inject into the container.
+
+    Sets up /root/.ssh/authorized_keys and starts sshd if available.
+    Best-effort: failures are logged but don't block the job. For interactive
+    jobs, pushes user-visible log lines at each phase so the UI log stream
+    doesn't silently end at "Setting up SSH…".
+
+    Production guarantees (Phase 1.4 hardening):
+      * Hard wall-clock budget of 45s — no single subprocess can exceed
+        min(its-default, remaining-budget).
+      * The `finally:` block ALWAYS emits a single summary line via _note()
+        AND mirrors it to the container's PID-1 stdout (/proc/1/fd/1) so
+        an already-attached web terminal sees the final state inline.
+      * Exceptions and timeouts are caught and translated into a
+        user-readable summary — nothing ever escapes this function.
+    """
+
+    def _note(msg: str, level: str = "info"):
+        """Push a user-visible log line (only for interactive jobs)."""
+        if interactive:
+            try:
+                _push_log_lines(
+                    job_id, [{"message": msg, "level": level, "timestamp": time.time()}]
+                )
+            except Exception:
+                pass
+
+    def _mirror_to_container(msg: str):
+        """Best-effort: echo a line to the container's PID-1 stdout so it
+        shows up in docker logs AND any web terminal that's already attached
+        via ``docker exec``. Wrapped in its own try/except with a 3s timeout
+        so this can never block the finally block."""
+        if not interactive:
+            return
+        try:
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    f"printf '%s\\n' {_shell_quote(msg)} > /proc/1/fd/1 2>/dev/null || true",
+                ],
+                capture_output=True,
+                timeout=3,
+                check=False,
+            )
+        except Exception:
+            pass
+
+    start = time.monotonic()
+    # Base budget 45s; extended by 45s if we have to install sshd on-demand.
+    deadline = start + 45.0
+
+    def _extend_budget(seconds: float) -> None:
+        nonlocal deadline
+        deadline += seconds
+
+    def _remaining(default: float) -> float:
+        """Clamp a subprocess timeout to the remaining wall-clock budget.
+        Never returns less than 1s (so very-near-deadline calls still get
+        a real chance, and TimeoutExpired will cleanly bubble to finally)."""
+        return max(1.0, min(default, deadline - time.monotonic()))
+
+    # Tracking flags for final summary composition.
+    keys: list[str] = []
+    sshd_present: bool = False
+    sshd_started: bool = False
+    root_password: str = ""
+    final_msg: str = "[xcelsior] SSH setup complete"
+    final_level: str = "info"
+
+    try:
+        # --- Fetch authorized keys from API (10s budget clamped to remaining) ---
+        try:
+            resp = _api_request(
+                "get",
+                _api_url(f"/agent/ssh-keys/{job_id}"),
+                headers=_api_headers(),
+                timeout=_remaining(10),
+            )
+            if resp.status_code == 200:
+                keys = resp.json().get("keys", []) or []
+            else:
+                log.debug("SSH keys endpoint returned %d for job %s", resp.status_code, job_id)
+        except Exception as e:
+            log.warning("SSH key fetch failed for job %s: %s", job_id, e)
+
+        if not keys:
+            _note(
+                "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH (root@host:port) into this instance. The web terminal works without a key.",
+                level="info",
+            )
+            log.info(
+                "No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection",
+                job_id,
+            )
+
+        # --- Prepare /root/.ssh (always — sshd needs it even with no keys) ---
+        subprocess.run(
+            ["docker", "exec", container_name, "mkdir", "-p", "/root/.ssh"],
+            capture_output=True,
+            timeout=_remaining(5),
+        )
+        subprocess.run(
+            ["docker", "exec", container_name, "chmod", "700", "/root/.ssh"],
+            capture_output=True,
+            timeout=_remaining(5),
+        )
+
+        if keys:
+            # Write authorized_keys
+            authorized_keys = "\n".join(keys) + "\n"
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
+                    "chmod 600 /root/.ssh/authorized_keys",
+                ],
+                capture_output=True,
+                timeout=_remaining(5),
+            )
+            log.info(
+                "Injected %d SSH key(s) into container %s for job %s",
+                len(keys),
+                container_name,
+                job_id,
+            )
+            _note(f"Injected {len(keys)} SSH key(s)")
+
+        # --- Detect sshd, install if missing ---
+        sshd_check = subprocess.run(
+            ["docker", "exec", container_name, "which", "sshd"],
+            capture_output=True,
+            timeout=_remaining(5),
+        )
+        sshd_present = sshd_check.returncode == 0
+
+        if not sshd_present:
+            # Install openssh-server on demand so SSH keys actually work on
+            # images that ship without it (pytorch, cuda, etc). Detect package
+            # manager; install quietly; re-check for sshd. Extends the budget
+            # by 45s only when we actually have to install.
+            _extend_budget(45.0)
+            _note("Installing OpenSSH server in container (one-time setup)…")
+            install_script = (
+                "set -e; "
+                "if command -v apt-get >/dev/null 2>&1; then "
+                "  export DEBIAN_FRONTEND=noninteractive; "
+                "  apt-get update -qq >/dev/null 2>&1 && "
+                "  apt-get install -y -qq --no-install-recommends openssh-server >/dev/null 2>&1; "
+                "elif command -v dnf >/dev/null 2>&1; then "
+                "  dnf install -y -q openssh-server >/dev/null 2>&1; "
+                "elif command -v yum >/dev/null 2>&1; then "
+                "  yum install -y -q openssh-server >/dev/null 2>&1; "
+                "elif command -v apk >/dev/null 2>&1; then "
+                "  apk add --quiet --no-cache openssh-server >/dev/null 2>&1; "
+                "elif command -v microdnf >/dev/null 2>&1; then "
+                "  microdnf install -y -q openssh-server >/dev/null 2>&1; "
+                "else "
+                "  echo 'no-package-manager' >&2; exit 2; "
+                "fi; "
+                "command -v sshd >/dev/null || "
+                "  [ -x /usr/sbin/sshd ] || "
+                "  { echo 'sshd still missing after install' >&2; exit 3; }"
+            )
+            install = subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c", install_script],
+                capture_output=True,
+                timeout=_remaining(30),
+            )
+            sshd_present = install.returncode == 0
+            if sshd_present:
+                log.info("Installed openssh-server in container %s", container_name)
+                _note("OpenSSH server installed")
+            else:
+                err = (
+                    install.stderr.decode(errors="replace").strip()
+                    if isinstance(install.stderr, bytes)
+                    else (install.stderr or "").strip()
+                )[:200]
+                log.warning("sshd install failed in %s: %s", container_name, err)
+                _note(
+                    "Could not install OpenSSH server in this image — web terminal still works. "
+                    "Add SSH keys at Settings → SSH Keys; direct SSH will be enabled on next launch with a compatible image.",
+                    level="warning",
+                )
+
+        if sshd_present:
+            # Generate host keys if missing
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    "ls /etc/ssh/ssh_host_*_key 2>/dev/null || ssh-keygen -A",
+                ],
+                capture_output=True,
+                timeout=_remaining(10),
+            )
+            # A0 of docs/host-key-fingerprint-plan.md: observe the value, store
+            # nothing, publish nothing. `open_instance_access` returns
+            # `host_key_fingerprint: null` today and says so honestly, which is
+            # right but leaves an agent telling users their first SSH connection
+            # cannot be verified.
+            #
+            # This ships alone and logs only, because instance images vary far
+            # more than the control plane does — the rate of blanks across real
+            # base images has to be known before anything depends on the value.
+            _log_container_host_key_fingerprint(container_name, job_id)
+            # Ensure PermitRootLogin is enabled and configure keepalive so SSH
+            # sessions don't get cut by NAT/firewall idle timeouts.
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    # Allow root login via either SSH key or password. We generate
+                    # a strong random password per instance (see below) so users
+                    # can still connect even if they haven't uploaded a public key.
+                    "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "printf '\\nPermitRootLogin yes\\nPasswordAuthentication yes\\nKbdInteractiveAuthentication no\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config",
+                ],
+                capture_output=True,
+                timeout=_remaining(5),
+            )
+
+            # Generate a strong random root password per instance so users can
+            # connect even without an uploaded SSH key. This matches the UX of
+            # Lambda / RunPod / Paperspace — the dashboard surfaces it in the
+            # connection panel, and it's unique-per-job so compromise is scoped.
+            # 20 chars, URL/terminal-safe alphabet (no ambiguous 0/O/1/l/I).
+            _pw_alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+            root_password = "".join(secrets.choice(_pw_alphabet) for _ in range(20))
+            try:
+                pw_set = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        "-i",
+                        container_name,
+                        "chpasswd",
+                    ],
+                    input=f"root:{root_password}\n".encode(),
+                    capture_output=True,
+                    timeout=_remaining(5),
+                )
+                if pw_set.returncode != 0:
+                    err = pw_set.stderr.decode(errors="replace").strip()
+                    log.warning("chpasswd failed in %s: %s", container_name, err)
+                    root_password = ""  # don't surface a password that wasn't set
+            except Exception as e:
+                log.warning("chpasswd exception in %s: %s", container_name, e)
+                root_password = ""
+
+            # Common CLI tools (rsync, git, curl, jq) — best-effort apt/apk install.
+            try:
+                tools_script = (
+                    "need=''; "
+                    "for b in rsync git curl jq; do "
+                    '  command -v "$b" >/dev/null 2>&1 || need="$need $b"; '
+                    "done; "
+                    '[ -z "$need" ] && exit 0; '
+                    "if command -v apt-get >/dev/null 2>&1; then "
+                    "  export DEBIAN_FRONTEND=noninteractive; "
+                    "  apt-get update -qq && "
+                    "  apt-get install -y -qq rsync git curl jq ca-certificates "
+                    "  >/tmp/xcelsior-apt.log 2>&1; "
+                    "elif command -v apk >/dev/null 2>&1; then "
+                    "  apk add --no-cache rsync git curl jq ca-certificates "
+                    "  >/tmp/xcelsior-apk.log 2>&1; "
+                    "fi"
+                )
+                tools = subprocess.run(
+                    ["docker", "exec", container_name, "sh", "-c", tools_script],
+                    capture_output=True,
+                    timeout=_remaining(90),
+                )
+                if tools.returncode == 0:
+                    log.info("CLI tools ready in %s", container_name)
+            except Exception as e:
+                log.debug("CLI tools install skipped for %s: %s", container_name, e)
+
+            # Set up MOTD + custom shell prompt for the interactive instance.
+            short = job_id[:8]
+            # ASCII box — inner width matches "| " + title + " |" exactly.
+            _motd_inner = 55
+            _motd_title = "Xcelsior - GPU compute, on demand"
+            _motd_pad = _motd_title[: _motd_inner - 2].ljust(_motd_inner - 2)
+            motd = (
+                "\n"
+                f"  \033[36m+{'-' * _motd_inner}+\033[0m\n"
+                f"  \033[36m|\033[0m {_motd_pad} \033[36m|\033[0m\n"
+                f"  \033[36m+{'-' * _motd_inner}+\033[0m\n"
+                "\n"
+                f"  \033[2mInstance\033[0m  \033[1m{short}\033[0m\n"
+                f"  \033[2mContainer\033[0m \033[1m{container_name}\033[0m\n"
+                "  \033[2mGPU      \033[0m $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo 'detached')\n"
+                "  \033[2mDocs     \033[0m \033[34mhttps://xcelsior.ca/docs\033[0m\n"
+                "\n"
+                "  \033[2mTip: run \033[0m\033[33mnvidia-smi\033[0m\033[2m to see GPU status, \033[0m\033[33mexit\033[0m\033[2m to disconnect.\033[0m\n"
+                "\n"
+            )
+            # Shell rc snippet — idempotent. Sets PS1, prints Last login + MOTD once per session.
+            # Uses a sentinel env var so it doesn't print twice if both /etc/profile.d and
+            # /root/.bashrc end up sourcing it.
+            profile = (
+                "# Xcelsior interactive shell setup (managed — safe to re-run)\n"
+                f"export XCELSIOR_INSTANCE='{short}'\n"
+                "# Host-side tools (rsync, git, …) when bind-mounted\n"
+                'if [ -d /opt/xcelsior/bin ]; then export PATH="/opt/xcelsior/bin:$PATH"; fi\n'
+                "# Always land in /workspace (override vendor images like runpod/*)\n"
+                "if [ -d /workspace ]; then cd /workspace 2>/dev/null || true; fi\n"
+                "# Coloured prompt: user@xcelsior-<id>:cwd $\n"
+                "PS1='\\[\\e[1;36m\\]\\u\\[\\e[0m\\]@\\[\\e[1;35m\\]xcelsior-'\"$XCELSIOR_INSTANCE\"'\\[\\e[0m\\]:\\[\\e[1;33m\\]\\w\\[\\e[0m\\]\\$ '\n"
+                "export PS1\n"
+                'if [ -z "$XCELSIOR_MOTD_SHOWN" ] && [ -t 1 ] && [ -r /etc/motd.xcelsior ]; then\n'
+                "  export XCELSIOR_MOTD_SHOWN=1\n"
+                "  printf 'Last login: %s\\n' \"$(date '+%a %b %e %H:%M:%S %Y')\" 2>/dev/null || true\n"
+                '  eval "echo \\"$(cat /etc/motd.xcelsior)\\""\n'
+                "fi\n"
+            )
+            # Loader injected into every login-shell startup file. Sourcing /etc/profile.d/xcelsior.sh
+            # directly is safe because the file itself is idempotent (sentinel env guard).
+            loader = "[ -r /etc/profile.d/xcelsior.sh ] && . /etc/profile.d/xcelsior.sh"
+            # `grep -qF` matches literal string; `|| echo >>` makes the append idempotent.
+            append_loader = (
+                f"for rc in /etc/profile /etc/bash.bashrc /root/.bashrc /root/.profile /root/.bash_profile; do "
+                f'  touch "$rc" 2>/dev/null; '
+                f"  grep -qF 'profile.d/xcelsior.sh' \"$rc\" 2>/dev/null || "
+                f'  echo {_shell_quote(loader)} >> "$rc"; '
+                f"done"
+            )
+            # Some minimal images (Alpine, nvidia/cuda:*-base, distroless-ish) ship /etc/profile
+            # WITHOUT the `for f in /etc/profile.d/*.sh` loop, so profile.d entries are dead.
+            # Detect & inject the loop if missing.
+            ensure_profile_d_loop = (
+                "grep -qF '/etc/profile.d' /etc/profile 2>/dev/null || "
+                "printf '\\n# Xcelsior: source /etc/profile.d/*.sh\\n"
+                'for f in /etc/profile.d/*.sh; do [ -r "$f" ] && . "$f"; done\\n\' '
+                ">> /etc/profile"
+            )
+            # Force root's login shell to bash if available (default on ubuntu is /bin/bash already,
+            # but `nvidia/cuda:*-base` on debian-slim defaults root to /bin/sh which doesn't do PS1).
+            set_root_shell = (
+                "if command -v bash >/dev/null 2>&1; then "
+                '  (command -v usermod >/dev/null 2>&1 && usermod -s "$(command -v bash)" root) '
+                '  || (command -v chsh    >/dev/null 2>&1 && chsh -s "$(command -v bash)" root) '
+                "  || sed -i 's|^root:\\(.*\\):[^:]*$|root:\\1:'\"$(command -v bash)\"'|' /etc/passwd 2>/dev/null "
+                "  || true; "
+                "fi"
+            )
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    f"echo {_shell_quote(motd)} > /etc/motd.xcelsior && "
+                    f"echo {_shell_quote(profile)} > /etc/profile.d/xcelsior.sh && "
+                    "chmod 644 /etc/motd.xcelsior /etc/profile.d/xcelsior.sh && "
+                    + ensure_profile_d_loop
+                    + " ; "
+                    + append_loader
+                    + " ; "
+                    + set_root_shell
+                    + " ; "
+                    # Silence default debian/ubuntu motd noise so ours is the only banner shown
+                    "rm -f /etc/update-motd.d/* 2>/dev/null; " ": > /etc/motd 2>/dev/null || true",
+                ],
+                capture_output=True,
+                timeout=_remaining(15),
+            )
+
+            # Start sshd. Ensure privsep dir exists in the SAME exec so there's
+            # no window for /run/sshd to disappear (seen on Ubuntu 24.04 pytorch
+            # images where openssh-server postinst does not create /run/sshd —
+            # it relies on systemd-tmpfiles which never runs in a container).
+            sshd_start = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    "mkdir -p /run/sshd /var/run/sshd && "
+                    "chmod 0755 /run/sshd /var/run/sshd && "
+                    "/usr/sbin/sshd",
+                ],
+                capture_output=True,
+                timeout=_remaining(8),
+            )
+            sshd_started = sshd_start.returncode == 0
+            if sshd_started:
+                log.info("sshd started in container %s", container_name)
+                _note(
+                    "SSH daemon ready — connections accepted"
+                    if keys
+                    else "SSH daemon started — password available on dashboard"
+                )
+            else:
+                err = (
+                    sshd_start.stderr.decode(errors="replace").strip()
+                    if isinstance(sshd_start.stderr, bytes)
+                    else (sshd_start.stderr or "").strip()
+                )
+                log.warning("sshd start failed in %s: %s", container_name, err)
+                _note(f"SSH daemon failed to start: {err[:200]}", level="warning")
+        else:
+            log.info("sshd not found in image — web terminal only (container %s)", container_name)
+
+        # --- Compose final summary based on observed state ---
+        # When sshd isn't in the image, SSH keys do nothing — don't mention them.
+        if sshd_started and keys:
+            final_msg = f"[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s) + password)"
+        elif sshd_started and root_password:
+            final_msg = "[xcelsior] Terminal ready — SSH enabled (password on dashboard; add a key at Settings → SSH Keys for passwordless login)"
+        elif sshd_started:
+            final_msg = "[xcelsior] Terminal ready — SSH daemon up but no credentials set"
+            final_level = "warning"
+        elif sshd_present and not sshd_started:
+            final_msg = "[xcelsior] Terminal ready — web terminal only (sshd failed to start)"
+            final_level = "warning"
+        else:
+            final_msg = "[xcelsior] Terminal ready — web terminal only (image has no sshd)"
+
+    except subprocess.TimeoutExpired:
+        final_msg = "[xcelsior] SSH setup timed out — web terminal still works"
+        final_level = "warning"
+        log.warning("SSH inject exceeded wall-clock budget for job %s", job_id)
+    except Exception as e:
+        final_msg = f"[xcelsior] SSH setup failed: {e} — web terminal still works"
+        final_level = "warning"
+        log.warning("SSH key injection failed for job %s: %s", job_id, e)
+    finally:
+        elapsed = time.monotonic() - start
+        summary = f"{final_msg} ({elapsed:.1f}s)"
+        log.info("SSH inject for job %s completed in %.1fs: %s", job_id, elapsed, final_msg)
+        # Guarantee: the UI always sees exactly one final summary line, via both
+        # the log stream and the container's PID-1 stdout (for already-attached WS).
+        _note(summary, level=final_level)
+        _mirror_to_container(summary)
+        # Report final SSH state back to the control plane so the dashboard
+        # can surface a customer-facing notice when something went wrong
+        # (no sshd installable, daemon failed to start, key fetch failed,
+        # etc). Best-effort — never blocks or raises.
+        try:
+            # "ok" means the user can connect via at least one auth method
+            # (key OR password). Without sshd_started neither works.
+            ssh_ok = bool(sshd_started) and (len(keys) > 0 or bool(root_password))
+            _api_request(
+                "post",
+                _api_url(f"/agent/ssh-status/{job_id}"),
+                headers=_api_headers(),
+                json={
+                    "ok": ssh_ok,
+                    "sshd_present": bool(sshd_present),
+                    "sshd_started": bool(sshd_started),
+                    "key_count": len(keys),
+                    "root_password": root_password if sshd_started else "",
+                    "summary": final_msg,
+                    "level": final_level,
+                    "elapsed_sec": round(elapsed, 2),
+                    "ts": time.time(),
+                    # A1 of docs/host-key-fingerprint-plan.md. Read *after* the
+                    # sshd setup above, so it is the key the container will
+                    # actually present. `""` when nothing is readable — a
+                    # non-interactive launch, or a host where the provider's
+                    # proxy terminates SSH and the container holds no keys — and
+                    # the API stores that as null rather than inventing one.
+                    "host_key_fingerprint": read_container_host_key_fingerprint(container_name),
+                },
+                timeout=5,
+            )
+        except Exception as e:
+            log.debug("ssh-status report failed for job %s: %s", job_id, e)
+
+
+def _shell_quote(s: str) -> str:
+    """Shell-escape a string for use in sh -c."""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _kill_container(container_name):
+    """Force-kill and remove a container."""
+    with suppress(Exception):
+        subprocess.run(
+            ["docker", "unpause", container_name],
+            capture_output=True,
+            timeout=10,
+        )
+    with suppress(Exception):
+        subprocess.run(
+            ["docker", "kill", container_name],
+            capture_output=True,
+            timeout=10,
+        )
+    _remove_container(container_name)
+
+
+def _remove_container(container_name):
+    """Remove a container (force). Falls back to removing by ID if name fails."""
+    with suppress(Exception):
+        subprocess.run(
+            ["docker", "unpause", container_name],
+            capture_output=True,
+            timeout=10,
+        )
+    try:
+        result = subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0 and "No such container" not in result.stderr:
+            log.warning(
+                "docker rm -f %s failed: %s — trying by ID", container_name, result.stderr.strip()
+            )
+            # Fallback: find container ID by name and remove by ID
+            ps = subprocess.run(
+                ["docker", "ps", "-a", "--filter", f"name=^/{container_name}$", "-q"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            for cid in ps.stdout.strip().splitlines():
+                if cid:
+                    with suppress(Exception):
+                        subprocess.run(["docker", "unpause", cid], capture_output=True, timeout=10)
+                    subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=10)
+                    log.info("Removed container %s by ID %s", container_name, cid)
+    except Exception as e:
+        log.warning("_remove_container(%s) error: %s", container_name, e)
+
+
+def handle_preemptions(preempt_job_ids):
+    """Handle preemption — checkpoint on CRIU-capable hosts, else graceful stop."""
+    grace_sec = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
+    checkpoint_class = ""
+    try:
+        from criu_hosts import docker_checkpoint_local, probe_checkpoint_stack
+
+        checkpoint_class = str(probe_checkpoint_stack().get("checkpoint_class") or "")
+    except Exception:
+        pass
+
+    for job_id in preempt_job_ids:
+        with _active_lock:
+            container_name = _active_containers.get(job_id)
+
+        if not container_name:
+            log.debug("Preemption for %s but no active container found", job_id)
+            continue
+
+        log.warning(
+            "PREEMPTING job %s (container %s, grace=%ss, checkpoint=%s)",
+            job_id,
+            container_name,
+            grace_sec,
+            checkpoint_class or "none",
+        )
+
+        ckpt_meta = None
+        if checkpoint_class:
+            try:
+                from criu_hosts import docker_checkpoint_local
+
+                ckpt_meta = docker_checkpoint_local(
+                    container_name,
+                    job_id,
+                    checkpoint_class=checkpoint_class,
+                )
+            except Exception as exc:
+                log.warning("checkpoint preemption failed job=%s: %s", job_id, exc)
+
+        if not ckpt_meta:
+            try:
+                subprocess.run(
+                    ["docker", "kill", "--signal=SIGTERM", container_name],
+                    capture_output=True,
+                    timeout=10,
+                )
+            except Exception as e:
+                log.debug("SIGTERM during preemption for %s: %s", job_id, e)
+
+            try:
+                subprocess.run(
+                    ["docker", "stop", "-t", str(grace_sec), container_name],
+                    capture_output=True,
+                    timeout=grace_sec + 15,
+                )
+            except Exception as e:
+                log.warning("docker stop failed during preemption: %s", e)
+                _kill_container(container_name)
+
+        report_job_status(
+            job_id,
+            "preempted",
+            resume_from=ckpt_meta,
+            host_id=HOST_ID,
+        )
+
+        with _active_lock:
+            _active_containers.pop(job_id, None)
+
+        log.info(
+            "Job %s preempted (%s)",
+            job_id,
+            "checkpointed" if ckpt_meta else "stopped",
+        )
+
+
+# ── Telemetry Push Thread ─────────────────────────────────────────────
+# Per REPORT_FEATURE_2.md §3: "Enhance agent to report GPU metrics every 5s."
+# Reuses security.py's get_gpu_telemetry() which delegates to NVML when available.
+# Per REPORT_FEATURE_1.md: collect metrics at 10-15 second intervals.
+
+TELEMETRY_INTERVAL = int(os.environ.get("XCELSIOR_TELEMETRY_INTERVAL", "10"))
+
+
+def _sample_io_delta(state: dict) -> dict:
+    """Return host-level net/disk throughput in Mbps / MB/s since the previous
+    sample. ``state`` is a mutable dict carrying the previous counters between
+    calls; first call returns zeros and primes the state.
+
+    P2.4 — surfaces bandwidth + disk IO on the host dashboard. We sum across
+    interfaces/disks (renter cares about aggregate throughput, not per-NIC).
+    Falls back to zeros if psutil is unavailable or the counters are missing,
+    so the telemetry pipeline never breaks.
+    """
+    if psutil is None:
+        return {
+            "net_rx_mbps": 0.0,
+            "net_tx_mbps": 0.0,
+            "disk_read_mb_s": 0.0,
+            "disk_write_mb_s": 0.0,
+        }
+    now = time.monotonic()
+    out = {"net_rx_mbps": 0.0, "net_tx_mbps": 0.0, "disk_read_mb_s": 0.0, "disk_write_mb_s": 0.0}
+    try:
+        net = psutil.net_io_counters(pernic=False)
+        disk = psutil.disk_io_counters(perdisk=False)
+    except Exception:
+        return out
+    prev_t = state.get("t")
+    prev_net = state.get("net")
+    prev_disk = state.get("disk")
+    state["t"] = now
+    state["net"] = net
+    state["disk"] = disk
+    if prev_t is None or prev_net is None or prev_disk is None:
+        return out
+    dt = max(now - prev_t, 0.001)
+    # Net counters are cumulative bytes. Mbps = megabits per second.
+    try:
+        rx_bytes = max(net.bytes_recv - prev_net.bytes_recv, 0)
+        tx_bytes = max(net.bytes_sent - prev_net.bytes_sent, 0)
+        out["net_rx_mbps"] = round((rx_bytes * 8) / dt / 1_000_000, 2)
+        out["net_tx_mbps"] = round((tx_bytes * 8) / dt / 1_000_000, 2)
+    except Exception:
+        pass
+    if disk is not None and prev_disk is not None:
+        try:
+            r_bytes = max(disk.read_bytes - prev_disk.read_bytes, 0)
+            w_bytes = max(disk.write_bytes - prev_disk.write_bytes, 0)
+            out["disk_read_mb_s"] = round(r_bytes / dt / 1_000_000, 2)
+            out["disk_write_mb_s"] = round(w_bytes / dt / 1_000_000, 2)
+        except Exception:
+            pass
+    return out
+
+
+def _sample_host_utilization() -> dict:
+    """Return host CPU/RAM percentages for lightweight dashboard telemetry."""
+    if psutil is None:
+        return {"cpu_util_pct": 0.0, "system_memory_pct": 0.0}
+    try:
+        mem = psutil.virtual_memory()
+        return {
+            "cpu_util_pct": round(float(psutil.cpu_percent(interval=None)), 1),
+            "system_memory_pct": round(float(getattr(mem, "percent", 0.0) or 0.0), 1),
+        }
+    except Exception:
+        return {"cpu_util_pct": 0.0, "system_memory_pct": 0.0}
+
+
+def telemetry_loop():
+    """Background thread: push GPU metrics to scheduler every TELEMETRY_INTERVAL seconds.
+
+    Per REPORT_FEATURE_1.md §Lightweight Monitoring with NVML:
+    Collects GPU utilization, memory utilization (allocated + reserved for
+    fragmentation detection), thermal data (current + rolling average),
+    power consumption, and PCIe bandwidth at 10-15 second intervals.
+    NFS health probe runs every ~60 seconds (every 6th iteration).
+    """
+    _nfs_probe_counter = 0
+    _NFS_PROBE_EVERY = max(1, 60 // max(TELEMETRY_INTERVAL, 1))  # ~60s
+    # P2.4 — prime last-sample state for bandwidth / disk IO delta math.
+    _io_state: dict = {"t": None, "net": None, "disk": None}
+    while not _shutdown.is_set():
+        try:
+            telemetry = get_gpu_telemetry()
+            if telemetry:
+                # Build compact metrics payload from first GPU (multi-GPU: aggregate)
+                gpu = telemetry[0]
+                metrics = {
+                    "utilization": gpu.get("utilization", 0),
+                    "memory_util": gpu.get("memory_util", 0),
+                    "temp": gpu.get("temperature_c", 0),
+                    "temp_avg": gpu.get("temperature_avg_c", gpu.get("temperature_c", 0)),
+                    "power_draw_w": gpu.get("power_draw_w", 0),
+                    "power_limit_w": gpu.get("power_limit_w", 0),
+                    "pcie_gen": gpu.get("pcie_gen", ""),
+                    "pcie_width": gpu.get("pcie_width", ""),
+                    "pcie_tx_mb_s": gpu.get("pcie_tx_mb_s", 0),
+                    "pcie_rx_mb_s": gpu.get("pcie_rx_mb_s", 0),
+                    "gpu_count": len(telemetry),
+                    # Memory fragmentation detection (REPORT_FEATURE_1.md)
+                    "memory_total_gb": gpu.get("memory_total_gb", 0),
+                    "memory_used_gb": gpu.get("memory_used_gb", 0),
+                    "memory_free_gb": gpu.get("memory_free_gb", 0),
+                    "torch_memory_allocated_bytes": gpu.get("torch_memory_allocated_bytes", 0),
+                    "torch_memory_reserved_bytes": gpu.get("torch_memory_reserved_bytes", 0),
+                    "memory_fragmentation_pct": gpu.get("memory_fragmentation_pct", 0.0),
+                }
+
+                # ECC memory errors
+                metrics["memory_errors"] = gpu.get("memory_errors", 0)
+
+                # P2.4 — host bandwidth + disk IO deltas (aggregate across NICs/disks)
+                metrics.update(_sample_io_delta(_io_state))
+                metrics.update(_sample_host_utilization())
+
+                # Active container count
+                with _active_lock:
+                    metrics["active_jobs"] = len(_active_containers)
+
+                # Volume mount health — only probe every ~60s to avoid overhead
+                _nfs_probe_counter += 1
+                if _nfs_probe_counter >= _NFS_PROBE_EVERY:
+                    _nfs_probe_counter = 0
+                    try:
+                        vol_health = []
+                        nfs_healthy = True
+                        if os.path.isdir(VOLUME_BASE_DIR):
+                            for entry in os.listdir(VOLUME_BASE_DIR):
+                                if entry.endswith(".img"):
+                                    continue
+                                mp = os.path.join(VOLUME_BASE_DIR, entry)
+                                # Skip symlinks to prevent information disclosure
+                                if os.path.islink(mp):
+                                    continue
+                                if not os.path.isdir(mp):
+                                    continue
+                                try:
+                                    # Use a subprocess with timeout to avoid hanging Python
+                                    # if the NFS mount is stale. With hard mounts, stat will
+                                    # block indefinitely on an unreachable server, so the 3s
+                                    # timeout is the critical safety guard here.
+                                    stat_result = subprocess.run(
+                                        ["stat", "-f", "--format=%b %f %S", mp],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=3,
+                                    )
+                                    if stat_result.returncode == 0:
+                                        parts = stat_result.stdout.strip().split()
+                                        blocks, bfree, bsize = (
+                                            int(parts[0]),
+                                            int(parts[1]),
+                                            int(parts[2]),
+                                        )
+                                        total = (blocks * bsize) / (1024**3)
+                                        used = ((blocks - bfree) * bsize) / (1024**3)
+                                        vol_health.append(
+                                            {
+                                                "volume_id": entry,
+                                                "mounted": True,
+                                                "total_gb": round(total, 2),
+                                                "used_gb": round(used, 2),
+                                            }
+                                        )
+                                    else:
+                                        vol_health.append(
+                                            {
+                                                "volume_id": entry,
+                                                "mounted": False,
+                                                "total_gb": 0,
+                                                "used_gb": 0,
+                                            }
+                                        )
+                                        nfs_healthy = False
+                                except (subprocess.TimeoutExpired, OSError):
+                                    vol_health.append(
+                                        {
+                                            "volume_id": entry,
+                                            "mounted": False,
+                                            "total_gb": 0,
+                                            "used_gb": 0,
+                                        }
+                                    )
+                                    nfs_healthy = False
+                        if vol_health:
+                            metrics["volume_health"] = vol_health
+                        metrics["nfs_healthy"] = nfs_healthy
+                    except Exception:
+                        pass  # Non-critical; don't let volume scan break telemetry
+
+                report_telemetry(metrics)
+            else:
+                metrics = {
+                    "utilization": 0,
+                    "memory_util": 0,
+                    "gpu_count": 0,
+                    "memory_total_gb": 0,
+                    "memory_used_gb": 0,
+                    "memory_free_gb": 0,
+                }
+                metrics.update(_sample_io_delta(_io_state))
+                metrics.update(_sample_host_utilization())
+                with _active_lock:
+                    metrics["active_jobs"] = len(_active_containers)
+                report_telemetry(metrics)
+        except Exception as e:
+            log.debug("Telemetry loop error: %s", e)
+
+        # Interruptible sleep
+        for _ in range(TELEMETRY_INTERVAL):
+            if _shutdown.is_set():
+                return
+            time.sleep(1)
+
+
+# ── Mining Detection Thread ──────────────────────────────────────────
+
+
+_DOCKER_CGROUP_ID = re.compile(r"(?:docker-|/docker/)([0-9a-f]{64})")
+
+
+def _container_id_for_pid(pid):
+    """Docker container ID that host PID `pid` runs in, or None for host processes."""
+    try:
+        with open(f"/proc/{pid}/cgroup") as f:
+            m = _DOCKER_CGROUP_ID.search(f.read())
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def _job_containers_on_gpu(gpu_index, active):
+    """Subset of `active` (job_id -> container name) whose processes use GPU `gpu_index`.
+
+    Returns None when GPU-process attribution is unavailable. An empty dict
+    means the load on that GPU comes from processes that are not job
+    containers (e.g. the host's own inference services), which must never
+    get a tenant's job killed or reported as mining.
+    """
+    pids = get_gpu_compute_pids(gpu_index)
+    if pids is None:
+        return None
+    gpu_cids = {cid for cid in map(_container_id_for_pid, pids) if cid}
+    if not gpu_cids:
+        return {}
+    on_gpu = {}
+    for job_id, cname in active.items():
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.Id}}", cname],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0 and r.stdout.strip() in gpu_cids:
+            on_gpu[job_id] = cname
+    return on_gpu
+
+
+def mining_detection_loop():
+    """Background thread: periodically check for mining signatures.
+
+    The heuristic reads whole-GPU telemetry, so a hit is attributed to the
+    job containers actually holding a compute context on that GPU. Load from
+    non-job processes is ignored (no alert, no kill), and only the suspect
+    containers on the flagged GPU are ever killed. If attribution is
+    unavailable we fall back to treating every active job as a suspect,
+    which preserves the protection the detector existed for.
+    """
+    consecutive = {}  # gpu index -> consecutive detections
+    host_load_logged = set()
+
+    while not _shutdown.is_set():
+        # Wait for the check interval (interruptible)
+        for _ in range(MINING_CHECK_INTERVAL):
+            if _shutdown.is_set():
+                return
+            time.sleep(1)
+
+        telemetry = get_gpu_telemetry()
+        for gpu in telemetry:
+            idx = gpu["index"]
+            is_mining, confidence, reason = check_mining_heuristic(gpu)
+            if not is_mining:
+                consecutive[idx] = max(0, consecutive.get(idx, 0) - 1)
+                host_load_logged.discard(idx)
+                continue
+
+            with _active_lock:
+                active = dict(_active_containers)
+            suspects = _job_containers_on_gpu(idx, active) if active else {}
+            if suspects is None:
+                log.debug(
+                    "GPU %d: process attribution unavailable; all active jobs are suspects", idx
+                )
+                suspects = active
+            if not suspects:
+                consecutive[idx] = 0
+                if idx not in host_load_logged:
+                    log.info(
+                        "GPU %d matches the mining signature but no job container is using it "
+                        "(host workload) — not alerting (%s)",
+                        idx,
+                        reason,
+                    )
+                    host_load_logged.add(idx)
+                continue
+
+            consecutive[idx] = consecutive.get(idx, 0) + 1
+            log.warning(
+                "MINING DETECTED GPU=%d confidence=%.0f%% (%s) [%d consecutive] jobs=%s",
+                idx,
+                confidence * 100,
+                reason,
+                consecutive[idx],
+                sorted(suspects),
+            )
+            report_mining_alert(idx, confidence, reason)
+
+            # After sustained detection, kill only the suspect containers on this GPU
+            if consecutive[idx] >= 5:
+                log.error("Sustained mining on GPU %d — killing %s", idx, sorted(suspects))
+                with _active_lock:
+                    for job_id, cname in suspects.items():
+                        _kill_container(cname)
+                        report_job_status(job_id, "terminated", policy_reason="mining_detected")
+                        _active_containers.pop(job_id, None)
+                consecutive[idx] = 0
+
+
+# ── Heartbeat Thread ─────────────────────────────────────────────────
+
+
+def _maybe_rollback_after_upgrade(consecutive_failures: int) -> bool:
+    """Revert to .bak if post-upgrade heartbeats fail (B12 local watchdog)."""
+    if consecutive_failures < 3:
+        return False
+    self_path = Path(__file__).resolve()
+    boot_marker = self_path.parent / ".upgrade_boot"
+    bak_path = self_path.with_suffix(".py.bak")
+    if not boot_marker.is_file() or not bak_path.is_file():
+        return False
+    try:
+        os.replace(bak_path, self_path)
+        boot_marker.unlink(missing_ok=True)
+        log.error("Post-upgrade heartbeat failures — rolled back to previous agent")
+        logging.shutdown()
+        os._exit(1)
+    except OSError as e:
+        log.error("Post-upgrade rollback failed: %s", e)
+    return False
+
+
+def heartbeat_loop(host_ip, compute_score=None):
+    """Background thread: periodic heartbeat/registration updates."""
+    consecutive_failures = 0
+    self_path = Path(__file__).resolve()
+    boot_marker = self_path.parent / ".upgrade_boot"
+
+    while not _shutdown.is_set():
+        try:
+            gpu_info = get_gpu_info()
+            score = compute_score if compute_score is not None else _latest_compute_score
+            success = heartbeat(gpu_info, host_ip, score)
+
+            if success:
+                consecutive_failures = 0
+                if boot_marker.is_file():
+                    boot_marker.unlink(missing_ok=True)
+            else:
+                consecutive_failures += 1
+                if _maybe_rollback_after_upgrade(consecutive_failures):
+                    return
+                if consecutive_failures > MAX_CONSECUTIVE_FAILURES:
+                    log.error(
+                        "Too many heartbeat failures (%d) — shutting down", consecutive_failures
+                    )
+                    _shutdown.set()
+                    return
+        except RuntimeError as e:
+            log.error("Heartbeat GPU query failed: %s", e)
+            consecutive_failures += 1
+
+        # Interruptible sleep
+        for _ in range(HEARTBEAT_INTERVAL):
+            if _shutdown.is_set():
+                return
+            time.sleep(1)
+
+
+# ── Graceful Shutdown ────────────────────────────────────────────────
+
+
+def graceful_shutdown():
+    """Stop agent-started containers and deregister from scheduler.
+
+    Adopted containers (started by the scheduler via SSH) are left running
+    so they survive agent restarts.
+    """
+    log.info("Graceful shutdown — stopping %d active containers", len(_active_containers))
+
+    with _active_lock:
+        for job_id, container_name in list(_active_containers.items()):
+            if job_id in _adopted_containers:
+                log.info("Leaving adopted container %s (job %s) running", container_name, job_id)
+                continue
+            log.info("Stopping container %s (job %s)", container_name, job_id)
+            try:
+                subprocess.run(
+                    ["docker", "stop", "-t", "15", container_name],
+                    capture_output=True,
+                    timeout=25,
+                )
+            except Exception as e:
+                log.warning("docker stop failed during shutdown: %s", e)
+                _kill_container(container_name)
+
+            # Mark job as queued so it can be rescheduled
+            report_job_status(job_id, "queued")
+        _active_containers.clear()
+
+    # Clean up orphaned volume mounts after containers are stopped
+    try:
+        cleanup_orphaned_volume_mounts()
+    except Exception as e:
+        log.warning("Volume cleanup during shutdown failed: %s", e)
+
+    # Deregister from the scheduler — only when this host is genuinely being
+    # decommissioned, never on an ordinary restart.
+    #
+    # This used to run on every graceful shutdown, and it destroyed the host's
+    # admission. `DELETE /host/{id}` removes the `hosts` row, and both
+    # `host_admission_decisions` and `host_admission_evidence` are ON DELETE
+    # CASCADE, so a `systemctl restart` deleted the operator-signed decision and
+    # every evidence record with it, then re-registered as a fresh `pending`
+    # host. Measured on production 2026-08-29: work polls returned 204 up to
+    # 09:53:21 and 403 from 09:53:27, the moment of a restart, with
+    # `admission_version` back to 0 and zero decision rows.
+    #
+    # That is a privilege inversion — the host revoking an operator's trust
+    # decision about itself, by restarting. Admission is deliberately versioned
+    # with `expected_version` and idempotency keys precisely because it is meant
+    # to be durable and auditable.
+    #
+    # Absence needs no announcement: `check_hosts()` marks a host dead after a
+    # grace period, which is how the four existing dead hosts got there. So the
+    # default is now to say nothing and let staleness speak.
+    if _DEREGISTER_ON_EXIT:
+        try:
+            _api_request(
+                "delete",
+                _api_url(f"/host/{HOST_ID}"),
+                headers=_api_headers(),
+                timeout=10,
+            )
+            log.info("Deregistered from scheduler (decommission requested)")
+        except requests.RequestException:
+            log.warning("Failed to deregister from scheduler")
+    else:
+        log.info("Shutdown without deregistering — admission and evidence preserved")
+
+
+# ── Main Loop ─────────────────────────────────────────────────────────
+
+
+def validate_config():
+    """Validate required configuration."""
+    errors = []
+    if not HOST_ID:
+        errors.append("XCELSIOR_HOST_ID is not set")
+    if not SCHEDULER_URL:
+        errors.append("XCELSIOR_SCHEDULER_URL is not set")
+    if errors:
+        log.error("Configuration errors:")
+        for e in errors:
+            log.error("  - %s", e)
+        sys.exit(1)
+
+
+def print_startup_banner(gpu_info, host_ip, admitted, runtime):
+    """Print startup banner with configuration info."""
+    auth_mode = "none"
+    if _oauth_client_credentials_enabled():
+        auth_mode = f"oauth-client ({OAUTH_CLIENT_ID})"
+    elif API_TOKEN:
+        auth_mode = "api-token"
+    log.info("=" * 64)
+    log.info("  Xcelsior Worker Agent v%s (pull-based)", VERSION)
+    log.info("=" * 64)
+    log.info("  Host ID:        %s", HOST_ID)
+    log.info("  Scheduler URL:  %s", SCHEDULER_URL)
+    log.info("  Host IP:        %s", host_ip)
+    log.info(
+        "  GPU:            %s (%.1f GB VRAM)", gpu_info["gpu_model"], gpu_info["total_vram_gb"]
+    )
+    log.info("  Cost/hour:      $%.2f", COST_PER_HOUR)
+    if HOST_REGION or HOST_COUNTRY:
+        log.info(
+            "  Region:         %s%s",
+            HOST_REGION or "-",
+            f" / {HOST_COUNTRY}" if HOST_COUNTRY else "",
+        )
+    log.info("  Poll interval:  %ds", POLL_INTERVAL)
+    log.info("  Heartbeat:      %ds", HEARTBEAT_INTERVAL)
+    log.info("  Runtime:        %s", runtime)
+    log.info("  Auth:           %s", auth_mode)
+    log.info("  Admitted:       %s", "YES" if admitted else "NO (limited to heartbeats)")
+    log.info("  Headscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
+    log.info("=" * 64)
+
+
+def adopt_running_containers():
+    """Discover containers started by the scheduler (via SSH) and adopt them.
+
+    The scheduler starts containers named 'xcl-{job_id}' via SSH.
+    If the worker agent wasn't running at the time, it needs to discover
+    and adopt these containers to provide log forwarding and monitoring.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return
+
+        containers = [name.strip() for name in result.stdout.strip().split("\n") if name.strip()]
+        if not containers:
+            return
+
+        for container_name in containers:
+            # Extract job_id from container name (xcl-{job_id})
+            if not container_name.startswith("xcl-"):
+                continue
+            job_id = container_name[4:]  # Remove "xcl-" prefix
+
+            with _active_lock:
+                if job_id in _active_containers:
+                    continue  # Already tracking this container
+                _active_containers[job_id] = container_name
+                _adopted_containers.add(job_id)
+
+            log.info("Adopting running container %s (job %s)", container_name, job_id)
+
+            # Reclaim the lease for this running job. The server now accepts
+            # claim requests for jobs in leased/starting/running state if the
+            # host matches, so adopted containers can keep their lease fresh
+            # across worker restarts.
+            try:
+                lease_info = claim_lease(job_id)
+            except Exception as e:
+                log.debug("Lease reclaim on adoption failed for %s: %s", job_id, e)
+                lease_info = None
+
+            # Start log forwarding
+            log_fwd = LogForwarder(job_id, container_name)
+            log_fwd.start()
+
+            # Start lease renewal loop if we have a live lease
+            if lease_info:
+                lease_interval = int(lease_info.get("duration_sec", 300)) // 2
+                lease_stop = threading.Event()
+
+                def _adopt_renew(jid=job_id, interval=lease_interval, stop=lease_stop):
+                    fails = 0
+                    while not stop.is_set() and not _shutdown.is_set():
+                        stop.wait(interval)
+                        if stop.is_set() or _shutdown.is_set():
+                            return
+                        with _active_lock:
+                            if jid not in _active_containers:
+                                return  # Container gone
+                        res = renew_lease(jid)
+                        if not res:
+                            fails += 1
+                            log.warning(
+                                "Adopted-lease renewal failed for job %s — attempt %d",
+                                jid,
+                                fails,
+                            )
+                            if fails >= 3:
+                                new = claim_lease(jid)
+                                if new:
+                                    fails = 0
+                                    log.info("Adopted-lease reclaimed for job %s", jid)
+                                else:
+                                    log.error(
+                                        "Adopted-lease reclaim failed for job %s — stopping",
+                                        jid,
+                                    )
+                                    return
+                        else:
+                            fails = 0
+
+                renew_thread = threading.Thread(
+                    target=_adopt_renew,
+                    name=f"adopt-lease-{job_id[:8]}",
+                    daemon=True,
+                )
+                renew_thread.start()
+            else:
+                log.warning(
+                    "Adopted container %s has no active lease — running unmonitored",
+                    job_id,
+                )
+
+            # Start monitoring in a separate thread
+            monitor_thread = threading.Thread(
+                target=_monitor_interactive,
+                args=(job_id, container_name),
+                kwargs={"log_forwarder": log_fwd},
+                name=f"adopt-{job_id[:8]}",
+                daemon=True,
+            )
+            monitor_thread.start()
+
+        log.info("Adopted %d running container(s)", len(containers))
+    except Exception as e:
+        log.warning("Container adoption failed: %s", e)
+
+
+def reinject_shells_for_running():
+    """Re-run `_inject_ssh_keys` for every running container on this host.
+
+    Rationale: MOTD / PS1 / sshd-config logic in `_inject_ssh_keys` evolves
+    over time. Existing containers started with an older version don't get
+    the new shell setup, so SSH sessions land in a bare prompt. On every
+    worker_agent boot, re-apply the injection (idempotent) to all containers
+    currently in state=running. Each call exec's into the container to write
+    files; safe to run repeatedly.
+
+    Guardrails:
+      - Gated by env `WORKER_AGENT_AUTO_REINJECT` (default "true"); set to
+        anything else to disable (e.g. during debugging).
+      - Rate-limited to 1 container per 2s so a host with many containers
+        coming back online doesn't saturate the docker daemon.
+      - Skips containers whose actual docker state is not `running` (caller
+        list might include briefly stopped/exiting containers).
+      - Each attempt is logged with container name, outcome, and duration.
+    """
+    if os.environ.get("WORKER_AGENT_AUTO_REINJECT", "true").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        log.info("Shell re-injection disabled via WORKER_AGENT_AUTO_REINJECT")
+        return
+
+    try:
+        with _active_lock:
+            candidates = list(_active_containers.items())  # [(job_id, container_name), ...]
+    except Exception:
+        candidates = []
+
+    if not candidates:
+        return
+
+    log.info("Re-injecting shell setup for %d adopted container(s)", len(candidates))
+    stats = {"success": 0, "failure": 0, "skipped": 0}
+
+    for idx, (job_id, container_name) in enumerate(candidates):
+        if _shutdown.is_set():
+            break
+
+        # Rate-limit between containers (but not before the first)
+        if idx > 0:
+            time.sleep(2.0)
+
+        t0 = time.monotonic()
+        try:
+            # Verify container is actually running in docker's view
+            inspect = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+                stats["skipped"] += 1
+                log.debug("Skipping %s — not in running state", container_name)
+                _motd_reinjection_total.labels(result="skipped").inc()
+                continue
+
+            _inject_ssh_keys(job_id, container_name)
+            dur = time.monotonic() - t0
+            stats["success"] += 1
+            _motd_reinjection_total.labels(result="success").inc()
+            log.info(
+                "Re-injected shell for container=%s job=%s duration=%.2fs",
+                container_name,
+                job_id[:8],
+                dur,
+            )
+        except Exception as e:
+            dur = time.monotonic() - t0
+            stats["failure"] += 1
+            _motd_reinjection_total.labels(result="failure").inc()
+            log.warning(
+                "Re-inject failed container=%s job=%s duration=%.2fs err=%s",
+                container_name,
+                job_id[:8],
+                dur,
+                e,
+            )
+
+    log.info(
+        "Shell re-injection complete: %d success, %d failure, %d skipped",
+        stats["success"],
+        stats["failure"],
+        stats["skipped"],
+    )
+
+
+def cleanup_orphaned_volume_mounts():
+    """Clean up NFS mounts for managed volumes that have no running container.
+
+    On agent restart (or periodically), there may be stale mounts under
+    /mnt/xcelsior-volumes/ whose containers have exited. This function
+    inspects each running container's bind mounts to determine which volumes
+    are actually in use, and unmounts the rest.
+    """
+    vol_mount_base = "/mnt/xcelsior-volumes"
+    if not os.path.isdir(vol_mount_base):
+        return
+
+    # Build set of volume mount paths actually used by running containers
+    active_mounts: set[str] = set()
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            for cid in result.stdout.strip().split("\n"):
+                cid = cid.strip()
+                if not cid:
+                    continue
+                # Inspect container to get bind mount sources
+                insp = subprocess.run(
+                    [
+                        "docker",
+                        "inspect",
+                        "--format",
+                        '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
+                        cid,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if insp.returncode == 0:
+                    for src in insp.stdout.strip().split():
+                        src = src.strip()
+                        if src.startswith(vol_mount_base):
+                            active_mounts.add(src)
+    except Exception:
+        return  # Can't determine running containers — don't clean up blindly
+
+    # Get mounted volume dirs
+    try:
+        mounted_vols = os.listdir(vol_mount_base)
+    except OSError:
+        return
+
+    cleaned = 0
+    for vol_dir in mounted_vols:
+        mount_path = os.path.join(vol_mount_base, vol_dir)
+        if mount_path in active_mounts:
+            continue  # Volume is in use by a running container
+
+        # Check if it's actually a mountpoint
+        try:
+            check = subprocess.run(
+                ["mountpoint", "-q", mount_path],
+                capture_output=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning(
+                "mountpoint check timed out for %s — skipping (possible stale NFS)", mount_path
+            )
+            continue
+        if check.returncode != 0:
+            continue  # Not mounted, skip
+
+        _unmount_nfs(mount_path)
+        cleaned += 1
+        log.info("Cleaned up orphaned volume mount: %s", mount_path)
+
+    if cleaned:
+        log.info("Cleaned up %d orphaned volume mount(s)", cleaned)
+
+
+def main():
+    """Main entry point — pull-based worker agent."""
+    validate_config()
+
+    # ── Step 0: Initialize NVML (REPORT_FEATURE_1.md §Lightweight Monitoring) ──
+    nvml_ok = nvml_init()
+    if nvml_ok:
+        log.info("NVML telemetry active — using pynvml bindings (no nvidia-smi overhead)")
+    else:
+        log.info("NVML not available — falling back to nvidia-smi subprocess")
+
+    # ── Step 1: Tailscale / Headscale setup ──
+    if TAILSCALE_ENABLED:
+        setup_tailscale()
+
+    # ── Step 2: Detect GPU ──
+    try:
+        gpu_info = get_gpu_info()
+    except RuntimeError as e:
+        log.error("GPU detection failed: %s", e)
+        log.error("Make sure nvidia-smi is installed and NVIDIA drivers are loaded.")
+        nvml_shutdown()
+        sys.exit(1)
+
+    host_ip = get_host_ip()
+
+    # ── Step 2b: gVisor auto-install ──
+    if PREFER_GVISOR:
+        from security import is_gvisor_available
+
+        if not is_gvisor_available():
+            log.info("gVisor preferred but not installed — attempting auto-install...")
+            success, msg = install_gvisor(enable_nvproxy=True)
+            if success:
+                log.info("gVisor auto-install: %s", msg)
+            else:
+                log.warning("gVisor auto-install failed: %s — falling back to runc", msg)
+        else:
+            log.info("gVisor (runsc) already available")
+
+    # ── Step 3: Node admission control ──
+    versions = get_local_versions()
+    admitted, admission_details = admit_node(HOST_ID, versions, gpu_info["gpu_model"])
+    runtime_name = admission_details.get("recommended_runtime", "runc")
+
+    # Report versions to scheduler (best-effort)
+    report_versions(versions)
+
+    if not admitted:
+        log.warning(
+            "Node NOT ADMITTED — reasons: %s",
+            "; ".join(admission_details.get("rejection_reasons", ["unknown"])),
+        )
+        log.warning("Agent will continue heartbeats but will NOT accept work.")
+        log.warning("Upgrade vulnerable components to become eligible.")
+
+    # ── Step 4: Initial heartbeat ──
+    # Before the benchmark: it takes a minute or more (longer when the benchmark
+    # image must be pulled), and install.sh and the wizard wait ~60 s for this
+    # heartbeat. The benchmark runs in the background below (Step 7c).
+    compute_score = None
+    heartbeat(gpu_info, host_ip, compute_score)
+
+    # ── Banner ──
+    print_startup_banner(gpu_info, host_ip, admitted, runtime_name)
+
+    # ── Protocol negotiation (Phase 5): v2 claim/ACK + fenced leases ──
+    negotiate_protocol_v2()
+
+    # §11.6 restart adoption: re-arm renewals for journaled attempts
+    # whose containers survived the agent restart.
+    try:
+        v2_adopt_attempts()
+    except Exception as e:
+        log.error("v2 attempt adoption failed: %s", e)
+
+    # ── Step 6: Initialize image cache ──
+    cache_init()
+    log.info(
+        "Image cache initialized (%d images, %.0f MB)",
+        len(_image_cache_index),
+        _total_cache_size_mb(),
+    )
+
+    # ── Step 6b: Startup image warmer ──
+    # Like RunPod/Lambda — pre-pull ALL catalog images on boot so instances
+    # start in seconds, not minutes. Runs on a background thread so it doesn't
+    # block the main loop.
+    def _startup_image_warmer():
+        """Pre-pull entire IMAGE_TEMPLATES catalog on startup."""
+        try:
+            # Wait for any adopted/running containers before warming — job pulls win.
+            for _ in range(120):
+                if _shutdown.is_set():
+                    return
+                if not _active_containers:
+                    break
+                time.sleep(5)
+            if _active_containers:
+                log.info(
+                    "Image warmer: deferred — %d active container(s)",
+                    len(_active_containers),
+                )
+                return
+
+            from security import IMAGE_TEMPLATES
+
+            catalog_images = [t["image"] for t in IMAGE_TEMPLATES]
+            # Also fetch popular images from API (covers user-custom images)
+            api_popular = fetch_popular_images()
+            # Merge: catalog first (guaranteed), then API popular (de-duped)
+            seen = set(catalog_images)
+            for img in api_popular:
+                if img not in seen:
+                    catalog_images.append(img)
+                    seen.add(img)
+            # Filter to only those not already cached locally
+            to_pull = []
+            for img in catalog_images:
+                with _image_cache_lock:
+                    if img in _image_cache_index:
+                        continue
+                to_pull.append(img)
+            if not to_pull:
+                log.info("Image warmer: all %d catalog images already cached", len(catalog_images))
+                return
+            log.info(
+                "Image warmer: pre-pulling %d/%d images in background...",
+                len(to_pull),
+                len(catalog_images),
+            )
+            cache_prepull_popular(to_pull, max_concurrent=1)
+            log.info("Image warmer: done — all catalog images cached")
+        except Exception as e:
+            log.warning("Image warmer error: %s", e)
+
+    if IMAGE_WARMER_ENABLED:
+        warmer_thread = threading.Thread(
+            target=_startup_image_warmer,
+            name="image-warmer",
+            daemon=True,
+        )
+        warmer_thread.start()
+    else:
+        log.info("Image warmer disabled by XCELSIOR_IMAGE_WARMER_ENABLED")
+
+    # ── Step 7: Adopt containers started by scheduler (before agent was running) ──
+    adopt_running_containers()
+
+    # ── Step 7a: Re-apply shell setup (MOTD/PS1/sshd keepalive) to adopted containers ──
+    # The injection logic evolves; existing containers started under older agent
+    # versions otherwise stay on a bare `#` prompt indefinitely. Idempotent, gated
+    # by WORKER_AGENT_AUTO_REINJECT, rate-limited to 1 container per 2s.
+    try:
+        reinject_shells_for_running()
+    except Exception as e:
+        log.warning("reinject_shells_for_running failed: %s", e)
+
+    # ── Step 7b: Clean up orphaned volume mounts ──
+    cleanup_orphaned_volume_mounts()
+
+    # ── Step 7c: Benchmark + verification report, in the background ──
+    # After adoption, so a job that survived the restart is known: the benchmark
+    # saturates the GPU and is deferred while one runs (see _start_reverification).
+    _start_reverification()
+
+    # ── Step 8: Start background threads ──
+    threads = []
+
+    # Heartbeat thread
+    hb_thread = threading.Thread(
+        target=heartbeat_loop,
+        args=(host_ip, compute_score),
+        name="heartbeat",
+        daemon=True,
+    )
+    hb_thread.start()
+    threads.append(hb_thread)
+
+    # Telemetry push thread (GPU metrics every 5s)
+    telem_thread = threading.Thread(
+        target=telemetry_loop,
+        name="telemetry",
+        daemon=True,
+    )
+    telem_thread.start()
+    threads.append(telem_thread)
+    log.info("Telemetry push started (every %ds)", TELEMETRY_INTERVAL)
+
+    # Mining detection thread
+    mining_thread = threading.Thread(
+        target=mining_detection_loop,
+        name="mining-detection",
+        daemon=True,
+    )
+    mining_thread.start()
+    threads.append(mining_thread)
+
+    # Periodic volume orphan cleanup thread (every 30 min)
+    def _volume_orphan_cleanup_loop():
+        """Periodically clean up NFS mounts for containers that have exited."""
+        while not _shutdown.is_set():
+            for _ in range(1800):  # 30 minutes, interruptible
+                if _shutdown.is_set():
+                    return
+                time.sleep(1)
+            try:
+                cleanup_orphaned_volume_mounts()
+            except Exception as e:
+                log.debug("Periodic volume cleanup error: %s", e)
+
+    vol_cleanup_thread = threading.Thread(
+        target=_volume_orphan_cleanup_loop,
+        name="volume-orphan-cleanup",
+        daemon=True,
+    )
+    vol_cleanup_thread.start()
+    threads.append(vol_cleanup_thread)
+
+    # ── Step 8: Main polling loop ──
+    log.info("Entering main polling loop...")
+    consecutive_poll_failures = 0
+    _last_prepull_time = 0
+    PREPULL_INTERVAL = IMAGE_PREPULL_INTERVAL
+    if not IMAGE_PREPULL_ENABLED:
+        log.info("Idle image pre-pull disabled by XCELSIOR_IMAGE_PREPULL_ENABLED")
+
+    while not _shutdown.is_set():
+        try:
+            # Check for preemptions
+            preempt_jobs = check_preemption()
+            if preempt_jobs:
+                handle_preemptions(preempt_jobs)
+
+            # Renew this host's own credential well before it expires
+            # (§19.2). No-op unless a per-host token has been issued.
+            try:
+                maybe_rotate_host_token()
+            except Exception as e:
+                log.warning("agent token rotation check failed: %s", e)
+
+            # Drain admin control-plane commands (reinject_shell, etc.)
+            drain_agent_commands()
+
+            # Phase 5: claim + dispatch fenced attempt commands (v2 hosts)
+            if _v2_enabled:
+                drain_v2_commands()
+                # Phase 6: periodic full-state observation (§12.2)
+                try:
+                    report_observations_v2()
+                except Exception as e:
+                    log.warning("observation report failed: %s", e)
+
+            # Poll for new work (only if admitted)
+            if admitted:
+                jobs = poll_for_work()
+                for job in jobs:
+                    job_id = job.get("job_id", "?")
+                    log.info("Received job: %s (%s)", job_id, job.get("name", "?"))
+
+                    # Run job in a separate thread so we can continue polling
+                    job_thread = threading.Thread(
+                        target=run_job,
+                        args=(job,),
+                        name=f"job-{job_id[:8]}",
+                        daemon=True,
+                    )
+                    job_thread.start()
+                    threads.append(job_thread)
+
+                # Idle-time pre-pulling: if no active containers and enough
+                # time has passed, pre-pull popular images for faster cold starts
+                if IMAGE_PREPULL_ENABLED and not jobs and len(_active_containers) == 0:
+                    now = time.time()
+                    if now - _last_prepull_time >= PREPULL_INTERVAL:
+                        _last_prepull_time = now
+                        popular = fetch_popular_images()
+                        if popular:
+                            log.info("Idle — pre-pulling %d popular images", len(popular))
+
+                            def _idle_prepull(images):
+                                try:
+                                    cache_prepull_popular(images)
+                                except Exception as exc:
+                                    log.debug("Idle pre-pull error: %s", exc)
+
+                            threading.Thread(
+                                target=_idle_prepull,
+                                args=(popular,),
+                                name="idle-prepull",
+                                daemon=True,
+                            ).start()
+
+            consecutive_poll_failures = 0
+
+        except Exception as e:
+            consecutive_poll_failures += 1
+            log.error("Poll loop error: %s", e, exc_info=True)
+
+            if consecutive_poll_failures > MAX_CONSECUTIVE_FAILURES:
+                log.error("Too many poll failures — shutting down")
+                _shutdown.set()
+                break
+
+            # Exponential backoff on repeated failures
+            backoff = min(2**consecutive_poll_failures, 300)
+            log.warning("Backing off %ds before next poll", backoff)
+            for _ in range(backoff):
+                if _shutdown.is_set():
+                    break
+                time.sleep(1)
+            continue
+
+        # Normal poll interval (interruptible)
+        for _ in range(POLL_INTERVAL):
+            if _shutdown.is_set():
+                break
+            time.sleep(1)
+
+    # ── Shutdown ──
+    graceful_shutdown()
+    nvml_shutdown()
+    log.info("Worker agent stopped.")
+
+
+if __name__ == "__main__":
+    main()
+
+
+# ── P3 A1: artifact → volume promotion ───────────────────────────────
+# One host, an already-attached volume, no resume. The narrowest end-to-end
+# path, built before holds and idempotency because if a host cannot stream from
+# object storage to a mount at a usable rate, everything after it is rework.
+
+
+def _report_environment_fingerprint(
+    sweep_id: str, member_index: int, container_name: str, image_digest: str
+) -> bool:
+    """Run the collector **inside** the container and post what it says.
+
+    Gate P7's fingerprint has to come from the running environment. The control
+    plane knows the digest it sent to all N members; comparing that to itself
+    establishes the request was consistent, not the containers. So the
+    collector is copied in and executed there, and this function only carries
+    the answer back.
+
+    Returns True when a fingerprint was reported. **A failure here is reported
+    as a failure, never as an empty fingerprint** — a member that silently
+    reported nothing would be counted as agreeing with every other member by a
+    comparison written the obvious way, and the sweep would show a perfect pass
+    on an environment nobody measured.
+    """
+    collector = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "environment_fingerprint.py"
+    )
+    if not os.path.exists(collector):
+        log.warning("fingerprint: collector missing at %s", collector)
+        return False
+    try:
+        subprocess.run(
+            ["docker", "cp", collector, f"{container_name}:/tmp/_xcl_fingerprint.py"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "-e",
+                f"XCELSIOR_IMAGE_DIGEST={image_digest}",
+                container_name,
+                "python3",
+                "/tmp/_xcl_fingerprint.py",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except Exception as exc:
+        log.warning("fingerprint: could not run the collector in %s: %s", container_name, exc)
+        return False
+    if result.returncode != 0:
+        log.warning(
+            "fingerprint: collector failed in %s: %s",
+            container_name,
+            (result.stderr or "").strip()[:300],
+        )
+        return False
+    try:
+        payload = json.loads(result.stdout or "{}")
+        digest, manifest = payload["hash"], payload["manifest"]
+    except Exception as exc:
+        log.warning("fingerprint: unreadable collector output from %s: %s", container_name, exc)
+        return False
+    if not digest or not isinstance(manifest, dict) or not manifest:
+        # Half a fingerprint is refused server-side too; refusing here as well
+        # keeps a partial read from ever reaching the comparison.
+        log.warning("fingerprint: incomplete reading from %s", container_name)
+        return False
+
+    try:
+        response = _api_request(
+            "post",
+            _api_url(f"/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint"),
+            headers=_api_headers(),
+            json={"hash": digest, "manifest": manifest},
+            timeout=60,
+        )
+        if response.status_code >= 400:
+            log.warning(
+                "fingerprint: report rejected (%s): %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return False
+    except Exception as exc:
+        log.warning("fingerprint: could not report for sweep %s: %s", sweep_id, exc)
+        return False
+    log.info("fingerprint reported sweep=%s member=%s", sweep_id, member_index)
+    return True
+
+
+def _read_repo_digest(image_ref: str) -> str:
+    """The manifest digest docker recorded for `image_ref`, or "" if unknown.
+
+    Read with `docker inspect` immediately after a successful push, because
+    that is the only moment anything knows this digest belongs to the bytes
+    just pushed. Resolving the tag from the registry later answers a different
+    question — "what does this tag point at now" — and a tag is mutable, which
+    is the whole reason Gate P7 cannot be proven from one.
+
+    Never raises: a snapshot that pushed successfully must not be reported as
+    failed because an inspect did. The digest is evidence, not the artifact.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", image_ref],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("could not read repo digest for %s: %s", image_ref, exc)
+        return ""
+    if result.returncode != 0:
+        log.warning(
+            "could not read repo digest for %s: %s",
+            image_ref,
+            (result.stderr or "").strip()[:200],
+        )
+        return ""
+    digest = (result.stdout or "").strip()
+    # `repo@sha256:…` is the shape; anything else is not a digest and saying
+    # nothing beats recording a value that will not match a later comparison.
+    return digest if "@sha256:" in digest else ""
+
+
+def _promotion_dest_dir(volume_id: str) -> str:
+    """Where a promoted artifact lands on this host."""
+    return os.path.join(MANAGED_VOLUME_HOST_DIR, str(volume_id), "promoted")
+
+
+def _promote_artifacts(args: dict) -> bool:
+    """Copy one promotion's files onto its volume, verifying each digest.
+
+    The command carries only `{promotion_id}`; the manifest — including the
+    presigned read grants — is fetched over the agent's own authenticated
+    channel, so no credential is ever written to a queued command row.
+
+    **Every file is verified before it is visible.** Each object streams to a
+    `.part` file, its sha256 is checked against the manifest, and only then is
+    it renamed into place. A rename within one filesystem is atomic, so a
+    process killed mid-copy leaves a `.part` and never a truncated file that
+    looks like a complete checkpoint — which is the failure this whole design
+    is arranged around, because a partially written volume the user believes is
+    complete is worse than no volume at all.
+
+    Returns True when every file landed and the result was reported.
+    """
+    promotion_id = str(args.get("promotion_id") or "").strip()
+    if not promotion_id:
+        log.warning("promote_artifacts: no promotion_id in args")
+        return False
+
+    def _report(state: str, failure_code: str = "", written: int = 0) -> None:
+        try:
+            _api_request(
+                "post",
+                _api_url(f"/api/v1/promotions/{promotion_id}/result"),
+                json={"state": state, "failure_code": failure_code, "bytes_written": written},
+                headers=_api_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            # The copy either happened or did not; failing to *say so* leaves a
+            # promotion stuck in `running` for the sweep to expire. Logged loudly
+            # because the bytes on disk and the row now disagree.
+            log.error("promote_artifacts: could not report %s for %s: %s", state, promotion_id, exc)
+
+    try:
+        resp = _api_request(
+            "get",
+            _api_url(f"/api/v1/promotions/{promotion_id}/manifest"),
+            headers=_api_headers(),
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        log.warning("promote_artifacts: manifest fetch failed for %s: %s", promotion_id, exc)
+        return False
+    if resp.status_code != 200:
+        log.warning(
+            "promote_artifacts: manifest %s for %s: %s",
+            resp.status_code,
+            promotion_id,
+            (resp.text or "")[:200],
+        )
+        _report("failed", f"manifest_{resp.status_code}")
+        return False
+
+    manifest = resp.json()
+    volume_id = str(manifest.get("volume_id") or "")
+    files = manifest.get("files") or []
+    if not volume_id or not files:
+        _report("failed", "empty_manifest")
+        return False
+
+    dest_dir = _promotion_dest_dir(volume_id)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+    except OSError as exc:
+        log.error("promote_artifacts: cannot create %s: %s", dest_dir, exc)
+        _report("failed", "dest_unwritable")
+        return False
+
+    def _report_file(artifact_id, name, size, verified, state, failure_code=""):
+        """Record one file's outcome so a retry can skip it (§3.5)."""
+        try:
+            _api_request(
+                "post",
+                _api_url(f"/api/v1/promotions/{promotion_id}/files"),
+                json={
+                    "artifact_id": str(artifact_id),
+                    "logical_name": name,
+                    "size_bytes": int(size),
+                    "sha256_verified": bool(verified),
+                    "state": state,
+                    "failure_code": failure_code,
+                },
+                headers=_api_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            # Losing this costs a re-copy of one file on the next attempt, not
+            # correctness — so it is logged and the copy continues rather than
+            # failing a promotion that is otherwise succeeding.
+            log.warning("promote_artifacts: could not record %s: %s", name, exc)
+
+    written_total = 0
+    skipped = 0
+    for f in files:
+        name = os.path.basename(str(f.get("logical_name") or f.get("artifact_id")))
+        if not name or name in (".", ".."):
+            _report("failed", "bad_logical_name")
+            return False
+        final_path = os.path.join(dest_dir, name)
+        part_path = final_path + ".part"
+        expected = str(f.get("sha256") or "")
+
+        # §3.5 resume. The API decides what is already verified — the agent is
+        # the party that crashed, so its own view of "done" is the untrustworthy
+        # one. The file must still be *there*: a volume detached and reattached
+        # between attempts can lose it, and skipping on the row alone would
+        # report a complete promotion with a missing file.
+        if f.get("already_done") and os.path.exists(final_path):
+            skipped += 1
+            log.info("promote_artifacts: %s already verified, skipping", name)
+            continue
+        if not expected:
+            # A0's manifest flags these; refusing here is the same rule applied
+            # where it costs something — an unverifiable copy that looks
+            # complete is the outcome worth avoiding.
+            _report("failed", "unverifiable_artifact")
+            return False
+
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with requests.get(str(f.get("url") or ""), stream=True, timeout=300) as src:
+                if src.status_code != 200:
+                    _report("failed", f"fetch_{src.status_code}")
+                    return False
+                with open(part_path, "wb") as out:
+                    for chunk in src.iter_content(chunk_size=8 * 1024 * 1024):
+                        if not chunk:
+                            continue
+                        out.write(chunk)
+                        digest.update(chunk)
+                        size += len(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+        except (requests.RequestException, OSError) as exc:
+            log.warning("promote_artifacts: %s failed mid-copy: %s", name, exc)
+            _cleanup_part(part_path)
+            _report("failed", "copy_error")
+            return False
+
+        if digest.hexdigest() != expected:
+            log.error(
+                "promote_artifacts: digest mismatch for %s (got %s, expected %s)",
+                name,
+                digest.hexdigest()[:16],
+                expected[:16],
+            )
+            _cleanup_part(part_path)
+            _report_file(f.get("artifact_id"), name, 0, False, "failed", "digest_mismatch")
+            _report("failed", "digest_mismatch")
+            return False
+
+        try:
+            os.replace(part_path, final_path)
+        except OSError as exc:
+            log.error("promote_artifacts: could not place %s: %s", final_path, exc)
+            _cleanup_part(part_path)
+            _report("failed", "rename_failed")
+            return False
+        written_total += size
+        _report_file(f.get("artifact_id"), name, size, True, "done")
+        log.info("promote_artifacts: %s verified and placed (%d bytes)", name, size)
+
+    _report("succeeded", "", written_total)
+    log.info(
+        "promote_artifacts: promotion %s complete — %d copied, %d skipped, %d bytes",
+        promotion_id,
+        len(files) - skipped,
+        skipped,
+        written_total,
+    )
+    return True
+
+
+def _cleanup_part(path: str) -> None:
+    """Remove a partial file. Never raises — the caller is already failing."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass

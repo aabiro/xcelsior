@@ -1,0 +1,1652 @@
+"use client";
+
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import posthog from "posthog-js";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { StatCard } from "@/components/ui/stat-card";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DepositModal } from "@/components/billing/deposit-modal";
+
+import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
+import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
+import { PaymentMethodModal } from "@/components/billing/payment-method-modal";
+import { TransactionHistory } from "@/components/billing/transaction-history";
+import { ScaResumePanel } from "@/components/billing/sca-resume-panel";
+import {
+  CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
+  ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
+  Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw, Trash2,
+  TrendingDown, Cloud, Wallet as WalletIcon,
+} from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { useLocale } from "@/lib/locale";
+import { getBillingCustomerId, getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
+import * as api from "@/lib/api";
+import type { Wallet, WalletTransaction, Invoice, ReservedCommitment, SavedPaymentMethod } from "@/lib/api";
+import { toast } from "sonner";
+import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
+
+const FREE_CREDIT_AMOUNT = 5;
+const FREE_CREDIT_TRANSFER_DURATION_S = 2.2;
+const FREE_CREDIT_TRANSFER_DURATION_MS = FREE_CREDIT_TRANSFER_DURATION_S * 1000;
+const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
+
+// Reserved-commitment pricing is intentionally hidden from the UI for now. The
+// backend endpoints (/api/pricing/reserved-plans, /api/pricing/reserve) remain
+// live, so the feature can be re-enabled by flipping this flag back to true.
+// See roadmap UI-5.2. When false, the page skips the reserved-plan fetches and
+// hides the "Reserved Plans" + "Active Commitments" sections entirely.
+const RESERVED_PLANS_ENABLED = false;
+
+// Refunds are credited to the wallet ledger as `tx_type = 'refund'` with a
+// description like "Refund for job <id> (<classification>)" (see
+// billing.py process_refund/_credit_wallet). Map the classification to a
+// human-readable reason and whether it was the host's fault vs. user error.
+const REFUND_REASONS: Record<string, { label: string; hostFault: boolean }> = {
+  hardware_error: { label: "Hardware failure", hostFault: true },
+  gpu_error: { label: "GPU / CUDA error", hostFault: true },
+  network_error: { label: "Network timeout", hostFault: true },
+  unknown: { label: "Under review", hostFault: false },
+};
+
+function parseRefundReason(description?: string): { label: string; hostFault: boolean } {
+  const match = description?.match(/\(([^)]+)\)\s*$/);
+  const key = match?.[1] ?? "";
+  return REFUND_REASONS[key] ?? { label: "Refund", hostFault: false };
+}
+const DEFAULT_BTC_STATUS = {
+  enabled: false,
+  available: false,
+  reason: "",
+};
+const DEFAULT_LIGHTNING_STATUS = {
+  enabled: false,
+  available: false,
+  reason: "",
+  node_alias: "",
+  num_active_channels: 0,
+};
+
+type FreeCreditAnimationState = "idle" | "transferring" | "complete";
+
+interface CreditTransfer {
+  amount: number;
+  from: number;
+  to: number;
+}
+
+function formatCad(amount: number) {
+  return `$${amount.toFixed(2)}`;
+}
+
+export default function BillingPage() {
+  const { user } = useAuth();
+  const { t } = useLocale();
+  const team = getTeamContext(user);
+  const customerId = getBillingCustomerId(user);
+  const isPlatformAdmin = !!user?.is_admin || user?.role === "admin";
+  const canManageBilling = team.canManageBilling;
+
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [usage, setUsage] = useState<{
+    job_count: number; total_gpu_hours: number; total_cost_cad: number;
+    canadian_compute_cad: number; hosts_used: number;
+  } | null>(null);
+  const [reservedTiers, setReservedTiers] = useState<Record<string, {
+    commitment: string; discount_pct: number; description: string;
+    min_hours_per_day: number; sample_hourly_rates_cad: Record<string, number>;
+  }> | null>(null);
+  const [reservations, setReservations] = useState<ReservedCommitment[]>([]);
+  const [reservationSummary, setReservationSummary] = useState<{
+    active_count: number; total_count: number;
+    realized_savings_cad: number; projected_monthly_savings_cad: number;
+  } | null>(null);
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [showAddCard, setShowAddCard] = useState(false);
+  const [autoTopup, setAutoTopup] = useState<{
+    enabled: boolean;
+    amount_cad: number;
+    threshold_cad: number;
+    payment_method_id: string;
+  }>({ enabled: false, amount_cad: 25, threshold_cad: 5, payment_method_id: "" });
+  const [savingTopup, setSavingTopup] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showDeposit, setShowDeposit] = useState(false);
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Auto-open deposit modal from ?topup=true (Credits button link)
+  useEffect(() => {
+    if (searchParams.get("topup") === "true" && canManageBilling) setShowDeposit(true);
+  }, [searchParams, canManageBilling]);
+
+  // `?resume=<intent>` is the link an SCA decline hands back. Until now nothing
+  // read it, so the recovery link opened a page that could not recover anything.
+  const resumeIntentId = searchParams.get("resume") || "";
+
+  // Charges the bank stopped. Loaded regardless of `?resume=`, because a
+  // challenge nobody completed is exactly the thing that should be visible
+  // without a link to find it — the wallet showed no trace of one before.
+  const [pendingVerification, setPendingVerification] = useState<api.PendingVerification[]>([]);
+  useEffect(() => {
+    if (!customerId) return;
+    let cancelled = false;
+    void api
+      .fetchPendingVerification(customerId)
+      .then((res) => {
+        if (!cancelled) setPendingVerification(res.pending || []);
+      })
+      .catch(() => {
+        // A wallet that loads without this section is better than one that
+        // fails to load because of it.
+        if (!cancelled) setPendingVerification([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
+  const clearResumeParam = useCallback(() => {
+    const next = new URLSearchParams(Array.from(searchParams.entries()));
+    next.delete("resume");
+    const query = next.toString();
+    router.replace(query ? `/dashboard/billing?${query}` : "/dashboard/billing");
+  }, [router, searchParams]);
+
+  const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
+  const [showLightningDeposit, setShowLightningDeposit] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [btcStatus, setBtcStatus] = useState(DEFAULT_BTC_STATUS);
+  const [lnStatus, setLnStatus] = useState(DEFAULT_LIGHTNING_STATUS);
+  const [paymentRailsLoading, setPaymentRailsLoading] = useState(true);
+
+  const [csvLoading, setCsvLoading] = useState(false);
+  const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [resettingWallet, setResettingWallet] = useState(false);
+  const [freeCreditsAvailable, setFreeCreditsAvailable] = useState(false);
+  const [claimingCredits, setClaimingCredits] = useState(false);
+  const [freeCreditAnimationState, setFreeCreditAnimationState] = useState<FreeCreditAnimationState>("idle");
+  const [displayWalletBalance, setDisplayWalletBalance] = useState(0);
+  const [creditTransfer, setCreditTransfer] = useState<CreditTransfer | null>(null);
+
+  const walletValueRef = useRef<HTMLSpanElement | null>(null);
+  const walletAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const freeCreditTimersRef = useRef<number[]>([]);
+  const hasCryptoPaymentRails = true; // Always show crypto deposit options
+
+  const load = useCallback(async () => {
+    if (!customerId) return;
+    setLoading(true);
+    try {
+      const [walletRes, histRes, invoiceRes, usageRes, plansRes, reservationsRes] = await Promise.allSettled([
+        api.fetchWallet(customerId),
+        api.fetchWalletHistory(customerId),
+        api.fetchInvoices(customerId),
+        api.fetchUsageSummary(customerId),
+        RESERVED_PLANS_ENABLED ? api.fetchReservedPlans() : Promise.resolve({}),
+        RESERVED_PLANS_ENABLED
+          ? api.fetchReservations(customerId)
+          : Promise.resolve({ reservations: [] as ReservedCommitment[], summary: null }),
+      ]);
+      if (walletRes.status === "fulfilled") setWallet(walletRes.value.wallet);
+      if (histRes.status === "fulfilled") setTransactions(histRes.value.transactions || []);
+      if (invoiceRes.status === "fulfilled") setInvoices(invoiceRes.value.invoices || []);
+      if (usageRes.status === "fulfilled") {
+        const u = usageRes.value;
+        setUsage({ job_count: u.job_count, total_gpu_hours: u.total_gpu_hours, total_cost_cad: u.total_cost_cad, canadian_compute_cad: u.canadian_compute_cad, hosts_used: u.hosts_used });
+      }
+      if (plansRes.status === "fulfilled" && (plansRes.value as Record<string, unknown>).reserved_tiers) {
+        setReservedTiers((plansRes.value as Record<string, unknown>).reserved_tiers as typeof reservedTiers);
+      }
+      if (reservationsRes.status === "fulfilled") {
+        setReservations(reservationsRes.value.reservations || []);
+        setReservationSummary(reservationsRes.value.summary || null);
+      }
+    } catch {
+      toast.error("Failed to load billing data");
+    } finally {
+      setLoading(false);
+    }
+  }, [customerId]);
+
+  const clearFreeCreditTimers = useCallback(() => {
+    for (const timerId of freeCreditTimersRef.current) {
+      window.clearTimeout(timerId);
+    }
+    freeCreditTimersRef.current = [];
+  }, []);
+
+  const stopWalletAnimation = useCallback(() => {
+    walletAnimationRef.current?.stop();
+    walletAnimationRef.current = null;
+  }, []);
+
+  const animateWalletBalance = useCallback((from: number, to: number) => {
+    stopWalletAnimation();
+    setDisplayWalletBalance(from);
+    walletAnimationRef.current = animate(from, to, {
+      duration: FREE_CREDIT_TRANSFER_DURATION_S,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (value) => setDisplayWalletBalance(Number(value.toFixed(2))),
+      onComplete: () => {
+        setDisplayWalletBalance(to);
+        walletAnimationRef.current = null;
+      },
+    });
+  }, [stopWalletAnimation]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { void load(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [load]);
+
+  // Saved cards + auto-reload config are session-scoped (derived from the
+  // authenticated user server-side), so they don't take customerId.
+  const loadPaymentMethods = useCallback(async () => {
+    if (!customerId) return;
+    const [pmRes, topupRes] = await Promise.allSettled([
+      api.fetchPaymentMethods(),
+      api.fetchAutoTopup(),
+    ]);
+    let cards: SavedPaymentMethod[] = [];
+    if (pmRes.status === "fulfilled") {
+      cards = pmRes.value.payment_methods || [];
+      setPaymentMethods(cards);
+    }
+    if (topupRes.status === "fulfilled") {
+      const at = topupRes.value.auto_topup;
+      setAutoTopup({
+        enabled: at.enabled,
+        amount_cad: at.amount_cad || 25,
+        threshold_cad: at.threshold_cad || 5,
+        // Fall back to the first saved card so the selector isn't empty.
+        payment_method_id: at.payment_method_id || cards[0]?.id || "",
+      });
+    }
+  }, [customerId]);
+
+  useEffect(() => { loadPaymentMethods(); }, [loadPaymentMethods]);
+
+  const handleSaveAutoTopup = useCallback(
+    async (next: Partial<typeof autoTopup>) => {
+      const merged = { ...autoTopup, ...next };
+      if (merged.enabled && !merged.payment_method_id) {
+        toast.error("Add and select a card before enabling auto-reload");
+        return;
+      }
+      setSavingTopup(true);
+      try {
+        await api.configureAutoTopup({
+          enabled: merged.enabled,
+          amount_cad: merged.amount_cad,
+          threshold_cad: merged.threshold_cad,
+          stripe_payment_method_id: merged.payment_method_id,
+        });
+        posthog.capture("auto_topup_configured", {
+          enabled: merged.enabled,
+          amount_cad: merged.amount_cad,
+          threshold_cad: merged.threshold_cad,
+        });
+        setAutoTopup(merged);
+        toast.success("Auto-reload settings saved");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not save auto-reload");
+      } finally {
+        setSavingTopup(false);
+      }
+    },
+    [autoTopup],
+  );
+
+  const handleDeleteCard = useCallback(
+    async (id: string) => {
+      try {
+        await api.deletePaymentMethod(id);
+        toast.success("Card removed");
+        await loadPaymentMethods();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not remove card");
+      }
+    },
+    [loadPaymentMethods],
+  );
+
+  const handleOpenStripePortal = useCallback(async () => {
+    setOpeningPortal(true);
+    try {
+      const res = await api.createBillingPortalSession();
+      if (res.url) {
+        window.location.href = res.url;
+        return;
+      }
+      toast.error("Stripe portal unavailable");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not open billing portal");
+    } finally {
+      setOpeningPortal(false);
+    }
+  }, []);
+
+  // Check crypto payment rails together so the funding section does not pop in later.
+  useEffect(() => {
+    let active = true;
+    const btcCtrl = new AbortController();
+    const lnCtrl = new AbortController();
+    const btcTimer = window.setTimeout(() => btcCtrl.abort(), 4000);
+    const lnTimer = window.setTimeout(() => lnCtrl.abort(), 4000);
+
+    setPaymentRailsLoading(true);
+
+    Promise.allSettled([
+      api.checkCryptoEnabled({ signal: btcCtrl.signal }),
+      api.checkLightningEnabled({ signal: lnCtrl.signal }),
+    ])
+      .then(([btcRes, lnRes]) => {
+        if (!active) return;
+
+        if (btcRes.status === "fulfilled") {
+          const nextBtcStatus = {
+            enabled: btcRes.value.enabled,
+            available: btcRes.value.available ?? btcRes.value.enabled,
+            reason: btcRes.value.reason ?? "",
+          };
+          if (nextBtcStatus.reason && !nextBtcStatus.available) {
+            console.warn("Bitcoin deposits unavailable", nextBtcStatus.reason);
+          }
+          setBtcStatus(nextBtcStatus);
+        } else {
+          if (!(btcRes.reason instanceof DOMException && btcRes.reason.name === "AbortError")) {
+            console.warn("Failed to check crypto status", btcRes.reason);
+          }
+          setBtcStatus(DEFAULT_BTC_STATUS);
+        }
+
+        if (lnRes.status === "fulfilled") {
+          setLnStatus({
+            enabled: lnRes.value.enabled,
+            available: lnRes.value.available ?? lnRes.value.enabled,
+            reason: lnRes.value.reason ?? "",
+            node_alias: lnRes.value.node_alias ?? "",
+            num_active_channels: lnRes.value.num_active_channels ?? 0,
+          });
+        } else {
+          setLnStatus(DEFAULT_LIGHTNING_STATUS);
+        }
+      })
+      .finally(() => {
+        window.clearTimeout(btcTimer);
+        window.clearTimeout(lnTimer);
+        if (active) setPaymentRailsLoading(false);
+      });
+
+    return () => {
+      active = false;
+      window.clearTimeout(btcTimer);
+      window.clearTimeout(lnTimer);
+      btcCtrl.abort();
+      lnCtrl.abort();
+    };
+  }, []);
+
+  // Check if free signup credits are available
+  useEffect(() => {
+    if (!customerId) return;
+    api.checkFreeCreditsStatus(customerId)
+      .then((r) => setFreeCreditsAvailable(!r.claimed))
+      .catch(() => setFreeCreditsAvailable(false));
+  }, [customerId]);
+
+  useEffect(() => {
+    if (freeCreditAnimationState !== "idle") return;
+    setDisplayWalletBalance(wallet?.balance_cad ?? 0);
+  }, [wallet?.balance_cad, freeCreditAnimationState]);
+
+  useEffect(() => {
+    if (freeCreditAnimationState !== "transferring" || !creditTransfer || !customerId) return;
+
+    clearFreeCreditTimers();
+
+    animateWalletBalance(creditTransfer.from, creditTransfer.to);
+
+    freeCreditTimersRef.current.push(window.setTimeout(() => {
+      setFreeCreditAnimationState("complete");
+    }, FREE_CREDIT_TRANSFER_DURATION_MS));
+
+    freeCreditTimersRef.current.push(window.setTimeout(() => {
+      setFreeCreditsAvailable(false);
+      setFreeCreditAnimationState("idle");
+      setCreditTransfer(null);
+      void api.fetchWalletHistory(customerId)
+        .then((r) => setTransactions(r.transactions || []))
+        .catch(() => {});
+    }, FREE_CREDIT_TRANSFER_DURATION_MS + FREE_CREDIT_SUCCESS_HOLD_MS));
+  }, [
+    animateWalletBalance,
+    clearFreeCreditTimers,
+    creditTransfer,
+    customerId,
+    freeCreditAnimationState,
+  ]);
+
+  useEffect(() => () => {
+    clearFreeCreditTimers();
+    stopWalletAnimation();
+  }, [clearFreeCreditTimers, stopWalletAnimation]);
+
+  const handleClaimFreeCredits = async () => {
+    if (!customerId || claimingCredits || freeCreditAnimationState !== "idle") return;
+    setClaimingCredits(true);
+    try {
+      const result = await api.claimFreeCredits(customerId);
+      if (result.already_claimed) {
+        toast.info(t("dash.billing.credits_already_claimed"));
+        setFreeCreditsAvailable(false);
+      } else {
+        posthog.capture("free_credits_claimed", {
+          amount_cad: result.amount_cad || FREE_CREDIT_AMOUNT,
+          balance_after_cad: result.balance_cad,
+        });
+        const nextBalance = result.balance_cad;
+        const previousBalance = wallet?.balance_cad ?? displayWalletBalance;
+        clearFreeCreditTimers();
+        setCreditTransfer({
+          amount: result.amount_cad || FREE_CREDIT_AMOUNT,
+          from: previousBalance,
+          to: nextBalance,
+        });
+        setFreeCreditAnimationState("transferring");
+        setWallet((w) => (
+          w
+            ? { ...w, balance_cad: nextBalance }
+            : { customer_id: customerId, balance_cad: nextBalance, currency: "CAD" }
+        ));
+        toast.success(t("dash.billing.credits_claimed_toast"));
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to claim free credits");
+    } finally {
+      setClaimingCredits(false);
+    }
+  };
+
+  const handleResetWalletTestingState = async () => {
+    if (!customerId || !isPlatformAdmin || resettingWallet) return;
+    setResettingWallet(true);
+    try {
+      const result = await api.resetWalletTestingState(customerId);
+      clearFreeCreditTimers();
+      stopWalletAnimation();
+      setClaimingCredits(false);
+      setCreditTransfer(null);
+      setFreeCreditAnimationState("idle");
+      setWallet(result.wallet);
+      setTransactions([]);
+      setDisplayWalletBalance(result.wallet.balance_cad ?? 0);
+      setFreeCreditsAvailable(result.promo_available);
+      setShowResetConfirm(false);
+      toast.success(t("dash.billing.admin_reset_success"));
+    } catch {
+      toast.error(t("dash.billing.admin_reset_failed"));
+    } finally {
+      setResettingWallet(false);
+    }
+  };
+
+  // CSV export from billing records
+  const handleCsvExport = async () => {
+    if (!customerId) return;
+    setCsvLoading(true);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const thirtyDaysAgo = now - 30 * 86400;
+      const blob = await api.downloadInvoice(customerId, "csv", thirtyDaysAgo, now);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `xcelsior-billing-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV downloaded");
+    } catch {
+      toast.error("CSV export failed");
+    } finally {
+      setCsvLoading(false);
+    }
+  };
+
+
+
+  // Invoice download
+  const handleInvoiceDownload = async (inv: Invoice) => {
+    if (!customerId) return;
+    try {
+      const blob = await api.downloadInvoice(
+        customerId, "csv",
+        inv.period_start,
+        inv.period_end,
+        inv.tax_rate,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${inv.invoice_id}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Invoice download failed");
+    }
+  };
+
+  // Reserved plan subscription
+  const handleSubscribe = async (commitmentType: string, gpuModel: string) => {
+    if (!customerId) return;
+    setSubscribing(commitmentType);
+    try {
+      await api.createReservation({
+        customer_id: customerId,
+        gpu_model: gpuModel,
+        commitment_type: commitmentType as "1_month" | "3_month" | "1_year",
+      });
+      toast.success(`Reserved ${commitmentType.replace("_", " ")} plan activated`);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Subscription failed");
+    } finally {
+      setSubscribing(null);
+    }
+  };
+
+  const tierMeta: Record<string, { label: string; accent: string; icon: typeof Clock }> = {
+    "1_month": { label: "1 Month", accent: "text-ice", icon: Clock },
+    "3_month": { label: "3 Months", accent: "text-gold", icon: Zap },
+    "1_year":  { label: "1 Year", accent: "text-emerald", icon: Leaf },
+  };
+
+  const currentWalletBalance = displayWalletBalance;
+  const freeCreditFlowActive = claimingCredits || freeCreditAnimationState !== "idle";
+
+  const spendBreakdown = useMemo(() => {
+    const debits = transactions.filter((tx) => tx.amount_cad < 0);
+    let compute = 0;
+    let serverless = 0;
+    let storage = 0;
+    for (const tx of debits) {
+      const desc = (tx.description || "").toLowerCase();
+      const amt = Math.abs(tx.amount_cad);
+      if (desc.includes("serverless")) serverless += amt;
+      else if (desc.includes("storage") || desc.includes("volume")) storage += amt;
+      else compute += amt;
+    }
+    return { compute, serverless, storage, total: compute + serverless + storage };
+  }, [transactions]);
+
+  // The intent named by `?resume=`, or the oldest one still waiting. Arriving
+  // from a decline link resumes that payment; arriving at the wallet with a
+  // challenge outstanding shows it anyway, which is the state the plan asks be
+  // "visible rather than silent".
+  const resumeTarget =
+    pendingVerification.find((p) => p.stripe_intent_id === resumeIntentId) ||
+    (resumeIntentId ? null : pendingVerification[0] || null);
+  const resumeId = resumeIntentId || resumeTarget?.stripe_intent_id || "";
+
+  return (
+    <div className="space-y-6">
+      {resumeId ? (
+        <ScaResumePanel
+          intentId={resumeId}
+          known={resumeTarget}
+          onFinished={resumeIntentId ? clearResumeParam : undefined}
+        />
+      ) : null}
+      <div className="rounded-xl border border-accent-cyan/20 bg-gradient-to-br from-accent-cyan/[0.07] via-surface/90 to-emerald/[0.05] p-5 md:p-6 shadow-[0_0_40px_rgba(56,189,248,0.05)]">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-accent-cyan/25 bg-accent-cyan/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-accent-cyan">
+              <WalletIcon className="h-3 w-3" />
+              Wallet billing
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">{t("dash.billing.title")}</h1>
+            <p className="text-sm text-text-secondary mt-1 max-w-2xl">
+              Prepaid credits for GPU compute, serverless inference, and volume storage.
+              Top up via Stripe, Bitcoin, or Lightning, manage cards and invoices in one place.
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleCsvExport} disabled={csvLoading}>
+              {csvLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              {t("dash.billing.export_csv")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={load}>
+              <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
+            </Button>
+            {canManageBilling && (
+              <Button variant="success" size="sm" onClick={() => { posthog.capture("credits_deposit_initiated", { source: "header_button" }); setShowDeposit(true); }}>
+                <Plus className="h-3.5 w-3.5" /> {t("dash.billing.add_credits")}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <TeamContextBanner team={team} variant="billing" />
+
+      {wallet?.hard_stop && (
+        <div
+          role="alert"
+          data-testid="wallet-hard-stop-banner"
+          className="flex flex-col gap-3 rounded-xl border border-accent-red/40 bg-gradient-to-r from-accent-red/15 via-accent-red/10 to-transparent px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-accent-red">Hard stop — zero available credits</p>
+            <p className="mt-0.5 text-xs text-text-secondary">
+              Workloads are blocked until you top up. Balance is not allowed to run negative.
+            </p>
+          </div>
+          {canManageBilling && (
+            <Button
+              size="sm"
+              variant="success"
+              className="shrink-0"
+              onClick={() => {
+                posthog.capture("credits_deposit_initiated", { source: "hard_stop_banner" });
+                setShowDeposit(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Top up now
+            </Button>
+          )}
+        </div>
+      )}
+      {!wallet?.hard_stop && wallet?.low_balance && (
+        <div
+          role="status"
+          data-testid="wallet-low-balance-banner"
+          className="flex flex-col gap-3 rounded-xl border border-gold/40 bg-gradient-to-r from-gold/15 via-gold/10 to-transparent px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gold">Low balance warning</p>
+            <p className="mt-0.5 text-xs text-text-secondary">
+              Available credits are at or below $
+              {Number(wallet.low_balance_threshold_cad ?? 5).toFixed(2)}. Top up before a hard stop at $0.
+            </p>
+          </div>
+          {canManageBilling && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-gold/40 text-gold hover:bg-gold/10"
+              onClick={() => {
+                posthog.capture("credits_deposit_initiated", { source: "low_balance_banner" });
+                setShowDeposit(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add credits
+            </Button>
+          )}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-28 rounded-xl bg-surface skeleton-pulse" />
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* Stat Cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label={t("dash.billing.wallet_balance")}
+              value={(
+                <span ref={walletValueRef} className="inline-block">
+                  <motion.span
+                    animate={freeCreditAnimationState === "transferring" ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+                    transition={{
+                      duration: freeCreditAnimationState === "transferring" ? FREE_CREDIT_TRANSFER_DURATION_S : 0.2,
+                      times: freeCreditAnimationState === "transferring" ? [0, 0.35, 1] : undefined,
+                      ease: "easeOut",
+                    }}
+                    className="inline-block"
+                  >
+                    {formatCad(currentWalletBalance)}
+                  </motion.span>
+                </span>
+              )}
+              icon={DollarSign}
+              glow="cyan"
+            />
+            <StatCard
+              label={t("dash.billing.total_spent")}
+              value={`$${(usage?.total_cost_cad ?? 0).toFixed(2)}`}
+              icon={CreditCard}
+              glow="violet"
+            />
+            <StatCard
+              label={t("dash.billing.gpu_hours")}
+              value={(usage?.total_gpu_hours ?? 0).toFixed(1)}
+              icon={Clock}
+              glow="emerald"
+            />
+            <StatCard
+              label={t("dash.billing.jobs_run")}
+              value={usage?.job_count ?? 0}
+              icon={Zap}
+              glow="gold"
+            />
+          </div>
+
+          {/* Welcome $5 Bonus Banner */}
+          <AnimatePresence>
+            {freeCreditsAvailable && canManageBilling && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8, height: 0, marginTop: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="relative overflow-hidden border-accent-cyan/30 bg-gradient-to-r from-accent-cyan/10 via-accent-violet/10 to-accent-cyan/10">
+                  {/* Animated shimmer */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
+                  <CardContent className="relative flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent-cyan/20">
+                        {freeCreditAnimationState === "complete" ? (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 15 }}
+                          >
+                            <CheckCircle2 className="h-6 w-6 text-emerald" />
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            animate={freeCreditAnimationState === "transferring" ? { rotate: [0, -6, 6, 0], scale: [1, 1.06, 1] } : { rotate: 0, scale: 1 }}
+                            transition={{
+                              duration: freeCreditAnimationState === "transferring" ? 1.1 : 0.2,
+                              repeat: freeCreditAnimationState === "transferring" ? Infinity : 0,
+                              ease: "easeInOut",
+                            }}
+                          >
+                            <Gift className="h-6 w-6 text-accent-cyan" />
+                          </motion.div>
+                        )}
+                      </div>
+                      <div>
+                        {freeCreditAnimationState === "complete" ? (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                          >
+                            <p className="font-semibold text-emerald">{t("dash.billing.credits_claimed_title")}</p>
+                            <p className="text-sm text-text-secondary">{t("dash.billing.credits_claimed_desc")}</p>
+                          </motion.div>
+                        ) : freeCreditAnimationState === "transferring" ? (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                          >
+                            <p className="font-semibold text-accent-cyan">{t("dash.billing.credits_transferring_title")}</p>
+                            <p className="text-sm text-text-secondary">{t("dash.billing.credits_transferring_desc")}</p>
+                          </motion.div>
+                        ) : (
+                          <>
+                            <p className="font-semibold">{t("dash.billing.free_credits_title")}</p>
+                            <p className="text-sm text-text-secondary">{t("dash.billing.free_credits_desc")}</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex min-h-10 items-center justify-end">
+                      {freeCreditAnimationState === "transferring" ? (
+                        <motion.div
+                          initial={{ opacity: 1, scale: 1 }}
+                          animate={{ opacity: 0, scale: 0.8 }}
+                          transition={{ duration: 0.3, ease: "easeOut" }}
+                          className="rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-sm font-semibold font-mono text-emerald shadow-lg shadow-emerald/15"
+                        >
+                          +{formatCad(creditTransfer?.amount ?? FREE_CREDIT_AMOUNT)}
+                        </motion.div>
+                      ) : freeCreditAnimationState === "complete" ? (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.8, y: 8 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-sm font-semibold text-emerald"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {t("dash.billing.credits_added_badge")}
+                        </motion.div>
+                      ) : (
+                        <Button
+                          className="bg-accent-cyan text-navy font-semibold shadow-lg shadow-accent-cyan/20 hover:bg-accent-cyan/80"
+                          onClick={handleClaimFreeCredits}
+                          disabled={freeCreditFlowActive}
+                        >
+                          {claimingCredits ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> {t("dash.billing.claiming")}</>
+                          ) : (
+                            <><Sparkles className="h-4 w-4" /> {t("dash.billing.claim_credits")}</>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {spendBreakdown.total > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Spend breakdown</CardTitle>
+                <CardDescription>Debit totals from your wallet ledger</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
+                      <Zap className="h-3.5 w-3.5 text-ice" />
+                      GPU compute
+                    </div>
+                    <p className="text-lg font-bold font-mono tabular-nums">{formatCad(spendBreakdown.compute)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
+                      <Cloud className="h-3.5 w-3.5 text-accent-violet" />
+                      Serverless
+                    </div>
+                    <p className="text-lg font-bold font-mono tabular-nums">{formatCad(spendBreakdown.serverless)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-surface/50 p-3">
+                    <div className="flex items-center gap-2 text-xs text-text-muted mb-1">
+                      <HardDrive className="h-3.5 w-3.5 text-ice-blue" />
+                      Storage
+                    </div>
+                    <p className="text-lg font-bold font-mono tabular-nums">{formatCad(spendBreakdown.storage)}</p>
+                  </div>
+                  <div className="rounded-lg border border-emerald/25 bg-emerald/[0.04] p-3">
+                    <div className="flex items-center gap-2 text-xs text-emerald mb-1">
+                      <TrendingDown className="h-3.5 w-3.5" />
+                      Save with spot
+                    </div>
+                    <p className="text-xs text-text-secondary leading-relaxed">
+                      Interruptible spot instances bill at published rates, often 40-60% below on-demand.
+                    </p>
+                    <Link
+                      href="/dashboard/spot-pricing"
+                      className="mt-2 inline-flex text-xs font-medium text-accent-cyan hover:underline"
+                    >
+                      View spot pricing →
+                    </Link>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Wallet & burn rate */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Burn Rate / Depletion Estimate */}
+            <Card className="border-ice/20">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Activity className="h-4 w-4 text-ice" />
+                  <p className="font-medium">{t("dash.billing.burn_rate")}</p>
+                </div>
+                {(() => {
+                  const balance = currentWalletBalance;
+                  const spent = usage?.total_cost_cad ?? 0;
+                  const hours = usage?.total_gpu_hours ?? 0;
+                  const burnPerHour = hours > 0 ? spent / hours : 0;
+                  const daysRemaining = burnPerHour > 0 ? balance / (burnPerHour * 24) : Infinity;
+                  const depletionDate = isFinite(daysRemaining)
+                    ? new Date(Date.now() + daysRemaining * 86400_000)
+                    : null;
+                  return (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-text-muted">Avg cost/GPU-hour</p>
+                        <p className="text-lg font-bold font-mono text-ice">
+                          ${burnPerHour.toFixed(2)}<span className="text-xs font-normal text-text-muted">/hr</span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-text-muted">Est. days remaining</p>
+                        <p className={`text-lg font-bold font-mono ${daysRemaining < 7 ? "text-accent-red" : daysRemaining < 30 ? "text-gold" : "text-emerald"}`}>
+                          {isFinite(daysRemaining) ? `${Math.floor(daysRemaining)}d` : "∞"}
+                        </p>
+                      </div>
+                      {depletionDate && (
+                        <div className="col-span-2">
+                          <p className="text-xs text-text-muted">
+                            Balance depletes ~{depletionDate.toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium">{t("dash.billing.wallet_credits")}</p>
+                    <p className="text-2xl font-bold font-mono text-emerald">
+                      {formatCad(currentWalletBalance)}
+                    </p>
+                  </div>
+                  {canManageBilling ? (
+                    <Button variant="success" onClick={() => setShowDeposit(true)}>
+                      <Plus className="h-4 w-4" /> {t("dash.billing.add_credits")}
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-text-muted max-w-[12rem] text-right">
+                      {t("dash.team.billing_admin_only")}
+                    </p>
+                  )}
+                </div>
+                {isPlatformAdmin && (
+                  <div className="flex flex-col gap-3 rounded-lg border border-accent-red/20 bg-accent-red/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-accent-red">{t("dash.billing.admin_reset_title")}</p>
+                      <p className="text-xs text-text-secondary">{t("dash.billing.admin_reset_desc")}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-accent-red/30 text-accent-red hover:bg-accent-red/10"
+                      onClick={() => setShowResetConfirm(true)}
+                      disabled={resettingWallet || freeCreditFlowActive}
+                    >
+                      {resettingWallet ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      {t("dash.billing.admin_reset_action")}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Storage Costs */}
+            {(() => {
+              const storageTxs = transactions.filter((tx) =>
+                tx.description?.toLowerCase().includes("storage") || tx.description?.toLowerCase().includes("volume")
+              );
+              const storageCost = storageTxs.reduce((sum, tx) => sum + Math.abs(tx.amount_cad), 0);
+              if (storageCost <= 0) return null;
+              return (
+                <Card className="border-ice-blue/20">
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <HardDrive className="h-4 w-4 text-ice-blue" />
+                      <p className="font-medium">Volume Storage</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-text-muted">Total storage cost</p>
+                        <p className="text-lg font-bold font-mono text-ice-blue">{formatCad(storageCost)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-text-muted">Billing cycles</p>
+                        <p className="text-lg font-bold font-mono">{storageTxs.length}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-text-muted/60">Persistent volumes billed per GB/month from your credits</p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+          </div>
+
+          {hasCryptoPaymentRails && canManageBilling && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Crypto Deposits</CardTitle>
+                <CardDescription>Fund your wallet with Bitcoin on-chain or Lightning Network. Zero processing fees.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 lg:grid-cols-2">
+                {paymentRailsLoading && (
+                  <>
+                    {[0, 1].map((index) => (
+                      <div
+                        key={index}
+                        className="rounded-2xl border border-border bg-surface/40 p-5"
+                      >
+                        <div className="mb-4 h-4 w-32 animate-pulse rounded bg-border/60" />
+                        <div className="mb-2 h-3 w-full animate-pulse rounded bg-border/40" />
+                        <div className="h-3 w-2/3 animate-pulse rounded bg-border/30" />
+                        <div className="mt-5 h-9 w-32 animate-pulse rounded-xl bg-border/40" />
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {!paymentRailsLoading && (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Bitcoin className="h-4 w-4 text-amber-500" />
+                      <p className="font-medium text-amber-500">Bitcoin Deposits</p>
+                      {!btcStatus.enabled && (
+                        <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                          Coming Soon
+                        </Badge>
+                      )}
+                      {btcStatus.enabled && !btcStatus.available && (
+                        <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                          Unavailable
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      {btcStatus.available
+                        ? "Pay with BTC - zero processing fees"
+                        : btcStatus.enabled
+                          ? "Bitcoin deposits are temporarily unavailable."
+                          : "Bitcoin on-chain deposits are coming soon. Stay tuned!"}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-5 bg-amber-500 hover:bg-amber-600 text-black"
+                      onClick={() => setShowCryptoDeposit(true)}
+                      disabled={!btcStatus.available}
+                      title={!btcStatus.available ? (btcStatus.enabled ? btcStatus.reason : "Coming soon") : undefined}
+                    >
+                      <Bitcoin className="h-3.5 w-3.5" />
+                      {btcStatus.available ? "Deposit BTC" : btcStatus.enabled ? "Unavailable" : "Coming Soon"}
+                    </Button>
+                  </div>
+                )}
+
+                {!paymentRailsLoading && (
+                  <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap className="h-4 w-4 text-violet-400" />
+                      <p className="font-medium text-violet-400">Lightning Network</p>
+                      {!lnStatus.enabled && (
+                        <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
+                          Coming Soon
+                        </Badge>
+                      )}
+                      {lnStatus.enabled && !lnStatus.available && (
+                        <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
+                          Unavailable
+                        </Badge>
+                      )}
+                      {lnStatus.available && (
+                        <Badge variant="active" className="border border-emerald/30 bg-emerald/10 text-emerald text-[10px]">
+                          Instant
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      {lnStatus.available
+                        ? "Instant deposits via Lightning, zero fees, instant settlement"
+                        : lnStatus.enabled
+                          ? (lnStatus.reason || "Lightning deposits are temporarily unavailable.")
+                          : "Lightning Network deposits are coming soon. Stay tuned!"}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-5 bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white"
+                      onClick={() => setShowLightningDeposit(true)}
+                      disabled={!lnStatus.available}
+                      title={!lnStatus.available ? (lnStatus.enabled ? lnStatus.reason : "Coming soon") : undefined}
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      {lnStatus.available ? "Deposit via Lightning" : lnStatus.enabled ? "Unavailable" : "Coming Soon"}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Reserved Plans */}
+          {RESERVED_PLANS_ENABLED && reservedTiers && (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">{t("dash.billing.reserved_plans")}</h2>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                {Object.entries(reservedTiers).map(([key, tier]) => {
+                  const meta = tierMeta[key] || { label: key, accent: "text-text-primary", icon: Clock };
+                  const Icon = meta.icon;
+                  const sample = Object.entries(tier.sample_hourly_rates_cad || {})[0];
+                  return (
+                    <Card key={key} className="relative overflow-hidden">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center gap-2">
+                          <Icon className={`h-4 w-4 ${meta.accent}`} />
+                          <CardTitle className="text-base">{meta.label}</CardTitle>
+                        </div>
+                        <CardDescription>{tier.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex items-baseline gap-1">
+                          <span className={`text-3xl font-bold font-mono ${meta.accent}`}>
+                            {tier.discount_pct}%
+                          </span>
+                          <span className="text-sm text-text-muted">discount</span>
+                        </div>
+                        {sample && (
+                          <p className="text-xs text-text-secondary">
+                            e.g. {sample[0]}: <span className="font-mono">${sample[1].toFixed(2)}/hr</span>
+                          </p>
+                        )}
+                        {tier.min_hours_per_day > 0 && (
+                          <p className="text-xs text-text-muted">
+                            Min {tier.min_hours_per_day}h/day commitment
+                          </p>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          disabled={subscribing === key}
+                          onClick={() => handleSubscribe(key, sample?.[0] || "RTX 4090")}
+                        >
+                          {subscribing === key ? (
+                            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Subscribing…</>
+                          ) : (
+                            t("dash.billing.subscribe")
+                          )}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Active Commitments + savings */}
+          {RESERVED_PLANS_ENABLED && reservations.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Active Commitments</h2>
+                {reservationSummary && reservationSummary.realized_savings_cad > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm text-emerald">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="font-medium">
+                      You&apos;ve saved {formatCad(reservationSummary.realized_savings_cad)} with reserved pricing
+                    </span>
+                  </div>
+                )}
+              </div>
+              {reservationSummary && reservationSummary.projected_monthly_savings_cad > 0 && (
+                <p className="text-xs text-text-muted mb-3">
+                  Projected savings of {formatCad(reservationSummary.projected_monthly_savings_cad)}/month
+                  at your committed minimum usage across {reservationSummary.active_count} active{" "}
+                  {reservationSummary.active_count === 1 ? "commitment" : "commitments"}.
+                </p>
+              )}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {reservations.map((r) => (
+                  <Card key={r.commitment_id} className="overflow-hidden">
+                    <CardContent className="space-y-2 pt-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{r.gpu_model}</span>
+                          <Badge variant="info" className="text-[10px]">
+                            {tierMeta[r.commitment_type]?.label || r.commitment_type.replace("_", " ")}
+                          </Badge>
+                        </div>
+                        <Badge
+                          variant={r.is_active ? "active" : "default"}
+                          className={`text-[10px] ${r.is_active ? "" : "text-text-muted"}`}
+                        >
+                          {r.is_active ? "Active" : r.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-lg font-bold font-mono text-emerald">
+                          {formatCad(r.discounted_rate_cad)}/hr
+                        </span>
+                        <span className="text-xs text-text-muted line-through font-mono">
+                          {formatCad(r.base_rate_cad)}/hr
+                        </span>
+                        <span className="text-xs font-medium text-emerald">−{r.discount_pct}%</span>
+                        {r.quantity > 1 && (
+                          <span className="text-xs text-text-muted">×{r.quantity} slots</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-text-muted">
+                        <Clock className="h-3 w-3" />
+                        {new Date(r.start_at * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                        {", "}
+                        {new Date(r.end_at * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                      </div>
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                        <span className="text-text-muted">{r.realized_hours.toFixed(1)} GPU-hrs used</span>
+                        <span className="font-medium text-emerald">
+                          {formatCad(r.realized_savings_cad)} saved
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Payment Methods & Auto-reload */}
+          {canManageBilling && <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-text-muted" /> Payment Methods
+              </CardTitle>
+              <CardDescription>
+                Saved cards, embedded Stripe checkout for top-ups, and automatic wallet reload
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {paymentMethods.length === 0 ? (
+                <p className="text-sm text-text-muted">No saved cards yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {paymentMethods.map((pm) => (
+                    <label
+                      key={pm.id}
+                      className="flex cursor-pointer items-center justify-between rounded-lg border border-border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="default-card"
+                          checked={autoTopup.payment_method_id === pm.id}
+                          onChange={() =>
+                            setAutoTopup((s) => ({ ...s, payment_method_id: pm.id }))
+                          }
+                          className="h-4 w-4 accent-ice-blue"
+                        />
+                        <CreditCard className="h-4 w-4 text-text-muted" />
+                        <div>
+                          <p className="text-sm font-medium capitalize">
+                            {pm.brand || "Card"} •••• {pm.last4}
+                          </p>
+                          <p className="text-xs text-text-muted">
+                            Expires {pm.exp_month}/{pm.exp_year}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDeleteCard(pm.id);
+                        }}
+                        className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-background hover:text-accent-red"
+                        aria-label="Remove card"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <Button variant="success" size="sm" onClick={() => setShowAddCard(true)}>
+                <Plus className="h-3.5 w-3.5" /> Add card
+              </Button>
+
+              {/* Auto-reload */}
+              <div className="space-y-3 rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-ice-blue" />
+                    <div>
+                      <p className="text-sm font-medium">Auto-reload</p>
+                      <p className="text-xs text-text-muted">
+                        Top up automatically when your balance runs low
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoTopup.enabled}
+                    disabled={paymentMethods.length === 0 || savingTopup}
+                    onClick={() => handleSaveAutoTopup({ enabled: !autoTopup.enabled })}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      autoTopup.enabled ? "bg-ice-blue" : "bg-border"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        autoTopup.enabled ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reload-amount" className="text-xs text-text-secondary">
+                      Reload amount (CAD)
+                    </Label>
+                    <Input
+                      id="reload-amount"
+                      type="number"
+                      min="5"
+                      max="10000"
+                      value={autoTopup.amount_cad}
+                      onChange={(e) =>
+                        setAutoTopup((s) => ({ ...s, amount_cad: Number(e.target.value) }))
+                      }
+                      className="font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reload-threshold" className="text-xs text-text-secondary">
+                      When balance below (CAD)
+                    </Label>
+                    <Input
+                      id="reload-threshold"
+                      type="number"
+                      min="0"
+                      max="10000"
+                      value={autoTopup.threshold_cad}
+                      onChange={(e) =>
+                        setAutoTopup((s) => ({ ...s, threshold_cad: Number(e.target.value) }))
+                      }
+                      className="font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-text-muted">
+                    {paymentMethods.length === 0
+                      ? "Add a card to enable auto-reload."
+                      : "Charged to your selected card above."}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => handleSaveAutoTopup({})}
+                    disabled={savingTopup || paymentMethods.length === 0}
+                  >
+                    {savingTopup ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>}
+
+          {/* Invoices */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>{t("dash.billing.invoices")}</CardTitle>
+                <CardDescription>{t("dash.billing.invoices_desc")}</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {canManageBilling && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleOpenStripePortal()}
+                    disabled={openingPortal}
+                  >
+                    {openingPortal ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Receipt className="h-3.5 w-3.5" />
+                    )}
+                    Stripe portal
+                  </Button>
+                )}
+                <Receipt className="h-4 w-4 text-text-muted hidden sm:block" aria-hidden />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {invoices.length === 0 ? (
+                <p className="text-sm text-text-muted">{t("dash.billing.no_invoices")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {invoices.map((inv) => (
+                    <div
+                      key={inv.invoice_id}
+                      className="flex items-center justify-between rounded-lg border border-border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-text-muted" />
+                        <div>
+                          <p className="text-sm font-medium">
+                            {new Date(inv.period_start * 1000).toLocaleDateString("en-CA", { year: "numeric", month: "short", timeZone: "UTC" })}
+                          </p>
+                          <p className="text-xs text-text-muted">
+                            {inv.line_items} item{inv.line_items !== 1 ? "s" : ""} · Tax {(inv.tax_rate * 100).toFixed(1)}%
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-sm font-mono font-medium">${inv.total_cad.toFixed(2)}</p>
+                          <Badge variant={inv.status === "paid" ? "active" : inv.status === "void" ? "dead" : "info"}>
+                            {inv.status}
+                          </Badge>
+                        </div>
+                        <Button variant="ghost" size="icon" aria-label={`Download invoice ${inv.invoice_id}`} onClick={() => handleInvoiceDownload(inv)}>
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Refunds, credited automatically for host-side job failures */}
+          {(() => {
+            const refunds = transactions.filter((tx) => tx.tx_type === "refund");
+            if (refunds.length === 0) return null;
+            const total = refunds.reduce((sum, tx) => sum + tx.amount_cad, 0);
+            return (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <RotateCcw className="h-4 w-4 text-emerald" /> Refunds
+                    </CardTitle>
+                    <CardDescription>
+                      Automatic credits for host-side job failures
+                    </CardDescription>
+                  </div>
+                  <span className="font-mono text-sm font-medium text-emerald">
+                    +${total.toFixed(2)} refunded
+                  </span>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {refunds.map((tx) => {
+                      const reason = parseRefundReason(tx.description);
+                      return (
+                        <div
+                          key={tx.tx_id}
+                          className="flex items-center justify-between rounded-lg border border-border p-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <RotateCcw className="h-4 w-4 text-emerald" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium">{reason.label}</p>
+                                <Badge
+                                  variant={reason.hostFault ? "active" : "default"}
+                                  className="text-[10px]"
+                                >
+                                  {reason.hostFault ? "Host fault" : "Partial"}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-text-muted">
+                                {api.walletTxTime(tx)}
+                                {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="font-mono text-sm font-medium text-emerald">
+                            +${tx.amount_cad.toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Transaction History, a page at a time. `transactions` (the newest
+              50) still feeds the burn rate, refunds and heatmap above and below. */}
+          <TransactionHistory customerId={customerId} refreshKey={transactions} />
+
+          {/* Usage Heatmap, hourly submission patterns */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Usage Heatmap</CardTitle>
+              <CardDescription>Hourly compute usage patterns (last 30 days)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                // Build 7×24 grid from transaction timestamps
+                const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+                let maxCount = 1;
+                for (const tx of transactions) {
+                  if (!tx.created_at) continue;
+                  const d = new Date(tx.created_at * 1000);
+                  const day = d.getDay();
+                  const hour = d.getHours();
+                  grid[day][hour]++;
+                  if (grid[day][hour] > maxCount) maxCount = grid[day][hour];
+                }
+                return (
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[600px]">
+                      {/* Hour labels */}
+                      <div className="flex ml-10 mb-1">
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <div key={h} className="flex-1 text-center text-[10px] text-text-muted">
+                            {h % 6 === 0 ? `${h}h` : ""}
+                          </div>
+                        ))}
+                      </div>
+                      {/* Grid rows */}
+                      {days.map((dayLabel, dayIdx) => (
+                        <div key={dayLabel} className="flex items-center gap-1 mb-0.5">
+                          <span className="w-9 text-xs text-text-muted text-right pr-1">{dayLabel}</span>
+                          {grid[dayIdx].map((count, hour) => {
+                            const intensity = count / maxCount;
+                            const bg = count === 0
+                              ? "bg-surface"
+                              : intensity < 0.25
+                              ? "bg-ice/20"
+                              : intensity < 0.5
+                              ? "bg-ice/40"
+                              : intensity < 0.75
+                              ? "bg-ice/60"
+                              : "bg-ice";
+                            return (
+                              <div
+                                key={hour}
+                                className={`flex-1 h-4 rounded-sm ${bg} transition-colors`}
+                                title={`${dayLabel} ${hour}:00, ${count} transaction${count !== 1 ? "s" : ""}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                      {/* Legend */}
+                      <div className="flex items-center gap-2 mt-3 ml-10">
+                        <span className="text-[10px] text-text-muted">Less</span>
+                        <div className="w-3 h-3 rounded-sm bg-surface border border-border" />
+                        <div className="w-3 h-3 rounded-sm bg-ice/20" />
+                        <div className="w-3 h-3 rounded-sm bg-ice/40" />
+                        <div className="w-3 h-3 rounded-sm bg-ice/60" />
+                        <div className="w-3 h-3 rounded-sm bg-ice" />
+                        <span className="text-[10px] text-text-muted">More</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* Deposit Modal */}
+      {showDeposit && customerId && canManageBilling && (
+        <DepositModal
+          customerId={customerId}
+          onClose={() => setShowDeposit(false)}
+          onSuccess={(newBalance) => {
+            setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
+            setShowDeposit(false);
+            window.dispatchEvent(new CustomEvent("xcelsior-wallet-changed"));
+            load();
+          }}
+        />
+      )}
+
+      {/* Add Card Modal (Stripe SetupIntent) */}
+      {showAddCard && canManageBilling && (
+        <PaymentMethodModal
+          onClose={() => setShowAddCard(false)}
+          onSuccess={() => loadPaymentMethods()}
+          autoReload={autoTopup}
+        />
+      )}
+
+      {/* Crypto Deposit Modal */}
+      {showCryptoDeposit && customerId && canManageBilling && btcStatus.available && (
+        <CryptoDepositModal
+          customerId={customerId}
+          onClose={() => setShowCryptoDeposit(false)}
+          onSuccess={(newBalance) => {
+            setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
+            setShowCryptoDeposit(false);
+            load();
+          }}
+        />
+      )}
+      {showLightningDeposit && customerId && canManageBilling && lnStatus.available && (
+        <LightningDepositModal
+          customerId={customerId}
+          onClose={() => setShowLightningDeposit(false)}
+          onSuccess={(newBalance) => {
+            setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
+            setShowLightningDeposit(false);
+            load();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        title={t("dash.billing.admin_reset_confirm_title")}
+        description={t("dash.billing.admin_reset_confirm_desc")}
+        confirmLabel={t("dash.billing.admin_reset_confirm_action")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={() => { void handleResetWalletTestingState(); }}
+        onCancel={() => {
+          if (!resettingWallet) setShowResetConfirm(false);
+        }}
+      />
+    </div>
+  );
+}

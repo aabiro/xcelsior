@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" fill="none">
+  <defs>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/>
+      <stop offset="48%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="brandSoft" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.05"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="50%" cy="38%" r="70%">
+      <stop offset="0%" stop-color="#1b2740"/>
+      <stop offset="100%" stop-color="#070b15"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="22%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pcb" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#16233c"/>
+      <stop offset="100%" stop-color="#0a1322"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/>
+      <stop offset="40%" stop-color="#2a8cff"/>
+      <stop offset="100%" stop-color="#0b1b3a"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#b8862f"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <pattern id="grid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M22 0H0V22" fill="none" stroke="#22e0ff" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+</defs>
+  <rect width="480" height="320" rx="28" fill="url(#spot)"/>
+  <rect width="480" height="320" rx="28" fill="url(#grid)"/>
+  <circle cx="392" cy="70" r="80" fill="#22e0ff" filter="url(#bloom)" opacity="0.16"/>
+  <circle cx="86" cy="250" r="66" fill="#7c3aed" filter="url(#bloom)" opacity="0.18"/>
+  <g opacity="0.5" stroke="url(#brand)" fill="none">
+    <ellipse cx="240" cy="160" rx="196" ry="78" stroke-width="1" opacity="0.22"/>
+    <ellipse cx="240" cy="160" rx="252" ry="104" stroke-width="0.75" opacity="0.12"/>
+  </g>
+  
+  <g transform="translate(240,160) scale(1.18)" filter="url(#cardShadow)">
+    <rect x="-104" y="-58" width="208" height="116" rx="14" fill="url(#pcb)" stroke="url(#brand)" stroke-width="1.5"/>
+    <rect x="-104" y="-58" width="208" height="116" rx="14" fill="url(#glass)"/>
+    <!-- heatsink fins -->
+    <g stroke="#22e0ff" stroke-opacity="0.5" stroke-width="2">
+      <path d="M-86,-40 V40 M-74,-40 V40 M-62,-40 V40 M-50,-40 V40 M-38,-40 V40 M-26,-40 V40"/>
+    </g>
+    <rect x="-92" y="-44" width="78" height="88" rx="8" fill="none" stroke="#334a6b" stroke-width="1"/>
+    <!-- die -->
+    <rect x="6" y="-34" width="78" height="68" rx="8" fill="#0a1322"/>
+    <rect x="6" y="-34" width="78" height="68" rx="8" fill="url(#core)" opacity="0.92"/>
+    <rect x="6" y="-34" width="78" height="68" rx="8" fill="none" stroke="#7cf2ff" stroke-opacity="0.4"/>
+    <g stroke="#0a1322" stroke-opacity="0.55" stroke-width="1.2">
+      <path d="M19,-34 V34 M32,-34 V34 M45,-34 V34 M58,-34 V34 M71,-34 V34 M6,-21 H84 M6,-8 H84 M6,5 H84 M6,18 H84"/>
+    </g>
+    <circle cx="45" cy="0" r="20" fill="none" stroke="#7cf2ff" stroke-opacity="0.45" stroke-width="1.5"/>
+    <circle cx="45" cy="0" r="12" fill="#eafcff" opacity="0.95" filter="url(#glow)"/>
+    <path d="M10,-30 Q45,-37 80,-30 L80,-19 Q45,-25 10,-19 Z" fill="#ffffff" opacity="0.10"/>
+    <!-- gold pin edge -->
+    <rect x="-104" y="50" width="208" height="8" rx="2" fill="url(#gold)" opacity="0.8"/>
+    <g stroke="#0a1322" stroke-width="1.4">
+      <path d="M-92,50 V58 M-80,50 V58 M-68,50 V58 M-56,50 V58 M-44,50 V58 M-32,50 V58 M-20,50 V58 M-8,50 V58 M4,50 V58 M16,50 V58 M28,50 V58 M40,50 V58 M52,50 V58 M64,50 V58 M76,50 V58 M88,50 V58"/>
+    </g>
+  </g>
+  <rect width="480" height="320" rx="28" fill="url(#brandSoft)"/>
+</svg>

@@ -1,0 +1,15 @@
+"$schema" = "../gen/schemas/acl-manifests.json"
+
+[default]
+description = "Default permission set for the Xcelsior desktop shell command bridge."
+permissions = [
+  "allow-desktop-get-state",
+  "allow-desktop-update-preferences",
+  "allow-desktop-sync-remote-state",
+  "allow-desktop-show-control-center",
+  "allow-desktop-open-main-window",
+  "allow-desktop-check-for-updates",
+  "allow-desktop-install-update",
+  "allow-desktop-open-external-url",
+  "allow-desktop-clear-deep-links"
+]

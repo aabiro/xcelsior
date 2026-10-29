@@ -1,0 +1,18 @@
+[Unit]
+Description=Xcelsior iptables fix (Tailscale FORWARD rules)
+Documentation=file:///opt/xcelsior/scripts/xcelsior-iptables-fix.sh
+After=tailscaled.service network-online.target
+Wants=tailscaled.service network-online.target
+# If tailscaled restarts, we may need to re-apply rules — the timer also
+# catches this on its 60 s cadence, but PartOf ensures fast reaction on
+# explicit stop/start cycles.
+PartOf=tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xcelsior-iptables-fix.sh
+# Run the script as root so iptables calls succeed; no privilege drop
+# needed — it only modifies firewall rules.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+<defs>
+    <linearGradient id="gl-body" x1="16" y1="40" x2="114" y2="94" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"></stop><stop offset=".55" stop-color="#f1f5f9"></stop><stop offset="1" stop-color="#e2e8f0"></stop></linearGradient>
+    <linearGradient id="gl-edge" x1="8" y1="38" x2="116" y2="96" gradientUnits="userSpaceOnUse"><stop stop-color="#0891b2"></stop><stop offset=".6" stop-color="#7c3aed"></stop><stop offset="1" stop-color="#059669"></stop></linearGradient>
+    <linearGradient id="gl-gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fde68a"></stop><stop offset="1" stop-color="#d4a233"></stop></linearGradient>
+    <radialGradient id="gl-sh" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#1e293b" stop-opacity="0.16"></stop><stop offset="100%" stop-color="#1e293b" stop-opacity="0"></stop></radialGradient>
+    <filter id="gl-glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity=".16"></feDropShadow><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#0891b2" flood-opacity=".24"></feDropShadow></filter>
+  </defs>
+  <ellipse cx="64" cy="110" rx="48" ry="6" fill="url(#gl-sh)"></ellipse>
+  <rect x="7" y="38" width="9" height="58" rx="2.5" fill="url(#gl-body)" stroke="url(#gl-edge)" stroke-width="2"></rect>
+  <g stroke="url(#gl-edge)" stroke-width="2" stroke-linecap="round" opacity=".8"><path d="M10 50h5M10 62h5M10 74h5"></path></g>
+  <rect x="16" y="40" width="98" height="54" rx="10" fill="url(#gl-body)" stroke="url(#gl-edge)" stroke-width="2.4" filter="url(#gl-glow)"></rect>
+  <rect x="20.5" y="44.5" width="89" height="45" rx="6" fill="#0f172a" fill-opacity="0.035"></rect>
+  <g stroke="#0891b2" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"><path d="M104 50v34M110 54v26"></path></g>
+  
+    <circle cx="46" cy="67" r="16" stroke="url(#gl-edge)" stroke-width="2.2" fill="none"></circle>
+    <g transform="translate(46,67) scale(0.6)" stroke="url(#gl-edge)" stroke-width="3" stroke-linecap="round" opacity="0.9" fill="none">
+      <path d="M0 0C10 -14 24 -12 22 0"></path><path d="M0 0C14 10 12 24 0 22"></path><path d="M0 0C-14 10 -28 8 -26 -2"></path><path d="M0 0C-10 -14 -12 -26 0 -24"></path>
+    </g>
+    <circle cx="46" cy="67" r="4.5" fill="#0891b2"></circle>
+    <circle cx="46" cy="67" r="4.5" stroke="#0f172a" stroke-opacity="0.3" stroke-width="1"></circle>
+  
+    <circle cx="86" cy="67" r="16" stroke="url(#gl-edge)" stroke-width="2.2" fill="none"></circle>
+    <g transform="translate(86,67) scale(0.6)" stroke="url(#gl-edge)" stroke-width="3" stroke-linecap="round" opacity="0.9" fill="none">
+      <path d="M0 0C10 -14 24 -12 22 0"></path><path d="M0 0C14 10 12 24 0 22"></path><path d="M0 0C-14 10 -28 8 -26 -2"></path><path d="M0 0C-10 -14 -12 -26 0 -24"></path>
+    </g>
+    <circle cx="86" cy="67" r="4.5" fill="#0891b2"></circle>
+    <circle cx="86" cy="67" r="4.5" stroke="#0f172a" stroke-opacity="0.3" stroke-width="1"></circle>
+  <rect x="28" y="94" width="48" height="7" rx="1.5" fill="url(#gl-gold)"></rect>
+  <g stroke="#f1f5f9" stroke-width="2"><path d="M36 94v6M46 94v6M56 94v6M66 94v6"></path></g>
+</svg>

@@ -1,0 +1,3103 @@
+# Xcelsior Database Abstraction Layer
+# Supports SQLite (dev/default) and PostgreSQL (production).
+# Implements expand/contract dual-write migration pattern.
+#
+# Architecture follows REPORT_EXCELSIOR_TECHNICAL_FINAL.md:
+#   - psycopg3 for Postgres (native SQLAlchemy 2.0+ integration)
+#   - JSONB + GIN indexing for flexible payloads
+#   - Dual-write for zero-downtime migration
+#   - Feature-flagged read/write switching
+
+import os
+
+# Auto-load .env file (must be before any os.environ reads) — except under the
+# test suite. `.env` is the developer's own config, and it holds real
+# credentials; loaded here, it silently filled every variable `.env.test` did
+# not set, so tests passed or failed by whose machine ran them, and could reach
+# live services with live keys. conftest sets XCELSIOR_SKIP_DOTENV before
+# anything imports this module.
+from dotenv import load_dotenv
+
+if not os.environ.get("XCELSIOR_SKIP_DOTENV"):
+    load_dotenv()
+
+import json
+import logging
+import os
+import sqlite3
+import threading
+import time
+from collections.abc import Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, cast
+
+from oauth_delegation import assert_delegable  # scope-write guard, see #16
+
+log = logging.getLogger("xcelsior")
+
+# ── Configuration ─────────────────────────────────────────────────────
+
+DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
+
+# Database backend: "sqlite", "postgres", or "dual" (dual-write migration mode)
+DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
+
+
+_DEFAULT_POSTGRES_DSN = "postgresql://xcelsior:xcelsior@localhost:5432/xcelsior"
+
+
+def resolve_shared_postgres_dsn() -> str:
+    """The shared application DSN, ignoring any per-service override.
+
+    This is the fallback every service uses until an operator cuts it
+    over to its own least-privilege role (companion §4.2).
+    """
+    return (
+        os.environ.get("XCELSIOR_POSTGRES_DSN")
+        or os.environ.get("XCELSIOR_PG_DSN")
+        or os.environ.get("DATABASE_URL")
+        or _DEFAULT_POSTGRES_DSN
+    )
+
+
+def resolve_postgres_dsn() -> str:
+    """Postgres DSN for this process.
+
+    Resolution order (data-architecture companion §4.2/§4.3):
+
+    1. ``XCELSIOR_POSTGRES_DSN_<SERVICE>`` for the logical service this
+       process declares via ``XCELSIOR_SERVICE`` — this is how a service
+       is cut over to its own least-privilege role. Unset by default, so
+       provisioning roles never changes behaviour on its own.
+    2. the shared application DSN (``XCELSIOR_POSTGRES_DSN`` / legacy
+       ``XCELSIOR_PG_DSN`` / ``DATABASE_URL``).
+    """
+    shared = resolve_shared_postgres_dsn()
+    try:
+        from control_plane.db_roles import current_service, service_dsn_env_var
+
+        specific = (os.environ.get(service_dsn_env_var(current_service())) or "").strip()
+        if specific:
+            return specific
+    except Exception:  # pragma: no cover - never let identity wiring break DB access
+        pass
+    return shared
+
+
+# PostgreSQL connection string (used when backend is "postgres" or "dual")
+POSTGRES_DSN = resolve_postgres_dsn()
+
+# During dual-write, which DB to read from: "sqlite" or "postgres"
+DUAL_READ_FROM = os.environ.get("XCELSIOR_DUAL_READ_FROM", "sqlite").lower()
+
+# Connection pool settings (Postgres)
+PG_POOL_SIZE = int(os.environ.get("XCELSIOR_PG_POOL_SIZE", "20"))
+PG_MAX_OVERFLOW = int(os.environ.get("XCELSIOR_PG_MAX_OVERFLOW", "10"))
+
+
+def _db_path():
+    return os.environ.get("XCELSIOR_DB_PATH", DEFAULT_DB_FILE)
+
+
+# ── SQLite Backend ────────────────────────────────────────────────────
+
+
+def _ensure_sqlite_tables(conn):
+    """Ensure all scheduler persistence tables and indexes exist in SQLite."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS state " "(namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS jobs (
+            job_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            priority INTEGER NOT NULL,
+            submitted_at REAL NOT NULL,
+            host_id TEXT,
+            payload TEXT NOT NULL
+        )
+        """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hosts (
+            host_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            registered_at REAL NOT NULL,
+            payload TEXT NOT NULL
+        )
+        """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_queue "
+        "ON jobs(status, priority DESC, submitted_at ASC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_hosts_status " "ON hosts(status, registered_at ASC)"
+    )
+
+
+@contextmanager
+def sqlite_connection():
+    """SQLite connection with WAL mode enabled."""
+    conn = sqlite3.connect(_db_path(), timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    _ensure_sqlite_tables(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextmanager
+def sqlite_transaction():
+    """Execute a mutation in a single SQLite write transaction."""
+    with sqlite_connection() as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+# ── PostgreSQL Backend ────────────────────────────────────────────────
+
+_pg_pool: Any = None
+_pg_pool_lock = threading.Lock()
+
+
+def _get_pg_pool() -> Any:
+    """Lazy-initialize PostgreSQL connection pool using psycopg3.
+
+    Retries with exponential backoff if PG is temporarily unavailable
+    (up to 5 attempts: 1s, 2s, 4s, 8s, 16s).
+    """
+    global _pg_pool
+    if _pg_pool is not None:
+        return _pg_pool
+
+    with _pg_pool_lock:
+        if _pg_pool is not None:
+            return _pg_pool
+
+        try:
+            from psycopg_pool import ConnectionPool
+        except ImportError:
+            log.error(
+                "psycopg or psycopg_pool not installed. "
+                "Install with: pip install 'psycopg[binary]' psycopg_pool"
+            )
+            raise
+
+        max_attempts = 5
+
+        # Reset hook — runs when a connection is RETURNED to the pool.
+        # Many call sites mutate ``conn.row_factory = dict_row`` directly
+        # (legacy pattern used in 20+ places). Without a reset hook, the
+        # next caller to check out that same connection inherits
+        # ``dict_row`` silently and code that expects ``row[0]`` crashes
+        # with ``KeyError: 0``. This reset restores the default tuple
+        # factory so every checkout starts clean.
+        def _reset_conn(_conn):
+            try:
+                from psycopg.rows import tuple_row
+
+                _conn.row_factory = tuple_row
+            except Exception:
+                pass
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Re-read DSN at pool init (conftest may set vars after import).
+                dsn = resolve_postgres_dsn()
+                # Companion §4.3: every physical session carries this
+                # service's application_name and bounded statement /
+                # lock / idle-in-transaction timeouts. Applied as libpq
+                # connect options so they hold for the life of the
+                # session and cannot be forgotten by a call site.
+                conn_kwargs: dict[str, Any] = {"autocommit": False}
+                try:
+                    from control_plane.db_roles import connection_kwargs
+
+                    conn_kwargs.update(connection_kwargs())
+                except Exception:  # pragma: no cover - defensive
+                    log.debug("per-service connection identity unavailable", exc_info=True)
+                pool = ConnectionPool(
+                    dsn,
+                    min_size=2,
+                    max_size=PG_POOL_SIZE,
+                    max_idle=PG_MAX_OVERFLOW,
+                    kwargs=conn_kwargs,
+                    reset=_reset_conn,
+                )
+                # Verify the pool can actually connect
+                with pool.connection() as conn:
+                    _ensure_pg_tables(conn)
+                    conn.commit()
+
+                _pg_pool = pool
+                log.info(
+                    "PostgreSQL connection pool initialized (size=%d, max_idle=%d)",
+                    PG_POOL_SIZE,
+                    PG_MAX_OVERFLOW,
+                )
+                return _pg_pool
+            except Exception as e:
+                if attempt == max_attempts:
+                    log.error(
+                        "Failed to connect to PostgreSQL after %d attempts: %s",
+                        max_attempts,
+                        e,
+                    )
+                    raise
+                delay = 2 ** (attempt - 1)  # 1s, 2s, 4s, 8s
+                log.warning(
+                    "PostgreSQL connection attempt %d/%d failed: %s — retrying in %ds",
+                    attempt,
+                    max_attempts,
+                    e,
+                    delay,
+                )
+                time.sleep(delay)
+
+    raise RuntimeError("PostgreSQL pool initialization exited retry loop unexpectedly")
+
+
+# ── GPU Pricing seed data ─────────────────────────────────────────────
+# Platform-controlled GPU rates in CAD. Volume costs are computed at
+# runtime in billing.py and are NOT stored here.
+#
+# Pricing is derived from a compact base table: one canonical short name
+# + variant tuple + standard on-demand rate per row. Tiers (standard /
+# premium / dedicated) and pricing modes (on_demand / spot / reserved)
+# are expanded at seed time via deterministic multipliers.
+#
+# Canonical names MUST match frontend/src/lib/gpu-models.ts exactly.
+# Worker agents translate nvidia-smi names to canonical short titles
+# via the lookup dict in worker_agent.py — NO normalizer here.
+
+# (gpu_model, vram_gb, form_factor, high_frequency, standard_on_demand_cad)
+_GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
+    # ── NVIDIA Data Center ──
+    # Competitive CAD list rates: below RunPod cloud, above rock-bottom Vast;
+    # platform cut separate. 2060 → 3060/4090 fleet path priced for global demand.
+    ("B200", 192, "OAM", False, 9.50),
+    ("H200", 141, "SXM", False, 4.20),
+    ("H100", 80, "SXM", False, 3.10),
+    ("H100", 80, "PCIe", False, 2.60),
+    ("H100 NVL", 94, "PCIe", False, 2.90),
+    ("A100", 80, "SXM", False, 1.85),
+    ("A100", 80, "PCIe", False, 1.55),
+    ("A100", 40, "SXM", False, 1.35),
+    ("A100", 40, "PCIe", False, 1.15),
+    ("A40", 48, "PCIe", False, 1.10),
+    ("A30", 24, "PCIe", False, 0.75),
+    ("A10", 24, "PCIe", False, 0.65),
+    ("A16", 16, "PCIe", False, 0.60),
+    ("L40S", 48, "PCIe", False, 1.55),
+    ("L40", 48, "PCIe", False, 1.45),
+    ("L4", 24, "PCIe", False, 0.60),
+    ("T4", 16, "PCIe", False, 0.32),
+    ("V100", 32, "PCIe", False, 0.90),
+    ("V100", 16, "PCIe", False, 0.70),
+    # ── NVIDIA RTX 50 Series ──
+    ("RTX 5090", 32, "PCIe", False, 0.85),
+    ("RTX 5080", 16, "PCIe", False, 0.52),
+    ("RTX 5070 Ti", 16, "PCIe", False, 0.42),
+    ("RTX 5070", 12, "PCIe", False, 0.36),
+    ("RTX 5060 Ti", 16, "PCIe", False, 0.28),
+    ("RTX 5060", 8, "PCIe", False, 0.20),
+    # ── NVIDIA RTX 40 Series ──
+    ("RTX 4090", 24, "PCIe", False, 0.49),
+    ("RTX 4090", 24, "PCIe", True, 0.55),  # high-frequency variant
+    ("RTX 4080 Super", 16, "PCIe", False, 0.40),
+    ("RTX 4080", 16, "PCIe", False, 0.38),
+    ("RTX 4070 Ti Super", 16, "PCIe", False, 0.32),
+    ("RTX 4070 Ti", 12, "PCIe", False, 0.28),
+    ("RTX 4070 Super", 12, "PCIe", False, 0.26),
+    ("RTX 4070", 12, "PCIe", False, 0.24),
+    ("RTX 4060 Ti", 16, "PCIe", False, 0.20),
+    ("RTX 4060 Ti", 8, "PCIe", False, 0.17),
+    ("RTX 4060", 8, "PCIe", False, 0.14),
+    # ── NVIDIA RTX 30 Series ──
+    ("RTX 3090 Ti", 24, "PCIe", False, 0.32),
+    ("RTX 3090", 24, "PCIe", False, 0.28),
+    ("RTX 3080 Ti", 12, "PCIe", False, 0.24),
+    ("RTX 3080", 12, "PCIe", False, 0.20),
+    ("RTX 3080", 10, "PCIe", False, 0.18),
+    ("RTX 3070 Ti", 8, "PCIe", False, 0.17),
+    ("RTX 3070", 8, "PCIe", False, 0.15),
+    ("RTX 3060 Ti", 8, "PCIe", False, 0.14),
+    ("RTX 3060", 12, "PCIe", False, 0.12),
+    # ── NVIDIA RTX 20 Series ──
+    ("RTX 2080 Ti", 11, "PCIe", False, 0.18),
+    ("RTX 2080 Super", 8, "PCIe", False, 0.15),
+    ("RTX 2080", 8, "PCIe", False, 0.14),
+    ("RTX 2070 Super", 8, "PCIe", False, 0.12),
+    ("RTX 2070", 8, "PCIe", False, 0.11),
+    ("RTX 2060 Super", 8, "PCIe", False, 0.10),
+    ("RTX 2060", 6, "PCIe", False, 0.08),
+    # ── NVIDIA Workstation (Ada & Ampere) ──
+    ("RTX 6000 Ada", 48, "PCIe", False, 1.85),
+    ("RTX 5000 Ada", 32, "PCIe", False, 1.30),
+    ("RTX 4000 Ada", 20, "PCIe", False, 0.80),
+    ("RTX A6000", 48, "PCIe", False, 1.05),
+    ("RTX A5000", 24, "PCIe", False, 0.90),
+    ("RTX A4000", 16, "PCIe", False, 0.55),
+    # ── AMD Data Center ──
+    ("MI300X", 192, "OAM", False, 4.20),
+    ("MI250X", 128, "OAM", False, 2.60),
+    ("MI210", 64, "PCIe", False, 1.30),
+    # ── AMD Consumer ──
+    ("RX 7900 XTX", 24, "PCIe", False, 0.26),
+    ("RX 7900 XT", 20, "PCIe", False, 0.22),
+]
+
+# Deterministic expansion of base rates into the full tier × mode matrix.
+# The dedicated tier carries no price premium: we compete on price and developer
+# experience. It is a support and SLA tier, not a location claim.
+_TIER_MULT = {"standard": 1.0, "premium": 1.30, "dedicated": 1.0}
+_MODE_MULT = {
+    "on_demand": 1.0,
+    "spot": 0.40,
+    "reserved_1mo": 0.80,
+    "reserved_3mo": 0.70,  # 30% off — matches billing API 3_month commitment
+    "reserved_1yr": 0.55,
+}
+
+
+def _generate_gpu_pricing_rows() -> list[tuple]:
+    """Expand ``_GPU_PRICING_BASE`` into the full pricing matrix."""
+    out: list[tuple] = []
+    for model, vram, form_factor, high_freq, base in _GPU_PRICING_BASE:
+        for tier, tmult in _TIER_MULT.items():
+            for mode, mmult in _MODE_MULT.items():
+                rate = round(base * tmult * mmult, 4)
+                out.append(
+                    (
+                        model,
+                        vram,
+                        form_factor,
+                        high_freq,
+                        tier,
+                        mode,
+                        round(rate * 1_000_000),
+                        1.0,  # priority_multiplier
+                        0.0,  # spot_discount (already in mode_mult)
+                        0.05,
+                        0.10,  # multi-GPU discounts
+                    )
+                )
+    return out
+
+
+_GPU_PRICING_SEED = _generate_gpu_pricing_rows()
+
+# Priority multipliers applied at query time, not stored per-row
+GPU_PRIORITY_MULTIPLIERS = {
+    "low": 0.8,
+    "normal": 1.0,
+    "high": 1.3,
+    "critical": 1.6,
+}
+
+
+def _seed_gpu_pricing(cur):
+    """Insert seed pricing rows if table is empty.
+
+    Idempotent: uses ON CONFLICT DO NOTHING against the variant-aware
+    unique constraint (gpu_model, vram_gb, form_factor, high_frequency,
+    tier, pricing_mode). Newly added base rows are picked up on the
+    next boot.
+    """
+    for row in _GPU_PRICING_SEED:
+        cur.execute(
+            """INSERT INTO gpu_pricing
+               (gpu_model, vram_gb, form_factor, high_frequency,
+                tier, pricing_mode, base_rate_micros,
+                priority_multiplier, spot_discount,
+                multi_gpu_discount_4, multi_gpu_discount_8)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (gpu_model, vram_gb, form_factor, high_frequency,
+                            tier, pricing_mode) DO NOTHING""",
+            row,
+        )
+    log.info("Seeded gpu_pricing table with %d rows", len(_GPU_PRICING_SEED))
+
+
+def _pg_schema_is_migrated(conn) -> bool:
+    """True when Alembic has stamped a revision on this database.
+
+    Production schema authority is Alembic only. Runtime ensure
+    paths use this to stay seed-only (or no-op) on migrated DBs.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT to_regclass('public.alembic_version')")
+        reg = cur.fetchone()
+        reg_value = (
+            next(iter(reg.values()), None)
+            if isinstance(reg, Mapping)
+            else (reg[0] if reg is not None else None)
+        )
+        if reg_value is None:
+            return False
+        cur.execute("SELECT version_num FROM alembic_version LIMIT 1")
+        row = cur.fetchone()
+        if row is None:
+            return False
+        version = row.get("version_num") if isinstance(row, Mapping) else row[0]
+        return bool(version)
+    except Exception:
+        return False
+
+
+def _ensure_pg_tables(conn):
+    """Seed-only ensure helper — no runtime CREATE/ALTER on migrated Postgres.
+
+    Schema evolution is owned by Alembic (residual ensure-only objects
+    live in migration 061). On a migrated database this only seeds
+    ``gpu_pricing`` reference rows (idempotent ON CONFLICT DO NOTHING).
+    On an unmigrated database it refuses to invent schema and logs —
+    operators must run ``alembic upgrade head`` or
+    ``scripts/bootstrap_pg_from_empty.sh``.
+    """
+    if not _pg_schema_is_migrated(conn):
+        log.error(
+            "PostgreSQL schema is not Alembic-managed (alembic_version "
+            "missing/empty). Runtime CREATE/ALTER is disabled  — "
+            "run scripts/bootstrap_pg_from_empty.sh or alembic upgrade head."
+        )
+        return
+
+    cur = conn.cursor()
+    try:
+        _seed_gpu_pricing(cur)
+    except Exception as e:
+        # Migrated stamp without gpu_pricing means the expand chain is
+        # incomplete or a wrong database was pointed at the pool.
+        log.error(
+            "gpu_pricing seed failed on Alembic-managed DB (A1.6 seed-only " "path): %s",
+            e,
+        )
+
+
+@contextmanager
+def pg_connection():
+    """PostgreSQL connection from pool."""
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        yield conn
+
+
+@contextmanager
+def pg_transaction():
+    """PostgreSQL transactional block."""
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+# ── Unified Interface ─────────────────────────────────────────────────
+
+
+class DatabaseOps:
+    """Unified database operations that work across SQLite and PostgreSQL."""
+
+    @staticmethod
+    def decode_payload(payload):
+        """Decode a JSON payload from either backend."""
+        if payload is None:
+            return None
+        if isinstance(payload, dict):
+            return payload  # Already decoded (psycopg3 JSONB auto-decodes)
+        try:
+            return json.loads(payload)
+        except (TypeError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
+    def encode_payload(data):
+        """Encode data for storage. Returns JSON string for SQLite, dict for Postgres."""
+        if isinstance(data, str):
+            return data
+        return json.dumps(data)
+
+    @staticmethod
+    def upsert_job(conn, job, backend="sqlite"):
+        """Upsert a job record."""
+        job_id = str(job.get("job_id", "")).strip()
+        if not job_id:
+            log.error(
+                "upsert_job refused: missing job_id (status=%r) — "
+                "caller must set job_id from the jobs PK",
+                job.get("status") if isinstance(job, dict) else None,
+            )
+            raise ValueError("upsert_job requires job_id")
+
+        status = str(job.get("status") or "queued")
+        priority = int(job.get("priority", 0) or 0)
+        submitted_at = float(job.get("submitted_at", time.time()) or time.time())
+        host_id = job.get("host_id")
+        pricing_mode = str(job.get("pricing_mode") or "on_demand")
+        if pricing_mode not in ("on_demand", "spot", "reserved"):
+            pricing_mode = "on_demand"
+        spot_rate = job.get("spot_rate_cad")
+        spot_rate_cad = float(spot_rate) if spot_rate is not None else None
+        # Validated at the API boundary (`host_key_fingerprint.parse_...`); this
+        # only carries it. A value that never passed that boundary cannot reach
+        # here, because nothing else writes the key into the job dict.
+        host_key_fingerprint = job.get("host_key_fingerprint") or None
+
+        # P5's placement preference, in the units the schema stores (115).
+        # Percent arrives at the API; basis points are what a price bound can be
+        # compared on exactly. `pct_to_bps` reads the number the caller wrote
+        # rather than the float it became — see
+        # `tests/test_placement_preference_is_exact.py`, where `int(8.7 * 100)`
+        # is 869.
+        #
+        # Clamped here as well as CHECKed in the database. The constraint is the
+        # backstop for every writer; this is so a caller that fat-fingers a
+        # bound gets it bounded rather than a failed insert on the launch path.
+        from control_plane.scheduler.preference import pct_to_bps
+
+        _pref = job.get("placement_preference") or {}
+        _min_uptime_bps = pct_to_bps(_pref.get("min_uptime_pct"))
+        if _min_uptime_bps is not None:
+            _min_uptime_bps = max(0, min(10_000, _min_uptime_bps))
+        _max_premium_bps = pct_to_bps(_pref.get("max_premium_pct"))
+        if _max_premium_bps is not None:
+            _max_premium_bps = max(0, min(100_000_000, _max_premium_bps))
+        _min_tier = str(_pref.get("min_tier") or "").strip().lower() or None
+        _require_verified = bool(_pref.get("require_verified") or False)
+
+        if backend == "postgres":
+            from psycopg.types.json import Jsonb
+
+            conn.execute(
+                """
+                INSERT INTO jobs(
+                    job_id, status, priority, submitted_at, host_id,
+                    pricing_mode, spot_rate_micros, host_key_fingerprint, payload,
+                    placement_min_uptime_bps, placement_min_tier,
+                    placement_require_verified, placement_max_premium_bps
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    priority = EXCLUDED.priority,
+                    submitted_at = EXCLUDED.submitted_at,
+                    host_id = EXCLUDED.host_id,
+                    pricing_mode = EXCLUDED.pricing_mode,
+                    spot_rate_micros = EXCLUDED.spot_rate_micros,
+                    -- Moves in the *same* statement as host_id. A2 of
+                    -- docs/host-key-fingerprint-plan.md: the fingerprint
+                    -- describes the container, so it cannot be allowed to
+                    -- outlive the host field that defines it. Structural, not
+                    -- procedural — no hook to forget, and automatic failover
+                    -- (which skips `_clear_job_output`) is covered for free.
+                    host_key_fingerprint = EXCLUDED.host_key_fingerprint,
+                    payload = EXCLUDED.payload,
+                    -- Same statement as the rest of the row. A resubmit that
+                    -- drops the preference must clear it, not leave the old
+                    -- constraint attached to a job nobody asked to constrain.
+                    placement_min_uptime_bps = EXCLUDED.placement_min_uptime_bps,
+                    placement_min_tier = EXCLUDED.placement_min_tier,
+                    placement_require_verified = EXCLUDED.placement_require_verified,
+                    placement_max_premium_bps = EXCLUDED.placement_max_premium_bps
+                """,
+                (
+                    job_id,
+                    status,
+                    priority,
+                    submitted_at,
+                    host_id,
+                    pricing_mode,
+                    None if spot_rate_cad is None else round(spot_rate_cad * 1_000_000),
+                    host_key_fingerprint,
+                    Jsonb(job),
+                    _min_uptime_bps,
+                    _min_tier,
+                    _require_verified,
+                    _max_premium_bps,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO jobs(job_id, status, priority, submitted_at, host_id, payload)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    status = excluded.status,
+                    priority = excluded.priority,
+                    submitted_at = excluded.submitted_at,
+                    host_id = excluded.host_id,
+                    payload = excluded.payload
+                """,
+                (job_id, status, priority, submitted_at, host_id, json.dumps(job)),
+            )
+
+    @staticmethod
+    def upsert_host(conn, host, backend="sqlite"):
+        """Upsert a host record."""
+        host_id = str(host.get("host_id", "")).strip()
+        if not host_id:
+            return
+
+        status = str(host.get("status") or "active")
+        registered_at = float(host.get("registered_at", time.time()) or time.time())
+
+        if backend == "postgres":
+            from psycopg.types.json import Jsonb
+
+            conn.execute(
+                """
+                INSERT INTO hosts(host_id, status, registered_at, payload)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT(host_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    registered_at = EXCLUDED.registered_at,
+                    payload = EXCLUDED.payload
+                """,
+                (host_id, status, registered_at, Jsonb(host)),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO hosts(host_id, status, registered_at, payload)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(host_id) DO UPDATE SET
+                    status = excluded.status,
+                    registered_at = excluded.registered_at,
+                    payload = excluded.payload
+                """,
+                (host_id, status, registered_at, json.dumps(host)),
+            )
+
+    @staticmethod
+    def get_job(conn, job_id, backend="sqlite"):
+        """Fetch a single job by ID.
+
+        Indexed ``status`` and ``host_id`` columns are authoritative when they
+        diverge from the JSONB payload (legacy reaper SQL, partial migrations).
+        """
+        ph = "%s" if backend == "postgres" else "?"
+        row = conn.execute(
+            f"SELECT status, host_id, payload FROM jobs WHERE job_id = {ph}",
+            (job_id,),
+        ).fetchone()
+        if not row:
+            return None
+        if isinstance(row, dict):
+            col_status = row.get("status")
+            col_host_id = row.get("host_id")
+            payload = row.get("payload")
+        else:
+            col_status, col_host_id, payload = row[0], row[1], row[2]
+        job = DatabaseOps.decode_payload(payload)
+        if not isinstance(job, dict):
+            return job
+        # PK is column authority — payload may omit job_id (billing fixtures,
+        # partial writers). Without this, upsert_job silently no-ops.
+        job["job_id"] = str(job_id)
+        if col_status and job.get("status") != col_status:
+            job["status"] = col_status
+        # Indexed host_id column wins; NULL clears stale payload after reaper/unassign.
+        if col_host_id:
+            job["host_id"] = col_host_id
+        else:
+            job["host_id"] = None
+        return job
+
+    @staticmethod
+    def get_host(conn, host_id, backend="sqlite"):
+        """Fetch a single host by ID."""
+        ph = "%s" if backend == "postgres" else "?"
+        row = conn.execute(f"SELECT payload FROM hosts WHERE host_id = {ph}", (host_id,)).fetchone()
+        if not row:
+            return None
+        payload = row["payload"] if isinstance(row, dict) else row[0]
+        return DatabaseOps.decode_payload(payload)
+
+    @staticmethod
+    def load_jobs(conn, status=None, backend="sqlite"):
+        """Load jobs from DB, optionally filtered by status."""
+        ph = "%s" if backend == "postgres" else "?"
+        if status:
+            rows = conn.execute(
+                f"SELECT payload FROM jobs WHERE status = {ph} "
+                "ORDER BY submitted_at ASC, job_id ASC",
+                (status,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT payload FROM jobs ORDER BY submitted_at ASC, job_id ASC"
+            ).fetchall()
+
+        jobs = []
+        for row in rows:
+            payload = row["payload"] if isinstance(row, dict) else row[0]
+            item = DatabaseOps.decode_payload(payload)
+            if isinstance(item, dict):
+                jobs.append(item)
+        return jobs
+
+    @staticmethod
+    def load_hosts(conn, active_only=False, backend="sqlite"):
+        """Load hosts from DB, optionally filtered to active only.
+
+        `host_id` comes from the **column**, not from the payload.
+
+        The column is the primary key — it is what `delete_host`, every
+        `ON CONFLICT`, and every foreign key refer to. Registration happens to
+        duplicate it inside the payload JSON as well, and this used to read
+        only the payload, so the duplicate was load-bearing: a row written by
+        anything that did not copy it in (a migration, an ops repair, another
+        code path) produced a host dict with no `host_id` at all.
+
+        Callers index it directly — `routes/hosts.py` alone does
+        `h["host_id"]` in nine places, including `_resolve_host_id`, which
+        every admission route funnels through. So one such row turned every
+        host lookup in the process into `KeyError` -> 500, for every host, not
+        just the malformed one. Found by the first test ever to call those
+        routes.
+
+        Taking it from the column also repairs drift rather than propagating
+        it: where the two disagree, the key everything else resolves by wins.
+        """
+        if active_only:
+            rows = conn.execute(
+                "SELECT host_id, payload FROM hosts WHERE status = 'active' "
+                "ORDER BY registered_at ASC, host_id ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT host_id, payload FROM hosts ORDER BY registered_at ASC, host_id ASC"
+            ).fetchall()
+
+        hosts = []
+        for row in rows:
+            if isinstance(row, dict):
+                host_id, payload = row["host_id"], row["payload"]
+            else:
+                host_id, payload = row[0], row[1]
+            item = DatabaseOps.decode_payload(payload)
+            if isinstance(item, dict):
+                if host_id is not None:
+                    item["host_id"] = host_id
+                hosts.append(item)
+        return hosts
+
+    @staticmethod
+    def delete_job(conn, job_id, backend="sqlite"):
+        """Delete a job by ID."""
+        ph = "%s" if backend == "postgres" else "?"
+        conn.execute(f"DELETE FROM jobs WHERE job_id = {ph}", (job_id,))
+
+    @staticmethod
+    def delete_host(conn, host_id, backend="sqlite"):
+        """Delete a host by ID."""
+        ph = "%s" if backend == "postgres" else "?"
+        conn.execute(f"DELETE FROM hosts WHERE host_id = {ph}", (host_id,))
+
+    @staticmethod
+    def delete_all_jobs(conn, backend="sqlite"):
+        conn.execute("DELETE FROM jobs")
+
+    @staticmethod
+    def delete_all_hosts(conn, backend="sqlite"):
+        conn.execute("DELETE FROM hosts")
+
+    @staticmethod
+    def upsert_state(conn, namespace, data, backend="sqlite"):
+        """Upsert a state namespace record."""
+        if backend == "postgres":
+            from psycopg.types.json import Jsonb
+
+            conn.execute(
+                """
+                INSERT INTO state(namespace, payload) VALUES (%s, %s)
+                ON CONFLICT(namespace) DO UPDATE SET payload = EXCLUDED.payload
+                """,
+                (namespace, Jsonb(data) if isinstance(data, (dict, list)) else data),
+            )
+        else:
+            payload = json.dumps(data) if not isinstance(data, str) else data
+            conn.execute(
+                "INSERT INTO state(namespace, payload) VALUES (?, ?) "
+                "ON CONFLICT(namespace) DO UPDATE SET payload = excluded.payload",
+                (namespace, payload),
+            )
+
+    @staticmethod
+    def get_state(conn, namespace, backend="sqlite"):
+        """Load a state namespace."""
+        ph = "%s" if backend == "postgres" else "?"
+        row = conn.execute(
+            f"SELECT payload FROM state WHERE namespace = {ph}", (namespace,)
+        ).fetchone()
+        if not row:
+            return None
+        payload = row["payload"] if isinstance(row, dict) else row[0]
+        return DatabaseOps.decode_payload(payload)
+
+    @staticmethod
+    def get_states(conn, namespaces, backend="sqlite"):
+        """Load several state namespaces in one query: {namespace: payload}."""
+        namespaces = list(dict.fromkeys(namespaces))
+        if not namespaces:
+            return {}
+        ph = "%s" if backend == "postgres" else "?"
+        rows = conn.execute(
+            f"SELECT namespace, payload FROM state WHERE namespace IN ({', '.join([ph] * len(namespaces))})",
+            tuple(namespaces),
+        ).fetchall()
+        found = {}
+        for row in rows:
+            name, payload = (
+                (row["namespace"], row["payload"]) if isinstance(row, dict) else (row[0], row[1])
+            )
+            found[name] = DatabaseOps.decode_payload(payload)
+        return found
+
+    @staticmethod
+    def query_hosts_by_gpu(conn, gpu_model=None, min_vram_gb=None, backend="sqlite"):
+        """Query hosts using JSONB operators (Postgres) or payload scan (SQLite).
+
+        This demonstrates the GIN index advantage described in the reports.
+        """
+        if backend == "postgres":
+            conditions = ["status = 'active'"]
+            params = []
+            if gpu_model:
+                conditions.append("payload->>'gpu_model' = %s")
+                params.append(gpu_model)
+            if min_vram_gb is not None:
+                conditions.append("(payload->>'free_vram_gb')::float >= %s")
+                params.append(min_vram_gb)
+
+            query = (
+                "SELECT payload FROM hosts WHERE "
+                + " AND ".join(conditions)
+                + " ORDER BY (payload->>'free_vram_gb')::float DESC"
+            )
+            rows = conn.execute(query, params).fetchall()
+            return [
+                DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
+                for row in rows
+                if row
+            ]
+        else:
+            # SQLite fallback: load all and filter in Python
+            hosts = DatabaseOps.load_hosts(conn, active_only=True, backend="sqlite")
+            result = []
+            for h in hosts:
+                if gpu_model and h.get("gpu_model") != gpu_model:
+                    continue
+                if min_vram_gb is not None and h.get("free_vram_gb", 0) < min_vram_gb:
+                    continue
+                result.append(h)
+            return sorted(result, key=lambda h: -h.get("free_vram_gb", 0))
+
+
+# ── Dual-Write Engine ─────────────────────────────────────────────────
+
+
+class DualWriteEngine:
+    """Implements the expand/contract dual-write migration pattern.
+
+    Phase 1 (Dual-Write / Shadow):
+        - Primary (SQLite): All reads and writes go here
+        - Secondary (Postgres): Writes mirrored, failures logged but don't block
+
+    Phase 2 (Read Switch):
+        - Set XCELSIOR_DUAL_READ_FROM=postgres
+        - Reads switch to Postgres, writes still go to both
+
+    Phase 3 (Cutover):
+        - Set XCELSIOR_DB_BACKEND=postgres
+        - Full cutover, SQLite stops being written
+
+    Phase 4 (Cleanup):
+        - Remove dual-write code, archive SQLite
+    """
+
+    def __init__(self):
+        self.backend = DB_BACKEND
+        self.read_from = DUAL_READ_FROM
+        self.ops = DatabaseOps
+
+    @contextmanager
+    def connection(self):
+        """Get a connection for the current read backend."""
+        if self.backend == "postgres" or (self.backend == "dual" and self.read_from == "postgres"):
+            with pg_connection() as conn:
+                yield conn, "postgres"
+        else:
+            with sqlite_connection() as conn:
+                yield conn, "sqlite"
+
+    @contextmanager
+    def transaction(self):
+        """Get a transactional connection.
+
+        In dual mode, yields the primary (SQLite) connection.
+        Secondary writes happen in the commit hook.
+        """
+        if self.backend == "postgres":
+            with pg_transaction() as conn:
+                yield conn, "postgres"
+        elif self.backend == "dual":
+            with sqlite_transaction() as conn:
+                yield conn, "sqlite"
+        else:
+            with sqlite_transaction() as conn:
+                yield conn, "sqlite"
+
+    def mirror_to_secondary(self, operation, *args, **kwargs):
+        """Mirror a write operation to the secondary database.
+
+        Called after successful primary write in dual mode.
+        Failures are logged but never propagate.
+        """
+        if self.backend != "dual":
+            return
+
+        secondary = "postgres" if self.read_from == "sqlite" else "sqlite"
+
+        def _do_mirror():
+            try:
+                if secondary == "postgres":
+                    with pg_transaction() as conn:
+                        operation(conn, *args, backend="postgres", **kwargs)
+                else:
+                    with sqlite_transaction() as conn:
+                        operation(conn, *args, backend="sqlite", **kwargs)
+            except Exception as e:
+                log.warning(
+                    "Dual-write mirror failed (secondary=%s, op=%s): %s",
+                    secondary,
+                    operation.__name__,
+                    e,
+                )
+
+        # Run mirror in background thread to avoid latency impact
+        threading.Thread(target=_do_mirror, daemon=True).start()
+
+
+# ── Singleton ─────────────────────────────────────────────────────────
+
+_engine = None
+_engine_lock = threading.Lock()
+
+
+def get_engine():
+    """Get the global DualWriteEngine instance."""
+    global _engine
+    if _engine is not None:
+        return _engine
+
+    with _engine_lock:
+        if _engine is not None:
+            return _engine
+        _engine = DualWriteEngine()
+        log.info(
+            "Database engine initialized: backend=%s, read_from=%s",
+            _engine.backend,
+            _engine.read_from if _engine.backend == "dual" else _engine.backend,
+        )
+        return _engine
+
+
+# ── PostgreSQL LISTEN/NOTIFY for Event Bus ────────────────────────────
+
+
+class PgEventBus:
+    """Lightweight event bus using PostgreSQL LISTEN/NOTIFY.
+
+    Used for SSE dashboard streaming. Payloads are kept < 8000 bytes
+    (Postgres NOTIFY limit). Publish IDs and let clients fetch details.
+    """
+
+    def __init__(self, channel="xcelsior_events"):
+        self.channel = channel
+        self._listeners = []
+        self._running = False
+
+    def notify(self, event_type, data):
+        """Publish an event via NOTIFY. Non-blocking."""
+        if DB_BACKEND not in ("postgres", "dual"):
+            # Fallback: dispatch to in-memory listeners
+            self._dispatch_inmemory(event_type, data)
+            return
+
+        def _do_notify():
+            try:
+                with pg_connection() as conn:
+                    payload = json.dumps({"type": event_type, "data": data, "ts": time.time()})
+                    # Truncate to stay under 8000 bytes
+                    if len(payload) > 7900:
+                        payload = json.dumps(
+                            {
+                                "type": event_type,
+                                "data": {"id": data.get("id", "?")},
+                                "ts": time.time(),
+                            }
+                        )
+                    # pg_notify() binds channel + payload as parameters —
+                    # injection-safe and case-consistent with the quoted
+                    # sql.Identifier() used on the LISTEN side (start_pg_listen).
+                    conn.execute("SELECT pg_notify(%s, %s)", (self.channel, payload))
+                    conn.commit()
+            except Exception as e:
+                log.debug("PgEventBus notify failed: %s", e)
+
+        threading.Thread(target=_do_notify, daemon=True).start()
+
+    def _dispatch_inmemory(self, event_type, data):
+        """Dispatch events via in-memory callbacks (SQLite fallback)."""
+        event = {"type": event_type, "data": data, "ts": time.time()}
+        for listener in self._listeners:
+            try:
+                listener(event)
+            except Exception:
+                pass
+
+    def add_listener(self, callback):
+        """Register an in-memory event listener."""
+        self._listeners.append(callback)
+
+    def remove_listener(self, callback):
+        """Remove an in-memory event listener."""
+        try:
+            self._listeners.remove(callback)
+        except ValueError:
+            pass
+
+
+# ── Persistent Auth Storage ────────────────────────────────────────────
+
+# Legacy compat — kept for tests that monkeypatch this value
+AUTH_DB_FILE = os.environ.get("XCELSIOR_AUTH_DB_PATH", "data/auth.db")
+_auth_schema_lock = threading.Lock()
+_auth_schema_ensured = False
+
+
+def _ensure_oauth_auth_tables(conn) -> None:
+    """A1.6: auth/OAuth schema is Alembic-owned (migration 061 / 051).
+
+    No runtime CREATE/ALTER. On a migrated DB this is a pure no-op; on an
+    unmigrated DB we log once-path-equivalent and refuse to invent tables
+    (operators must ``alembic upgrade head``).
+    """
+    if _pg_schema_is_migrated(conn):
+        return
+    log.error(
+        "Auth schema ensure skipped — PostgreSQL is not Alembic-managed "
+        ". Run alembic upgrade head before serving auth traffic."
+    )
+
+
+def _ensure_auth_schema(conn) -> None:
+    global _auth_schema_ensured
+    if _auth_schema_ensured:
+        return
+    with _auth_schema_lock:
+        if _auth_schema_ensured:
+            return
+        _ensure_oauth_auth_tables(conn)
+        _auth_schema_ensured = True
+
+
+_auth_transaction_connection: ContextVar[Any | None] = ContextVar(
+    "auth_transaction_connection", default=None
+)
+
+
+@contextmanager
+def auth_transaction(lock_key: str):
+    """Compose synchronous auth-store calls into one serialized transaction.
+
+    The transaction owns commit/rollback; nested stores must not commit early.
+    PostgreSQL's transaction lock also serializes callers in other API workers.
+    Keep this context in one thread and do not launch background work from it.
+    """
+    with auth_connection() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (lock_key,))
+        token = _auth_transaction_connection.set(conn)
+        try:
+            yield conn
+        finally:
+            _auth_transaction_connection.reset(token)
+
+
+@contextmanager
+def auth_connection():
+    """PostgreSQL connection for auth tables (users, sessions, API keys, teams, notifications, SSH keys)."""
+    existing = _auth_transaction_connection.get()
+    if existing is not None:
+        yield existing
+        return
+
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        # NOTE: Don't mutate conn.row_factory — the connection is returned
+        # to the shared pool and the next caller would silently inherit
+        # dict_row. Instead, save/restore it so the leak is contained.
+        _prev_rf = conn.row_factory
+        conn.row_factory = dict_row
+        try:
+            _ensure_auth_schema(conn)
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.row_factory = _prev_rf
+
+
+class AvatarStore:
+    """Durable profile-avatar storage in Postgres.
+
+    Avatars are small (<= 2 MB) and must survive redeploys, so the image
+    bytes live in the ``user_avatars`` table rather than the ephemeral
+    artifact-manager local directory that previously lost them.
+    """
+
+    @staticmethod
+    def get(user_id: str) -> dict | None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT content_type, data, updated_at FROM user_avatars WHERE user_id = %s",
+                (uid,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "content_type": row["content_type"],
+            "data": bytes(row["data"]),
+            "updated_at": float(row["updated_at"] or 0),
+        }
+
+    @staticmethod
+    def put(user_id: str, content_type: str, data: bytes, updated_at: float) -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_avatars (user_id, content_type, data, updated_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    content_type = EXCLUDED.content_type,
+                    data = EXCLUDED.data,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (uid, content_type, data, updated_at),
+            )
+
+    @staticmethod
+    def delete(user_id: str) -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM user_avatars WHERE user_id = %s", (uid,))
+
+    @staticmethod
+    def exists(user_id: str) -> bool:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return False
+        with auth_connection() as conn:
+            row = conn.execute("SELECT 1 FROM user_avatars WHERE user_id = %s", (uid,)).fetchone()
+        return row is not None
+
+
+class UserStore:
+    """Persistent user/session/API key storage backed by PostgreSQL."""
+
+    # ── Users ──
+
+    @staticmethod
+    def get_user(email: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def get_user_by_id(user_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE user_id = %s", (user_id,)).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def get_user_by_customer_id(customer_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE customer_id = %s", (customer_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def create_user(user: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (email, user_id, name, password_hash, salt, role, is_admin,
+                    customer_id, provider_id, country, province, oauth_provider, team_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+                (
+                    user["email"],
+                    user["user_id"],
+                    user.get("name", ""),
+                    user.get("password_hash", ""),
+                    user.get("salt", ""),
+                    user.get("role", "submitter"),
+                    int(user.get("is_admin", 0)),
+                    user.get("customer_id"),
+                    user.get("provider_id"),
+                    user.get("country", "CA"),
+                    user.get("province", "ON"),
+                    user.get("oauth_provider"),
+                    user.get("team_id"),
+                    user.get("created_at", time.time()),
+                ),
+            )
+
+    @staticmethod
+    def update_user(email: str, updates: dict) -> None:
+        allowed = {
+            "name",
+            "role",
+            "is_admin",
+            "country",
+            "province",
+            "provider_id",
+            "team_id",
+            "password_hash",
+            "salt",
+            "reset_token",
+            "reset_token_expires",
+            "notifications_enabled",
+            "preferences",
+            "mfa_enabled",
+            "email_verified",
+            "email_verification_token",
+            "email_verification_expires",
+            "pending_email",
+            "email_change_token",
+            "email_change_expires",
+        }
+        fields = {k: v for k, v in updates.items() if k in allowed}
+        if not fields:
+            return
+        # Wrap JSONB fields for psycopg3
+        if "preferences" in fields and isinstance(fields["preferences"], dict):
+            from psycopg.types.json import Jsonb
+
+            fields["preferences"] = Jsonb(fields["preferences"])
+        # Cast is_admin to int for PostgreSQL INTEGER column
+        if "is_admin" in fields:
+            fields["is_admin"] = int(fields["is_admin"])
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        values = list(fields.values()) + [email]
+        with auth_connection() as conn:
+            conn.execute(cast(Any, f"UPDATE users SET {set_clause} WHERE email = %s"), values)
+
+    @staticmethod
+    def set_admin(email: str, is_admin: int) -> None:
+        """Set user admin flag. Only callable from admin endpoints."""
+        with auth_connection() as conn:
+            conn.execute("UPDATE users SET is_admin = %s WHERE email = %s", (int(is_admin), email))
+
+    @staticmethod
+    def change_email(old_email: str, new_email: str) -> None:
+        """Re-key a user's email across every email-referencing auth table.
+
+        Email is the cross-table identifier (sessions, api_keys, tokens,
+        notifications, team membership), so a verified email change must cascade
+        atomically. Marks the new address verified and clears the pending-change
+        fields. Raises if new_email already belongs to another account.
+        """
+        with auth_connection() as conn:
+            taken = conn.execute("SELECT 1 FROM users WHERE email = %s", (new_email,)).fetchone()
+            if taken:
+                raise ValueError("Email already in use")
+            # Re-point every table keyed by the old address, then the user row.
+            conn.execute("UPDATE sessions SET email = %s WHERE email = %s", (new_email, old_email))
+            conn.execute("UPDATE api_keys SET email = %s WHERE email = %s", (new_email, old_email))
+            conn.execute(
+                "UPDATE oauth_refresh_tokens SET email = %s WHERE email = %s",
+                (new_email, old_email),
+            )
+            conn.execute(
+                "UPDATE web_push_subscriptions SET user_email = %s WHERE user_email = %s",
+                (new_email, old_email),
+            )
+            conn.execute(
+                "UPDATE notifications SET user_email = %s WHERE user_email = %s",
+                (new_email, old_email),
+            )
+            conn.execute(
+                "UPDATE team_members SET email = %s WHERE email = %s", (new_email, old_email)
+            )
+            conn.execute(
+                "UPDATE users SET email = %s, email_verified = 1, pending_email = NULL, "
+                "email_change_token = NULL, email_change_expires = NULL WHERE email = %s",
+                (new_email, old_email),
+            )
+
+    @staticmethod
+    def delete_user(email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM users WHERE email = %s", (email,))
+            conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
+            conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE email = %s", (email,))
+            conn.execute("DELETE FROM web_push_subscriptions WHERE user_email = %s", (email,))
+
+    @staticmethod
+    def user_exists(email: str) -> bool:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT 1 FROM users WHERE email = %s", (email,)).fetchone()
+            return row is not None
+
+    @staticmethod
+    def list_users(team_id: str | None = None) -> list[dict]:
+        with auth_connection() as conn:
+            if team_id:
+                rows = conn.execute("SELECT * FROM users WHERE team_id = %s", (team_id,)).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM users").fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Sessions ──
+
+    @staticmethod
+    def create_session(session: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO sessions (
+                    token, email, user_id, role, is_admin, name, created_at, expires_at,
+                    ip_address, user_agent, last_active, session_type, client_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+                (
+                    session["token"],
+                    session["email"],
+                    session["user_id"],
+                    session.get("role", "submitter"),
+                    int(session.get("is_admin", 0)),
+                    session.get("name", ""),
+                    session.get("created_at", time.time()),
+                    session["expires_at"],
+                    session.get("ip_address"),
+                    session.get("user_agent"),
+                    session.get("last_active", session.get("created_at", time.time())),
+                    session.get("session_type", "legacy"),
+                    session.get("client_id"),
+                ),
+            )
+
+    @staticmethod
+    def get_session(token: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE token = %s AND expires_at > %s",
+                (token, time.time()),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def delete_session(token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE token = %s", (token,))
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE session_token = %s", (token,))
+
+    @staticmethod
+    def delete_user_sessions(email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE email = %s", (email,))
+
+    @staticmethod
+    def cleanup_expired_sessions() -> int:
+        now = time.time()
+        max_lifetime = 86400 * 30  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
+        with auth_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM sessions WHERE expires_at < %s OR created_at < %s",
+                (now, now - max_lifetime),
+            )
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE expires_at < %s", (now,))
+            return cursor.rowcount
+
+    @staticmethod
+    def list_user_sessions(email: str) -> list[dict]:
+        """Return active browser/legacy sessions for a user.
+
+        Excludes machine-principal sessions (client_credentials, API tokens)
+        so the Settings → Active Sessions panel shows only real user devices.
+        Capped at 20 rows to prevent UI flooding.
+        """
+        now = time.time()
+        max_lifetime = 86400 * 30  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active, session_type, client_id "
+                "FROM sessions "
+                "WHERE email = %s AND expires_at > %s AND created_at > %s "
+                "  AND session_type IN ('browser', 'legacy') "
+                "  AND (client_id IS NULL OR client_id = 'xcelsior-web') "
+                "ORDER BY last_active DESC "
+                "LIMIT 20",
+                (email, now, now - max_lifetime),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def update_session_last_active(token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE sessions SET last_active = %s WHERE token = %s",
+                (time.time(), token),
+            )
+
+    @staticmethod
+    def rotate_session_token(old_token: str, new_session: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE token = %s", (old_token,))
+            conn.execute(
+                """
+                INSERT INTO sessions (
+                    token, email, user_id, role, is_admin, name, created_at, expires_at,
+                    ip_address, user_agent, last_active, session_type, client_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    new_session["token"],
+                    new_session["email"],
+                    new_session["user_id"],
+                    new_session.get("role", "submitter"),
+                    int(new_session.get("is_admin", 0)),
+                    new_session.get("name", ""),
+                    new_session.get("created_at", time.time()),
+                    new_session["expires_at"],
+                    new_session.get("ip_address"),
+                    new_session.get("user_agent"),
+                    new_session.get("last_active", time.time()),
+                    new_session.get("session_type", "legacy"),
+                    new_session.get("client_id"),
+                ),
+            )
+
+    # ── API Keys ──
+
+    @staticmethod
+    def create_api_key(key_data: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_keys (key, name, email, user_id, role, is_admin, scope, created_at, last_used)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+                (
+                    key_data["key"],
+                    key_data.get("name", "default"),
+                    key_data["email"],
+                    key_data["user_id"],
+                    key_data.get("role", "submitter"),
+                    int(key_data.get("is_admin", 0)),
+                    key_data.get("scope", "full-access"),
+                    key_data.get("created_at", time.time()),
+                    key_data.get("last_used"),
+                ),
+            )
+
+    @staticmethod
+    def get_api_key(key: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT * FROM api_keys WHERE key = %s", (key,)).fetchone()
+            if row:
+                d = dict(row)
+                conn.execute(
+                    "UPDATE api_keys SET last_used = %s WHERE key = %s", (time.time(), key)
+                )
+                return d
+            return None
+
+    @staticmethod
+    def list_api_keys(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute("SELECT * FROM api_keys WHERE email = %s", (email,)).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def delete_api_key_by_preview(email: str, preview: str) -> bool:
+        with auth_connection() as conn:
+            rows = conn.execute("SELECT key FROM api_keys WHERE email = %s", (email,)).fetchall()
+            for row in rows:
+                k = row["key"]
+                if (k[:12] + "..." + k[-4:]) == preview:
+                    conn.execute("DELETE FROM api_keys WHERE key = %s", (k,))
+                    return True
+            return False
+
+    @staticmethod
+    def delete_user_api_keys(email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
+
+    # ── Teams ──
+
+    @staticmethod
+    def create_team(team: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO teams (
+                    team_id, name, owner_email, created_at, plan, max_members, billing_customer_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+                (
+                    team["team_id"],
+                    team["name"],
+                    team["owner_email"],
+                    team.get("created_at", time.time()),
+                    team.get("plan", "free"),
+                    team.get("max_members", 5),
+                    team.get("billing_customer_id", ""),
+                ),
+            )
+            # Add owner as admin member
+            conn.execute(
+                """
+                INSERT INTO team_members (team_id, email, role, joined_at)
+                VALUES (%s, %s, 'admin', %s)
+            """,
+                (team["team_id"], team["owner_email"], time.time()),
+            )
+
+    @staticmethod
+    def get_team(team_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT * FROM teams WHERE team_id = %s", (team_id,)).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def list_team_members(team_id: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT tm.email, tm.role, tm.joined_at, u.name, u.user_id
+                FROM team_members tm LEFT JOIN users u ON tm.email = u.email
+                WHERE tm.team_id = %s
+            """,
+                (team_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def add_team_member(team_id: str, email: str, role: str = "member") -> bool:
+        with auth_connection() as conn:
+            team = conn.execute(
+                "SELECT max_members FROM teams WHERE team_id = %s", (team_id,)
+            ).fetchone()
+            if not team:
+                return False
+            count = conn.execute(
+                "SELECT COUNT(*) as c FROM team_members WHERE team_id = %s", (team_id,)
+            ).fetchone()["c"]
+            if count >= team["max_members"]:
+                return False
+            conn.execute(
+                """
+                INSERT INTO team_members (team_id, email, role, joined_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (team_id, email) DO UPDATE SET role = EXCLUDED.role, joined_at = EXCLUDED.joined_at
+            """,
+                (team_id, email, role, time.time()),
+            )
+            conn.execute("UPDATE users SET team_id = %s WHERE email = %s", (team_id, email))
+            return True
+
+    @staticmethod
+    def remove_team_member(team_id: str, email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM team_members WHERE team_id = %s AND email = %s", (team_id, email)
+            )
+            conn.execute(
+                "UPDATE users SET team_id = NULL WHERE email = %s AND team_id = %s",
+                (email, team_id),
+            )
+
+    @staticmethod
+    def update_team_member_role(team_id: str, email: str, role: str) -> bool:
+        """Update a team member's role. Returns False if member not found."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE team_members SET role = %s WHERE team_id = %s AND email = %s",
+                (role, team_id, email),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_team(team_id: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("UPDATE users SET team_id = NULL WHERE team_id = %s", (team_id,))
+            conn.execute("DELETE FROM team_members WHERE team_id = %s", (team_id,))
+            conn.execute("DELETE FROM teams WHERE team_id = %s", (team_id,))
+
+    @staticmethod
+    def get_user_teams(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.*, tm.role as member_role
+                FROM teams t JOIN team_members tm ON t.team_id = tm.team_id
+                WHERE tm.email = %s
+            """,
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Team Invites ──
+
+    @staticmethod
+    def create_team_invite(invite: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO team_invites (token, team_id, email, role, invited_by, created_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (token) DO NOTHING
+                """,
+                (
+                    invite["token"],
+                    invite["team_id"],
+                    invite["email"].lower(),
+                    invite.get("role", "member"),
+                    invite["invited_by"],
+                    invite["created_at"],
+                    invite["expires_at"],
+                ),
+            )
+
+    @staticmethod
+    def get_team_invite(token: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT * FROM team_invites WHERE token = %s", (token,)).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def delete_team_invite(token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM team_invites WHERE token = %s", (token,))
+
+    @staticmethod
+    def get_pending_invites_for_email(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            import time as _time
+
+            rows = conn.execute(
+                "SELECT * FROM team_invites WHERE email = %s AND expires_at > %s",
+                (email.lower(), _time.time()),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── SSH Keys ──
+
+    @staticmethod
+    def add_ssh_key(key_data: dict) -> None:
+        # `registered_by_*` (migration 099) records which credential added the
+        # key. NULL is the honest value for a row registered interactively and
+        # for every row written before the columns existed, so the caller
+        # passing nothing writes NULL rather than a placeholder that would read
+        # as a claim about provenance.
+        with auth_connection() as conn:
+            conn.execute(
+                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, "
+                "created_at, registered_by_client_id, registered_by_auth_type) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    key_data["id"],
+                    key_data["email"],
+                    key_data["user_id"],
+                    key_data.get("name", "default"),
+                    key_data["public_key"],
+                    key_data["fingerprint"],
+                    key_data.get("created_at", time.time()),
+                    key_data.get("registered_by_client_id"),
+                    key_data.get("registered_by_auth_type"),
+                ),
+            )
+
+    @staticmethod
+    def list_ssh_keys(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_ssh_keys WHERE email = %s ORDER BY created_at DESC",
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def delete_ssh_key(email: str, key_id: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_ssh_keys WHERE id = %s AND email = %s",
+                (key_id, email),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_user_ssh_keys(email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM user_ssh_keys WHERE email = %s", (email,))
+
+
+class NotificationStore:
+    """Per-user in-app notification storage backed by PostgreSQL."""
+
+    @staticmethod
+    def create(
+        user_email: str,
+        notif_type: str,
+        title: str,
+        body: str = "",
+        data: dict | None = None,
+        *,
+        action_url: str = "",
+        entity_type: str = "",
+        entity_id: str = "",
+        priority: int = 0,
+    ) -> str:
+        from psycopg.types.json import Jsonb
+        import uuid as _uuid
+
+        nid = f"notif-{_uuid.uuid4().hex[:12]}"
+        payload = dict(data or {})
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO notifications (
+                    id,
+                    user_email,
+                    type,
+                    title,
+                    body,
+                    data,
+                    read,
+                    created_at,
+                    action_url,
+                    entity_type,
+                    entity_id,
+                    priority
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s)
+                """,
+                (
+                    nid,
+                    user_email,
+                    notif_type,
+                    title,
+                    body,
+                    Jsonb(payload),
+                    time.time(),
+                    action_url,
+                    entity_type,
+                    entity_id,
+                    priority,
+                ),
+            )
+
+        try:
+            from web_push import deliver_web_push_notification
+
+            deliver_web_push_notification(
+                user_email,
+                {
+                    "id": nid,
+                    "type": notif_type,
+                    "title": title,
+                    "body": body,
+                    "data": payload,
+                    "action_url": action_url,
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "priority": priority,
+                },
+            )
+        except Exception as exc:
+            log.debug("Web push delivery error for %s: %s", user_email, exc)
+
+        return nid
+
+    @staticmethod
+    def list_for_user(user_email: str, unread_only: bool = False, limit: int = 50) -> list[dict]:
+        with auth_connection() as conn:
+            sql = "SELECT * FROM notifications WHERE user_email = %s"
+            params: list = [user_email]
+            if unread_only:
+                sql += " AND read = 0"
+            sql += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def unread_count(user_email: str) -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM notifications WHERE user_email = %s AND read = 0",
+                (user_email,),
+            ).fetchone()
+            return row["c"] if row else 0
+
+    @staticmethod
+    def total_count() -> int:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) as c FROM notifications").fetchone()
+            return int(row["c"]) if row else 0
+
+    @staticmethod
+    def mark_read(notification_id: str, user_email: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE notifications SET read = 1 WHERE id = %s AND user_email = %s",
+                (notification_id, user_email),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def mark_all_read(user_email: str) -> int:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE notifications SET read = 1 WHERE user_email = %s AND read = 0",
+                (user_email,),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def delete_old(days: int = 30) -> int:
+        cutoff = time.time() - days * 86400
+        with auth_connection() as conn:
+            cur = conn.execute("DELETE FROM notifications WHERE created_at < %s", (cutoff,))
+            return cur.rowcount
+
+    @staticmethod
+    def delete(notification_id: str, user_email: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM notifications WHERE id = %s AND user_email = %s",
+                (notification_id, user_email),
+            )
+            return cur.rowcount > 0
+
+
+class WebPushSubscriptionStore:
+    """Stores active web push subscriptions for authenticated users."""
+
+    @staticmethod
+    def upsert(
+        user_email: str,
+        endpoint: str,
+        p256dh: str,
+        auth: str,
+        *,
+        user_agent: str = "",
+    ) -> str:
+        import uuid as _uuid
+
+        subscription_id = f"wps-{_uuid.uuid4().hex[:12]}"
+        now = time.time()
+
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO web_push_subscriptions (
+                    id,
+                    user_email,
+                    endpoint,
+                    p256dh,
+                    auth,
+                    user_agent,
+                    created_at,
+                    last_used_at,
+                    revoked_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                ON CONFLICT (endpoint) DO UPDATE
+                SET user_email = EXCLUDED.user_email,
+                    p256dh = EXCLUDED.p256dh,
+                    auth = EXCLUDED.auth,
+                    user_agent = EXCLUDED.user_agent,
+                    last_used_at = EXCLUDED.last_used_at,
+                    revoked_at = NULL
+                RETURNING id
+                """,
+                (subscription_id, user_email, endpoint, p256dh, auth, user_agent, now, now),
+            ).fetchone()
+            return row["id"] if row else subscription_id
+
+    @staticmethod
+    def list_active_for_user(user_email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM web_push_subscriptions
+                WHERE user_email = %s AND revoked_at IS NULL
+                ORDER BY last_used_at DESC, created_at DESC
+                """,
+                (user_email,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def count_active_for_user(user_email: str) -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE user_email = %s AND revoked_at IS NULL
+                """,
+                (user_email,),
+            ).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def count_active() -> int:
+        with auth_connection() as conn:
+            row = conn.execute("""
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE revoked_at IS NULL
+                """).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def count_revoked() -> int:
+        with auth_connection() as conn:
+            row = conn.execute("""
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE revoked_at IS NOT NULL
+                """).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def count_stale_active(max_age_days: int = 30) -> int:
+        cutoff = time.time() - max(max_age_days, 1) * 86400
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE revoked_at IS NULL
+                  AND last_used_at < %s
+                """,
+                (cutoff,),
+            ).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def revoke(user_email: str, endpoint: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE web_push_subscriptions
+                SET revoked_at = %s
+                WHERE user_email = %s AND endpoint = %s AND revoked_at IS NULL
+                """,
+                (time.time(), user_email, endpoint),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_revoked_older_than(days: int = 30) -> int:
+        cutoff = time.time() - max(days, 1) * 86400
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM web_push_subscriptions
+                WHERE revoked_at IS NOT NULL
+                  AND revoked_at < %s
+                """,
+                (cutoff,),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def revoke_endpoint(endpoint: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE web_push_subscriptions
+                SET revoked_at = %s
+                WHERE endpoint = %s AND revoked_at IS NULL
+                """,
+                (time.time(), endpoint),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def touch(endpoint: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE web_push_subscriptions SET last_used_at = %s WHERE endpoint = %s",
+                (time.time(), endpoint),
+            )
+
+
+# Global event bus instance
+event_bus = PgEventBus()
+
+
+def emit_event(event_type, data):
+    """Convenience: emit a scheduler event for dashboard SSE streaming."""
+    event_bus.notify(event_type, data)
+
+
+def start_pg_listen(callback, channel="xcelsior_events", *, stop_event=None):
+    """Start a background thread that LISTENs on a Postgres channel.
+
+    When a NOTIFY arrives, `callback(event_type, data)` is called.
+    This bridges PgEventBus → SSE delivery in multi-process deployments.
+
+    Only starts if DB_BACKEND is 'postgres' or 'dual'.
+    A supplied ``stop_event`` makes the listener lifecycle-owned and joinable.
+    Returns the thread (or None if not applicable).
+    """
+    if DB_BACKEND not in ("postgres", "dual"):
+        # SQLite mode: register callback directly as in-memory listener
+        def _adapter(event):
+            cursor = event.get("cursor")
+            try:
+                if cursor:
+                    callback(event.get("type", "message"), event.get("data", {}), cursor=cursor)
+                else:
+                    callback(event.get("type", "message"), event.get("data", {}))
+            except TypeError:
+                callback(event.get("type", "message"), event.get("data", {}))
+
+        event_bus.add_listener(_adapter)
+        log.info("PgEventBus: registered in-memory listener (SQLite mode)")
+        return None
+
+    def _listen_loop():
+        import select
+
+        while stop_event is None or not stop_event.is_set():
+            conn = None
+            try:
+                # Dedicated connection for LISTEN (not from pool)
+                import psycopg
+                from psycopg import sql
+
+                conn = psycopg.connect(resolve_postgres_dsn(), autocommit=True)
+                # Compose the channel as an identifier rather than f-string
+                # interpolation — keeps it injection-safe and satisfies
+                # psycopg's LiteralString-typed query overload.
+                conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
+                log.info("PgEventBus: LISTEN started on channel '%s'", channel)
+
+                while stop_event is None or not stop_event.is_set():
+                    # Use select() to wait for notifications without busy-polling
+                    poll_timeout = 1.0 if stop_event is not None else 30.0
+                    ready = select.select([conn.fileno()], [], [], poll_timeout)
+                    if ready == ([], [], []):
+                        # Timeout — send a keepalive query
+                        if stop_event is None or not stop_event.is_set():
+                            conn.execute("SELECT 1")
+                        continue
+
+                    # Process all pending notifications
+                    gen = conn.notifies()
+                    for notify in gen:
+                        try:
+                            payload = json.loads(notify.payload)
+                            event_type = payload.get("type", "message")
+                            event_data = payload.get("data", {})
+                            cursor = payload.get("cursor")
+                            try:
+                                if cursor:
+                                    callback(event_type, event_data, cursor=cursor)
+                                else:
+                                    callback(event_type, event_data)
+                            except TypeError:
+                                callback(event_type, event_data)
+                        except (json.JSONDecodeError, AttributeError):
+                            pass
+                        break  # One notification per select cycle; re-check
+            except Exception as e:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                log.warning("PgEventBus LISTEN error: %s — reconnecting in 5s", e)
+                if stop_event is None:
+                    time.sleep(5)
+                elif stop_event.wait(5):
+                    break
+            finally:
+                # Close on EVERY exit path (stop, error, reconnect). A LISTEN
+                # connection abandoned open by an exiting thread leaves the
+                # server backend blocked in ClientWrite forever once its send
+                # buffer fills — and one such backend stalls every
+                # DROP DATABASE on the cluster at the ProcSignalBarrier
+                # (observed: 18 stuck drops behind 2 leaked worker listeners).
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+    t = threading.Thread(target=_listen_loop, daemon=True, name="pg-listen")
+    t.start()
+    return t
+
+
+# ────────────────────────────────────────────────────────────────────
+# MFA Store
+# ────────────────────────────────────────────────────────────────────
+
+
+class MfaStore:
+    """MFA methods, backup codes, and challenges backed by PostgreSQL."""
+
+    # ── Methods ──
+
+    @staticmethod
+    def list_methods(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM mfa_methods WHERE email = %s ORDER BY created_at",
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def get_method(method_id: int) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_methods WHERE id = %s",
+                (method_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def get_method_by_type(email: str, method_type: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_methods WHERE email = %s AND method_type = %s AND enabled = 1",
+                (email, method_type),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def create_method(data: dict) -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO mfa_methods (email, method_type, secret, phone_number,
+                    credential_id, public_key, sign_count, device_name, enabled, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    data["email"],
+                    data["method_type"],
+                    data.get("secret"),
+                    data.get("phone_number"),
+                    data.get("credential_id"),
+                    data.get("public_key"),
+                    data.get("sign_count", 0),
+                    data.get("device_name"),
+                    data.get("enabled", 1),
+                    data.get("created_at", time.time()),
+                ),
+            ).fetchone()
+            return row["id"]
+
+    @staticmethod
+    def delete_method(method_id: int, email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM mfa_methods WHERE id = %s AND email = %s",
+                (method_id, email),
+            )
+
+    @staticmethod
+    def delete_methods_by_type(email: str, method_type: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM mfa_methods WHERE email = %s AND method_type = %s",
+                (email, method_type),
+            )
+
+    # ── Passkey helpers ──
+
+    @staticmethod
+    def get_passkey_by_credential(credential_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_methods WHERE credential_id = %s AND method_type = 'passkey' AND enabled = 1",
+                (credential_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def update_passkey_sign_count(method_id: int, sign_count: int) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE mfa_methods SET sign_count = %s WHERE id = %s",
+                (sign_count, method_id),
+            )
+
+    # ── Backup Codes ──
+
+    @staticmethod
+    def list_backup_codes(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM mfa_backup_codes WHERE email = %s ORDER BY id",
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def create_backup_codes(email: str, code_hashes: list[str]) -> None:
+        now = time.time()
+        with auth_connection() as conn:
+            # Delete old codes
+            conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (email,))
+            for h in code_hashes:
+                conn.execute(
+                    "INSERT INTO mfa_backup_codes (email, code_hash, used, created_at) VALUES (%s, %s, 0, %s)",
+                    (email, h, now),
+                )
+
+    @staticmethod
+    def use_backup_code(email: str, code_hash: str) -> bool:
+        """Mark a backup code as used. Returns True if a valid unused code was found."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM mfa_backup_codes WHERE email = %s AND code_hash = %s AND used = 0",
+                (email, code_hash),
+            ).fetchone()
+            if not row:
+                return False
+            conn.execute("UPDATE mfa_backup_codes SET used = 1 WHERE id = %s", (row["id"],))
+            return True
+
+    # ── Challenges ──
+
+    @staticmethod
+    def create_challenge(data: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO mfa_challenges (challenge_id, email, session_token, challenge_data, created_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    data["challenge_id"],
+                    data["email"],
+                    data.get("session_token"),
+                    data.get("challenge_data"),
+                    data.get("created_at", time.time()),
+                    data["expires_at"],
+                ),
+            )
+
+    @staticmethod
+    def get_challenge(challenge_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_challenges WHERE challenge_id = %s",
+                (challenge_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def delete_challenge(challenge_id: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM mfa_challenges WHERE challenge_id = %s", (challenge_id,))
+
+    @staticmethod
+    def cleanup_expired_challenges() -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM mfa_challenges WHERE expires_at < %s", (time.time(),))
+
+
+class OAuthStore:
+    @staticmethod
+    def update_client(
+        client_id: str,
+        updates: dict,
+        created_by_email: str | None = None,
+        *,
+        actor: object,
+    ) -> bool:
+        allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+        fields = {k: v for k, v in updates.items() if k in allowed}
+        # The lock, not the door (#16). Enforced here so a caller cannot omit it
+        # by not knowing about it: registration was guarded and the update path was
+        # not, which left a two-request escalation open after the first fix.
+        # `actor` is required and has no default — a forgotten argument is a
+        # TypeError rather than a silent exemption.
+        assert_delegable(fields.get("scopes"), actor=actor)
+
+        if not fields:
+            return False
+        # Wrap JSONB fields for psycopg3
+        from psycopg.types.json import Jsonb
+
+        for k in ["redirect_uris", "grant_types", "scopes"]:
+            if k in fields:
+                fields[k] = Jsonb(list(fields[k]))
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        values = list(fields.values())
+        values.append(time.time())
+        set_clause += ", updated_at = %s"
+        if created_by_email:
+            values.extend([client_id, created_by_email])
+            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+        else:
+            values.append(client_id)
+            where = "client_id = %s"
+        with auth_connection() as conn:
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def _workspace_where(
+        client_id: str,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> tuple[str, list]:
+        if workspace_customer_id == personal_customer_id:
+            return (
+                "client_id = %s AND created_by_email = %s AND is_first_party = 0 "
+                "AND (workspace_customer_id = %s OR workspace_customer_id IS NULL)",
+                [client_id, user_email, workspace_customer_id],
+            )
+        return (
+            "client_id = %s AND workspace_customer_id = %s AND is_first_party = 0",
+            [client_id, workspace_customer_id],
+        )
+
+    @staticmethod
+    def update_client_in_workspace(
+        client_id: str,
+        updates: dict,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+        actor: object,
+    ) -> bool:
+        allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+        # The lock, not the door (#16). Enforced here so a caller cannot omit it
+        # by not knowing about it: registration was guarded and the update path was
+        # not, which left a two-request escalation open after the first fix.
+        # `actor` is required and has no default — a forgotten argument is a
+        # TypeError rather than a silent exemption.
+        assert_delegable(updates.get("scopes"), actor=actor)
+
+        fields = {k: v for k, v in updates.items() if k in allowed}
+        if not fields:
+            return False
+        from psycopg.types.json import Jsonb
+
+        for k in ["redirect_uris", "grant_types", "scopes"]:
+            if k in fields:
+                fields[k] = Jsonb(list(fields[k]))
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        values = list(fields.values())
+        values.append(time.time())
+        set_clause += ", updated_at = %s"
+        where, where_vals = OAuthStore._workspace_where(
+            client_id,
+            workspace_customer_id=workspace_customer_id,
+            personal_customer_id=personal_customer_id,
+            user_email=user_email,
+        )
+        values.extend(where_vals)
+        with auth_connection() as conn:
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def rotate_client_secret_in_workspace(
+        client_id: str,
+        new_secret_hash: str,
+        new_secret_salt: str,
+        new_secret_preview: str,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> bool:
+        set_clause = (
+            "client_secret_hash = %s, client_secret_salt = %s, "
+            "client_secret_preview = %s, updated_at = %s"
+        )
+        values = [new_secret_hash, new_secret_salt, new_secret_preview, time.time()]
+        where, where_vals = OAuthStore._workspace_where(
+            client_id,
+            workspace_customer_id=workspace_customer_id,
+            personal_customer_id=personal_customer_id,
+            user_email=user_email,
+        )
+        values.extend(where_vals)
+        with auth_connection() as conn:
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def rotate_client_secret(
+        client_id: str,
+        new_secret_hash: str,
+        new_secret_salt: str,
+        new_secret_preview: str,
+        created_by_email: str | None = None,
+    ) -> bool:
+        set_clause = (
+            "client_secret_hash = %s, client_secret_salt = %s, "
+            "client_secret_preview = %s, updated_at = %s"
+        )
+        values = [new_secret_hash, new_secret_salt, new_secret_preview, time.time()]
+        if created_by_email:
+            values.extend([client_id, created_by_email])
+            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+        else:
+            values.append(client_id)
+            where = "client_id = %s"
+        with auth_connection() as conn:
+            cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+            return cur.rowcount > 0
+
+    @staticmethod
+    def set_client_status(client_id: str, status: str, created_by_email: str | None = None) -> bool:
+        values = [status, time.time()]
+        if created_by_email:
+            values.extend([client_id, created_by_email])
+            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+        else:
+            values.append(client_id)
+            where = "client_id = %s"
+        with auth_connection() as conn:
+            cur = conn.execute(
+                f"UPDATE oauth_clients SET status = %s, updated_at = %s WHERE {where}", values
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def update_last_used(client_id: str):
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE oauth_clients SET last_used = %s WHERE client_id = %s",
+                (time.time(), client_id),
+            )
+
+    @staticmethod
+    def create_client(client: dict, *, actor: object) -> None:
+        from psycopg.types.json import Jsonb
+
+        # The lock, not the door (#16). Enforced here so a caller cannot omit it
+        # by not knowing about it: registration was guarded and the update path was
+        # not, which left a two-request escalation open after the first fix.
+        # `actor` is required and has no default — a forgotten argument is a
+        # TypeError rather than a silent exemption.
+        assert_delegable(client.get("scopes"), actor=actor)
+
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_clients (
+                    client_id,
+                    client_name,
+                    client_type,
+                    redirect_uris,
+                    grant_types,
+                    scopes,
+                    client_secret_hash,
+                    client_secret_salt,
+                    client_secret_preview,
+                    created_by_email,
+                    is_first_party,
+                    workspace_customer_id,
+                    team_id,
+                    is_system_managed,
+                    created_at,
+                    updated_at,
+                    registration_source,
+                    resource_audience,
+                    registration_expires_at,
+                    client_uri,
+                    logo_uri,
+                    policy_uri,
+                    tos_uri,
+                    software_id,
+                    software_version,
+                    contacts
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (client_id) DO UPDATE SET
+                    client_name = EXCLUDED.client_name,
+                    client_type = EXCLUDED.client_type,
+                    redirect_uris = EXCLUDED.redirect_uris,
+                    grant_types = EXCLUDED.grant_types,
+                    scopes = EXCLUDED.scopes,
+                    client_secret_hash = EXCLUDED.client_secret_hash,
+                    client_secret_salt = EXCLUDED.client_secret_salt,
+                    client_secret_preview = EXCLUDED.client_secret_preview,
+                    created_by_email = EXCLUDED.created_by_email,
+                    is_first_party = EXCLUDED.is_first_party,
+                    is_system_managed = EXCLUDED.is_system_managed,
+                    updated_at = EXCLUDED.updated_at,
+                    registration_source = EXCLUDED.registration_source,
+                    resource_audience = EXCLUDED.resource_audience,
+                    registration_expires_at = EXCLUDED.registration_expires_at,
+                    client_uri = EXCLUDED.client_uri,
+                    logo_uri = EXCLUDED.logo_uri,
+                    policy_uri = EXCLUDED.policy_uri,
+                    tos_uri = EXCLUDED.tos_uri,
+                    software_id = EXCLUDED.software_id,
+                    software_version = EXCLUDED.software_version,
+                    contacts = EXCLUDED.contacts
+                """,
+                (
+                    client["client_id"],
+                    client["client_name"],
+                    client["client_type"],
+                    Jsonb(list(client.get("redirect_uris") or [])),
+                    Jsonb(list(client.get("grant_types") or [])),
+                    Jsonb(list(client.get("scopes") or [])),
+                    client.get("client_secret_hash"),
+                    client.get("client_secret_salt"),
+                    client.get("client_secret_preview"),
+                    client.get("created_by_email"),
+                    int(client.get("is_first_party", 0)),
+                    client.get("workspace_customer_id"),
+                    client.get("team_id"),
+                    int(client.get("is_system_managed", 0)),
+                    client.get("created_at", time.time()),
+                    client.get("updated_at", time.time()),
+                    client.get("registration_source", "manual"),
+                    client.get("resource_audience"),
+                    client.get("registration_expires_at"),
+                    client.get("client_uri"),
+                    client.get("logo_uri"),
+                    client.get("policy_uri"),
+                    client.get("tos_uri"),
+                    client.get("software_id"),
+                    client.get("software_version"),
+                    Jsonb(list(client.get("contacts") or [])),
+                ),
+            )
+
+    @staticmethod
+    def get_client(client_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM oauth_clients WHERE client_id = %s",
+                (client_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def list_clients(
+        created_by_email: str | None = None,
+        *,
+        workspace_customer_id: str | None = None,
+        personal_customer_id: str | None = None,
+    ) -> list[dict]:
+        with auth_connection() as conn:
+            if created_by_email is None:
+                rows = conn.execute(
+                    "SELECT * FROM oauth_clients ORDER BY created_at DESC"
+                ).fetchall()
+            elif workspace_customer_id:
+                if personal_customer_id and workspace_customer_id == personal_customer_id:
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM oauth_clients
+                         WHERE created_by_email = %s
+                           AND is_first_party = 0
+                           AND (
+                                workspace_customer_id = %s
+                                OR workspace_customer_id IS NULL
+                           )
+                         ORDER BY created_at DESC
+                        """,
+                        (created_by_email, workspace_customer_id),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM oauth_clients
+                         WHERE is_first_party = 0
+                           AND workspace_customer_id = %s
+                         ORDER BY created_at DESC
+                        """,
+                        (workspace_customer_id,),
+                    ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM oauth_clients
+                     WHERE created_by_email = %s OR is_first_party = 1
+                     ORDER BY created_at DESC
+                    """,
+                    (created_by_email,),
+                ).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_system_managed_client(created_by_email: str, client_name: str) -> dict | None:
+        """Look up a per-user, system-managed client (e.g. the MCP quick-connect
+        client) — these are excluded from the user-facing OAuth client list."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM oauth_clients
+                 WHERE created_by_email = %s AND client_name = %s AND is_system_managed = 1
+                 ORDER BY created_at DESC
+                 LIMIT 1
+                """,
+                (created_by_email, client_name),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def delete_client(client_id: str, created_by_email: str | None = None) -> bool:
+        with auth_connection() as conn:
+            if created_by_email:
+                cur = conn.execute(
+                    "DELETE FROM oauth_clients WHERE client_id = %s AND created_by_email = %s AND is_first_party = 0",
+                    (client_id, created_by_email),
+                )
+            else:
+                cur = conn.execute("DELETE FROM oauth_clients WHERE client_id = %s", (client_id,))
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_client_in_workspace(
+        client_id: str,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> bool:
+        with auth_connection() as conn:
+            if workspace_customer_id == personal_customer_id:
+                cur = conn.execute(
+                    """
+                    DELETE FROM oauth_clients
+                     WHERE client_id = %s
+                       AND created_by_email = %s
+                       AND is_first_party = 0
+                       AND (workspace_customer_id = %s OR workspace_customer_id IS NULL)
+                    """,
+                    (client_id, user_email, workspace_customer_id),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    DELETE FROM oauth_clients
+                     WHERE client_id = %s
+                       AND workspace_customer_id = %s
+                       AND is_first_party = 0
+                    """,
+                    (client_id, workspace_customer_id),
+                )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def create_refresh_token(token_data: dict) -> None:
+        from psycopg.types.json import Jsonb
+
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_refresh_tokens (
+                    token_id,
+                    token_hash,
+                    family_id,
+                    parent_token_id,
+                    session_token,
+                    client_id,
+                    email,
+                    user_id,
+                    session_type,
+                    scopes,
+                    audience,
+                    created_at,
+                    expires_at,
+                    consumed_at,
+                    revoked_at,
+                    replaced_by_token_id,
+                    reuse_detected_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    token_data["token_id"],
+                    token_data["token_hash"],
+                    token_data["family_id"],
+                    token_data.get("parent_token_id"),
+                    token_data.get("session_token"),
+                    token_data["client_id"],
+                    token_data.get("email"),
+                    token_data.get("user_id"),
+                    token_data.get("session_type", "browser"),
+                    Jsonb(list(token_data.get("scopes") or [])),
+                    token_data.get("audience", "xcelsior-api"),
+                    token_data.get("created_at", time.time()),
+                    token_data["expires_at"],
+                    token_data.get("consumed_at"),
+                    token_data.get("revoked_at"),
+                    token_data.get("replaced_by_token_id"),
+                    token_data.get("reuse_detected_at"),
+                ),
+            )
+
+    @staticmethod
+    def get_refresh_token(token_hash: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM oauth_refresh_tokens WHERE token_hash = %s",
+                (token_hash,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def mark_refresh_token_rotated(token_id: str, replaced_by_token_id: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_refresh_tokens
+                SET consumed_at = %s, replaced_by_token_id = %s
+                WHERE token_id = %s
+                """,
+                (time.time(), replaced_by_token_id, token_id),
+            )
+
+    @staticmethod
+    def revoke_refresh_family(family_id: str, *, reuse_detected: bool = False) -> None:
+        now = time.time()
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_refresh_tokens
+                SET revoked_at = COALESCE(revoked_at, %s),
+                    reuse_detected_at = CASE WHEN %s THEN COALESCE(reuse_detected_at, %s) ELSE reuse_detected_at END
+                WHERE family_id = %s
+                """,
+                (now, reuse_detected, now, family_id),
+            )
+
+    @staticmethod
+    def delete_refresh_token_by_session(session_token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM oauth_refresh_tokens WHERE session_token = %s",
+                (session_token,),
+            )
+
+    # ── Dynamic client registration lifecycle (RFC 7591) ──────────────
+
+    @staticmethod
+    def touch_registration(client_id: str, expires_at) -> None:
+        """Push a dynamic registration's expiry out because it was just used.
+
+        Expiry exists to garbage-collect registrations nobody ever completed a
+        flow with — an open registration endpoint accumulates those. A client in
+        active use must never expire underneath a working connector, so every
+        successful authorization renews it.
+        """
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_clients
+                   SET registration_expires_at = %s, updated_at = %s
+                 WHERE client_id = %s AND registration_expires_at IS NOT NULL
+                """,
+                (expires_at, time.time(), client_id),
+            )
+
+    @staticmethod
+    def purge_expired_registrations(now=None) -> int:
+        """Delete dynamic registrations whose window elapsed unused."""
+        from datetime import UTC, datetime
+
+        cutoff = now or datetime.now(UTC)
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM oauth_clients
+                 WHERE registration_expires_at IS NOT NULL
+                   AND registration_expires_at < %s
+                   AND is_first_party = 0
+                """,
+                (cutoff,),
+            )
+            return cur.rowcount or 0
+
+    @staticmethod
+    def count_registrations_since(since: float, *, source: str = "dcr") -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT count(*) AS registrations FROM oauth_clients "
+                "WHERE registration_source = %s AND created_at >= %s",
+                (source, since),
+            ).fetchone()
+            return int(row["registrations"]) if row else 0
+
+
+class ConsentStore:
+    """Recorded user consent for a third-party OAuth client.
+
+    A connector's authorization is a decision the user made once and can undo;
+    treating it as a transient UI moment would mean re-prompting on every
+    reconnect and having nothing to show — or revoke — afterwards. The row is
+    the authority: `/oauth/authorize` skips the prompt only when a live grant
+    already covers the exact scopes and resource being requested.
+    """
+
+    @staticmethod
+    def get(user_id: str, client_id: str, resource: str = "") -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM oauth_consent_grants
+                 WHERE user_id = %s AND client_id = %s AND resource = %s
+                   AND revoked_at IS NULL
+                """,
+                (user_id, client_id, resource or ""),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def record(
+        *,
+        grant_id: str,
+        tenant_id: str,
+        user_id: str,
+        email: str,
+        client_id: str,
+        scopes: list[str],
+        resource: str = "",
+        surface: str = "unknown",
+    ) -> None:
+        from psycopg.types.json import Jsonb
+
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_consent_grants (
+                    grant_id, tenant_id, user_id, email, client_id, resource,
+                    scopes, surface
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id, client_id, resource) DO UPDATE SET
+                    scopes = EXCLUDED.scopes,
+                    tenant_id = EXCLUDED.tenant_id,
+                    email = EXCLUDED.email,
+                    surface = EXCLUDED.surface,
+                    granted_at = now(),
+                    revoked_at = NULL
+                """,
+                (
+                    grant_id,
+                    tenant_id,
+                    user_id,
+                    email,
+                    client_id,
+                    resource or "",
+                    Jsonb(sorted(set(scopes))),
+                    surface or "unknown",
+                ),
+            )
+
+    @staticmethod
+    def touch(user_id: str, client_id: str, resource: str = "") -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_consent_grants SET last_used_at = now()
+                 WHERE user_id = %s AND client_id = %s AND resource = %s
+                """,
+                (user_id, client_id, resource or ""),
+            )
+
+    @staticmethod
+    def list_for_user(user_id: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM oauth_consent_grants
+                 WHERE user_id = %s AND revoked_at IS NULL
+                 ORDER BY granted_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def revoke(user_id: str, client_id: str) -> int:
+        """Withdraw consent for every resource this user granted this client."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE oauth_consent_grants SET revoked_at = now()
+                 WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL
+                """,
+                (user_id, client_id),
+            )
+            return cur.rowcount or 0
+
+
+class AgentKeyStore:
+    """Durable storage for long-lived agent API keys (MCP + Agent Skill).
+
+    Only the SHA-256 digest of a key is stored. ``key_prefix`` keeps a short
+    display fragment so a key is identifiable in a list without ever holding
+    the secret. Keys do not expire; they are revoked.
+    """
+
+    @staticmethod
+    def create(
+        *,
+        key_id: str,
+        user_id: str,
+        tenant_id: str,
+        client_id: str,
+        name: str,
+        key_prefix: str,
+        key_hash: str,
+        scopes: str,
+        audience: str,
+        key_ciphertext: str | None = None,
+    ) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_api_keys
+                    (key_id, user_id, tenant_id, client_id, name, key_prefix,
+                     key_hash, scopes, audience, key_ciphertext)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    key_id,
+                    user_id,
+                    tenant_id,
+                    client_id,
+                    name,
+                    key_prefix,
+                    key_hash,
+                    scopes,
+                    audience,
+                    key_ciphertext,
+                ),
+            )
+
+    @staticmethod
+    def get_live_by_hash(key_hash: str) -> dict | None:
+        """Single indexed read on the request path. Revoked keys are invisible."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_api_keys WHERE key_hash = %s AND revoked_at IS NULL",
+                (key_hash,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def touch_last_used(key_id: str) -> None:
+        """Record use. This is what tells the dashboard a key is live in a real
+        config, and therefore that rotating it would break something."""
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE agent_api_keys SET last_used_at = now() WHERE key_id = %s",
+                (key_id,),
+            )
+
+    @staticmethod
+    def list_for_user(user_id: str, *, include_revoked: bool = False) -> list[dict]:
+        clause = "" if include_revoked else " AND revoked_at IS NULL"
+        with auth_connection() as conn:
+            rows = conn.execute(
+                cast(
+                    Any,
+                    f"SELECT * FROM agent_api_keys WHERE user_id = %s{clause} "
+                    "ORDER BY created_at DESC",
+                ),
+                (user_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def revoke(key_id: str, user_id: str) -> bool:
+        """Scoped to the owner so a key id alone cannot revoke someone else's key."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET revoked_at = now() "
+                "WHERE key_id = %s AND user_id = %s AND revoked_at IS NULL",
+                (key_id, user_id),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def revoke_all_for_client(user_id: str, client_id: str) -> int:
+        """Used when rotating: the previous key must stop working, or rotation
+        just accumulates live credentials."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET revoked_at = now() "
+                "WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL",
+                (user_id, client_id),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def rename(key_id: str, user_id: str, name: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET name = %s "
+                "WHERE key_id = %s AND user_id = %s AND revoked_at IS NULL",
+                (name, key_id, user_id),
+            )
+            return cur.rowcount > 0

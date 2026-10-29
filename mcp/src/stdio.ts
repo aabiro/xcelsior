@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { loadConfig } from "./config.js";
+import { createMcpServer } from "./server.js";
+import { createApiClient, validateBearer } from "./auth/bearer.js";
+import { instrumentMcpAnalytics, shutdownMcpAnalytics } from "./analytics.js";
+
+// stdio transport: launched as a subprocess by the MCP client (VS Code, Claude,
+// Cursor, …). Unlike the hosted HTTP transport it never speaks HTTP to the
+// client, so the client can never receive a 401 and can never be dragged into
+// an OAuth discovery / dynamic-client-registration flow. This is the friction-
+// free local path — the token is supplied out-of-band via the environment
+// (XCELSIOR_ACCESS_TOKEN), exactly like every other stdio MCP server.
+//
+// Robustness rule: a missing or expired token must NEVER prevent the server
+// from starting. If it did, the client would show the server as "failed to
+// start" and — in some clients — retry through the interactive auth flow we are
+// deliberately avoiding. Instead we always start, and let each tool call return
+// the API's own typed 401 with an actionable "refresh your token" message. The
+// bearer is still enforced end-to-end by the API on every call.
+async function main(): Promise<void> {
+  // The published package runs on the user's machine, where the hosted
+  // server's loopback default (127.0.0.1:8000) is nothing: following the README
+  // (`XCELSIOR_ACCESS_TOKEN=… npx @xcelsior-gpu/mcp`) every tool call failed to
+  // connect. Default to production; either variable still points elsewhere.
+  if (!process.env.XCELSIOR_MCP_API_URL && !process.env.XCELSIOR_API_URL) {
+    process.env.XCELSIOR_API_URL = "https://xcelsior.ca";
+  }
+  const config = loadConfig();
+  const token = (process.env.XCELSIOR_ACCESS_TOKEN || process.env.XCELSIOR_OAUTH_TOKEN || "").trim();
+  const quickConnect = `${config.apiUrl.replace(/\/$/, "")}/dashboard/mcp`;
+
+  let user = undefined;
+  if (!token) {
+    console.error(
+      `[xcelsior-mcp] No XCELSIOR_ACCESS_TOKEN set — starting anyway; tool calls will ` +
+        `return 401 until a token is supplied. Create one at ${quickConnect} (Quick Connect).`,
+    );
+  } else {
+    // Best-effort identity resolution for nicer context. Never fatal: an expired
+    // token still starts the server so the client stays connected and shows a
+    // clean per-tool error instead of an auth popup.
+    try {
+      user = (await validateBearer(config.apiUrl, token)) ?? undefined;
+      if (!user) {
+        console.error(
+          `[xcelsior-mcp] Token present but invalid or expired — starting anyway; tool ` +
+            `calls will return 401. Refresh it at ${quickConnect}.`,
+        );
+      }
+    } catch (err) {
+      console.error(`[xcelsior-mcp] Identity check failed (${String(err)}); starting anyway.`);
+    }
+  }
+
+  const client = createApiClient(config.apiUrl, token);
+  const server = createMcpServer(client, user, "stdio");
+  instrumentMcpAnalytics(server, config.posthogAnalytics, {
+    user,
+    transport: "stdio",
+    profile: config.toolProfile,
+  });
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  let shuttingDown = false;
+  const shutdown = async (exitCode: number): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      await server.close();
+      await shutdownMcpAnalytics();
+    } catch (err) {
+      console.error(`[xcelsior-mcp] shutdown failed: ${String(err)}`);
+      exitCode = 1;
+    } finally {
+      process.exit(exitCode);
+    }
+  };
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.once(signal, () => { void shutdown(0); });
+  }
+  process.once("beforeExit", () => { void shutdownMcpAnalytics(); });
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
