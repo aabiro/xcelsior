@@ -51,14 +51,14 @@ def running_instance(
     with pool.connection() as conn:
         conn.execute(
             """INSERT INTO hosts(host_id,status,registered_at,payload,admission_state,
-            administrative_state,availability_state,capabilities) VALUES(%s,'active',%s,%s,
-            'admitted','admitted','ready','{"egress_isolation":true}')""",
+            administrative_state,availability_state,capabilities,last_observed_at) VALUES(%s,'active',%s,%s,
+            'admitted','admitted','ready','{"egress_isolation":true}',clock_timestamp())""",
             (host_id, now, Jsonb(host_payload)),
         )
         conn.execute(
             """INSERT INTO host_gpu_devices(host_id,gpu_uuid,model,total_vram_mb,
-            allocatable_vram_mb,health) VALUES(%s,%s,'RTX 4090',24576,24576,'healthy')""",
-            (host_id, f"GPU-{host_id}"),
+            allocatable_vram_mb,health) VALUES(%s,%s,%s,24576,24576,'healthy')""",
+            (host_id, f"GPU-{host_id}", f"RTX 4090 {job_id}"),
         )
         conn.execute(
             """INSERT INTO jobs(job_id,status,priority,submitted_at,payload,phase,
