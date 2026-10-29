@@ -103,7 +103,7 @@ table is that renumbering, recorded once so no future work guesses.
 
 145 stores the Facebook user id used to find an account for the data-deletion callback, and the confirmation-code table the public status page reads. Downgrade drops the column, the unique index, and the confirmation table.
 
-146 adds the companion's `tenant_id` to that confirmation table (§4.4.10): the deletion request's tenant when the receipt names one, otherwise the receipt's own code hash, following 090's rule for privacy rows. The runtime schema floor is 146. Downgrade drops the index and the column.
+146 adds the companion's `tenant_id` to that confirmation table (§4.4.10): the deletion request's tenant when the receipt names one, otherwise the receipt's own code hash, following 090's rule for privacy rows. A `BEFORE INSERT` trigger applies the same rule to rows that arrive without a tenant, so the 145 writer still serving during a blue-green deploy keeps storing receipts; it can be dropped once no 145 writer is deployed. The runtime schema floor is 146. Downgrade drops the index, the trigger and its function, and the column.
 
 143 grants the host observation session registry to the runtime roles that
 read or ingest it, skipping any role that is not provisioned yet. Apply it
