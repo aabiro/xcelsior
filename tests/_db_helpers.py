@@ -1,5 +1,33 @@
 """Shared DB helpers for tests (sqlite + postgres safe)."""
 
+import functools
+import os
+
+
+@functools.cache
+def postgres_is_reachable() -> bool:
+    """One short connect attempt, remembered for the rest of the session.
+
+    `db._get_pg_pool()` against an absent Postgres does not fail fast: it
+    retries five times with backoff, about two and a half minutes, and caches
+    nothing on failure. Every caller that probes with it pays that again. On
+    the sandboxed runner, which has no database by design, two module-level
+    probes and an autouse fixture that probed around every test turned the
+    pure-parse gates into a job that hung until it was cancelled.
+
+    True for a sqlite run, where there is nothing remote to reach.
+    """
+    if (os.environ.get("XCELSIOR_DB_BACKEND") or "").lower() not in ("postgres", "dual"):
+        return True
+    try:
+        import psycopg
+        from db import resolve_postgres_dsn
+
+        psycopg.connect(resolve_postgres_dsn(), connect_timeout=3).close()
+    except Exception:
+        return False
+    return True
+
 
 def admit_test_host(
     host_id: str,

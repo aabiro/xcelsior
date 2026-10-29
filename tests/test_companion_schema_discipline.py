@@ -34,6 +34,10 @@ from db import _get_pg_pool
 # twenty-minute job budget and the run was cancelled rather than reported —
 # the slowest possible way to learn a test cannot run here.
 try:
+    from tests._db_helpers import postgres_is_reachable
+
+    if not postgres_is_reachable():
+        raise RuntimeError("postgres is not reachable")
     _probe_pool = _get_pg_pool()
     with _probe_pool.connection() as _probe_conn:
         _probe_conn.execute("SELECT 1").fetchone()

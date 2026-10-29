@@ -21,7 +21,10 @@ MIG_061 = PROJECT_ROOT / "api" / "migrations" / "versions" / "061_residual_runti
 try:
     from db import _get_pg_pool, _ensure_pg_tables, _ensure_oauth_auth_tables
     from db import _pg_schema_is_migrated
+    from tests._db_helpers import postgres_is_reachable
 
+    if not postgres_is_reachable():
+        raise RuntimeError("postgres is not reachable")
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
