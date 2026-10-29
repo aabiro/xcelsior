@@ -63,10 +63,12 @@ def test_enforced_expiry_preserves_intent_and_is_atomic_and_idempotent(
         result = reconcile_job(conn, placed["job_id"])
         assert result.actions_taken == ["expire_current_lease"]
         assert _state(conn, placed) == (expected, None, "lost", "expired")
+        # A renewal timeout revokes authority but keeps the devices until the
+        # old attempt is proven stopped, so a silent worker cannot double-run.
         assert conn.execute(
             "SELECT count(*) FROM gpu_device_allocations WHERE attempt_id=%s AND status='active'",
             (placed["attempt_id"],),
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
         assert conn.execute(
             "SELECT action_taken, resolved_at IS NOT NULL FROM reconciliation_findings "
             "WHERE resource_id=%s AND finding_type='job_lease_authority_missing'",
