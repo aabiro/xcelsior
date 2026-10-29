@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="112" y1="46" x2="1036" y2="860" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#08101D"/>
+      <stop offset="56%" stop-color="#0C1525"/>
+      <stop offset="100%" stop-color="#160C1D"/>
+    </linearGradient>
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(288 138) rotate(90) scale(440 620)">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#00D4FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(726 228) rotate(90) scale(420 560)">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="redGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1048 560) rotate(90) scale(320 420)">
+      <stop offset="0%" stop-color="#DC2626" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    </radialGradient>
+
+    <pattern id="majorGrid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" stroke="#2A3548" stroke-opacity="0.5" stroke-width="0.8"/>
+    </pattern>
+    <pattern id="minorGrid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M22 0H0V22" stroke="#1A2235" stroke-opacity="0.34" stroke-width="0.5"/>
+    </pattern>
+
+    <linearGradient id="gridFadeV" x1="0" y1="0" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="34%" stop-color="white" stop-opacity="0.88"/>
+      <stop offset="58%" stop-color="white" stop-opacity="0.48"/>
+      <stop offset="78%" stop-color="white" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gridFadeH" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.16"/>
+      <stop offset="14%" stop-color="white"/>
+      <stop offset="62%" stop-color="white" stop-opacity="0.7"/>
+      <stop offset="86%" stop-color="white" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.08"/>
+    </linearGradient>
+    <mask id="gridMask">
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeV)"/>
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeH)" style="mix-blend-mode:multiply"/>
+    </mask>
+
+    <linearGradient id="edgeFadeLeft" x1="0" y1="0" x2="128" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="edgeFadeTop" x1="0" y1="0" x2="0" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="1"/>
+    </linearGradient>
+    <mask id="edgeFadeMask">
+      <rect x="0" y="0" width="1200" height="900" fill="black"/>
+      <rect x="0" y="0" width="1200" height="900" fill="white"/>
+      <rect x="0" y="0" width="128" height="900" fill="url(#edgeFadeLeft)"/>
+      <rect x="0" y="0" width="1200" height="52" fill="url(#edgeFadeTop)"/>
+    </mask>
+
+    <linearGradient id="brandH" x1="70" y1="0" x2="1140" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0"/>
+      <stop offset="16%" stop-color="#00D4FF" stop-opacity="0.46"/>
+      <stop offset="50%" stop-color="#7C3AED" stop-opacity="0.34"/>
+      <stop offset="82%" stop-color="#DC2626" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="brandV" x1="0" y1="24" x2="0" y2="770" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.56"/>
+      <stop offset="44%" stop-color="#7C3AED" stop-opacity="0.34"/>
+      <stop offset="76%" stop-color="#DC2626" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="arcGrad" x1="184" y1="124" x2="988" y2="618" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.84"/>
+      <stop offset="40%" stop-color="#00D4FF" stop-opacity="0.72"/>
+      <stop offset="76%" stop-color="#7C3AED" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0.6"/>
+    </linearGradient>
+    <linearGradient id="arcGradWarm" x1="250" y1="178" x2="1010" y2="626" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.7"/>
+      <stop offset="45%" stop-color="#7C3AED" stop-opacity="0.74"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0.62"/>
+    </linearGradient>
+
+    <linearGradient id="serverTop" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#12233B" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#0B1526" stop-opacity="0.34"/>
+    </linearGradient>
+    <linearGradient id="serverFace" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0F1D32" stop-opacity="0.82"/>
+      <stop offset="55%" stop-color="#091321" stop-opacity="0.44"/>
+      <stop offset="100%" stop-color="#2A123B" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="serverSide" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0E2538" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#35131E" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="serverStroke" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.72"/>
+      <stop offset="52%" stop-color="#7C3AED" stop-opacity="0.62"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0.42"/>
+    </linearGradient>
+    <linearGradient id="serverFade" x1="760" y1="410" x2="1188" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.98"/>
+      <stop offset="48%" stop-color="white" stop-opacity="0.78"/>
+      <stop offset="80%" stop-color="white" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="serverMask">
+      <rect x="0" y="0" width="1200" height="900" fill="black"/>
+      <rect x="728" y="392" width="500" height="520" rx="10" fill="url(#serverFade)"/>
+    </mask>
+    <radialGradient id="serverHalo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(974 612) rotate(90) scale(290 280)">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.16"/>
+      <stop offset="42%" stop-color="#00D4FF" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#00D4FF" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="dotGlow" x="-240%" y="-240%" width="580%" height="580%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="arcGlow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="bigGlow" x="-260%" y="-260%" width="620%" height="620%">
+      <feGaussianBlur stdDeviation="12" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <style>
+      .twinkle{animation:twinkle 4.6s ease-in-out infinite}
+      .twinkle-fast{animation:twinkle 3s ease-in-out infinite}
+      .twinkle-slow{animation:twinkle 6s ease-in-out infinite}
+      .landing{animation:landing 4.8s ease-in-out infinite}
+      .energy{fill:none;stroke-linecap:round;stroke-dasharray:360 4200;animation:flow 13s linear infinite}
+      @keyframes twinkle{0%,100%{opacity:1}50%{opacity:.22}}
+      @keyframes landing{0%,100%{opacity:1}50%{opacity:.18}}
+      @keyframes flow{from{stroke-dashoffset:4560}to{stroke-dashoffset:0}}
+    </style>
+  </defs>
+
+  <g mask="url(#edgeFadeMask)">
+    <rect width="1200" height="900" rx="40" fill="url(#bg)"/>
+    <rect width="1200" height="900" rx="40" fill="url(#cyanGlow)"/>
+    <rect width="1200" height="900" rx="40" fill="url(#violetGlow)"/>
+    <rect width="1200" height="900" rx="40" fill="url(#redGlow)"/>
+  </g>
+
+  <g mask="url(#gridMask)">
+    <rect width="1200" height="900" fill="url(#majorGrid)" opacity="0.82"/>
+    <rect width="1200" height="900" fill="url(#minorGrid)" opacity="0.68"/>
+
+    <g opacity="0.72">
+      <path d="M62 84H1144" stroke="url(#brandH)" stroke-width="1.05"/>
+      <path d="M62 168H1144" stroke="url(#brandH)" stroke-width="1.05"/>
+      <path d="M62 248H1144" stroke="url(#brandH)" stroke-width="1.45"/>
+      <path d="M62 344H1144" stroke="url(#brandH)" stroke-width="1.05"/>
+      <path d="M62 432H1144" stroke="url(#brandH)" stroke-width="1.05"/>
+      <path d="M62 520H1144" stroke="url(#brandH)" stroke-width="0.85"/>
+    </g>
+
+    <g opacity="0.66">
+      <path d="M164 24V770" stroke="url(#brandV)" stroke-width="1.05"/>
+      <path d="M320 24V770" stroke="url(#brandV)" stroke-width="1.05"/>
+      <path d="M480 24V770" stroke="url(#brandV)" stroke-width="1.45"/>
+      <path d="M642 24V770" stroke="url(#brandV)" stroke-width="1.05"/>
+      <path d="M804 24V770" stroke="url(#brandV)" stroke-width="0.85"/>
+      <path d="M968 24V770" stroke="url(#brandV)" stroke-width="0.85"/>
+    </g>
+  </g>
+
+  <g filter="url(#dotGlow)" opacity="0.78">
+    <circle cx="176" cy="146" r="4.2" fill="#00D4FF" class="twinkle-fast"/>
+    <circle cx="318" cy="236" r="4.2" fill="#7C3AED" class="twinkle"/>
+    <circle cx="514" cy="182" r="4.2" fill="#00D4FF" class="twinkle-slow"/>
+    <circle cx="656" cy="116" r="4.2" fill="#7C3AED" class="twinkle-fast"/>
+    <circle cx="656" cy="310" r="4.2" fill="#DC2626" class="twinkle"/>
+    <circle cx="174" cy="362" r="4.2" fill="#00D4FF" class="twinkle-slow"/>
+    <circle cx="972" cy="608" r="5.2" fill="#DC2626" class="landing"/>
+    <circle cx="948" cy="642" r="3.4" fill="#00D4FF" class="landing"/>
+    <circle cx="1008" cy="566" r="3.2" fill="#7C3AED" class="landing"/>
+  </g>
+
+  <g fill="none" stroke-linecap="round" filter="url(#arcGlow)">
+    <path d="M176 146 Q316 70 514 182" stroke="url(#arcGrad)" stroke-width="2.05" stroke-opacity="0.56"/>
+    <path d="M318 236 Q438 150 656 116" stroke="url(#arcGradWarm)" stroke-width="2.05" stroke-opacity="0.54"/>
+    <path d="M174 362 Q388 248 514 182" stroke="url(#arcGrad)" stroke-width="1.85" stroke-opacity="0.44"/>
+    <path d="M514 182 Q744 174 972 608" stroke="url(#arcGradWarm)" stroke-width="2.45" stroke-opacity="0.66"/>
+    <path d="M318 236 Q650 300 972 608" stroke="url(#arcGrad)" stroke-width="2.0" stroke-opacity="0.52"/>
+    <path d="M174 362 Q510 486 972 608" stroke="url(#arcGradWarm)" stroke-width="1.8" stroke-opacity="0.4"/>
+    <path d="M656 116 Q822 52 1118 162" stroke="url(#arcGrad)" stroke-width="1.6" stroke-opacity="0.28"/>
+    <path d="M514 182 Q708 122 982 218" stroke="url(#arcGradWarm)" stroke-width="1.45" stroke-opacity="0.24"/>
+
+    <path class="energy" d="M514 182 Q744 174 972 608" stroke="url(#arcGradWarm)" stroke-width="3" stroke-opacity="0.74"/>
+    <path class="energy" d="M318 236 Q650 300 972 608" stroke="url(#arcGrad)" stroke-width="2.45" stroke-opacity="0.62" style="animation-delay:4s;animation-duration:15s"/>
+    <path class="energy" d="M176 146 Q316 70 514 182" stroke="url(#arcGrad)" stroke-width="2.2" stroke-opacity="0.46" style="animation-delay:8s;animation-duration:17s"/>
+  </g>
+
+  <ellipse cx="974" cy="612" rx="264" ry="254" fill="url(#serverHalo)"/>
+
+  <g mask="url(#serverMask)">
+    <g transform="translate(812 488)">
+      <path d="M332 70L418 122V452L332 402Z" fill="#09111E" fill-opacity="0.24" stroke="#7C3AED" stroke-opacity="0.2" stroke-width="0.9"/>
+
+      <g opacity="0.94">
+        <path d="M36 108L246 74L332 122L122 156Z" fill="url(#serverTop)" stroke="url(#serverStroke)" stroke-width="1.3"/>
+        <path d="M122 156L332 122V186L122 220Z" fill="url(#serverFace)" stroke="url(#serverStroke)" stroke-width="1.15"/>
+        <path d="M246 74L332 122V186L246 138Z" fill="url(#serverSide)" stroke="url(#serverStroke)" stroke-width="1.05"/>
+        <path d="M158 176L284 156" stroke="#00D4FF" stroke-opacity="0.8" stroke-width="2.05" stroke-linecap="round"/>
+        <path d="M158 188L250 173" stroke="#7C3AED" stroke-opacity="0.32" stroke-width="0.95" stroke-linecap="round"/>
+        <g filter="url(#dotGlow)">
+          <circle cx="302" cy="154" r="2.6" fill="#00D4FF" class="twinkle-fast"/>
+          <circle cx="316" cy="152" r="2.6" fill="#7C3AED" class="twinkle"/>
+          <circle cx="330" cy="150" r="2.6" fill="#DC2626" class="twinkle-slow"/>
+        </g>
+      </g>
+
+      <g opacity="0.7" transform="translate(0 106)">
+        <path d="M36 108L246 74L332 122L122 156Z" fill="url(#serverTop)" stroke="url(#serverStroke)" stroke-width="1.15"/>
+        <path d="M122 156L332 122V186L122 220Z" fill="url(#serverFace)" stroke="url(#serverStroke)" stroke-width="1.0"/>
+        <path d="M246 74L332 122V186L246 138Z" fill="url(#serverSide)" stroke="url(#serverStroke)" stroke-width="0.9"/>
+        <path d="M158 176L284 156" stroke="#7C3AED" stroke-opacity="0.58" stroke-width="1.65" stroke-linecap="round"/>
+        <path d="M158 188L250 173" stroke="#DC2626" stroke-opacity="0.22" stroke-width="0.85" stroke-linecap="round"/>
+        <g filter="url(#dotGlow)">
+          <circle cx="302" cy="154" r="2.35" fill="#00D4FF"/>
+          <circle cx="316" cy="152" r="2.35" fill="#7C3AED" class="twinkle"/>
+          <circle cx="330" cy="150" r="2.35" fill="#DC2626"/>
+        </g>
+      </g>
+
+      <g opacity="0.38" transform="translate(0 212)">
+        <path d="M36 108L246 74L332 122L122 156Z" fill="url(#serverTop)" stroke="url(#serverStroke)" stroke-width="0.95"/>
+        <path d="M122 156L332 122V186L122 220Z" fill="url(#serverFace)" stroke="url(#serverStroke)" stroke-width="0.85"/>
+        <path d="M246 74L332 122V186L246 138Z" fill="url(#serverSide)" stroke="url(#serverStroke)" stroke-width="0.8"/>
+        <path d="M158 176L268 158" stroke="#DC2626" stroke-opacity="0.24" stroke-width="1.3" stroke-linecap="round"/>
+      </g>
+
+      <g filter="url(#bigGlow)">
+        <line x1="160" y1="120" x2="160" y2="78" stroke="#DC2626" stroke-opacity="0.44" stroke-width="1.05" stroke-linecap="round"/>
+        <line x1="160" y1="120" x2="196" y2="92" stroke="#DC2626" stroke-opacity="0.28" stroke-width="0.85" stroke-linecap="round"/>
+        <line x1="160" y1="120" x2="126" y2="94" stroke="#00D4FF" stroke-opacity="0.24" stroke-width="0.85" stroke-linecap="round"/>
+        <line x1="160" y1="120" x2="198" y2="142" stroke="#7C3AED" stroke-opacity="0.22" stroke-width="0.8" stroke-linecap="round"/>
+        <line x1="160" y1="120" x2="126" y2="144" stroke="#00D4FF" stroke-opacity="0.18" stroke-width="0.8" stroke-linecap="round"/>
+      </g>
+      <circle cx="160" cy="120" r="22" fill="none" stroke="#DC2626" stroke-opacity="0.15" stroke-width="0.75"/>
+      <circle cx="160" cy="120" r="36" fill="none" stroke="#7C3AED" stroke-opacity="0.08" stroke-width="0.7"/>
+      <circle cx="160" cy="120" r="56" fill="none" stroke="#00D4FF" stroke-opacity="0.05" stroke-width="0.6"/>
+    </g>
+  </g>
+
+  <rect x="14" y="14" width="1172" height="872" rx="28" stroke="#1A2235" stroke-opacity="0.62" stroke-width="1"/>
+</svg>

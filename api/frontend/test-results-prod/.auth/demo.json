@@ -1,0 +1,103 @@
+{
+  "cookies": [
+    {
+      "name": "xcelsior-locale",
+      "value": "en",
+      "domain": "xcelsior.ca",
+      "path": "/",
+      "expires": 1822952801.244216,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "xcelsior_session",
+      "value": "xoa_EIAhvkQMoIlEFeI7D20Y1pBjDqep1JLNUdUft4iKXiA",
+      "domain": ".xcelsior.ca",
+      "path": "/",
+      "expires": 1791460003.478607,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "xcelsior_refresh",
+      "value": "e1P5mE1c-PBywRJgnvKGh1gqyuizu3pgy0ljA0lojHgDkVIWRdjEF_k0axK7ciNZ",
+      "domain": ".xcelsior.ca",
+      "path": "/",
+      "expires": 1794008803.478693,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.1.1182089072.1791416804",
+      "domain": ".xcelsior.ca",
+      "path": "/",
+      "expires": 1825976803.560591,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_EPD8EJ9R5D",
+      "value": "GS2.1.s1791416803$o1$g0$t1791416803$j60$l0$h0",
+      "domain": ".xcelsior.ca",
+      "path": "/",
+      "expires": 1825976803.590647,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ph_phc_kWR9BdkWwJhRcvxhvVQzpymk8nWJv3Rv3kDM49yXitPj_posthog",
+      "value": "%7B%22%24device_id%22%3A%2201a118c3-1660-7cc3-b549-ca557b2018c4%22%2C%22distinct_id%22%3A%22user-demo-9eae82cd%22%2C%22%24epp%22%3Atrue%2C%22%24user_state%22%3A%22identified%22%7D",
+      "domain": ".xcelsior.ca",
+      "path": "/",
+      "expires": 1822952804,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://xcelsior.ca",
+      "localStorage": [
+        {
+          "name": "xcelsior.session_hint",
+          "value": "1794008803751"
+        },
+        {
+          "name": "@appkit/connection_status",
+          "value": "disconnected"
+        },
+        {
+          "name": "xcelsior-theme",
+          "value": "dark"
+        },
+        {
+          "name": "@appkit/active_namespace",
+          "value": "bip122"
+        },
+        {
+          "name": "xcelsior-locale",
+          "value": "en"
+        },
+        {
+          "name": "@appkit/active_caip_network_id",
+          "value": "bip122:000000000019d6689c085ae165831e93"
+        },
+        {
+          "name": "ph_phc_kWR9BdkWwJhRcvxhvVQzpymk8nWJv3Rv3kDM49yXitPj_posthog__flags",
+          "value": "{\"$active_feature_flags\":[],\"$enabled_feature_flags\":{},\"$feature_flag_payloads\":{},\"$feature_flag_details\":{},\"$feature_flag_request_id\":\"5fd88c80-3d19-2c4f-feb7-bd250489156e\",\"$feature_flag_evaluated_at\":1791416803925}"
+        },
+        {
+          "name": "ph_phc_kWR9BdkWwJhRcvxhvVQzpymk8nWJv3Rv3kDM49yXitPj_posthog",
+          "value": "{\"$initialization_time\":\"2026-10-07T23:46:40.858Z\",\"$configured_session_timeout_ms\":1800000,\"distinct_id\":\"user-demo-9eae82cd\",\"$device_id\":\"01a118c3-1660-7cc3-b549-ca557b2018c4\",\"$user_state\":\"identified\",\"$error_tracking_suppression_rules\":[],\"$session_recording_remote_config\":{\"cache_timestamp\":1791416801115,\"enabled\":false,\"networkPayloadCapture\":{\"capturePerformance\":{\"network_timing\":true,\"web_vitals\":false,\"web_vitals_allowed_metrics\":null}},\"canvasRecording\":{},\"sampleRate\":null,\"minimumDurationMilliseconds\":null},\"$autocapture_disabled_server_side\":false,\"$product_tours_enabled_server_side\":false,\"$heatmaps_enabled_server_side\":false,\"$web_vitals_enabled_server_side\":false,\"$web_vitals_allowed_metrics\":null,\"$exception_capture_enabled_server_side\":false,\"$dead_clicks_enabled_server_side\":false,\"$epp\":true,\"$user_id\":\"user-demo-9eae82cd\",\"$stored_person_properties\":{\"email\":\"demo@xcelsior.ca\",\"name\":\"Demo Account\",\"role\":\"admin\",\"country\":\"CA\",\"province\":\"ON\"},\"$feature_flag_errors\":[]}"
+        }
+      ]
+    }
+  ]
+}

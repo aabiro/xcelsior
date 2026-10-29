@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500" viewBox="0 0 1500 500" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="188" y1="28" x2="1326" y2="482" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="56%" stop-color="#F8FAFC"/>
+      <stop offset="100%" stop-color="#EEF4FF"/>
+    </linearGradient>
+
+    <radialGradient id="topCyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(520 58) rotate(90) scale(290 560)">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0284C7" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="topVioletGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(980 50) rotate(90) scale(250 520)">
+      <stop offset="0%" stop-color="#6D28D9" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#6D28D9" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="topRedGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1188 72) rotate(90) scale(220 440)">
+      <stop offset="0%" stop-color="#DC2626" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    </radialGradient>
+
+    <pattern id="majorGrid" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M60 0H0V60" stroke="#CBD5E1" stroke-opacity="0.34" stroke-width="1"/>
+    </pattern>
+
+    <pattern id="minorGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" stroke="#E2E8F0" stroke-opacity="0.42" stroke-width="1"/>
+    </pattern>
+
+    <linearGradient id="gridVerticalFade" x1="0" y1="24" x2="0" y2="458" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="58%" stop-color="#FFFFFF" stop-opacity="0.82"/>
+      <stop offset="82%" stop-color="#FFFFFF" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <mask id="gridFadeMask">
+      <rect x="0" y="0" width="1500" height="500" fill="url(#gridVerticalFade)"/>
+    </mask>
+
+    <linearGradient id="gridBrandH" x1="120" y1="0" x2="1380" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0"/>
+      <stop offset="16%" stop-color="#0284C7" stop-opacity="0.60"/>
+      <stop offset="50%" stop-color="#6D28D9" stop-opacity="0.58"/>
+      <stop offset="84%" stop-color="#DC2626" stop-opacity="0.54"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="gridBrandV" x1="0" y1="36" x2="0" y2="412" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.70"/>
+      <stop offset="42%" stop-color="#6D28D9" stop-opacity="0.54"/>
+      <stop offset="74%" stop-color="#DC2626" stop-opacity="0.40"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="logoHalo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(750 250) rotate(90) scale(150 180)">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.86"/>
+      <stop offset="54%" stop-color="#F8FAFC" stop-opacity="0.36"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="logoShadow" x="560" y="64" width="380" height="380" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#0F172A" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1500" height="500" rx="28" fill="url(#bg)"/>
+  <rect width="1500" height="500" rx="28" fill="url(#topCyanGlow)"/>
+  <rect width="1500" height="500" rx="28" fill="url(#topVioletGlow)"/>
+  <rect width="1500" height="500" rx="28" fill="url(#topRedGlow)"/>
+
+  <g mask="url(#gridFadeMask)">
+    <rect width="1500" height="500" rx="28" fill="url(#majorGrid)" opacity="0.92"/>
+    <rect width="1500" height="500" rx="28" fill="url(#minorGrid)" opacity="0.78"/>
+
+    <g opacity="0.92">
+      <path d="M120 70H1380" stroke="url(#gridBrandH)" stroke-width="1.7"/>
+      <path d="M120 130H1380" stroke="url(#gridBrandH)" stroke-width="1.7"/>
+      <path d="M120 190H1380" stroke="url(#gridBrandH)" stroke-width="1.7"/>
+      <path d="M120 250H1380" stroke="url(#gridBrandH)" stroke-width="2.1"/>
+      <path d="M120 310H1380" stroke="url(#gridBrandH)" stroke-width="1.7"/>
+      <path d="M120 370H1380" stroke="url(#gridBrandH)" stroke-width="1.7"/>
+    </g>
+
+    <g opacity="0.88">
+      <path d="M270 36V412" stroke="url(#gridBrandV)" stroke-width="1.7"/>
+      <path d="M450 36V412" stroke="url(#gridBrandV)" stroke-width="1.7"/>
+      <path d="M630 36V412" stroke="url(#gridBrandV)" stroke-width="1.7"/>
+      <path d="M750 36V412" stroke="url(#gridBrandV)" stroke-width="2.2"/>
+      <path d="M870 36V412" stroke="url(#gridBrandV)" stroke-width="1.7"/>
+      <path d="M1050 36V412" stroke="url(#gridBrandV)" stroke-width="1.7"/>
+      <path d="M1230 36V412" stroke="url(#gridBrandV)" stroke-width="1.7"/>
+    </g>
+
+    <g opacity="0.46">
+      <circle cx="450" cy="190" r="5.5" fill="#0284C7"/>
+      <circle cx="630" cy="250" r="5.5" fill="#6D28D9"/>
+      <circle cx="870" cy="250" r="5.5" fill="#6D28D9"/>
+      <circle cx="1050" cy="310" r="5.5" fill="#DC2626"/>
+      <circle cx="1230" cy="190" r="5.5" fill="#DC2626"/>
+      <circle cx="270" cy="310" r="5.5" fill="#0284C7"/>
+      <circle cx="750" cy="130" r="5.5" fill="#6D28D9"/>
+    </g>
+  </g>
+
+  <ellipse cx="750" cy="250" rx="230" ry="150" fill="url(#logoHalo)"/>
+
+  <g filter="url(#logoShadow)">
+    <svg x="610" y="110" width="280" height="280" viewBox="0 0 200 200">
+      <defs>
+        <linearGradient id="logoBrandGrad" x1="100" y1="4" x2="100" y2="186" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#00d4ff"/>
+          <stop offset="35%" stop-color="#7c3aed"/>
+          <stop offset="100%" stop-color="#dc2626"/>
+        </linearGradient>
+        <filter id="logoLeafGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="6"/>
+        </filter>
+      </defs>
+
+      <path d="M102.6,56.9 L117.4,59.5 L115.4,54.0 L115.8,52.8 L131.8,39.8 L128.1,38.1 L127.6,36.8 L130.8,27.0 L121.5,28.9 L120.2,28.2 L118.5,24.0 L111.2,31.8 L109.4,30.9 L112.8,12.9 L107.2,16.1 L105.6,15.6 L100.0,4.5 L94.4,15.6 L92.8,16.1 L87.2,12.9 L90.6,30.9 L88.8,31.8 L81.5,24.0 L79.8,28.2 L78.5,28.9 L69.2,27.0 L72.4,36.8 L71.9,38.1 L68.2,39.8 L84.2,52.8 L84.6,54.0 L82.6,59.5 L97.4,56.9 Z" fill="#00d4ff" opacity="0.30" filter="url(#logoLeafGlow)"/>
+      <path d="M102.6,56.9 L117.4,59.5 L115.4,54.0 L115.8,52.8 L131.8,39.8 L128.1,38.1 L127.6,36.8 L130.8,27.0 L121.5,28.9 L120.2,28.2 L118.5,24.0 L111.2,31.8 L109.4,30.9 L112.8,12.9 L107.2,16.1 L105.6,15.6 L100.0,4.5 L94.4,15.6 L92.8,16.1 L87.2,12.9 L90.6,30.9 L88.8,31.8 L81.5,24.0 L79.8,28.2 L78.5,28.9 L69.2,27.0 L72.4,36.8 L71.9,38.1 L68.2,39.8 L84.2,52.8 L84.6,54.0 L82.6,59.5 L97.4,56.9 Z" fill="url(#logoBrandGrad)"/>
+      <path d="M48,64 L72,64 L100,108 L128,64 L152,64 L112,124 L152,186 L128,186 L100,140 L72,186 L48,186 L88,124 Z" fill="url(#logoBrandGrad)"/>
+    </svg>
+  </g>
+
+  <rect x="14" y="14" width="1472" height="472" rx="20" stroke="#E2E8F0" stroke-width="1.5"/>
+</svg>

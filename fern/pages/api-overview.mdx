@@ -1,0 +1,95 @@
+---
+title: API Overview
+subtitle: Core developer APIs for running workloads, managing credits, and integrating inference.
+slug: api-overview
+---
+
+## Base URL
+
+| Environment | URL |
+|-------------|-----|
+| Production | `https://xcelsior.ca` |
+| Development | `http://localhost:9500` |
+
+## Authentication
+
+Include a bearer token in the `Authorization` header:
+
+```bash
+Authorization: Bearer <token>
+```
+
+Bearer auth can use an API key, an OAuth user access token, or an OAuth machine token. See [Authentication](/authentication) for details.
+
+## API Groups
+
+The public reference is intentionally organized around the workflows most customers automate day to day:
+
+| Group | Description | Key Endpoints |
+|-------|-------------|---------------|
+| **Auth** | OAuth bootstrap and session entrypoints | `GET /oauth/authorize`, `POST /oauth/token` |
+| **Instances** | Instance submission, status, and logs | `POST /instance`, `GET /instances` |
+| **Billing** | Wallet funding, invoices, pricing, checkout | `POST /api/billing/payment-intent`, `POST /api/billing/paypal/create-order` |
+| **Marketplace** | Search and reserve GPU capacity | `GET /marketplace`, `POST /api/v2/marketplace/search` |
+| **Volumes** | Persistent storage volumes | `POST /api/v2/volumes`, `GET /api/v2/volumes` |
+| **Artifacts** | Upload/download URLs for outputs and checkpoints | `POST /api/artifacts/upload`, `GET /api/artifacts/{job_id}` |
+| **Serverless** | Autoscaling inference endpoints (preset vLLM + custom containers) | `POST /api/v2/serverless/endpoints`, `POST /v1/serverless/{id}/run` |
+| **Inference (batch)** | Short-lived HuggingFace scheduler jobs | `POST /api/inference`, `POST /v1/inference` |
+
+Account settings, worker registration, admin, maintenance, callback, and other internal surfaces are intentionally kept out of the public developer reference.
+
+## Response Format
+
+All API responses use JSON:
+
+```json
+{
+  "status": "ok",
+  "data": { ... }
+}
+```
+
+### Error Responses
+
+```json
+{
+  "detail": "Error description"
+}
+```
+
+Standard HTTP status codes:
+- `200`, Success
+- `201`, Created
+- `400`, Bad request
+- `401`, Unauthorized
+- `403`, Forbidden
+- `404`, Not found
+- `429`, Rate limited
+- `500`, Internal server error
+
+## Rate Limiting
+
+- **30 requests/second** per IP
+- **20 concurrent connections** per IP
+- **Burst**: 50 requests
+- Health endpoints exempt (`/healthz`, `/readyz`)
+
+Rate-limited responses return `429` with a `Retry-After` header.
+
+## Pagination
+
+List endpoints support pagination:
+
+```bash
+GET /instances?offset=0&limit=50
+```
+
+## SSE Streaming
+
+Real-time events via Server-Sent Events:
+
+```bash
+GET /api/stream
+```
+
+Events include job status changes, host updates, telemetry, and billing events.

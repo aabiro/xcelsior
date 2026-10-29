@@ -1,0 +1,2316 @@
+#!/usr/bin/env bash
+# Xcelsior Deployment Script
+# Automates deployment to production VPS (xcelsior.ca)
+#
+# Usage:
+#   ./scripts/deploy.sh              # Full deploy (build + restart)
+#   ./scripts/deploy.sh --quick      # Quick deploy (pull + restart, no rebuild)
+#   ./scripts/deploy.sh --setup      # First-time setup (install deps, SSL, nginx)
+#   ./scripts/deploy.sh --rollback   # Rollback to previous version
+
+set -euo pipefail
+
+# ── Configuration ─────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+DEPLOY_DIR="/opt/xcelsior"
+REMOTE_USER="${XCELSIOR_DEPLOY_USER:-root}"
+REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-46.225.20.97}"
+DOMAIN="xcelsior.ca"
+BACKUP_DIR="/opt/xcelsior-backups"
+
+# ── Environment Selection ─────────────────────────────────────────────
+# .env       = production config (deployed to VPS)
+# .env.test  = test config (used locally for testing)
+TARGET_ENV="${XCELSIOR_TARGET_ENV:-prod}"
+
+resolve_env() {
+    case "$TARGET_ENV" in
+        prod|production)
+            TARGET_ENV="prod"
+            ENV_FILE="$PROJECT_DIR/.env"
+            ;;
+        test|testing)
+            TARGET_ENV="test"
+            ENV_FILE="$PROJECT_DIR/.env.test"
+            ;;
+        *)
+            error "Unknown environment: $TARGET_ENV. Use 'prod' or 'test'."
+            ;;
+    esac
+
+    if [[ ! -f "$ENV_FILE" ]]; then
+        error "Environment file not found: $ENV_FILE"
+    fi
+    log "Environment: ${BOLD}$TARGET_ENV${NC} ($ENV_FILE)"
+}
+
+# ── Colors ────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log() { echo -e "${CYAN}[$(date '+%H:%M:%S')]${NC} $1"; }
+success() { echo -e "${GREEN}✓${NC} $1"; }
+warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+error() { echo -e "${RED}✗${NC} $1"; exit 1; }
+
+# ── Helper Functions ──────────────────────────────────────────────────
+SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
+WORKER_MODE_FILE="${XCELSIOR_WORKER_MODE_FILE:-$HOME/.xcelsior/worker.mode}"
+SSH_CONTROL_PATH="${XCELSIOR_SSH_CONTROL_PATH:-$HOME/.ssh/cm-xcelsior-%r@%h:%p}"
+DEPLOY_SYNC_MODE="${XCELSIOR_DEPLOY_SYNC:-rsync}"  # rsync (fast) | tarball (legacy)
+DEPLOY_TIMING="${XCELSIOR_DEPLOY_TIMING:-0}"
+DEPLOY_COMPRESS_MODE="${XCELSIOR_DEPLOY_COMPRESS:-zstd}"  # zstd | gzip | none
+DEPLOY_BUILD_CACHE="${XCELSIOR_DEPLOY_BUILD_CACHE:-1}"
+DOCKER_BUILD_CACHE_DIR="${XCELSIOR_DOCKER_BUILD_CACHE_DIR:-/opt/xcelsior-backups/docker-build-cache}"
+DEPLOY_ALLOW_MULTI_PRIMARY="${XCELSIOR_DEPLOY_ALLOW_MULTI_PRIMARY:-0}"
+declare -a DEPLOY_SYNC_HOSTS=()
+declare -a MIRROR_SYNC_PIDS=()
+declare -gA REMOTE_DEPLOY_HASHES=()
+RSYNC_COMPRESS_OPTS=()
+_DEPLOY_STEP_TS=0
+
+_deploy_pkg_binary() {
+    case "$1" in
+        zstd) printf '%s' "zstd" ;;
+        pigz) printf '%s' "pigz" ;;
+        rsync) printf '%s' "rsync" ;;
+        *) error "Unknown deploy package: $1" ;;
+    esac
+}
+
+_deploy_pkg_apt_name() {
+    case "$1" in
+        zstd|pigz|rsync) printf '%s' "$1" ;;
+        *) error "Unknown deploy package: $1" ;;
+    esac
+}
+
+_deploy_packages_for_compress_mode() {
+    local -n _out=$1
+    _out=()
+    case "$DEPLOY_COMPRESS_MODE" in
+        none) _out=(rsync) ;;
+        gzip) _out=(pigz rsync) ;;
+        zstd) _out=(zstd pigz rsync) ;;
+        *) error "Unknown XCELSIOR_DEPLOY_COMPRESS=$DEPLOY_COMPRESS_MODE (use zstd, gzip, or none)" ;;
+    esac
+}
+
+_apt_install_missing() {
+    local pkgs=("$@")
+    local missing=() pkg bin
+    for pkg in "${pkgs[@]}"; do
+        bin=$(_deploy_pkg_binary "$pkg")
+        command -v "$bin" >/dev/null 2>&1 || missing+=("$(_deploy_pkg_apt_name "$pkg")")
+    done
+    [[ ${#missing[@]} -eq 0 ]] && return 0
+    if command -v apt-get >/dev/null 2>&1; then
+        log "Installing deploy packages: ${missing[*]}"
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+        return 0
+    fi
+    if command -v brew >/dev/null 2>&1; then
+        log "Installing deploy packages via brew: ${missing[*]}"
+        brew install "${missing[@]}"
+        return 0
+    fi
+    error "Missing deploy packages: ${missing[*]}. Install with apt or brew."
+}
+
+_remote_apt_install_missing() {
+    local host="$1"
+    shift
+    local pkgs=("$@")
+    ssh_cmd_host "$host" "PACKAGES='${pkgs[*]}' bash -s" <<'EOF'
+set -euo pipefail
+missing=()
+for pkg in $PACKAGES; do
+    case "$pkg" in
+        zstd) command -v zstd >/dev/null 2>&1 || missing+=("zstd") ;;
+        pigz) command -v pigz >/dev/null 2>&1 || missing+=("pigz") ;;
+        rsync) command -v rsync >/dev/null 2>&1 || missing+=("rsync") ;;
+    esac
+done
+if [[ ${#missing[@]} -eq 0 ]]; then
+    exit 0
+fi
+if ! command -v apt-get >/dev/null 2>&1; then
+    echo "Missing packages on remote and apt-get unavailable: ${missing[*]}" >&2
+    exit 1
+fi
+sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+EOF
+}
+
+ensure_local_deploy_tools() {
+    local -a pkgs=()
+    _deploy_packages_for_compress_mode pkgs
+    _apt_install_missing "${pkgs[@]}"
+}
+
+ensure_remote_deploy_tools() {
+    local host="${1:-$REMOTE_HOST}"
+    local -a pkgs=()
+    _deploy_packages_for_compress_mode pkgs
+    _remote_apt_install_missing "$host" "${pkgs[@]}"
+}
+
+ensure_all_remote_deploy_tools() {
+    ensure_remote_deploy_tools "$REMOTE_HOST"
+    local host
+    for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+        [[ "$host" == "$REMOTE_HOST" ]] && continue
+        ensure_remote_deploy_tools "$host"
+    done
+}
+
+init_deploy_compress() {
+    case "$DEPLOY_COMPRESS_MODE" in
+        auto) DEPLOY_COMPRESS_MODE=zstd ;;
+        zstd|gzip|none) ;;
+        *) error "Unknown XCELSIOR_DEPLOY_COMPRESS=$DEPLOY_COMPRESS_MODE (use zstd, gzip, or none)" ;;
+    esac
+}
+
+_parse_csv_hosts() {
+    local raw="$1"
+    local -n _out=$2
+    _out=()
+    [[ -z "$raw" ]] && return 0
+    local part
+    local IFS=','
+    for part in $raw; do
+        part="${part#"${part%%[![:space:]]*}"}"
+        part="${part%"${part##*[![:space:]]}"}"
+        [[ -n "$part" ]] && _out+=("$part")
+    done
+}
+
+init_deploy_targets() {
+    _parse_csv_hosts "${XCELSIOR_DEPLOY_SYNC_HOSTS:-}" DEPLOY_SYNC_HOSTS
+    if [[ "$DEPLOY_ALLOW_MULTI_PRIMARY" == "1" && -n "${XCELSIOR_DEPLOY_TARGETS:-}" ]]; then
+        local -a extra_targets=()
+        _parse_csv_hosts "$XCELSIOR_DEPLOY_TARGETS" extra_targets
+        local host
+        for host in "${extra_targets[@]}"; do
+            if [[ "$host" != "$REMOTE_HOST" ]]; then
+                DEPLOY_SYNC_HOSTS+=("$host")
+            fi
+        done
+    fi
+}
+
+init_rsync_compress() {
+    RSYNC_COMPRESS_OPTS=()
+    case "$DEPLOY_COMPRESS_MODE" in
+        none) ;;
+        gzip) RSYNC_COMPRESS_OPTS=(--compress) ;;
+        zstd) RSYNC_COMPRESS_OPTS=(--compress --compress-choice=zstd) ;;
+    esac
+    if [[ ${#RSYNC_COMPRESS_OPTS[@]} -gt 0 ]]; then
+        log "Rsync wire compression: ${DEPLOY_COMPRESS_MODE} (${RSYNC_COMPRESS_OPTS[*]})"
+    fi
+}
+
+_select_tar_compress() {
+    local -n _compressor=$1
+    local -n _ext=$2
+    case "$DEPLOY_COMPRESS_MODE" in
+        none)
+            _compressor=(cat)
+            _ext=tar
+            ;;
+        gzip)
+            _compressor=(pigz -1)
+            _ext=gz
+            ;;
+        zstd)
+            _compressor=(zstd -3 -T0)
+            _ext=zst
+            ;;
+    esac
+}
+
+remote_docker_build_prefix() {
+    if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
+        printf 'export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=plain; mkdir -p %q; ' "$DOCKER_BUILD_CACHE_DIR"
+    else
+        printf 'export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1; '
+    fi
+}
+
+_deploy_mark() {
+    [[ "$DEPLOY_TIMING" == "1" ]] || return 0
+    local now
+    now=$(date +%s)
+    if [[ "$_DEPLOY_STEP_TS" -gt 0 ]]; then
+        log "⏱ step ${1:-done} took $((now - _DEPLOY_STEP_TS))s"
+    fi
+    _DEPLOY_STEP_TS=$now
+}
+
+# RequestTTY=no: steps that feed a script on stdin (`ssh_cmd << EOF`, no
+# command) made ssh ask for a terminal and print "Pseudo-terminal will not be
+# allocated because stdin is not a terminal" for each one. Nothing here is
+# interactive, so never ask.
+SSH_BASE_OPTS=(
+    -i "$SSH_KEY"
+    -o RequestTTY=no
+    -o StrictHostKeyChecking=accept-new
+    -o ControlMaster=auto
+    -o ControlPersist=15m
+    -o ControlPath="$SSH_CONTROL_PATH"
+    -o Compression=no
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=4
+)
+
+RSYNC_BASE_OPTS=(
+    -az
+    --partial
+    --human-readable
+    --omit-dir-times
+    --no-perms
+    --no-owner
+    --no-group
+)
+
+RSYNC_EXCLUDES=(
+    --exclude='.git'
+    --exclude='__pycache__'
+    --exclude='.pytest_cache'
+    --exclude='venv'
+    --exclude='.venv'
+    --exclude='/scripts/agent-signing.key'
+    --exclude='node_modules'
+    --exclude='.next'
+    --exclude='*.db'
+    --exclude='*.db-*'
+    --exclude='*.log'
+    --exclude='data'
+    --exclude='/artifacts'
+    # Every `.env*` file except the templates. Excluding only `.env` shipped the
+    # rest on every deploy — `.env.bak.*` backups of production's own env,
+    # `.env.staging.secrets`, the worker envs — into /opt/xcelsior and, through
+    # an equally narrow .dockerignore, into the production images. Order
+    # matters: rsync applies the first rule that matches.
+    --include='.env*.example'
+    --exclude='.env*'
+    # macOS AppleDouble sidecars. `.gitignore` hides them locally, but this is
+    # rsync, not git — so they were shipped to the VPS and baked into the image,
+    # where `compileall` fails on them with "source code string cannot contain
+    # null bytes". Harmless (the step is `|| true` and nothing imports them) but it
+    # is junk in a production artifact, and it is why they kept reappearing in the
+    # tree after being deleted locally.
+    --exclude='._*'
+    --exclude='/desktop'
+    --exclude='checkpoints'
+    --exclude='.cursor'
+    --exclude='terminals'
+)
+
+_remote_target() {
+    local host="${1:-$REMOTE_HOST}"
+    printf '%s@%s' "$REMOTE_USER" "$host"
+}
+
+_rsync_shell() {
+    # shellcheck disable=SC2068
+    printf 'ssh'
+    for opt in "${SSH_BASE_OPTS[@]}"; do
+        printf ' %q' "$opt"
+    done
+}
+
+_rsync_shell_for_host() {
+    printf 'ssh'
+    for opt in "${SSH_BASE_OPTS[@]}"; do
+        printf ' %q' "$opt"
+    done
+}
+
+cleanup_ssh_mux() {
+    ssh -O exit -o ControlPath="$SSH_CONTROL_PATH" -i "$SSH_KEY" "$(_remote_target)" >/dev/null 2>&1 || true
+}
+
+trap cleanup_ssh_mux EXIT
+
+switch_local_worker() {
+    local mode="$1"
+    if [[ ! -x "$SCRIPT_DIR/switch_worker_env.sh" ]]; then
+        warn "switch_worker_env.sh missing — worker not switched to $mode"
+        return 0
+    fi
+    log "Switching local GPU worker -> ${BOLD}$mode${NC}..."
+    if bash "$SCRIPT_DIR/switch_worker_env.sh" "$mode"; then
+        success "Local worker configured for $mode"
+    else
+        warn "Worker switch to $mode failed (sudo may be required)"
+    fi
+}
+
+ensure_prod_worker_if_test() {
+    if [[ -f "$WORKER_MODE_FILE" ]] && [[ "$(tr -d '[:space:]' <"$WORKER_MODE_FILE")" == "test" ]]; then
+        switch_local_worker prod
+    fi
+}
+
+open_ssh_mux() {
+    open_ssh_mux_host "$REMOTE_HOST"
+}
+
+open_ssh_mux_host() {
+    local host="${1:-$REMOTE_HOST}"
+    ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "true" >/dev/null
+}
+
+open_ssh_mux_all() {
+    open_ssh_mux_host "$REMOTE_HOST"
+    local host
+    for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+        [[ "$host" == "$REMOTE_HOST" ]] && continue
+        open_ssh_mux_host "$host" &
+    done
+    wait
+}
+
+ssh_cmd() {
+    ssh_cmd_host "$REMOTE_HOST" "$@"
+}
+
+ssh_cmd_host() {
+    local host="$1"
+    shift
+    ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "$@"
+}
+
+scp_file() {
+    scp_file_host "$REMOTE_HOST" "$1" "$2"
+}
+
+scp_file_host() {
+    local host="$1" src="$2" dest="$3"
+    scp "${SSH_BASE_OPTS[@]}" "$src" "$(_remote_target "$host"):$dest"
+}
+
+rsync_to_host() {
+    local host="$1" src="$2" dest="$3"
+    shift 3
+    rsync "${RSYNC_BASE_OPTS[@]}" "${RSYNC_COMPRESS_OPTS[@]}" "$@" \
+        -e "$(_rsync_shell_for_host)" "$src" "$(_remote_target "$host"):$dest"
+}
+
+rsync_to_remote() {
+    rsync_to_host "$REMOTE_HOST" "$@"
+}
+
+get_env_value() {
+    local key="$1"
+    python3 - "$ENV_FILE" "$key" <<'PY'
+import sys
+
+path, key = sys.argv[1], sys.argv[2]
+value = ""
+with open(path, "r", encoding="utf-8") as fh:
+    for raw in fh:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip() != key:
+            continue
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        value = v
+        break
+print(value, end="")
+PY
+}
+
+resolve_api_base_url() {
+    local base
+    base=$(get_env_value "XCELSIOR_BASE_URL")
+    if [[ -z "$base" ]]; then
+        base=$(get_env_value "NEXT_PUBLIC_API_URL")
+    fi
+    if [[ -z "$base" ]]; then
+        base="https://$DOMAIN"
+    fi
+    printf '%s' "${base%/}"
+}
+
+resolve_api_token() {
+    local token
+    token=$(get_env_value "XCELSIOR_API_TOKEN")
+    [[ -n "$token" ]] || error "XCELSIOR_API_TOKEN missing from $ENV_FILE (required for deployment maintenance API calls)"
+    printf '%s' "$token"
+}
+
+api_request() {
+    local method="$1" path="$2" body="${3:-}"
+    local base token
+    base=$(resolve_api_base_url)
+    token=$(resolve_api_token)
+
+    if [[ -n "$body" ]]; then
+        curl -fsS -X "$method" \
+            -H "Authorization: Bearer $token" \
+            -H "Content-Type: application/json" \
+            -d "$body" \
+            "$base$path"
+    else
+        curl -fsS -X "$method" \
+            -H "Authorization: Bearer $token" \
+            "$base$path"
+    fi
+}
+
+host_maintenance_summary() {
+    local host_id="$1"
+    api_request GET "/host/$host_id/maintenance"
+}
+
+drain_worker_host() {
+    local host_id="$1"
+    log "Draining worker host $host_id..."
+    api_request POST "/host/$host_id/drain" >/dev/null
+    success "Host $host_id marked draining"
+}
+
+undrain_worker_host() {
+    local host_id="$1"
+    log "Undraining worker host $host_id..."
+    api_request POST "/host/$host_id/undrain" >/dev/null
+    success "Host $host_id restored to schedulable state"
+}
+
+guard_worker_host() {
+    local host_id="$1"
+    local summary
+    summary=$(host_maintenance_summary "$host_id") || error "Failed to fetch maintenance status for $host_id"
+
+    python3 - "$host_id" "$summary" <<'PY'
+import json
+import sys
+
+host_id = sys.argv[1]
+summary = json.loads(sys.argv[2])
+status = summary.get("status", "unknown")
+interactive_count = int(summary.get("active_interactive_instances", 0) or 0)
+serverless_count = int(summary.get("active_serverless_workers", 0) or 0)
+
+print(f"Host: {host_id}")
+print(f"Status: {status}")
+print(f"Active interactive instances: {interactive_count}")
+for item in summary.get("interactive_instances", []):
+    print(f"- {item.get('job_id')} {item.get('status')} {item.get('name')}")
+print(f"Active serverless workers: {serverless_count}")
+for item in summary.get("serverless_workers", []):
+    print(f"- {item.get('job_id')} {item.get('status')} {item.get('name')}")
+
+if status != "draining":
+    print("Unsafe: host is not drained", file=sys.stderr)
+    raise SystemExit(2)
+if interactive_count > 0:
+    print("Unsafe: interactive instances are still active", file=sys.stderr)
+    raise SystemExit(3)
+if serverless_count > 0:
+    print("Unsafe: serverless workers are still active", file=sys.stderr)
+    raise SystemExit(4)
+PY
+    success "Host $host_id is safe for maintenance"
+}
+
+repair_nginx_systemd() {
+    # Ensure nginx is managed by systemd (not an orphan master from a failed start).
+    log "Repairing nginx systemd unit..."
+    ssh_cmd << 'EOF'
+set -e
+if systemctl is-active --quiet nginx; then
+  echo "nginx already active under systemd"
+  exit 0
+fi
+if [ -f /var/run/nginx.pid ]; then
+  sudo kill -QUIT "$(cat /var/run/nginx.pid)" 2>/dev/null || true
+fi
+sleep 2
+sudo pkill -QUIT nginx 2>/dev/null || true
+sleep 1
+sudo systemctl reset-failed nginx 2>/dev/null || true
+sudo systemctl start nginx
+systemctl is-active --quiet nginx
+EOF
+    success "nginx running under systemd"
+}
+
+# Reads nginx.conf on stdin. True only for an *active* top-level include of the
+# router — a commented-out line is the state before the cutover, not after it.
+nginx_conf_includes_tls_router() {
+    grep -Eq '^[[:space:]]*include[[:space:]]+[^;#]*stream-tls-router\.conf[[:space:]]*;'
+}
+
+install_nginx_configs() {
+    log "Installing nginx site configs..."
+    _deploy_mark "nginx-start"
+
+    # The repo's vhosts are written for the SNI-passthrough ingress (8444 with
+    # `proxy_protocol`, behind `stream-tls-router.conf`). On 2026-10-05 this
+    # function installed them as written onto a host with no router:
+    # xcelsior.ca left 443 and answered "400 No required SSL certificate" for
+    # twelve minutes. The response was to hold every nginx install until the
+    # ingress cutover, and production's vhosts then drifted from the repo with
+    # each release (a connection cap refusing ordinary page loads, an error
+    # page pointing at a missing file, a stale headscale certificate).
+    #
+    # So the vhosts are rendered for the topology this host actually has, with
+    # the API and MCP upstreams pointed at the colours live right now (the
+    # blue-green swaps edit the installed file, so the repo's "9500 primary"
+    # would otherwise route to a drained replica). The installer backs up what
+    # is serving, and restores it if `nginx -t` fails or xcelsior.ca/healthz
+    # does not answer 200 through nginx afterwards.
+    local topology=direct
+    if ssh_cmd "cat /etc/nginx/nginx.conf" | nginx_conf_includes_tls_router; then
+        topology=router
+    fi
+    local api_live mcp_live rendered
+    api_live=$(read_remote_api_colour)
+    mcp_live=$(read_remote_mcp_colour)
+    rendered=$(mktemp -d)
+    python3 "$PROJECT_DIR/scripts/render_nginx_vhosts.py" "$PROJECT_DIR/nginx" "$rendered" \
+        --topology "$topology" --api-live "$api_live" --mcp-live "$mcp_live" \
+        || { rm -rf "$rendered"; error "Could not render the nginx vhosts"; }
+    log "Vhosts rendered for the $topology ingress (API live: $api_live, MCP live: $mcp_live)"
+
+    ssh_cmd "rm -rf /tmp/xcelsior-nginx && mkdir -p /tmp/xcelsior-nginx"
+    rsync_to_remote "$rendered/" "/tmp/xcelsior-nginx/" --include='*.conf' --exclude='*'
+    rm -rf "$rendered"
+
+    # headscale / headscale-http are installed here too. hs.xcelsior.ca uses a
+    # Let's Encrypt certificate issued on this host by DNS-01 (1624d67), so it
+    # renews whichever host the record points at.
+    ssh_cmd "bash -s" < "$PROJECT_DIR/scripts/install_nginx_vhosts.sh" \
+        || error "Nginx install failed; the previous vhosts were restored and are serving"
+    _deploy_mark "nginx-done"
+    success "Nginx configs installed"
+}
+
+# ── Production env is authoritative ──────────────────────────────────
+# A production deploy used to copy the deploying machine's `.env` over
+# `/opt/xcelsior/.env`, unconditionally. That file is also the developer's local
+# config, so the deploy shipped whatever the laptop happened to hold. Compared
+# key by key on 2026-10-05, it differed from production exactly where it matters:
+#
+#   XCELSIOR_STRIPE_MODE              local=sandbox  prod=live
+#       → real payments, payouts and Connect onboarding sent to the test
+#         account, with nothing failing loudly.
+#   XCELSIOR_SPIFFE_STRICT            local=(absent) prod=0
+#       → the key deleted, the code default of 1 applied, and the GPU fleet —
+#         which presents no SPIFFE identity until Envoy+SPIRE lands — refused
+#         by the agent gateway.
+#   XCELSIOR_ALERTMANAGER_CONFIG_PATH local=dev yml  prod=prod yml
+#       → production alerts routed to the development receivers.
+#
+# So a prod deploy no longer pushes the local file. Production's `.env` stays
+# as it is, and changing it is an explicit act on the host rather than a side
+# effect of whose machine ran this.
+#
+# Drift is still reported, by key name only, and the comparison runs *on the
+# host*: the local side sends SHA-256 digests of its values, never the values,
+# and the production file never leaves the box. Copying production's env down
+# to compare would put every production secret on the deploying machine.
+#
+# `NEXT_PUBLIC_*` drift is refused rather than reported, because the frontend
+# is built from the local file's public values and would ship non-production
+# ones to every browser.
+#
+# XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 restores the old behaviour, for when
+# replacing production's config from the local file really is the intent.
+guard_prod_env() {
+    [[ "${TARGET_ENV:-}" == "prod" && -n "${ENV_FILE:-}" ]] || return 0
+    [[ -z "${PROD_ENV_GUARDED:-}" ]] || return 0
+    PROD_ENV_GUARDED=1
+
+    if [[ "${XCELSIOR_DEPLOY_PUSH_LOCAL_ENV:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 — $ENV_FILE will REPLACE the production .env"
+        return 0
+    fi
+
+    SKIP_PROD_ENV_PUSH=1
+    local report
+    report=$(env_digests "$ENV_FILE" | ssh_cmd "python3 -c '$(env_drift_remote_py)' /opt/xcelsior/.env") \
+        || error "Could not compare the local .env with production's"
+    printf '%s\n' "$report" | sed -n 's/^REPORT //p'
+    if printf '%s\n' "$report" | grep -q '^PUBLIC_DRIFT'; then
+        error "NEXT_PUBLIC_* values differ from production; the frontend would ship them. Reconcile the local .env first."
+    fi
+    success "Production .env kept as-is (local .env not pushed)"
+}
+
+# `key<TAB>sha256(value)` per line. Values never leave this function's pipe.
+# The Anthropic credential is rotated by its owner directly; it is not
+# processed here, even as a digest.
+env_digests() {
+    python3 - "$1" <<'PY'
+import hashlib
+import re
+import sys
+
+skip = re.compile(r"ANTHROPIC", re.IGNORECASE)
+with open(sys.argv[1], encoding="utf-8", errors="replace") as handle:
+    for line in handle:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if skip.search(key):
+            continue
+        value = value.strip().strip('"').strip("'")
+        print(f"{key}\t{hashlib.sha256(value.encode()).hexdigest()}")
+PY
+}
+
+# Runs on the host: local digests on stdin, production's file read in place.
+# Single-quote free, because it travels inside `python3 -c '...'`.
+env_drift_remote_py() {
+    cat <<'PY'
+import hashlib, re, sys
+skip = re.compile(r"ANTHROPIC", re.IGNORECASE)
+local = dict(l.rstrip("\n").split("\t", 1) for l in sys.stdin if "\t" in l)
+prod = {}
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    k = k.strip()
+    if skip.search(k):
+        continue
+    prod[k] = hashlib.sha256(v.strip().strip(chr(34)).strip(chr(39)).encode()).hexdigest()
+differ = sorted(k for k in local.keys() & prod.keys() if local[k] != prod[k])
+only_local = sorted(local.keys() - prod.keys())
+only_prod = sorted(prod.keys() - local.keys())
+if not (differ or only_local or only_prod):
+    print("REPORT   local .env matches production")
+else:
+    print("REPORT   local .env differs from production (names only; production kept):")
+    for label, keys in (("differ", differ), ("only in local", only_local), ("only in production", only_prod)):
+        for k in keys:
+            print(f"REPORT     {label:<19} {k}")
+if any(k.startswith("NEXT_PUBLIC_") for k in differ + only_local + only_prod):
+    print("PUBLIC_DRIFT")
+PY
+}
+
+check_ssh() {
+    log "Testing SSH connection to $REMOTE_HOST (mux=${SSH_CONTROL_PATH})..."
+    if open_ssh_mux_all && ssh_cmd "echo 'SSH OK'" &>/dev/null; then
+        success "SSH connection successful (control master ready)"
+    else
+        error "Cannot connect to $REMOTE_HOST. Check SSH keys and connectivity."
+    fi
+    ensure_all_remote_deploy_tools
+    guard_prod_env
+    if [[ ${#DEPLOY_SYNC_HOSTS[@]} -gt 0 ]]; then
+        local host
+        for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+            [[ "$host" == "$REMOTE_HOST" ]] && continue
+            if ssh_cmd_host "$host" "echo 'SSH OK'" &>/dev/null; then
+                success "Mirror host reachable: $host"
+            else
+                warn "Mirror host unreachable: $host (will retry during sync)"
+            fi
+        done
+    fi
+}
+
+# ── First-Time Setup ──────────────────────────────────────────────────
+setup_server() {
+    log "Running first-time server setup..."
+    
+    ssh_cmd << 'EOF'
+set -e
+
+echo "=== Installing dependencies ==="
+sudo apt update
+sudo apt install -y nginx certbot python3-certbot-nginx docker.io docker-compose-plugin postgresql postgresql-client zstd pigz rsync curl
+
+echo "=== Creating directories ==="
+sudo mkdir -p /opt/xcelsior /opt/xcelsior-backups /var/www/certbot
+sudo chown -R $USER:$USER /opt/xcelsior /opt/xcelsior-backups
+
+echo "=== Adding user to docker group ==="
+sudo usermod -aG docker $USER
+
+echo "=== Enabling services ==="
+sudo systemctl enable nginx docker postgresql
+sudo systemctl start docker postgresql
+
+echo "=== Setup complete ==="
+EOF
+    success "Server dependencies installed"
+}
+
+setup_ssl() {
+    log "Setting up SSL certificates..."
+    
+    ssh_cmd << EOF
+set -e
+
+# Install nginx config (without SSL first for certbot)
+sudo tee /etc/nginx/sites-available/xcelsior > /dev/null << 'NGINX'
+server {
+    listen 80;
+    # `hs.xcelsior.ca` was listed here and is deliberately gone: `headscale-http`
+    # already claims it on port 80, so naming it twice is a conflicting server
+    # name. It also implied this block answers ACME challenges for it, which was
+    # never true — that name resolves elsewhere, so the challenge is answered by
+    # a different host, and the certificate here is self-signed anyway.
+    server_name xcelsior.ca www.xcelsior.ca;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    
+    location / {
+        return 200 'Xcelsior is being configured...';
+        add_header Content-Type text/plain;
+    }
+}
+NGINX
+
+sudo ln -sf /etc/nginx/sites-available/xcelsior /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
+# Get SSL certificate
+sudo certbot certonly --webroot -w /var/www/certbot \
+    -d $DOMAIN -d www.$DOMAIN \
+    --non-interactive --agree-tos \
+    --email admin@$DOMAIN
+
+sudo certbot certonly --webroot -w /var/www/certbot \
+    -d hs.$DOMAIN \
+    --non-interactive --agree-tos \
+    --email admin@$DOMAIN
+
+# Now install full nginx config
+echo "Certificates installed"
+
+# Setup auto-renewal
+echo "0 3 * * * root certbot renew --quiet --post-hook 'systemctl reload nginx'" | sudo tee /etc/cron.d/certbot-renew
+EOF
+    install_nginx_configs
+    success "SSL certificates configured"
+}
+
+setup_systemd() {
+    log "Installing systemd services..."
+    
+    scp_file "$PROJECT_DIR/xcelsior-api.service" "/tmp/xcelsior-api.service"
+    scp_file "$PROJECT_DIR/xcelsior-health.service" "/tmp/xcelsior-health.service"
+    scp_file "$PROJECT_DIR/xcelsior-worker.service" "/tmp/xcelsior-worker.service"
+    
+    ssh_cmd << 'EOF'
+sudo cp /tmp/xcelsior-*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+EOF
+    success "Systemd services installed"
+}
+
+# ── Deployment Functions ──────────────────────────────────────────────
+backup_current() {
+    log "Backing up current deployment..."
+    
+    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    ssh_cmd << EOF
+set -e
+if [ -d "$DEPLOY_DIR" ] && [ -f "$DEPLOY_DIR/api.py" ]; then
+    sudo mkdir -p $BACKUP_DIR
+    sudo tar -czf "$BACKUP_DIR/xcelsior_$TIMESTAMP.tar.gz" -C /opt xcelsior
+    # Keep only last 5 backups
+    ls -t $BACKUP_DIR/xcelsior_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r sudo rm
+    echo "Backup created: xcelsior_$TIMESTAMP.tar.gz"
+else
+    echo "No existing deployment to backup"
+fi
+EOF
+    success "Backup complete"
+}
+
+sync_code_push_env() {
+    sync_code_push_env_host "$REMOTE_HOST"
+}
+
+sync_code_push_env_host() {
+    local host="${1:-$REMOTE_HOST}"
+    # 600 either way: the file carries every production secret, and compose —
+    # its only reader — runs as this same user. It was 664, readable by anyone
+    # with a shell on the box.
+    if [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
+        log "Keeping $host's production .env (see guard_prod_env)"
+        # Checked here, not first discovered in deploy_docker: by then nginx has
+        # already been reloaded. A bare `chmod` on a missing file printed an
+        # error and the deploy carried on.
+        ssh_cmd_host "$host" "test -f /opt/xcelsior/.env && chmod 600 /opt/xcelsior/.env" \
+            || error "production .env is missing on $host after the code sync. Nothing has restarted. Restore it from the newest /opt/xcelsior-backups/*.tar.gz (xcelsior/.env) before re-running."
+        return 0
+    fi
+    log "Sending $TARGET_ENV environment config -> $host..."
+    rsync_to_host "$host" "$ENV_FILE" "/tmp/xcelsior_env"
+    ssh_cmd_host "$host" "cp /tmp/xcelsior_env /opt/xcelsior/.env && chmod 600 /opt/xcelsior/.env && rm /tmp/xcelsior_env"
+}
+
+sync_code_preserve_remote_files_host() {
+    local host="$1"
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+for f in docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/opt/xcelsior/$f" ] && cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
+done
+# The production .env, too. The sync rebuilds /opt/xcelsior_new from nothing
+# and moves it over /opt/xcelsior, so anything not carried across is gone; the
+# env push used to put .env back afterwards, which hid that it was never
+# preserved. When the push stopped (guard_prod_env), the first deploy deleted
+# production's .env — caught by deploy_docker's existence check, before
+# anything restarted, and restored from the deploy's own backup.
+#
+# Not via /tmp: a predictable name in a world-writable directory is the wrong
+# place for every production secret. A private directory under /opt instead.
+if [ -f /opt/xcelsior/.env ]; then
+    sudo install -d -m 700 -o "$USER" -g "$USER" /opt/xcelsior_env_keep
+    install -m 600 /opt/xcelsior/.env /opt/xcelsior_env_keep/.env
+fi
+EOF
+}
+
+sync_code_restore_preserved_files_host() {
+    local host="$1"
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+for f in docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/tmp/xcelsior_preserve_$f" ] && cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior_new/$f" || true
+    rm -f "/tmp/xcelsior_preserve_$f"
+done
+if [ -f /opt/xcelsior_env_keep/.env ]; then
+    install -m 600 /opt/xcelsior_env_keep/.env /opt/xcelsior_new/.env
+    rm -f /opt/xcelsior_env_keep/.env
+fi
+EOF
+}
+
+sync_code_rsync_host() {
+    local host="$1"
+    local push_env="${2:-1}"
+    log "Syncing code -> $host (rsync delta)..."
+    _deploy_mark "sync-$host-start"
+
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+sudo mkdir -p /opt/xcelsior /opt/xcelsior_new
+sudo chown -R $USER:$USER /opt/xcelsior /opt/xcelsior_new 2>/dev/null || true
+rm -rf /opt/xcelsior_new/*
+EOF
+
+    sync_code_preserve_remote_files_host "$host"
+
+    rsync_to_host "$host" "$PROJECT_DIR/" "/opt/xcelsior_new/" \
+        "${RSYNC_EXCLUDES[@]}" \
+        --delete
+
+    sync_code_restore_preserved_files_host "$host"
+
+    ssh_cmd_host "$host" << 'EOF'
+set -e
+sudo rm -rf /opt/xcelsior
+sudo mv /opt/xcelsior_new /opt/xcelsior
+sudo chown -R $USER:$USER /opt/xcelsior
+EOF
+    if [[ "$push_env" == "1" ]]; then
+        sync_code_push_env_host "$host"
+    fi
+    _deploy_mark "sync-$host-done"
+    success "Code synced via rsync -> $host (env_push=$push_env)"
+}
+
+sync_code_rsync() {
+    log "Syncing code to primary $REMOTE_HOST (rsync delta, mux SSH)..."
+    _deploy_mark "sync-start"
+    sync_code_rsync_host "$REMOTE_HOST" 1
+    _deploy_mark "sync-done"
+}
+
+sync_code_mirror_host() {
+    local host="$1"
+    open_ssh_mux_host "$host" 2>/dev/null || true
+    sync_code_rsync_host "$host" 0 || warn "Mirror sync failed: $host"
+}
+
+start_mirror_syncs() {
+    MIRROR_SYNC_PIDS=()
+    [[ ${#DEPLOY_SYNC_HOSTS[@]} -eq 0 ]] && return 0
+    local host
+    for host in "${DEPLOY_SYNC_HOSTS[@]}"; do
+        [[ "$host" == "$REMOTE_HOST" ]] && continue
+        log "Starting background mirror sync -> $host"
+        sync_code_mirror_host "$host" &
+        MIRROR_SYNC_PIDS+=($!)
+    done
+}
+
+wait_mirror_syncs() {
+    [[ ${#MIRROR_SYNC_PIDS[@]} -eq 0 ]] && return 0
+    local pid rc=0
+    for pid in "${MIRROR_SYNC_PIDS[@]}"; do
+        wait "$pid" || rc=1
+    done
+    if [[ $rc -eq 0 ]]; then
+        success "All mirror syncs complete (${#MIRROR_SYNC_PIDS[@]} host(s))"
+    else
+        warn "One or more mirror syncs failed (primary deploy unaffected)"
+    fi
+    return 0
+}
+
+sync_code_tarball() {
+    log "Syncing code to server (legacy tarball)..."
+    _deploy_mark "sync-start"
+    local remote_tarball tar_compress tar_ext
+    _select_tar_compress tar_compress tar_ext
+
+    ssh_cmd '
+set -e
+for d in /tmp /var/tmp /opt/xcelsior-backups /opt/xcelsior-backups/staging; do
+    if [ -d "$d" ]; then
+        find "$d" -maxdepth 1 -type f \( -name "xcelsior_deploy*.tar.gz" -o -name "xcelsior_deploy*.tar.zst" -o -name "xcelsior_deploy*.tar" \) -mtime +2 -delete 2>/dev/null || true
+    fi
+done
+' || true
+
+    local tarball="/tmp/xcelsior_deploy.tar.${tar_ext}"
+    log "Tarball compression: ${tar_compress[*]} (.${tar_ext})"
+
+    tar -cf - \
+        --exclude='.git' \
+        --exclude='._*' \
+        --exclude='__pycache__' \
+        --exclude='.pytest_cache' \
+        --exclude='venv' \
+        --exclude='.venv' \
+        --exclude='./scripts/agent-signing.key' \
+        --exclude='node_modules' \
+        --exclude='.next' \
+        --exclude='*.db' \
+        --exclude='*.db-*' \
+        --exclude='*.log' \
+        --exclude='data' \
+        --exclude='/artifacts' \
+        --exclude='.env' \
+        --exclude='./desktop' \
+        --exclude='checkpoints' \
+        -C "$PROJECT_DIR" . | "${tar_compress[@]}" >"$tarball"
+
+    remote_tarball=""
+    local candidate probe_target
+    for candidate in /tmp /var/tmp /opt/xcelsior-backups/staging /opt/xcelsior-backups; do
+        ssh_cmd "mkdir -p '$candidate' 2>/dev/null || sudo mkdir -p '$candidate' || true; sudo chown \$USER:\$USER '$candidate' 2>/dev/null || true" || true
+        probe_target="${candidate%/}/xcelsior_deploy_$(date +%s).tar.${tar_ext}"
+        if scp_file "$tarball" "$probe_target" 2>/dev/null; then
+            remote_tarball="$probe_target"
+            break
+        fi
+    done
+    [[ -n "$remote_tarball" ]] || error "Failed to upload deploy artifact to all staging paths (/tmp, /var/tmp, /opt/xcelsior-backups)"
+    log "Using remote staging path: $remote_tarball"
+    rm -f "$tarball"
+
+    ssh_cmd "DEPLOY_ARCHIVE='$remote_tarball' DEPLOY_ARCHIVE_EXT='$tar_ext' bash -s" << 'EOF'
+set -e
+sudo mkdir -p /opt/xcelsior /opt/xcelsior_new
+for f in docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/opt/xcelsior/$f" ] && sudo cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
+done
+sudo rm -rf /opt/xcelsior_new/*
+case "$DEPLOY_ARCHIVE_EXT" in
+    zst) zstd -d -c "$DEPLOY_ARCHIVE" | sudo tar -xf - -C /opt/xcelsior_new ;;
+    gz) sudo tar -xzf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new ;;
+    tar) sudo tar -xf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new ;;
+    *) sudo tar -xf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new ;;
+esac
+for f in docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/tmp/xcelsior_preserve_$f" ] && sudo cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior_new/$f" || true
+    sudo rm -f "/tmp/xcelsior_preserve_$f"
+done
+sudo rm -rf /opt/xcelsior
+sudo mv /opt/xcelsior_new /opt/xcelsior
+sudo chown -R $USER:$USER /opt/xcelsior
+rm -f "$DEPLOY_ARCHIVE"
+EOF
+
+    sync_code_push_env
+    start_mirror_syncs
+    _deploy_mark "sync-done"
+    success "Code synced via tarball (env=$TARGET_ENV)"
+}
+
+sync_code() {
+    case "$DEPLOY_SYNC_MODE" in
+        rsync)
+            set +e
+            sync_code_rsync
+            local rsync_rc=$?
+            set -e
+            if [[ $rsync_rc -ne 0 ]]; then
+                warn "rsync sync failed (exit $rsync_rc) — falling back to tarball"
+                sync_code_tarball
+            else
+                start_mirror_syncs
+            fi
+            ;;
+        tarball|tar)
+            sync_code_tarball
+            ;;
+        *)
+            error "Unknown XCELSIOR_DEPLOY_SYNC=$DEPLOY_SYNC_MODE (use rsync or tarball)"
+            ;;
+    esac
+}
+
+validate_build_env() {
+    # Refuse a misspelled remediation mode before uploading or building code.
+    # Read dotenv as data; do not source it into this shell.
+    local stop_repair_policy
+    stop_repair_policy=$(sed -n 's/^XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING=//p' "$ENV_FILE" | tail -n 1)
+    stop_repair_policy=${stop_repair_policy:-report_only}
+    case "$stop_repair_policy" in
+        report_only|enforce) ;;
+        *) error "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING must be report_only or enforce" ;;
+    esac
+    # Frontend build bakes NEXT_PUBLIC_* vars at compile time — if they're
+    # blank the build succeeds silently but features (analytics, Google
+    # verification, Stripe, WalletConnect) will be missing at runtime.
+    # Auto-discovers ALL NEXT_PUBLIC_* vars from .env so new ones are
+    # never silently skipped.
+    log "Validating frontend build-time env vars..."
+
+    if [[ "${XCELSIOR_DEPLOY_SKIP_MCP:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_SKIP_MCP=1 — skipping MCP smoke-token requirement (MCP promotion will be skipped this deploy)"
+    elif grep -qE '^XCELSIOR_MCP_SMOKE_TOKEN=.+$' "$ENV_FILE"; then
+        : # a static smoke token is provided — used as-is
+    elif grep -qE '^XCELSIOR_MCP_CLIENT_ID=.+$' "$ENV_FILE" && grep -qE '^XCELSIOR_MCP_CLIENT_SECRET=.+$' "$ENV_FILE"; then
+        : # no static token, but client credentials exist — the smoke mints a
+          # short-lived MCP-audience token at runtime (see mint_mcp_smoke_token)
+    else
+        error "MCP promotion gate needs either XCELSIOR_MCP_SMOKE_TOKEN or XCELSIOR_MCP_CLIENT_ID + XCELSIOR_MCP_CLIENT_SECRET in $ENV_FILE"
+    fi
+
+    local missing=()
+    local found=0
+
+    # Discover every NEXT_PUBLIC_* var defined in .env
+    while IFS='=' read -r var val; do
+        found=$((found + 1))
+        if [[ -z "$val" ]]; then
+            if [[ "$var" == "NEXT_PUBLIC_API_URL" || "$var" == "NEXT_PUBLIC_APP_URL" ]]; then
+                missing+=("$var (REQUIRED)")
+            else
+                warn "$var is empty — feature will be disabled in this build"
+            fi
+        else
+            success "  $var = ${val:0:20}..."
+        fi
+    done < <(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null)
+
+    if [[ $found -eq 0 ]]; then
+        error "No NEXT_PUBLIC_* vars found in $ENV_FILE"
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        for m in "${missing[@]}"; do
+            error "Missing env var: $m"
+        done
+    fi
+    log "Found $found NEXT_PUBLIC_* vars in .env"
+    success "Build-time env vars validated"
+}
+
+verify_frontend_desktop_runtime_on_remote() {
+    local missing
+    missing=$(ssh_cmd "for f in \
+frontend/src/lib/desktop/runtime.tsx \
+frontend/src/lib/desktop/contract.ts \
+frontend/src/lib/desktop/tauri.ts; do
+  test -f \"/opt/xcelsior/\$f\" || echo \"\$f\"
+done" || true)
+    if [[ -n "$missing" ]]; then
+        error "Frontend desktop runtime missing on server (rsync exclude too broad?):
+$missing
+Ensure scripts/deploy.sh uses --exclude='/desktop' (root-only), then rerun deploy."
+    fi
+    success "Frontend desktop runtime present on server"
+}
+
+# Collect --build-arg flags for every NEXT_PUBLIC_* var in .env
+# so they are explicitly passed to `docker compose build` and
+# guaranteed to be baked into the Next.js static output.
+collect_frontend_build_args() {
+    local args=()
+    while IFS='=' read -r var val; do
+        args+=("--build-arg" "${var}=${val}")
+    done < <(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null)
+    echo "${args[@]}"
+}
+
+hash_repo_subset() {
+    python3 - "$PROJECT_DIR" "$@" <<'PY'
+import glob
+import hashlib
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+patterns = sys.argv[2:] or ["."]
+files: set[Path] = set()
+ignored_dirs = {".git", ".next", "node_modules", "__pycache__", ".pytest_cache", ".venv", "venv"}
+
+def include(path: Path) -> bool:
+    relative = path.relative_to(root)
+    return not (ignored_dirs.intersection(relative.parts) or path.suffix in {".pyc", ".pyo"})
+
+for pattern in patterns:
+    matches = glob.glob(str(root / pattern), recursive=True)
+    candidate = root / pattern
+    if not matches and candidate.exists():
+        matches = [str(candidate)]
+    for raw in matches:
+        path = Path(raw)
+        if not path.exists():
+            continue
+        if path.is_dir():
+            for item in path.rglob("*"):
+                if item.is_file() and include(item):
+                    files.add(item.resolve())
+        elif path.is_file() and include(path):
+            files.add(path.resolve())
+
+digest = hashlib.sha256()
+for path in sorted(files):
+    rel = path.relative_to(root).as_posix()
+    digest.update(rel.encode())
+    digest.update(b"\0")
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    digest.update(b"\0")
+
+print(digest.hexdigest(), end="")
+PY
+}
+
+frontend_build_hash() {
+    local source_hash env_hash
+    source_hash=$(hash_repo_subset frontend)
+    env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+    printf '%s%s' "$source_hash" "$env_hash" | sha256sum | cut -d' ' -f1
+}
+
+remote_deploy_meta_dir() {
+    printf '%s' "/opt/xcelsior-backups/.deploy-meta"
+}
+
+remote_deploy_state_dir() {
+    printf '%s' "/opt/xcelsior-backups/.deploy-state"
+}
+
+remote_api_colour_file() {
+    printf '%s/api-colour' "$(remote_deploy_state_dir)"
+}
+
+remote_ssh_colour_file() {
+    printf '%s/ssh-colour' "$(remote_deploy_state_dir)"
+}
+
+ensure_remote_deploy_state_dir() {
+    # State must live outside /opt/xcelsior — sync_code replaces that tree every deploy.
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)'
+if [ -f /opt/xcelsior/.deploy_colour ]; then
+  mv /opt/xcelsior/.deploy_colour '$(remote_api_colour_file)'
+fi
+if [ -f /opt/xcelsior/.deploy_ssh_colour ]; then
+  mv /opt/xcelsior/.deploy_ssh_colour '$(remote_ssh_colour_file)'
+fi"
+}
+
+infer_api_colour_from_nginx() {
+    ssh_cmd "python3 - <<'PY'
+from pathlib import Path
+text = Path('/etc/nginx/sites-available/xcelsior').read_text(encoding='utf-8')
+block = text.split('upstream xcelsior_api', 1)[-1].split('}', 1)[0]
+primary = None
+for line in block.splitlines():
+    if '127.0.0.1:9501' in line and 'backup' not in line:
+        primary = 'blue'
+    elif '127.0.0.1:9500' in line and 'backup' not in line:
+        primary = 'green'
+print(primary or 'green')
+PY"
+}
+
+read_remote_api_colour() {
+    local colour
+    colour=$(ssh_cmd "cat '$(remote_api_colour_file)' 2>/dev/null | tr -d '[:space:]'") || colour=""
+    if [[ -z "$colour" ]]; then
+        colour=$(infer_api_colour_from_nginx)
+        log "No persisted API colour — inferred from nginx: $colour"
+    fi
+    [[ "$colour" == "blue" || "$colour" == "green" ]] || colour="green"
+    printf '%s' "$colour"
+}
+
+read_remote_ssh_colour() {
+    local colour
+    colour=$(ssh_cmd "cat '$(remote_ssh_colour_file)' 2>/dev/null | tr -d '[:space:]'") || colour=""
+    if [[ -z "$colour" ]]; then
+        if ssh_cmd "docker ps --format '{{.Names}}' | grep -q 'xcelsior-ssh-gateway-blue'"; then
+            if ssh_cmd "docker ps --format '{{.Names}}' | grep -q '^xcelsior-ssh-gateway-1$'"; then
+                colour=green
+            else
+                colour=blue
+            fi
+        else
+            colour=green
+        fi
+        log "No persisted SSH gateway colour — inferred: $colour"
+    fi
+    [[ "$colour" == "blue" || "$colour" == "green" ]] || colour="green"
+    printf '%s' "$colour"
+}
+
+store_remote_api_colour() {
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_api_colour_file)'"
+}
+
+read_remote_mcp_colour() {
+    local colour
+    colour=$(ssh_cmd "cat '$(remote_deploy_state_dir)/mcp-colour' 2>/dev/null | tr -d '[:space:]'") || colour=""
+    [[ "$colour" == "blue" || "$colour" == "green" ]] || colour="green"
+    printf '%s' "$colour"
+}
+
+store_remote_mcp_colour() {
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_deploy_state_dir)/mcp-colour'"
+}
+
+store_remote_ssh_colour() {
+    ssh_cmd "mkdir -p '$(remote_deploy_state_dir)' && printf '%s' '$1' > '$(remote_ssh_colour_file)'"
+}
+
+load_remote_deploy_hash() {
+    local name="$1"
+    printf '%s' "${REMOTE_DEPLOY_HASHES[$name]:-}"
+}
+
+# `name|hash` per line for each recorded deploy input. Safe to run in the
+# background: it only prints.
+fetch_remote_deploy_hashes() {
+    local meta
+    meta=$(remote_deploy_meta_dir)
+    ssh_cmd "META='$meta'; for n in api frontend nginx runtime; do
+        printf '%s|' \"\$n\"
+        cat \"\$META/\$n\" 2>/dev/null || true
+        printf '\n'
+    done" 2>/dev/null || true
+}
+
+# Reads fetch_remote_deploy_hashes' output on stdin into REMOTE_DEPLOY_HASHES.
+# Must run in the deploying shell itself. It used to be one function started
+# with `&`, which fills the array in a background subshell and then discards
+# it: every "previous" hash read as empty, so every deploy rebuilt the API and
+# the frontend and reinstalled nginx, and "nothing to deploy" never happened.
+parse_remote_deploy_hashes() {
+    local name value
+    declare -gA REMOTE_DEPLOY_HASHES=()
+    while IFS='|' read -r name value; do
+        [[ -n "$name" ]] && REMOTE_DEPLOY_HASHES["$name"]="$value"
+    done
+}
+
+store_remote_deploy_hash() {
+    local name="$1" value="$2"
+    ssh_cmd "mkdir -p '$(remote_deploy_meta_dir)' && printf '%s' '$value' > '$(remote_deploy_meta_dir)/$name'"
+}
+
+store_remote_deploy_hashes() {
+    local meta payload
+    meta=$(remote_deploy_meta_dir)
+    # A failed nginx install exits the deploy before this runs, so reaching it
+    # means the vhosts that were rendered are the ones serving.
+    payload=$(printf 'api=%s\nfrontend=%s\nruntime=%s\nnginx=%s\n' \
+        "$DEPLOY_API_HASH" "$DEPLOY_FRONTEND_HASH" "$DEPLOY_RUNTIME_HASH" "$DEPLOY_NGINX_HASH")
+    ssh_cmd "META='$meta'; mkdir -p \"\$META\"
+while IFS='=' read -r k v; do
+  [[ -z \"\$k\" ]] && continue
+  printf '%s' \"\$v\" > \"\$META/\$k\"
+done <<'HASHES'
+$payload
+HASHES"
+}
+
+DEPLOY_API_HASH=""
+DEPLOY_FRONTEND_HASH=""
+DEPLOY_NGINX_HASH=""
+DEPLOY_RUNTIME_HASH=""
+DEPLOY_BUILD_API=true
+DEPLOY_BUILD_FRONTEND=true
+DEPLOY_INSTALL_NGINX=true
+DEPLOY_RUNTIME_CHANGED=true
+
+api_build_hash() {
+    hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml uv.lock \
+        "*.py" analytics control_plane routes serverless spot templates migrations \
+        "scripts/*.py" "scripts/*.sh" "scripts/*.pub" "scripts/*.sig"
+}
+
+runtime_build_hash() {
+    local compose_hash env_hash
+    compose_hash=$(hash_repo_subset docker-compose.yml docker-compose.override.yml)
+    if [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
+        # Production keeps its own environment. Hash that file in place:
+        # hashing the developer's .env misses real production flag changes.
+        env_hash=$(ssh_cmd "sha256sum /opt/xcelsior/.env | cut -d' ' -f1") || return 1
+    else
+        env_hash=$(sha256sum "$ENV_FILE" | cut -d' ' -f1) || return 1
+    fi
+    [[ "$env_hash" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n%s' "$compose_hash" "$env_hash" | sha256sum | cut -d' ' -f1
+}
+
+detect_deploy_inputs() {
+    local hash_dir
+    hash_dir=$(mktemp -d)
+    _deploy_mark "diff-start"
+
+    # One SSH round-trip for all remote hashes, overlapped with local hashing.
+    fetch_remote_deploy_hashes >"$hash_dir/remote" & local pid_remote=$!
+
+    # Hash local inputs in parallel (CPU-bound).
+    api_build_hash >"$hash_dir/api" & local pid_api=$!
+    frontend_build_hash >"$hash_dir/frontend" & local pid_frontend=$!
+    hash_repo_subset nginx scripts/render_nginx_vhosts.py scripts/install_nginx_vhosts.sh >"$hash_dir/nginx" & local pid_nginx=$!
+    runtime_build_hash >"$hash_dir/runtime" & local pid_runtime=$!
+
+    # Wait on each pid. A bare `wait` reaps them first, and the following
+    # `wait "$pid"` then fails with "not a child of this shell".
+    wait "$pid_api" || error "Cannot fingerprint the API build inputs"
+    wait "$pid_frontend" || error "Cannot fingerprint the frontend build inputs"
+    wait "$pid_nginx" || error "Cannot fingerprint the nginx inputs"
+    wait "$pid_runtime" || error "Cannot fingerprint the effective runtime configuration"
+    wait "$pid_remote" || error "Cannot read the deployed configuration fingerprints"
+    parse_remote_deploy_hashes <"$hash_dir/remote"
+
+    DEPLOY_API_HASH=$(cat "$hash_dir/api")
+    DEPLOY_FRONTEND_HASH=$(cat "$hash_dir/frontend")
+    DEPLOY_NGINX_HASH=$(cat "$hash_dir/nginx")
+    DEPLOY_RUNTIME_HASH=$(cat "$hash_dir/runtime")
+    rm -rf "$hash_dir"
+
+    local prev_api_hash prev_frontend_hash prev_nginx_hash prev_runtime_hash
+    prev_api_hash=$(load_remote_deploy_hash api)
+    prev_frontend_hash=$(load_remote_deploy_hash frontend)
+    prev_nginx_hash=$(load_remote_deploy_hash nginx)
+    prev_runtime_hash=$(load_remote_deploy_hash runtime)
+
+    [[ -n "$prev_api_hash" && "$DEPLOY_API_HASH" == "$prev_api_hash" ]] && DEPLOY_BUILD_API=false || DEPLOY_BUILD_API=true
+    [[ -n "$prev_frontend_hash" && "$DEPLOY_FRONTEND_HASH" == "$prev_frontend_hash" ]] && DEPLOY_BUILD_FRONTEND=false || DEPLOY_BUILD_FRONTEND=true
+    [[ -n "$prev_nginx_hash" && "$DEPLOY_NGINX_HASH" == "$prev_nginx_hash" ]] && DEPLOY_INSTALL_NGINX=false || DEPLOY_INSTALL_NGINX=true
+    [[ -n "$prev_runtime_hash" && "$DEPLOY_RUNTIME_HASH" == "$prev_runtime_hash" ]] && DEPLOY_RUNTIME_CHANGED=false || DEPLOY_RUNTIME_CHANGED=true
+
+    _deploy_mark "diff-done"
+    log "Deploy diff: api_build=${DEPLOY_BUILD_API} frontend_build=${DEPLOY_BUILD_FRONTEND} nginx=${DEPLOY_INSTALL_NGINX} runtime=${DEPLOY_RUNTIME_CHANGED}"
+}
+
+persist_deploy_inputs() {
+    store_remote_deploy_hashes
+}
+
+deploy_ssh_gateway_blue_green() {
+    # SSH listeners bind instance ports with SO_REUSEPORT — start standby first so
+    # it shares listeners, then drain the live gateway.
+    local live_colour ssh_stop_sec
+    live_colour=$(read_remote_ssh_colour)
+    ssh_stop_sec="${XCELSIOR_SSH_GW_DEPLOY_STOP_SEC:-300}"
+
+    local live_service standby_service live_health standby_health
+    if [[ "$live_colour" == "green" ]]; then
+        live_service="ssh-gateway"
+        standby_service="ssh-gateway-blue"
+        live_health=9510
+        standby_health=9511
+    else
+        live_service="ssh-gateway-blue"
+        standby_service="ssh-gateway"
+        live_health=9511
+        standby_health=9510
+    fi
+
+    log "SSH gateway blue-green: live=$live_colour ($live_service:$live_health) → $standby_service:$standby_health"
+
+    log "Starting standby SSH gateway ($standby_service)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" \
+        || error "Standby SSH gateway ($standby_service) failed to start"
+
+    local standby_ok=false
+    for i in {1..60}; do
+        if ssh_cmd "curl -sf http://127.0.0.1:$standby_health/ >/dev/null" &>/dev/null; then
+            standby_ok=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [[ "$standby_ok" != true ]]; then
+        warn "Standby SSH gateway ($standby_service:$standby_health) not healthy after 120s — aborting handoff"
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
+        error "SSH gateway handoff aborted — live ($live_service) left running. Check standby logs and retry."
+    fi
+    success "Standby SSH gateway ($standby_service:$standby_health) is healthy"
+
+    log "Draining live SSH gateway ($live_service) — deploy waits up to ${ssh_stop_sec}s (reuseport keeps new SSH on standby)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t $ssh_stop_sec $live_service" \
+        || warn "Live SSH gateway stop returned non-zero (active relays may still be draining)"
+    success "Live SSH gateway ($live_service) stop issued"
+
+    local new_colour
+    if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
+    store_remote_ssh_colour "$new_colour"
+    success "SSH gateway live colour: $new_colour ($standby_service)"
+}
+
+wait_for_api_readiness() {
+    local port="$1" attempts="${2:-60}" attempt
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        if ssh_cmd "curl -fsS --max-time 10 http://127.0.0.1:$port/readyz" >/dev/null 2>&1; then
+            return 0
+        fi
+        if ((attempt < attempts)); then sleep 2; fi
+    done
+    return 1
+}
+
+# Compose does not inject .env into a container. Enrollment settings reach
+# the API only when the preserved production override names them and mounts
+# the SPIRE socket and CLI. Secrets stay in /etc/xcelsior/spire and .env.
+ensure_prod_spire_enrollment() {
+    [[ "${TARGET_ENV:-}" == "prod" ]] || return 0
+    # api and api-blue are different services. The live slot is whichever one
+    # nginx is routing to, so both blocks need the socket and the CLI.
+    log "Ensuring both API slots can reach the SPIRE server..."
+    ssh_cmd "python3 - /etc/xcelsior/spire/api-enrollment.env /opt/xcelsior/docker-compose.override.yml /opt/xcelsior/.env" \
+        < "$SCRIPT_DIR/spire_enrollment_override.py" \
+        || error "Could not wire SPIRE enrollment into the API compose override"
+    success "API SPIRE enrollment wiring is present"
+}
+
+deploy_docker() {
+    log "Deploying with Docker Compose ($TARGET_ENV)..."
+    
+    # Verify .env exists on server
+    ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
+    ensure_remote_deploy_state_dir
+
+    local build_prefix
+    build_prefix=$(remote_docker_build_prefix)
+
+    if [[ "$DEPLOY_BUILD_API" == true && "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+        validate_build_env
+        verify_frontend_desktop_runtime_on_remote
+        log "Building API + frontend images in parallel on remote (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
+        local build_args
+        build_args=$(collect_frontend_build_args)
+        # Serial unless the target has headroom. Building the API set and the
+        # Next.js image concurrently on a small host makes the kernel choose,
+        # and it chooses the largest resident process — which is the API that is
+        # still serving traffic. That is what killed production on 2026-08-04,
+        # 98 seconds before the migration step ran, and it reports as
+        # `Exited (137)` with `OOMKilled=false` because the cgroup never
+        # triggered. Minutes of wall clock is the cheaper side of that trade.
+        local avail_mb
+        avail_mb=$(ssh_cmd "awk '/MemAvailable/ {print int(\$2/1024)}' /proc/meminfo" 2>/dev/null || echo 0)
+        local parallel_floor="${XCELSIOR_DEPLOY_PARALLEL_BUILD_MIN_MB:-6144}"
+        if [[ "${avail_mb:-0}" -ge "$parallel_floor" ]]; then
+            log "Target reports ${avail_mb}MB available (>= ${parallel_floor}MB) — building in parallel"
+            ssh_cmd "cd /opt/xcelsior && set -e
+$build_prefix
+api_pid=''
+fe_pid=''
+(docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue) & api_pid=\$!
+(docker compose build $build_args frontend) & fe_pid=\$!
+wait \"\$api_pid\"
+wait \"\$fe_pid\"
+" || error "Parallel docker build failed"
+        else
+            warn "Target reports ${avail_mb}MB available (< ${parallel_floor}MB) — building serially to avoid OOM-killing the live API"
+            ssh_cmd "cd /opt/xcelsior && set -e
+$build_prefix
+docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue
+docker compose build $build_args frontend
+" || error "Serial docker build failed"
+        fi
+        success "API + frontend images built"
+    elif [[ "$DEPLOY_BUILD_API" == true ]]; then
+        log "Building API + scheduler-worker + bg-worker images (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
+        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose --profile blue build api api-blue scheduler-worker bg-worker ssh-gateway ssh-gateway-blue" || error "API/scheduler-worker/bg-worker/ssh-gateway build failed"
+        success "API + scheduler-worker + bg-worker images built"
+    elif [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+        validate_build_env
+        verify_frontend_desktop_runtime_on_remote
+        log "Building frontend image (explicit build args, BuildKit cache=${DEPLOY_BUILD_CACHE})..."
+        local build_args
+        build_args=$(collect_frontend_build_args)
+        ssh_cmd "cd /opt/xcelsior && $build_prefix docker compose build $build_args frontend" || error "Frontend build failed"
+        success "Frontend image built"
+    else
+        log "Image build inputs unchanged — skipping docker image rebuilds"
+    fi
+
+    # A successful build is a fact worth recording before anything that can abort.
+    # `persist_deploy_inputs` used to run only after the whole deploy succeeded, so
+    # a migration failure discarded the hashes and the next attempt rebuilt both
+    # images — reproducing the concurrent build that had just killed the API. Every
+    # retry re-widened the window it was trying to escape.
+    persist_deploy_inputs
+
+    # Run Alembic migrations (P3/C8 — fatal; silent-warn hides broken schema).
+    # If this fails, aborting is far safer than running new code against an
+    # old schema. A failed deploy can be rolled back; a corrupted schema can't.
+    log "Running database migrations..."
+    # `--no-deps`: the migration needs Postgres, which is on the host, and
+    # nothing else. Without it `compose run` starts every `depends_on` of `api`,
+    # including the bundled redis — which cannot bind 127.0.0.1:6379 on a host
+    # whose own redis-server already holds it, goes unhealthy, and fails the
+    # migration. That is how the 2026-10-05 redeploy stopped; it also left the
+    # container crash-looping, ready to take the port the next time the
+    # host's redis restarted.
+    ssh_cmd "cd /opt/xcelsior && docker compose run --rm --no-deps api python -m alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
+    success "Migrations applied"
+
+    # ── Blue-green zero-downtime swap ────────────────────────────────────
+    # Only roll the API when the image or runtime (.env) changed. Frontend-only
+    # deploys must not touch the live API, ssh-gateway, or scheduler (keeps
+    # running instances + web terminals connected).
+    local final_port final_colour
+    if [[ "$DEPLOY_BUILD_API" == true || "$DEPLOY_RUNTIME_CHANGED" == true ]]; then
+        # Persisted outside /opt/xcelsior so rsync deploy does not reset colour.
+        local live_colour
+        live_colour=$(read_remote_api_colour)
+
+        local standby_service standby_port live_service live_port
+        if [[ "$live_colour" == "green" ]]; then
+            live_service="api"        ; live_port=9500
+            standby_service="api-blue"; standby_port=9501
+        else
+            live_service="api-blue"   ; live_port=9501
+            standby_service="api"     ; standby_port=9500
+        fi
+
+        log "Blue-green deploy: live=$live_colour ($live_service:$live_port) → standby=$standby_service:$standby_port"
+
+        # 1. Start the standby service on the other port
+        log "Starting standby API on port $standby_port..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
+
+        # 2. Require dependencies and runtime credentials, not just liveness.
+        # /healthz can pass while NFS, auth, or terminal access is broken.
+        if ! wait_for_api_readiness "$standby_port"; then
+            warn "Standby API ($standby_service:$standby_port) failed readiness — aborting swap"
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
+            error "Blue-green swap aborted — live API ($live_service:$live_port) left running. Check standby logs and retry."
+        fi
+        success "Standby API ($standby_service:$standby_port) is ready"
+
+        # 3. Swap nginx upstream to point at the standby (now primary)
+        log "Swapping nginx upstream to port $standby_port..."
+        ssh_cmd "sudo sed -i \
+            -e '/upstream xcelsior_api/,/}/{ \
+                s/server 127.0.0.1:${standby_port} backup;/server 127.0.0.1:${standby_port};/; \
+                s/server 127.0.0.1:${standby_port};/server 127.0.0.1:${standby_port};/; \
+                s/server 127.0.0.1:${live_port} backup;/server 127.0.0.1:${live_port} backup;/; \
+                s/server 127.0.0.1:${live_port};/server 127.0.0.1:${live_port} backup;/ \
+            }' /etc/nginx/sites-available/xcelsior && sudo nginx -t && sudo nginx -s reload" \
+            || error "Nginx upstream swap failed"
+        success "Nginx now routing to $standby_service:$standby_port"
+
+        # 4. Gracefully stop the old live service (120s drain — terminals + SSE)
+        log "Draining old API ($live_service:$live_port)..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 120 $live_service" || warn "Old API stop returned non-zero"
+        success "Old API ($live_service) stopped"
+
+        # 5. Record the new live colour
+        local new_colour
+        if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
+        store_remote_api_colour "$new_colour"
+        success "Deploy state: $new_colour is now live"
+
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
+        success "Scheduler-worker restarted"
+
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
+        success "bg-worker restarted"
+
+        deploy_ssh_gateway_blue_green
+    else
+        log "API image/runtime unchanged — skipping blue-green swap (live API + ssh-gateway untouched)"
+    fi
+
+    if [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+        ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
+        success "Frontend restarted"
+    else
+        log "Frontend image unchanged — skipping frontend restart"
+    fi
+
+    log "Starting Jaeger (OTLP trace collector)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps jaeger" || warn "Jaeger failed to start — traces will not export"
+    ssh_cmd "curl -sf http://127.0.0.1:4317 >/dev/null 2>&1 || true"  # gRPC port open check via compose health
+    if ssh_cmd "docker ps --format '{{.Names}}' | grep -q jaeger"; then
+        success "Jaeger running (UI http://127.0.0.1:16686 on server)"
+    else
+        warn "Jaeger container not running — set OTEL_EXPORTER_OTLP_ENDPOINT after fixing"
+    fi
+
+    if [[ "${XCELSIOR_DEPLOY_SKIP_MCP:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_SKIP_MCP=1 — skipping MCP blue-green promotion. Previous MCP replica remains live. Run a normal deploy after minting a valid XCELSIOR_MCP_SMOKE_TOKEN."
+    else
+    local mcp_live_colour mcp_live_service mcp_live_port mcp_standby_service mcp_standby_port
+    mcp_live_colour=$(read_remote_mcp_colour)
+    if [[ "$mcp_live_colour" == "green" ]]; then
+        mcp_live_service=mcp; mcp_live_port=8770
+        mcp_standby_service=mcp-blue; mcp_standby_port=8771
+    else
+        mcp_live_service=mcp-blue; mcp_live_port=8771
+        mcp_standby_service=mcp; mcp_standby_port=8770
+    fi
+    # Live API port (post-swap) — the runtime smoke-token mint hits its
+    # /oauth/token to mint a short-lived MCP-audience bearer.
+    local live_colour_api live_port_api
+    live_colour_api=$(read_remote_api_colour)
+    if [[ "$live_colour_api" == "blue" ]]; then live_port_api=9501; else live_port_api=9500; fi
+    log "MCP blue-green: live=$mcp_live_service:$mcp_live_port → standby=$mcp_standby_service:$mcp_standby_port"
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --build --no-deps $mcp_standby_service" \
+        || error "Standby MCP failed to start; previous MCP remains live"
+    local mcp_standby_ok=false
+    for i in {1..30}; do
+        if ssh_cmd "curl -sf --max-time 3 http://127.0.0.1:$mcp_standby_port/readyz >/dev/null"; then
+            mcp_standby_ok=true
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$mcp_standby_ok" != true ]]; then
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+        error "Standby MCP health failed; previous MCP remains live"
+    fi
+    # Real protocol gate: the official SDK performs bearer auth, initialize,
+    # session negotiation, and tools/list on the direct standby port. The
+    # token travels over stdin, never argv or the container environment.
+    #
+    # Token source (in order): a static XCELSIOR_MCP_SMOKE_TOKEN if present;
+    # otherwise mint a short-lived MCP-audience token at runtime from the
+    # MCP client credentials via the local /oauth/token endpoint. The mint
+    # keeps no persistent secret and needs no elevated token TTL.
+    ssh_cmd "cd /opt/xcelsior && \
+        TOKEN=\$(sed -n 's/^XCELSIOR_MCP_SMOKE_TOKEN=//p' .env | tail -1); \
+        if [ -z \"\$TOKEN\" ]; then \
+          CID=\$(sed -n 's/^XCELSIOR_MCP_CLIENT_ID=//p' .env | tail -1); \
+          CSEC=\$(sed -n 's/^XCELSIOR_MCP_CLIENT_SECRET=//p' .env | tail -1); \
+          AUD=\$(sed -n 's/^XCELSIOR_MCP_RESOURCE_AUDIENCE=//p' .env | tail -1); \
+          AUD=\${AUD:-https://mcp.xcelsior.ca/mcp}; \
+          test -n \"\$CID\" && test -n \"\$CSEC\"; \
+          TOKEN=\$(curl -sS --max-time 10 -X POST http://127.0.0.1:$live_port_api/oauth/token \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=client_credentials' \
+            --data-urlencode \"client_id=\$CID\" \
+            --data-urlencode \"client_secret=\$CSEC\" \
+            --data-urlencode \"resource=\$AUD\" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"access_token\",\"\"))'); \
+        fi; \
+        test -n \"\$TOKEN\"; \
+        printf '%s' \"\$TOKEN\" | docker compose --profile blue exec -T \
+          $mcp_standby_service node dist/protocol-smoke.js \
+          http://127.0.0.1:$mcp_standby_port/mcp" \
+        || {
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+            error "MCP protocol smoke failed; previous MCP remains live"
+        }
+    ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
+        [ -f \"\$f\" ] || continue; \
+        sudo cp \"\$f\" \"\$f.pre-mcp-swap\"; \
+        sudo sed -i \
+          -e '/upstream xcelsior_mcp/,/}/{s/server 127.0.0.1:${mcp_standby_port} backup;/server 127.0.0.1:${mcp_standby_port};/;s/server 127.0.0.1:${mcp_live_port};/server 127.0.0.1:${mcp_live_port} backup;/}' \
+          \"\$f\"; \
+      done; sudo nginx -t && sudo nginx -s reload" \
+        || {
+            ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
+                [ -f \"\$f.pre-mcp-swap\" ] && sudo mv \"\$f.pre-mcp-swap\" \"\$f\"; \
+              done; sudo nginx -t && sudo nginx -s reload" || true
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+            error "MCP Nginx swap failed; previous MCP restored"
+        }
+    # Keep the old replica alive until the canonical edge proves it can reach
+    # the promoted colour. A bad route/certificate/upstream swap restores the
+    # saved configs while the previous image is still serving.
+    # Protected-resource metadata must be reachable *and* an unauthenticated
+    # initialize must carry the RFC 9728 challenge that points at it. Without
+    # the header a connector reports "couldn't connect" while our logs show an
+    # ordinary 401 — nothing looks broken on either side, so it is checked here
+    # on every deploy rather than left to a reviewer to discover.
+    ssh_cmd "curl -fsS --max-time 10 \
+        https://mcp.xcelsior.ca/.well-known/oauth-protected-resource \
+        | grep -q 'resource' && \
+      curl -sS --max-time 10 -o /dev/null -D - -X POST https://mcp.xcelsior.ca/mcp \
+        -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+        --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' \
+        | grep -qi '^www-authenticate:.*resource_metadata='" \
+        || {
+            ssh_cmd "for f in /etc/nginx/sites-available/xcelsior /etc/nginx/sites-available/mcp-xcelsior; do \
+                [ -f \"\$f.pre-mcp-swap\" ] && sudo mv \"\$f.pre-mcp-swap\" \"\$f\"; \
+              done; sudo nginx -t && sudo nginx -s reload" || true
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $mcp_standby_service" || true
+            error "Canonical MCP post-swap smoke failed; previous MCP restored"
+        }
+    ssh_cmd "sudo rm -f /etc/nginx/sites-available/xcelsior.pre-mcp-swap /etc/nginx/sites-available/mcp-xcelsior.pre-mcp-swap" || true
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 120 $mcp_live_service" \
+        || warn "Old MCP drain returned non-zero"
+    if [[ "$mcp_live_colour" == "green" ]]; then
+        store_remote_mcp_colour blue
+    else
+        store_remote_mcp_colour green
+    fi
+    success "MCP promoted on canonical and compatibility routes"
+    fi  # end XCELSIOR_DEPLOY_SKIP_MCP guard
+
+    # Final health check — whichever port is now live
+    final_colour=$(read_remote_api_colour)
+    if [[ "$final_colour" == "blue" ]]; then final_port=9501; else final_port=9500; fi
+
+    log "Verifying API readiness on port $final_port ($final_colour)..."
+    if ! wait_for_api_readiness "$final_port" 15; then
+        error "Live API failed /readyz — deployment is incomplete. Inspect readiness before retrying."
+    fi
+    success "API is ready on port $final_port"
+
+    log "Verifying worker PATCH OAuth gate in running API container…"
+    local api_container
+    api_container=$(ssh_cmd "docker ps --format '{{.Names}}' | grep -E 'xcelsior-api' | head -1" 2>/dev/null || true)
+    if [[ -n "$api_container" ]] && ssh_cmd "docker exec $api_container grep -q 'client_credentials' /app/routes/instances.py" 2>/dev/null; then
+        success "Worker PATCH accepts OAuth client_credentials"
+    else
+        warn "Worker PATCH OAuth gate missing in container — jobs may stick in leased/starting"
+    fi
+
+    log "Verifying /readyz and PayPal…"
+    local readyz_out="" paypal_out=""
+    # Background assignments live in subshells and leave these variables
+    # empty, falsely reporting missing readiness probes and disabled PayPal.
+    readyz_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null) \
+        || error "Live API readiness regressed during final verification"
+    paypal_out=$(ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null || true)
+    if grep -q nfs_volumes <<<"$readyz_out"; then
+        success "readyz includes nfs_volumes probe"
+    else
+        warn "readyz missing nfs_volumes — deploy may be on an older API build"
+    fi
+    if grep -q '"enabled":true' <<<"$paypal_out"; then
+        success "PayPal enabled on API"
+    else
+        warn "PayPal not enabled — check PAYPAL_CLIENT_ID/SECRET in .env"
+    fi
+
+    # The container table is printed once, by the health checks that follow.
+
+    # Prune dangling images; preserve BuildKit layer cache when enabled.
+    if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
+        log "Pruning dangling Docker images (keeping BuildKit cache)..."
+        ssh_cmd "docker image prune -f 2>/dev/null" || true
+    else
+        log "Pruning unused Docker images and build cache..."
+        ssh_cmd "docker image prune -af 2>/dev/null; docker builder prune -af --keep-storage=1G 2>/dev/null" || true
+    fi
+    success "Docker cleanup complete"
+    success "Docker deployment complete (blue-green)"
+}
+
+deploy_systemd() {
+    log "Deploying with systemd..."
+    
+    ssh_cmd << 'EOF'
+set -e
+cd /opt/xcelsior
+
+# Create venv if needed
+if [ ! -d venv ]; then
+    python3.12 -m venv venv || python3.11 -m venv venv || python3 -m venv venv
+fi
+
+# Install dependencies
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Ensure .env exists
+if [ ! -f .env ]; then
+    echo "ERROR: .env file not found"
+    exit 1
+fi
+
+# Restart services
+sudo systemctl restart xcelsior-api
+sudo systemctl restart xcelsior-health
+
+# Wait and check health
+sleep 5
+if curl -sf http://localhost:9500/healthz > /dev/null; then
+    echo "API is healthy!"
+else
+    echo "WARNING: Health check failed"
+    sudo journalctl -u xcelsior-api --no-pager -n 50
+fi
+
+sudo systemctl status xcelsior-api --no-pager
+EOF
+    success "Systemd deployment complete"
+}
+
+# ── Rollback ──────────────────────────────────────────────────────────
+rollback() {
+    # This used to `docker compose down` — every service, a full outage — then
+    # untar the newest backup and run a bare `docker compose up -d`. In the
+    # blue-green layout that starts the green slot rather than the profiled blue
+    # one nginx points at, plus the bundled redis, which cannot bind beside the
+    # host's redis-server; `api` waits for redis to be healthy, so the API never
+    # came back. An emergency command that turns a bad deploy into an outage is
+    # worse than none.
+    #
+    # The reliable rollback is the tested path: deploy the previous commit. It
+    # rebuilds, migrates (forward-only, by the expand-contract rule), and swaps
+    # blue/green with health checks like any deploy. This prints exactly that.
+    local latest previous
+    latest=$(ssh_cmd "ls -t /opt/xcelsior-backups/xcelsior_*.tar.gz 2>/dev/null | head -1")
+    [[ -z "$latest" ]] && error "No backups found in /opt/xcelsior-backups"
+    previous=$(ssh_cmd "tar -xzOf '$latest' xcelsior/.deploy_hash 2>/dev/null" | tr -d '[:space:]')
+    [[ -n "$previous" ]] || error "$latest records no .deploy_hash; find the previous commit by hand"
+    warn "Not rolling back in place — see the comment above rollback() in scripts/deploy.sh."
+    echo
+    echo "  The version before the newest deploy is ${previous:0:12} ($latest)."
+    echo "  Redeploy it through the normal path:"
+    echo
+    echo "    git -C \"$PROJECT_DIR\" worktree add /tmp/xcelsior-rollback ${previous}"
+    echo "    (cd /tmp/xcelsior-rollback && cp \"$PROJECT_DIR/.env\" . && ./scripts/deploy.sh)"
+    echo
+    echo "  Production's .env is kept by the deploy regardless of the copied one."
+    exit 1
+}
+
+# ── Local Test Deployment ──────────────────────────────────────────────
+deploy_test_local() {
+    log "Deploying test environment locally..."
+
+    # The xcelsior-test compose stack owns the `xcelsior_test` database.
+    # .env.test points XCELSIOR_POSTGRES_DB/_DSN at `xcelsior_pytest` for the
+    # local pytest suite (scripts/setup_pytest_db.sh) — the always-on stack
+    # must never follow it there: its scheduler/autoscaler mutates pytest
+    # fixtures mid-run and its pools camp on the pytest DB's connection
+    # budget (observed as full-suite flakes and pool timeouts).
+    local stack_db="${XCELSIOR_STACK_POSTGRES_DB:-xcelsior_test}"
+    local pg_password
+    pg_password=$(grep '^XCELSIOR_POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    local stack_dsn="postgresql://xcelsior:${pg_password}@localhost:5432/${stack_db}"
+
+    # Run Alembic migrations on the STACK database (not the pytest one)
+    log "Running test database migrations (${stack_db})..."
+    (
+        cd "$PROJECT_DIR"
+        export XCELSIOR_POSTGRES_DSN="$stack_dsn"
+        source venv/bin/activate 2>/dev/null || true
+        # C8 — fatal on migration failure. Silent-warn hides real bugs;
+        # aborting here forces the operator to fix the migration before
+        # any downstream test run looks deceptively green.
+        alembic upgrade head || { echo "ERROR: alembic upgrade head failed"; exit 1; }
+    ) || error "Test database migration failed — aborting."
+    success "Test database migrated"
+
+    # Start with docker compose using the test env file. Exported process env
+    # wins over --env-file during compose interpolation, pinning every
+    # component-built XCELSIOR_POSTGRES_DSN in docker-compose.yml to the
+    # stack's own database.
+    log "Starting test containers..."
+    cd "$PROJECT_DIR"
+    XCELSIOR_POSTGRES_DB="$stack_db" \
+    XCELSIOR_POSTGRES_DSN="$stack_dsn" \
+        docker compose --env-file .env.test -p xcelsior-test up -d --build
+
+    # Wait for health
+    local api_port
+    api_port=$(grep '^XCELSIOR_BASE_URL=' "$ENV_FILE" | grep -oP ':\K[0-9]+' || echo "9501")
+    log "Waiting for test API on port $api_port..."
+    for i in {1..20}; do
+        if curl -sf "http://localhost:$api_port/healthz" > /dev/null 2>&1; then
+            success "Test API is healthy at http://localhost:$api_port"
+            break
+        fi
+        if [[ $i -eq 20 ]]; then
+            warn "Test API not responding. Check: docker compose -p xcelsior-test logs"
+        fi
+        sleep 2
+    done
+
+    docker compose -p xcelsior-test ps
+
+    log "Spot test smoke (infra)..."
+    if python3 "$SCRIPT_DIR/spot_staging_smoke.py" --base-url "http://localhost:$api_port"; then
+        success "Spot infra smoke passed"
+    else
+        warn "Spot infra smoke failed — check test API logs"
+    fi
+
+    switch_local_worker test
+
+    success "Test environment running (worker -> test)"
+    log "Run: python3 scripts/spot_preemption_live.py"
+    log "Restore prod: ./scripts/deploy.sh --test-stop"
+}
+
+stop_test_local() {
+    log "Stopping test environment..."
+    cd "$PROJECT_DIR"
+    docker compose --env-file .env.test -p xcelsior-test down --remove-orphans
+    switch_local_worker prod
+    success "Test environment stopped; local worker restored to prod"
+}
+
+restore_prod_worker() {
+    switch_local_worker prod
+}
+
+# ── Health Check ──────────────────────────────────────────────────────
+health_check() {
+    log "Running health checks..."
+
+    if ! ssh_cmd "systemctl is-active --quiet nginx"; then
+        warn "nginx not active under systemd — attempting repair"
+        repair_nginx_systemd || warn "nginx repair failed"
+    fi
+    
+    # Public check via nginx / Cloudflare with a short retry window after restarts
+    local public_ok=false
+    for _ in {1..10}; do
+        if curl -sf "https://$DOMAIN/healthz" > /dev/null; then
+            public_ok=true
+            break
+        fi
+        sleep 2
+    done
+    if [ "$public_ok" = true ]; then
+        success "Public endpoint healthy: https://$DOMAIN/healthz"
+    else
+        warn "Public endpoint not responding after retries"
+    fi
+    
+    # Remote internal checks (separate calls for reliability)
+    log "Docker status:"
+    ssh_cmd "cd /opt/xcelsior && docker compose ps" || true
+
+    log "API health:"
+    local live_colour live_port
+    live_colour=$(read_remote_api_colour)
+    if [[ "$live_colour" == "blue" ]]; then live_port=9501; else live_port=9500; fi
+    if ssh_cmd "curl -sf http://127.0.0.1:$live_port/healthz" &>/dev/null; then
+        success "API healthy on port $live_port ($live_colour)"
+    else
+        warn "API not responding on port $live_port ($live_colour)"
+    fi
+
+    log "Nginx status:"
+    ssh_cmd "sudo systemctl status nginx --no-pager -l | head -10" || true
+}
+
+# ── Main ──────────────────────────────────────────────────────────────
+print_usage() {
+    cat << EOF
+${BOLD}Xcelsior Deployment Script${NC}
+
+${CYAN}Usage:${NC}
+  $0                    Full production deploy (backup, sync, build, restart)
+  $0 --quick            Quick prod deploy (sync + restart, no rebuild)
+  $0 --test             Deploy test stack + switch local GPU worker to test API
+  $0 --test-stop        Stop test stack + restore local GPU worker to prod
+  $0 --worker-prod      Restore local GPU worker to prod (no deploy)
+  $0 --worker-test      Point local GPU worker at test API (stack must be up)
+  $0 --setup            First-time server setup
+  $0 --ssl              Setup SSL certificates
+  $0 --rollback         Rollback to previous backup
+  $0 --health           Run health checks
+  $0 --fix-infra        Repair nginx systemd + start Jaeger on prod (no full deploy)
+  $0 --post-merge       Deploy main + migrations + health + post_merge_smoke.sh
+  $0 --smoke            Run post_merge_smoke.sh locally (no deploy)
+  $0 --systemd          Deploy using systemd instead of Docker
+  $0 --drain-host ID    Mark a worker host as draining
+  $0 --undrain-host ID  Restore a drained worker host
+  $0 --guard-host ID    Fail unless a drained host has no active interactive or serverless workers
+  $0 --help             Show this help
+
+${CYAN}Environment files:${NC}
+  .env                  Production config → deployed to VPS
+  .env.test             Test config → used locally for testing
+
+${CYAN}Environment variables:${NC}
+  XCELSIOR_DEPLOY_USER  SSH user (default: root; linuxuser was the Vultr box)
+  XCELSIOR_DEPLOY_HOST  VPS IP (default: 46.225.20.97)
+  XCELSIOR_SSH_KEY      SSH key path (default: ~/.ssh/xcelsior)
+  XCELSIOR_DEPLOY_SYNC  rsync (default, fast delta) or tarball (legacy)
+  XCELSIOR_DEPLOY_COMPRESS  zstd (default) | gzip | none — installs zstd/pigz/rsync as needed
+  XCELSIOR_DEPLOY_TIMING  Set to 1 to log per-step durations
+  XCELSIOR_DEPLOY_SYNC_HOSTS  Comma-separated mirror hosts (rsync-only, parallel)
+  XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys
+  XCELSIOR_DOCKER_BUILD_CACHE_DIR  Remote cache dir (default: /opt/xcelsior-backups/docker-build-cache)
+  XCELSIOR_SSH_CONTROL_PATH  SSH mux socket (default: ~/.ssh/cm-xcelsior-%r@%h:%p)
+
+${CYAN}Examples:${NC}
+  # First-time setup
+  ./scripts/deploy.sh --setup
+  ./scripts/deploy.sh --ssl
+  ./scripts/deploy.sh
+
+  # Normal production deployment
+  ./scripts/deploy.sh
+
+  # Quick production update (no rebuild)
+  ./scripts/deploy.sh --quick
+
+  # Run test environment locally
+  ./scripts/deploy.sh --test
+
+  # Stop test environment and restore prod worker
+  ./scripts/deploy.sh --test-stop
+
+  # Manually switch worker only
+  ./scripts/deploy.sh --worker-prod
+  ./scripts/deploy.sh --worker-test
+
+  # Worker maintenance
+  ./scripts/deploy.sh --drain-host gpu-worker-01
+  ./scripts/deploy.sh --guard-host gpu-worker-01
+  ./scripts/deploy.sh --undrain-host gpu-worker-01
+EOF
+}
+
+main() {
+    case "${1:-}" in
+        --help|-h)
+            print_usage
+            exit 0
+            ;;
+    esac
+
+    init_deploy_targets
+    init_deploy_compress
+    ensure_local_deploy_tools
+    init_rsync_compress
+
+    echo -e "${CYAN}${BOLD}"
+    echo "╔════════════════════════════════════════════════╗"
+    echo "║         XCELSIOR DEPLOYMENT SCRIPT             ║"
+    echo "║              xcelsior.ca                       ║"
+    echo "╚════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+
+    if [[ ${#DEPLOY_SYNC_HOSTS[@]} -gt 0 ]]; then
+        log "Mirror sync hosts: ${DEPLOY_SYNC_HOSTS[*]} (code-only, parallel with primary deploy)"
+    fi
+    
+    case "${1:-}" in
+        --test)
+            TARGET_ENV="test"
+            resolve_env
+            deploy_test_local
+            ;;
+        --test-stop)
+            TARGET_ENV="test"
+            resolve_env
+            stop_test_local
+            ;;
+        --worker-prod)
+            restore_prod_worker
+            ;;
+        --worker-test)
+            switch_local_worker test
+            ;;
+        --setup)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            setup_server
+            setup_systemd
+            success "Setup complete. Run --ssl next, then deploy."
+            ;;
+        --ssl)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            setup_ssl
+            success "SSL setup complete. Ready for deployment."
+            ;;
+        --quick)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            detect_deploy_inputs
+            sync_code
+            if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
+                install_nginx_configs
+            else
+                log "Nginx configs unchanged — skipping"
+            fi
+            deploy_docker
+            wait_mirror_syncs
+            persist_deploy_inputs
+            local quick_hash
+            quick_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            ssh_cmd "echo '$quick_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
+            ;;
+        --rollback)
+            check_ssh
+            rollback
+            health_check
+            ;;
+        --health)
+            check_ssh
+            health_check
+            ;;
+        --fix-infra)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            repair_nginx_systemd
+            install_nginx_configs
+            ssh_cmd "cd /opt/xcelsior && docker compose pull jaeger 2>/dev/null; docker compose up -d --no-deps jaeger" \
+                || warn "Jaeger start failed"
+            health_check
+            log "OTEL in API logs:"
+            ssh_cmd "docker ps --format '{{.Names}}' | grep -E 'api|jaeger'" || true
+            ssh_cmd "docker logs \$(docker ps --format '{{.Names}}' | grep api-blue | head -1) 2>&1 | grep OTEL | tail -3" \
+                || ssh_cmd "docker logs \$(docker ps --format '{{.Names}}' | grep -E '^xcelsior-api-' | grep -v blue | head -1) 2>&1 | grep OTEL | tail -3" \
+                || true
+            success "Infrastructure repair complete"
+            ;;
+        --smoke)
+            bash "$SCRIPT_DIR/post_merge_smoke.sh"
+            ;;
+        --post-merge)
+            TARGET_ENV="prod"
+            resolve_env
+            ensure_prod_worker_if_test
+            check_ssh
+            detect_deploy_inputs
+            backup_current
+            sync_code
+            if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
+                install_nginx_configs
+            fi
+            deploy_docker
+            wait_mirror_syncs
+            persist_deploy_inputs
+            local_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
+            health_check
+            bash "$SCRIPT_DIR/post_merge_smoke.sh"
+            success "Post-merge deploy + smoke complete"
+            ;;
+        --systemd)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            backup_current
+            sync_code
+            install_nginx_configs
+            deploy_systemd
+            wait_mirror_syncs
+            health_check
+            ;;
+        --drain-host)
+            TARGET_ENV="prod"
+            resolve_env
+            [[ -n "${2:-}" ]] || error "Missing host ID for --drain-host"
+            drain_worker_host "$2"
+            ;;
+        --undrain-host)
+            TARGET_ENV="prod"
+            resolve_env
+            [[ -n "${2:-}" ]] || error "Missing host ID for --undrain-host"
+            undrain_worker_host "$2"
+            ;;
+        --guard-host)
+            TARGET_ENV="prod"
+            resolve_env
+            [[ -n "${2:-}" ]] || error "Missing host ID for --guard-host"
+            guard_worker_host "$2"
+            ;;
+        ""|--docker)
+            TARGET_ENV="prod"
+            resolve_env
+            ensure_prod_worker_if_test
+            check_ssh
+            detect_deploy_inputs
+
+            # ── Smart conditional steps ──
+            local local_hash remote_hash
+            local_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            remote_hash=$(ssh_cmd "cat /opt/xcelsior/.deploy_hash 2>/dev/null" || echo "none")
+
+            if [[ "$local_hash" == "$remote_hash" && "$DEPLOY_BUILD_API" == false && "$DEPLOY_BUILD_FRONTEND" == false && "$DEPLOY_INSTALL_NGINX" == false && "$DEPLOY_RUNTIME_CHANGED" == false ]]; then
+                log "Remote is already at ${BOLD}${local_hash:0:8}${NC} — nothing to deploy."
+                health_check
+                exit 0
+            fi
+
+            backup_current
+            sync_code
+            ensure_prod_spire_enrollment
+
+            if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
+                install_nginx_configs
+            else
+                log "Nginx configs unchanged — skipping"
+            fi
+
+            deploy_docker
+
+            wait_mirror_syncs
+            persist_deploy_inputs
+            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
+            health_check
+            success "Deployment complete! Visit https://$DOMAIN"
+            ;;
+        *)
+            error "Unknown option: $1. Use --help for usage."
+            ;;
+    esac
+}
+
+main "$@"

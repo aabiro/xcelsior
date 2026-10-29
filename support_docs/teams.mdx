@@ -1,0 +1,49 @@
+---
+title: Teams & Workspaces
+subtitle: Shared compute, shared billing, role-based access.
+slug: teams
+---
+
+# Teams & Workspaces
+
+A team lets several people share one Xcelsior workspace — a common wallet, shared persistent volumes, and a single view of running compute. It is the right structure for a research group, a startup, or a class.
+
+## Creating a team
+
+Create a team from your dashboard. The person who creates it becomes the **owner**. The owner cannot be removed from the team, which prevents a workspace from being orphaned.
+
+## Roles
+
+Every member holds one of three roles:
+
+| Role | Can do |
+|------|--------|
+| **Admin** | Manage members and invitations, launch and terminate compute, manage volumes, and view billing. |
+| **Member** | Launch and terminate compute, and manage volumes. |
+| **Viewer** | Read-only. See instances, volumes, and activity without being able to change or spend anything. |
+
+The owner holds full control over the workspace in addition to being a member of it.
+
+Give people the narrowest role that lets them do their job. A collaborator who only needs to watch a training run should be a viewer, not a member — viewers cannot spend from the shared wallet.
+
+## Inviting people
+
+Invite a teammate by email address and assign their role at the same time. They receive an invitation link containing a single-use token. Accepting the invitation adds them to the workspace.
+
+Invitations are tied to the email they were issued to, so forwarding an invite link to someone else does not let that person join under your team.
+
+## Shared billing
+
+A team has one wallet. Compute launched by any member draws from that shared balance, and storage for team volumes bills against it too. This means:
+
+- You top up once, for the whole team, rather than per person.
+- Any member with spend permission can consume the shared balance, so grant admin and member roles deliberately.
+- Invoices are issued for the team, itemised by job.
+
+## Shared storage
+
+Persistent volumes created inside a team belong to the team, not to the individual who created them. They remain available to the workspace when that person's role changes or they leave. Team storage draws on the same limits as individual storage: up to 2,000 GB in total, across a maximum of 50 volumes.
+
+## Switching between workspaces
+
+If you belong to more than one workspace — your personal account plus one or more teams — the dashboard lets you switch the active workspace. Everything you do (launching instances, creating volumes, viewing invoices) applies to whichever workspace is currently active, so check the selector before you spend.

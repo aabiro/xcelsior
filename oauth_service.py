@@ -1,0 +1,2438 @@
+"""Internal OAuth 2.0 service layer with dedicated cache-backed auth state."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import os
+import secrets
+
+import env_config
+import threading
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from cache_keys import cache_key
+from db import OAuthStore, UserStore
+from oauth_delegation import SYSTEM_PRINCIPAL
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+try:
+    from prometheus_client import Counter
+
+    _oauth_tokens_issued = Counter(
+        "xcelsior_oauth_tokens_issued_total",
+        "OAuth tokens issued by grant type",
+        ["grant_type"],
+    )
+    _oauth_refresh_events = Counter(
+        "xcelsior_oauth_refresh_events_total",
+        "OAuth refresh outcomes",
+        ["outcome"],
+    )
+    _oauth_device_poll_events = Counter(
+        "xcelsior_oauth_device_poll_events_total",
+        "OAuth device-code polling outcomes",
+        ["outcome"],
+    )
+except Exception:
+
+    class _NoopCounter:
+        def labels(self, *args, **kwargs):
+            return self
+
+        def inc(self, *args, **kwargs):
+            return None
+
+    _oauth_tokens_issued = _NoopCounter()
+    _oauth_refresh_events = _NoopCounter()
+    _oauth_device_poll_events = _NoopCounter()
+
+
+ACCESS_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_ACCESS_TTL_SEC", "900"))
+# Connector access tokens live ~1h, not the 15m every other agent token gets.
+# Claude, ChatGPT and Grok hold a token across a whole conversation and only
+# refresh on 401; a 15m token turns every third turn into a refresh round trip
+# through our authorization server. One hour is the lifetime the adoption plan
+# settles on (X0.5) and is still short enough that revocation is meaningful,
+# because the refresh token — not the access token — is what carries the
+# 30-day session.
+MCP_ACCESS_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_MCP_ACCESS_TTL_SEC", "3600"))
+# First-party browser sessions get a longer-lived access token than OAuth agent
+# tokens (which stay short for security), so users remain signed in across normal
+# navigation (e.g. dashboard -> marketing -> back) without a refresh round-trip.
+# The refresh token still governs the 30-day "remember me" window.
+BROWSER_SESSION_TTL_SEC = int(os.environ.get("XCELSIOR_BROWSER_SESSION_TTL_SEC", str(60 * 60 * 12)))
+REFRESH_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_REFRESH_TTL_SEC", str(86400 * 30)))
+AUTH_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CODE_TTL_SEC", "300"))
+DEVICE_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_TTL_SEC", "900"))
+DEVICE_CODE_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_INTERVAL_SEC", "5"))
+# Agent / MCP tokens are pasted into client config and left there, so a short TTL
+# just forces clients (e.g. VS Code) into the interactive OAuth fallback. Default
+# to 90 days; override with XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC.
+CLIENT_CREDENTIALS_TTL_SEC = int(
+    os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", str(86400 * 90))
+)
+ACCESS_TOKEN_PREFIX = os.environ.get("XCELSIOR_OAUTH_ACCESS_TOKEN_PREFIX", "xoa_")
+AUTH_CACHE_BACKEND = os.environ.get(
+    "XCELSIOR_AUTH_CACHE_BACKEND",
+    # Behaviour is unchanged — the old `.get("XCELSIOR_ENV", "dev") == "test"`
+    # already resolved to redis when unset. Routed through the resolver so no
+    # module reads the variable directly: one raw read is how the next one gets
+    # written.
+    "memory" if env_config.resolve_env() == "test" else "redis",
+).lower()
+AUTH_REDIS_URL = os.environ.get("XCELSIOR_AUTH_REDIS_URL", "redis://localhost:6379/0")
+# NOTE: XCELSIOR_AUTH_CACHE_PREFIX is retired. The key namespace is now
+# owned by `cache_keys.cache_key` so environment, version, and secret
+# hashing are applied uniformly (companion §5.4); a per-deployment prefix
+# override would defeat that.
+OAUTH_ISSUER = os.environ.get(
+    "XCELSIOR_OAUTH_ISSUER",
+    os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/"),
+)
+OAUTH_AUDIENCE = os.environ.get("XCELSIOR_OAUTH_AUDIENCE", "xcelsior-api")
+# RFC 8707 resource indicator for the hosted MCP connector.
+#
+# This is the *exact* URL a user pastes into Claude/ChatGPT/Grok, path included.
+# It was previously the bare origin, which is a different identifier: a connector
+# client that discovers `resource` from protected-resource metadata and echoes it
+# back on /oauth/authorize would have been rejected with invalid_target, and the
+# server would have looked healthy the whole time. See
+# docs/mcp-enterprise-adoption-plan.md BLOCKER 1.
+MCP_RESOURCE_AUDIENCE = os.environ.get(
+    "XCELSIOR_MCP_RESOURCE_AUDIENCE", "https://mcp.xcelsior.ca/mcp"
+).rstrip("/")
+# Tokens minted before the migration carry the old origin in `aud`. They stay
+# valid until the sunset instant below and are then rejected like any other
+# wrong-audience token — a deliberate, dated compatibility window rather than a
+# permanent second accepted audience. Set the legacy value to "" to end it early.
+MCP_LEGACY_RESOURCE_AUDIENCE = os.environ.get(
+    "XCELSIOR_MCP_LEGACY_RESOURCE_AUDIENCE", "https://mcp.xcelsior.ca"
+).rstrip("/")
+# Longer than CLIENT_CREDENTIALS_TTL_SEC (90 days) measured from the migration,
+# so no already-issued machine token can be cut off mid-life.
+MCP_LEGACY_AUDIENCE_SUNSET = os.environ.get(
+    "XCELSIOR_MCP_LEGACY_AUDIENCE_SUNSET", "2026-11-30T00:00:00Z"
+)
+REFRESH_COOKIE_NAME = "xcelsior_refresh"
+API_KEY_SUNSET_DATE = os.environ.get("XCELSIOR_API_KEY_SUNSET_DATE", "2026-07-07")
+
+_cache_instance = None
+_cache_lock = threading.Lock()
+_defaults_lock = threading.Lock()
+_defaults_ready = False
+
+
+class AuthCacheUnavailableError(RuntimeError):
+    """Raised when the configured dedicated auth cache is unavailable."""
+
+
+class OAuthGrantError(Exception):
+    """Structured OAuth grant error."""
+
+    def __init__(
+        self,
+        error: str,
+        description: str,
+        *,
+        status_code: int = 400,
+        extra: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
+        super().__init__(description)
+        self.error = error
+        self.description = description
+        self.status_code = status_code
+        self.extra = dict(extra or {})
+        self.headers = dict(headers or {})
+
+    def payload(self) -> dict[str, Any]:
+        body = {"error": self.error, "error_description": self.description}
+        body.update(self.extra)
+        return body
+
+
+# ── RFC 8707 resource indicators ──────────────────────────────────────────
+#
+# One place decides what "the MCP resource" means, because the identifier is
+# checked in six places (authorize, three token grants, device authorize, and
+# JWT validation) and six copies of a string comparison is how the origin and
+# the connector URL drifted apart in the first place.
+
+
+def _parse_sunset(raw: str) -> float | None:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def legacy_mcp_audience_accepted(now: float | None = None) -> bool:
+    """True while the pre-migration origin audience is still honoured."""
+    if not MCP_LEGACY_RESOURCE_AUDIENCE:
+        return False
+    if MCP_LEGACY_RESOURCE_AUDIENCE == MCP_RESOURCE_AUDIENCE:
+        return False
+    sunset = _parse_sunset(MCP_LEGACY_AUDIENCE_SUNSET)
+    if sunset is None:
+        return True
+    return (now if now is not None else time.time()) < sunset
+
+
+def accepted_mcp_audiences(now: float | None = None) -> tuple[str, ...]:
+    """Audience values a presented MCP token may legitimately carry."""
+    if legacy_mcp_audience_accepted(now):
+        return (MCP_RESOURCE_AUDIENCE, MCP_LEGACY_RESOURCE_AUDIENCE)
+    return (MCP_RESOURCE_AUDIENCE,)
+
+
+def canonical_mcp_resource(value: str | None) -> str | None:
+    """Canonicalise a client-supplied resource indicator, or None if unrelated.
+
+    A client that read the old metadata still sends the origin; it gets the
+    canonical identifier back, so the token it receives is bound to the URL the
+    server actually serves rather than to whichever string the client happened
+    to have cached.
+    """
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    if candidate.rstrip("/") in accepted_mcp_audiences():
+        return MCP_RESOURCE_AUDIENCE
+    return None
+
+
+_NO_DEFAULT = object()
+
+
+def normalize_resource_indicator(value: str | None, *, default: Any = _NO_DEFAULT) -> str:
+    """Validate `resource` from a grant request and return what to bind.
+
+    ``default`` distinguishes two genuinely different callers. The device
+    endpoint has to pick an audience and defaults to the API's. The token
+    grants must be able to say "the client sent nothing", because substituting
+    the API audience there would make an MCP-bound authorization code fail its
+    own audience check — so they pass ``default=""`` and the empty string has
+    to survive rather than being coerced.
+
+    Raises ``invalid_target`` for anything that is neither the MCP resource nor
+    an accepted legacy alias — resource substitution has to fail loudly, which
+    is what ``test_authorization_code_rejects_resource_substitution`` pins.
+    """
+    candidate = str(value or "").strip()
+    if not candidate:
+        return OAUTH_AUDIENCE if default is _NO_DEFAULT else str(default)
+    canonical = canonical_mcp_resource(candidate)
+    if canonical is None:
+        raise OAuthGrantError("invalid_target", "Unsupported resource indicator")
+    return canonical
+
+
+# ── Redirect URI matching (RFC 8252 §7.3) ─────────────────────────────────
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _split_redirect(uri: str) -> tuple[str, str, str, str] | None:
+    """(scheme, host, port, path) for a redirect URI, or None if unusable."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(uri.strip())
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.netloc:
+        return None
+    if parts.fragment:
+        # RFC 6749 §3.1.2: the redirection endpoint MUST NOT include a fragment.
+        return None
+    if "@" in parts.netloc:
+        # userinfo in a redirect is a credential-in-URL smell and lets an
+        # attacker dress up a hostile host as ours in a browser address bar.
+        return None
+    host = (parts.hostname or "").lower()
+    if not host:
+        return None
+    # `.port` raises on a non-numeric port, and `:*` is exactly the wildcard
+    # pattern we accept for loopback — so classify it before asking.
+    if parts.netloc.rsplit("]", 1)[-1].endswith(":*"):
+        port = "*"
+    else:
+        try:
+            port = str(parts.port) if parts.port else ""
+        except ValueError:
+            return None
+    return parts.scheme.lower(), host, port, parts.path or ""
+
+
+def is_loopback_redirect(uri: str) -> bool:
+    parsed = _split_redirect(uri)
+    if not parsed:
+        return False
+    scheme, host, _, _ = parsed
+    return scheme == "http" and host in _LOOPBACK_HOSTS
+
+
+def redirect_uri_matches(registered: str, requested: str) -> bool:
+    """Exact match, widened only for loopback ports.
+
+    Native clients — Claude Code, VS Code, Copilot CLI, MCP Inspector — bind a
+    fresh ephemeral port per attempt, so an exact-match rule rejects every
+    second connection for no security benefit: the port is not a security
+    boundary on 127.0.0.1, which is precisely why RFC 8252 §7.3 tells the
+    authorization server to ignore it. The widening is deliberately confined to
+    loopback; a wildcard port on a routable host would let anyone who can bind a
+    port on that host receive authorization codes.
+    """
+    if registered == requested:
+        return True
+    reg = _split_redirect(registered)
+    req = _split_redirect(requested)
+    if not reg or not req:
+        return False
+    reg_scheme, reg_host, reg_port, reg_path = reg
+    req_scheme, req_host, _req_port, req_path = req
+    if reg_scheme != "http" or req_scheme != "http":
+        return False
+    if reg_host not in _LOOPBACK_HOSTS or req_host not in _LOOPBACK_HOSTS:
+        return False
+    # 127.0.0.1, ::1 and localhost are interchangeable in practice: the client
+    # picks whichever its HTTP stack binds, and RFC 8252 §8.3 asks servers not
+    # to make that choice a rejection.
+    if reg_port == "*":
+        # A bare `http://localhost:*` registration is a "any loopback callback"
+        # pattern; one carrying a path still pins the path.
+        return reg_path in ("", "/") or reg_path == req_path
+    return reg_path == req_path
+
+
+# Callbacks the first-party provider connectors post authorization codes back
+# to. Registered rather than discovered so the pre-provisioned connector client
+# works before any dynamic registration happens, and so DCR has a concrete
+# allowlist to check against.
+CONNECTOR_REDIRECT_URIS: tuple[str, ...] = (
+    "https://claude.ai/api/mcp/auth_callback",
+    "https://claude.com/api/mcp/auth_callback",
+    "https://chatgpt.com/connector_platform_oauth_redirect",
+    "https://chatgpt.com/aip/connectors/oauth/callback",
+    "https://platform.openai.com/connectors/oauth/callback",
+    "https://grok.com/api/mcp/auth_callback",
+    "http://127.0.0.1:*",
+    "http://localhost:*",
+    "http://[::1]:*",
+)
+
+
+class MemoryAuthCache:
+    """Small in-memory cache used in tests and local fallback."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._store: dict[str, tuple[str, float]] = {}
+
+    def _purge(self, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        expired = [key for key, (_, expires_at) in self._store.items() if expires_at <= now]
+        for key in expired:
+            self._store.pop(key, None)
+
+    def get(self, key: str) -> str | None:
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            item = self._store.get(key)
+            return item[0] if item else None
+
+    def set(self, key: str, value: str, ttl: int, *, nx: bool = False) -> bool:
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            if nx and key in self._store:
+                return False
+            self._store[key] = (value, now + max(1, ttl))
+            return True
+
+    def delete(self, key: str) -> None:
+        with self._lock:
+            self._store.pop(key, None)
+
+    def getdel(self, key: str) -> str | None:
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            item = self._store.pop(key, None)
+            return item[0] if item else None
+
+    def incr(self, key: str, ttl: int) -> int:
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            raw = self._store.get(key)
+            value = int(raw[0]) if raw else 0
+            value += 1
+            self._store[key] = (str(value), now + max(1, ttl))
+            return value
+
+
+#: Redis rejects a mismatched password with a message that describes the
+#: protocol exchange rather than the thing an operator has to change. The three
+#: variables involved live in three different places — the password inside
+#: `XCELSIOR_AUTH_REDIS_URL`, `XCELSIOR_REDIS_REQUIREPASS` on the server's
+#: command line, and `XCELSIOR_REDIS_CLI_AUTH` in its healthcheck — so "set them
+#: to the same secret" is the entire fix and is worth saying outright. Without
+#: this the operator sees `auth_cache_unavailable` in the response, a protocol
+#: sentence in the log, and no indication that a second variable exists.
+_REDIS_AUTH_HINTS = (
+    (
+        "but no password is set",
+        "the URL in XCELSIOR_AUTH_REDIS_URL carries a password but the server "
+        "has none — set XCELSIOR_REDIS_REQUIREPASS='--requirepass <secret>' and "
+        "XCELSIOR_REDIS_CLI_AUTH='-a <secret>' to the same secret, or drop the "
+        "password from the URL",
+    ),
+    (
+        "noauth",
+        "the server requires a password and XCELSIOR_AUTH_REDIS_URL has none — "
+        "use redis://:<secret>@host:port/0 with the secret from "
+        "XCELSIOR_REDIS_REQUIREPASS",
+    ),
+    (
+        "wrongpass",
+        "the password in XCELSIOR_AUTH_REDIS_URL does not match " "XCELSIOR_REDIS_REQUIREPASS",
+    ),
+)
+
+
+def _explain_redis_error(exc: Exception) -> str:
+    """Append the remediation for the auth-cache misconfigurations we know.
+
+    A password mismatch is the failure mode this deployment is most likely to
+    hit, because the secret has to be written identically in three places and
+    nothing checks that they agree until a request needs the cache.
+    """
+    text = str(exc)
+    lowered = text.lower()
+    for needle, hint in _REDIS_AUTH_HINTS:
+        if needle in lowered:
+            return f"{text} — {hint}"
+    return text
+
+
+def auth_cache_timeout_sec() -> float:
+    """Socket timeout bound for the auth cache.
+
+    Every other Redis client in this codebase bounds its sockets —
+    `serverless/rate_limit_store.py`, `privacy_sinks.py`, and
+    `control_plane/launch/spend_counters.py` all pass
+    `socket_connect_timeout`/`socket_timeout`. The auth cache, which sits on
+    the hot path of *every* authenticated request, was the one that did not.
+
+    Unbounded means `socket_timeout=None`, i.e. block until the OS gives up —
+    on Linux roughly two minutes for a connect to a host that is up but not
+    listening, and forever for a connection that is established and then goes
+    silent (a killed container, a dropped route). The failure that produces is
+    worse than the 503 it replaces: requests pile up in the threadpool holding
+    `_cache_lock`, `/readyz` cannot answer because it is queued behind them, and
+    the orchestrator sees a hang rather than an unready replica, so nothing
+    restarts. Fail fast instead, well inside the request deadline.
+    """
+    try:
+        return max(0.1, float(os.environ.get("XCELSIOR_AUTH_REDIS_TIMEOUT_SEC", "2")))
+    except (TypeError, ValueError):
+        return 2.0
+
+
+class RedisAuthCache:
+    """Redis-backed cache for ephemeral OAuth state."""
+
+    def __init__(self, url: str):
+        try:
+            import redis
+        except ImportError as exc:
+            raise AuthCacheUnavailableError("redis package is not installed") from exc
+        timeout = auth_cache_timeout_sec()
+        try:
+            self._client = redis.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=timeout,
+                socket_timeout=timeout,
+                # A pooled connection to a Redis that restarted is dead but
+                # looks fine until it is used, which turns one restart into a
+                # scattering of 503s as each stale connection is drawn. A
+                # periodic PING retires them before a request does.
+                health_check_interval=30,
+            )
+            self._client.ping()
+        except Exception as exc:
+            raise AuthCacheUnavailableError(
+                f"redis unavailable: {_explain_redis_error(exc)}"
+            ) from exc
+
+    def get(self, key: str) -> str | None:
+        try:
+            return self._client.get(key)
+        except Exception as exc:
+            raise AuthCacheUnavailableError(str(exc)) from exc
+
+    def set(self, key: str, value: str, ttl: int, *, nx: bool = False) -> bool:
+        try:
+            return bool(self._client.set(key, value, ex=max(1, ttl), nx=nx))
+        except Exception as exc:
+            raise AuthCacheUnavailableError(str(exc)) from exc
+
+    def delete(self, key: str) -> None:
+        try:
+            self._client.delete(key)
+        except Exception as exc:
+            raise AuthCacheUnavailableError(str(exc)) from exc
+
+    def getdel(self, key: str) -> str | None:
+        try:
+            value = self._client.getdel(key)
+        except AttributeError:
+            pipe = self._client.pipeline()
+            while True:
+                try:
+                    pipe.watch(key)
+                    value = pipe.get(key)
+                    pipe.multi()
+                    pipe.delete(key)
+                    pipe.execute()
+                    break
+                except Exception:
+                    pipe.reset()
+                    raise
+        except Exception as exc:
+            raise AuthCacheUnavailableError(str(exc)) from exc
+        return value
+
+    def incr(self, key: str, ttl: int) -> int:
+        """Increment a counter, setting its TTL in the same round trip.
+
+        Companion §5.4: "Set a TTL in the same atomic operation that
+        creates every ephemeral key." The previous form issued `INCR` and
+        then a conditional `EXPIRE`; a crash or connection loss between
+        the two left an immortal key, and for an abuse counter that means
+        a principal stays locked out until someone deletes it by hand.
+
+        `EXPIRE ... NX` only sets a TTL when the key has none, so a
+        long-running window is not extended by later increments.
+        """
+        try:
+            pipe = self._client.pipeline(transaction=True)
+            pipe.incr(key)
+            pipe.expire(key, max(1, ttl), nx=True)
+            raw, _ = pipe.execute()
+            return int(raw) if isinstance(raw, int) else int(str(raw))
+        except Exception as exc:
+            raise AuthCacheUnavailableError(str(exc)) from exc
+
+
+def _cache_key(kind: str, identifier: str) -> str:
+    """Namespaced, hashed auth-cache key (companion §5.4).
+
+    The identifier is the *credential itself* for most kinds — an
+    authorization code, an opaque access token, a device code. It used to
+    be interpolated into the key name verbatim, which published live
+    bearer credentials to `SCAN`, `MONITOR`, the slowlog, RDB/AOF files,
+    and any keyspace tooling pointed at the instance. It is now hashed.
+
+    Key-format change, not a data migration: keys written under the old
+    format are unreachable and simply expire. See Track B §B9.1a for the
+    operator note — in-flight authorization/device codes must be
+    re-requested and opaque access tokens re-issued, both bounded by their
+    short TTLs, and refresh tokens (which live in PostgreSQL) recover
+    automatically.
+    """
+    return cache_key("oauth", kind, secret=identifier)
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+
+def _json_loads(value: str | None) -> Any:
+    if not value:
+        return None
+    return json.loads(value)
+
+
+#: When the last connection attempt failed, and with what. See below.
+_cache_failure_until = 0.0
+_cache_failure_error = ""
+
+
+def auth_cache_retry_backoff_sec() -> float:
+    """How long a failed connection suppresses the next attempt.
+
+    Short on purpose. This is not a circuit breaker with a recovery policy —
+    it only needs to be long enough that a burst of concurrent requests makes
+    *one* attempt between them instead of one each.
+    """
+    try:
+        return max(0.0, float(os.environ.get("XCELSIOR_AUTH_REDIS_RETRY_BACKOFF_SEC", "1")))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def reset_auth_cache() -> None:
+    """Drop the cached client and any remembered failure.
+
+    Exists so a caller that changes `AUTH_CACHE_BACKEND` at runtime — which in
+    practice means a test — is not held to a decision made under the previous
+    configuration.
+    """
+    global _cache_instance, _cache_failure_until, _cache_failure_error
+    with _cache_lock:
+        _cache_instance = None
+        _cache_failure_until = 0.0
+        _cache_failure_error = ""
+
+
+def get_auth_cache():
+    """The process-wide auth cache, connecting on first use.
+
+    A failed connection is remembered for `auth_cache_retry_backoff_sec()`.
+    Without that, every request that arrives while Redis is down queues on
+    `_cache_lock` and pays a full connect timeout *in turn*: ten concurrent
+    requests against a dead cache take two seconds each, serially, and the
+    tenth waits twenty. `/readyz` is one of those requests, so the readiness
+    gate that exists to notice this outage is itself queued behind it and times
+    out instead of answering 503 — the orchestrator sees a hang rather than an
+    unready replica, and nothing restarts.
+
+    Remembering the failure turns that into one attempt per backoff window for
+    the whole process; everyone else is refused immediately, with the same
+    error the attempt produced.
+    """
+    global _cache_instance, _cache_failure_until, _cache_failure_error
+    if _cache_instance is not None:
+        return _cache_instance
+    # Checked before taking the lock, so a refusal costs nothing.
+    if time.monotonic() < _cache_failure_until:
+        raise AuthCacheUnavailableError(_cache_failure_error)
+    with _cache_lock:
+        if _cache_instance is not None:
+            return _cache_instance
+        # Re-checked under the lock: the holder may have just recorded a
+        # failure that the waiters sampled before it was written.
+        if time.monotonic() < _cache_failure_until:
+            raise AuthCacheUnavailableError(_cache_failure_error)
+        try:
+            if AUTH_CACHE_BACKEND == "memory":
+                _cache_instance = MemoryAuthCache()
+            elif AUTH_CACHE_BACKEND == "redis":
+                _cache_instance = RedisAuthCache(AUTH_REDIS_URL)
+            else:
+                raise AuthCacheUnavailableError(
+                    f"unsupported auth cache backend: {AUTH_CACHE_BACKEND}"
+                )
+        except AuthCacheUnavailableError as exc:
+            _cache_failure_until = time.monotonic() + auth_cache_retry_backoff_sec()
+            _cache_failure_error = str(exc)
+            raise
+    return _cache_instance
+
+
+def auth_cache_healthcheck() -> dict[str, Any]:
+    """Probe the auth cache the way a request would. Never raises.
+
+    `/readyz` gated on the database schema, the rate-limit policy, worker
+    identity, storage, and NFS — but not on this, even though a missing auth
+    cache answers 503 to *every* authenticated request. A replica in that state
+    reported itself ready, the orchestrator sent it traffic, and the only
+    symptom was that nobody could log in. Readiness that excludes the
+    dependency auth cannot work without is readiness that reports the wrong
+    thing, which is the same defect as the `/healthz` that returned `{"ok":
+    true}` beside a completely absent cache (see
+    `tests/test_compose_provides_the_auth_cache.py`).
+
+    A `get` of a key that does not exist, rather than a bespoke `ping`: it is
+    the exact call path an auth request takes, it needs no method the cache
+    backends do not already have, and it cannot be satisfied by a client that
+    is connected but unable to run commands — which is what a password
+    mismatch produces.
+    """
+    backend = AUTH_CACHE_BACKEND
+    try:
+        cache = get_auth_cache()
+        cache.get(_cache_key("healthcheck", "readyz"))
+        return {"ok": True, "backend": backend}
+    except AuthCacheUnavailableError as exc:
+        return {"ok": False, "backend": backend, "error": str(exc)}
+    except Exception as exc:  # never let the probe itself be the outage
+        return {"ok": False, "backend": backend, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _cache_set_json(
+    kind: str, identifier: str, payload: dict[str, Any], ttl: int, *, nx: bool = False
+) -> bool:
+    return bool(
+        get_auth_cache().set(
+            _cache_key(kind, identifier),
+            _json_dumps(payload),
+            ttl,
+            nx=nx,
+        )
+    )
+
+
+def _cache_get_json(kind: str, identifier: str) -> dict[str, Any] | None:
+    value = get_auth_cache().get(_cache_key(kind, identifier))
+    data = _json_loads(value)
+    return data if isinstance(data, dict) else None
+
+
+def _cache_getdel_json(kind: str, identifier: str) -> dict[str, Any] | None:
+    value = get_auth_cache().getdel(_cache_key(kind, identifier))
+    data = _json_loads(value)
+    return data if isinstance(data, dict) else None
+
+
+def _cache_delete(kind: str, identifier: str) -> None:
+    get_auth_cache().delete(_cache_key(kind, identifier))
+
+
+def _cache_incr(kind: str, identifier: str, ttl: int) -> int:
+    return int(get_auth_cache().incr(_cache_key(kind, identifier), ttl))
+
+
+SOCIAL_OAUTH_STATE_TTL_SEC = 600
+
+
+def store_social_oauth_state(
+    state: str,
+    *,
+    provider: str,
+    redirect_path: str = "/dashboard",
+    ttl: int = SOCIAL_OAUTH_STATE_TTL_SEC,
+) -> None:
+    """Persist CSRF state for social OAuth (GitHub/Google/HF) across API workers."""
+    _cache_set_json(
+        "social_oauth",
+        state,
+        {
+            "provider": provider,
+            "redirect_path": redirect_path,
+            "created_at": time.time(),
+        },
+        ttl,
+    )
+
+
+def consume_social_oauth_state(
+    state: str, *, ttl: int = SOCIAL_OAUTH_STATE_TTL_SEC
+) -> dict[str, Any] | None:
+    """Atomically read + delete social OAuth state. Returns None when missing/expired."""
+    data = _cache_getdel_json("social_oauth", state)
+    if not data or not isinstance(data, dict):
+        return None
+    created = float(data.get("created_at") or 0)
+    if created <= 0 or time.time() - created > ttl:
+        return None
+    provider = str(data.get("provider") or "").strip()
+    if not provider:
+        return None
+    redirect_path = str(data.get("redirect_path") or "/dashboard").strip() or "/dashboard"
+    return {"provider": provider, "redirect_path": redirect_path, "created_at": created}
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def hash_secret(secret: str, salt: str | None = None) -> tuple[str, str]:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", secret.encode(), salt.encode(), 200_000).hex()
+    return digest, salt
+
+
+def verify_secret(secret: str, expected_hash: str, salt: str) -> bool:
+    actual, _ = hash_secret(secret, salt)
+    return hmac.compare_digest(actual, expected_hash)
+
+
+def build_deprecation_headers(surface: str) -> dict[str, str]:
+    sunset = datetime.strptime(API_KEY_SUNSET_DATE, "%Y-%m-%d").replace(tzinfo=UTC)
+    return {
+        "Deprecation": "true",
+        "Sunset": sunset.strftime("%a, %d %b %Y 00:00:00 GMT"),
+        "Warning": f'299 xcelsior "{surface} is deprecated; migrate to OAuth 2.0"',
+    }
+
+
+def is_oauth_access_token(token: str) -> bool:
+    return str(token or "").startswith(ACCESS_TOKEN_PREFIX)
+
+
+# ── Agent API keys (MCP + Agent Skill) ────────────────────────────────
+#
+# Agent credentials are pasted into an editor config once and left there, so
+# they are long-lived by design and must survive a cache flush. They are
+# stored in Postgres as a SHA-256 digest and never expire; they are revoked.
+#
+# The prefix is not decoration: secret scanners (GitHub, gitleaks) match on
+# known prefixes, so a key pasted into a public repo is detectable. It also
+# lets the bearer path reject a non-key in one string comparison instead of a
+# database round trip.
+AGENT_KEY_PREFIX = os.environ.get("XCELSIOR_AGENT_KEY_PREFIX", "xcel_ai_")
+AGENT_KEY_DISPLAY_CHARS = 4
+# Coarse enough to keep the auth path free of a per-request write, fine enough
+# that "never used" versus "in use" stays accurate in the dashboard.
+AGENT_KEY_TOUCH_INTERVAL_SEC = int(os.environ.get("XCELSIOR_AGENT_KEY_TOUCH_INTERVAL_SEC", "300"))
+
+
+def looks_like_agent_key(token: str | None) -> bool:
+    """Cheap shape check so ordinary bearers skip the key lookup entirely."""
+    return bool(token) and str(token).startswith(AGENT_KEY_PREFIX)
+
+
+def _hash_agent_key(secret: str) -> str:
+    """SHA-256 of the presented secret.
+
+    The secret is 256 bits of CSPRNG output, so there is no low-entropy
+    pre-image for an attacker to grind and a slow KDF would buy nothing.
+    Digest lookup also keeps verification one indexed read.
+    """
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _require_unsuspended(principal: dict) -> None:
+    from abuse_policy import account_suspended
+
+    if account_suspended(principal):
+        raise OAuthGrantError("access_denied", "Account suspended", status_code=403)
+
+
+def issue_agent_api_key(
+    *,
+    user: dict,
+    client_id: str,
+    scopes: list[str],
+    audience: str | None = None,
+    name: str = "Agent key",
+    replace_existing: bool = False,
+    retrievable: bool = False,
+) -> dict[str, Any]:
+    """Mint a durable agent key. The plaintext is returned exactly once.
+
+    When ``replace_existing`` is set, every live key this user holds for the
+    same client is revoked first — rotation has to invalidate what it
+    replaces, or it just accumulates working credentials.
+
+    ``retrievable`` also stores the key encrypted (``security.encrypt_secret``)
+    so it can be shown again; only the dashboard's Quick Connect keys use it.
+    """
+    from db import AgentKeyStore
+
+    _require_unsuspended(user)
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    if not user_id:
+        raise OAuthGrantError("invalid_request", "Cannot issue an agent key without a user")
+    # Companion §4.4.10: tenant-owned rows carry the tenant explicitly rather
+    # than making every query join back through users. A personal workspace's
+    # tenant is the user itself, which matches the wallet and host paths.
+    tenant_id = str(user.get("team_id") or user.get("customer_id") or user_id)
+
+    replaced = 0
+    if replace_existing:
+        replaced = AgentKeyStore.revoke_all_for_client(user_id, client_id)
+
+    secret = f"{AGENT_KEY_PREFIX}{secrets.token_urlsafe(32)}"
+    key_id = str(uuid.uuid4())
+    # Enough to tell two keys apart in a list, far too little to use.
+    key_prefix = f"{AGENT_KEY_PREFIX}…{secret[-AGENT_KEY_DISPLAY_CHARS:]}"
+    AgentKeyStore.create(
+        key_id=key_id,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        client_id=client_id,
+        name=name,
+        key_prefix=key_prefix,
+        key_hash=_hash_agent_key(secret),
+        scopes=" ".join(scopes),
+        audience=audience or OAUTH_AUDIENCE,
+        key_ciphertext=_encrypt_agent_key(secret) if retrievable else None,
+    )
+    return {
+        "access_token": secret,
+        "key_id": key_id,
+        "key_prefix": key_prefix,
+        "token_type": "Bearer",
+        "scope": " ".join(scopes),
+        "replaced_keys": replaced,
+        # No expires_in: these do not expire. Saying otherwise would make
+        # clients schedule a refresh that has nothing to refresh.
+        "expires_in": None,
+    }
+
+
+def _encrypt_agent_key(secret: str) -> str:
+    from security import encrypt_secret
+
+    return encrypt_secret(secret)
+
+
+def reveal_agent_api_key(key: dict[str, Any]) -> str | None:
+    """The plaintext of a retrievable key, or None when it cannot be shown.
+
+    None for keys minted show-once (no ciphertext) and when decryption fails,
+    e.g. after ``XCELSIOR_SECRETS_KEY`` rotation; the dashboard then shows the
+    masked prefix rather than an error.
+    """
+    ciphertext = key.get("key_ciphertext")
+    if not ciphertext:
+        return None
+    try:
+        from security import decrypt_secret
+
+        plaintext = decrypt_secret(ciphertext)
+    except Exception:
+        return None
+    # Never hand back something other than the key the hash authenticates.
+    return plaintext if _hash_agent_key(plaintext) == key.get("key_hash") else None
+
+
+def validate_agent_api_key(token: str) -> dict[str, Any] | None:
+    """Resolve an agent key to a principal, or None.
+
+    Records use on success. ``last_used_at`` is what lets the dashboard tell a
+    key that is live in someone's editor from one that was generated and never
+    applied — the difference between a rotation that is safe and one that
+    silently breaks a working setup.
+    """
+    from db import AgentKeyStore
+
+    if not looks_like_agent_key(token):
+        return None
+    row = AgentKeyStore.get_live_by_hash(_hash_agent_key(token))
+    if not row:
+        return None
+
+    user = UserStore.get_user_by_id(row["user_id"]) or {}
+    from abuse_policy import account_suspended
+
+    if account_suspended(dict(user, user_id=row["user_id"])):
+        return None
+    # last_used_at exists so the dashboard can tell a live key from an unused
+    # one; that question is answered just as well by a coarse timestamp. Writing
+    # it on every request would put a write — and row-level lock contention — on
+    # the hot authentication path of every agent call. Update at most once per
+    # AGENT_KEY_TOUCH_INTERVAL_SEC per key.
+    last_used = row.get("last_used_at")
+    stale = (
+        last_used is None
+        or (datetime.now(UTC) - last_used).total_seconds() >= AGENT_KEY_TOUCH_INTERVAL_SEC
+    )
+    if stale:
+        try:
+            AgentKeyStore.touch_last_used(row["key_id"])
+        except Exception as exc:  # pragma: no cover - never fail auth on bookkeeping
+            logging.getLogger("xcelsior.oauth").warning(
+                "agent key last_used update failed (non-fatal): %s", exc
+            )
+    workspace = _agent_key_workspace(row, user)
+    return {
+        "auth_type": "agent_api_key",
+        "key_id": row["key_id"],
+        "client_id": row["client_id"],
+        "user_id": row["user_id"],
+        "email": user.get("email", ""),
+        "role": user.get("role", "submitter"),
+        "name": user.get("name", ""),
+        "is_admin": bool(user.get("is_admin")),
+        "customer_id": workspace["customer_id"],
+        # Carried, not dropped. Without it `_user_team_id` finds nothing on this
+        # principal, so a team member's agent key resolves to their *personal*
+        # billing customer while the same person's browser session resolves to
+        # the team's — and everything the key creates becomes invisible to them.
+        "team_id": workspace["team_id"],
+        "provider_id": user.get("provider_id"),
+        "scopes": (row["scopes"] or "").split() if row["scopes"] else [],
+        "audience": row["audience"],
+        "tenant_id": row.get("tenant_id"),
+    }
+
+
+def _agent_key_workspace(row: dict[str, Any], user: dict[str, Any]) -> dict[str, str | None]:
+    """Workspace identity for an agent-key principal.
+
+    The key row's ``tenant_id`` is the authority. That column was made
+    mandatory precisely so a tenant-scoped question does not have to join back
+    through ``users`` (companion §4.4.10) — but this function used to ignore it
+    and read ``customer_id`` off a live user lookup instead. When that lookup
+    returned nothing, the principal had no workspace at all, and
+    ``_canonical_owner_id`` silently fell through to the *user id*.
+
+    The consequence was not an error anyone saw: a launch plan created by an
+    agent key was filed under a tenant the owner's browser session never
+    resolves to, so approving it returned 404 ``plan_not_found`` — a resource
+    that exists, belongs to you, and is invisible to you. The live user row is
+    still preferred (it is the freshest source, and it distinguishes a team
+    workspace from a personal one); the stored tenant is the floor beneath it
+    rather than an unused column.
+    """
+    stored_tenant = str(row.get("tenant_id") or "").strip()
+    user_id = str(row.get("user_id") or "").strip()
+    customer_id = str(user.get("customer_id") or "").strip() or None
+    team_id = str(user.get("team_id") or "").strip() or None
+
+    if customer_id or team_id or not stored_tenant or stored_tenant == user_id:
+        # Either the live row answered, or the stored tenant adds nothing
+        # (a personal workspace with no customer is genuinely the user).
+        return {"customer_id": customer_id, "team_id": team_id}
+
+    # Degraded path: the user row could not be read. Fall back to the identity
+    # the key was actually issued under rather than to `user_id`, which nothing
+    # else in the system uses as a tenant. One lookup — only reached when the
+    # user lookup already failed — settles whether that identity is a team.
+    try:
+        if UserStore.get_team(stored_tenant):
+            return {"customer_id": None, "team_id": stored_tenant}
+    except Exception as exc:  # pragma: no cover - never fail auth on enrichment
+        logging.getLogger("xcelsior.oauth").warning(
+            "agent key team lookup failed (non-fatal): %s", exc
+        )
+    return {"customer_id": stored_tenant, "team_id": None}
+
+
+def _base64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _base64url_decode(raw: str) -> bytes:
+    padding = "=" * ((4 - len(raw) % 4) % 4)
+    return base64.urlsafe_b64decode(raw + padding)
+
+
+def _get_jwt_signing_keys() -> tuple[str, dict[str, dict[str, str]]]:
+    raw = os.environ.get("XCELSIOR_OAUTH_JWT_KEYS_JSON", "").strip()
+    if raw:
+        data = json.loads(raw)
+        active_kid = str(data["active_kid"])
+        keys = {str(item["kid"]): dict(item) for item in data.get("keys", [])}
+        if active_kid not in keys:
+            raise OAuthGrantError(
+                "server_error", "Active JWT signing key is missing", status_code=500
+            )
+        return active_kid, keys
+
+    active_kid = os.environ.get("XCELSIOR_OAUTH_ACTIVE_KID", "default")
+    secret = os.environ.get("XCELSIOR_OAUTH_JWT_SECRET", "")
+    if not secret:
+        # `os.environ.get("XCELSIOR_ENV", "dev")` meant an unset variable
+        # selected the literal below — which is committed to this repository, so
+        # anyone with the source could mint tokens.
+        if env_config.is_relaxed_env():
+            secret = "xcelsior-dev-jwt-secret"
+        else:
+            raise OAuthGrantError(
+                "server_error",
+                "OAuth JWT signing secret is not configured",
+                status_code=500,
+            )
+    return active_kid, {active_kid: {"kid": active_kid, "secret": secret}}
+
+
+def oauth_jwks() -> dict[str, Any]:
+    """Public asymmetric verification keys; symmetric dev keys are never exposed."""
+    _, keys = _get_jwt_signing_keys()
+    result = []
+    for kid, item in keys.items():
+        public_pem = item.get("public_key_pem")
+        if not public_pem and item.get("private_key_pem"):
+            private = serialization.load_pem_private_key(
+                item["private_key_pem"].encode(), password=None
+            )
+            public_pem = (
+                private.public_key()
+                .public_bytes(
+                    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+                )
+                .decode()
+            )
+        if not public_pem:
+            continue
+        public = serialization.load_pem_public_key(public_pem.encode())
+        if not isinstance(public, rsa.RSAPublicKey):
+            continue
+        numbers = public.public_numbers()
+        result.append(
+            {
+                "kty": "RSA",
+                "use": "sig",
+                "alg": "RS256",
+                "kid": kid,
+                "n": _base64url_encode(
+                    numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+                ),
+                "e": _base64url_encode(
+                    numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
+                ),
+            }
+        )
+    return {"keys": result}
+
+
+def issue_client_credentials_jwt(
+    client: dict, scopes: list[str], *, audience: str | None = None
+) -> dict[str, Any]:
+    _require_unsuspended(client)
+    active_kid, keys = _get_jwt_signing_keys()
+    now = int(time.time())
+    secret_fingerprint = hashlib.sha256(
+        f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
+    ).hexdigest()
+    key = keys[active_kid]
+    asymmetric = bool(key.get("private_key_pem"))
+    if not asymmetric and not env_config.is_relaxed_env():
+        raise OAuthGrantError(
+            "server_error", "Production OAuth signing must use an asymmetric key", status_code=500
+        )
+    header = {"alg": "RS256" if asymmetric else "HS256", "typ": "JWT", "kid": active_kid}
+    payload = {
+        "iss": OAUTH_ISSUER,
+        "sub": client["client_id"],
+        "aud": audience or OAUTH_AUDIENCE,
+        "iat": now,
+        "exp": now + CLIENT_CREDENTIALS_TTL_SEC,
+        "scope": " ".join(scopes),
+        "client_id": client["client_id"],
+        "auth_type": "client_credentials",
+        "jti": f"jwt-{uuid.uuid4().hex}",
+        "secret_fingerprint": secret_fingerprint,
+    }
+    signing_input = ".".join(
+        [
+            _base64url_encode(_json_dumps(header).encode()),
+            _base64url_encode(_json_dumps(payload).encode()),
+        ]
+    )
+    if asymmetric:
+        private = serialization.load_pem_private_key(key["private_key_pem"].encode(), password=None)
+        if not isinstance(private, rsa.RSAPrivateKey):
+            raise OAuthGrantError(
+                "server_error",
+                "The active OAuth signing key is not an RSA private key",
+                status_code=500,
+            )
+        signature = private.sign(signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
+    else:
+        signature = hmac.new(
+            key["secret"].encode(), signing_input.encode(), hashlib.sha256
+        ).digest()
+    access_token = f"{signing_input}.{_base64url_encode(signature)}"
+    _oauth_tokens_issued.labels("client_credentials").inc()
+    return {
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": CLIENT_CREDENTIALS_TTL_SEC,
+        "scope": " ".join(scopes),
+    }
+
+
+def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
+    try:
+        header_b64, payload_b64, signature_b64 = token.split(".", 2)
+        header = json.loads(_base64url_decode(header_b64))
+        payload = json.loads(_base64url_decode(payload_b64))
+    except Exception:
+        return None
+
+    kid = str(header.get("kid", ""))
+    alg = str(header.get("alg", ""))
+    if alg not in {"RS256", "HS256"} or not kid:
+        return None
+
+    try:
+        _, keys = _get_jwt_signing_keys()
+    except OAuthGrantError:
+        return None
+
+    key = keys.get(kid)
+    if not key:
+        return None
+
+    signing_input = f"{header_b64}.{payload_b64}"
+    signature = _base64url_decode(signature_b64)
+    try:
+        if alg == "RS256":
+            public_pem = key.get("public_key_pem")
+            if not public_pem and key.get("private_key_pem"):
+                private = serialization.load_pem_private_key(
+                    key["private_key_pem"].encode(), password=None
+                )
+                public = private.public_key()
+            elif public_pem:
+                public = serialization.load_pem_public_key(public_pem.encode())
+            else:
+                return None
+            if not isinstance(public, rsa.RSAPublicKey):
+                return None
+            public.verify(signature, signing_input.encode(), padding.PKCS1v15(), hashes.SHA256())
+        else:
+            # Symmetric verification is a development affordance. An unset
+            # variable used to reach it, so a deployment with no XCELSIOR_ENV
+            # accepted HS256 tokens signed with the committed dev secret.
+            if not env_config.is_relaxed_env():
+                return None
+            expected_sig = hmac.new(
+                key["secret"].encode(), signing_input.encode(), hashlib.sha256
+            ).digest()
+            if not hmac.compare_digest(expected_sig, signature):
+                return None
+    except Exception:
+        return None
+
+    now = int(time.time())
+    if int(payload.get("exp", 0) or 0) <= now:
+        return None
+    if payload.get("iss") != OAUTH_ISSUER:
+        return None
+    if payload.get("aud") not in {OAUTH_AUDIENCE, *accepted_mcp_audiences()}:
+        return None
+
+    client = OAuthStore.get_client(str(payload.get("client_id", "")))
+    if not client:
+        return None
+    from abuse_policy import account_suspended
+
+    if str(client.get("status", "active")) == "disabled" or account_suspended(client):
+        return None
+
+    expected_secret_fingerprint = hashlib.sha256(
+        f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
+    ).hexdigest()
+    if payload.get("secret_fingerprint") != expected_secret_fingerprint:
+        return None
+
+    try:
+        OAuthStore.update_last_used(client["client_id"])
+    except Exception:
+        pass
+
+    # Carry the machine client's workspace context through to the principal.
+    # Dropping it here (as this did before Track B B2.1) let a
+    # client-credentials token authorize a launch with no tenant, defeating
+    # the workspace constraint the token was issued under. The launch service
+    # treats `tenant_id` as the workspace authority; for a machine client that
+    # is its `workspace_customer_id` (migration 069 makes that column
+    # mandatory for machine clients).
+    workspace_customer_id = client.get("workspace_customer_id")
+    return {
+        "auth_type": "client_credentials",
+        "grant_type": "client_credentials",
+        "client_id": client["client_id"],
+        "user_id": f"client:{client['client_id']}",
+        "email": "",
+        "role": "machine",
+        "name": client.get("client_name", client["client_id"]),
+        "scopes": [scope for scope in str(payload.get("scope", "")).split() if scope],
+        "is_admin": False,
+        "workspace_customer_id": workspace_customer_id,
+        "workspace_id": workspace_customer_id,
+        "customer_id": workspace_customer_id,
+        "team_id": client.get("team_id"),
+        "tenant_id": workspace_customer_id,
+        "audience": payload.get("aud"),
+        "subject": payload.get("sub"),
+        "jti": payload.get("jti"),
+    }
+
+
+def _normalize_scopes(
+    requested_scopes: str | list[str] | None, allowed_scopes: list[str]
+) -> list[str]:
+    if isinstance(requested_scopes, list):
+        requested = [str(scope).strip() for scope in requested_scopes if str(scope).strip()]
+    else:
+        requested = [scope for scope in str(requested_scopes or "").split() if scope]
+    if not requested:
+        return list(allowed_scopes)
+    allowed = set(allowed_scopes)
+    invalid = [scope for scope in requested if scope not in allowed]
+    if invalid:
+        raise OAuthGrantError(
+            "invalid_scope",
+            f"Invalid scope(s): {', '.join(invalid)}",
+        )
+    return requested
+
+
+def ensure_default_oauth_clients() -> None:
+    global _defaults_ready
+    if _defaults_ready:
+        return
+    with _defaults_lock:
+        if _defaults_ready:
+            return
+        now = time.time()
+        base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+
+        # Dynamically hash secrets for custom seeded confidential clients
+        # Real client secrets should never be hardcoded in the repository.
+        # Fall back to secure random values if they are not present in the environment.
+        pe_id = "WGRKZUkyS2plUHNiRkhBRkZjcm46MTpjaQ"
+        pe_sec = os.environ.get("PIXELENHANCE_LABS_CLIENT_SECRET") or secrets.token_hex(32)
+        pe_hash, pe_salt = hash_secret(pe_sec)
+        pe_preview = f"{pe_sec[:4]}...{pe_sec[-4:]}"
+
+        xc_id = "QVl2LV96OXh1eVlSaExJTkRDbU06MTpjaQ"
+        xc_sec = os.environ.get("XCELSIOR_CLIENT_SECRET") or secrets.token_hex(32)
+        xc_hash, xc_salt = hash_secret(xc_sec)
+        xc_preview = f"{xc_sec[:4]}...{xc_sec[-4:]}"
+
+        ps_id = "VXVWd0V0cWVYY3FmQjJzUE1wVUQ6MTpjaQ"
+
+        defaults = [
+            {
+                "client_id": "xcelsior-web",
+                "client_name": "Xcelsior Web",
+                "client_type": "public",
+                "redirect_uris": [
+                    f"{base}/oauth/callback",
+                    f"{base}/login/oauth/callback",
+                    f"{base}/dashboard/oauth/callback",
+                ],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": ["profile", "email", "offline_access"],
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": "xcelsior-cli",
+                "client_name": "Xcelsior CLI",
+                "client_type": "public",
+                "redirect_uris": [],
+                "grant_types": [
+                    "urn:ietf:params:oauth:grant-type:device_code",
+                    "refresh_token",
+                ],
+                "scopes": ["profile", "email", "offline_access"],
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": pe_id,
+                "client_name": "PixelEnhance Labs",
+                "client_type": "confidential",
+                "redirect_uris": ["https://pixelenhancelabs.ai/login/oauth/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": ["profile", "email", "offline_access"],
+                "client_secret_hash": pe_hash,
+                "client_secret_salt": pe_salt,
+                "client_secret_preview": pe_preview,
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": xc_id,
+                "client_name": "Xcelsior App",
+                "client_type": "confidential",
+                "redirect_uris": ["https://xcelsior.ca/login/oauth/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": ["profile", "email", "offline_access"],
+                "client_secret_hash": xc_hash,
+                "client_secret_salt": xc_salt,
+                "client_secret_preview": xc_preview,
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                # Provider-held/predefined credentials: the contingency path in
+                # BLOCKER 3 item 3, and the client an operator hands to a
+                # provider that supports neither CIMD nor DCR. Public + PKCE, so
+                # there is no shared secret to distribute.
+                "client_id": "xcelsior-connector",
+                "client_name": "Xcelsior MCP Connector",
+                "client_type": "public",
+                "redirect_uris": list(CONNECTOR_REDIRECT_URIS),
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": [
+                    "profile",
+                    "email",
+                    "offline_access",
+                    "instances:read",
+                    "instances:write",
+                    "instances:operate",
+                    "billing:read",
+                    "gpu:read",
+                    "marketplace:read",
+                    "inference:read",
+                    "inference:write",
+                    "events:read",
+                    "mcp_actions:approve",
+                ],
+                "created_by_email": None,
+                # Deliberately *not* first-party: it is used by third-party
+                # products, so it must go through the same consent screen a
+                # dynamically registered client does.
+                "is_first_party": 0,
+                "registration_source": "connector",
+                "resource_audience": MCP_RESOURCE_AUDIENCE,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "client_id": ps_id,
+                "client_name": "PixelSpark",
+                "client_type": "public",
+                "redirect_uris": ["https://pixelspark.pixelenhancelabs.ai/login/oauth/callback"],
+                "grant_types": ["authorization_code"],
+                "scopes": ["profile", "email"],
+                "created_by_email": None,
+                "is_first_party": 1,
+                "created_at": now,
+                "updated_at": now,
+            },
+        ]
+        for client in defaults:
+            if not OAuthStore.get_client(client["client_id"]):
+                # No user is behind seeding. SYSTEM_PRINCIPAL still runs the
+                # delegation check, against SYSTEM_ALLOWED_SCOPES — these clients
+                # are safe by their contents today, and contents go stale.
+                OAuthStore.create_client(client, actor=SYSTEM_PRINCIPAL)
+        _defaults_ready = True
+
+
+def get_client(client_id: str) -> dict | None:
+    """Resolve a client id to a client record.
+
+    A CIMD client id is an HTTPS URL rather than a stored row, so resolution
+    falls through to fetching the metadata document it names. Doing it here —
+    rather than at each call site — means authorize, token exchange, and
+    redirect validation all treat a metadata-document client identically to a
+    stored one, with no second code path to keep in sync.
+
+    Raises:
+        OAuthGrantError: if the id looks like a metadata document but the
+            document is missing, malformed, or does not vouch for that id.
+    """
+    ensure_default_oauth_clients()
+    stored = OAuthStore.get_client(client_id)
+    if stored:
+        return stored
+    from oauth_registration import is_cimd_client_id, resolve_cimd_client
+
+    if is_cimd_client_id(client_id):
+        return resolve_cimd_client(client_id)
+    return None
+
+
+def create_oauth_client(
+    *,
+    actor: object,
+    client_name: str,
+    redirect_uris: list[str],
+    grant_types: list[str],
+    scopes: list[str],
+    created_by_email: str | None,
+    client_type: str = "confidential",
+    is_first_party: bool = False,
+    workspace_customer_id: str | None = None,
+    team_id: str | None = None,
+    is_system_managed: bool = False,
+    registration_source: str = "manual",
+    resource_audience: str | None = None,
+    registration_expires_at: datetime | None = None,
+    client_uri: str | None = None,
+    logo_uri: str | None = None,
+    policy_uri: str | None = None,
+    tos_uri: str | None = None,
+    software_id: str | None = None,
+    software_version: str | None = None,
+    contacts: list[str] | None = None,
+) -> dict[str, Any]:
+    now = time.time()
+    # Branded, API-key-length client identifier (e.g. xoa_<40 hex>).
+    client_id = f"xoa_{secrets.token_hex(20)}"
+    client_secret = ""
+    secret_hash = None
+    secret_salt = None
+    if client_type == "confidential":
+        # Industry-standard client secret: a long, unprefixed 256-bit hex token.
+        client_secret = secrets.token_hex(32)
+        secret_hash, secret_salt = hash_secret(client_secret)
+    secret_preview = f"{client_secret[:4]}...{client_secret[-4:]}" if client_secret else None
+
+    client = {
+        "client_id": client_id,
+        "client_name": client_name,
+        "client_type": client_type,
+        "redirect_uris": redirect_uris,
+        "grant_types": grant_types,
+        "scopes": scopes,
+        "client_secret_hash": secret_hash,
+        "client_secret_salt": secret_salt,
+        "client_secret_preview": secret_preview,
+        "created_by_email": created_by_email,
+        "is_first_party": 1 if is_first_party else 0,
+        "workspace_customer_id": workspace_customer_id,
+        "team_id": team_id,
+        "is_system_managed": 1 if is_system_managed else 0,
+        "created_at": now,
+        "updated_at": now,
+        "registration_source": registration_source,
+        "resource_audience": resource_audience,
+        "registration_expires_at": registration_expires_at,
+        "client_uri": client_uri,
+        "logo_uri": logo_uri,
+        "policy_uri": policy_uri,
+        "tos_uri": tos_uri,
+        "software_id": software_id,
+        "software_version": software_version,
+        "contacts": list(contacts or []),
+    }
+    # Forwarded, never assumed. This function is the shared funnel for the
+    # user-facing route, dynamic client registration, and MCP quick connect. An
+    # earlier version hardcoded SYSTEM_PRINCIPAL here, which sent every
+    # user-created client down the system path — exempting the user check and
+    # restricting them to the system allowlist at the same time.
+    OAuthStore.create_client(client, actor=actor)
+    response = {
+        "client_id": client_id,
+        "client_name": client_name,
+        "client_type": client_type,
+        "redirect_uris": redirect_uris,
+        "grant_types": grant_types,
+        "scopes": scopes,
+        "status": "active",
+        "workspace_customer_id": workspace_customer_id,
+        "team_id": team_id,
+        "workspace_label": "team" if team_id else "personal",
+        "created_at": now,
+        "updated_at": now,
+        "last_used": None,
+        "client_secret_preview": secret_preview,
+        "registration_source": registration_source,
+        "resource_audience": resource_audience,
+    }
+    if client_secret:
+        response["client_secret"] = client_secret
+    return response
+
+
+# Scopes for the auto-provisioned, per-user "quick connect" client backing the
+# /dashboard/mcp page. Mirrors the frontend's MCP_SCOPES (McpAgentSetup.tsx) —
+# keep the two lists in sync if either changes.
+MCP_QUICK_CONNECT_SCOPES = [
+    "instances:read",
+    "instances:write",
+    "instances:operate",
+    # Added after enforcement landed without it. `406c0a1` and `9c9bb5a` put
+    # `instances:connect` in front of the stream ticket, the terminal ticket,
+    # auto-launch discovery and port exposure — and this list, which is what a
+    # pasted Quick Connect token actually carries, did not have it. A live token
+    # answered:
+    #
+    #     403 Insufficient scope — required: instances:connect; granted: ...
+    #
+    # so the product's own quickstart credential could not open a terminal,
+    # which is the first clause of "you never have to leave the terminal".
+    #
+    # `406c0a1`'s message claimed the opposite. The mistake was reading
+    # `SYSTEM_ALLOWED_SCOPES`, where `instances:connect` sits under a comment
+    # reading "MCP quick connect" — that list is what the system principal may
+    # *grant*, not what this token *holds*.
+    "instances:connect",
+    # P2. `register_ssh_key` is the step between "instance running" and "shell
+    # open", and without it here the connector has to send the user to the
+    # dashboard — which is the browser trip P2 exists to remove.
+    #
+    # This is a real widening and not a bookkeeping one, so the reasoning is
+    # recorded rather than assumed. The token already holds `instances:connect`
+    # and `instances:write`: it can open a terminal on any instance and destroy
+    # any instance. What `ssh:write` adds is *persistence* — a key outlives the
+    # token, so a compromised connector could leave itself a way back in after
+    # the grant is revoked. That is the cost. It is accepted because the tool's
+    # consent text names it ("anyone holding the matching private key can open a
+    # shell"), because key registration is visible and revocable on the
+    # dashboard, and because a connector that can already terminate the work is
+    # not meaningfully restrained by withholding the key that opens it.
+    #
+    # `ssh:read` is deliberately *not* here. Nothing on the tool surface lists
+    # keys, so granting it would hand out read access to the account's key
+    # inventory for no capability. Add it with the tool that needs it.
+    "ssh:write",
+    # P3. Durable state: an instance's disk dies with it, so a volume is the
+    # only place work survives a relaunch. Without these the connector can start
+    # a job and lose its output, which is the failure the phase exists to fix.
+    #
+    # `volumes:write` is the widening that needs justifying, and it is broader
+    # than `ssh:write` was. It creates volumes (billed per GB-month), deletes
+    # them (destroying data), and detaches them (disrupting a running job). The
+    # first is money and the other two are loss.
+    #
+    # Accepted because the token already holds `instances:write` — it can
+    # terminate the instance the volume is attached to, which destroys more than
+    # detaching it does — and because every destructive volume tool is
+    # confirm-gated, so a single call previews rather than acts. What it must
+    # never become is a scope that can delete a volume without the user seeing
+    # the preview first; `tests/test_volume_tools_gate_destruction.py` holds
+    # that line.
+    "volumes:read",
+    "volumes:write",
+    # Read-only. The retention clock lives here: an artifact has a `retain_until`
+    # and the plan's P3 says that clock being invisible is how work gets lost.
+    # `artifacts:write` is deliberately withheld — nothing on the tool surface
+    # uploads, and it is also the scope guarding artifact *download*, which is a
+    # mislabel worth fixing before granting rather than granting around.
+    "artifacts:read",
+    "billing:read",
+    "gpu:read",
+    "marketplace:read",
+    "inference:read",
+    "inference:write",
+    "events:read",
+    # Four owner-scoped reads with the Stripe and PayPal identifiers redacted.
+    # For a caller who is not a provider the listing is empty and the
+    # per-provider routes refuse, so this grants a capability only to
+    # someone who already has one. `providers:write` is deliberately not
+    # here: register, disconnect and resume-onboarding are mutations.
+    "providers:read",
+    # P6's yield axis, same owner-scoped test as providers:read above.
+    # `/api/reputation/me` and `/me/journey` resolve the subject from the
+    # caller's own credential, `/api/trust-tiers` is one public ladder with no
+    # personal data, and the breakdown and history routes enforce
+    # `_require_reputation_entity_access` — owner or admin, 403 otherwise.
+    # `reputation:write` is excluded: it claims milestones, granting points
+    # and verification badges.
+    "reputation:read",
+]
+MCP_QUICK_CONNECT_CLIENT_NAME = "mcp-quick-connect"
+# The Agent Skill (CLI tab) gets its own client so its key is separately
+# revocable and never the same credential as the MCP connector's.
+CLI_SKILL_CONNECT_CLIENT_NAME = "cli-skill-connect"
+
+
+def get_or_create_mcp_quick_connect_client(
+    *,
+    created_by_email: str,
+    workspace_customer_id: str | None,
+    team_id: str | None,
+    regenerate: bool = False,
+    surface: str = "mcp",
+) -> dict[str, Any]:
+    """Find or replace the system client for one user's workspace and surface.
+
+    Quick-connect calls this inside ``auth_transaction``. The client and its
+    hashed agent key share one transaction; raw secrets are never stored.
+    Replacement reports the old ID so its agent keys can be revoked atomically.
+    """
+    if surface not in {"mcp", "cli"}:
+        raise ValueError("Unknown quick-connect surface")
+    client_name = (
+        MCP_QUICK_CONNECT_CLIENT_NAME if surface == "mcp" else CLI_SKILL_CONNECT_CLIENT_NAME
+    )
+    # A team switch must never return credentials bound to the previous wallet.
+    if team_id:
+        client_name = f"{client_name}:{team_id}"
+    existing = OAuthStore.get_system_managed_client(created_by_email, client_name)
+    if existing and not regenerate:
+        return existing
+    if existing and regenerate:
+        OAuthStore.delete_client(existing["client_id"], created_by_email)
+    created = create_oauth_client(
+        actor=SYSTEM_PRINCIPAL,
+        client_name=client_name,
+        redirect_uris=[],
+        grant_types=["client_credentials"],
+        scopes=list(MCP_QUICK_CONNECT_SCOPES),
+        created_by_email=created_by_email,
+        client_type="confidential",
+        is_first_party=False,
+        workspace_customer_id=workspace_customer_id,
+        team_id=team_id,
+        is_system_managed=True,
+    )
+    # The plaintext client_secret in `created` is discarded here on purpose —
+    # this client is never authenticated via the public /oauth/token endpoint,
+    # so nothing ever needs it again.
+    client = dict(OAuthStore.get_client(created["client_id"]) or created)
+    # Deleting a client does not touch the agent keys bound to it, and key
+    # validation never looks the client up. The caller must revoke these, or
+    # "Regenerate" hands out a new key while the old one keeps working.
+    client["replaced_client_id"] = existing["client_id"] if existing else None
+    return client
+
+
+def authenticate_client(client_id: str, client_secret: str | None = None) -> dict:
+    client = get_client(client_id)
+    if not client:
+        raise OAuthGrantError("invalid_client", "Unknown OAuth client", status_code=401)
+    _require_unsuspended(client)
+    if str(client.get("status", "active")) == "disabled":
+        raise OAuthGrantError("invalid_client", "OAuth client is disabled", status_code=401)
+    if client.get("client_type") == "confidential":
+        if not client_secret:
+            raise OAuthGrantError("invalid_client", "Client secret is required", status_code=401)
+        if not verify_secret(
+            client_secret,
+            str(client.get("client_secret_hash") or ""),
+            str(client.get("client_secret_salt") or ""),
+        ):
+            raise OAuthGrantError("invalid_client", "Invalid client credentials", status_code=401)
+    return client
+
+
+def _pkce_challenge(verifier: str) -> str:
+    return _base64url_encode(hashlib.sha256(verifier.encode()).digest())
+
+
+def issue_authorization_code(
+    *,
+    client: dict,
+    user: dict,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str,
+    scopes: list[str],
+    audience: str | None = None,
+) -> str:
+    if code_challenge_method != "S256":
+        raise OAuthGrantError("invalid_request", "Only S256 PKCE is supported")
+    # A dynamically identified client is pinned to one protected resource. This
+    # is the containment that keeps "anyone may register a connector" from
+    # meaning "anyone may mint a general-purpose Xcelsior API token".
+    pinned = str(client.get("resource_audience") or "").strip()
+    if pinned and (audience or OAUTH_AUDIENCE) != pinned:
+        raise OAuthGrantError(
+            "invalid_target",
+            "This client may only be authorized for the resource it registered for",
+        )
+    code = secrets.token_urlsafe(32)
+    payload = {
+        "client_id": client["client_id"],
+        "redirect_uri": redirect_uri,
+        "code_challenge": code_challenge,
+        "code_challenge_method": code_challenge_method,
+        "scopes": scopes,
+        "audience": audience or OAUTH_AUDIENCE,
+        "email": user.get("email"),
+        "user_id": user.get("user_id"),
+        "role": user.get("role", "submitter"),
+        "name": user.get("name", ""),
+        "is_admin": bool(user.get("is_admin")),
+        "customer_id": user.get("customer_id"),
+        "provider_id": user.get("provider_id"),
+        "session_type": "browser",
+        "created_at": time.time(),
+    }
+    if not _cache_set_json("authorization_code", code, payload, AUTH_CODE_TTL_SEC):
+        raise OAuthGrantError("server_error", "Failed to issue authorization code", status_code=500)
+    return code
+
+
+# ── User consent for third-party connectors ───────────────────────────────
+
+#: Long enough for a user to read the screen and sign in if the session
+#: expired mid-flow; short enough that a staged request is not a standing
+#: capability.
+CONSENT_REQUEST_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CONSENT_TTL_SEC", "600"))
+
+#: Plain-language scope descriptions for the consent screen. A consent screen
+#: that shows raw scope strings is not informed consent.
+SCOPE_DESCRIPTIONS: dict[str, str] = {
+    "profile": "See your name and account role",
+    "email": "See your email address",
+    "offline_access": "Stay connected without asking you to sign in again",
+    "instances:read": "See your GPU instances, their status, and their logs",
+    "instances:write": "Launch, cancel, and terminate GPU instances",
+    "instances:operate": "Retry and reconcile stuck instances",
+    "billing:read": "See your wallet balance, cost estimates, and invoices",
+    "billing:write": "Change billing settings and move funds",
+    "gpu:read": "See available GPUs and pricing",
+    "marketplace:read": "Search the marketplace and read live spot prices",
+    "inference:read": "See your serverless endpoints and job status",
+    "inference:write": "Create serverless endpoints and run inference jobs",
+    "events:read": "Read your account's activity events",
+    "mcp_actions:approve": "Approve pending action plans on your behalf",
+    # Advertised in `scopes_supported` but previously undescribed, so a consent
+    # screen could only render the raw string `hosts:write` and ask the user to
+    # approve it. Not operator authority: it registers and updates hosts the
+    # caller owns, which is what a provider's worker agent needs.
+    "hosts:write": "Register and update the GPU hosts you own",
+    # The three scopes every Quick Connect token carries, and the three with the
+    # widest real-world reach — all previously undescribed, so the consent screen
+    # a user sees when pasting a token showed them bare identifiers.
+    #
+    # These say what the capability *does to the user*, not what it permits in
+    # the API. Someone approving `ssh:write` is approving shell access to their
+    # running machines, and the sentence has to say so.
+    "ssh:write": (
+        "Add and remove SSH keys on your account. Anyone holding a key added "
+        "here can open a shell on your running instances, with access to the "
+        "data on them."
+    ),
+    "ssh:read": "See which SSH keys are on your account",
+    "instances:connect": (
+        "Open a terminal on your running instances, and publish their ports to " "the internet"
+    ),
+    # Not operator authority: it answers *your* hosts, which is what a provider
+    # needs to run their own rig. Platform-wide visibility is `hosts:fleet`.
+    # The "(operator)" marker was left over from when this one scope did both.
+    "hosts:read": "See the hosts you own — capacity, status and admission state",
+    "hosts:fleet": "See every host on the platform, not only your own (operator)",
+    "hosts:operate": "Drain and undrain platform hosts (operator)",
+    "hosts:evict": "Evict workloads from platform hosts (operator)",
+    "control_plane:read": "See platform control-plane health (operator)",
+    "control_plane:operate": "Retry platform control-plane commands (operator)",
+    # ── The twenty-six that were enforced and undescribed ─────────────────
+    #
+    # `_require_scope` guards 41 scopes across `routes/`; 15 had descriptions.
+    # The other 26 rendered on the consent screen as their own identifier,
+    # because `describe_scope` falls back to the raw string — the same defect
+    # the block above fixed for `ssh:write`, `ssh:read` and `instances:connect`,
+    # left in place for everything else.
+    #
+    # Same rule as those three: say what the capability does *to the user*. A
+    # person approving `volumes:write` is approving something that can interrupt
+    # a running job, and the sentence has to say so.
+    "volumes:read": "See your volumes and their snapshots",
+    "volumes:write": (
+        "Create, attach, detach and delete your volumes. Detaching a volume "
+        "can interrupt a job that is using it, and deleting one destroys the "
+        "data on it."
+    ),
+    "artifacts:read": "See the files and checkpoints your finished runs produced",
+    "artifacts:write": (
+        "Change how long your run outputs are kept, including deleting them "
+        "before they would otherwise expire"
+    ),
+    "mfa:read": "See which second factors are on your account",
+    "mfa:write": (
+        "Add and remove the second factors protecting your account. Removing "
+        "the last one leaves your password as the only thing guarding it."
+    ),
+    "privacy:read": "See your data export and deletion requests",
+    "privacy:write": (
+        "Request an export of your account data, or request its deletion. A "
+        "deletion request removes your account and what belongs to it."
+    ),
+    "teams:write": (
+        "Create teams and change who belongs to them, including who can spend "
+        "on the team's behalf"
+    ),
+    "notifications:read": "Read the notifications on your account",
+    "notifications:write": ("Mark your notifications read and manage where they are delivered"),
+    "chat:read": "Read your conversations with the platform assistant",
+    "chat:write": "Send messages to the platform assistant as you",
+    "providers:read": (
+        "See your provider account — earnings, payout state and onboarding " "progress"
+    ),
+    "providers:write": ("Change your provider account and request payouts of your earnings"),
+    "marketplace:write": ("List your own GPU capacity on the marketplace, and remove listings"),
+    "verification:write": "Submit evidence to have your hosts verified",
+    "autoscale:read": "See how serverless capacity scales with demand",
+    "autoscale:write": "Change how serverless capacity scales (operator)",
+    "reputation:read": "See host reputation scores",
+    # Not `(operator)`, and the first draft said it was. `/api/reputation/me/claim`
+    # is the only route behind it: a provider claiming milestones they have
+    # already earned, validated against real activity. Self-service, not
+    # platform authority — the annotation ratchet in `test_scope_delegation.py`
+    # caught the mistake and refused to let it be resolved by widening
+    # OPERATOR_SCOPES to match.
+    "reputation:write": "Claim the reputation milestones your hosts have earned",
+    "sla:read": "See SLA targets and how they are being met",
+    "sla:write": "Change SLA targets (operator)",
+    "transparency:read": "Read platform transparency records (operator)",
+    "transparency:write": "Publish platform transparency records (operator)",
+    # `_require_scope(user, "admin")` in `routes/volumes.py`. Not a namespaced
+    # capability like the rest — it reads as "platform administrator" and is
+    # described as such rather than dressed up as something narrower.
+    "admin": "Full platform administrator access (operator)",
+}
+
+
+def describe_scope(scope: str) -> str:
+    return SCOPE_DESCRIPTIONS.get(scope, scope)
+
+
+def stash_consent_request(payload: dict[str, Any]) -> str:
+    """Park a validated authorization request while the user decides.
+
+    The key is only ever rendered into the deciding user's own page, which is
+    what makes it a CSRF token as well as a lookup handle: a cross-site POST
+    cannot guess it, and the stored `user_id` is re-checked on submit so a
+    stolen key is useless in another session.
+    """
+    key = secrets.token_urlsafe(32)
+    if not _cache_set_json("consent_request", key, payload, CONSENT_REQUEST_TTL_SEC):
+        raise OAuthGrantError(
+            "server_error", "Failed to stage the authorization request", status_code=503
+        )
+    return key
+
+
+def take_consent_request(key: str) -> dict[str, Any] | None:
+    """Single-use retrieval: a consent decision cannot be replayed."""
+    if not key:
+        return None
+    return _cache_getdel_json("consent_request", key)
+
+
+def consent_covers(user_id: str, client_id: str, resource: str, scopes: list[str]) -> bool:
+    """True when a live grant already covers everything being asked for.
+
+    Scope-exact rather than "any grant exists": a connector that later asks for
+    the authority to spend money must show the user that screen, even if it
+    was previously approved for reads.
+    """
+    from db import ConsentStore
+
+    grant = ConsentStore.get(user_id, client_id, resource or "")
+    if not grant:
+        return False
+    granted = set(grant.get("scopes") or [])
+    return set(scopes).issubset(granted)
+
+
+def _build_session_record(
+    user: dict, request, *, refresh_token: str, client_id: str, session_type: str
+) -> dict:
+    now = time.time()
+    client_host = request.client.host if request and request.client else None
+    user_agent = request.headers.get("user-agent", "")[:512] if request else ""
+    return {
+        "token": refresh_token,
+        "email": user["email"],
+        "user_id": user.get("user_id", user["email"]),
+        "role": user.get("role", "submitter"),
+        "is_admin": bool(user.get("is_admin")),
+        "name": user.get("name", ""),
+        "created_at": now,
+        "expires_at": now + REFRESH_TOKEN_TTL_SEC,
+        "ip_address": client_host,
+        "user_agent": user_agent,
+        "last_active": now,
+        "session_type": session_type,
+        "client_id": client_id,
+    }
+
+
+def _issue_opaque_access_token(
+    user: dict,
+    *,
+    client_id: str,
+    scopes: list[str],
+    session_token: str,
+    session_type: str,
+    audience: str = OAUTH_AUDIENCE,
+) -> dict[str, Any]:
+    _require_unsuspended(user)
+    token = f"{ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
+    now = time.time()
+    # Only the first-party web app gets the long browser-session TTL. OAuth
+    # authorization-code grants for third-party agents (different client_id) keep
+    # the short access-token TTL even though they also carry session_type=browser.
+    is_first_party_web = session_type == "browser" and client_id == "xcelsior-web"
+    if is_first_party_web:
+        ttl = BROWSER_SESSION_TTL_SEC
+    elif audience in accepted_mcp_audiences():
+        ttl = MCP_ACCESS_TOKEN_TTL_SEC
+    else:
+        ttl = ACCESS_TOKEN_TTL_SEC
+    payload = {
+        "auth_type": "oauth_access_token",
+        "email": user.get("email", ""),
+        "user_id": user.get("user_id", ""),
+        "role": user.get("role", "submitter"),
+        "name": user.get("name", ""),
+        "is_admin": bool(user.get("is_admin")),
+        "customer_id": user.get("customer_id"),
+        "provider_id": user.get("provider_id"),
+        "client_id": client_id,
+        "scopes": list(scopes),
+        "session_token": session_token,
+        "session_type": session_type,
+        "audience": audience,
+        "issued_at": now,
+        "expires_at": now + ttl,
+    }
+    if not _cache_set_json("access_token", token, payload, ttl):
+        raise OAuthGrantError(
+            "server_error",
+            "Dedicated auth cache unavailable for access token issuance",
+            status_code=503,
+        )
+    return {
+        "access_token": token,
+        "expires_in": ttl,
+        "payload": payload,
+    }
+
+
+def _create_refresh_token_record(
+    *,
+    user: dict,
+    request,
+    client_id: str,
+    scopes: list[str],
+    session_type: str,
+    audience: str = OAUTH_AUDIENCE,
+    family_id: str | None = None,
+    parent_token_id: str | None = None,
+    created_at: float | None = None,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    refresh_token = secrets.token_urlsafe(48)
+    token_id = f"rt_{uuid.uuid4().hex}"
+    created_at = created_at or time.time()
+    session = _build_session_record(
+        user,
+        request,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        session_type=session_type,
+    )
+    session["created_at"] = created_at
+    session["last_active"] = time.time()
+    session["expires_at"] = created_at + REFRESH_TOKEN_TTL_SEC
+    refresh_record = {
+        "token_id": token_id,
+        "token_hash": hash_token(refresh_token),
+        "family_id": family_id or f"rtfam_{uuid.uuid4().hex}",
+        "parent_token_id": parent_token_id,
+        "session_token": refresh_token,
+        "client_id": client_id,
+        "email": user.get("email"),
+        "user_id": user.get("user_id"),
+        "session_type": session_type,
+        "scopes": list(scopes),
+        "audience": audience,
+        "created_at": created_at,
+        "expires_at": created_at + REFRESH_TOKEN_TTL_SEC,
+    }
+    return refresh_token, session, refresh_record
+
+
+def issue_user_tokens(
+    user: dict,
+    request,
+    *,
+    client_id: str = "xcelsior-web",
+    scopes: list[str] | None = None,
+    session_type: str = "browser",
+    audience: str = OAUTH_AUDIENCE,
+) -> dict[str, Any]:
+    _require_unsuspended(user)
+    client = get_client(client_id)
+    if not client:
+        raise OAuthGrantError("invalid_client", "Unknown OAuth client", status_code=401)
+    allowed_scopes = list(client.get("scopes") or ["profile", "email", "offline_access"])
+    scopes = _normalize_scopes(scopes, allowed_scopes)
+    refresh_token, session, refresh_record = _create_refresh_token_record(
+        user=user,
+        request=request,
+        client_id=client_id,
+        scopes=scopes,
+        session_type=session_type,
+        audience=audience,
+    )
+    UserStore.create_session(session)
+    OAuthStore.create_refresh_token(refresh_record)
+    access = _issue_opaque_access_token(
+        user,
+        client_id=client_id,
+        scopes=scopes,
+        session_token=refresh_token,
+        session_type=session_type,
+        audience=audience,
+    )
+    _oauth_tokens_issued.labels(session_type).inc()
+    return {
+        "access_token": access["access_token"],
+        "refresh_token": refresh_token,
+        "token_type": "Bearer",
+        # The real TTL, not the global default: MCP-audience and first-party
+        # browser tokens both diverge from it, and a client that trusts a wrong
+        # expires_in schedules its refresh at the wrong time.
+        "expires_in": access["expires_in"],
+        "refresh_expires_in": REFRESH_TOKEN_TTL_SEC,
+        "scope": " ".join(scopes),
+        "session_token": refresh_token,
+        "session_type": session_type,
+        "resource": audience,
+    }
+
+
+def exchange_authorization_code(
+    *,
+    client: dict,
+    code: str,
+    redirect_uri: str,
+    code_verifier: str,
+    request,
+    resource: str | None = None,
+) -> dict[str, Any]:
+    payload = _cache_getdel_json("authorization_code", code)
+    if not payload:
+        raise OAuthGrantError("invalid_grant", "Authorization code is invalid or expired")
+    if payload.get("client_id") != client["client_id"]:
+        raise OAuthGrantError("invalid_grant", "Authorization code does not match client")
+    if payload.get("redirect_uri") != redirect_uri:
+        raise OAuthGrantError("invalid_grant", "redirect_uri mismatch")
+    if payload.get("code_challenge_method") != "S256":
+        raise OAuthGrantError("invalid_grant", "Unsupported PKCE method")
+    if _pkce_challenge(code_verifier) != payload.get("code_challenge"):
+        raise OAuthGrantError("invalid_grant", "PKCE verification failed")
+    audience = str(payload.get("audience") or OAUTH_AUDIENCE)
+    if resource and resource != audience:
+        raise OAuthGrantError("invalid_target", "Authorization resource mismatch")
+    user = {
+        "email": payload.get("email"),
+        "user_id": payload.get("user_id"),
+        "role": payload.get("role", "submitter"),
+        "name": payload.get("name", ""),
+        "is_admin": bool(payload.get("is_admin")),
+        "customer_id": payload.get("customer_id"),
+        "provider_id": payload.get("provider_id"),
+    }
+    _oauth_tokens_issued.labels("authorization_code").inc()
+    return issue_user_tokens(
+        user,
+        request,
+        client_id=client["client_id"],
+        scopes=list(payload.get("scopes") or []),
+        session_type="browser",
+        audience=audience,
+    )
+
+
+def _lookup_user(user_code: str) -> dict[str, Any] | None:
+    device_ref = _cache_get_json("device_user_code", user_code)
+    if not device_ref:
+        return None
+    return _cache_get_json("device_code", str(device_ref.get("device_code", "")))
+
+
+def device_verification_url(base_url: str = "", user_code: str | None = None) -> str:
+    """The website page where a person approves a device code.
+
+    It was `{api}/api/auth/verify`, a placeholder telling people to POST the
+    code themselves, so nobody could finish a CLI sign-in from a browser. The
+    page lives on the website, which in development is not the API's origin:
+    the public site URL wins, and the request's base URL is the fallback.
+    """
+    site = (
+        os.environ.get("XCELSIOR_PUBLIC_URL")
+        or os.environ.get("XCELSIOR_BASE_URL")
+        or base_url
+        or "https://xcelsior.ca"
+    ).rstrip("/")
+    if user_code:
+        from urllib.parse import urlencode
+
+        return f"{site}/device?{urlencode({'user_code': user_code})}"
+    return f"{site}/device"
+
+
+def issue_device_authorization(
+    *,
+    client: dict,
+    scopes: list[str] | None = None,
+    base_url: str,
+    audience: str = OAUTH_AUDIENCE,
+) -> dict[str, Any]:
+    scopes = _normalize_scopes(
+        scopes, list(client.get("scopes") or ["profile", "email", "offline_access"])
+    )
+    device_code = secrets.token_urlsafe(32)
+    user_code = f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
+    now = time.time()
+    payload = {
+        "client_id": client["client_id"],
+        "device_code": device_code,
+        "user_code": user_code,
+        "scopes": scopes,
+        "audience": audience,
+        "status": "pending",
+        "created_at": now,
+        "expires_at": now + DEVICE_CODE_TTL_SEC,
+        "interval": DEVICE_CODE_INTERVAL_SEC,
+    }
+    if not _cache_set_json("device_code", device_code, payload, DEVICE_CODE_TTL_SEC):
+        raise OAuthGrantError("server_error", "Failed to issue device code", status_code=503)
+    _cache_set_json(
+        "device_user_code",
+        user_code,
+        {"device_code": device_code},
+        DEVICE_CODE_TTL_SEC,
+    )
+    return {
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_uri": device_verification_url(base_url),
+        "verification_uri_complete": device_verification_url(base_url, user_code),
+        "expires_in": DEVICE_CODE_TTL_SEC,
+        "interval": DEVICE_CODE_INTERVAL_SEC,
+    }
+
+
+def approve_device_code(*, user: dict, user_code: str) -> dict[str, Any]:
+    device_ref = _cache_get_json("device_user_code", user_code)
+    if not device_ref:
+        raise OAuthGrantError(
+            "invalid_grant", "Invalid or expired device user code", status_code=404
+        )
+    device_code = str(device_ref.get("device_code", ""))
+    payload = _cache_get_json("device_code", device_code)
+    if not payload:
+        raise OAuthGrantError("invalid_grant", "Device code is invalid or expired", status_code=404)
+    if payload.get("status") != "pending":
+        raise OAuthGrantError("invalid_grant", "Device code has already been used")
+    payload["status"] = "approved"
+    payload["approved_user"] = {
+        "email": user.get("email"),
+        "user_id": user.get("user_id"),
+        "role": user.get("role", "submitter"),
+        "name": user.get("name", ""),
+        "is_admin": bool(user.get("is_admin")),
+        "customer_id": user.get("customer_id"),
+        "provider_id": user.get("provider_id"),
+    }
+    remaining = max(1, int(float(payload.get("expires_at", time.time())) - time.time()))
+    _cache_set_json("device_code", device_code, payload, remaining)
+    return {"ok": True, "user_code": user_code}
+
+
+def exchange_device_code(
+    *, client: dict, device_code: str, request, resource: str | None = None
+) -> dict[str, Any]:
+    payload = _cache_get_json("device_code", device_code)
+    if not payload:
+        raise OAuthGrantError("expired_token", "Device code is invalid or expired", status_code=410)
+    if payload.get("client_id") != client["client_id"]:
+        raise OAuthGrantError("invalid_grant", "Device code does not match client")
+    audience = str(payload.get("audience") or OAUTH_AUDIENCE)
+    if resource and resource != audience:
+        raise OAuthGrantError("invalid_target", "Device authorization resource mismatch")
+
+    ip = request.client.host if request and request.client else "unknown"
+    poll_count = _cache_incr("device_poll", f"{device_code}:{ip}", DEVICE_CODE_INTERVAL_SEC)
+    if poll_count > 1:
+        _oauth_device_poll_events.labels("slow_down").inc()
+        raise OAuthGrantError(
+            "slow_down",
+            "Poll interval exceeded",
+            status_code=429,
+            headers={"Retry-After": str(DEVICE_CODE_INTERVAL_SEC)},
+        )
+
+    expires_at = float(payload.get("expires_at", 0) or 0)
+    if expires_at <= time.time():
+        _cache_delete("device_code", device_code)
+        _cache_delete("device_user_code", str(payload.get("user_code", "")))
+        _oauth_device_poll_events.labels("expired").inc()
+        raise OAuthGrantError("expired_token", "Device code has expired", status_code=410)
+
+    status = payload.get("status")
+    if status == "pending":
+        _oauth_device_poll_events.labels("pending").inc()
+        raise OAuthGrantError(
+            "authorization_pending",
+            "authorization_pending",
+            status_code=428,
+            headers={"Retry-After": str(DEVICE_CODE_INTERVAL_SEC)},
+        )
+
+    if status != "approved":
+        raise OAuthGrantError("invalid_grant", "Unknown device authorization state")
+
+    user = dict(payload.get("approved_user") or {})
+    if not user.get("email"):
+        raise OAuthGrantError("invalid_grant", "Approved device code has no user context")
+
+    _cache_delete("device_code", device_code)
+    _cache_delete("device_user_code", str(payload.get("user_code", "")))
+    _oauth_device_poll_events.labels("approved").inc()
+    _oauth_tokens_issued.labels("device_code").inc()
+    return issue_user_tokens(
+        user,
+        request,
+        client_id=client["client_id"],
+        scopes=list(payload.get("scopes") or []),
+        session_type="device",
+        audience=audience,
+    )
+
+
+def revoke_access_token(token: str) -> None:
+    """Drop one access token from the cache.
+
+    An opaque access token resolves *only* from the auth cache (see below), so a
+    revocation that does not delete this entry has no effect at all. Logout and
+    session revocation both deleted the session row instead — a row nothing on the
+    request path consults — and both answered `{"ok": true}` while the presented
+    bearer kept working for the remainder of its TTL. Measured against production
+    on 2026-08-04: 30 days.
+    """
+    if token:
+        _cache_delete("access_token", token)
+
+
+def revoke_session(session_token: str) -> None:
+    """Revoke every access token minted from one session.
+
+    Revocation by session prefix cannot delete access-token entries directly: the
+    cache key is a hash of the token, and the caller holds a session token, not the
+    bearers issued from it. So the session is marked instead, and
+    `resolve_opaque_access_token` refuses any payload carrying it. Costs one cache
+    read per authenticated request, on a backend already being read once.
+
+    The marker outlives the longest access token deliberately — a marker that
+    expires before the credential it revokes is a revocation with a gap in it.
+    """
+    if session_token:
+        _cache_set_json(
+            "revoked_session",
+            session_token,
+            {"revoked_at": time.time()},
+            max(BROWSER_SESSION_TTL_SEC, ACCESS_TOKEN_TTL_SEC) + 3600,
+        )
+
+
+def resolve_opaque_access_token(token: str) -> dict[str, Any] | None:
+    payload = _cache_get_json("access_token", token)
+    if not payload:
+        return None
+    from abuse_policy import account_suspended
+
+    if account_suspended(payload):
+        return None
+    expires_at = float(payload.get("expires_at", 0) or 0)
+    if expires_at <= time.time():
+        _cache_delete("access_token", token)
+        return None
+    # Revocation, not only expiry. Without this the only way an access token stops
+    # working is running out of time.
+    session_token = str(payload.get("session_token") or "")
+    if session_token and _cache_get_json("revoked_session", session_token):
+        _cache_delete("access_token", token)
+        return None
+    return payload
+
+
+def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
+    lock_key = hash_token(refresh_token)
+    if not _cache_set_json("refresh_lock", lock_key, {"locked": True}, 10, nx=True):
+        _oauth_refresh_events.labels("locked").inc()
+        raise OAuthGrantError(
+            "temporarily_unavailable", "Refresh already in progress", status_code=409
+        )
+
+    try:
+        token_hash = hash_token(refresh_token)
+        current = OAuthStore.get_refresh_token(token_hash)
+        if not current:
+            _oauth_refresh_events.labels("invalid").inc()
+            raise OAuthGrantError(
+                "invalid_grant", "Refresh token is invalid or expired", status_code=401
+            )
+
+        now = time.time()
+        if float(current.get("expires_at", 0) or 0) <= now or current.get("revoked_at"):
+            _oauth_refresh_events.labels("revoked").inc()
+            raise OAuthGrantError(
+                "invalid_grant", "Refresh token is revoked or expired", status_code=401
+            )
+
+        if current.get("consumed_at"):
+            OAuthStore.revoke_refresh_family(str(current["family_id"]), reuse_detected=True)
+            _oauth_refresh_events.labels("reused").inc()
+            raise OAuthGrantError(
+                "invalid_grant",
+                "Refresh token has been reused",
+                status_code=401,
+                extra={"code": "refresh_token_reused"},
+            )
+
+        user = UserStore.get_user(str(current.get("email", ""))) or {
+            "email": current.get("email", ""),
+            "user_id": current.get("user_id", ""),
+            "role": "submitter",
+            "name": "",
+            "is_admin": False,
+        }
+        scopes = list(current.get("scopes") or [])
+        audience = str(current.get("audience") or OAUTH_AUDIENCE)
+        family_id = str(current["family_id"])
+        session_type = str(current.get("session_type") or "browser")
+        client_id = str(current.get("client_id") or "xcelsior-web")
+        created_at = float(current.get("created_at", now) or now)
+
+        new_refresh_token, new_session, new_record = _create_refresh_token_record(
+            user=user,
+            request=request,
+            client_id=client_id,
+            scopes=scopes,
+            session_type=session_type,
+            audience=audience,
+            family_id=family_id,
+            parent_token_id=str(current["token_id"]),
+            created_at=created_at,
+        )
+
+        OAuthStore.mark_refresh_token_rotated(str(current["token_id"]), str(new_record["token_id"]))
+        OAuthStore.create_refresh_token(new_record)
+        UserStore.rotate_session_token(refresh_token, new_session)
+
+        access = _issue_opaque_access_token(
+            user,
+            client_id=client_id,
+            scopes=scopes,
+            session_token=new_refresh_token,
+            session_type=session_type,
+            audience=audience,
+        )
+        _oauth_refresh_events.labels("rotated").inc()
+        return {
+            "access_token": access["access_token"],
+            "refresh_token": new_refresh_token,
+            "token_type": "Bearer",
+            "expires_in": access["expires_in"],
+            "refresh_expires_in": REFRESH_TOKEN_TTL_SEC,
+            "scope": " ".join(scopes),
+            "session_type": session_type,
+            "resource": audience,
+        }
+    finally:
+        _cache_delete("refresh_lock", lock_key)
+
+
+def revoke_refresh_session(session_token: str | None) -> None:
+    if not session_token:
+        return
+    current = OAuthStore.get_refresh_token(hash_token(session_token))
+    if current:
+        OAuthStore.revoke_refresh_family(str(current["family_id"]))
+    UserStore.delete_session(session_token)
+    # Deleting the row is not the revocation — the request path reads the cache.
+    revoke_session(session_token)
+
+
+def reset_auth_cache_for_tests() -> None:
+    global _cache_instance, _defaults_ready
+    with _cache_lock:
+        _cache_instance = None
+    with _defaults_lock:
+        _defaults_ready = False

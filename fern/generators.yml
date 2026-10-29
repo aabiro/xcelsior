@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/generators-yml.json
+api:
+  specs:
+    - openapi: openapi.json
+      overrides: openapi-overrides.yml
+default-group: local
+groups:
+  local:
+    generators:
+      - name: fern-typescript-sdk
+        output:
+          location: local-file-system
+          path: ../frontend/sdk
+        version: 3.59.11
+        config:
+          bundle: true
+  publish:
+    generators:
+      - name: fern-typescript-sdk
+        output:
+          location: npm
+          package-name: "@xcelsior-gpu/sdk"
+          token: ${NPM_TOKEN}
+        version: 3.59.11
+        config:
+          bundle: true
+          packageJson:
+            publishConfig:
+              access: public

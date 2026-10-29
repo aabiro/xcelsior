@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" fill="none">
+  <defs>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22e0ff"/><stop offset="48%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="emerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#10b981"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#d4a233"/></linearGradient>
+    <radialGradient id="core" cx="50%" cy="40%" r="62%">
+      <stop offset="0%" stop-color="#5eeaff"/><stop offset="42%" stop-color="#2a8cff"/><stop offset="100%" stop-color="#0b1b3a"/></radialGradient>
+    <linearGradient id="glassHi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.5"/><stop offset="40%" stop-color="#ffffff" stop-opacity="0.03"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#eef4fb"/></linearGradient><filter id="depth" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#1e3a5f" flood-opacity="0.18"/></filter><filter id="bloom" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="20"/></filter>
+    <!--detail:#3b6fb0--></defs>
+  <circle cx="150" cy="84" r="70" fill="#7c3aed" filter="url(#bloom)" opacity="0.16"/>
+  <!-- exhaust trail -->
+  <path d="M120,196 C96,232 70,250 40,300" stroke="url(#brand)" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.55"/>
+  <g filter="url(#depth)" transform="rotate(36 132 132)">
+    <!-- body -->
+    <path d="M132,66 C156,66 168,96 168,134 L168,176 C168,190 156,202 132,202 C108,202 96,190 96,176 L96,134 C96,96 108,66 132,66 Z" fill="url(#panel)" stroke="url(#brand)" stroke-width="2.5"/>
+    <path d="M132,66 C156,66 168,96 168,134 L168,176 C168,190 156,202 132,202 C108,202 96,190 96,176 L96,134 C96,96 108,66 132,66 Z" fill="url(#glassHi)"/>
+    <!-- window -->
+    <circle cx="132" cy="118" r="20" fill="url(#core)" stroke="#7cf2ff" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="132" cy="118" r="8" fill="#eafcff" opacity="0.9" filter="url(#depth)"/>
+    <!-- fins -->
+    <path d="M96,168 L72,206 L96,194 Z" fill="url(#brand)" opacity="0.85"/>
+    <path d="M168,168 L192,206 L168,194 Z" fill="url(#brand)" opacity="0.85"/>
+    <!-- flame -->
+    <path d="M118,202 L132,238 L146,202 Z" fill="url(#gold)" filter="url(#depth)"/>
+  </g>
+</svg>

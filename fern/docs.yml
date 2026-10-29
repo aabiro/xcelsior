@@ -1,0 +1,132 @@
+instances:
+  - url: https://xcelsior.docs.buildwithfern.com
+
+title: Xcelsior Docs
+
+logo:
+  dark: ./assets/docs-lockup-icon-light.svg
+  href: https://docs.xcelsior.ca
+  height: 26
+
+colors:
+  accent-primary:
+    light: "#0F172A"
+    dark: "#00d4ff"
+  background:
+    light: "#FFFFFF"
+    dark: "#060a13"
+  sidebar-background:
+    light: "#F8FAFC"
+    dark: "#0d1320"
+  card-background:
+    light: "#F8FAFC"
+    dark: "#0d1320"
+  border:
+    light: "#E2E8F0"
+    dark: "#1e293b"
+
+favicon: ./assets/favicon-32.png
+
+css: ./assets/custom.css
+js: ./assets/custom.js
+
+navbar-links:
+  - type: primary
+    text: Dashboard
+    url: https://xcelsior.ca/dashboard
+    target: _self
+  - type: secondary
+    text: Pricing
+    url: https://xcelsior.ca/pricing
+    target: _self
+  - type: secondary
+    text: Blog
+    url: https://xcelsior.ca/blog
+    target: _self
+  - type: secondary
+    text: GitHub
+    url: https://github.com/aabiro/xcelsior
+    target: _blank
+
+tabs:
+  guides:
+    display-name: Guides
+    icon: book-open
+  api-reference:
+    display-name: API Reference
+    icon: puzzle
+  sdk:
+    display-name: SDKs
+    icon: code
+
+navigation:
+  - tab: guides
+    layout:
+      - section: Getting Started
+        contents:
+          - page: Introduction
+            path: ./pages/introduction.mdx
+          - page: Quick Start
+            path: ./pages/quickstart.mdx
+          - page: Authentication
+            path: ./pages/authentication.mdx
+      - section: Platform
+        contents:
+          - page: Architecture
+            path: ./pages/architecture.mdx
+          - page: GPU Hosts
+            path: ./pages/hosts.mdx
+          - page: Earn as a Provider
+            path: ./pages/earn.mdx
+          - page: Jobs & Scheduling
+            path: ./pages/jobs.mdx
+          - page: Serverless Inference
+            path: ./pages/serverless-inference.mdx
+          - page: Marketplace
+            path: ./pages/marketplace.mdx
+      - section: Billing & Compliance
+        contents:
+          - page: Billing
+            path: ./pages/billing.mdx
+          - page: Trust & Reputation
+            path: ./pages/trust.mdx
+          - page: Trust & Controls
+            path: ./pages/compliance.mdx
+      - section: Infrastructure
+        contents:
+          - page: Worker Agent
+            path: ./pages/worker-agent.mdx
+          - page: Security Model
+            path: ./pages/security.mdx
+          - page: LLM Integration
+            path: ./pages/llm-integration.mdx
+
+  - tab: api-reference
+    layout:
+      - section: Overview
+        contents:
+          - page: API Overview
+            path: ./pages/api-overview.mdx
+      - api: API Reference
+        skip-slug: true
+        layout:
+          - auth:
+              - endpoint: POST /api/auth/login
+                slug: login
+          - instances:
+              - endpoint: GET /instance/{job_id}
+                slug: get
+          - serverless:
+              - endpoint: GET /v1/serverless/{endpoint_id}/openai/v1/models
+                slug: list-models
+
+  - tab: sdk
+    layout:
+      - section: SDKs
+        contents:
+          - page: TypeScript SDK
+            path: ./pages/typescript-sdk.mdx
+
+footer-links:
+  github: https://github.com/aabiro/xcelsior
+  website: https://xcelsior.ca

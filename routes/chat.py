@@ -1,0 +1,384 @@
+"""Routes: chat."""
+
+import json
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from routes._deps import (
+    _get_current_user,
+    log,
+)
+from scheduler import (
+    log,
+)
+from chat import (
+    CHAT_API_KEY,
+    append_message,
+    build_system_prompt,
+    check_chat_rate_limit,
+    get_conversation_messages,
+    get_or_create_conversation,
+    get_user_conversations,
+    record_feedback,
+    stream_chat_response,
+)
+from privacy import redact_pii
+from ai_assistant import (
+    FEATURE_AI_ASSISTANT,
+    check_ai_rate_limit,
+    create_conversation as ai_create_conversation,
+    delete_conversation as ai_delete_conversation,
+    execute_confirmed_action,
+    get_conversation as ai_get_conversation,
+    get_conversation_messages as ai_get_messages,
+    get_suggestions,
+    list_conversations as ai_list_conversations,
+    stream_ai_response,
+)
+
+router = APIRouter()
+
+
+# ── Model: ChatRequest ──
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    conversation_id: str | None = None
+
+
+@router.post("/api/chat", tags=["Chat"])
+async def api_chat(body: ChatRequest, request: Request):
+    """Stream an AI chat response about Xcelsior via SSE."""
+    from routes._deps import _require_scope
+
+    client_ip = request.client.host if request.client else "unknown"
+
+    if not check_chat_rate_limit(client_ip):
+        raise HTTPException(429, "Chat rate limit exceeded. Please wait a moment.")
+
+    if not CHAT_API_KEY:
+        raise HTTPException(503, "Chat is not configured.")
+
+    # Sanitise user input
+    user_message = redact_pii(body.message)
+
+    # Get or create a conversation owned by the authenticated user.
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "chat:write")
+    user_email = user.get("email")
+    if not user_email:
+        raise HTTPException(403, "A user email is required for support chat.")
+    try:
+        conversation_id, history = get_or_create_conversation(
+            body.conversation_id, ip=client_ip, user_email=user_email
+        )
+    except LookupError:
+        raise HTTPException(404, "Conversation not found") from None
+
+    # Build messages array
+    system_prompt = build_system_prompt(user_message)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_message})
+
+    # Track user message
+    append_message(conversation_id, "user", user_message)
+
+    async def _generate():
+        full_response = []
+        # Send conversation_id as first event
+        yield f"data: {json.dumps({'type': 'meta', 'conversation_id': conversation_id})}\n\n"
+        try:
+            async for token in stream_chat_response(messages):
+                full_response.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            # Store assistant response
+            message_id = append_message(conversation_id, "assistant", "".join(full_response))
+            yield f"data: {json.dumps({'type': 'done', 'message_id': message_id})}\n\n"
+        except Exception as e:
+            log.error("Chat stream error: %s", e)
+            yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred. Please try again.'})}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/api/chat/suggestions", tags=["Chat"])
+def api_chat_suggestions():
+    """Return suggested starter questions for the chat widget."""
+    return {
+        "ok": True,
+        "suggestions": [
+            "How do I list my GPU on the marketplace?",
+            "What are the trust tiers?",
+            "How does billing work?",
+            "How do I submit a job?",
+        ],
+    }
+
+
+@router.get("/api/chat/history/{conversation_id}", tags=["Chat"])
+def api_chat_history(conversation_id: str, request: Request):
+    """Return message history for an existing conversation."""
+    from routes._deps import _require_scope, _get_current_user
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_chat_rate_limit(client_ip):
+        raise HTTPException(429, "Rate limit exceeded.")
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "chat:read")
+    messages = get_conversation_messages(conversation_id, user_email=user.get("email", ""))
+    if messages is None:
+        raise HTTPException(404, "Conversation not found or expired.")
+    return {
+        "ok": True,
+        "conversation_id": conversation_id,
+        "messages": messages,
+    }
+
+
+@router.get("/api/chat/conversations", tags=["Chat"])
+def api_chat_conversations(request: Request):
+    """List recent conversations for the authenticated user."""
+    from routes._deps import _require_scope, _get_current_user
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated.")
+    _require_scope(user, "chat:read")
+    email = user.get("email", "")
+    if not email:
+        raise HTTPException(401, "No email in session.")
+    conversations = get_user_conversations(email)
+    return {"ok": True, "conversations": conversations}
+
+
+# ── Model: ChatFeedbackRequest ──
+
+
+class ChatFeedbackRequest(BaseModel):
+    message_id: str
+    vote: str  # "up" or "down"
+
+
+@router.post("/api/chat/feedback", tags=["Chat"])
+def api_chat_feedback(body: ChatFeedbackRequest, request: Request):
+    """Record thumbs-up / thumbs-down feedback on a chat message."""
+    from routes._deps import _require_scope, _get_current_user
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "chat:write")
+    if body.vote not in ("up", "down"):
+        raise HTTPException(400, "Vote must be 'up' or 'down'.")
+    if not record_feedback(body.message_id, body.vote, user_email=user.get("email", "")):
+        raise HTTPException(404, "Message not found")
+    return {"ok": True}
+
+
+# ── Helper: _require_ai_enabled ──
+
+
+def _require_ai_enabled():
+    if not FEATURE_AI_ASSISTANT:
+        raise HTTPException(404, "AI assistant is not enabled.")
+
+
+# ── Model: AiChatRequest ──
+
+
+class AiChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: str | None = None
+    page_context: str = ""
+
+
+# ── Model: AiConfirmRequest ──
+
+
+class AiConfirmRequest(BaseModel):
+    confirmation_id: str
+    approved: bool
+
+
+@router.post("/api/ai/chat", tags=["AI Assistant"])
+async def api_ai_chat(body: AiChatRequest, request: Request):
+    """Stream an AI assistant response with tool-calling support via SSE."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        raise HTTPException(429, "Rate limit exceeded. Please wait a moment.")
+
+    # Get or create conversation
+    conversation_id = body.conversation_id
+    if conversation_id:
+        conv = ai_get_conversation(conversation_id, user_id)
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        # Derive source from page_context
+        pc = (body.page_context or "").lower()
+        if pc.startswith("cli-wizard:"):
+            source = "wizard"
+        elif pc.startswith("analytics-dashboard:"):
+            source = "analytics"
+        else:
+            source = "xcel"
+        conversation_id = ai_create_conversation(user_id, source=source)
+
+    return StreamingResponse(
+        stream_ai_response(
+            body.message, conversation_id, user, body.page_context, rate_limit_checked=True
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/api/ai/conversations", tags=["AI Assistant"])
+def api_ai_list_conversations(request: Request, limit: int = Query(30, ge=1, le=1000)):
+    """List the current user's AI assistant conversations."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    user_id = user.get("user_id", user.get("email", ""))
+    convs = ai_list_conversations(user_id, limit=limit)
+    return {"ok": True, "conversations": convs}
+
+
+@router.get("/api/ai/conversations/{conversation_id}", tags=["AI Assistant"])
+def api_ai_get_conversation(conversation_id: str, request: Request):
+    """Get messages for an AI assistant conversation."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    user_id = user.get("user_id", user.get("email", ""))
+    messages = ai_get_messages(conversation_id, user_id)
+    conv = ai_get_conversation(conversation_id, user_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return {"ok": True, "conversation": conv, "messages": messages}
+
+
+@router.delete("/api/ai/conversations/{conversation_id}", tags=["AI Assistant"])
+def api_ai_delete_conversation(conversation_id: str, request: Request):
+    """Delete an AI assistant conversation."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    user_id = user.get("user_id", user.get("email", ""))
+    deleted = ai_delete_conversation(conversation_id, user_id)
+    if not deleted:
+        raise HTTPException(404, "Conversation not found")
+    return {"ok": True}
+
+
+@router.post("/api/ai/confirm", tags=["AI Assistant"])
+async def api_ai_confirm(body: AiConfirmRequest, request: Request):
+    """Approve or reject a pending AI tool action."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        raise HTTPException(429, "Rate limit exceeded. Please wait a moment.")
+
+    return StreamingResponse(
+        execute_confirmed_action(body.confirmation_id, user, body.approved),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/api/ai/suggestions", tags=["AI Assistant"])
+def api_ai_suggestions(request: Request):
+    """Get context-aware suggestion chips for the AI assistant."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    return {"ok": True, "suggestions": get_suggestions(user)}
+
+
+# ── Model: AnalyticsAiRequest ──
+
+
+class AnalyticsAiRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: str | None = None
+    chart_context: str = ""
+    analytics_summary: str = ""
+
+
+@router.post("/api/ai/analytics", tags=["AI Assistant"])
+async def api_ai_analytics_chat(body: AnalyticsAiRequest, request: Request):
+    """Stream AI-powered analytics insight/explanation via SSE.
+
+    Injects a serialised analytics summary into the system prompt so the
+    AI has full knowledge of the user's dashboard data and can explain
+    trends, anomalies, and answer questions about every chart.
+    """
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        raise HTTPException(429, "Rate limit exceeded. Please wait a moment.")
+
+    from ai_assistant import (
+        create_conversation as ai_create_conversation_fn,
+        get_conversation as ai_get_conversation_fn,
+        stream_ai_response as ai_stream,
+    )
+
+    conversation_id = body.conversation_id
+    if conversation_id:
+        conv = ai_get_conversation_fn(conversation_id, user_id)
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        conversation_id = ai_create_conversation_fn(
+            user_id, title="Analytics chat", source="analytics"
+        )
+
+    # Build a page_context that the system prompt builder can parse
+    page_context = f"analytics-dashboard:{body.chart_context}"
+
+    return StreamingResponse(
+        ai_stream(
+            body.message,
+            conversation_id,
+            user,
+            page_context,
+            analytics_data=body.analytics_summary,
+            rate_limit_checked=True,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

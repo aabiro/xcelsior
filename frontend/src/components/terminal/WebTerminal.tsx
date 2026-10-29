@@ -1,0 +1,696 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import "@xterm/xterm/css/xterm.css";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { createTerminalTicket } from "@/lib/api";
+import { Loader2, Maximize2, Minimize2, X } from "lucide-react";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+type ConnState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "error";
+
+interface WebTerminalProps {
+  instanceId: string;
+  onClose?: () => void;
+}
+
+// ── Reconnect constants ────────────────────────────────────────────────────────
+
+const MAX_RECONNECT_ATTEMPTS = 8;
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_CAP_MS = 30_000;
+// 4410 = host unreachable (SSH tcp/22 timeout). Retrying every few seconds is
+// pointless, the host isn't coming back in ~30s. Let the user click Reconnect.
+// 4500 = server internal error; retrying won't help either.
+const NON_RETRYABLE_WS_CLOSE_CODES = new Set([
+  1000,
+  1008,
+  1009,
+  4001,
+  4003,
+  4004,
+  4408,
+  4410,
+  4429,
+  4500,
+]);
+
+function loadTerminalModules() {
+  return Promise.all([
+    import("@xterm/xterm"),
+    import("@xterm/addon-fit"),
+    import("@xterm/addon-web-links"),
+    import("@xterm/addon-search"),
+    import("@xterm/addon-unicode11"),
+  ]);
+}
+
+// ── Badge helper ──────────────────────────────────────────────────────────────
+
+function _badgeVariant(state: ConnState): "active" | "warning" | "failed" | "default" {
+  if (state === "connected") return "active";
+  if (state === "error") return "failed";
+  if (state === "disconnected") return "default";
+  return "warning";
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+/**
+ * Production web terminal powered by xterm.js v6.
+ *
+ * Architecture: the xterm Terminal is created exactly once (on mount) and
+ * persists for the component's lifetime. Only the WebSocket reconnects on drop,
+ * so scrollback and on-screen output survive reconnects, no flicker, no
+ * "connection closed" loop wiping the screen. `onData`/resize handlers read the
+ * live `wsRef`, so they keep working seamlessly across reconnects.
+ *
+ * - Binary WebSocket protocol (raw PTY bytes → xterm; control frames are JSON text)
+ * - WebGL renderer (graceful Canvas fallback)
+ * - SearchAddon (Ctrl+F), Unicode11Addon, WebLinksAddon
+ * - Heartbeat ping/pong with stale-socket detection
+ * - Exponential backoff reconnect (up to 8 attempts), then manual Reconnect
+ */
+export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
+  const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  const webglAddonRef = useRef<import("@xterm/addon-webgl").WebglAddon | null>(null);
+  const searchAddonRef = useRef<import("@xterm/addon-search").SearchAddon | null>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const staleCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastActivityAtRef = useRef<number>(0);
+  const connectionGenRef = useRef(0);
+  const terminalGenRef = useRef(0);
+  const terminalModulesRef = useRef<ReturnType<typeof loadTerminalModules> | null>(null);
+  const serverErrorRef = useRef("");
+  const mountedRef = useRef(true);
+  const termReadyRef = useRef(false);
+  const visChangeRef = useRef<(() => void) | null>(null);
+  // True once we've shown the "reconnecting…" notice for the current
+  // disconnect series. Reset on every successful onopen so a *new* disconnect
+  // shows the notice again, but rapid retry cycles don't spam the terminal.
+  const reconnectNoticeShownRef = useRef(false);
+
+  const [connState, setConnState] = useState<ConnState>("connecting");
+  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [maximized, setMaximized] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchOpenRef = useRef(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Terminal fit helper ─────────────────────────────────────────────────────
+  const _fit = useCallback(() => {
+    const term = termRef.current;
+    const fitAddon = fitAddonRef.current;
+    const ws = wsRef.current;
+    if (!fitAddon || !term) return;
+    try {
+      fitAddon.fit();
+    } catch {
+      // ignore ResizeObserver errors before terminal is attached
+    }
+    webglAddonRef.current?.clearTextureAtlas?.();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+    }
+  }, []);
+
+  // ── Search helpers ──────────────────────────────────────────────────────────
+  const _searchNext = useCallback(() => {
+    searchAddonRef.current?.findNext(searchQuery, {
+      incremental: false,
+      regex: false,
+      caseSensitive: false,
+    });
+  }, [searchQuery]);
+
+  const _searchPrev = useCallback(() => {
+    searchAddonRef.current?.findPrevious(searchQuery, {
+      incremental: false,
+      regex: false,
+      caseSensitive: false,
+    });
+  }, [searchQuery]);
+
+  // Latest connectWs, callable from scheduleReconnect without a dependency cycle.
+  const connectWsRef = useRef<(() => Promise<void>) | null>(null);
+
+  const scheduleReconnect = useCallback((reason: string) => {
+    if (!mountedRef.current) return;
+    const att = reconnectAttemptsRef.current;
+    if (att >= MAX_RECONNECT_ATTEMPTS) {
+      termRef.current?.write(
+        "\r\n\x1b[31m[Could not reconnect. Click Reconnect to try again.]\x1b[0m\r\n",
+      );
+      setConnState("disconnected");
+      setStatusMsg("Connection lost");
+      return;
+    }
+    if (!reconnectNoticeShownRef.current) {
+      termRef.current?.write("\r\n\x1b[2m· reconnecting…\x1b[0m\r\n");
+      reconnectNoticeShownRef.current = true;
+    }
+    reconnectAttemptsRef.current = att + 1;
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** att, RECONNECT_CAP_MS);
+    setConnState("reconnecting");
+    setStatusMsg(
+      reason
+        ? `${reason} · reconnecting in ${Math.round(delay / 1000)}s…`
+        : `Reconnecting in ${Math.round(delay / 1000)}s…`,
+    );
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) void connectWsRef.current?.();
+    }, delay);
+  }, []);
+
+  // ── WebSocket connect (reconnectable; does NOT touch the Terminal) ───────────
+  const connectWs = useCallback(async () => {
+    const term = termRef.current;
+    if (!term || !mountedRef.current) return;
+    const generation = ++connectionGenRef.current;
+    const isCurrent = () => mountedRef.current && connectionGenRef.current === generation;
+    serverErrorRef.current = "";
+    if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+    if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
+
+    // Tear down any previous socket cleanly before opening a new one.
+    if (wsRef.current) {
+      try {
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onopen = null;
+        wsRef.current.close();
+      } catch {
+        /* ignore */
+      }
+      wsRef.current = null;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? window.location.origin;
+    const wsBase = apiBase.replace(/^https?:/, protocol);
+
+    setConnState((s) => (s === "connected" ? s : "connecting"));
+
+    let ticketResp: { ok: boolean; ticket: string; expires_in: number };
+    try {
+      ticketResp = await createTerminalTicket(instanceId);
+    } catch (err) {
+      if (!isCurrent()) return;
+      const message = err instanceof Error ? err.message : "Failed to open terminal";
+      // Ticket failures are usually transient (session refresh), fall through
+      // to the reconnect schedule rather than dead-ending.
+      scheduleReconnect(message);
+      return;
+    }
+    if (!isCurrent()) return;
+
+    const wsUrl = `${wsBase}/ws/terminal/${instanceId}?ticket=${encodeURIComponent(ticketResp.ticket)}`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      if (!isCurrent()) { ws.close(); return; }
+      setConnState("connecting");
+      setStatusMsg("Waiting for the instance…");
+      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      term.focus();
+
+      // Heartbeat: ping every 20s, close if no server traffic in 45s. This
+      // prevents zombie TCP connections (e.g. silent NAT rebind) from
+      // appearing 'connected' while bytes silently drop on the floor.
+      lastActivityAtRef.current = Date.now();
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = setInterval(() => {
+        const w = wsRef.current;
+        if (w && w.readyState === WebSocket.OPEN) {
+          try { w.send(JSON.stringify({ type: "ping", ts: Date.now() })); } catch { /* ignore */ }
+        }
+      }, 20_000);
+      if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
+      staleCheckTimerRef.current = setInterval(() => {
+        const w = wsRef.current;
+        if (!w || w.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - lastActivityAtRef.current > 45_000) {
+          // Force close; onclose drives the reconnect.
+          try { w.close(4000, "stale"); } catch { /* ignore */ }
+        }
+      }, 5_000);
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      if (!isCurrent()) return;
+      const t = termRef.current;
+      if (!t) return;
+      // Startup sends progress before the PTY's ping/pong reader exists.
+      // Progress and PTY output both prove the server is still connected.
+      lastActivityAtRef.current = Date.now();
+
+      if (event.data instanceof ArrayBuffer) {
+        // Binary frame: raw PTY bytes, write directly (fastest path)
+        t.write(new Uint8Array(event.data));
+        reconnectAttemptsRef.current = 0;
+        reconnectNoticeShownRef.current = false;
+        setConnState("connected");
+        return;
+      }
+
+      // Text frame: JSON control message
+      try {
+        const msg = JSON.parse(event.data as string) as {
+          type: string;
+          message?: string;
+          code?: number;
+          retry?: boolean;
+          ts?: number;
+        };
+
+        switch (msg.type) {
+          case "status":
+            setStatusMsg(msg.message ?? "");
+            if (msg.message) {
+              if (msg.retry) {
+                // Progress updates overwrite same line (container polling)
+                t.write(`\r\x1b[2m${msg.message}\x1b[0m\x1b[K`);
+              } else {
+                t.write(`\r\x1b[2m${msg.message}\x1b[0m\r\n`);
+              }
+            }
+            if (msg.retry) setConnState("connecting");
+            else {
+              reconnectAttemptsRef.current = 0;
+              reconnectNoticeShownRef.current = false;
+              setConnState("connected");
+            }
+            break;
+
+          case "error":
+            serverErrorRef.current = msg.message ?? "Error";
+            t.write(`\r\n\x1b[31m⚠ ${msg.message ?? "Error"}\x1b[0m\r\n`);
+            setConnState("error");
+            setStatusMsg(msg.message ?? "Error");
+            break;
+
+          case "exit":
+            t.write(`\r\n\x1b[33m[Process exited with code ${msg.code ?? 0}]\x1b[0m\r\n`);
+            setConnState("disconnected");
+            break;
+
+          case "pong":
+            break;
+        }
+      } catch {
+        // Malformed JSON, ignore silently
+      }
+    };
+
+    ws.onclose = (event: CloseEvent) => {
+      if (!isCurrent()) return;
+      console.debug("[terminal] ws closed", event.code, event.reason);
+
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
+      if (staleCheckTimerRef.current) {
+        clearInterval(staleCheckTimerRef.current);
+        staleCheckTimerRef.current = null;
+      }
+
+      if (NON_RETRYABLE_WS_CLOSE_CODES.has(event.code)) {
+        termRef.current?.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
+        if (event.code === 1000) {
+          setConnState("disconnected");
+          setStatusMsg("Connection closed");
+        } else {
+          setConnState("error");
+          setStatusMsg(serverErrorRef.current || event.reason || `Connection closed (${event.code})`);
+        }
+        return;
+      }
+
+      scheduleReconnect(event.reason || `Disconnected (${event.code})`);
+    };
+
+    ws.onerror = () => {
+      if (!isCurrent()) return;
+      // onclose fires immediately after onerror, let it handle reconnect.
+      setConnState((s) => (s === "connected" ? s : "error"));
+    };
+  }, [instanceId, scheduleReconnect]);
+
+  // Keep the ref pointed at the latest connectWs for scheduleReconnect to call.
+  connectWsRef.current = connectWs;
+
+  // ── Terminal initialization (runs exactly once on mount) ─────────────────────
+  const initTerminal = useCallback(async (generation: number) => {
+    const isCurrent = () => mountedRef.current && terminalGenRef.current === generation;
+    if (!containerRef.current || !mountedRef.current || termReadyRef.current) return;
+
+    const [{ Terminal }, { FitAddon }, { WebLinksAddon }, { SearchAddon }, { Unicode11Addon }] =
+      await (terminalModulesRef.current ??= loadTerminalModules());
+    if (!isCurrent() || !containerRef.current || termReadyRef.current) return;
+
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: "block",
+      scrollSensitivity: 2,
+      fastScrollSensitivity: 5,
+      fontSize: 13,
+      fontFamily:
+        "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
+      theme: {
+        background: "#000000",
+        foreground: "#ffffff",
+        cursor: "#ffffff",
+        cursorAccent: "#000000",
+        selectionBackground: "#ffffff33",
+        black: "#1e293b",
+        red: "#ef4444",
+        green: "#22c55e",
+        yellow: "#eab308",
+        blue: "#3b82f6",
+        magenta: "#a855f7",
+        cyan: "#06b6d4",
+        white: "#f1f5f9",
+        brightBlack: "#334155",
+        brightWhite: "#f8fafc",
+      },
+      scrollback: 10_000,
+      allowProposedApi: true,
+      customGlyphs: true,
+      convertEol: false,       // PTY handles CRLF; setting true breaks vim/htop
+      macOptionIsMeta: true,
+    });
+    termRef.current = term;
+
+    const fitAddon = new FitAddon();
+    fitAddonRef.current = fitAddon;
+    const searchAddon = new SearchAddon();
+    searchAddonRef.current = searchAddon;
+    const unicode11Addon = new Unicode11Addon();
+
+    term.loadAddon(fitAddon);
+    term.loadAddon(searchAddon);
+    term.loadAddon(unicode11Addon);
+    term.loadAddon(new WebLinksAddon());
+    term.unicode.activeVersion = "11";
+
+    term.open(containerRef.current);
+    fitAddon.fit();
+    term.focus();
+    termReadyRef.current = true;
+
+    try {
+      const { WebglAddon } = await import("@xterm/addon-webgl");
+      if (!isCurrent()) return;
+      const webgl = new WebglAddon();
+      term.loadAddon(webgl);
+      webglAddonRef.current = webgl;
+    } catch {
+      if (!isCurrent()) return;
+      webglAddonRef.current = null;
+    }
+    term.options.cursorBlink = true;
+
+    // Clear texture atlas on tab restore to fix glyph artifacts after sleep
+    const _onVisChange = () => {
+      if (!document.hidden) {
+        webglAddonRef.current?.clearTextureAtlas?.();
+        _fit();
+      }
+    };
+    visChangeRef.current = _onVisChange;
+    document.addEventListener("visibilitychange", _onVisChange);
+
+    term.attachCustomWheelEventHandler((ev: WheelEvent) => {
+      // Keep scroll inside xterm scrollback instead of the page / bash history.
+      if (ev.deltaY !== 0) return true;
+      return true;
+    });
+
+    // ── Keyboard interceptors ───────────────────────────────────────────────
+    term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
+      const ws = wsRef.current;
+      const open = ws && ws.readyState === WebSocket.OPEN;
+
+      if (ev.ctrlKey && ev.key === "f" && ev.type === "keydown") {
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 0);
+        return false;
+      }
+      if (ev.ctrlKey && ev.key === "r" && ev.type === "keydown") {
+        if (open) ws.send(JSON.stringify({ type: "input", data: "\x12" }));
+        return false;
+      }
+      // Ctrl+C smart copy: copy selected terminal text instead of sending SIGINT.
+      if (ev.ctrlKey && !ev.shiftKey && ev.key === "c" && ev.type === "keydown") {
+        const sel = term.getSelection();
+        if (sel) {
+          navigator.clipboard.writeText(sel).catch(() => {});
+          return false;
+        }
+      }
+      if (ev.ctrlKey && ev.shiftKey && ev.key === "V" && ev.type === "keydown") {
+        navigator.clipboard.readText().then((text) => {
+          if (open && text) ws.send(JSON.stringify({ type: "input", data: text }));
+        }).catch(() => {});
+        return false;
+      }
+      if (ev.key === "Escape" && ev.type === "keydown") {
+        if (searchOpenRef.current) {
+          setSearchOpen(false);
+          setTimeout(() => termRef.current?.focus(), 0);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // ── Input, reads the live wsRef, so it survives reconnects ──────────────
+    term.onData((data: string) => {
+      const w = wsRef.current;
+      if (w && w.readyState === WebSocket.OPEN) {
+        w.send(JSON.stringify({ type: "input", data }));
+      }
+      // Keep auth idle timer alive, xterm captures key events before document
+      window.dispatchEvent(new Event("keydown"));
+    });
+
+    // ── Resize observer ─────────────────────────────────────────────────────
+    const obs = new ResizeObserver(() => _fit());
+    obs.observe(containerRef.current);
+    observerRef.current = obs;
+  }, [_fit]);
+
+  // ── Mount / unmount ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    mountedRef.current = true;
+    const generation = ++terminalGenRef.current;
+    void initTerminal(generation).then(() => {
+      if (mountedRef.current && terminalGenRef.current === generation) void connectWs();
+    }).catch(() => {
+      if (mountedRef.current && terminalGenRef.current === generation) {
+        setConnState("error");
+        setStatusMsg("Terminal could not load. Reload the page to try again.");
+      }
+    });
+    return () => {
+      mountedRef.current = false;
+      terminalGenRef.current += 1;
+      connectionGenRef.current += 1;
+      termReadyRef.current = false;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+      if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
+      if (visChangeRef.current) {
+        document.removeEventListener("visibilitychange", visChangeRef.current);
+        visChangeRef.current = null;
+      }
+      observerRef.current?.disconnect();
+      try { wsRef.current?.close(); } catch { /* ignore */ }
+      wsRef.current = null;
+      webglAddonRef.current?.dispose();
+      webglAddonRef.current = null;
+      termRef.current?.dispose();
+      termRef.current = null;
+      fitAddonRef.current = null;
+      searchAddonRef.current = null;
+    };
+  }, [initTerminal, connectWs]);
+
+  // ── Refit after maximize toggle ─────────────────────────────────────────────
+  useEffect(() => {
+    const id = setTimeout(_fit, 50);
+    return () => clearTimeout(id);
+  }, [maximized, _fit]);
+
+  // ── Search panel auto-focus / cleanup ──────────────────────────────────────
+  useEffect(() => {
+    searchOpenRef.current = searchOpen;
+    if (searchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    } else {
+      termRef.current?.focus();
+      setSearchQuery("");
+      searchAddonRef.current?.clearDecorations?.();
+    }
+  }, [searchOpen]);
+
+  const handleManualReconnect = useCallback(() => {
+    reconnectAttemptsRef.current = 0;
+    reconnectNoticeShownRef.current = false;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    void connectWs();
+  }, [connectWs]);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <Card
+      className={`flex flex-col overflow-hidden ${
+        maximized ? "fixed inset-4 z-50 rounded-xl shadow-2xl" : "h-full"
+      }`}
+    >
+      {/* ── Toolbar ── */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-black">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-mono text-text-muted shrink-0">Terminal</span>
+
+          {(connState === "connecting" || connState === "reconnecting") ? (
+            <Badge variant="warning" className="text-[10px] px-1.5 py-0 flex items-center gap-1 shrink-0">
+              <Loader2 className="h-2.5 w-2.5 animate-spin text-sky-400" />
+              {connState === "reconnecting" ? "Reconnecting" : "Connecting"}
+            </Badge>
+          ) : (
+            <Badge
+              variant={_badgeVariant(connState)}
+              className="text-[10px] px-1.5 py-0 shrink-0"
+            >
+              {connState === "connected" ? "Connected" : connState === "disconnected" ? "Disconnected" : "Error"}
+            </Badge>
+          )}
+
+          {statusMsg && (
+            <span className={`text-xs font-mono truncate ${connState === "connected" ? "text-emerald" : "text-text-muted"}`}>
+              {statusMsg}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          {(connState === "disconnected" || connState === "error") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs"
+              onClick={handleManualReconnect}
+            >
+              Reconnect
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setMaximized((m) => !m)}
+          >
+            {maximized ? (
+              <Minimize2 className="h-3 w-3" />
+            ) : (
+              <Maximize2 className="h-3 w-3" />
+            )}
+          </Button>
+          {onClose && (
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose}>
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Terminal canvas ── */}
+      <div
+        ref={containerRef}
+        className="relative flex-1 min-h-0 overflow-hidden bg-black p-1 [&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto"
+        onClick={() => termRef.current?.focus()}
+      >
+        {/* Ctrl+F search panel, overlay inside terminal area */}
+        {searchOpen && (
+          <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 rounded border border-border bg-[#0f172a] px-2 py-1 shadow-lg">
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (e.target.value) {
+                  searchAddonRef.current?.findNext(e.target.value, {
+                    incremental: true,
+                    regex: false,
+                    caseSensitive: false,
+                  });
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (e.shiftKey) _searchPrev();
+                  else _searchNext();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setSearchOpen(false);
+                }
+              }}
+              placeholder="Find…"
+              className="h-6 w-40 bg-transparent text-xs text-slate-200 outline-none placeholder:text-slate-500"
+              aria-label="Terminal search"
+              spellCheck={false}
+            />
+            <button
+              onClick={_searchPrev}
+              className="px-1 text-slate-400 hover:text-slate-200"
+              aria-label="Previous match"
+            >
+              &#8593;
+            </button>
+            <button
+              onClick={_searchNext}
+              className="px-1 text-slate-400 hover:text-slate-200"
+              aria-label="Next match"
+            >
+              &#8595;
+            </button>
+            <button
+              onClick={() => setSearchOpen(false)}
+              className="px-1 text-slate-400 hover:text-slate-200"
+              aria-label="Close search"
+            >
+              &#215;
+            </button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}

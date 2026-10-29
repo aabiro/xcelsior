@@ -1,0 +1,391 @@
+export type McpScope =
+  | "instances:read"
+  | "instances:write"
+  | "instances:operate"
+  | "instances:connect"
+  | "ssh:read"
+  | "ssh:write"
+  | "volumes:read"
+  | "volumes:write"
+  | "artifacts:read"
+  | "billing:read"
+  | "billing:write"
+  | "gpu:read"
+  | "marketplace:read"
+  | "hosts:read"
+  | "hosts:operate"
+  | "hosts:evict"
+  | "control_plane:read"
+  | "control_plane:operate"
+  | "mcp_actions:approve"
+  | "events:read"
+  | "inference:read"
+  | "inference:write"
+  | "providers:read"
+  | "reputation:read"
+  | "reputation:write"
+  | "providers:write";
+
+/**
+ * A tool's authorization requirement.
+ *
+ * `allOf` — every scope is required (the default for multi-scope tools).
+ * `anyOf` — any one suffices, for a subject that may live in several domains.
+ */
+export interface ScopeRequirement {
+  allOf?: McpScope[];
+  anyOf?: McpScope[];
+}
+
+/**
+ * The tool registry. This object's **key set is the source of truth** for which
+ * tools exist, and `ToolName` below is what every other per-tool table is keyed
+ * by — policy, annotations, descriptions. Adding an entry here and nowhere else
+ * is a compile error rather than a drift a test has to catch.
+ *
+ * Declared as a `const` with `satisfies` rather than annotated directly: an
+ * annotation of `Record<string, ScopeRequirement>` would widen the key type to
+ * `string` and `ToolName` would become useless, which is the failure mode that
+ * makes an inversion like this quietly do nothing.
+ */
+const TOOL_SCOPE_REGISTRY = {
+  list_available_gpus: { allOf: ["gpu:read"] },
+  get_spot_prices: { allOf: ["marketplace:read"] },
+  get_pricing_reference: { allOf: ["gpu:read"] },
+  search_marketplace: { allOf: ["marketplace:read"] },
+  list_tiers: { allOf: ["gpu:read"] },
+  list_instances: { allOf: ["instances:read"] },
+  get_instance: { allOf: ["instances:read"] },
+  get_instance_logs: { allOf: ["instances:read"] },
+  create_instance: { allOf: ["instances:write"] },
+  cancel_instance: { allOf: ["instances:write"] },
+  terminate_instance: { allOf: ["instances:write"] },
+  should_i_run_this: { allOf: ["billing:read", "instances:read"] },
+  run_training_job: { allOf: ["instances:write", "billing:read"] },
+  schedule_under_budget: { allOf: ["instances:write", "gpu:read", "marketplace:read"] },
+  watch_instance: { allOf: ["instances:read"] },
+  // P2. Adding a key is the step that grants shell access, which is why
+  // `ssh:write` is split from `ssh:read` and why its consent text names
+  // shell access rather than "manage keys".
+  register_ssh_key: { allOf: ["ssh:write"] },
+  // The other two thirds of the same journey. `ssh:read` was declared when the
+  // scope was split and **no tool ever used it** — the read half was designed
+  // and not built, so an agent could grant shell access and neither show which
+  // keys were authorised nor take one away.
+  list_ssh_keys: { allOf: ["ssh:read"] },
+  // Both halves, deliberately: **you cannot revoke what you cannot see.**
+  // The route asks only for `ssh:write`; requiring `ssh:read` as well keeps
+  // this out of Quick Connect's reach, which holds write and not read so a
+  // connector can register its own key and not enumerate the account's.
+  // Reachable with `ssh:write` alone, a connector could disconnect a live
+  // session using an id it was handed rather than one it could look up.
+  delete_ssh_key: { allOf: ["ssh:write", "ssh:read"] },
+  // P3 — durable state. Reads are `volumes:read`; anything that creates,
+  // moves or destroys is `volumes:write`, and every destructive one is
+  // confirm-gated in the handler as well.
+  list_volumes: { allOf: ["volumes:read"] },
+  get_volume: { allOf: ["volumes:read"] },
+  create_volume: { allOf: ["volumes:write"] },
+  // Promotion reads artifacts and writes a volume, so it needs both. The
+  // read half is not decorative: without it a caller could copy artifacts it
+  // may not read onto a volume it may write.
+  promote_artifact_to_volume: { allOf: ["volumes:write", "artifacts:read"] },
+  get_promotion_status: { allOf: ["volumes:read"] },
+  // A pipeline requires the **union** of its stages' scopes, computed per
+  // graph by the API. This entry is the floor for reaching the endpoint at
+  // all; `instances:write` is what quoting a graph costs, and the route then
+  // demands each stage's own scope before the plan is created.
+  run_pipeline: { allOf: ["instances:write"] },
+  // Withdrawing a plan you asked for. `anyOf` rather than a single scope
+  // because plans exist for instances, serverless endpoints, pipelines and
+  // sweeps, each requiring its own write authority — and the route re-checks
+  // the plan's *actual* `required_scopes` on top of this. A permissive floor is
+  // safe here in a way it would not be elsewhere: revoking only ever removes
+  // the ability to spend. It cannot cause a charge.
+  revoke_launch_plan: { anyOf: ["instances:write", "inference:write"] },
+  get_pipeline_status: { allOf: ["instances:read"] },
+  attach_volume: { allOf: ["volumes:write", "instances:read"] },
+  detach_volume: { allOf: ["volumes:write"] },
+  delete_volume: { allOf: ["volumes:write"] },
+  snapshot_volume: { allOf: ["volumes:write"] },
+  // The rest of a snapshot. `snapshot_volume` could take one and nothing could
+  // list them or put one back — a backup you cannot restore is not a backup, and
+  // this is the same act-without-an-exit shape as the serverless cancels.
+  list_volume_snapshots: { allOf: ["volumes:read"] },
+  // Restoring overwrites the volume's current contents, so it carries the write
+  // scope and is confirm-gated in the handler like the other destructive ones.
+  restore_volume_snapshot: { allOf: ["volumes:write"] },
+  // The retention clock. Read-only, and the one tool that tells a user their
+  // work is about to be deleted.
+  get_artifact_expiry: { allOf: ["artifacts:read"] },
+  // P2. The scope the consent screen describes as "open a terminal on your
+  // running instances" — the same one `/api/terminal/ticket` and the stream,
+  // expose and auto-launch routes enforce.
+  open_instance_access: { allOf: ["instances:connect", "instances:read"] },
+  list_serverless_endpoints: { allOf: ["inference:read"] },
+  create_serverless_endpoint: { allOf: ["inference:write"] },
+  should_i_run_pel_job: { allOf: ["billing:read", "inference:read"] },
+  run_serverless_job: { allOf: ["inference:write"] },
+  get_serverless_job_status: { allOf: ["inference:read"] },
+  // Operating the endpoint you created. An agent could create one and run jobs
+  // on it and could not ask whether it was serving, read its configuration, or
+  // see what was running — `list_serverless_endpoints` returns all of them and
+  // `get_serverless_job_status` answers about a job_id already in hand.
+  get_serverless_endpoint: { allOf: ["inference:read"] },
+  get_serverless_endpoint_health: { allOf: ["inference:read"] },
+  list_serverless_endpoint_jobs: { allOf: ["inference:read"] },
+  // The exits. GT0 found entrances everywhere and exits missing — an agent
+  // could create an endpoint and run jobs on it with no tool to stop either.
+  cancel_serverless_job: { allOf: ["inference:write"] },
+  delete_serverless_endpoint: { allOf: ["inference:write"] },
+  explain_instance_placement: { allOf: ["instances:read"] },
+  simulate_instance_placement: { allOf: ["instances:read", "gpu:read"] },
+  evaluate_placement_preference: { allOf: ["instances:read", "gpu:read"] },
+  get_instance_timeline: { allOf: ["instances:read"] },
+  // `events:read` finally has a user. It was granted at consent and required by
+  // nothing, which is a permission asked of users that authorised nothing they
+  // could reach. The account-wide `/api/events` is admin-only and never was an
+  // agent capability; what this scope actually gates is the per-entity event
+  // history — and that is **not** the attempt timeline above. §20.3's timeline
+  // explains placement (reserve → command → lease); this is the state-change log,
+  // and it covers hosts as well as jobs.
+  get_event_history: { allOf: ["events:read"] },
+  get_active_lease: { allOf: ["instances:read"] },
+  get_scheduler_health: { allOf: ["control_plane:read"] },
+  get_host_capacity: { allOf: ["hosts:read"] },
+  list_reconciliation_findings: { allOf: ["instances:read", "control_plane:read"] },
+  get_mcp_action_status: { anyOf: ["instances:read", "inference:read", "hosts:read"] },
+  retry_instance: { allOf: ["instances:operate"] },
+  reconcile_instance: { allOf: ["instances:operate"] },
+  drain_host: { allOf: ["hosts:operate"] },
+  undrain_host: { allOf: ["hosts:operate"] },
+  evict_host_workloads: { allOf: ["hosts:evict"] },
+  retry_agent_command: { allOf: ["control_plane:operate"] },
+  get_wallet_balance: { allOf: ["billing:read"] },
+  // The other half of a balance. `get_wallet_balance` returns a number, and the
+  // first question after an unexpected number is *where did it go* — which had
+  // no answer on the surface at all.
+  get_wallet_history: { allOf: ["billing:read"] },
+  // The other ways to put money in. P1's clause is that a declined card must not
+  // be a dead end, and three rails that need no browser at all — Bitcoin,
+  // Lightning, PayPal — had no tool between them, so the only answer an agent
+  // could give was "go to the dashboard". Reads capability flags and a rate;
+  // creates nothing and moves nothing.
+  list_funding_options: { allOf: ["billing:read"] },
+  // The rail itself, once `list_funding_options` says it is available. Creating
+  // a deposit request is the safe direction — it produces an address for the
+  // user to send funds *to*, and spends nothing — but it is `billing:write`
+  // because it commits a rate-locked quote and Quick Connect must not reach it.
+  create_crypto_deposit: { allOf: ["billing:write"] },
+  get_crypto_deposit: { allOf: ["billing:read"] },
+  // The same rail over Lightning: an invoice instead of an address, settled in
+  // seconds instead of confirmations. Identical guards on the route.
+  create_lightning_deposit: { allOf: ["billing:write"] },
+  get_lightning_deposit: { allOf: ["billing:read"] },
+  // Reads the wallet *and* the running instances burning it down, so it needs
+  // both. `instances:read` is not incidental here: the runway is meaningless
+  // without knowing what is consuming it, and the per-instance breakdown names
+  // the jobs that will be stopped.
+  get_spend_envelope: { allOf: ["billing:read", "instances:read"] },
+  estimate_job_cost: { allOf: ["billing:read"] },
+  list_invoices: { allOf: ["billing:read"] },
+  list_payment_methods: { allOf: ["billing:read"] },
+  top_up_wallet: { allOf: ["billing:write"] },
+  // Reading which charges stopped for a bank challenge. `billing:read`, not
+  // write: it moves nothing and returns no `client_secret`. The resume route
+  // that does return one is deliberately not on the tool surface.
+  list_pending_verifications: { allOf: ["billing:read"] },
+  configure_auto_topup: { allOf: ["billing:write"] },
+  get_auto_topup: { allOf: ["billing:read"] },
+  // The snapshot half of P7, and the reason the sweep was unusable without it:
+  // `create_image_sweep` needs an `image_id` and nothing could produce or find
+  // one. Listing is `instances:read`; taking or deleting a snapshot mutates the
+  // tenant's images and is `instances:write`.
+  create_instance_snapshot: { allOf: ["instances:write"] },
+  list_user_images: { allOf: ["instances:read"] },
+  delete_user_image: { allOf: ["instances:write"] },
+  // P7 — the image sweep. Creating one only *quotes* it: the launch happens
+  // when an approved plan is executed, and both halves are `instances:write`
+  // because a caller who can quote a sweep must be able to run the one they
+  // approved.
+  create_image_sweep: { allOf: ["instances:write"] },
+  get_image_sweep: { allOf: ["instances:read"] },
+  // P6's provider surface. The plan's clause is "a provider journey — register
+  // → admit → publish → earn → payout — completes through tools plus the
+  // browser handoffs", and GT0's note on these endpoints read "no tool reaches
+  // any of it". The read half needs nothing that is currently blocked; only the
+  // money-moving half waits on webhook delivery.
+  //
+  // `providers:read` **is** in the Quick Connect grant. It was withheld first,
+  // on the argument that a provider is a different persona from a customer and
+  // the default connector is issued to customers. That reasoning was reached by
+  // analogy to `ssh:read` and the cases differ, so it was reversed: all four
+  // routes behind this scope are owner-scoped — the listing filters to the
+  // caller's own provider_id and returns `[]` for someone who supplies no
+  // hardware, the per-provider routes sit behind `_require_provider_access`,
+  // and every one redacts the Stripe and PayPal identifiers. Granting it to a
+  // customer therefore discloses nothing; it hands a capability only to someone
+  // who already has one. `ssh:read` is genuinely different — it discloses key
+  // material to a connector the user did not think they were arming.
+  //
+  // `providers:write` stays out: register, disconnect and resume-onboarding
+  // move a payout destination. Held in three places that must agree —
+  // MCP_QUICK_CONNECT_SCOPES (what a token carries) and SYSTEM_ALLOWED_SCOPES
+  // (what the system principal may grant) in the API, and this registry.
+  list_providers: { allOf: ["providers:read"] },
+  get_provider_account: { allOf: ["providers:read"] },
+  get_provider_earnings: { allOf: ["providers:read"] },
+  // P6's yield axis. Reputation is what a tier — and therefore the commission
+  // rate, the search boost and the pricing premium — is computed from, so this
+  // is the half of "why am I not earning more" that `get_provider_earnings`
+  // cannot answer.
+  //
+  // Reachable by Quick Connect, decided on the routes rather than by analogy to
+  // the pair above. `/api/reputation/me` and `/me/journey` resolve the subject
+  // from the caller's own credential; `/api/trust-tiers` is the same public
+  // ladder for everyone and holds no personal data; `breakdown` is behind
+  // `_require_reputation_entity_access`, which admits the owner or an admin and
+  // 403s anyone else — so passing someone else's id is refused by the API, not
+  // by the absence of a scope. A customer who hosts nothing gets `new_user` and
+  // an empty journey, which is the same "empty is the answer" shape as
+  // `list_providers`.
+  //
+  // `reputation:write` is not granted: it claims milestones, which grant points
+  // and verification badges. Recorded as non-operator in oauth_delegation.py.
+  get_my_reputation: { allOf: ["reputation:read"] },
+  get_reputation_journey: { allOf: ["reputation:read"] },
+  get_trust_tiers: { allOf: ["reputation:read"] },
+  get_reputation_breakdown: { allOf: ["reputation:read"] },
+  get_reputation_leaderboard: { allOf: ["reputation:read"] },
+  get_reputation_history: { allOf: ["reputation:read"] },
+  // The exit for the journey above. `get_reputation_journey` reports how many
+  // milestones are ready to claim, and nothing could claim them — the
+  // read-without-an-act shape that left `list_ssh_keys` and the serverless
+  // cancels missing. The route grants only what is already earned: progress is
+  // recomputed from real account and activity state, so this cannot fabricate a
+  // milestone, and it is idempotent because the engine skips ones already held.
+  //
+  // **Not** reachable by Quick Connect, and unlike the reads above that is not a
+  // disclosure judgement — `reputation:write` awards points and verification
+  // badges, which move a provider's tier and therefore the commission they pay.
+  // A provider whose agent should do this issues a credential carrying it.
+  claim_reputation_milestones: { allOf: ["reputation:write"] },
+  get_paypal_status: { allOf: ["providers:read"] },
+  // P6's first step: register → admit → publish → earn → payout. Safe to build
+  // only since the API stopped letting the caller name `provider_id` — before
+  // that a retry on a timeout minted a **second** Stripe Connect account and
+  // orphaned the first, which is what filled the test dashboard with 1,389 of
+  // them. The id now resolves from the credential, so a repeat finds the
+  // existing row and regenerates a link.
+  //
+  // Outside Quick Connect: `providers:write` creates a payout destination.
+  register_provider: { allOf: ["providers:write"] },
+  // P6's last step. The gate's wording is "a payout is bound to job, amount,
+  // currency, destination state, and idempotency key. Replay produces one
+  // payout" — and the API already holds every clause: the caller names a job
+  // and a rail and nothing else, amount, ownership, currency and terminal state
+  // are derived from PostgreSQL under `FOR UPDATE`, and settlement is inserted
+  // `ON CONFLICT (settlement_key) DO NOTHING` with a per-job idempotency key
+  // handed to the rail. Two calls settle one job once.
+  //
+  // Not launch-plan gated, unlike `create_instance`. Plans exist to bound
+  // *spend* the caller chooses; here the caller chooses no amount at all — the
+  // figure comes from a job that already completed, and the destination is the
+  // provider's own account. There is nothing for an approval to constrain that
+  // the settlement lock does not already fix.
+  request_provider_payout: { allOf: ["providers:write"] },
+  // Company knowledge (optional, off by default). These read published
+  // documentation and public pricing — no tenant data — so they take the
+  // broad read set rather than a scope of their own. A dedicated scope would
+  // make every existing connector token unable to read our own docs, for no
+  // security gain over content anyone can already load in a browser.
+  search: { anyOf: ["gpu:read", "marketplace:read", "instances:read", "inference:read", "billing:read"] },
+  fetch: { anyOf: ["gpu:read", "marketplace:read", "instances:read", "inference:read", "billing:read"] },
+} satisfies Record<string, ScopeRequirement>;
+
+/**
+ * Every registered tool name, as a union type.
+ *
+ * This is what makes the other tables complete by construction rather than by
+ * inspection. `Record<ToolName, …>` in `contracts.ts` and `descriptions.ts`
+ * rejects both a missing tool and one that does not exist.
+ */
+export type ToolName = keyof typeof TOOL_SCOPE_REGISTRY;
+
+/**
+ * Scope requirements, indexed loosely on purpose.
+ *
+ * The enforcement call sites look up whatever name arrived on the wire, and an
+ * unregistered name **must** read as `undefined` so `satisfiesScope` denies it.
+ * Narrowing this export to `Record<ToolName, …>` would make that lookup a type
+ * error and invite a cast, which is how a deny-by-default becomes an assertion
+ * that the name is valid. Completeness is enforced where the tables are
+ * *declared*; lookup stays permissive so an unknown tool is denied, not trusted.
+ */
+export const TOOL_SCOPES: Record<string, ScopeRequirement> = TOOL_SCOPE_REGISTRY;
+
+/**
+ * Whether a granted scope set satisfies one required scope.
+ *
+ * A scope is satisfied only by holding it. There is no wildcard and no broad
+ * grant: `api` used to short-circuit every check here, which made scope
+ * reduction decorative — a token issued for read-only automation could launch
+ * instances. It is removed from the enum entirely rather than narrowed, so
+ * there is no value a caller can hold that means "everything".
+ */
+function grants(granted: ReadonlySet<string>, scope: McpScope): boolean {
+  return granted.has(scope);
+}
+
+/**
+ * Does this principal satisfy a tool's scope requirement?
+ *
+ * The previous implementation was `required.some(...)`, which accepted **any
+ * one** of a tool's scopes. Because every contract also listed `"api"`, and
+ * `api` short-circuited to `true` before any check ran, a token holding only
+ * `gpu:read` satisfied `schedule_under_budget`'s `instances:write`, and
+ * `billing:read` alone satisfied `run_training_job`. Scope reduction — which
+ * Quick Connect performs deliberately — had no effect on what a token could do.
+ * Both the wildcard and the any-one-of semantics are gone.
+ *
+ * `allOf` is cumulative and is the default for a tool that genuinely needs
+ * several scopes. `anyOf` is for a tool whose subject may live in one of
+ * several domains, where holding any one of them is the correct test.
+ */
+export function satisfiesScope(
+  userScopes: string[] | undefined,
+  requirement: ScopeRequirement | undefined,
+): boolean {
+  if (!userScopes?.length || !requirement) return false;
+  const hasAllOf = requirement.allOf?.length ?? 0;
+  const hasAnyOf = requirement.anyOf?.length ?? 0;
+  // An empty requirement is a definition error, not "open to everyone".
+  if (!hasAllOf && !hasAnyOf) return false;
+
+  const granted = new Set(userScopes);
+  const all = requirement.allOf?.every((scope) => grants(granted, scope)) ?? true;
+  const any = !hasAnyOf || requirement.anyOf!.some((scope) => grants(granted, scope));
+  return all && any;
+}
+
+/** @deprecated Use {@link satisfiesScope}. Retained for existing call sites. */
+export function userHasScope(
+  userScopes: string[] | undefined,
+  required: ScopeRequirement | undefined,
+): boolean {
+  return satisfiesScope(userScopes, required);
+}
+
+/** Flat union of a requirement's scopes, for metadata and advertising only. */
+export function scopeUnion(requirement: ScopeRequirement | undefined): McpScope[] {
+  return [...new Set([...(requirement?.allOf ?? []), ...(requirement?.anyOf ?? [])])];
+}
+
+/** Human-readable requirement, for denial messages. */
+export function describeScopeRequirement(requirement: ScopeRequirement | undefined): string {
+  if (!requirement) return "an unknown scope (tool has no contract)";
+  const parts: string[] = [];
+  if (requirement.allOf?.length) parts.push(`all of: ${requirement.allOf.join(", ")}`);
+  if (requirement.anyOf?.length) parts.push(`one of: ${requirement.anyOf.join(", ")}`);
+  return parts.join("; ") || "an empty requirement (definition error)";
+}

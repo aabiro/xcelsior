@@ -1,0 +1,4402 @@
+"""Routes: instances."""
+
+import asyncio
+import hmac
+import ipaddress
+import json
+import os
+import re
+import threading
+import time
+import uuid
+from typing import Any, Literal, NoReturn, cast
+
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse, Response
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from routes._deps import (
+    AUTH_REQUIRED,
+    _AUTH_COOKIE_NAME,
+    _USE_PERSISTENT_AUTH,
+    _api_keys,
+    _canonical_owner_id,
+    _effective_billing_customer_id,
+    _user_team_id,
+    _check_job_access,
+    _check_job_write_access,
+    _require_user_image_write,
+    _user_image_scope_owner_id,
+    _check_ws_connect_rate_limit,
+    _require_team_instance_write,
+    append_user_audit_event,
+    _user_can_access_volume,
+    _consume_ws_ticket,
+    _filter_jobs_for_user,
+    _get_current_user,
+    _is_platform_admin,
+    _issue_ws_ticket,
+    _require_admin,
+    _require_auth,
+    _require_scope,
+    _sessions,
+    _shared_state_update,
+    _sse_lock,
+    _sse_subscribers,
+    _user_lock,
+    _user_owns_job,
+    _validate_ws_origin,
+    _validate_ws_auth,  # re-exported for backward compat with tests
+    broadcast_sse,
+    log,
+    otel_span,
+)
+from scheduler import (
+    API_TOKEN,
+    failover_and_reassign,
+    get_job,
+    get_job,
+    host_accepts_spot_job,
+    host_uses_worker_agent,
+    kill_job,
+    legacy_inline_placement_allowed,
+    list_hosts,
+    list_jobs,
+    list_tiers,
+    log,
+    process_queue,
+    process_queue_binpack,
+    requeue_job,
+    run_job,
+    submit_job,
+    update_job_status,
+)
+from db import UserStore
+from collections import defaultdict
+
+# Maximum concurrent active (queued/assigned/starting/running) instances per user
+# if the user has no explicit `users.max_concurrent_instances` override.
+MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES", "20"))
+
+# Shared pool limits for team contexts (aligned with team member tiers).
+_TEAM_PLAN_CONCURRENCY_CAPS = {
+    "free": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_FREE", "5")),
+    "pro": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_PRO", "25")),
+    "dedicated": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_DEDICATED", "100")),
+}
+
+_ACTIVE_STATUSES = {"queued", "assigned", "starting", "running"}
+
+
+# ---------------------------------------------------------------------------
+# P3/B4 — per-user snapshot rate limit (sliding window, in-memory).
+# Defends against a runaway client or compromised token flooding the
+# worker agent with `docker commit` jobs (which are CPU/IO heavy and can
+# fill disk). In-memory state is fine for a single-process API; if the
+# deployment ever shards across multiple API replicas, move to Redis.
+# ---------------------------------------------------------------------------
+from collections import deque as _deque  # noqa: E402
+
+_SNAPSHOT_RATE_LIMIT = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_LIMIT", "5"))
+_SNAPSHOT_RATE_WINDOW_SEC = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_WINDOW_SEC", "3600"))
+#: Per-process fallback only. The limit is enforced through the shared runtime
+#: state first, because this dict lives in one worker's memory and the default
+#: deployment runs two of them: a user whose requests round-robin got
+#: `_SNAPSHOT_RATE_LIMIT` snapshots *per worker*, so the quota the code states
+#: was twice what the code enforced (and four times it at GUNICORN_WORKERS=4).
+#: Snapshots are a docker commit plus a registry push, so the quota is there to
+#: bound real disk and bandwidth, not just request volume.
+_SNAPSHOT_RATE_BUCKETS: dict[str, "_deque[float]"] = {}
+_SNAPSHOT_RATE_LOCK = threading.Lock()
+_SNAPSHOT_RATE_STATE_NAMESPACE = os.environ.get(
+    "XCELSIOR_SNAPSHOT_RATE_STATE_NAMESPACE",
+    "runtime.snapshot_rate_limit",
+)
+
+
+# ---------------------------------------------------------------------------
+# P3/C1 — Prometheus counters for snapshot pipeline observability.
+# `outcome` label: enqueued | rate_limited | forbidden | not_found |
+# bad_state | duplicate_name | ready | failed.
+# ---------------------------------------------------------------------------
+try:
+    from prometheus_client import Counter as _PromCounter  # type: ignore
+
+    _snapshot_requests_total = _PromCounter(
+        "xcelsior_snapshot_requests_total",
+        "Snapshot endpoint outcomes (pre-worker).",
+        ["outcome"],
+    )
+    _snapshot_completions_total = _PromCounter(
+        "xcelsior_snapshot_completions_total",
+        "Snapshot worker-callback outcomes.",
+        ["status"],
+    )
+except Exception:  # pragma: no cover — prom lib not installed
+
+    class _NoopCounter:
+        def labels(self, *a, **kw):
+            return self
+
+        def inc(self, *a, **kw):
+            return None
+
+    _snapshot_requests_total = _NoopCounter()  # type: ignore
+    _snapshot_completions_total = _NoopCounter()  # type: ignore
+
+
+def _check_snapshot_rate_limit(owner_id: str) -> None:
+    """Raise 429 if ``owner_id`` exceeds the configured snapshot quota.
+
+    Default: 5 snapshots per rolling 60 minutes per user. Bypass entirely
+    by setting ``XCELSIOR_SNAPSHOT_RATE_LIMIT=0`` (useful for tests and
+    internal admin tooling).
+    """
+    if _SNAPSHOT_RATE_LIMIT <= 0:
+        return
+    now = time.time()
+
+    shared_ok, shared_retry_in = _shared_state_update(
+        _SNAPSHOT_RATE_STATE_NAMESPACE,
+        lambda: {"buckets": {}},
+        lambda state: _mutate_shared_snapshot_buckets(state, owner_id, now),
+    )
+    if shared_ok:
+        if shared_retry_in is None:
+            return
+        _refuse_snapshot(int(shared_retry_in))
+
+    with _SNAPSHOT_RATE_LOCK:
+        bucket = _SNAPSHOT_RATE_BUCKETS.setdefault(owner_id, _deque())
+        while bucket and bucket[0] <= now - _SNAPSHOT_RATE_WINDOW_SEC:
+            bucket.popleft()
+        if len(bucket) >= _SNAPSHOT_RATE_LIMIT:
+            retry_in = int(_SNAPSHOT_RATE_WINDOW_SEC - (now - bucket[0]))
+        else:
+            bucket.append(now)
+            return
+    _refuse_snapshot(retry_in)
+
+
+def _refuse_snapshot(retry_in: int) -> NoReturn:
+    _snapshot_requests_total.labels(outcome="rate_limited").inc()
+    raise HTTPException(
+        429,
+        f"Snapshot rate limit exceeded: max {_SNAPSHOT_RATE_LIMIT} per "
+        f"{_SNAPSHOT_RATE_WINDOW_SEC // 60} min. Retry in ~{retry_in}s.",
+    )
+
+
+def _mutate_shared_snapshot_buckets(
+    state: dict, owner_id: str, now: float
+) -> tuple[dict, int | None]:
+    """Prune the rolling window and take a slot, or report the wait.
+
+    Returns ``None`` when the request is allowed and the seconds to wait when
+    it is not, so the caller raises with the same `Retry-After` figure whether
+    the decision came from shared state or the per-process fallback.
+    """
+    cutoff = now - _SNAPSHOT_RATE_WINDOW_SEC
+    buckets = state.get("buckets", {}) or {}
+    pruned: dict[str, list[float]] = {}
+    for key, entries in buckets.items():
+        cleaned = [float(ts) for ts in (entries or []) if float(ts) > cutoff]
+        if cleaned:
+            pruned[key] = cleaned[-_SNAPSHOT_RATE_LIMIT:]
+
+    history = pruned.get(owner_id, [])
+    if len(history) >= _SNAPSHOT_RATE_LIMIT:
+        return (
+            {"buckets": pruned, "updated_at": now},
+            int(_SNAPSHOT_RATE_WINDOW_SEC - (now - history[0])),
+        )
+
+    history.append(now)
+    pruned[owner_id] = history[-_SNAPSHOT_RATE_LIMIT:]
+    return {"buckets": pruned, "updated_at": now}, None
+
+
+def _lookup_user_concurrency_override(customer_id: str) -> int | None:
+    """Return per-user admin override, or None when unset."""
+    if not customer_id:
+        return None
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT max_concurrent_instances FROM users WHERE customer_id = %s LIMIT 1",
+                (customer_id,),
+            )
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return int(row[0])
+    except Exception as e:
+        log.debug("concurrency cap lookup failed for %s: %s", customer_id, e)
+    return None
+
+
+def _get_user_concurrency_cap(customer_id: str) -> int:
+    """Return the active-instance cap for a billing customer id (personal scope)."""
+    override = _lookup_user_concurrency_override(customer_id)
+    if override is not None:
+        return override
+    return MAX_CONCURRENT_INSTANCES_PER_USER
+
+
+def _get_effective_concurrency_cap(user: dict) -> int:
+    """Active-instance cap for the caller's billing scope (personal or team).
+
+    Hierarchy:
+      1. Owner `users.max_concurrent_instances` override when set.
+      2. Team plan cap when acting in a team context.
+      3. `MAX_CONCURRENT_INSTANCES` env default.
+    """
+    billing_id = _effective_billing_customer_id(user)
+    override = _lookup_user_concurrency_override(billing_id)
+    if override is not None:
+        return override
+
+    team_id = _user_team_id(user)
+    if team_id:
+        team = UserStore.get_team(team_id)
+        if team:
+            plan = str(team.get("plan") or "free").strip().lower()
+            return _TEAM_PLAN_CONCURRENCY_CAPS.get(plan, MAX_CONCURRENT_INSTANCES_PER_USER)
+
+    return MAX_CONCURRENT_INSTANCES_PER_USER
+
+
+def _count_active_instances_for_user(user: dict) -> int:
+    """Count active instances in the caller's billing scope (shared for teams)."""
+    return _count_active_instances(_effective_billing_customer_id(user))
+
+
+def _enforce_concurrency_limit(user: dict) -> None:
+    """Raise 429 when the caller's billing scope is at its concurrent cap."""
+    cap = _get_effective_concurrency_cap(user)
+    active = _count_active_instances_for_user(user)
+    if active >= cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Concurrent instance limit reached ({cap}). "
+            "Please stop an existing instance before launching a new one.",
+        )
+
+
+def _count_active_instances(customer_id: str) -> int:
+    """Count a user's active (non-terminal) instances via a single SQL query.
+
+    Uses `payload->>'owner'` because the jobs table stores owner inside the
+    JSONB payload (thin-schema convention — see repo memory). `status = ANY(...)`
+    lets PostgreSQL use the status index for the set membership.
+    """
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM jobs WHERE payload->>'owner' = %s AND status = ANY(%s)",
+                (customer_id, list(_ACTIVE_STATUSES)),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row else 0
+    except Exception as e:
+        # If the SQL path breaks, fall back to the Python filter so we never
+        # completely lose the gate. (Worst case: O(N) on all jobs once.)
+        log.warning("SQL active-instance count failed for %s: %s — falling back", customer_id, e)
+        return sum(
+            1
+            for j in list_jobs()
+            if j.get("owner") == customer_id and j.get("status") in _ACTIVE_STATUSES
+        )
+
+
+from agent_preempt import schedule_host_preemptions
+
+router = APIRouter()
+
+# Job log and WebSocket state
+_JOB_LOG_MAX = 500
+_job_log_buffers: dict[str, list[dict]] = defaultdict(list)
+_ws_connections: dict[str, set] = defaultdict(set)
+
+
+def _broadcast_instance_lifecycle_sse(
+    sse_event: str,
+    data: dict,
+    *,
+    event_type: str,
+    job_id: str,
+    idempotency_key: str,
+) -> None:
+    """Durable multi-replica SSE for instance lifecycle request-path sites.
+
+    Appends an outbox row (dispatcher → NOTIFY → every API replica's LISTEN
+    bridge). Falls back to process-local ``broadcast_sse`` only when the
+    outbox path is unavailable so single-replica/dev still works.
+    """
+    try:
+        from control_plane.outbox_runtime import enqueue_lifecycle_sse_outbox
+
+        if enqueue_lifecycle_sse_outbox(
+            aggregate_type="job",
+            aggregate_id=str(job_id),
+            event_type=event_type,
+            payload=data,
+            idempotency_key=idempotency_key,
+        ):
+            return
+    except Exception as e:
+        log.debug("instance lifecycle SSE outbox failed (%s); process-local", e)
+    broadcast_sse(sse_event, data)
+
+
+def _require_worker_status_update(request: Request) -> dict:
+    """PATCH /instance/{job_id} is for worker agents, not end users.
+
+    Accepts the platform master token, admin principals, and OAuth
+    client_credentials tokens issued to worker agents (``hosts:write`` or
+    ``api`` scope). Without this, agents can heartbeat and claim leases but
+    cannot advance leased → starting → running, leaving jobs to die in the
+    reaper's short ``leased`` budget during long image pulls.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    if _is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token"):
+        return user
+    grant = str(user.get("grant_type") or user.get("auth_type") or "")
+    if grant == "client_credentials":
+        _require_scope(user, "hosts:write")
+        return user
+    if os.environ.get("XCELSIOR_ENV", "").lower() == "test":
+        return user
+    raise HTTPException(403, "Worker authentication required")
+
+
+class PlacementPreferenceBody(BaseModel):
+    """A stated placement preference on a launch — the same shape
+    `/api/v1/placements/evaluate` takes, so what a user previewed is what they
+    can submit.
+
+    Bounds mirror `routes.action_plans.PlacementPreferenceIn` deliberately: one
+    validator disagreeing with another is how a request that previewed fine gets
+    refused at launch. The database CHECKs (migration 115) sit beneath both.
+    """
+
+    min_uptime_pct: float | None = Field(default=None, ge=0, le=100)
+    min_tier: str | None = Field(default=None, max_length=32)
+    require_verified: bool = False
+    max_premium_pct: float | None = Field(default=None, ge=0, le=10_000)
+
+
+class JobIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    vram_needed_gb: float = Field(default=0, ge=0)
+    priority: int = Field(default=0, ge=0, le=10)
+    tier: str | None = None
+    num_gpus: int = Field(default=1, ge=1, le=64)
+    host_id: str | None = None
+    gpu_model: str | None = None
+    nfs_server: str | None = None
+    nfs_path: str | None = None
+    nfs_mount_point: str | None = None
+    image: str | None = None
+    interactive: bool = True
+    command: str | None = None
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    pricing_mode: Literal["on_demand", "spot"] = "on_demand"
+    #: P5. Which host may run this, as distinct from what to run. Kept off the
+    #: spec that feeds `spec_hash` — see PlacementPreferenceBody.
+    placement_preference: PlacementPreferenceBody | None = None
+    volume_ids: list[str] | None = Field(default=None, max_length=16)
+    encrypted_workspace: bool = False
+    # P2.1 — optional provisioning hooks, all run inside the container with a
+    # hard 15 s cap so interactive boot never blocks on them.
+    init_script: str | None = Field(default=None, max_length=4096)
+    git_repo: str | None = Field(default=None, max_length=512)
+    auto_launch: list[str] | None = Field(default=None, max_length=4)
+    exposed_ports: list[int] | None = Field(default=None, max_length=8)
+    template_image_id: str | None = None
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        from security import validate_docker_image
+
+        return validate_docker_image(v)
+
+    @field_validator("init_script")
+    @classmethod
+    def validate_init_script(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        # Reject control chars (except \t \n \r) — keeps the script printable
+        # so logs don't break tty and prevents smuggling binary blobs.
+        bad = {c for c in v if ord(c) < 32 and c not in "\t\n\r"}
+        if bad:
+            raise ValueError("init_script contains disallowed control characters")
+        return v
+
+    @field_validator("git_repo")
+    @classmethod
+    def validate_git_repo(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        # Only public https clones — no ssh://, git://, file://, or embedded creds.
+        import re
+
+        if not re.fullmatch(r"https://[A-Za-z0-9._~-]+(?::\d+)?/[A-Za-z0-9._~\-/]+(?:\.git)?", v):
+            raise ValueError("git_repo must be a plain https:// URL (no creds)")
+        if "@" in v.split("://", 1)[1]:
+            raise ValueError("git_repo must not contain credentials")
+        return v
+
+    @field_validator("auto_launch")
+    @classmethod
+    def validate_auto_launch(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        allowed = {"jupyter", "vscode"}
+        out: list[str] = []
+        for item in v:
+            s = str(item or "").strip().lower()
+            if s and s not in allowed:
+                raise ValueError(f"auto_launch item must be one of {sorted(allowed)}")
+            if s:
+                out.append(s)
+        # Dedup, preserve order
+        seen: set[str] = set()
+        dedup: list[str] = []
+        for s in out:
+            if s not in seen:
+                seen.add(s)
+                dedup.append(s)
+        return dedup
+
+    @field_validator("exposed_ports")
+    @classmethod
+    def validate_exposed_ports(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        out: list[int] = []
+        seen: set[int] = set()
+        for p in v:
+            try:
+                port = int(p)
+            except (TypeError, ValueError):
+                raise ValueError("exposed_ports must contain integers")
+            if port < 1 or port > 65535:
+                raise ValueError("exposed_ports entries must be 1..65535")
+            # Reserve SSH for the platform; users route via the fixed ssh_port.
+            if port == 22:
+                raise ValueError("port 22 is reserved — use ssh_port")
+            if port in seen:
+                continue
+            seen.add(port)
+            out.append(port)
+        return out
+
+    # P2.3 — auto-inject the container ports required by each requested
+    # auto-launch service so the docker `-p` publish loop in the worker
+    # creates the host→container mapping that P2.2 needs for subdomain
+    # routing. Users can still declare extra ports via `exposed_ports`.
+    _AUTO_LAUNCH_PORTS = {"jupyter": 8888, "vscode": 8443}
+
+    @model_validator(mode="after")
+    def _merge_auto_launch_ports(self) -> "JobIn":
+        if not self.auto_launch:
+            return self
+        existing: list[int] = list(self.exposed_ports or [])
+        existing_set = set(existing)
+        for svc in self.auto_launch:
+            p = self._AUTO_LAUNCH_PORTS.get(svc)
+            if p is not None and p not in existing_set:
+                existing.append(p)
+                existing_set.add(p)
+        # Cap at the same max_length (8) as the field; extra user ports
+        # beyond that bound surface as a validation error by re-running
+        # the field validator's length constraint.
+        if len(existing) > 8:
+            raise ValueError("exposed_ports (incl. auto_launch) exceeds max 8 entries")
+        self.exposed_ports = existing
+        return self
+
+
+class StatusUpdate(BaseModel):
+    status: str
+    host_id: str | None = None
+    # Transitional Phase 5 fence for the legacy PATCH compatibility path.
+    # Attempt-owned workers must supply the same authority tuple as /agent/v2.
+    attempt_id: str | None = None
+    fencing_token: int | None = None
+    container_id: str | None = None
+    container_name: str | None = None
+    # ssh_port here is the GATEWAY-SIDE PUBLIC port the worker mapped to
+    # the container's sshd (10000-65000). This is a separate semantic from
+    # JobIn.ssh_port (container-internal port, defaults to 22) — see the
+    # api_update_instance handler below, which persists this to
+    # `public_ssh_port` in the payload to avoid overwriting the
+    # container-internal value (self-poisoning incident 2026-04-23).
+    ssh_port: int | None = None
+    interactive: bool | None = None
+    error_message: str | None = None
+    resume_from: dict | None = None
+    resumable: bool | None = None
+    policy_reason: Literal["mining_detected"] | None = None
+
+
+def _wallet_preflight(
+    customer_id: str,
+    *,
+    pricing_mode: str = "on_demand",
+    gpu_model: str | None = None,
+    num_gpus: int = 1,
+    host: dict | None = None,
+    idempotency_key: str | None = None,
+) -> str | None:
+    """Fund gate: durable wallet hold when available balance is sufficient.
+
+    Returns the new ``hold_id`` (or None only when hold infrastructure is
+    unavailable and grace allows a legacy soft pass). Raises 402/503 on
+    suspended or underfunded wallets.
+    """
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    wallet = be.get_wallet(customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+
+    in_grace = float(wallet.get("grace_until", 0) or 0) >= time.time()
+    available = float(wallet.get("available_cad", wallet.get("balance_cad", 0)) or 0)
+
+    if pricing_mode == "spot":
+        from spot.feature import spot_global_enabled
+
+        if not spot_global_enabled():
+            raise HTTPException(
+                503,
+                detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
+            )
+
+    hold_amount = be.estimate_launch_hold_cad(
+        pricing_mode=pricing_mode,
+        gpu_model=gpu_model,
+        num_gpus=num_gpus,
+        host=host,
+    )
+    # On-demand historically required only positive balance; still reserve
+    # a one-hour estimate so concurrent launches cannot oversubscribe funds.
+    if pricing_mode != "spot" and available <= 0 and not in_grace:
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+
+    if available + 1e-9 < hold_amount and not in_grace:
+        raise HTTPException(
+            402,
+            detail=(
+                f"Insufficient available wallet balance for launch "
+                f"(~${hold_amount:.2f} CAD hold required; "
+                f"${available:.2f} CAD available after holds)"
+            ),
+        )
+
+    # Always unique per submit attempt so concurrent same-name launches
+    # each reserve their own hold (never share one estimate).
+    key = (idempotency_key or "").strip() or f"launch:{customer_id}:{uuid.uuid4().hex}"
+    try:
+        result = be.create_wallet_hold(
+            customer_id,
+            hold_amount,
+            idempotency_key=key,
+            expires_in_sec=3600,
+            reason="instance_launch",
+        )
+    except Exception as exc:
+        log.warning("wallet hold create failed for %s: %s", customer_id, exc)
+        # Fail closed: never fall back to pure balance-read preflight.
+        # Grace period is the only soft-pass exception (legacy underfunded).
+        if in_grace:
+            return None
+        raise HTTPException(402, detail="Unable to reserve wallet funds for launch") from exc
+
+    if not result.get("held"):
+        if in_grace and result.get("reason") == "insufficient_available":
+            return None
+        raise HTTPException(
+            402,
+            detail=(
+                f"Insufficient available wallet balance for launch "
+                f"(~${hold_amount:.2f} CAD hold required)"
+            ),
+        )
+    return str(result["hold_id"])
+
+
+# ── Image Templates ──
+
+
+class ImageTemplate(BaseModel):
+    id: str
+    label: str
+    image: str
+    default_vram_gb: int
+    icon: str
+    category: str
+    description: str
+
+
+@router.get("/api/images/templates", tags=["Images"])
+def api_image_templates():
+    """Return the authoritative list of validated container image templates.
+
+    Single source of truth consumed by frontend, wizard, and API callers.
+    """
+    from security import get_image_templates
+
+    return {"templates": [ImageTemplate(**t).model_dump() for t in get_image_templates()]}
+
+
+# ── Helper: _refresh_job ──
+
+
+def _refresh_job(job_id: str):
+    """Re-read a job from the DB to get updated status/host/container fields."""
+    for j in list_jobs():
+        # Legacy/imported rows can be incomplete; one malformed historical
+        # record must not make every new launch return 500.
+        if j.get("job_id") == job_id:
+            return j
+    return None
+
+
+def _direct_host_launch_or_defer(
+    job: dict,
+    *,
+    target_host_id: str,
+    target_host: dict | None,
+    image: str | None,
+    pricing_mode: str,
+    num_gpus: int = 1,
+) -> dict:
+    """Host-pin placement path used by ``api_submit_instance``.
+
+    P4.4b: when the transactional scheduler owns this job (canary partition
+    or active), refuse inline ``assigned`` + SSH ``run_job``. Leave the job
+    queued with a preferred-host pin so the claim→reserve path is the sole
+    writer (attempt + lease + durable start command).
+
+    Legacy assignments on enrolled worker hosts are polled by that worker.
+    Only hosts without an agent may use the synchronous SSH runner.
+    """
+    if not legacy_inline_placement_allowed(job):
+        try:
+            from scheduler import _set_job_fields
+
+            _set_job_fields(job["job_id"], preferred_host_id=target_host_id)
+        except Exception as exc:
+            log.debug(
+                "preferred_host_id pin failed job=%s host=%s: %s",
+                job.get("job_id"),
+                target_host_id,
+                exc,
+            )
+        log.info(
+            "Direct launch deferred for control-plane-owned job %s "
+            "(host pin=%s) — transactional scheduler owns placement/start",
+            job.get("job_id"),
+            target_host_id,
+        )
+        # Wake authoritative tick when running (no-op unless canary/active).
+        try:
+            from scheduler import _control_plane_tick
+
+            _control_plane_tick()
+        except Exception as exc:
+            log.debug("control-plane tick after deferred pin: %s", exc)
+        return _refresh_job(job["job_id"]) or job
+
+    try:
+        if pricing_mode == "spot":
+            try:
+                from marketplace import get_marketplace_engine
+
+                me = get_marketplace_engine()
+                offer = me.get_offer_for_host(
+                    target_host_id,
+                    target_host.get("gpu_model", "") if target_host else "",
+                )
+                if offer:
+                    alloc = me.allocate_gpu(
+                        offer["offer_id"],
+                        job["job_id"],
+                        num_gpus,
+                        allocation_type="spot",
+                    )
+                    if alloc and alloc.get("price_cents_per_hour"):
+                        from scheduler import _set_job_fields
+
+                        job["spot_rate_cad"] = alloc["price_cents_per_hour"] / 100.0
+                        _set_job_fields(
+                            job["job_id"],
+                            spot_rate_cad=job["spot_rate_cad"],
+                        )
+            except Exception as exc:
+                log.debug("Marketplace spot allocation skipped: %s", exc)
+
+        assign_kwargs: dict = {}
+        if pricing_mode == "spot" and not job.get("spot_rate_cad"):
+            from spot_pricing import lock_spot_rate_for_job
+
+            lock_spot_rate_for_job(
+                job,
+                host_gpu_model=target_host.get("gpu_model", "") if target_host else "",
+            )
+            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+            assign_kwargs["pricing_mode"] = "spot"
+        elif pricing_mode == "spot":
+            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+            assign_kwargs["pricing_mode"] = "spot"
+
+        updated = update_job_status(
+            job["job_id"],
+            "assigned",
+            host_id=target_host_id,
+            **assign_kwargs,
+        )
+        if updated and updated.get("status") == "assigned":
+            hosts = list_hosts()
+            hmap = {h["host_id"]: h for h in hosts}
+            host = hmap.get(target_host_id)
+            if host:
+                if host_uses_worker_agent(host):
+                    log.info(
+                        "Direct launch assigned to worker job=%s host=%s",
+                        job["job_id"],
+                        target_host_id,
+                    )
+                    return _refresh_job(job["job_id"]) or updated
+                container_id = run_job(updated, host, docker_image=image)
+                if container_id:
+                    job = _refresh_job(job["job_id"]) or job
+                    log.info(
+                        "Direct launch: job %s running on host %s",
+                        job["job_id"],
+                        target_host_id,
+                    )
+                else:
+                    job = _refresh_job(job["job_id"]) or job
+                    log.warning(
+                        "Direct launch: container start failed for job %s on host %s",
+                        job["job_id"],
+                        target_host_id,
+                    )
+            else:
+                log.warning(
+                    "Direct launch: host %s not found, job %s stays queued",
+                    target_host_id,
+                    job["job_id"],
+                )
+                update_job_status(job["job_id"], "queued")
+                job = _refresh_job(job["job_id"]) or job
+    except Exception as e:
+        log.error("Direct launch failed for job %s: %s", job["job_id"], e)
+        job = _refresh_job(job["job_id"]) or job
+    return job
+
+
+@router.post("/instance", tags=["Instances"])
+def api_submit_instance(j: JobIn, request: Request):
+    """Submit a job to the queue or directly assign to a host.
+
+    If host_id is provided (marketplace launch), the job is assigned directly
+    to that host for its worker to start (SSH only without an agent). When the
+    transactional scheduler owns the job (canary/active partition),
+    case the pin is recorded and placement/start stay with the claim→reserve
+    path. Otherwise the job is queued and process_queue runs to find a host.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+
+    vram_needed = 0.0
+    target_host_id = j.host_id
+    target_host = None
+    if target_host_id:
+        all_hosts = list_hosts(active_only=False)
+        hmap_all = {h["host_id"]: h for h in all_hosts}
+        target_host = hmap_all.get(target_host_id)
+        if not target_host and len(target_host_id) >= 8:
+            # Tolerate truncated host IDs (e.g. from display-truncated UI values)
+            matches = [h for h in all_hosts if h["host_id"].startswith(target_host_id)]
+            if len(matches) == 1:
+                target_host = matches[0]
+                target_host_id = target_host["host_id"]
+                j.host_id = target_host_id
+        if not target_host:
+            raise HTTPException(status_code=404, detail=f"Host {target_host_id} not found")
+        if target_host.get("status") == "draining":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Host {target_host_id} is draining for maintenance and not accepting new instances",
+            )
+        if target_host.get("status") != "active":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Host {target_host_id} is {target_host.get('status', 'unavailable')} and not accepting new instances",
+            )
+
+    # Respect the requested VRAM for scheduler matching and host selection.
+    # A zero value remains valid and means "no minimum VRAM preference".
+    # Interactive instances get exclusive GPU access (one per host), so force
+    # vram_needed=0 to skip fractional VRAM reservation logic which only applies
+    # to HPC batch jobs sharing a GPU.
+    if j.interactive:
+        vram_needed = 0.0
+    else:
+        vram_needed = max(float(j.vram_needed_gb or 0.0), 0.0)
+
+    # ── Resolve template_image_id → concrete image ───────────────────
+    source_template_id: str | None = None
+    if j.template_image_id:
+        owner_id = user.get("user_id", user.get("email", ""))
+        pool = _user_images_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT image_ref FROM user_images
+                WHERE image_id = %s
+                  AND (owner_id = %s OR is_public = true)
+                  AND status = 'ready'
+                  AND deleted_at = 0
+                """,
+                (j.template_image_id, owner_id),
+            )
+            trow = cur.fetchone()
+        if not trow:
+            raise HTTPException(
+                status_code=404,
+                detail="Template image not found or not yet ready",
+            )
+        j = j.model_copy(update={"image": trow[0]})
+        source_template_id = j.template_image_id
+
+    # ── Marketplace flow requires a Docker image ──────────────────────
+    if target_host_id and not j.image:
+        raise HTTPException(
+            status_code=422,
+            detail="Docker image is required for marketplace launches — select a template or enter a custom image",
+        )
+
+    # ── Pre-validate the image exists on the registry ─────────────────
+    # Catches invalid tags like `nvidia/cuda:11.8-cudnn8-runtime-ubuntu20.04`
+    # (the Ubuntu 20.04 CUDA 11.8 cudnn8 variant was never published) BEFORE
+    # queueing the job, instead of letting it reach the host and fail on pull.
+    # Fail-open on network errors to avoid blocking submissions if Docker Hub
+    # or the auth service is having a blip.
+    if j.image:
+        from security import probe_image_exists
+
+        problem = probe_image_exists(j.image)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+
+    with otel_span(
+        "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
+    ):
+        customer_id = _effective_billing_customer_id(user)
+        if target_host is not None:
+            # Same decision submit_job stamps on the job, checked before any
+            # wallet hold so a pinned launch fails cleanly instead of queueing.
+            from abuse_policy import egress_for_owner
+            from scheduler import host_can_run_egress
+
+            if not host_can_run_egress(
+                target_host, {"egress": egress_for_owner({"owner": customer_id})}
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Host {target_host_id} can't take new instances right now. "
+                        "Choose another machine, or launch without one and we'll pick."
+                    ),
+                )
+        hold_id = _wallet_preflight(
+            customer_id,
+            pricing_mode=j.pricing_mode,
+            gpu_model=j.gpu_model or (target_host.get("gpu_model") if target_host else None),
+            num_gpus=j.num_gpus,
+            host=target_host,
+            # Per-submit attempt key — concurrent same-name launches each hold.
+            idempotency_key=f"launch:{customer_id}:{uuid.uuid4().hex}",
+        )
+
+        # ── Concurrent instance cap (personal or shared team pool) ──
+        _enforce_concurrency_limit(user)
+
+        # ── Validate volume_ids ownership and status ─────────────
+        validated_volume_ids = None
+        if j.volume_ids:
+            from volumes import get_volume_engine
+
+            ve = get_volume_engine()
+            validated_volume_ids = []
+            seen_vids: set[str] = set()
+            for vid in j.volume_ids:
+                if vid in seen_vids:
+                    continue  # deduplicate
+                seen_vids.add(vid)
+                try:
+                    vol = ve.get_volume(vid)
+                except Exception:
+                    raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
+                if not vol:
+                    raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
+                if not _user_can_access_volume(user, vol):
+                    raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
+                if vol.get("status") not in ("available", "attached"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Volume {vid} is {vol.get('status', 'unknown')} and cannot be attached",
+                    )
+                validated_volume_ids.append(vid)
+
+        if j.pricing_mode == "spot":
+            from spot.feature import spot_global_enabled
+
+            if not spot_global_enabled():
+                raise HTTPException(
+                    503,
+                    detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
+                )
+
+        if j.pricing_mode == "spot" and j.tier in ("premium", "dedicated"):
+            raise HTTPException(
+                status_code=400,
+                detail="Spot instances use the standard service tier only",
+            )
+
+        if j.pricing_mode == "spot" and target_host:
+            if not target_host.get("spot_enabled", True):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Host {target_host_id} does not accept spot instances",
+                )
+            spot_probe = {
+                "num_gpus": j.num_gpus,
+                "pricing_mode": "spot",
+                "preemptible": True,
+            }
+            if not host_accepts_spot_job(target_host, spot_probe, list_jobs()):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Host {target_host_id} has no free spot GPU capacity",
+                )
+
+        launch_tier = j.tier
+        if j.pricing_mode == "spot":
+            launch_tier = "spot"
+
+        try:
+            job = submit_job(
+                j.name,
+                vram_needed,
+                j.priority,
+                tier=launch_tier,
+                num_gpus=j.num_gpus,
+                gpu_model=j.gpu_model,
+                nfs_server=j.nfs_server,
+                nfs_path=j.nfs_path,
+                nfs_mount_point=j.nfs_mount_point,
+                image=j.image,
+                interactive=j.interactive,
+                command=j.command,
+                ssh_port=j.ssh_port,
+                owner=customer_id,
+                volume_ids=validated_volume_ids,
+                encrypted_workspace=j.encrypted_workspace,
+                init_script=j.init_script,
+                git_repo=j.git_repo,
+                auto_launch=j.auto_launch,
+                exposed_ports=j.exposed_ports,
+                source_template_id=source_template_id,
+                pricing_mode=j.pricing_mode,
+                placement_preference=(
+                    j.placement_preference.model_dump() if j.placement_preference else None
+                ),
+            )
+        except Exception:
+            if hold_id:
+                try:
+                    from billing import get_billing_engine
+
+                    get_billing_engine().release_wallet_hold(hold_id, reason="launch_submit_failed")
+                except Exception:
+                    pass
+            raise
+
+        if hold_id:
+            try:
+                from billing import get_billing_engine
+
+                get_billing_engine().link_wallet_hold_to_job(hold_id, job["job_id"])
+            except Exception as exc:
+                log.warning(
+                    "wallet hold link failed hold=%s job=%s: %s",
+                    hold_id[:8],
+                    job.get("job_id"),
+                    exc,
+                )
+        event_name = "spot_job_submitted" if j.pricing_mode == "spot" else "job_submitted"
+
+        # Track job ownership (response-only, already persisted via owner param)
+        job["submitted_by"] = user.get("email", "")
+        job["customer_id"] = customer_id
+        broadcast_sse(event_name, {"job_id": job["job_id"], "name": job["name"]})
+
+        # Lifecycle log — record the queued event so users and admin audit can
+        # see the job entered the system even if it never advances further.
+        try:
+            tier_label = job.get("tier") or getattr(j, "tier", None) or "standard"
+            gpu_label = job.get("gpu_model") or getattr(j, "gpu_model", None) or "any"
+            vram = job.get("vram_needed_gb")
+            push_job_log(
+                job["job_id"],
+                f"Submitted — tier={tier_label}, gpu_model={gpu_label}"
+                + (f", vram={vram}GB" if vram else "")
+                + " — waiting for scheduler to assign a host",
+                level="info",
+            )
+        except Exception:
+            pass
+
+        # Direct host assignment: assign + start immediately — unless the
+        # transactional scheduler owns this job (P4.4b exclusive partition).
+        if target_host_id:
+            job = _direct_host_launch_or_defer(
+                job,
+                target_host_id=target_host_id,
+                target_host=target_host,
+                image=j.image or None,
+                pricing_mode=j.pricing_mode,
+                num_gpus=j.num_gpus,
+            )
+        else:
+            # §10.1 / B2.6: the job is enqueued durably and the scheduler claims
+            # and places it. A request handler never runs the queue walker inline
+            # (Track A P4.4b deferred the host-pin path; this completes the
+            # general path). Reflect the just-submitted queued state in the reply.
+            job = _refresh_job(job["job_id"]) or job
+
+        append_user_audit_event(
+            "user.instance.launched",
+            "job",
+            job["job_id"],
+            user,
+            data={"name": job.get("name"), "customer_id": customer_id},
+        )
+        return {"ok": True, "instance": job}
+
+
+def _compute_public_ssh_port(job_id: str) -> int:
+    """Gateway-side SSH port (mirrors worker_agent / ssh_gateway mapping)."""
+    try:
+        return 10000 + (int(str(job_id)[:4], 16) % 55000)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _enrich_instance(
+    j: dict, host_map: dict[str, dict], *, reveal_ssh_password: bool = False
+) -> dict:
+    """Shared enrichment for every instance response — list and detail.
+
+    Adds docker_image mapping, host GPU info, elapsed/duration, connection
+    details, and cost computation.  Single source of truth — no drift.
+    """
+    # Map internal 'image' → frontend 'docker_image'
+    if j.get("image") is not None and not j.get("docker_image"):
+        j["docker_image"] = j["image"]
+
+    # Host GPU info — prefer assignment-time fields, fall back to live host lookup
+    hid = j.get("host_id")
+    host = host_map.get(hid) if hid else None
+    if host:
+        try:
+            from host_metadata import enrich_host_for_api
+
+            host = enrich_host_for_api(host)
+        except Exception:
+            pass
+    actual_gpu = (j.get("host_gpu_model") or "").strip() or (
+        host.get("gpu_model", "") if host else ""
+    ).strip()
+    if not actual_gpu and hid:
+        try:
+            from host_metadata import infer_gpu_from_host_id
+
+            actual_gpu = infer_gpu_from_host_id(str(hid))
+        except Exception:
+            pass
+    if actual_gpu:
+        j["gpu_type"] = actual_gpu
+        j["host_gpu"] = actual_gpu
+        if not (j.get("gpu_model") or "").strip():
+            j["gpu_model"] = actual_gpu
+    elif j.get("status") == "queued":
+        tier_label = (j.get("tier") or "standard").capitalize()
+        req_gpu = (j.get("gpu_model") or "").strip()
+        j["gpu_display"] = (
+            f"{req_gpu} ({tier_label})" if req_gpu else f"{tier_label} tier · any GPU"
+        )
+
+    # Host + VRAM visible as soon as a host is assigned (not only when running)
+    if hid and host:
+        vram = j.get("host_vram_gb") or host.get("total_vram_gb", 0)
+        if not vram and actual_gpu:
+            try:
+                from host_metadata import default_vram_gb
+
+                vram = default_vram_gb(actual_gpu)
+            except Exception:
+                pass
+        j.setdefault("host_vram_gb", vram)
+        if j.get("status") in ("running", "starting", "completed", "failed"):
+            j.setdefault("host_ip", host.get("ip", ""))
+    elif hid and not j.get("host_vram_gb") and actual_gpu:
+        try:
+            from host_metadata import default_vram_gb
+
+            j.setdefault("host_vram_gb", default_vram_gb(actual_gpu))
+        except Exception:
+            pass
+        if j.get("status") in ("running", "starting", "completed", "failed") and host:
+            j.setdefault("host_ip", host.get("ip", ""))
+
+    try:
+        from criu_hosts import enrich_job_resumable
+
+        enrich_job_resumable(j)
+    except Exception:
+        j.setdefault("resumable", bool(j.get("resume_from")))
+    if hid and host and host.get("checkpoint_class"):
+        j.setdefault("host_checkpoint_class", host.get("checkpoint_class"))
+
+    # Elapsed / duration
+    started = float(j.get("started_at") or 0)
+    completed = float(j.get("completed_at") or 0)
+    submitted = float(j.get("submitted_at") or 0)
+    if started > 0:
+        if completed > started:
+            j.setdefault("duration_sec", round(completed - started, 2))
+            j.setdefault("elapsed_sec", j["duration_sec"])
+        elif j.get("status") == "running":
+            j.setdefault("elapsed_sec", round(time.time() - started, 2))
+    elif submitted > 0 and j.get("status") in ("queued", "assigned", "leased", "starting"):
+        j.setdefault("wait_elapsed_sec", round(time.time() - submitted, 1))
+    elif submitted > 0 and completed > submitted and j.get("status") in ("failed", "cancelled"):
+        j.setdefault("wait_elapsed_sec", round(completed - submitted, 1))
+
+    # SSH port surfaced to clients is the GATEWAY-SIDE public port. Prefer
+    # the new `public_ssh_port` field (written by api_update_instance); fall
+    # back to the legacy `ssh_port` field for instances that predate the
+    # public_ssh_port rollout (2026-04-23) or were poisoned by the old
+    # worker code path.
+    pub_port = j.get("public_ssh_port")
+    if pub_port:
+        j["ssh_port"] = pub_port
+    elif j.get("interactive") and j.get("status") in (
+        "running",
+        "starting",
+        "stopped",
+        "restarting",
+    ):
+        computed = _compute_public_ssh_port(str(j.get("job_id") or ""))
+        if computed:
+            j.setdefault("ssh_port", computed)
+
+    # A3 of docs/host-key-fingerprint-plan.md: **the fingerprint travels with
+    # the port it belongs to, or not at all.**
+    #
+    # This is not tidiness. Publish a fingerprint beside a port it does not
+    # belong to and the user runs `ssh-keyscan -p PORT`, gets a different key,
+    # and correctly concludes they are being intercepted — a security incident
+    # manufactured out of a plumbing bug, and one whose correct response is
+    # indistinguishable from the response to a real attack. No port, no
+    # fingerprint.
+    #
+    # Re-validated on the way out as well as in. A1 guards the write path; this
+    # guards what is served, which is the value a user is asked to trust. The
+    # alternative is assuming nothing ever wrote that payload key by another
+    # route, and it costs one anchored regex to not assume that.
+    from host_key_fingerprint import parse_host_key_fingerprint
+
+    # Both, not either: a port without a host is a leftover from a container
+    # that no longer exists, and a fingerprint anchored to nothing is exactly
+    # the unverifiable value this field exists to avoid. `public_ssh_port`
+    # survives a requeue in the payload, so the port alone is not evidence that
+    # anything is listening.
+    j["host_key_fingerprint"] = (
+        parse_host_key_fingerprint(j.get("host_key_fingerprint"))
+        if j.get("ssh_port") and j.get("host_id")
+        else None
+    )
+
+    pricing_mode = j.get("pricing_mode") or (
+        "spot" if j.get("preemptible") or j.get("spot") else "on_demand"
+    )
+    j.setdefault("pricing_mode", pricing_mode)
+    j.setdefault("preemptible", bool(j.get("preemptible") or pricing_mode == "spot"))
+    if j.get("spot_rate_cad") is not None:
+        j["spot_rate_cad"] = float(j["spot_rate_cad"])
+    j.setdefault("preempted_at", j.get("preempted_at"))
+    j.setdefault("preemption_count", int(j.get("preemption_count", 0) or 0))
+
+    # Estimated hourly rate (for pricing card even before billing starts)
+    try:
+        from billing import resolve_compute_rate_cad
+
+        rate_hr, _ = resolve_compute_rate_cad(j, host)
+        if rate_hr > 0:
+            j["rate_per_hour_cad"] = round(rate_hr, 4)
+    except Exception:
+        pass
+    if not j.get("rate_per_hour_cad") and pricing_mode != "spot":
+        tier = j.get("tier") or "standard"
+        try:
+            from db import _get_pg_pool
+
+            with _get_pg_pool().connection() as conn:
+                row = conn.execute(
+                    """SELECT MIN(base_rate_micros)::double precision / 1000000.0 FROM gpu_pricing
+                       WHERE tier = %s AND pricing_mode = 'on_demand' AND active = TRUE""",
+                    (tier,),
+                ).fetchone()
+            if row and row[0]:
+                j["rate_per_hour_cad"] = round(
+                    float(row[0]) * max(1, int(j.get("num_gpus", 1) or 1)),
+                    4,
+                )
+                j["rate_is_estimate"] = True
+        except Exception:
+            pass
+
+    # Cost (billable elapsed only — not queue wait time)
+    elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
+    if elapsed > 0 and j.get("cost_cad") is None:
+        rate = float(j.get("rate_per_hour_cad") or 0.20)
+        j["cost_cad"] = round((elapsed / 3600) * rate, 4)
+
+    # Encrypted workspace flag
+    j.setdefault("encrypted_workspace", bool(j.get("encrypted_workspace")))
+
+    # Attached volumes
+    try:
+        from volumes import get_volume_engine
+
+        ve = get_volume_engine()
+        vols = ve.get_instance_volumes(j.get("job_id", ""))
+        j["attached_volumes"] = [
+            {
+                "volume_id": v["volume_id"],
+                "name": v.get("name", ""),
+                "size_gb": v.get("size_gb", 0),
+                "mount_path": v.get("mount_path", "/workspace"),
+                "mode": v.get("mode", "rw"),
+                "storage_type": v.get("storage_type", "nfs"),
+                "encrypted": v.get("encrypted", False),
+            }
+            for v in vols
+        ]
+    except Exception:
+        j.setdefault("attached_volumes", [])
+
+    # Storage cost — sum billing_cycles for attached volumes
+    volume_ids = j.get("volume_ids", [])
+    if volume_ids:
+        try:
+            from db import _get_pg_pool
+            from psycopg.rows import dict_row
+
+            pool = _get_pg_pool()
+            with pool.connection() as conn:
+                # Cursor-scoped row_factory — avoids tainting the pooled
+                # connection for subsequent callers.
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """SELECT COALESCE(SUM(amount_micros), 0)::double precision / 1000000.0 AS total
+                           FROM billing_cycles
+                           WHERE job_id = ANY(%s) AND gpu_model = 'storage' AND tier = 'volume'""",
+                        (volume_ids,),
+                    )
+                    row = cur.fetchone()
+            j["storage_cost_cad"] = round(float(row["total"]), 4) if row else 0
+        except Exception:
+            j.setdefault("storage_cost_cad", 0)
+    else:
+        j.setdefault("storage_cost_cad", 0)
+
+    if j.get("ssh_status"):
+        from instance_credentials import present_ssh_status
+
+        j["ssh_status"] = present_ssh_status(j["ssh_status"], reveal=reveal_ssh_password)
+    return j
+
+
+@router.get("/instances", tags=["Instances"])
+def api_list_instances(request: Request, status: str | None = None):
+    """List instances for the authenticated user (admins see all)."""
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    jobs = _filter_jobs_for_user(list_jobs(status=status), user)
+    hosts = list_hosts()
+    host_map = {h["host_id"]: h for h in hosts}
+    for j in jobs:
+        _enrich_instance(j, host_map)
+    return {
+        "instances": jobs,
+        "concurrency": {
+            "active": _count_active_instances_for_user(user),
+            "cap": _get_effective_concurrency_cap(user),
+            "shared": bool(_user_team_id(user)),
+        },
+    }
+
+
+@router.get("/instance/{job_id}", tags=["Instances"])
+def api_get_instance(job_id: str, request: Request):
+    """Get a specific instance by ID, enriched with connection info."""
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
+    j = get_job(job_id)
+    if not j:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    hosts = list_hosts()
+    host_map = {h["host_id"]: h for h in hosts}
+    _enrich_instance(j, host_map, reveal_ssh_password=True)
+    return {"instance": j}
+
+
+def _fence_attempt_owned_patch(
+    job_id: str,
+    reporting_host_id: str | None,
+    reporting_attempt_id: str | None,
+    reporting_fencing_token: int | None,
+) -> None:
+    """Phase 5 transitional fence on the legacy v1 status write.
+
+    Jobs bound by the transactional scheduler carry an active attempt;
+    their authoritative writes go through the fenced /agent/v2 surface.
+    The compatibility PATCH may still carry payload fields used by the
+    existing UI, but it must present the exact host/attempt/fence tuple.
+    Missing attribution fails closed: allowing it would let an old worker
+    overwrite a newer same-host attempt after its v2 report was rejected.
+    """
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                """SELECT j.active_attempt_id, j.host_id, a.fencing_token
+                     FROM jobs j
+                     LEFT JOIN job_attempts a
+                       ON a.attempt_id = j.active_attempt_id
+                    WHERE j.job_id = %s""",
+                (job_id,),
+            ).fetchone()
+    except Exception as exc:
+        # This endpoint mutates lifecycle authority. If the fence cannot be
+        # checked, failing open would recreate the split-brain path Phase 5
+        # exists to remove.
+        raise HTTPException(503, "Unable to verify attempt authority") from exc
+    if row is None:
+        return
+    active_attempt = row["active_attempt_id"] if isinstance(row, dict) else row[0]
+    authority_host = row["host_id"] if isinstance(row, dict) else row[1]
+    authority_fence = row["fencing_token"] if isinstance(row, dict) else row[2]
+    if active_attempt is None:
+        return
+    tuple_matches = (
+        bool(reporting_host_id)
+        and bool(reporting_attempt_id)
+        and reporting_fencing_token is not None
+        and str(reporting_host_id) == str(authority_host)
+        and str(reporting_attempt_id) == str(active_attempt)
+        and int(reporting_fencing_token) == int(authority_fence)
+    )
+    if not tuple_matches:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "fencing_violation",
+                    "message": (
+                        f"job {job_id} requires its current host/attempt/fence "
+                        "authority tuple; this legacy status report is stale "
+                        "or unattributed"
+                    ),
+                }
+            },
+        )
+
+
+@router.patch("/instance/{job_id}", tags=["Instances"])
+def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
+    """Update a job's status."""
+    from control_plane.agent_tokens import looks_like_host_token
+
+    bearer = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    host_token = looks_like_host_token(bearer)
+    if host_token:
+        from routes.agent import _require_agent_auth
+
+        if not update.host_id:
+            raise HTTPException(400, "Host token status reports require host_id")
+        _require_agent_auth(request, host_id=update.host_id)
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(404, f"Instance {job_id} not found")
+        if job.get("host_id") != update.host_id:
+            raise HTTPException(403, "Host cannot report status for another host's job")
+    else:
+        _require_worker_status_update(request)
+    _fence_attempt_owned_patch(
+        job_id,
+        update.host_id,
+        update.attempt_id,
+        update.fencing_token,
+    )
+    with otel_span("job.status_update", {"job.id": job_id, "job.status": update.status}):
+        if update.status == "preempted":
+            try:
+                from billing import get_billing_engine
+
+                get_billing_engine().bill_running_period(
+                    job_id, period_end=time.time(), min_seconds=0
+                )
+            except Exception as exc:
+                log.warning("Worker preempt billing close failed for %s: %s", job_id, exc)
+
+        status_kwargs: dict = {}
+        if host_token:
+            # Recheck the assignment under the scheduler's row lock: a legacy
+            # job may move between the route's read and this status mutation.
+            status_kwargs["_authority_host_id"] = update.host_id
+        if update.policy_reason:
+            if update.status != "terminated" or not update.host_id:
+                raise HTTPException(400, "Policy termination requires a host and terminated status")
+            from routes.agent import _require_agent_auth
+
+            _require_agent_auth(request, host_id=update.host_id)
+            status_kwargs["policy_reason"] = update.policy_reason
+        if update.attempt_id and update.fencing_token is not None:
+            status_kwargs["_attempt_id"] = update.attempt_id
+            status_kwargs["_fencing_token"] = update.fencing_token
+            status_kwargs["_authority_host_id"] = update.host_id
+        if update.error_message:
+            status_kwargs["error_message"] = update.error_message[:500]
+            status_kwargs["failure_reason"] = update.error_message[:500]
+        try:
+            update_job_status(job_id, update.status, host_id=update.host_id, **status_kwargs)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except RuntimeError as e:
+            if "raw lifecycle mutation is fenced out" in str(e):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": {
+                            "code": "fencing_violation",
+                            "message": str(e),
+                        }
+                    },
+                ) from e
+            raise
+
+        if update.status == "preempted":
+            job = get_job(job_id)
+            if job and (
+                job.get("pricing_mode") == "spot"
+                or job.get("preemptible")
+                or job.get("tier") == "spot"
+            ):
+                from scheduler import _set_job_fields
+
+                count = int(job.get("preemption_count", 0) or 0)
+                if job.get("status") == "preempted":
+                    count += 1
+                requeue_fields: dict = {
+                    "preempted_at": time.time(),
+                    "preemption_count": count,
+                    "host_id": None,
+                    "started_at": None,
+                }
+                if update.resume_from:
+                    requeue_fields["resume_from"] = update.resume_from
+                    requeue_fields["resumable"] = bool(update.resume_from.get("success"))
+                _set_job_fields(job_id, **requeue_fields)
+                update_job_status(job_id, "queued")
+                broadcast_sse("job_status", {"job_id": job_id, "status": "queued"})
+                return {"ok": True, "job_id": job_id, "status": "queued"}
+
+        # Store container info if provided by worker agent
+        extras = {}
+        if update.container_id:
+            extras["container_id"] = update.container_id
+        if update.container_name:
+            extras["container_name"] = update.container_name
+        if update.ssh_port is not None:
+            # Gateway-mapped ports only. Container-internal ports (22, etc.)
+            # are never valid here — the worker agent must report the mapped
+            # host-side port in the 10000-65000 range.
+            if not (10000 <= update.ssh_port <= 65000):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"ssh_port {update.ssh_port} outside reserved gateway range 10000-65000"
+                    ),
+                )
+            # DEFENSE-IN-DEPTH: persist under `public_ssh_port` — NOT
+            # `ssh_port` — so we don't overwrite the container-internal
+            # port value the worker reads back on requeue. Writing
+            # host_port to payload.ssh_port caused the worker to map
+            # `-p <host_port>:<host_port>` on the next launch, while
+            # sshd inside the container still listens on :22, breaking
+            # the gateway relay (self-poisoning incident 2026-04-23).
+            extras["public_ssh_port"] = update.ssh_port
+        if update.interactive is not None:
+            extras["interactive"] = update.interactive
+        if update.error_message:
+            extras["error_message"] = update.error_message[:500]
+        if update.resume_from:
+            extras["resume_from"] = update.resume_from
+            extras["resumable"] = bool(update.resume_from.get("success"))
+        elif update.resumable is not None:
+            extras["resumable"] = update.resumable
+        if extras:
+            from scheduler import _set_job_fields
+
+            _set_job_fields(job_id, **extras)
+        broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
+        return {"ok": True, "job_id": job_id, "status": update.status}
+
+
+class InstanceRenamePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+@router.patch("/instance/{job_id}/name", tags=["Instances"])
+def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Request):
+    """Rename an instance (owner or admin only)."""
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _check_job_write_access(user, job_id)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+    from scheduler import get_job, _set_job_fields
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    _check_not_locked(job)
+    _set_job_fields(job_id, name=body.name.strip())
+    broadcast_sse("job_update", {"job_id": job_id, "name": body.name.strip()})
+    return {"ok": True, "job_id": job_id, "name": body.name.strip()}
+
+
+@router.post("/queue/process", tags=["Instances"])
+def api_process_queue(request: Request):
+    """Process the job queue — assign jobs to hosts (admin only)."""
+    _require_admin(request)
+    assigned = process_queue()
+    result = [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned]
+    if result:
+        broadcast_sse("queue_processed", {"assigned_count": len(result)})
+    return {"assigned": result}
+
+
+@router.post("/failover", tags=["Instances"])
+def api_failover(request: Request):
+    """Run a full failover cycle (admin only)."""
+    _require_admin(request)
+    requeued, assigned = failover_and_reassign()
+    return {
+        "requeued": [
+            {"job_id": j["job_id"], "name": j["name"], "retries": j.get("retries", 0)}
+            for j in requeued
+        ],
+        "assigned": [
+            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
+        ],
+    }
+
+
+@router.post("/instances/{job_id}/cancel", tags=["Instances"])
+def api_cancel_instance(job_id: str, request: Request):
+    """Cancel a running or queued instance. For interactive instances, stops the container."""
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _check_job_write_access(user, job_id)
+    jobs = list_jobs()
+    job = next((j for j in jobs if j["job_id"] == job_id), None)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    from abuse_policy import account_suspended, job_blocked
+    from db import get_engine
+
+    with get_engine().connection() as (conn, backend):
+        if job_blocked(conn, job_id, backend=backend):
+            raise HTTPException(
+                status_code=400,
+                detail="Instance is permanently terminated by security policy",
+            )
+    if account_suspended(user) or (not _is_platform_admin(user) and account_suspended(job)):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+
+    if job.get("status") in ("completed", "failed", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Instance already {job['status']}")
+
+    # Attempt-owned: fenced stop/remove via lifecycle controller. Do not
+    # unfenced-kill or detach volumes before the worker ACK.
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            active_attempt = conn.execute(
+                "SELECT active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
+            ).fetchone()
+    except Exception as exc:
+        raise HTTPException(503, "Unable to verify attempt authority") from exc
+    active_attempt_id = (
+        active_attempt["active_attempt_id"]
+        if isinstance(active_attempt, dict)
+        else active_attempt[0] if active_attempt else None
+    )
+    if active_attempt_id is not None:
+        from control_plane.lifecycle import request_fenced_stop_remove
+
+        fenced = request_fenced_stop_remove(
+            job_id=job_id,
+            intent="cancel",
+            created_by=str(user.get("customer_id") or user.get("user_id") or "user_cancel"),
+            container_name=job.get("container_name") or f"xcl-{job_id}",
+            reason_tag="user_cancelled",
+        )
+        if not fenced.ok:
+            detail = fenced.reason or "fenced_cancel_failed"
+            code = 409 if detail == "no_active_fenced_authority" else 400
+            raise HTTPException(code, detail)
+        cancel_payload = {
+            "job_id": job_id,
+            "status": "stopping",
+            "attempt_id": fenced.attempt_id,
+        }
+        _broadcast_instance_lifecycle_sse(
+            "job_cancelled",
+            cancel_payload,
+            event_type="job.v1.cancelled",
+            job_id=job_id,
+            idempotency_key=(
+                f"job_cancelled:{job_id}:{fenced.attempt_id or 'none'}:"
+                f"{fenced.command_id or 'none'}:{time.time()}"
+            ),
+        )
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": "stopping",
+            "attempt_id": fenced.attempt_id,
+            "command_id": fenced.command_id,
+        }
+
+    # Legacy (non-attempt-owned): direct kill + immediate cancel + detach.
+    if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
+        hosts = list_hosts()
+        hmap = {h["host_id"]: h for h in hosts}
+        host = hmap.get(job["host_id"])
+        if host:
+            try:
+                kill_job(job, host)
+            except Exception as e:
+                log.warning("Container kill failed for %s: %s", job_id, e)
+        schedule_host_preemptions(job["host_id"], [job_id])
+
+    update_job_status(job_id, "cancelled")
+    _broadcast_instance_lifecycle_sse(
+        "job_cancelled",
+        {"job_id": job_id},
+        event_type="job.v1.cancelled",
+        job_id=job_id,
+        idempotency_key=f"job_cancelled:{job_id}:legacy:{time.time()}",
+    )
+
+    # Detach any volumes still attached to this instance (legacy only).
+    try:
+        from volumes import get_volume_engine
+
+        get_volume_engine().detach_all_for_instance(job_id)
+    except Exception as e:
+        log.warning("Volume detach on cancel failed for %s: %s", job_id, e)
+
+    return {"ok": True, "job_id": job_id, "status": "cancelled"}
+
+
+@router.post("/instance/{job_id}/requeue", tags=["Instances"])
+def api_requeue_instance(job_id: str, request: Request):
+    """Manually requeue a failed, cancelled, or stuck job."""
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _check_job_write_access(user, job_id)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    from abuse_policy import account_suspended, job_blocked
+    from db import get_engine
+
+    with get_engine().connection() as (conn, backend):
+        if job_blocked(conn, job_id, backend=backend):
+            raise HTTPException(
+                status_code=400,
+                detail="Instance is permanently terminated by security policy",
+            )
+    if account_suspended(user) or account_suspended(job):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+
+    status = job.get("status")
+    if status == "completed":
+        raise HTTPException(status_code=400, detail="Instance already completed — cannot requeue")
+    if status == "queued":
+        raise HTTPException(status_code=400, detail="Instance is already queued")
+
+    # The previous attempt's logs are cleared by `requeue_job` itself, which is
+    # where it belongs: starting a job over means starting its output over, and
+    # `/api/v1/instances/{job_id}/retry` reaches the same authority. While the
+    # wipe lived here, that route left stale output mixed into the next run.
+    result = requeue_job(job_id, user_initiated=True)
+    if not result:
+        refreshed = get_job(job_id) or job
+        retries = int(refreshed.get("retries", 0) or 0)
+        max_retries = int(refreshed.get("max_retries", 3) or 3)
+        if refreshed.get("status") == "failed" and retries >= max_retries:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Max retries ({max_retries}) exceeded — instance is permanently failed",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot requeue instance in '{status}' state",
+        )
+
+    host_map = {h["host_id"]: h for h in list_hosts()}
+    return {"ok": True, "instance": _enrich_instance(result, host_map)}
+
+
+# ── Lock / Unlock / Reset ────────────────────────────────────────────
+#
+# Lock: a user-set safety flag stored at ``payload.locked = true``. While
+# locked, every mutating endpoint on this instance (stop/start/restart/
+# reset/terminate/rename) returns 423 Locked. Only /unlock can flip it
+# back off. No backend plumbing beyond the payload flag — it's purely an
+# "are you sure you mean to do this" foot-gun guard.
+
+
+def _check_not_locked(job: dict) -> None:
+    """Raise HTTP 423 if the instance is user-locked."""
+    if job.get("locked") is True or (job.get("payload") or {}).get("locked") is True:
+        raise HTTPException(
+            status_code=423,
+            detail="Instance is locked. Unlock it first to make changes.",
+        )
+
+
+def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> tuple[dict, dict]:
+    """Shared owner/admin + existence + lock guard for mutating endpoints.
+
+    Returns (user, job). Raises 404/403 as appropriate. Does NOT check
+    status — callers enforce status constraints themselves.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+
+    from scheduler import get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    if not _user_owns_job(user, job):
+        raise HTTPException(status_code=403, detail=f"Not authorized to {action} this instance")
+
+    from abuse_policy import account_suspended, job_blocked
+    from db import get_engine
+
+    with get_engine().connection() as (conn, backend):
+        if job_blocked(conn, job_id, backend=backend):
+            raise HTTPException(
+                status_code=400,
+                detail="Instance is permanently terminated by security policy",
+            )
+    if account_suspended(user) or (not _is_platform_admin(user) and account_suspended(job)):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+
+    return user, job
+
+
+@router.post("/instances/{job_id}/lock", tags=["Instances"])
+def api_lock_instance(job_id: str, request: Request):
+    """Lock the instance against accidental modification.
+
+    Sets ``payload.locked = true``. Subsequent stop/start/restart/reset/
+    terminate/rename requests will return 423 until /unlock is called.
+    """
+    _user, _job = _authorize_instance_mutation(request, job_id, "lock")
+    from scheduler import _set_job_fields
+
+    _set_job_fields(job_id, locked=True)
+    broadcast_sse("instance_locked", {"job_id": job_id})
+    return {"ok": True, "job_id": job_id, "locked": True}
+
+
+@router.post("/instances/{job_id}/unlock", tags=["Instances"])
+def api_unlock_instance(job_id: str, request: Request):
+    """Remove the lock flag."""
+    _user, _job = _authorize_instance_mutation(request, job_id, "unlock")
+    from scheduler import _set_job_fields
+
+    _set_job_fields(job_id, locked=False)
+    broadcast_sse("instance_unlocked", {"job_id": job_id})
+    return {"ok": True, "job_id": job_id, "locked": False}
+
+
+@router.post("/instances/{job_id}/reset", tags=["Instances"])
+def api_reset_instance(job_id: str, request: Request):
+    """Reset the container (running instance only).
+
+    Restarts the container with a fresh ``/workspace`` scratch space,
+    preserving mounted named volumes and the container config. Compute
+    billing is continuous. Requires a positive wallet balance.
+    """
+    _user, job = _authorize_instance_mutation(request, job_id, "reset")
+    _check_not_locked(job)
+
+    if job.get("status") != "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Instance is '{job.get('status')}', must be running to reset",
+        )
+
+    host_id = job.get("host_id") or ""
+    if not host_id:
+        raise HTTPException(status_code=400, detail="Instance has no host assigned")
+
+    from control_plane.job_targets import resolve_job_command_target
+    from routes.agent import enqueue_agent_command
+
+    target = resolve_job_command_target(job_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    # Authority-sensitive: never guess legacy xcl-{job} for fenced history.
+    if not target.allows_unfenced_container_command:
+        raise HTTPException(
+            status_code=409,
+            detail="fenced_residual_requires_live_authority",
+        )
+    if not target.host_id:
+        raise HTTPException(status_code=400, detail="Instance has no host assigned")
+
+    cmd_id = enqueue_agent_command(
+        host_id=target.host_id,
+        command="reset_container",
+        args={"job_id": job_id, "container_name": target.container_name},
+        created_by=_user.get("customer_id", _user.get("user_id", "")),
+    )
+    broadcast_sse("instance_reset", {"job_id": job_id})
+    return {"ok": True, "command_id": cmd_id, "job_id": job_id}
+
+
+# ── Stop / Start / Restart / Terminate ──────────────────────────────
+
+
+@router.post("/instances/{job_id}/stop", tags=["Instances"])
+def api_stop_instance(job_id: str, request: Request):
+    """Gracefully stop a running instance.
+
+    Sends SIGTERM to the container (docker stop -t 10). The container is
+    preserved — data, volumes and configuration are intact. Storage billing
+    continues at the per-GB rate. The instance can be started again at any time.
+    """
+    user, job = _authorize_instance_mutation(request, job_id, "stop")
+
+    if job.get("status") != "running":
+        raise HTTPException(
+            status_code=400, detail=f"Instance is '{job.get('status')}', must be running to stop"
+        )
+
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    result = be.stop_instance(job_id, reason="user_stopped")
+    if not result.get("stopped"):
+        raise HTTPException(status_code=500, detail=result.get("reason", "stop failed"))
+
+    _broadcast_instance_lifecycle_sse(
+        "instance_stopped",
+        {"job_id": job_id},
+        event_type="job.v1.instance_stopped",
+        job_id=job_id,
+        idempotency_key=f"instance_stopped:{job_id}:{time.time()}",
+    )
+    append_user_audit_event("user.instance.stopped", "job", job_id, user)
+    return {"ok": True, "instance": result}
+
+
+@router.post("/instances/{job_id}/start", tags=["Instances"])
+def api_start_instance(job_id: str, request: Request):
+    """Start a stopped instance.
+
+    Restores the exited container via docker start. Container data is
+    preserved. Requires a positive wallet balance. Compute billing resumes
+    immediately.
+    """
+    user, job = _authorize_instance_mutation(request, job_id, "start")
+    customer_id = _canonical_owner_id(user)
+    job_owner = (job.get("owner") or "").strip()
+
+    if job.get("status") != "stopped":
+        raise HTTPException(
+            status_code=400, detail=f"Instance is '{job.get('status')}', must be stopped to start"
+        )
+
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    fund = be.wallet_has_available_funds(job_owner or customer_id)
+    if fund.get("reason") == "wallet_suspended":
+        raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
+    if not fund.get("ok"):
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                "Insufficient available wallet balance to start instance "
+                f"(${float(fund.get('available_cad') or 0):.2f} CAD available "
+                f"after ${float(fund.get('held_cad') or 0):.2f} CAD held)"
+            ),
+        )
+
+    result = be.start_instance(job_id)
+    if not result.get("started"):
+        detail = result.get("reason", "start failed")
+        code = (
+            402
+            if detail == "insufficient_balance"
+            else (
+                409
+                if detail
+                in (
+                    "fenced_resume_requires_new_attempt",
+                    "still_attempt_owned",
+                    "no_active_fenced_authority",
+                )
+                else 400 if detail in ("not_stopped", "not_fenced_history") else 500
+            )
+        )
+        raise HTTPException(status_code=code, detail=detail)
+
+    _broadcast_instance_lifecycle_sse(
+        "instance_started",
+        {"job_id": job_id},
+        event_type="job.v1.instance_started",
+        job_id=job_id,
+        idempotency_key=f"instance_started:{job_id}:{time.time()}",
+    )
+    append_user_audit_event("user.instance.started", "job", job_id, user)
+    return {"ok": True, "instance": result}
+
+
+@router.post("/instances/{job_id}/restart", tags=["Instances"])
+def api_restart_instance(job_id: str, request: Request):
+    """Restart an instance. Container data is fully preserved.
+
+    Works from both running and stopped states:
+    - Running → graceful stop → start (docker stop + docker start)
+    - Stopped → start (docker start only)
+
+    Billing is continuous — no gap. Requires a positive wallet balance.
+    """
+    user, job = _authorize_instance_mutation(request, job_id, "restart")
+    _check_not_locked(job)
+
+    if job.get("status") not in ("running", "stopped"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Instance is '{job.get('status')}', must be running or stopped to restart",
+        )
+
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    job_owner = (job.get("owner") or "").strip()
+    fund = be.wallet_has_available_funds(job_owner)
+    if fund.get("reason") == "wallet_suspended":
+        raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
+    if not fund.get("ok"):
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                "Insufficient available wallet balance to restart instance "
+                f"(${float(fund.get('available_cad') or 0):.2f} CAD available "
+                f"after ${float(fund.get('held_cad') or 0):.2f} CAD held)"
+            ),
+        )
+
+    result = be.restart_instance(job_id)
+    if not result.get("restarted"):
+        detail = result.get("reason", "restart failed")
+        code = (
+            402
+            if detail == "insufficient_balance"
+            else (
+                409
+                if detail
+                in (
+                    "fenced_restart_requires_controller",
+                    "no_active_fenced_authority",
+                    "still_attempt_owned",
+                )
+                else 400 if detail in ("not_restartable", "not_stopped") else 500
+            )
+        )
+        raise HTTPException(status_code=code, detail=detail)
+
+    _broadcast_instance_lifecycle_sse(
+        "instance_restarted",
+        {"job_id": job_id},
+        event_type="job.v1.instance_restarted",
+        job_id=job_id,
+        idempotency_key=f"instance_restarted:{job_id}:{time.time()}",
+    )
+    append_user_audit_event("user.instance.restarted", "job", job_id, user)
+    return {"ok": True, "instance": result}
+
+
+@router.post("/admin/instances/{job_id}/reinject-shell", tags=["Instances"])
+def api_admin_reinject_shell(job_id: str, request: Request):
+    """Admin-only: re-apply MOTD/PS1/sshd setup to the instance's container.
+
+    Enqueues a `reinject_shell` command for the host running this instance.
+    The worker agent picks it up within one poll cycle (~5-10 s) and
+    re-runs `_inject_ssh_keys` against the container. Idempotent — safe
+    to call repeatedly. Returns the enqueued command id.
+
+    Use case: an admin updated the MOTD/PS1 logic or debugged a stuck
+    container and needs to refresh shell setup without restarting the
+    worker agent.
+    """
+    user = _require_auth(request)
+    # `_is_platform_admin`, not a hand-rolled copy. The inline version read
+    # `user.get("is_admin")` for truthiness, so the *strings* "0" and "false" —
+    # which `_admin_flag` normalises to not-admin — passed it, because a
+    # non-empty string is truthy. One definition, two spellings, and the
+    # second one drifted.
+    if not _is_platform_admin(user):
+        raise HTTPException(403, "Admin only")
+
+    from scheduler import get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"Instance {job_id} not found")
+
+    host_id = job.get("host_id", "")
+    if not host_id:
+        raise HTTPException(400, "Instance has no host assigned")
+
+    from control_plane.job_targets import resolve_job_command_target
+    from routes.agent import enqueue_agent_command
+
+    target = resolve_job_command_target(job_id)
+    if target is None:
+        raise HTTPException(404, f"Instance {job_id} not found")
+    if not target.allows_unfenced_container_command:
+        raise HTTPException(
+            status_code=409,
+            detail="fenced_residual_requires_live_authority",
+        )
+    if not target.host_id:
+        raise HTTPException(400, "Instance has no host assigned")
+
+    cmd_id = enqueue_agent_command(
+        host_id=target.host_id,
+        command="reinject_shell",
+        args={"job_id": job_id, "container_name": target.container_name},
+        created_by=user.get("customer_id", user.get("user_id", "admin")),
+    )
+    log.info(
+        "Admin %s enqueued reinject_shell cmd=%d host=%s job=%s class=%s",
+        user.get("email", "?"),
+        cmd_id,
+        target.host_id,
+        job_id,
+        target.class_,
+    )
+    return {
+        "ok": True,
+        "command_id": cmd_id,
+        "host_id": target.host_id,
+        "job_id": job_id,
+    }
+
+
+@router.post("/instances/{job_id}/terminate", tags=["Instances"])
+def api_terminate_instance(job_id: str, request: Request):
+    """Permanently terminate an instance. This action is irreversible.
+
+    The container and its anonymous volumes are hard-killed and removed.
+    Named/NFS volumes are preserved. The instance cannot be restarted
+    after termination.
+    """
+    user, job = _authorize_instance_mutation(request, job_id, "terminate")
+    _check_not_locked(job)
+
+    terminal_statuses = {"terminated", "completed", "failed", "preempted", "cancelled"}
+    if job.get("status") in terminal_statuses:
+        raise HTTPException(status_code=400, detail=f"Instance already {job.get('status')}")
+
+    from billing import get_billing_engine
+
+    be = get_billing_engine()
+    result = be.terminate_instance(job_id)
+    if not result.get("terminated"):
+        detail = result.get("reason", "terminate failed")
+        code = (
+            409
+            if detail
+            in (
+                "fenced_terminate_requires_controller",
+                "no_active_fenced_authority",
+            )
+            else 400
+        )
+        raise HTTPException(status_code=code, detail=detail)
+
+    _broadcast_instance_lifecycle_sse(
+        "instance_terminated",
+        {"job_id": job_id},
+        event_type="job.v1.instance_terminated",
+        job_id=job_id,
+        idempotency_key=f"instance_terminated:{job_id}:{time.time()}",
+    )
+    append_user_audit_event("user.instance.terminated", "job", job_id, user)
+    return {"ok": True, "instance": result}
+
+
+# ── Lifecycle log messages (user-visible + durable in job_logs) ──
+
+
+def emit_lifecycle_log(
+    job_id: str,
+    old_status: str | None,
+    new_status: str,
+    job: dict,
+) -> None:
+    """Push a human-readable line for every meaningful status transition."""
+    if not job_id or not new_status or old_status == new_status:
+        return
+
+    host_id = job.get("host_id") or "—"
+    tier = job.get("tier") or "standard"
+    gpu = job.get("host_gpu_model") or job.get("gpu_model") or job.get("gpu_type") or ""
+    if not gpu and host_id and host_id != "—":
+        try:
+            from host_metadata import infer_gpu_from_host_id
+
+            gpu = infer_gpu_from_host_id(str(host_id))
+        except Exception:
+            pass
+    if not gpu:
+        gpu = "any"
+    image = (job.get("image") or job.get("docker_image") or "")[:80]
+    retry = int(job.get("retries", 0) or 0)
+    max_r = int(job.get("max_retries", 3) or 3)
+    reason = (
+        job.get("failure_reason")
+        or job.get("error_message")
+        or job.get("queue_reason_detail")
+        or ""
+    )
+
+    msg: str | None = None
+    level = "info"
+
+    if new_status == "assigned":
+        vram = job.get("host_vram_gb", "?")
+        if (not vram or vram == "?") and gpu and gpu != "any":
+            try:
+                from host_metadata import default_vram_gb
+
+                vram = default_vram_gb(gpu) or vram
+            except Exception:
+                pass
+        msg = (
+            f"Assigned to host {host_id} ({gpu}, {vram} GB VRAM) — "
+            "worker should claim the lease within ~30s"
+        )
+    elif new_status == "leased":
+        msg = f"Worker on {host_id} claimed lease — preparing container"
+    elif new_status == "starting":
+        msg = f"Starting — pulling image and creating container ({image or 'default image'})"
+    elif new_status == "running":
+        msg = f"Running on {host_id} ({gpu})"
+    elif new_status == "failed":
+        msg = f"Failed: {reason}" if reason else "Failed — see logs above for details"
+        level = "error"
+    elif new_status == "cancelled":
+        msg = "Cancelled"
+    elif new_status == "completed":
+        msg = "Completed"
+    elif new_status == "preempted":
+        msg = "Preempted — requeued for available spot capacity"
+        level = "warning"
+    elif new_status == "stopped":
+        msg = "Stopped — storage billing continues"
+    elif new_status == "stopping":
+        msg = "Stopping container…"
+    elif new_status == "restarting":
+        msg = "Restarting container…"
+    elif new_status == "terminated":
+        msg = "Terminated"
+    elif new_status == "queued" and old_status in (
+        "failed",
+        "cancelled",
+        "assigned",
+        "leased",
+        "starting",
+        "running",
+        "preempted",
+    ):
+        relaunch = int(job.get("relaunch_count", 0) or 0)
+        relaunch_note = f", relaunch #{relaunch}" if relaunch else ""
+        msg = (
+            f"Requeued — waiting for GPU (tier={tier}, gpu_model={gpu}, "
+            f"retry {retry}/{max_r}{relaunch_note})"
+        )
+
+    if msg:
+        try:
+            push_job_log(job_id, msg, level)
+        except Exception:
+            pass
+
+
+# ── Helper: push_job_log ──
+
+
+def push_job_log(
+    job_id: str,
+    line: str,
+    level: str = "info",
+    timestamp: float | None = None,
+    *,
+    persist: bool = True,
+):
+    """Push a log line into the per-job log buffer + optionally persist to PG + SSE broadcast.
+
+    Three sinks, in this priority:
+      1. In-memory ring buffer (`_job_log_buffers`) — fastest path for
+         active terminal viewers; trimmed to `_JOB_LOG_MAX` entries per job.
+      2. PG `job_logs` table — durable; survives API restart and lets the
+         terminal WS replay history for jobs that haven't reached running yet.
+         Skipped when *persist=False* (caller already wrote to PG).
+      3. SSE broadcast — pushes to any connected dashboard clients live.
+
+    Persisting to PG here (vs. only on worker-uploaded logs via routes/agent.py)
+    means lifecycle events like "Queued", "Assigned to host X", "Starting" are
+    preserved even if no one was connected at the moment they happened — which
+    matters most for short-lived jobs that fail before a user opens the UI.
+
+    The PG write is wrapped in a broad try/except: we never want a logging
+    failure to abort the caller (scheduler, worker claim handler, reaper, etc).
+    """
+    ts = timestamp or time.time()
+    entry = {"timestamp": ts, "line": line, "message": line, "level": level}
+    buf = _job_log_buffers[job_id]
+    buf.append(entry)
+    if len(buf) > _JOB_LOG_MAX:
+        _job_log_buffers[job_id] = buf[-_JOB_LOG_MAX:]
+
+    # Durable persist — best-effort, never raise. Skipped when caller
+    # already wrote to PG (persist=False) to avoid duplicate rows.
+    if persist:
+        try:
+            from db import _get_pg_pool
+
+            with _get_pg_pool().connection() as conn:
+                conn.execute(
+                    "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
+                    (job_id, ts, level, line),
+                )
+                conn.commit()
+        except Exception:
+            # Intentionally silent — in-memory + SSE still delivered the message.
+            pass
+
+    # In-process SSE subscribers (API workers with open WS/SSE clients).
+    broadcast_sse("job_log", {"job_id": job_id, **entry})
+    # Cross-process bridge: scheduler-worker / bg-worker / reaper write logs from
+    # other containers — NOTIFY so API workers' LISTEN threads fan out to WS/SSE.
+    try:
+        from db import emit_event
+
+        emit_event("job_log", {"job_id": job_id, **entry})
+    except Exception:
+        pass
+
+
+# ── Helper: _load_pg_logs ──
+
+
+def _poll_pg_job_tail(job_id: str, last_ts: float) -> tuple[list[dict], str, str | None]:
+    """Fetch new PG log rows and authoritative job status/host_id for WS tailing."""
+    new_rows: list[dict] = []
+    cur_status = ""
+    cur_host_id: str | None = None
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        with _get_pg_pool().connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                new_rows = cur.execute(
+                    "SELECT ts AS timestamp, level, line, line AS message "
+                    "FROM job_logs WHERE job_id = %s AND ts > %s "
+                    "ORDER BY ts ASC LIMIT 200",
+                    (job_id, last_ts),
+                ).fetchall()
+                status_row = cur.execute(
+                    "SELECT status, host_id FROM jobs WHERE job_id = %s",
+                    (job_id,),
+                ).fetchone()
+                if status_row:
+                    cur_status = status_row.get("status") or ""
+                    cur_host_id = status_row.get("host_id")
+    except Exception:
+        pass
+    return new_rows, cur_status, cur_host_id
+
+
+def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
+    """Load recent log lines from PG job_logs table (fallback when in-memory buffer is empty)."""
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                rows = cur.execute(
+                    "SELECT ts AS timestamp, level, line, line AS message FROM job_logs "
+                    "WHERE job_id = %s ORDER BY ts DESC LIMIT %s",
+                    (job_id, limit),
+                ).fetchall()
+        if not rows:
+            return []
+        return list(reversed(rows))  # chronological order, already dicts
+    except Exception:
+        return []
+
+
+# ── Helper: _job_log_generator ──
+
+
+async def _job_log_generator(request: Request, job_id: str):
+    """Async generator that yields SSE events for a specific job.
+
+    Replays buffered log lines, then live-tails new events
+    from the broadcast SSE bus filtered to this job_id.
+    """
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    with _sse_lock:
+        _sse_subscribers.append(queue)
+
+    try:
+        # SSE retry hint for automatic browser reconnection
+        yield "retry: 3000\n\n"
+
+        # Replay buffered log lines (PG fallback if buffer is empty).
+        # Prefer PG if it has MORE rows than the in-memory buffer — covers the
+        # cross-process case where scheduler-worker wrote logs that never hit
+        # this API process's in-memory buffer.
+        in_mem = list(_job_log_buffers.get(job_id, []))
+        pg_rows = _load_pg_logs(job_id, limit=500)
+        replay = pg_rows if len(pg_rows) >= len(in_mem) else in_mem
+        last_ts = 0.0
+        for entry in replay:
+            data = json.dumps({"job_id": job_id, **entry})
+            yield f"event: job_log\ndata: {data}\n\n"
+            try:
+                last_ts = max(last_ts, float(entry.get("timestamp") or entry.get("ts") or 0))
+            except (TypeError, ValueError):
+                pass
+
+        yield f"event: connected\ndata: {json.dumps({'job_id': job_id, 'status': 'streaming'})}\n\n"
+
+        # Back off PG polling once a job is terminal and we've observed a few
+        # empty polls — terminal jobs won't produce new log rows, so keep the
+        # connection alive with just keepalives. Prevents an idle tab from
+        # hammering PG forever.
+        _TERMINAL_STATES = {"completed", "failed", "cancelled", "terminated", "preempted"}
+        empty_polls_after_terminal = 0
+        skip_pg_poll = False
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            # Poll PG for new log rows since last_ts. This is the ONLY path by
+            # which logs written from other processes (scheduler-worker,
+            # worker-agent uploads) reach this SSE client — the in-process
+            # broadcast bus only sees writes from this same API worker.
+            if not skip_pg_poll:
+                try:
+                    from db import _get_pg_pool
+                    from psycopg.rows import dict_row
+
+                    with _get_pg_pool().connection() as conn:
+                        with conn.cursor(row_factory=dict_row) as cur:
+                            new_rows = cur.execute(
+                                "SELECT ts AS timestamp, level, line, line AS message "
+                                "FROM job_logs WHERE job_id = %s AND ts > %s "
+                                "ORDER BY ts ASC LIMIT 200",
+                                (job_id, last_ts),
+                            ).fetchall()
+                            # Check status once per poll so we can quiesce
+                            # terminal jobs and free up DB connections.
+                            status_row = cur.execute(
+                                "SELECT status FROM jobs WHERE job_id = %s",
+                                (job_id,),
+                            ).fetchone()
+                            cur_status = (status_row or {}).get("status", "") if status_row else ""
+                    for row in new_rows:
+                        yield f"event: job_log\ndata: {json.dumps({'job_id': job_id, **row})}\n\n"
+                        try:
+                            last_ts = max(last_ts, float(row.get("timestamp") or 0))
+                        except (TypeError, ValueError):
+                            pass
+
+                    if cur_status in _TERMINAL_STATES:
+                        if not new_rows:
+                            empty_polls_after_terminal += 1
+                            # After ~30 empty polls (~60s) on a terminal job,
+                            # stop polling. Client still gets keepalives and
+                            # in-process broadcast events.
+                            if empty_polls_after_terminal >= 30:
+                                skip_pg_poll = True
+                        else:
+                            empty_polls_after_terminal = 0
+                except Exception:
+                    # PG hiccup — keep the stream alive; will retry on next tick.
+                    pass
+
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=2)
+                event_type = msg.get("event", "message")
+                event_data = msg.get("data", {})
+                # Filter: only pass through events for this job
+                if event_data.get("job_id") == job_id or event_type in (
+                    "job_status",
+                    "job_log",
+                    "lease_claimed",
+                    "lease_released",
+                    "job_completed",
+                    "job_failed",
+                ):
+                    if event_data.get("job_id", "") == job_id:
+                        yield f"event: {event_type}\ndata: {json.dumps(event_data)}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+    finally:
+        with _sse_lock:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
+
+
+@router.get("/instances/{job_id}/logs/stream", tags=["Instances"])
+async def api_instance_log_stream(request: Request, job_id: str):
+    """Stream real-time logs for a specific job via Server-Sent Events.
+
+    Connect with `EventSource('/jobs/{job_id}/logs/stream')` in the browser
+    or `curl -N` from the CLI. Replays buffered log lines on connect, then
+    live-tails new log entries until the client disconnects or the job completes.
+
+    Events emitted:
+    - `job_log` — individual log line (data: {job_id, timestamp, line, level})
+    - `job_status` — status change (data: {job_id, status})
+    - `connected` — initial handshake (data: {job_id, status: "streaming"})
+    """
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    _check_job_access(user, job_id)
+
+    return StreamingResponse(
+        _job_log_generator(request, job_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/api/instances/{job_id}/telemetry", tags=["Instances"])
+def api_instance_telemetry(job_id: str, request: Request):
+    """Latest GPU telemetry for the host running this instance (for agents/MCP watch_instance)."""
+    import time as _time
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    _check_job_access(user, job_id)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    host_id = job.get("host_id")
+    if not host_id:
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "host_id": None,
+            "telemetry": None,
+            "message": "Instance not yet assigned to a host",
+        }
+    from routes.agent import _host_telemetry
+
+    data = _host_telemetry.get(host_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"No telemetry for host {host_id}")
+    stale = (_time.time() - data.get("received_at", 0)) > 30
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "host_id": host_id,
+        "stale": stale,
+        "telemetry": data,
+    }
+
+
+@router.get("/instances/{job_id}/logs", tags=["Instances"])
+def api_instance_logs(job_id: str, request: Request, limit: int = 100):
+    """Get buffered log lines for a job (non-streaming).
+
+    Returns the last `limit` log lines. Tries in-memory buffer first,
+    falls back to persistent job_logs table in PG.
+    For real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).
+    """
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    _check_job_access(user, job_id)
+    limit = min(limit, 10_000)
+    buf = _job_log_buffers.get(job_id, [])
+
+    # If in-memory buffer is empty, load from PG
+    if not buf:
+        buf = _load_pg_logs(job_id, limit=limit)
+
+    return {"ok": True, "job_id": job_id, "logs": buf[-limit:], "total": len(buf)}
+
+
+@router.get("/instances/{job_id}/logs/download", tags=["Instances"])
+def api_instance_logs_download(job_id: str, request: Request):
+    """Download all available logs for a job as a plain text file."""
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
+    buf = _job_log_buffers.get(job_id, [])
+    if not buf:
+        buf = _load_pg_logs(job_id, limit=10_000)
+    if not buf:
+        raise HTTPException(404, "No logs available for this job")
+
+    lines = []
+    for entry in buf:
+        ts = entry.get("timestamp", "")
+        level = entry.get("level", "")
+        msg = entry.get("message", "") or entry.get("line", "")
+        lines.append(f"{ts} [{level.upper()}] {msg}")
+    text = "\n".join(lines)
+
+    import re
+
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", job_id)[:128]
+    return Response(
+        content=text,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{safe_id}-logs.txt"'},
+    )
+
+
+@router.get("/tiers", tags=["Instances"])
+def api_list_tiers():
+    """List all priority tiers with their multipliers."""
+    return {"tiers": list_tiers()}
+
+
+@router.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
+def api_process_queue_binpack(request: Request, region: str = ""):
+    """Process job queue using best-fit-decreasing bin packing (admin only)."""
+    _require_admin(request)
+    assigned = process_queue_binpack(region=region or None)
+    return {"ok": True, "assigned": assigned, "count": len(assigned)}
+
+
+@router.post("/api/instances/{job_id}/stream-ticket")
+def api_instance_stream_ticket(job_id: str, request: Request) -> dict:
+    """Issue a short-lived one-time WebSocket ticket for instance streaming."""
+    user = _require_auth(request)
+    # "Open a terminal on your running instances" — the first clause of what
+    # `instances:connect` promises at the consent screen. Ownership is checked
+    # below; this checks that *this credential* was granted terminal access.
+    _require_scope(user, "instances:connect")
+    _check_job_access(user, job_id)
+    ticket = _issue_ws_ticket(
+        user,
+        request=request,
+        purpose="instance_stream",
+        target=job_id,
+    )
+    return {
+        "ok": True,
+        "ticket": ticket["ticket"],
+        "expires_in": int(max(0, ticket["expires_at"] - time.time())),
+    }
+
+
+# ── WebSocket Instance Streaming ──────────────────────────────────
+
+
+@router.websocket("/ws/instances/{job_id}")
+async def ws_instance_stream(websocket: WebSocket, job_id: str):
+    """WebSocket endpoint for real-time instance updates.
+
+    Sends:
+    - ``instance`` — full instance snapshot on connect and on status changes
+    - ``job_log`` — individual log lines
+    - ``job_status`` — status change notifications
+    - ``ping`` — keepalive every 30 s
+
+    Client can send ``{"event": "pong"}`` or ``{"event": "refresh"}``
+    to request a fresh instance snapshot.
+    """
+    if not _validate_ws_origin(
+        websocket,
+        require_for_cookie_auth=True,
+        allow_query_token=False,
+    ):
+        await websocket.close(code=1008, reason="Invalid origin")
+        return
+
+    if not _check_ws_connect_rate_limit(websocket, bucket="instances"):
+        await websocket.close(code=4429, reason="Connection rate limit exceeded")
+        return
+
+    ticket = websocket.query_params.get("ticket", "").strip()
+    if ticket:
+        user = _consume_ws_ticket(
+            ticket,
+            websocket,
+            purpose="instance_stream",
+            target=job_id,
+        )
+    else:
+        user = _validate_ws_auth(websocket, allow_query_token=False)
+    if not user:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    await websocket.accept()
+
+    # Per-instance snapshot loader. Uses a single-row DB lookup (get_job) and
+    # a cached host_map rather than scanning list_jobs()/list_hosts() on every
+    # status change — those scans on the full tables were blocking the event
+    # loop long enough for nginx/Starlette to drop the WS with 1006, producing
+    # the 2s reconnect loop and stale UI (status stuck on "assigned" even
+    # though the DB had already moved to "running").
+    _host_map_cache: dict[str, dict] = {}
+    _host_map_ts: float = 0.0
+
+    def _load_snapshot() -> dict | None:
+        nonlocal _host_map_cache, _host_map_ts
+        from scheduler import get_job
+
+        j = get_job(job_id)
+        if not j:
+            return None
+        # Refresh host map at most every 15s — hosts rarely change and the
+        # scan was the expensive part.
+        now_ts = time.time()
+        if now_ts - _host_map_ts > 15.0:
+            try:
+                from host_metadata import enrich_host_for_api
+
+                _host_map_cache = {
+                    h["host_id"]: enrich_host_for_api(h) for h in list_hosts(active_only=False)
+                }
+            except Exception:
+                _host_map_cache = {h["host_id"]: h for h in list_hosts(active_only=False)}
+            _host_map_ts = now_ts
+        _enrich_instance(j, _host_map_cache)
+        return j
+
+    async def _load_snapshot_async() -> dict | None:
+        return await asyncio.to_thread(_load_snapshot)
+
+    async def _safe_send(payload: dict) -> bool:
+        try:
+            await websocket.send_json(payload)
+            return True
+        except (WebSocketDisconnect, RuntimeError, ConnectionError):
+            return False
+        except Exception as e:
+            log.debug("ws_instance_stream send failed: %s", e)
+            return False
+
+    # Initial snapshot
+    instance = await _load_snapshot_async()
+    if not instance:
+        await _safe_send({"event": "error", "data": {"message": "Instance not found"}})
+        await websocket.close(code=4004)
+        return
+
+    # Ownership check — team members with read access may stream; viewers included
+    if not _user_owns_job(user, instance):
+        await _safe_send({"event": "error", "data": {"message": "Not authorized"}})
+        await websocket.close(code=4003)
+        return
+
+    _ws_connections[job_id].add(websocket)
+    if not await _safe_send({"event": "instance", "data": instance}):
+        _ws_connections[job_id].discard(websocket)
+        return
+
+    # Replay buffered logs (PG fallback if buffer is empty)
+    replay = list(_job_log_buffers.get(job_id, []))[-50:]
+    if not replay:
+        replay = await asyncio.to_thread(_load_pg_logs, job_id, 50)
+    last_log_ts = 0.0
+    for entry in replay:
+        if not await _safe_send({"event": "job_log", "data": {"job_id": job_id, **entry}}):
+            _ws_connections[job_id].discard(websocket)
+            return
+        try:
+            last_log_ts = max(last_log_ts, float(entry.get("timestamp") or 0))
+        except (TypeError, ValueError):
+            pass
+
+    last_status = instance.get("status")
+    last_host_id = instance.get("host_id")
+
+    # Subscribe to the broadcast SSE bus
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    with _sse_lock:
+        _sse_subscribers.append(queue)
+
+    closed = False
+
+    async def _send_loop():
+        nonlocal closed
+        while not closed:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=30)
+            except asyncio.TimeoutError:
+                if not await _safe_send({"event": "ping", "data": {"ts": time.time()}}):
+                    closed = True
+                    return
+                continue
+            event_type = msg.get("event", "message")
+            event_data = msg.get("data", {})
+            if event_data.get("job_id") != job_id:
+                continue
+            if not await _safe_send({"event": event_type, "data": event_data}):
+                closed = True
+                return
+            # On status change, send full enriched instance snapshot
+            if event_type == "job_status":
+                fresh = await _load_snapshot_async()
+                if fresh and not await _safe_send({"event": "instance", "data": fresh}):
+                    closed = True
+                    return
+
+    async def _recv_loop():
+        nonlocal closed
+        while not closed:
+            try:
+                raw = await websocket.receive_text()
+                data = json.loads(raw)
+                if data.get("event") == "refresh":
+                    fresh = await _load_snapshot_async()
+                    if fresh and not await _safe_send({"event": "instance", "data": fresh}):
+                        closed = True
+                        return
+            except (WebSocketDisconnect, RuntimeError):
+                closed = True
+                break
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+    async def _pg_poll_loop():
+        """Tail PG for cross-process lifecycle logs and status/host_id drift."""
+        nonlocal closed, last_log_ts, last_status, last_host_id
+        while not closed:
+            await asyncio.sleep(2)
+            if closed:
+                return
+            try:
+                new_rows, cur_status, cur_host_id = await asyncio.to_thread(
+                    _poll_pg_job_tail, job_id, last_log_ts
+                )
+            except Exception:
+                continue
+            for row in new_rows:
+                if not await _safe_send({"event": "job_log", "data": {"job_id": job_id, **row}}):
+                    closed = True
+                    return
+                try:
+                    last_log_ts = max(last_log_ts, float(row.get("timestamp") or 0))
+                except (TypeError, ValueError):
+                    pass
+            if cur_status and (cur_status != last_status or cur_host_id != last_host_id):
+                fresh = await _load_snapshot_async()
+                if fresh:
+                    if not await _safe_send(
+                        {
+                            "event": "job_status",
+                            "data": {
+                                "job_id": job_id,
+                                "status": cur_status,
+                                "host_id": cur_host_id,
+                            },
+                        }
+                    ):
+                        closed = True
+                        return
+                    if not await _safe_send({"event": "instance", "data": fresh}):
+                        closed = True
+                        return
+                last_status = cur_status
+                last_host_id = cur_host_id
+
+    try:
+        done, pending = await asyncio.wait(
+            [
+                asyncio.ensure_future(_send_loop()),
+                asyncio.ensure_future(_recv_loop()),
+                asyncio.ensure_future(_pg_poll_loop()),
+            ],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        closed = True
+        _ws_connections[job_id].discard(websocket)
+        with _sse_lock:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
+        try:
+            await websocket.close()
+        except Exception as e:
+            log.debug("WS close error: %s", e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3.1 — Pod save-as-template (user_images)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A running interactive instance can be turned into a reusable image by
+# enqueuing a `snapshot_container` agent command which runs `docker commit`
+# on the host. v1 keeps the image local to the host; once
+# XCELSIOR_REGISTRY_URL is configured the worker pushes it to a per-user
+# namespace. The user_images table is the system-of-record.
+
+
+# Docker reference spec requires lowercase for the repository portion;
+# we auto-lowercase the name in the validator so users aren't surprised
+# by a `invalid reference format` failure at commit time on the host.
+# Tags remain case-sensitive per the Docker distribution spec.
+_IMAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
+_IMAGE_TAG_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,62}$")
+
+
+def _owner_slug(owner_id: str) -> str:
+    """Deterministic, collision-resistant namespace slug for an owner.
+
+    Two different owner_ids can sanitize to the same string
+    (e.g. 'a.b@x' and 'a-b-x'), so we append a short sha256 prefix to
+    guarantee uniqueness in the local-only image tag path.
+    """
+    import hashlib
+
+    clean = re.sub(r"[^a-z0-9_-]", "-", (owner_id or "").lower()).strip("-") or "user"
+    # Keep registry paths readable but always disambiguated.
+    # P3/B5 — 16 hex chars = 64 bits of entropy. An 8-char prefix (32 bits)
+    # is vulnerable to birthday collisions at ~65k users sharing a slug;
+    # at Xcelsior's expected scale that's borderline. 16 chars pushes the
+    # 50% collision point past 2^32 users.
+    digest = hashlib.sha256((owner_id or "").encode("utf-8")).hexdigest()[:16]
+    return f"{clean[:32]}-{digest}"
+
+
+def _build_image_ref(owner_id: str, name: str, tag: str) -> str:
+    """Build a fully-qualified OCI image reference.
+
+    ``XCELSIOR_REGISTRY_URL`` is REQUIRED in production. When it is
+    unset we intentionally raise rather than silently falling back to a
+    host-local tag; the old fallback made snapshots look healthy
+    (status=ready) while being completely unusable from any other host,
+    violating the "snapshot = portable template" contract.
+
+    Callers at HTTP request time catch this and return 503 with a clear
+    operator-facing error, so users retrying later (after the operator
+    sets the env var + rolls the deployment) get a working snapshot.
+    """
+    reg = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip().rstrip("/")
+    if not reg:
+        raise RuntimeError(
+            "registry_not_configured: set XCELSIOR_REGISTRY_URL to a "
+            "fully-qualified registry host (ghcr.io/<org>, "
+            "registry.xcelsior.ca, etc.) on the API + every worker"
+        )
+    slug = _owner_slug(owner_id)
+    return f"{reg}/{slug}/{name}:{tag}"
+
+
+class SnapshotIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=63)
+    tag: str = Field(default="latest", max_length=63)
+    description: str = Field(default="", max_length=512)
+
+    @field_validator("name")
+    @classmethod
+    def _v_name(cls, v: str) -> str:
+        # Docker refuses uppercase in the repository name; enforce early
+        # rather than producing a confusing `invalid reference format`
+        # error from `docker commit` on the host.
+        v = (v or "").strip().lower()
+        if not _IMAGE_NAME_RE.match(v):
+            raise ValueError("name must match [a-z0-9][a-z0-9._-]* and be <=63 chars")
+        return v
+
+    @field_validator("tag")
+    @classmethod
+    def _v_tag(cls, v: str) -> str:
+        v = (v or "latest").strip() or "latest"
+        if not _IMAGE_TAG_RE.match(v):
+            raise ValueError("tag must match [a-z0-9][a-z0-9._-]*")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _v_desc(cls, v: str) -> str:
+        v = (v or "").strip()
+        # Strip any control chars other than newlines/tabs.
+        v = "".join(c for c in v if ord(c) >= 32 or c in "\n\t")
+        # P3/B9 — strip Unicode bidirectional override characters. These
+        # can be used to mask malicious content in logs / UIs by flipping
+        # display order (CVE-2021-42574, "Trojan Source"). We have no
+        # legitimate use for LRO/RLO/PDF/LRI/RLI/FSI/PDI in an image
+        # description.
+        _BIDI_CHARS = {
+            "\u202a",
+            "\u202b",
+            "\u202c",
+            "\u202d",
+            "\u202e",  # LRE/RLE/PDF/LRO/RLO
+            "\u2066",
+            "\u2067",
+            "\u2068",
+            "\u2069",  # LRI/RLI/FSI/PDI
+        }
+        if any(c in _BIDI_CHARS for c in v):
+            v = "".join(c for c in v if c not in _BIDI_CHARS)
+        return v[:512]
+
+
+def _user_images_pool():
+    """Lazy import; keeps pg_pool import out of module-load order."""
+    from db import _get_pg_pool  # type: ignore
+
+    return _get_pg_pool()
+
+
+@router.post("/instances/{job_id}/snapshot", tags=["Instances"])
+def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
+    """Create a user image from a running container (`docker commit`).
+
+    The real work is performed asynchronously by the worker agent on the
+    host the job is currently assigned to. This endpoint validates the
+    request, inserts a `user_images` row in `pending`, and enqueues a
+    `snapshot_container` directive.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+    owner_id = _user_image_scope_owner_id(user)
+    if not owner_id:
+        raise HTTPException(401, "Authentication required")
+    # P3/B4 — throttle before doing any DB / agent work.
+    _check_snapshot_rate_limit(owner_id)
+
+    job = get_job(job_id)
+    if not job:
+        _snapshot_requests_total.labels(outcome="not_found").inc()
+        raise HTTPException(404, "Instance not found")
+    try:
+        _check_job_write_access(user, job_id)
+    except HTTPException:
+        _snapshot_requests_total.labels(outcome="forbidden").inc()
+        raise
+    status = str(job.get("status") or "")
+    # Only running containers can be snapshotted — billing pause / stop
+    # flows `docker rm -f` the container, after which `docker commit`
+    # has nothing to target.
+    if status != "running":
+        _snapshot_requests_total.labels(outcome="bad_state").inc()
+        raise HTTPException(
+            400,
+            f"Instance must be running to snapshot (got {status!r})",
+        )
+    host_id = str(job.get("host") or job.get("host_id") or "")
+    if not host_id:
+        _snapshot_requests_total.labels(outcome="no_host").inc()
+        raise HTTPException(409, "Instance has no assigned host")
+
+    image_id = f"img-{uuid.uuid4().hex[:12]}"
+    try:
+        image_ref = _build_image_ref(owner_id, body.name, body.tag)
+    except RuntimeError as e:
+        # Registry not configured. 503 (service unavailable, retry after
+        # operator fix) is the honest status; 500 would imply a bug.
+        # Include the hint from the raiser for ops.
+        _snapshot_requests_total.labels(outcome="registry_unconfigured").inc()
+        log.error("snapshot refused — registry_not_configured: %s", e)
+        raise HTTPException(503, str(e))
+
+    from control_plane.job_targets import resolve_job_command_target
+
+    target = resolve_job_command_target(job_id)
+    if target is None:
+        _snapshot_requests_total.labels(outcome="not_found").inc()
+        raise HTTPException(404, f"Instance {job_id} not found")
+    if not target.allows_unfenced_container_command:
+        _snapshot_requests_total.labels(outcome="fenced_no_authority").inc()
+        raise HTTPException(
+            status_code=409,
+            detail="fenced_residual_requires_live_authority",
+        )
+    container_name = target.container_name
+    if target.host_id:
+        host_id = target.host_id
+    now = time.time()
+
+    # Graceful degradation when the configured registry is unreachable.
+    # Instead of rejecting the snapshot (which would make the user lose
+    # context and force a retry), we persist the row with
+    # ``status='queued_registry_down'`` and rely on the bg_worker
+    # ``snapshot_queue_retry`` task to enqueue the agent command once
+    # the registry recovers. The caller still gets a 202-ish payload so
+    # they can poll ``/user-images`` and see the state transition.
+    import registry_health as _registry_health
+
+    registry_down = not _registry_health.is_registry_healthy()
+
+    from routes.agent import enqueue_agent_command
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        # Enforce uniqueness at the app layer so we can return a clean
+        # 409 before booking the agent command.
+        cur.execute(
+            "SELECT image_id FROM user_images "
+            "WHERE owner_id=%s AND name=%s AND tag=%s AND deleted_at=0",
+            (owner_id, body.name, body.tag),
+        )
+        existing = cur.fetchone()
+        if existing:
+            _snapshot_requests_total.labels(outcome="duplicate_name").inc()
+            raise HTTPException(
+                409,
+                f"Image {body.name}:{body.tag} already exists (delete it first to overwrite)",
+            )
+        initial_status = "queued_registry_down" if registry_down else "pending"
+        cur.execute(
+            """
+            INSERT INTO user_images (
+                image_id, owner_id, name, tag, description,
+                source_job_id, host_id, image_ref, base_image_ref, size_bytes,
+                status, created_at, deleted_at
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,0)
+            """,
+            (
+                image_id,
+                owner_id,
+                body.name,
+                body.tag,
+                body.description,
+                job_id,
+                host_id,
+                image_ref,
+                # Gate P7's lineage: what this snapshot was built *from*. A
+                # `docker commit` is a diff on top of the base the job launched
+                # with, so without this the row records which run produced the
+                # image but nothing about what is underneath the commit — which
+                # is the half an audit needs when a CVE lands in a base image.
+                #
+                # Recorded from the job rather than inferred later, because the
+                # job is the only place that knows, and it can be requeued onto
+                # a different image afterwards.
+                str(job.get("image") or job.get("docker_image") or "") or None,
+                initial_status,
+                now,
+            ),
+        )
+
+    cmd_id: str | None = None
+    if registry_down:
+        _snapshot_requests_total.labels(outcome="queued_registry_down").inc()
+        log.warning(
+            "snapshot queued (registry down) image=%s job=%s host=%s owner=%s",
+            image_id,
+            job_id,
+            host_id,
+            owner_id,
+        )
+    else:
+        cmd_id = enqueue_agent_command(
+            host_id,
+            "snapshot_container",
+            {
+                "image_id": image_id,
+                "container_name": container_name,
+                "image_ref": image_ref,
+                "job_id": job_id,
+            },
+            created_by=owner_id,
+            ttl_sec=3600,
+        )
+
+    try:
+        broadcast_sse(
+            "user_image_queued" if registry_down else "user_image_pending",
+            {
+                "image_id": image_id,
+                "owner_id": owner_id,
+                "name": body.name,
+                "tag": body.tag,
+                "image_ref": image_ref,
+                "source_job_id": job_id,
+                "status": initial_status,
+            },
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_pending) failed: %s", e)
+
+    if not registry_down:
+        _snapshot_requests_total.labels(outcome="enqueued").inc()
+        log.info(
+            "User image snapshot queued image=%s job=%s host=%s owner=%s",
+            image_id,
+            job_id,
+            host_id,
+            owner_id,
+        )
+    return {
+        "ok": True,
+        "image_id": image_id,
+        "image_ref": image_ref,
+        "command_id": cmd_id,
+        "status": initial_status,
+    }
+
+
+@router.get("/user-images", tags=["Instances"])
+def api_list_user_images(
+    request: Request,
+    scope: str = "mine",
+    starred: bool = False,
+    label: str = "",
+    q: str = "",
+    limit: int = Query(500, ge=1, le=1000),
+    offset: int = 0,
+):
+    """List saved pod templates.
+
+    Phase D — serves the /dashboard/templates surface. ``scope`` controls
+    the tab:
+
+    * ``mine``      — authenticated user's own images (default)
+    * ``public``    — every public image across users (Community tab)
+    * ``all``       — admin-only union
+
+    Filters compose: ``starred=true`` / ``label=<chip>`` / ``q=<search>``
+    apply on top of the base scope. Pagination is simple limit/offset —
+    the partial indexes keep all three scopes O(page) without a seq scan.
+    """
+    user = _require_auth(request)
+    # A token holding no instance scope should not enumerate a tenant's
+    # images, even though reading them changes nothing.
+    _require_scope(user, "instances:read")
+    scope_owner_id = _user_image_scope_owner_id(user)
+    if not scope_owner_id:
+        raise HTTPException(401, "Authentication required")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+    # Clamp pagination — defensive; the SQL driver handles large numbers
+    # fine but we'd rather cap the response size than emit 50k JSON rows.
+    try:
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "limit/offset must be integers")
+
+    scope = (scope or "mine").lower()
+    if scope not in ("mine", "public", "all"):
+        raise HTTPException(400, "scope must be one of: mine, public, all")
+    if scope == "all" and not is_admin:
+        raise HTTPException(403, "scope=all requires admin")
+
+    where = ["deleted_at=0"]
+    params: list = []
+    if scope == "mine":
+        where.append("owner_id=%s")
+        params.append(scope_owner_id)
+    elif scope == "public":
+        where.append("is_public=true")
+    # scope == "all" adds no owner filter (admin-only above).
+    if starred:
+        where.append("starred_at IS NOT NULL")
+        if scope == "mine":
+            # Only surface the current user's stars — stars are private.
+            pass
+    if label:
+        # jsonb array containment — index-friendly when we add a GIN
+        # later; fine without one at current volume.
+        where.append("labels @> %s::jsonb")
+        params.append(json.dumps([label]))
+    if q:
+        q_like = f"%{q}%"
+        where.append("(name ILIKE %s OR tag ILIKE %s OR description ILIKE %s)")
+        params.extend([q_like, q_like, q_like])
+
+    sql = (
+        "SELECT image_id, owner_id, name, tag, description, source_job_id, "
+        "host_id, image_ref, base_image_ref, image_digest, size_bytes, status, "
+        "created_at, is_public, labels, starred_at "
+        f"FROM user_images WHERE {' AND '.join(where)} "
+        "ORDER BY starred_at DESC NULLS LAST, created_at DESC "
+        "LIMIT %s OFFSET %s"
+    )
+    params.extend([limit, offset])
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(cast(Any, sql), params)
+        rows = cur.fetchall() or []
+    items = [
+        {
+            "image_id": r[0],
+            "owner_id": r[1],
+            "name": r[2],
+            "tag": r[3],
+            "description": r[4],
+            "source_job_id": r[5],
+            "host_id": r[6],
+            "image_ref": r[7],
+            # Positional, and adding `base_image_ref` to the SELECT shifted
+            # every index after it — `size_bytes` read the image string and
+            # `int()` raised. Caught by the suite, not by the change.
+            "base_image_ref": r[8],
+            "image_digest": r[9],
+            "size_bytes": int(r[10] or 0),
+            "status": r[11],
+            "created_at": float(r[12]),
+            "is_public": bool(r[13]),
+            "labels": r[14] or [],
+            "starred_at": float(r[15]) if r[15] is not None else None,
+            "starred": r[15] is not None,
+            "is_mine": r[1] == scope_owner_id,
+        }
+        for r in rows
+    ]
+    return {"images": items, "limit": limit, "offset": offset}
+
+
+class _UserImagePatchIn(BaseModel):
+    """Phase D — partial update for a template's UI-facing metadata.
+
+    Every field is optional; only provided fields are updated. Image
+    data itself (``image_ref``, ``size_bytes``, ``status``) is NEVER
+    patched via this endpoint — those are managed by the worker.
+    """
+
+    description: str | None = Field(default=None, max_length=512)
+    is_public: bool | None = None
+    labels: list[str] | None = None
+    starred: bool | None = None
+
+    @field_validator("description")
+    @classmethod
+    def _v_desc(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        # Mirror SnapshotIn — strip control chars + bidi overrides.
+        cleaned = "".join(c for c in v if c.isprintable() or c in ("\n", "\t"))
+        for bad in (
+            "\u202a",
+            "\u202b",
+            "\u202c",
+            "\u202d",
+            "\u202e",
+            "\u2066",
+            "\u2067",
+            "\u2068",
+            "\u2069",
+            "\u200b",
+            "\u200c",
+            "\u200d",
+            "\u200e",
+            "\u200f",
+        ):
+            cleaned = cleaned.replace(bad, "")
+        return cleaned.strip()
+
+    @field_validator("labels")
+    @classmethod
+    def _v_labels(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("at most 20 labels per template")
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in v:
+            if not isinstance(raw, str):
+                raise ValueError("labels must be strings")
+            s = raw.strip().lower()
+            if not s:
+                continue
+            if len(s) > 32:
+                raise ValueError("each label <=32 chars")
+            if not all(c.isalnum() or c in "-_." for c in s):
+                raise ValueError("labels must be [a-z0-9._-]")
+            if s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+        return out
+
+
+@router.patch("/user-images/{image_id}", tags=["Instances"])
+def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Request):
+    """Phase D — update description/labels/visibility/star on a template."""
+    user = _require_auth(request)
+    # Renaming or re-labelling someone's image is a mutation; the same
+    # narrowed-token argument as the delete route applies.
+    _require_scope(user, "instances:write")
+    if not _user_image_scope_owner_id(user):
+        raise HTTPException(401, "Authentication required")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+
+    sets: list[str] = []
+    params: list = []
+    if body.description is not None:
+        sets.append("description=%s")
+        params.append(body.description)
+    if body.is_public is not None:
+        sets.append("is_public=%s")
+        params.append(bool(body.is_public))
+    if body.labels is not None:
+        sets.append("labels=%s::jsonb")
+        params.append(json.dumps(body.labels))
+    if body.starred is not None:
+        if body.starred:
+            sets.append("starred_at=%s")
+            params.append(time.time())
+        else:
+            sets.append("starred_at=NULL")
+    if not sets:
+        raise HTTPException(400, "no fields to update")
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT owner_id FROM user_images WHERE image_id=%s AND deleted_at=0",
+            (image_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Image not found")
+        row_owner = row[0]
+        if is_admin:
+            pass
+        else:
+            _require_user_image_write(user, row_owner)
+        params.append(image_id)
+        cur.execute(
+            cast(Any, f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s"),
+            params,
+        )
+    try:
+        broadcast_sse(
+            "user_image_updated",
+            {"image_id": image_id, "owner_id": row_owner},
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_updated) failed: %s", e)
+    return {"ok": True}
+
+
+@router.delete("/user-images/{image_id}", tags=["Instances"])
+def api_delete_user_image(image_id: str, request: Request):
+    """Soft-delete a user image record. (Underlying docker image not removed.)"""
+    user = _require_auth(request)
+    # Ownership is checked below and is not a substitute for this. A Quick
+    # Connect key issued with `instances:read` belongs to the owner too, and
+    # the whole point of issuing it narrowed is that it cannot mutate.
+    _require_scope(user, "instances:write")
+    if not _user_image_scope_owner_id(user):
+        raise HTTPException(401, "Authentication required")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT owner_id FROM user_images WHERE image_id=%s AND deleted_at=0",
+            (image_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Image not found")
+        # Named access defends against the shared pool's row_factory
+        # possibly being mutated to dict_row by another caller.
+        row_owner = row["owner_id"] if isinstance(row, dict) else row[0]
+        if is_admin:
+            pass
+        else:
+            _require_user_image_write(user, row_owner)
+        cur.execute(
+            "UPDATE user_images SET deleted_at=%s WHERE image_id=%s",
+            (time.time(), image_id),
+        )
+    try:
+        broadcast_sse("user_image_deleted", {"image_id": image_id, "owner_id": row_owner})
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_deleted) failed: %s", e)
+    return {"ok": True}
+
+
+class _UserImageCompleteIn(BaseModel):
+    status: str
+    size_bytes: int = 0
+    error: str = ""
+    #: `repo@sha256:…`, read by the worker straight after the push. Optional
+    #: because an older agent does not send it and a push can succeed while the
+    #: inspect fails — "unknown" is honest and a sweep must refuse to claim
+    #: byte-identity without it, rather than falling back to the mutable tag.
+    image_digest: str = ""
+
+    @field_validator("status")
+    @classmethod
+    def _v_status(cls, v: str) -> str:
+        if v not in ("ready", "failed"):
+            raise ValueError("status must be 'ready' or 'failed'")
+        return v
+
+
+@router.post("/user-images/{image_id}/complete", tags=["Instances"])
+def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: Request):
+    """Internal: worker agent callback after `docker commit` finishes.
+
+    Authenticated with the same shared agent secret used for
+    `/agent/commands/{host_id}`. Flips the pending row into ready/failed.
+    """
+    from routes.agent import _require_agent_auth
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT owner_id, status, host_id FROM user_images WHERE image_id=%s AND deleted_at=0",
+            (image_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            # Authenticate before revealing existence (timing-equivalent
+            # path below handles the success case).
+            _require_agent_auth(request)
+            raise HTTPException(404, "Image not found")
+        # Named access defends against the shared pool's row_factory
+        # being mutated to dict_row by another caller.
+        if isinstance(row, dict):
+            owner_id = row["owner_id"]
+            prev_status = row["status"]
+            img_host_id = row["host_id"]
+        else:
+            owner_id, prev_status, img_host_id = row[0], row[1], row[2]
+        # Bind the callback to the host that was originally asked to
+        # produce the image. Prevents a compromised host from flipping
+        # another host's pending image to ready.
+        _require_agent_auth(request, host_id=img_host_id)
+        if prev_status not in ("pending",):
+            # Idempotent: callback may arrive twice; accept without re-update.
+            return {"ok": True, "status": prev_status}
+        cur.execute(
+            # `COALESCE(NULLIF(%s, ''), image_digest)` so an agent that does
+            # not send one cannot erase a digest already recorded — the older
+            # agent's silence means "I don't know", not "there isn't one".
+            "UPDATE user_images SET status=%s, size_bytes=%s, "
+            "image_digest=COALESCE(NULLIF(%s, ''), image_digest) "
+            "WHERE image_id=%s",
+            (
+                body.status,
+                max(0, int(body.size_bytes)),
+                str(body.image_digest or "").strip()[:255],
+                image_id,
+            ),
+        )
+    # P3/C1 — record worker-side outcome for dashboards + alerting.
+    _snapshot_completions_total.labels(status=body.status).inc()
+
+    try:
+        broadcast_sse(
+            "user_image_complete",
+            {
+                "image_id": image_id,
+                "owner_id": owner_id,
+                "status": body.status,
+                "size_bytes": body.size_bytes,
+                "error": (body.error or "")[:500],
+            },
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_complete) failed: %s", e)
+    log.info("User image %s completed status=%s size=%d", image_id, body.status, body.size_bytes)
+    return {"ok": True}
+
+
+# ───────────────────────────────────────────────────────────────────────
+# P2.3 — Jupyter / VSCode auto-launch report callback
+# ───────────────────────────────────────────────────────────────────────
+class _AutoLaunchReport(BaseModel):
+    host_id: str = Field(..., min_length=1, max_length=128)
+    # Map of service_name -> container port, e.g. {"jupyter": 8888, "vscode": 8443}
+    ports: dict[str, int] = Field(default_factory=dict)
+    # First 8 hex chars of sha256(token) — cheap integrity check so the
+    # GET endpoint can verify the token it returns matches what the
+    # agent configured without trusting a single field.
+    token_sha: str = Field(default="", max_length=16)
+    # P2.3 — the actual service token. Jupyter uses this as
+    # ``--ServerApp.token``; code-server uses it as the PASSWORD env.
+    # Stored in ``jobs.payload.auto_launch_ports.token``; returned only
+    # to the job owner via ``GET /instances/{id}/auto-launch``. Hex,
+    # up to 64 chars (worker currently emits 32). Optional to stay
+    # backward-compatible with agents that haven't been upgraded yet.
+    token: str | None = Field(default=None, max_length=64)
+
+    @field_validator("token")
+    @classmethod
+    def _v_token(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        if not re.fullmatch(r"[0-9a-f]{16,64}", v):
+            raise ValueError("token must be 16–64 hex chars")
+        return v
+
+    @field_validator("ports")
+    @classmethod
+    def _v_ports(cls, v: dict[str, int]) -> dict[str, int]:
+        allowed = {"jupyter", "vscode"}
+        clean: dict[str, int] = {}
+        for k, p in v.items():
+            key = str(k).strip().lower()
+            if key not in allowed:
+                continue
+            pi = int(p)
+            if not (1024 <= pi <= 65535):
+                raise ValueError(f"port {pi} out of range")
+            clean[key] = pi
+        return clean
+
+
+@router.post("/instances/{job_id}/auto-launch/report", tags=["Instances"])
+def api_instances_auto_launch_report(job_id: str, body: _AutoLaunchReport, request: Request):
+    """Internal: worker agent reports that auto-launch finished.
+
+    Authenticated by the same shared agent secret used for
+    `/agent/commands/{host_id}`, AND bound to the host_id reported in
+    the payload — prevents a compromised host from reporting ports
+    for a job it doesn't own.
+
+    Stores ``{token_sha, ports, reported_at}`` into
+    ``jobs.payload.auto_launch_ports``. The reported port mapping is
+    used by the P2.2 subdomain proxy to route ``<slug>-8888.xcelsior.ca``
+    to the correct host:container_port.
+    """
+    from routes.agent import _require_agent_auth
+
+    _require_agent_auth(request, host_id=body.host_id)
+
+    pool = _user_images_pool()
+    import json as _json
+
+    payload_value = _json.dumps(
+        {
+            "host_id": body.host_id,
+            "ports": body.ports,
+            "token_sha": body.token_sha,
+            "token": body.token or "",
+            "reported_at": time.time(),
+        }
+    )
+
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET payload = jsonb_set(payload, "
+            "'{auto_launch_ports}', %s::jsonb, true) "
+            "WHERE job_id = %s AND payload->>'host_id' = %s",
+            (payload_value, job_id, body.host_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "job not found or host_id mismatch")
+
+    try:
+        broadcast_sse(
+            "auto_launch_ready",
+            {"job_id": job_id, "ports": body.ports, "token_sha": body.token_sha},
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(auto_launch_ready) failed: %s", e)
+    return {"ok": True}
+
+
+@router.get("/instances/{job_id}/auto-launch", tags=["Instances"])
+def api_instances_auto_launch_get(job_id: str, request: Request):
+    """Return the public URL + service credentials for each auto-launch service.
+
+    Owner-only. Requires:
+      * The job has ``auto_launch`` set (else 404 — nothing to show).
+      * The agent has reported via ``/auto-launch/report`` (else 409
+        ``ready:false``; UI should poll for a few seconds after start).
+      * The P2.2 subdomain proxy has the host→container port mapping
+        (``job.payload.http_ports``); else 409 with ``ready:false``.
+
+    Response shape:
+
+        {
+          "ready": true,
+          "services": {
+            "jupyter": {
+              "url": "https://<slug>-8888.xcelsior.ca/?token=<token>",
+              "container_port": 8888,
+              "host_port": 55123,
+              "token": "<hex token>"
+            },
+            "vscode": {
+              "url": "https://<slug>-8443.xcelsior.ca/",
+              "container_port": 8443,
+              "host_port": 55456,
+              "password": "<hex token>"
+            }
+          }
+        }
+    """
+    user = _require_auth(request)
+    # The response carries each service's URL with its access token in the query
+    # string, so reading this is being handed the Jupyter session. That is
+    # terminal access by another route, and it is gated the same way.
+    _require_scope(user, "instances:connect")
+    owner_id = _canonical_owner_id(user)
+    is_admin = bool(user.get("is_admin"))
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    if (job.get("owner") or "") != owner_id and not is_admin:
+        raise HTTPException(403, "Not your instance")
+
+    requested = job.get("auto_launch") or []
+    if not requested:
+        raise HTTPException(404, "auto_launch not configured for this instance")
+
+    auto = job.get("auto_launch_ports") or {}
+    if isinstance(auto, str):
+        try:
+            auto = json.loads(auto)
+        except Exception:
+            auto = {}
+    reported_ports = (auto.get("ports") or {}) if isinstance(auto, dict) else {}
+    token = (auto.get("token") or "") if isinstance(auto, dict) else ""
+
+    http_ports = job.get("http_ports") or {}
+    if isinstance(http_ports, str):
+        try:
+            http_ports = json.loads(http_ports)
+        except Exception:
+            http_ports = {}
+
+    # Both the container-port map (from agent's auto-launch report) and
+    # the host-port map (from P2.2's http-ports report) need to be present
+    # before we can emit a usable URL.
+    if not reported_ports or not http_ports:
+        return {"ready": False, "services": {}}
+
+    base = _public_base_host()
+    slug = _job_slug(job_id)
+    services: dict[str, dict] = {}
+    for svc in requested:
+        cport = reported_ports.get(svc)
+        if not cport:
+            continue
+        hport = http_ports.get(str(cport)) if isinstance(http_ports, dict) else None
+        if not hport:
+            continue
+        entry: dict = {
+            "container_port": int(cport),
+            "host_port": int(hport),
+        }
+        if svc == "jupyter":
+            entry["url"] = (
+                f"https://{slug}-{cport}.{base}/?token={token}"
+                if token
+                else f"https://{slug}-{cport}.{base}/"
+            )
+            entry["token"] = token
+        elif svc == "vscode":
+            entry["url"] = f"https://{slug}-{cport}.{base}/"
+            entry["password"] = token
+        else:
+            entry["url"] = f"https://{slug}-{cport}.{base}/"
+        services[svc] = entry
+
+    return {"ready": bool(services), "services": services}
+
+
+# ───────────────────────────────────────────────────────────────────────
+# P2.2 — HTTP port proxy (subdomain routing)
+# ───────────────────────────────────────────────────────────────────────
+# Three endpoints co-operate with nginx + the worker agent to give every
+# interactive job a public HTTPS URL of the form
+# ``https://<slug>-<container_port>.xcelsior.ca``:
+#
+#   1. ``POST /instances/{job_id}/http-ports/report`` — agent-auth; the
+#      worker reports its final ``{container_port: host_port}`` map after
+#      ``docker run`` succeeds. Stashed in ``jobs.payload.http_ports`` for
+#      the other two endpoints to consult.
+#
+#   2. ``POST /instances/{job_id}/expose`` — user-auth; returns the public
+#      URL for a given container port (must already be in
+#      ``exposed_ports``). The URL does not point back here — it points
+#      at the wildcard subdomain, which nginx resolves via (3).
+#
+#   3. ``GET /internal/route/{slug}/{port}`` — **no user auth**, restricted
+#      to loopback (the nginx reverse proxy on 127.0.0.1). Used as nginx
+#      ``auth_request`` target; response sets ``X-Upstream`` which nginx
+#      feeds into ``proxy_pass`` via ``auth_request_set``.
+#
+# Security stance:
+#   - Only ports the user already declared in ``exposed_ports`` are
+#     routable. An attacker who brute-forces slug-port combinations gets
+#     404s for anything not explicitly exposed.
+#   - ``/internal/route`` rejects non-loopback callers — an external
+#     attacker cannot enumerate.
+#   - ``slug`` is the first 12 chars of the job_id (UUID → DNS-safe hex).
+#     Collision probability is 2⁻⁴⁸; we additionally reject partial
+#     matches that don't span a whole job_id column value.
+JOB_SLUG_LEN = 12
+
+
+def _job_slug(job_id: str) -> str:
+    return (job_id or "")[:JOB_SLUG_LEN].lower()
+
+
+class _HttpPortsReport(BaseModel):
+    host_id: str = Field(..., min_length=1, max_length=128)
+    # Mapping of container-port (stringified, JSON-safe) → host-port.
+    ports: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("ports")
+    @classmethod
+    def _v_ports(cls, v: dict[str, int]) -> dict[str, int]:
+        clean: dict[str, int] = {}
+        for k, p in v.items():
+            try:
+                cport = int(k)
+                hport = int(p)
+            except (TypeError, ValueError):
+                continue
+            if not (1 <= cport <= 65535) or cport == 22:
+                continue
+            if not (55000 <= hport <= 59999):
+                continue
+            clean[str(cport)] = hport
+        if len(clean) > 16:
+            # Cap payload size; exposed_ports validator already enforces
+            # ≤8, so 16 is a generous safety margin.
+            raise ValueError("too many ports")
+        return clean
+
+
+@router.post("/instances/{job_id}/http-ports/report", tags=["Instances"])
+def api_http_ports_report(job_id: str, body: _HttpPortsReport, request: Request):
+    """Internal: worker agent reports the final port-publish map.
+
+    Bound to the reporting host via the shared agent secret so a
+    compromised host cannot rewrite another host's port table.
+    """
+    from routes.agent import _require_agent_auth
+
+    _require_agent_auth(request, host_id=body.host_id)
+    payload_value = json.dumps(body.ports)
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET payload = jsonb_set(payload, "
+            "'{http_ports}', %s::jsonb, true) "
+            "WHERE job_id = %s AND payload->>'host_id' = %s",
+            (payload_value, job_id, body.host_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "job not found or host_id mismatch")
+    try:
+        broadcast_sse(
+            "http_ports_ready",
+            {"job_id": job_id, "ports": body.ports},
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(http_ports_ready) failed: %s", e)
+    return {"ok": True}
+
+
+class _ExposeIn(BaseModel):
+    container_port: int = Field(..., ge=1, le=65535)
+
+    @field_validator("container_port")
+    @classmethod
+    def _v_port(cls, v: int) -> int:
+        if v == 22:
+            raise ValueError("port 22 is reserved for SSH")
+        return v
+
+
+def _public_base_host() -> str:
+    """Return the public base hostname for subdomain URLs.
+
+    Defaults to ``xcelsior.ca`` (prod). Overridable via
+    ``XCELSIOR_PUBLIC_HOST`` for staging/tests.
+    """
+    return os.environ.get("XCELSIOR_PUBLIC_HOST", "xcelsior.ca").strip() or "xcelsior.ca"
+
+
+@router.post("/instances/{job_id}/expose", tags=["Instances"])
+def api_instances_expose(job_id: str, body: _ExposeIn, request: Request):
+    """Return the public HTTPS URL for a declared container port.
+
+    The port MUST be in the job's ``exposed_ports`` list (set at launch)
+    — we don't retroactively publish new ports because doing so would
+    require ``docker run`` flags that are baked in at container start.
+
+    Response: ``{ok, url, host_port, host_ip, slug}``. ``host_ip`` is the
+    Tailscale address — useful for debugging, never reached directly
+    by end users.
+    """
+    user = _require_auth(request)
+    # "…and publish their ports to the internet" — the second clause. This one
+    # puts a container port on a public HTTPS hostname, so it is the reason the
+    # consent text mentions the internet at all.
+    _require_scope(user, "instances:connect")
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+    owner_id = _canonical_owner_id(user)
+    is_admin = bool(user.get("is_admin"))
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    if (job.get("owner") or "") != owner_id and not is_admin:
+        raise HTTPException(403, "Not your instance")
+    if (job.get("status") or "") != "running":
+        raise HTTPException(400, "Instance is not running")
+
+    cport = body.container_port
+    exposed = job.get("exposed_ports") or []
+    try:
+        exposed_ints = {int(p) for p in exposed}
+    except (TypeError, ValueError):
+        exposed_ints = set()
+    if cport not in exposed_ints:
+        raise HTTPException(
+            400,
+            f"Port {cport} was not declared at launch (exposed_ports={sorted(exposed_ints)})",
+        )
+
+    http_ports = job.get("http_ports") or {}
+    hport = http_ports.get(str(cport)) if isinstance(http_ports, dict) else None
+    if not hport:
+        raise HTTPException(
+            409,
+            "Port mapping not yet reported by the worker — retry in a few seconds",
+        )
+
+    # Resolve the host's Tailscale IP for the diagnostic body.
+    host_id = job.get("host") or job.get("host_id") or ""
+    host_ip = ""
+    if host_id:
+        pool = _user_images_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT payload->>'ip' FROM hosts WHERE host_id=%s", (host_id,))
+            r = cur.fetchone()
+        if r:
+            host_ip = (r[0] if not isinstance(r, dict) else r.get("?column?")) or ""
+
+    slug = _job_slug(job_id)
+    base = _public_base_host()
+    url = f"https://{slug}-{cport}.{base}"
+    return {
+        "ok": True,
+        "url": url,
+        "slug": slug,
+        "container_port": cport,
+        "host_port": int(hport),
+        "host_ip": host_ip,
+    }
+
+
+_LOOPBACK_OK = {"127.0.0.1", "::1", "localhost", "testclient"}
+# Note: "testclient" is starlette's synthetic host for TestClient — it
+# is not a routable address and will never appear in production traffic.
+
+#: The tailnet. `100.64.0.0/10` is CGNAT space (100.64.0.0 – 100.127.255.255).
+_TAILNET = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _is_internal_caller(client_host: str) -> bool:
+    """Loopback, or an address inside the tailnet.
+
+    This was `client_host.startswith("100.")`, which is `100.0.0.0/8` — four
+    times the intended range, and the extra three quarters are publicly
+    routable space allocated to real networks. A caller at 100.1.2.3 passed a
+    check meant to admit only the tailnet.
+
+    It was also wrong in the other direction: an IPv4-mapped IPv6 peer
+    (`::ffff:100.64.0.1`) is inside the tailnet and failed the string test
+    outright. `demo_account.is_ip_whitelisted` already handles both properly;
+    this follows it.
+    """
+    if client_host in _LOOPBACK_OK:
+        return True
+    cleaned = client_host.strip().strip("[]").split("%", 1)[0]
+    try:
+        addr = ipaddress.ip_address(cleaned)
+    except ValueError:
+        return False
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        addr = mapped
+    return addr in _TAILNET
+
+
+@router.get("/internal/route/{slug}/{port}", tags=["Internal"])
+def api_internal_route(slug: str, port: int, request: Request):
+    """nginx auth_request target: resolve <slug>-<port>.xcelsior.ca.
+
+    Returns 200 with ``X-Upstream: <tailscale_ip>:<host_port>`` on a
+    valid match; 404 otherwise. Loopback-only to prevent external
+    enumeration; nginx MUST proxy this over 127.0.0.1 (not via a public
+    listener). Also returns ``job_id`` in the JSON body for logging.
+    """
+    client_host = (request.client.host if request.client else "") or ""
+    # Loopback, or the tailnet in case the VPS is multi-homed.
+    if not _is_internal_caller(client_host):
+        raise HTTPException(404, "not found")  # Don't leak existence.
+
+    if not re.fullmatch(r"[a-z0-9]{1,32}", slug or ""):
+        raise HTTPException(404, "not found")
+    if not (1 <= port <= 65535):
+        raise HTTPException(404, "not found")
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT j.job_id,
+                   j.payload->'http_ports' AS http_ports,
+                   j.payload->>'host' AS host_id,
+                   h.payload->>'ip' AS host_ip
+              FROM jobs j
+              LEFT JOIN hosts h ON h.host_id = j.payload->>'host'
+             WHERE j.status = 'running'
+               AND substr(j.job_id, 1, %s) = %s
+             LIMIT 2
+            """,
+            (JOB_SLUG_LEN, slug),
+        )
+        rows = cur.fetchall()
+
+    if not rows or len(rows) > 1:
+        raise HTTPException(404, "not found")
+    row = rows[0]
+
+    if isinstance(row, dict):
+        job_id = row["job_id"]
+        http_ports = row.get("http_ports") or {}
+        host_ip = row.get("host_ip") or ""
+    else:
+        job_id, http_ports, _host_id, host_ip = row[0], row[1] or {}, row[2], row[3] or ""
+
+    if isinstance(http_ports, str):
+        try:
+            http_ports = json.loads(http_ports)
+        except Exception:
+            http_ports = {}
+
+    hport = http_ports.get(str(port)) if isinstance(http_ports, dict) else None
+    if not hport or not host_ip:
+        raise HTTPException(404, "not found")
+
+    upstream = f"{host_ip}:{int(hport)}"
+    resp = Response(
+        content=json.dumps({"ok": True, "upstream": upstream, "job_id": job_id}),
+        media_type="application/json",
+    )
+    resp.headers["X-Upstream"] = upstream
+    return resp
+
+
+# ── P7: launch N instances from one snapshot ──────────────────────────
+
+
+class _SweepIn(BaseModel):
+    image_id: str = Field(min_length=1, max_length=64)
+    count: int = Field(ge=1, le=64)
+    name: str = Field(default="sweep", min_length=1, max_length=96)
+    vram_needed_gb: float = Field(default=0, ge=0)
+    num_gpus: int = Field(default=1, ge=1, le=8)
+    gpu_model: str | None = None
+    command: str | None = None
+    interactive: bool = True
+
+
+def _sweep_plan_principal(user: dict):
+    """The principal a sweep plan is bound to.
+
+    Same shape as the serverless one: a plan is owned by a tenant, and the
+    execute route compares `plan["tenant_id"]` against this before it will look
+    at the plan's status at all.
+    """
+    from control_plane.launch.service import Principal
+
+    return Principal(
+        principal_id=str(_user_image_scope_owner_id(user)),
+        tenant_id=str(_user_image_scope_owner_id(user)),
+        client_id=user.get("client_id"),
+        team_id=user.get("team_id"),
+        scopes=tuple(user.get("scopes") or ()),
+    )
+
+
+@router.post("/api/v1/image-sweeps", tags=["Instances"])
+def api_create_image_sweep(body: _SweepIn, request: Request):
+    """Quote a sweep and persist it as one approvable plan. Nothing launches here.
+
+    **A sweep is the largest single spend on the platform and had the weakest
+    gate.** `create_instance` refuses to launch one instance without an approved
+    `plan_id`; this route launched up to sixty-four on a bare call. Exposing it
+    to an agent in that shape would have made the bulk path the way to skip the
+    approval that guards the single path.
+
+    The obvious shortcut — reuse `/api/v1/launch-plans`, which quotes one job —
+    is worse than no gate: `count` would sit outside the approved canonical
+    args, so a plan approved for one instance would authorise sixty-four. The
+    count is inside the plan here, and the canonical hash binds it, so an
+    approval means the number that was shown.
+
+    The image is validated **before** a plan is written, so an unsweepable image
+    is refused now rather than after someone approves a spend for it.
+    """
+    from control_plane.db import control_plane_transaction
+    import hashlib
+
+    from control_plane.image_sweeps import SweepRefused, assert_sweepable
+    from control_plane.launch import action_plans as plans_repo, spend_policy
+    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+    customer_id = _user_image_scope_owner_id(user)
+    principal = _sweep_plan_principal(user)
+
+    try:
+        with control_plane_transaction() as conn:
+            assert_sweepable(
+                conn, tenant_id=str(customer_id), image_id=body.image_id, count=body.count
+            )
+    except SweepRefused as exc:
+        status = 404 if exc.code == "image_not_found" else 422
+        raise HTTPException(status, f"{exc.code}: {exc.detail}") from exc
+
+    from billing import get_billing_engine
+
+    # Worst case, not a hope: the same one-hour hold the fund gate will take per
+    # member, times the members. A plan that under-quotes a bulk spend is an
+    # approval for a number nobody agreed to.
+    per_member_cad = float(
+        get_billing_engine().estimate_launch_hold_cad(
+            gpu_model=body.gpu_model, num_gpus=body.num_gpus
+        )
+        or 0.0
+    )
+    estimate_micros = int(round(per_member_cad * body.count * 1_000_000))
+
+    canonical = body.model_dump(mode="json")
+    canonical_hash = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+
+    with control_plane_transaction() as conn:
+        policy = plans_repo.load_client_policy(
+            conn, client_id=principal.client_id, tenant_id=principal.tenant_id
+        )
+        decision = spend_policy.evaluate(canonical, estimate_micros=estimate_micros, policy=policy)
+        plan = plans_repo.create_quoted_plan(
+            conn,
+            action_type="create_image_sweep",
+            principal_id=principal.principal_id,
+            client_id=principal.client_id,
+            tenant_id=principal.tenant_id,
+            team_id=principal.team_id,
+            canonical_args=canonical,
+            canonical_args_hash=canonical_hash,
+            spec_hash=canonical_hash,
+            quote_id=f"sweep:{canonical_hash[:20]}",
+            pricing_version="sweep-v1",
+            estimate_micros=estimate_micros,
+            currency="CAD",
+            price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
+            required_scopes=["instances:write"],
+            approval_mode=decision.approval_mode,
+            ttl_sec=plan_ttl_sec(),
+            trace_id="",
+        )
+
+    plan_id = str(plan["plan_id"])
+    return {
+        "ok": True,
+        "preview": True,
+        "plan_id": plan_id,
+        "members": body.count,
+        "estimate_cad": round(estimate_micros / 1_000_000, 2),
+        "approval_url": f"/dashboard/launch-plans/{plan_id}",
+        "approval_state": str(plan.get("status") or "pending"),
+    }
+
+
+@router.post("/api/v1/image-sweep-plans/{plan_id}/execute", tags=["Instances"])
+def api_execute_image_sweep_plan(plan_id: str, request: Request):
+    """Launch N instances from one snapshot for one approved plan.
+
+    Gate P7. The record is the feature: N job ids handed back from N calls
+    leaves "these came from one snapshot" as an intention in the caller, with
+    partial failure invisible and nothing for the fingerprint comparison to be
+    compared across.
+
+    **No host pin.** Each member goes through the ordinary queue and the
+    scheduler places it — which is what a sweep wants anyway, since members
+    spread across hosts establish more than members stacked on one. It also
+    means this route never touches the direct-assignment branch of
+    `api_submit_instance`, which is where that handler's complexity lives.
+
+    **Every member is funded before it is submitted.** A sweep is N times the
+    spend of one launch, so `_wallet_preflight` runs per member and a member
+    that cannot be funded is recorded `failed` rather than launched — the wallet
+    check is not something a bulk path gets to skip. The hold is linked to the
+    job exactly as the single-instance path does it, so a sweep member's money
+    is accounted for the same way.
+
+    **A launch failure does not abort the sweep.** It is recorded against that
+    member with its reason, because "3 of 5 launched, and here are the two that
+    did not" is the answer an operator needs, and aborting would strand the
+    three that started.
+    """
+    from control_plane.db import control_plane_transaction
+    import hashlib
+
+    from control_plane.image_sweeps import SweepRefused, create_sweep
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import PlanConflict, PlanNotFound
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
+    from abuse_policy import account_suspended
+
+    if account_suspended(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is suspended by security policy",
+        )
+    customer_id = _user_image_scope_owner_id(user)
+    principal = _sweep_plan_principal(user)
+
+    with control_plane_transaction() as conn:
+        plan = plans_repo.get_plan_for_update(conn, plan_id)
+        if not plan or str(plan["tenant_id"]) != principal.tenant_id:
+            # Not-found rather than forbidden: `forbidden` would confirm that a
+            # plan with this id exists under some other tenant.
+            raise PlanNotFound()
+        if plan["action_type"] != "create_image_sweep":
+            raise PlanConflict("wrong_action_type", "the plan is not for an image sweep")
+        if plan["status"] == "succeeded":
+            return {**dict(plan["idempotent_response"]), "idempotent": True}
+        if plan["status"] != "approved":
+            raise PlanConflict("approval_required", "approve the sweep plan before execution")
+        canonical = dict(plan["canonical_args"])
+        digest = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode()
+        ).hexdigest()
+        if digest != plan["canonical_args_hash"]:
+            # The check that makes `count` mean something. Without it an
+            # approved 3-member sweep could be edited to 64 between approval
+            # and execution, and the approval would still read as given.
+            raise PlanConflict("argument_hash_mismatch", "the approved sweep plan was altered")
+
+    body = _SweepIn.model_validate(canonical)
+
+    def _launch_one(image_digest: str, index: int) -> dict:
+        """Fund, submit, link. Raises on failure; the sweep records the reason."""
+        from billing import get_billing_engine
+
+        hold_id = _wallet_preflight(
+            customer_id,
+            gpu_model=body.gpu_model,
+            num_gpus=body.num_gpus,
+            idempotency_key=f"sweep:{image_digest}:{index}",
+        )
+        try:
+            job = submit_job(
+                f"{body.name}-{index}",
+                float(body.vram_needed_gb),
+                0,
+                num_gpus=body.num_gpus,
+                gpu_model=body.gpu_model,
+                # The digest, never the tag. This is the whole reason the sweep
+                # pins one: `image_ref` is mutable and could move between the
+                # first member and the last.
+                image=image_digest,
+                interactive=body.interactive,
+                command=body.command,
+                owner=customer_id,
+            )
+        except Exception:
+            if hold_id:
+                try:
+                    get_billing_engine().release_wallet_hold(hold_id, reason="sweep_submit_failed")
+                except Exception:
+                    log.warning("sweep: could not release hold %s", hold_id[:8])
+            raise
+        if hold_id:
+            try:
+                get_billing_engine().link_wallet_hold_to_job(hold_id, job["job_id"])
+            except Exception:
+                log.warning("sweep: could not link hold %s", hold_id[:8])
+        return {"job_id": job["job_id"], "host_id": job.get("host_id") or ""}
+
+    try:
+        with control_plane_transaction() as conn:
+            sweep = create_sweep(
+                conn,
+                tenant_id=str(customer_id),
+                owner_id=str(customer_id),
+                image_id=body.image_id,
+                count=body.count,
+                launch=_launch_one,
+            )
+    except SweepRefused as exc:
+        status = 404 if exc.code == "image_not_found" else 422
+        raise HTTPException(status, f"{exc.code}: {exc.detail}") from exc
+
+    response = {"ok": True, "sweep": sweep.as_dict(), "plan_id": plan_id}
+    with control_plane_transaction() as conn:
+        locked = plans_repo.get_plan_for_update(conn, plan_id)
+        if locked and locked["status"] == "succeeded":
+            # Another caller executed the same plan while this one was
+            # launching. Return their sweep rather than reporting two.
+            return {**dict(locked["idempotent_response"]), "idempotent": True}
+        plans_repo.mark_consumed(
+            conn,
+            plan_id,
+            job_id=sweep.sweep_id,
+            wallet_hold_id=None,
+            idempotent_response=response,
+            idempotency_key=f"sweep-plan:{plan_id}",
+        )
+    return response
+
+
+@router.get("/api/v1/image-sweeps/{sweep_id}", tags=["Instances"])
+def api_get_image_sweep(sweep_id: str, request: Request):
+    """The sweep, its members, and whether their environments agree."""
+    from control_plane.db import control_plane_transaction
+    from control_plane.image_sweeps import compare_fingerprints, read_sweep
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    customer_id = str(_user_image_scope_owner_id(user))
+
+    with control_plane_transaction() as conn:
+        sweep = read_sweep(conn, sweep_id, tenant_id=customer_id)
+        if not sweep:
+            raise HTTPException(404, "no such sweep")
+        verification = compare_fingerprints(conn, sweep_id, tenant_id=customer_id)
+
+    return {"ok": True, "sweep": sweep.as_dict(), "verification": verification}

@@ -1,0 +1,2158 @@
+"""Routes: admin."""
+
+import time
+import uuid
+from typing import Any, cast
+
+from fastapi import APIRouter, HTTPException, Query, Request
+
+from routes._deps import (
+    _USE_PERSISTENT_AUTH,
+    _admin_flag,
+    _is_platform_admin,
+    _require_admin,
+    _users_db,
+    log,
+)
+from scheduler import (
+    list_hosts,
+    list_jobs,
+)
+from db import NotificationStore, UserStore, WebPushSubscriptionStore, emit_event
+from money import micros_to_cad
+from billing import get_billing_engine
+from verification import get_verification_engine
+from events import get_event_store
+from web_push import get_web_push_observability_snapshot
+
+router = APIRouter()
+
+
+@router.get("/api/admin/stats", tags=["Admin"])
+def api_admin_stats(request: Request):
+    """Get admin dashboard statistics."""
+    _require_admin(request)
+    hosts = list_hosts(active_only=False)
+    active_hosts = [h for h in hosts if h.get("status") == "active"]
+    jobs = list_jobs()
+    running = [j for j in jobs if j.get("status") in ("running", "assigned")]
+    if _USE_PERSISTENT_AUTH:
+        users = UserStore.list_users()
+    else:
+        users = list(_users_db.values())
+
+    # Real revenue MTD from billing engine
+    revenue_mtd = 0.0
+    try:
+        be = get_billing_engine()
+        import datetime as _dt
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+        with be._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters WHERE created_at >= %s",
+                (month_start,),
+            ).fetchone()
+            revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
+    except Exception as e:
+        log.warning("admin_stats: failed to fetch revenue_mtd", exc_info=True)
+
+    return {
+        "ok": True,
+        "total_users": len(users),
+        "active_hosts": len(active_hosts),
+        "running_jobs": len(running),
+        "revenue_mtd": revenue_mtd,
+    }
+
+
+@router.get("/api/admin/users", tags=["Admin"])
+def api_admin_users(request: Request):
+    """List all users for admin panel."""
+    _require_admin(request)
+    if _USE_PERSISTENT_AUTH:
+        users = UserStore.list_users()
+    else:
+        users = list(_users_db.values())
+
+    # Gather wallet balances, job counts, and last-activity timestamps in bulk
+    wallet_map: dict[str, float] = {}
+    job_count_map: dict[str, int] = {}
+    last_activity_map: dict[str, float] = {}
+    enrichment_failed = False
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            # balance_micros is the authoritative column; 087 dropped the float
+            # projection. Converted here rather than in SQL so the rounding is
+            # the same one every other caller gets.
+            for wr in conn.execute("SELECT customer_id, balance_micros FROM wallets").fetchall():
+                wallet_map[wr["customer_id"]] = micros_to_cad(wr["balance_micros"] or 0)
+            for jr in conn.execute(
+                "SELECT owner, COUNT(*) AS cnt, MAX(created_at) AS last_at FROM usage_meters GROUP BY owner"
+            ).fetchall():
+                job_count_map[jr["owner"]] = jr["cnt"]
+                last_activity_map[jr["owner"]] = float(jr["last_at"]) if jr["last_at"] else 0.0
+    except Exception:
+        # Non-fatal: the user list is still useful without balances. But it must
+        # not look like every user has $0 — this block silently reported exactly
+        # that for as long as it queried a column 087 had dropped.
+        enrichment_failed = True
+        log.error("admin_users: failed to fetch wallet/job data", exc_info=True)
+
+    import datetime as _dt
+
+    now_ts = time.time()
+    active_threshold = now_ts - 30 * 86400  # 30 days
+
+    safe_users = []
+    for u in users:
+        # Convert Unix timestamp to ISO string (fixes 1970 bug)
+        raw_ts = u.get("created_at", "")
+        if isinstance(raw_ts, (int, float)) and raw_ts > 0:
+            created_iso = _dt.datetime.fromtimestamp(raw_ts, tz=_dt.timezone.utc).isoformat()
+        elif isinstance(raw_ts, str) and raw_ts:
+            created_iso = raw_ts
+        else:
+            created_iso = ""
+
+        cid = u.get("customer_id", u.get("email", ""))
+        email = u.get("email", "")
+        last_at = last_activity_map.get(email, 0.0)
+        from abuse_policy import account_suspended
+
+        safe_users.append(
+            {
+                "email": email,
+                # The wallet key — what an admin credit or a billing lookup
+                # for this user is addressed to.
+                "customer_id": cid,
+                "role": u.get("role", "submitter"),
+                "is_admin": True if _is_platform_admin(u) else False,
+                "is_active": last_at >= active_threshold,
+                "is_suspended": account_suspended(u),
+                "created_at": created_iso,
+                "wallet_balance_cad": wallet_map.get(cid, 0.0),
+                "total_jobs": job_count_map.get(email, 0),
+                "province": u.get("province", ""),
+                "country": u.get("country", ""),
+                "team_id": u.get("team_id") or None,
+            }
+        )
+
+    return {"ok": True, "users": safe_users, "enrichment_failed": enrichment_failed}
+
+
+@router.get("/api/admin/overview", tags=["Admin"])
+def api_admin_overview(request: Request, days: int = 30):
+    """Admin overview with KPIs and trend data for a configurable window."""
+    user = _require_admin(request)
+    import datetime as _dt
+
+    days = max(1, min(days, 365))
+    now = _dt.datetime.now(_dt.timezone.utc)
+    now_ts = now.timestamp()
+    thirty_days_ago = now_ts - days * 86400
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+    hosts = list_hosts(active_only=False)
+    active_hosts = [h for h in hosts if h.get("status") == "active"]
+    jobs = list_jobs()
+    running = [j for j in jobs if j.get("status") in ("running", "assigned")]
+
+    if _USE_PERSISTENT_AUTH:
+        users = UserStore.list_users()
+    else:
+        users = list(_users_db.values())
+
+    # Revenue + billing data
+    revenue_mtd = 0.0
+    revenue_total = 0.0
+    total_gpu_hours = 0.0
+    daily_revenue: list[dict] = []
+    daily_signups: list[dict] = []
+    daily_jobs: list[dict] = []
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            # MTD revenue
+            row = conn.execute(
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters WHERE created_at >= %s",
+                (month_start,),
+            ).fetchone()
+            revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
+
+            # Total revenue
+            row = conn.execute(
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters"
+            ).fetchone()
+            revenue_total = round(float(row["rev"]), 2) if row else 0.0
+
+            # Total GPU hours
+            row = conn.execute(
+                "SELECT COALESCE(SUM(gpu_seconds), 0) AS s FROM usage_meters"
+            ).fetchone()
+            total_gpu_hours = round(float(row["s"]) / 3600, 1) if row else 0.0
+
+            # 30-day revenue trend
+            for r in conn.execute(
+                "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, "
+                "ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY day ORDER BY day",
+                (thirty_days_ago,),
+            ).fetchall():
+                daily_revenue.append({"date": r["day"], "revenue": float(r["revenue"])})
+                daily_jobs.append({"date": r["day"], "jobs": r["jobs"]})
+    except Exception as e:
+        log.warning("admin_overview: failed to fetch billing data", exc_info=True)
+
+    # 30-day signup trend
+    try:
+        from db import auth_connection
+
+        with auth_connection() as conn:
+            for r in conn.execute(
+                "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS signups "
+                "FROM users WHERE created_at >= %s GROUP BY day ORDER BY day",
+                (thirty_days_ago,),
+            ).fetchall():
+                daily_signups.append({"date": r["day"], "signups": r["signups"]})
+    except Exception as e:
+        log.warning("admin_overview: failed to fetch signup data", exc_info=True)
+
+    # Period-over-period trends (this period vs previous period)
+    prev_thirty = thirty_days_ago - days * 86400
+    prev_users = sum(
+        1
+        for u in users
+        if isinstance(u.get("created_at"), (int, float))
+        and prev_thirty <= u["created_at"] < thirty_days_ago
+    )
+    curr_users = sum(
+        1
+        for u in users
+        if isinstance(u.get("created_at"), (int, float)) and u["created_at"] >= thirty_days_ago
+    )
+
+    prev_revenue = 0.0
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(total_cost_micros) / 1000000.0, 0) AS rev FROM usage_meters WHERE created_at >= %s AND created_at < %s",
+                (prev_thirty, thirty_days_ago),
+            ).fetchone()
+            prev_revenue = float(row["rev"]) if row else 0.0
+    except Exception as e:
+        log.debug("previous period revenue comparison failed: %s", e)
+
+    def _pct(curr: float, prev: float) -> float:
+        if prev == 0:
+            return 100.0 if curr > 0 else 0.0
+        return round((curr - prev) / prev * 100, 1)
+
+    curr_revenue = sum(d["revenue"] for d in daily_revenue)
+
+    # Host registration trends (registered_at is a unix timestamp)
+    prev_hosts = sum(
+        1
+        for h in hosts
+        if isinstance(h.get("registered_at"), (int, float))
+        and prev_thirty <= h["registered_at"] < thirty_days_ago
+    )
+    curr_hosts = sum(
+        1
+        for h in hosts
+        if isinstance(h.get("registered_at"), (int, float))
+        and h["registered_at"] >= thirty_days_ago
+    )
+
+    # Job count trends from usage_meters
+    prev_jobs = 0
+    curr_jobs = sum(d.get("jobs", 0) for d in daily_jobs)  # daily_jobs already covers current 30d
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM usage_meters WHERE created_at >= %s AND created_at < %s",
+                (prev_thirty, thirty_days_ago),
+            ).fetchone()
+            prev_jobs = int(row["cnt"]) if row else 0
+    except Exception as e:
+        log.debug("previous period jobs comparison failed: %s", e)
+
+    trends = {
+        "users_pct": _pct(curr_users, prev_users),
+        "hosts_pct": _pct(curr_hosts, prev_hosts),
+        "jobs_pct": _pct(curr_jobs, prev_jobs),
+        "revenue_pct": _pct(curr_revenue, prev_revenue),
+    }
+
+    # Computed KPIs
+    gpu_utilization = round(len(active_hosts) / len(hosts) * 100, 1) if hosts else 0.0
+    job_failure_rate = 0.0
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            # `usage_meters` has no `status` column, so this raised UndefinedColumn
+            # on every call and the handler below left the rate at 0.0 — the admin
+            # dashboard has always reported a 0% job failure rate. `usage_meters`
+            # is also the wrong table: it records metered runs, so a job that
+            # failed before it was metered never appears there at all.
+            #
+            # `jobs.phase` is the authoritative outcome — it carries a CHECK
+            # constraint over ('pending','scheduled','starting','running',
+            # 'succeeded','failed','stopped'), while `jobs.status` is the legacy
+            # free-text column. The denominator is terminal jobs only; counting
+            # jobs still running would dilute the rate by how busy the fleet is.
+            row = conn.execute(
+                """SELECT COUNT(*) FILTER (WHERE phase = 'failed') AS failed,
+                          COUNT(*) AS total
+                     FROM jobs
+                    WHERE submitted_at >= %s
+                      AND phase IN ('succeeded', 'failed', 'stopped')""",
+                (thirty_days_ago,),
+            ).fetchone()
+            if row and row["total"] > 0:
+                job_failure_rate = round(row["failed"] / row["total"] * 100, 1)
+    except Exception as e:
+        log.debug("job failure rate calculation failed: %s", e)
+    arpu = round(curr_revenue / len(users), 2) if users else 0.0
+    web_push = {
+        **get_web_push_observability_snapshot(),
+        "notification_retained_total": 0,
+        "current_user_subscription_count": 0,
+    }
+    try:
+        web_push["notification_retained_total"] = NotificationStore.total_count()
+        web_push["current_user_subscription_count"] = (
+            WebPushSubscriptionStore.count_active_for_user(
+                user.get("email", ""),
+            )
+        )
+    except Exception as e:
+        log.debug("admin_overview: failed to fetch web push data: %s", e)
+
+    # Volume KPIs
+    total_volumes = 0
+    total_storage_gb = 0.0
+    attached_volumes = 0
+    volume_revenue = 0.0
+    try:
+        from volumes import VolumeEngine
+
+        ve = VolumeEngine()
+        with ve._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt, COALESCE(SUM(size_gb), 0) AS total_gb, "
+                "COUNT(*) FILTER (WHERE status = 'attached') AS attached "
+                "FROM volumes WHERE status != 'deleted'"
+            ).fetchone()
+            if row:
+                total_volumes = row["cnt"]
+                total_storage_gb = round(float(row["total_gb"]), 1)
+                attached_volumes = row["attached"]
+    except Exception as e:
+        log.debug("admin_overview: failed to fetch volume KPIs: %s", e)
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS rev FROM billing_cycles "
+                "WHERE gpu_model = 'storage' AND tier = 'volume' AND status = 'charged'"
+            ).fetchone()
+            volume_revenue = round(float(row["rev"]), 2) if row else 0.0
+    except Exception as e:
+        log.debug("admin_overview: volume revenue query failed: %s", e)
+
+    wallet_deposits_mtd = 0.0
+    spot_revenue_window = 0.0
+    on_demand_revenue_window = 0.0
+    serverless_revenue_window = 0.0
+    storage_billing_window = 0.0
+    daily_deposits: list[dict] = []
+    pricing_mode_totals: list[dict] = []
+    daily_pricing_mix: list[dict] = []
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            row = conn.execute(
+                """SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS total
+                   FROM wallet_transactions
+                   WHERE tx_type = 'deposit' AND created_at >= %s""",
+                (month_start,),
+            ).fetchone()
+            wallet_deposits_mtd = round(float(row["total"] if row else 0), 2)
+
+            for r in conn.execute(
+                """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
+                          ROUND(SUM(amount_micros) / 1000000.0::numeric, 2) AS amount
+                   FROM wallet_transactions
+                   WHERE tx_type = 'deposit' AND created_at >= %s
+                   GROUP BY day ORDER BY day""",
+                (thirty_days_ago,),
+            ).fetchall():
+                daily_deposits.append({"date": r["day"], "amount": float(r["amount"])})
+
+            mode_row = conn.execute(
+                """SELECT
+                      ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot'
+                          THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS spot_rev,
+                      ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot'
+                          THEN total_cost_micros / 1000000.0 ELSE 0 END), 0)::numeric, 2) AS other_rev
+                   FROM usage_meters WHERE created_at >= %s""",
+                (thirty_days_ago,),
+            ).fetchone()
+            if mode_row:
+                spot_revenue_window = float(mode_row["spot_rev"] or 0)
+                on_demand_revenue_window = float(mode_row["other_rev"] or 0)
+
+            for r in conn.execute(
+                """SELECT COALESCE(pricing_mode, 'on_demand') AS mode,
+                          ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue,
+                          COUNT(*) AS jobs
+                   FROM usage_meters WHERE created_at >= %s
+                   GROUP BY COALESCE(pricing_mode, 'on_demand')
+                   ORDER BY revenue DESC""",
+                (thirty_days_ago,),
+            ).fetchall():
+                pricing_mode_totals.append(
+                    {
+                        "mode": r["mode"],
+                        "revenue": float(r["revenue"]),
+                        "jobs": int(r["jobs"]),
+                    }
+                )
+
+            mix_by_day: dict[str, dict[str, float]] = {}
+            for r in conn.execute(
+                """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
+                          COALESCE(pricing_mode, 'on_demand') AS mode,
+                          ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue
+                   FROM usage_meters WHERE created_at >= %s
+                   GROUP BY day, COALESCE(pricing_mode, 'on_demand')
+                   ORDER BY day""",
+                (thirty_days_ago,),
+            ).fetchall():
+                day = r["day"]
+                if day not in mix_by_day:
+                    mix_by_day[day] = {
+                        "date": day,
+                        "spot": 0.0,
+                        "on_demand": 0.0,
+                        "reserved": 0.0,
+                    }
+                mode = str(r["mode"])
+                amount = float(r["revenue"])
+                if mode == "spot":
+                    mix_by_day[day]["spot"] += amount
+                elif mode.startswith("reserved"):
+                    mix_by_day[day]["reserved"] += amount
+                else:
+                    mix_by_day[day]["on_demand"] += amount
+            daily_pricing_mix = list(mix_by_day.values())
+
+            sl_row = conn.execute(
+                """SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS total
+                   FROM billing_cycles
+                   WHERE resource_type IN ('serverless_gpu', 'serverless_gpu_cold_start')
+                     AND status = 'charged' AND period_start >= %s""",
+                (thirty_days_ago,),
+            ).fetchone()
+            serverless_revenue_window = round(float(sl_row["total"] if sl_row else 0), 2)
+
+            st_row = conn.execute(
+                """SELECT COALESCE(SUM(amount_micros) / 1000000.0, 0) AS total
+                   FROM billing_cycles
+                   WHERE resource_type = 'volume' AND status = 'charged' AND period_start >= %s""",
+                (thirty_days_ago,),
+            ).fetchone()
+            storage_billing_window = round(float(st_row["total"] if st_row else 0), 2)
+    except Exception as e:
+        log.debug("admin_overview: billing insights failed: %s", e)
+
+    usage_window = spot_revenue_window + on_demand_revenue_window
+    spot_share_pct = round(spot_revenue_window / usage_window * 100, 1) if usage_window > 0 else 0.0
+
+    return {
+        "ok": True,
+        "days": days,
+        "kpis": {
+            "total_users": len(users),
+            "active_hosts": len(active_hosts),
+            "running_jobs": len(running),
+            "total_jobs": len(jobs),
+            "revenue_mtd": revenue_mtd,
+            "revenue_total": revenue_total,
+            "total_gpu_hours": total_gpu_hours,
+            "gpu_utilization": gpu_utilization,
+            "job_failure_rate": job_failure_rate,
+            "arpu": arpu,
+            "total_volumes": total_volumes,
+            "total_storage_gb": total_storage_gb,
+            "attached_volumes": attached_volumes,
+            "volume_revenue": volume_revenue,
+            "wallet_deposits_mtd": wallet_deposits_mtd,
+            "spot_revenue_window": spot_revenue_window,
+            "spot_share_pct": spot_share_pct,
+            "serverless_revenue_window": serverless_revenue_window,
+            "storage_billing_window": storage_billing_window,
+        },
+        "trends": trends,
+        "daily_revenue": daily_revenue,
+        "daily_signups": daily_signups,
+        "daily_jobs": daily_jobs,
+        "daily_deposits": daily_deposits,
+        "daily_pricing_mix": daily_pricing_mix,
+        "pricing_mode_totals": pricing_mode_totals,
+        "web_push": web_push,
+    }
+
+
+@router.post("/api/admin/web-push/test-notification", tags=["Admin"])
+def api_admin_web_push_test_notification(request: Request):
+    """Send a real web-push smoke notification to the current admin user."""
+    user = _require_admin(request)
+    user_email = user.get("email", "")
+    if not user_email:
+        raise HTTPException(400, "Current admin user email is unavailable")
+
+    smoke_id = f"smoke-{uuid.uuid4().hex[:12]}"
+    action_url = f"/dashboard/admin?push_smoke=1&smoke_id={smoke_id}"
+    created_at = int(time.time())
+    title = "Desktop push smoke test"
+    body = "Open this notification to confirm desktop click-through on the admin dashboard."
+
+    notification_id = NotificationStore.create(
+        user_email,
+        "admin_web_push_smoke",
+        title,
+        body,
+        data={
+            "smoke_test": True,
+            "smoke_id": smoke_id,
+            "triggered_by": user_email,
+            "created_at": created_at,
+        },
+        action_url=action_url,
+        entity_type="admin_web_push_smoke",
+        entity_id=smoke_id,
+        priority=10,
+    )
+
+    return {
+        "ok": True,
+        "notification_id": notification_id,
+        "smoke_id": smoke_id,
+        "title": title,
+        "body": body,
+        "action_url": action_url,
+        "user_email": user_email,
+        "active_subscription_count": WebPushSubscriptionStore.count_active_for_user(user_email),
+        "web_push": get_web_push_observability_snapshot(),
+    }
+
+
+@router.post("/api/admin/users/{email}/role", tags=["Admin"])
+def api_admin_set_user_role(email: str, request: Request, role: str = "submitter"):
+    """Admin sets a user's role."""
+    _require_admin(request)
+    allowed_roles = {"submitter", "provider", "admin"}
+    if role not in allowed_roles:
+        raise HTTPException(400, f"Invalid role. Allowed: {', '.join(sorted(allowed_roles))}")
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        user = _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(email, {"role": role})
+    else:
+        _users_db[email]["role"] = role
+    emit_event("user_role_changed", {"email": email, "role": role})
+    return {"ok": True, "email": email, "role": role}
+
+
+@router.post("/api/admin/users/{email}/toggle-admin", tags=["Admin"])
+def api_admin_toggle_admin(email: str, request: Request):
+    """Admin toggles another user's admin flag."""
+    _require_admin(request)
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        user = _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+    current = _admin_flag(user.get("is_admin")) == 1
+    new_val = 0 if current else 1
+    if _USE_PERSISTENT_AUTH:
+        UserStore.set_admin(email, new_val)
+    else:
+        _users_db[email]["is_admin"] = new_val
+    emit_event("user_admin_toggled", {"email": email, "is_admin": new_val})
+    return {"ok": True, "email": email, "is_admin": new_val}
+
+
+@router.post("/api/admin/users/{email}/suspend", tags=["Admin"])
+async def api_admin_suspend_user(email: str, request: Request):
+    """Admin suspends a user account and revokes their active sessions."""
+    admin = _require_admin(request)
+    actor = admin.get("email") or admin.get("user_id") or "admin"
+    email = str(email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "User email required")
+    if email == str(admin.get("email") or "").strip().lower():
+        raise HTTPException(400, "Cannot suspend own admin account")
+
+    reason = "administrative_suspension"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("reason"):
+            reason = str(body["reason"]).strip()
+    except Exception:
+        pass
+    if request.query_params.get("reason"):
+        reason = str(request.query_params["reason"]).strip()
+
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        user = _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    from abuse_policy import suspend_account
+
+    suspended_ids = suspend_account(identifier=email, actor=actor, reason=reason)
+    try:
+        if _USE_PERSISTENT_AUTH:
+            UserStore.delete_user_sessions(email)
+    except Exception as e:
+        log.warning("Failed to delete sessions for %s upon suspension: %s", email, e)
+
+    emit_event(
+        "user_suspended",
+        {"email": email, "actor": actor, "reason": reason, "identifiers": suspended_ids},
+    )
+    return {
+        "ok": True,
+        "email": email,
+        "is_suspended": True,
+        "reason": reason,
+        "identifiers": suspended_ids,
+    }
+
+
+@router.post("/api/admin/users/{email}/unsuspend", tags=["Admin"])
+async def api_admin_unsuspend_user(email: str, request: Request):
+    """Admin restores a suspended user account."""
+    admin = _require_admin(request)
+    actor = admin.get("email") or admin.get("user_id") or "admin"
+    email = str(email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "User email required")
+    reason = "administrative_unsuspension"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("reason"):
+            reason = str(body["reason"]).strip()
+    except Exception:
+        pass
+    if request.query_params.get("reason"):
+        reason = str(request.query_params["reason"]).strip()
+
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        user = _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    from abuse_policy import unsuspend_account
+
+    unsuspended_ids = unsuspend_account(identifier=email, actor=actor, reason=reason)
+    emit_event(
+        "user_unsuspended",
+        {"email": email, "actor": actor, "reason": reason, "identifiers": unsuspended_ids},
+    )
+    return {
+        "ok": True,
+        "email": email,
+        "is_suspended": False,
+        "reason": reason,
+        "identifiers": unsuspended_ids,
+    }
+
+
+@router.post("/api/admin/users/{email}/delete", tags=["Admin"])
+async def api_admin_delete_user(email: str, request: Request):
+    """Admin removes an account through the durable deletion workflow.
+
+    The same workflow as self-service deletion (``privacy_deletion``), not a
+    second path: every data store records an outcome before it completes. The
+    account is suspended first, so it cannot sign in or spend while that runs.
+    A platform admin cannot be removed this way; revoke admin first.
+    """
+    from abuse_policy import suspend_account
+    from privacy_deletion import PrivacyDeletionError, create_deletion_request
+
+    admin = _require_admin(request)
+    actor = admin.get("email") or admin.get("user_id") or "admin"
+    email = str(email or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "User email required")
+    if email == str(admin.get("email") or "").strip().lower():
+        raise HTTPException(400, "Cannot delete your own admin account")
+
+    user = UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if _is_platform_admin(user):
+        raise HTTPException(409, "Revoke admin access before deleting this account")
+    user_id = str(user.get("user_id") or "")
+    if not user_id:
+        raise HTTPException(409, "Account has no user id; cannot start deletion")
+
+    suspend_account(identifier=email, actor=actor, reason="admin_account_deletion")
+    try:
+        if _USE_PERSISTENT_AUTH:
+            UserStore.delete_user_sessions(email)
+    except Exception as e:
+        log.warning("Failed to delete sessions for %s before deletion: %s", email, e)
+
+    try:
+        receipt = create_deletion_request(
+            user_id=user_id,
+            email=email,
+            customer_ids=[str(user.get("customer_id") or "")],
+            # One request per account: a double click or retry starts one deletion.
+            idempotency_key=f"admin-delete-{user_id}"[:128],
+            requested_by=str(actor),
+            request_source="admin_console",
+            legal_basis="terms_enforcement",
+        )
+    except PrivacyDeletionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    emit_event(
+        "user_deletion_requested",
+        {"email": email, "actor": actor, "request_id": receipt.request_id},
+    )
+    return {
+        "ok": True,
+        "email": email,
+        "is_suspended": True,
+        "request_id": receipt.request_id,
+        "state": receipt.state,
+        "deadline_at": receipt.deadline_at.isoformat(),
+        "already_existed": receipt.already_existed,
+    }
+
+
+@router.get("/api/admin/teams", tags=["Admin"])
+def api_admin_teams(request: Request):
+    """List all teams with their members. Platform admin only."""
+    _require_admin(request)
+    from db import auth_connection
+
+    teams = []
+    with auth_connection() as conn:
+        rows = conn.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
+        for row in rows:
+            team = dict(row)
+            members = UserStore.list_team_members(team["team_id"])
+            team["members"] = members
+            teams.append(team)
+    return {"ok": True, "teams": teams}
+
+
+@router.delete("/api/admin/teams/{team_id}/members/{email}", tags=["Admin"])
+def api_admin_remove_team_member(team_id: str, email: str, request: Request):
+    """Remove a member from any team. Platform admin override."""
+    _require_admin(request)
+    team = UserStore.get_team(team_id)
+    if not team:
+        raise HTTPException(404, "Team not found")
+    if email == team["owner_email"]:
+        raise HTTPException(400, "Cannot remove team owner")
+    members = UserStore.list_team_members(team_id)
+    if not any(m["email"] == email for m in members):
+        raise HTTPException(404, f"{email} is not a member of this team")
+    UserStore.remove_team_member(team_id, email)
+    emit_event("team_member_removed", {"team_id": team_id, "email": email})
+    return {"ok": True, "message": f"{email} removed from team {team_id}"}
+
+
+@router.get("/api/admin/revenue", tags=["Admin"])
+def api_admin_revenue(request: Request, days: int = 90):
+    """Admin revenue breakdown — by day, GPU model, province, top customers/providers."""
+    _require_admin(request)
+    import datetime as _dt
+
+    since = time.time() - days * 86400
+    result: dict = {"ok": True, "days": days}
+
+    try:
+        be = get_billing_engine()
+    except Exception as e:
+        log.warning("admin_revenue: failed to get billing engine", exc_info=True)
+        result.update(daily=[], by_gpu=[], by_province=[], top_customers=[], top_providers=[])
+        return result
+
+    # Daily revenue
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, "
+                "ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs, "
+                "ROUND(SUM(gpu_seconds)::numeric / 3600, 1) AS gpu_hours "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY day ORDER BY day",
+                (since,),
+            ).fetchall()
+            result["daily"] = [
+                {
+                    "date": r["day"],
+                    "revenue": float(r["revenue"]),
+                    "jobs": r["jobs"],
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch daily revenue", exc_info=True)
+        result["daily"] = []
+
+    # By GPU model
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT COALESCE(gpu_model, 'Unknown') AS gpu_model, ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(gpu_model, 'Unknown') ORDER BY revenue DESC",
+                (since,),
+            ).fetchall()
+            result["by_gpu"] = [
+                {"gpu_model": r["gpu_model"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch revenue by GPU", exc_info=True)
+        result["by_gpu"] = []
+
+    # By province
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT COALESCE(province, 'Unknown') AS province, ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue, COUNT(*) AS jobs "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(province, 'Unknown') ORDER BY revenue DESC",
+                (since,),
+            ).fetchall()
+            result["by_province"] = [
+                {"province": r["province"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch revenue by province", exc_info=True)
+        result["by_province"] = []
+
+    # Top customers (by spend)
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT owner AS email, ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS total_spend, COUNT(*) AS jobs "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY owner ORDER BY total_spend DESC LIMIT 10",
+                (since,),
+            ).fetchall()
+            result["top_customers"] = [
+                {"email": r["email"], "total_spend": float(r["total_spend"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch top customers", exc_info=True)
+        result["top_customers"] = []
+
+    # Top providers (by earnings)
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT provider_id, ROUND(SUM(provider_payout_micros)::numeric / 1000000, 2) AS earnings, COUNT(*) AS jobs "
+                "FROM payout_ledger WHERE created_at >= %s GROUP BY provider_id ORDER BY earnings DESC LIMIT 10",
+                (since,),
+            ).fetchall()
+            result["top_providers"] = [
+                {
+                    "provider_id": r["provider_id"],
+                    "earnings": float(r["earnings"]),
+                    "jobs": r["jobs"],
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch top providers", exc_info=True)
+        result["top_providers"] = []
+
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                """SELECT COALESCE(pricing_mode, 'on_demand') AS mode,
+                          ROUND(SUM(total_cost_micros) / 1000000.0::numeric, 2) AS revenue,
+                          COUNT(*) AS jobs
+                   FROM usage_meters WHERE created_at >= %s
+                   GROUP BY COALESCE(pricing_mode, 'on_demand')
+                   ORDER BY revenue DESC""",
+                (since,),
+            ).fetchall()
+            result["by_pricing_mode"] = [
+                {"mode": r["mode"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows
+            ]
+            dep_rows = conn.execute(
+                """SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day,
+                          ROUND(SUM(amount_micros) / 1000000.0::numeric, 2) AS deposits
+                   FROM wallet_transactions
+                   WHERE tx_type = 'deposit' AND created_at >= %s
+                   GROUP BY day ORDER BY day""",
+                (since,),
+            ).fetchall()
+            result["daily_deposits"] = [
+                {"date": r["day"], "deposits": float(r["deposits"])} for r in dep_rows
+            ]
+    except Exception as e:
+        log.warning("admin_revenue: failed to fetch pricing/deposit breakdown", exc_info=True)
+        result["by_pricing_mode"] = []
+        result["daily_deposits"] = []
+
+    return result
+
+
+@router.get("/api/admin/unit-economics", tags=["Admin"])
+def api_admin_unit_economics(request: Request, days: int = 30):
+    """Phase-0 truth: are we making money (margin) and where do users drop off (funnel)."""
+    _require_admin(request)
+    since = time.time() - days * 86400
+    result: dict = {"ok": True, "days": days}
+    try:
+        be = get_billing_engine()
+    except Exception:
+        log.warning("unit_economics: no billing engine", exc_info=True)
+        return {**result, "marketplace": {}, "serverless": {}, "funnel": {}, "weekly": []}
+
+    # ── Marketplace margin (dedicated): gross charged vs paid to providers ──
+    try:
+        with be._conn() as conn:
+            r = conn.execute(
+                "SELECT ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,2) AS gross, "
+                "ROUND(COALESCE(SUM(provider_payout_micros),0)::numeric / 1000000,2) AS payout, "
+                "ROUND(COALESCE(SUM(platform_fee_micros) / 1000000,0)::numeric,2) AS margin, "
+                "COUNT(*) AS payouts FROM payout_ledger WHERE created_at >= %s",
+                (since,),
+            ).fetchone()
+            gross = float(r["gross"]) if r else 0.0
+            margin = float(r["margin"]) if r else 0.0
+            result["marketplace"] = {
+                "gross_cad": gross,
+                "provider_payout_cad": float(r["payout"]) if r else 0.0,
+                "platform_margin_cad": margin,
+                "margin_pct": round(margin / gross * 100, 1) if gross > 0 else 0.0,
+                "payouts": int(r["payouts"]) if r else 0,
+            }
+    except Exception:
+        log.warning("unit_economics: marketplace margin failed", exc_info=True)
+        result["marketplace"] = {}
+
+    # ── Serverless revenue + GPU-seconds (what customers paid us) ──
+    try:
+        with be._conn() as conn:
+            r = conn.execute(
+                "SELECT ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,2) AS revenue, "
+                "ROUND(COALESCE(SUM(token_cost_micros) / 1000000,0)::numeric,2) AS token_cost, "
+                "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
+                "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
+                "AND resource_type LIKE 'serverless%%'",
+                (since,),
+            ).fetchone()
+            gpu_seconds = int(r["gpu_seconds"]) if r else 0
+            result["serverless"] = {
+                "revenue_cad": float(r["revenue"]) if r else 0.0,
+                "token_revenue_cad": float(r["token_cost"]) if r else 0.0,
+                "gpu_seconds": gpu_seconds,
+                "gpu_hours": round(gpu_seconds / 3600, 1),
+                "billed_cycles": int(r["cycles"]) if r else 0,
+            }
+    except Exception:
+        log.warning("unit_economics: serverless revenue failed", exc_info=True)
+        result["serverless"] = {}
+
+    # ── Serverless margin signal by model-size band (Phase 1 exit criterion) ──
+    # billing_cycles has no separate GPU-infra-cost ledger for serverless, so
+    # "margin" here is the same gpu-vs-token comparison the blended meter uses:
+    # per size band, is token revenue outpacing the GPU-seconds cost we'd have
+    # charged otherwise? That answers "which model sizes are worth pricing by
+    # tokens" without inventing unmeasured COGS numbers.
+    try:
+        from serverless.metering import infer_model_params_b
+
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT model_ref, "
+                "ROUND(COALESCE(SUM(amount_micros) / 1000000.0,0)::numeric,4) AS gpu_revenue, "
+                "ROUND(COALESCE(SUM(token_cost_micros) / 1000000,0)::numeric,4) AS token_cost, "
+                "COALESCE(SUM(duration_seconds),0) AS gpu_seconds, COUNT(*) AS cycles "
+                "FROM billing_cycles WHERE created_at >= %s AND status = 'charged' "
+                "AND resource_type = 'serverless_gpu' AND model_ref <> '' "
+                "GROUP BY model_ref",
+                (since,),
+            ).fetchall()
+
+        bands: dict[str, dict[str, float | int]] = {}
+        band_labels = ["≤9B", "10–34B", "35–80B", "80B+ / MoE"]
+        for row in rows:
+            params_b = infer_model_params_b(row["model_ref"])
+            if params_b is None:
+                label = "unknown"
+            elif params_b <= 9.0:
+                label = band_labels[0]
+            elif params_b <= 34.0:
+                label = band_labels[1]
+            elif params_b <= 80.0:
+                label = band_labels[2]
+            else:
+                label = band_labels[3]
+            bucket = bands.setdefault(
+                label,
+                {
+                    "gpu_revenue_cad": 0.0,
+                    "token_revenue_cad": 0.0,
+                    "gpu_seconds": 0,
+                    "billed_cycles": 0,
+                },
+            )
+            bucket["gpu_revenue_cad"] = round(
+                bucket["gpu_revenue_cad"] + float(row["gpu_revenue"] or 0.0), 4
+            )
+            bucket["token_revenue_cad"] = round(
+                bucket["token_revenue_cad"] + float(row["token_cost"] or 0.0), 4
+            )
+            bucket["gpu_seconds"] += int(row["gpu_seconds"] or 0)
+            bucket["billed_cycles"] += int(row["cycles"] or 0)
+
+        result["serverless_by_model_size"] = [
+            {"band": label, **bands[label]} for label in band_labels + ["unknown"] if label in bands
+        ]
+    except Exception:
+        log.warning("unit_economics: serverless model-size margin failed", exc_info=True)
+        result["serverless_by_model_size"] = []
+
+    # ── Activation funnel (all-time): of everyone who signed up, how far did they get? ──
+    try:
+        with be._conn() as conn:
+
+            def _count(sql: str) -> int:
+                row = conn.execute(sql).fetchone()
+                return int(row["c"]) if row and row.get("c") is not None else 0
+
+            signups = _count("SELECT COUNT(*) AS c FROM users")
+            deployed = _count(
+                "SELECT COUNT(DISTINCT owner_id) AS c FROM serverless_endpoints WHERE deleted_at = 0"
+            )
+            ran = _count("SELECT COUNT(DISTINCT customer_id) AS c FROM billing_cycles")
+            paid = _count(
+                "SELECT COUNT(DISTINCT customer_id) AS c FROM billing_cycles "
+                "WHERE amount_micros > 0 AND status = 'charged'"
+            )
+            result["funnel"] = {
+                "signups": signups,
+                "deployed_model": deployed,
+                "ran_inference": ran,
+                "paid": paid,
+                "activation_pct": round(ran / signups * 100, 1) if signups > 0 else 0.0,
+                "paid_pct": round(paid / signups * 100, 1) if signups > 0 else 0.0,
+            }
+    except Exception:
+        log.warning("unit_economics: funnel failed", exc_info=True)
+        result["funnel"] = {}
+
+    # ── Supply liquidity: of jobs requested, how many got a GPU (host assigned)? ──
+    try:
+        with be._conn() as conn:
+            r = conn.execute(
+                "SELECT COUNT(*) AS requested, "
+                "COUNT(*) FILTER (WHERE host_id IS NOT NULL AND host_id <> '') AS fulfilled "
+                "FROM jobs WHERE submitted_at >= %s",
+                (since,),
+            ).fetchone()
+            requested = int(r["requested"]) if r else 0
+            fulfilled = int(r["fulfilled"]) if r else 0
+            result["liquidity"] = {
+                "requested": requested,
+                "fulfilled": fulfilled,
+                "liquidity_pct": round(fulfilled / requested * 100, 1) if requested > 0 else 0.0,
+            }
+    except Exception:
+        log.warning("unit_economics: liquidity failed", exc_info=True)
+        result["liquidity"] = {}
+
+    # ── Weekly trend: revenue + GPU-hours (last 8 ISO weeks) ──
+    try:
+        with be._conn() as conn:
+            rows = conn.execute(
+                "SELECT to_char(to_timestamp(created_at), 'IYYY-\"W\"IW') AS week, "
+                "ROUND(COALESCE(SUM(total_cost_micros) / 1000000.0,0)::numeric,2) AS revenue, "
+                "ROUND(COALESCE(SUM(gpu_seconds),0)::numeric/3600,1) AS gpu_hours "
+                "FROM usage_meters WHERE created_at >= %s GROUP BY week ORDER BY week",
+                (time.time() - 56 * 86400,),
+            ).fetchall()
+            result["weekly"] = [
+                {
+                    "week": r["week"],
+                    "revenue": float(r["revenue"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
+                for r in rows
+            ]
+    except Exception:
+        log.warning("unit_economics: weekly trend failed", exc_info=True)
+        result["weekly"] = []
+
+    return result
+
+
+@router.get("/api/admin/infrastructure", tags=["Admin"])
+def api_admin_infrastructure(request: Request):
+    """Admin infrastructure view — hosts by state, GPU model, province, verification, reputation."""
+    _require_admin(request)
+
+    hosts = list_hosts(active_only=False)
+
+    # By status
+    state_counts: dict[str, int] = {}
+    gpu_counts: dict[str, int] = {}
+    province_counts: dict[str, int] = {}
+    for h in hosts:
+        st = h.get("status") or "unknown"
+        state_counts[st] = state_counts.get(st, 0) + 1
+        gpu = h.get("gpu_model") or "Unknown"
+        gpu_counts[gpu] = gpu_counts.get(gpu, 0) + 1
+        prov = h.get("province") or "Unknown"
+        province_counts[prov] = province_counts.get(prov, 0) + 1
+
+    # Verification stats
+    verification_stats: dict[str, int] = {}
+    try:
+        ve = get_verification_engine()
+        with ve.store._conn() as conn:
+            for r in conn.execute(
+                "SELECT state, COUNT(*) AS cnt FROM host_verifications GROUP BY state"
+            ).fetchall():
+                verification_stats[r["state"]] = r["cnt"]
+    except Exception as e:
+        log.warning("admin_infrastructure: failed to fetch verification data", exc_info=True)
+
+    # Reputation tiers
+    reputation_tiers: dict[str, int] = {}
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            for r in conn.execute(
+                "SELECT tier, COUNT(*) AS cnt FROM reputation_scores GROUP BY tier"
+            ).fetchall():
+                reputation_tiers[r["tier"]] = r["cnt"]
+    except Exception as e:
+        log.warning("admin_infrastructure: failed to fetch reputation data", exc_info=True)
+
+    # Persistent volumes (NFS-backed storage)
+    volume_stats: dict = {}
+    try:
+        from volumes import nfs_storage_healthcheck
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            by_status = conn.execute("""SELECT status, COUNT(*) AS cnt
+                   FROM volumes WHERE status != 'deleted'
+                   GROUP BY status""").fetchall()
+            totals = conn.execute("""SELECT COUNT(*) AS total,
+                          COALESCE(SUM(size_gb), 0) AS total_gb,
+                          COUNT(*) FILTER (WHERE encrypted) AS encrypted_count
+                   FROM volumes WHERE status != 'deleted'""").fetchone()
+        volume_stats = {
+            "nfs": nfs_storage_healthcheck(),
+            "total": int(totals["total"] or 0),
+            "total_gb": int(totals["total_gb"] or 0),
+            "encrypted_count": int(totals["encrypted_count"] or 0),
+            "by_status": [{"status": r["status"], "count": r["cnt"]} for r in by_status],
+        }
+    except Exception as e:
+        log.warning("admin_infrastructure: failed to fetch volume data", exc_info=True)
+        # Truncating a database error is not redacting it — the first 200
+        # characters are where psycopg puts the offending value and the column
+        # name. Admin-only, so the blast radius is small, but there is no
+        # reason to put it on the wire at all.
+        log.exception("volume stats query failed")
+        volume_stats = {"error": "Volume statistics are temporarily unavailable."}
+
+    return {
+        "ok": True,
+        "total_hosts": len(hosts),
+        "by_state": [{"state": k, "count": v} for k, v in state_counts.items()],
+        "by_gpu": [{"gpu_model": k, "count": v} for k, v in gpu_counts.items()],
+        "by_province": [{"province": k, "count": v} for k, v in province_counts.items()],
+        "verification": [{"state": k, "count": v} for k, v in verification_stats.items()],
+        "reputation_tiers": [{"tier": k, "count": v} for k, v in reputation_tiers.items()],
+        "volumes": volume_stats,
+    }
+
+
+@router.get("/api/admin/activity", tags=["Admin"])
+def api_admin_activity(request: Request, days: int = 7, limit: int = Query(100, ge=1, le=1000)):
+    """Admin activity feed — recent events, job stats by day, events by type."""
+    _require_admin(request)
+    import datetime as _dt
+
+    since = time.time() - days * 86400
+    result: dict = {"ok": True, "days": days}
+
+    # Recent events
+    try:
+        store = get_event_store()
+        events = store.get_events(since=since, limit=limit)
+        result["events"] = [
+            {
+                "event_id": e.event_id,
+                "event_type": e.event_type,
+                "entity_type": e.entity_type,
+                "entity_id": e.entity_id,
+                "timestamp": _dt.datetime.fromtimestamp(
+                    e.timestamp, tz=_dt.timezone.utc
+                ).isoformat(),
+                "actor": e.actor,
+                "data": e.data,
+            }
+            for e in events[-limit:]
+        ]
+    except Exception as e:
+        log.warning("admin_activity: failed to fetch events", exc_info=True)
+        result["events"] = []
+
+    # Events by type (last N days)
+    try:
+        store = get_event_store()
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT event_type, COUNT(*) AS cnt FROM events WHERE timestamp >= %s GROUP BY event_type ORDER BY cnt DESC",
+                (since,),
+            ).fetchall()
+            result["by_type"] = [{"event_type": r["event_type"], "count": r["cnt"]} for r in rows]
+    except Exception as e:
+        log.warning("admin_activity: failed to fetch events by type", exc_info=True)
+        result["by_type"] = []
+
+    # Daily job submissions + completions
+    try:
+        store = get_event_store()
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT to_char(to_timestamp(timestamp), 'YYYY-MM-DD') AS day, "
+                "SUM(CASE WHEN event_type = 'job_submitted' THEN 1 ELSE 0 END) AS submitted, "
+                "SUM(CASE WHEN event_type = 'job_completed' THEN 1 ELSE 0 END) AS completed, "
+                "SUM(CASE WHEN event_type = 'job_failed' THEN 1 ELSE 0 END) AS failed "
+                "FROM events WHERE timestamp >= %s AND event_type IN ('job_submitted', 'job_completed', 'job_failed') "
+                "GROUP BY day ORDER BY day",
+                (since,),
+            ).fetchall()
+            result["daily_jobs"] = [
+                {
+                    "date": r["day"],
+                    "submitted": r["submitted"],
+                    "completed": r["completed"],
+                    "failed": r["failed"],
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        log.warning("admin_activity: failed to fetch daily jobs", exc_info=True)
+        result["daily_jobs"] = []
+
+    return result
+
+
+@router.get("/api/admin/verification-queue", tags=["Admin"])
+def api_admin_verification_queue(request: Request):
+    """Get verification queue for admin panel."""
+    _require_admin(request)
+    import datetime as _dt
+
+    ve = get_verification_engine()
+    store = ve.store
+    hosts_map = {h["host_id"]: h for h in list_hosts(active_only=False)}
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT host_id, state, COALESCE(overall_score, 0) AS overall_score, last_check_at "
+                "FROM host_verifications WHERE state IN ('pending', 'unverified') ORDER BY last_check_at DESC"
+            ).fetchall()
+        queue = []
+        for r in rows:
+            hid = r["host_id"]
+            h = hosts_map.get(hid, {})
+            last_ts = r["last_check_at"]
+            queue.append(
+                {
+                    "host_id": hid,
+                    "state": r["state"],
+                    "overall_score": float(r["overall_score"]),
+                    "last_check_at": (
+                        _dt.datetime.fromtimestamp(last_ts, tz=_dt.timezone.utc).isoformat()
+                        if last_ts
+                        else None
+                    ),
+                    "gpu_model": h.get("gpu_model") or "Unknown",
+                    "province": h.get("province") or "Unknown",
+                    "cost_per_hour": float(h.get("cost_per_hour", 0)),
+                }
+            )
+    except Exception as e:
+        log.warning("admin_verification_queue: failed to fetch queue", exc_info=True)
+        queue = []
+    return {"ok": True, "queue": queue}
+
+
+# ---------------------------------------------------------------------------
+# AI Insights
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/ai-stats", tags=["Admin"])
+def api_admin_ai_stats(request: Request, days: int = 30):
+    """Aggregate AI conversation statistics for the admin dashboard."""
+    _require_admin(request)
+    import datetime as _dt
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    cutoff = time.time() - days * 86400
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+
+        # --- per-source totals from ai_conversations ---
+        source_rows = conn.execute(
+            "SELECT source, COUNT(*) AS conversations, "
+            "COALESCE(SUM(message_count), 0) AS messages, "
+            "COALESCE(SUM(total_input_tokens), 0) AS input_tokens, "
+            "COALESCE(SUM(total_output_tokens), 0) AS output_tokens "
+            "FROM ai_conversations WHERE created_at >= %s "
+            "GROUP BY source ORDER BY conversations DESC",
+            (cutoff,),
+        ).fetchall()
+
+        # --- support (public chat) totals ---
+        support_row = conn.execute(
+            "SELECT COUNT(DISTINCT c.conversation_id) AS conversations, "
+            "COUNT(m.id) AS messages "
+            "FROM chat_conversations c "
+            "LEFT JOIN chat_messages m ON m.conversation_id = c.conversation_id "
+            "WHERE c.created_at >= %s",
+            (cutoff,),
+        ).fetchone()
+
+        # --- daily breakdown for chart ---
+        daily_rows = conn.execute(
+            "SELECT FLOOR(created_at / 86400)::bigint AS day_epoch, source, COUNT(*) AS cnt "
+            "FROM ai_conversations WHERE created_at >= %s "
+            "GROUP BY day_epoch, source ORDER BY day_epoch",
+            (cutoff,),
+        ).fetchall()
+
+        daily_support = conn.execute(
+            "SELECT FLOOR(created_at / 86400)::bigint AS day_epoch, COUNT(*) AS cnt "
+            "FROM chat_conversations WHERE created_at >= %s "
+            "GROUP BY day_epoch ORDER BY day_epoch",
+            (cutoff,),
+        ).fetchall()
+
+        # --- top users ---
+        top_users = conn.execute(
+            "SELECT user_id, COUNT(*) AS conversations, "
+            "COALESCE(SUM(total_input_tokens + total_output_tokens), 0) AS total_tokens "
+            "FROM ai_conversations WHERE created_at >= %s "
+            "GROUP BY user_id ORDER BY conversations DESC LIMIT 10",
+            (cutoff,),
+        ).fetchall()
+
+    # Build per-source summary (include support)
+    by_source = {r["source"]: dict(r) for r in source_rows}
+    support_convs = int(support_row["conversations"]) if support_row else 0
+    support_msgs = int(support_row["messages"]) if support_row else 0
+    by_source["support"] = {
+        "source": "support",
+        "conversations": support_convs,
+        "messages": support_msgs,
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+
+    total_conversations = sum(s["conversations"] for s in by_source.values())
+    total_messages = sum(s["messages"] for s in by_source.values())
+    total_input = sum(s["input_tokens"] for s in by_source.values())
+    total_output = sum(s["output_tokens"] for s in by_source.values())
+    estimated_cost = round(total_input * 0.000003 + total_output * 0.000015, 2)
+
+    # Daily chart data
+    daily_map: dict[int, dict] = {}
+    for r in daily_rows:
+        d = int(r["day_epoch"])
+        if d not in daily_map:
+            daily_map[d] = {
+                "date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+            }
+        daily_map[d][r["source"]] = int(r["cnt"])
+    for r in daily_support:
+        d = int(r["day_epoch"])
+        if d not in daily_map:
+            daily_map[d] = {
+                "date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+            }
+        daily_map[d]["support"] = int(r["cnt"])
+    daily = sorted(daily_map.values(), key=lambda x: x["date"])
+
+    return {
+        "ok": True,
+        "total_conversations": total_conversations,
+        "total_messages": total_messages,
+        "total_input_tokens": int(total_input),
+        "total_output_tokens": int(total_output),
+        "estimated_cost": estimated_cost,
+        "by_source": list(by_source.values()),
+        "daily": daily,
+        "top_users": [dict(u) for u in top_users],
+    }
+
+
+@router.get("/api/admin/ai-conversations", tags=["Admin"])
+def api_admin_ai_conversations(
+    request: Request,
+    source: str = "all",
+    days: int = 7,
+    search: str = "",
+    page: int = 1,
+    per_page: int = 30,
+):
+    """Paginated AI conversation list with messages for admin review."""
+    _require_admin(request)
+    import datetime as _dt
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    from psycopg import sql as _sql
+
+    cutoff = time.time() - days * 86400
+    offset = (max(page, 1) - 1) * per_page
+    pool = _get_pg_pool()
+
+    conversations = []
+    total = 0
+
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+
+        # ---- AI assistant conversations ----
+        if source in ("all", "xcel", "analytics", "wizard"):
+            where_parts = ["c.created_at >= %s"]
+            params: list = [cutoff]
+
+            if source != "all":
+                where_parts.append("c.source = %s")
+                params.append(source)
+
+            if search:
+                where_parts.append(
+                    "EXISTS (SELECT 1 FROM ai_messages m2 "
+                    "WHERE m2.conversation_id = c.conversation_id "
+                    "AND m2.content ILIKE %s)"
+                )
+                params.append(f"%{search}%")
+
+            where_clause = " AND ".join(where_parts)
+
+            # Count
+            cnt = conn.execute(
+                cast(Any, f"SELECT COUNT(*) AS cnt FROM ai_conversations c WHERE {where_clause}"),
+                params,
+            ).fetchone()
+            ai_total = int(cnt["cnt"]) if cnt else 0
+
+            # Fetch conversations
+            ai_convs = conn.execute(
+                cast(
+                    Any,
+                    f"SELECT c.conversation_id, c.user_id, c.title, c.source, "
+                    f"c.created_at, c.updated_at, c.message_count, "
+                    f"c.total_input_tokens, c.total_output_tokens "
+                    f"FROM ai_conversations c WHERE {where_clause} "
+                    f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                ),
+                params + [per_page, offset],
+            ).fetchall()
+
+            cids = [r["conversation_id"] for r in ai_convs]
+            messages_map: dict[str, list] = {cid: [] for cid in cids}
+
+            if cids:
+                placeholders = ",".join(["%s"] * len(cids))
+                msgs = conn.execute(
+                    cast(
+                        Any,
+                        f"SELECT conversation_id, role, content, tool_name, "
+                        f"tokens_in, tokens_out, created_at "
+                        f"FROM ai_messages WHERE conversation_id IN ({placeholders}) "
+                        f"ORDER BY created_at ASC",
+                    ),
+                    cids,
+                ).fetchall()
+                for m in msgs:
+                    messages_map[m["conversation_id"]].append(
+                        {
+                            "role": m["role"],
+                            "content": m["content"],
+                            "tool_name": m["tool_name"] or None,
+                            "tokens_in": int(m["tokens_in"]),
+                            "tokens_out": int(m["tokens_out"]),
+                            "created_at": m["created_at"],
+                        }
+                    )
+
+            for c in ai_convs:
+                conversations.append(
+                    {
+                        "conversation_id": c["conversation_id"],
+                        "source": c["source"],
+                        "user": c["user_id"],
+                        "title": c["title"],
+                        "created_at": c["created_at"],
+                        "updated_at": c["updated_at"],
+                        "message_count": int(c["message_count"]),
+                        "total_input_tokens": int(c["total_input_tokens"]),
+                        "total_output_tokens": int(c["total_output_tokens"]),
+                        "messages": messages_map.get(c["conversation_id"], []),
+                    }
+                )
+            total += ai_total
+
+        # ---- Public support chat ----
+        if source in ("all", "support"):
+            swhere = ["c.created_at >= %s"]
+            sparams: list = [cutoff]
+
+            if search:
+                swhere.append(
+                    "EXISTS (SELECT 1 FROM chat_messages m2 "
+                    "WHERE m2.conversation_id = c.conversation_id "
+                    "AND m2.content ILIKE %s)"
+                )
+                sparams.append(f"%{search}%")
+
+            swhere_clause = " AND ".join(swhere)
+
+            scnt = conn.execute(
+                cast(
+                    Any, f"SELECT COUNT(*) AS cnt FROM chat_conversations c WHERE {swhere_clause}"
+                ),
+                sparams,
+            ).fetchone()
+            support_total = int(scnt["cnt"]) if scnt else 0
+
+            s_offset = max(0, offset - total) if source == "all" else offset
+            s_limit = max(0, per_page - len(conversations)) if source == "all" else per_page
+
+            if s_limit > 0 and (source != "all" or len(conversations) < per_page):
+                sconvs = conn.execute(
+                    cast(
+                        Any,
+                        f"SELECT c.conversation_id, c.user_email, c.ip_hash, "
+                        f"c.created_at, c.updated_at "
+                        f"FROM chat_conversations c WHERE {swhere_clause} "
+                        f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                    ),
+                    sparams + [s_limit, s_offset],
+                ).fetchall()
+
+                scids = [r["conversation_id"] for r in sconvs]
+                smsg_map: dict[str, list] = {cid: [] for cid in scids}
+
+                if scids:
+                    splaceholders = ",".join(["%s"] * len(scids))
+                    smsgs = conn.execute(
+                        cast(
+                            Any,
+                            f"SELECT conversation_id, role, content, created_at "
+                            f"FROM chat_messages WHERE conversation_id IN ({splaceholders}) "
+                            f"ORDER BY created_at ASC",
+                        ),
+                        scids,
+                    ).fetchall()
+                    for m in smsgs:
+                        smsg_map[m["conversation_id"]].append(
+                            {
+                                "role": m["role"],
+                                "content": m["content"],
+                                "tool_name": None,
+                                "tokens_in": 0,
+                                "tokens_out": 0,
+                                "created_at": m["created_at"],
+                            }
+                        )
+
+                for c in sconvs:
+                    conversations.append(
+                        {
+                            "conversation_id": c["conversation_id"],
+                            "source": "support",
+                            "user": c["user_email"] or c["ip_hash"] or "anonymous",
+                            "title": "",
+                            "created_at": c["created_at"],
+                            "updated_at": c["updated_at"],
+                            "message_count": len(smsg_map.get(c["conversation_id"], [])),
+                            "total_input_tokens": 0,
+                            "total_output_tokens": 0,
+                            "messages": smsg_map.get(c["conversation_id"], []),
+                        }
+                    )
+            total += support_total
+
+    # Sort merged results by updated_at descending
+    conversations.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
+
+    return {
+        "ok": True,
+        "conversations": conversations[:per_page],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
+# ── P1.2 — Worker agent rolling self-update ────────────────────────────────
+@router.post("/api/admin/agent/rollout", tags=["Admin"])
+def api_admin_agent_rollout(request: Request, body: dict):
+    """Enqueue an ``upgrade_agent`` directive across fleet (rolling batch).
+
+    Body:
+      version: str            — target version (stored in command args)
+      sha256:  str            — expected sha256 (64 hex chars)
+      url:     str | null     — defaults to https://xcelsior.ca/static/worker_agent.py
+      host_ids: list[str] | null — restrict to specific hosts (default: all admitted)
+      batch_pct: int           — 1–100; percentage of fleet to target this call (default 5)
+      min_version: str | null  — agents at/above this are no-ops
+      modules: dict | null     — optional {"worker_image_cache.py": "<sha256>", ...}
+                                  sibling modules worker_agent.py imports at load
+                                  time; include whenever any of them changed so
+                                  upgraded hosts fetch+verify them too.
+
+    Returns the list of host_ids we enqueued, plus the generated command ids.
+    This is deliberately stateless: call it repeatedly to roll waves (the
+    dashboard drives pacing + health-checks between waves).
+    """
+    from routes.agent import enqueue_agent_command  # local import avoids cycle
+
+    user = _require_admin(request)
+
+    version = (body or {}).get("version", "").strip()
+    sha256 = (body or {}).get("sha256", "").strip().lower()
+    url = (body or {}).get("url") or "https://xcelsior.ca/static/worker_agent.py"
+    host_ids = (body or {}).get("host_ids") or []
+    batch_pct = int((body or {}).get("batch_pct") or 5)
+    min_version = (body or {}).get("min_version") or version
+    # Optional {"worker_image_cache.py": "<sha256>", ...} — sibling modules
+    # worker_agent.py imports at load time (split out of the monolith).
+    # Required whenever the rollout targets a version that changed any of
+    # these files, so upgraded hosts don't crash importing a stale/missing
+    # sibling. See worker_agent.py::_fetch_sibling_modules.
+    modules = (body or {}).get("modules") or {}
+
+    if not version or not sha256:
+        raise HTTPException(400, "version and sha256 are required")
+    if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+        raise HTTPException(400, "sha256 must be 64 lowercase hex chars")
+    if not url.startswith("https://"):
+        raise HTTPException(400, "url must be https://")
+    if batch_pct < 1 or batch_pct > 100:
+        raise HTTPException(400, "batch_pct must be 1..100")
+    if not isinstance(modules, dict):
+        raise HTTPException(400, "modules must be an object of {filename: sha256}")
+    for _name, _msha in modules.items():
+        _msha = (_msha or "").strip().lower()
+        if len(_msha) != 64 or any(c not in "0123456789abcdef" for c in _msha):
+            raise HTTPException(400, f"modules[{_name!r}] sha256 must be 64 lowercase hex chars")
+
+    # Target set: explicit host_ids or all currently-admitted hosts
+    all_hosts = list_hosts()
+    admitted = [h for h in all_hosts if h.get("status") != "decommissioned"]
+    if host_ids:
+        targets = [h for h in admitted if h.get("host_id") in set(host_ids)]
+    else:
+        # Skip hosts already at the target sha to keep rollouts idempotent.
+        targets = [h for h in admitted if (h.get("agent_sha256") or "") != sha256]
+
+    # Rolling: take the first batch_pct% (deterministic ordering by host_id)
+    targets.sort(key=lambda h: h.get("host_id", ""))
+    batch_n = max(1, (len(targets) * batch_pct + 99) // 100)
+    batch = targets[:batch_n]
+
+    enqueued = []
+    args = {"url": url, "sha256": sha256, "min_version": min_version, "modules": modules}
+    for h in batch:
+        hid = h.get("host_id")
+        if not hid:
+            continue
+        try:
+            cmd_id = enqueue_agent_command(
+                hid,
+                "upgrade_agent",
+                args=args,
+                created_by=user.get("email", "admin"),
+            )
+            enqueued.append({"host_id": hid, "cmd_id": cmd_id})
+            # P1.2 — record the rollout so the watchdog bg task can
+            # compare heartbeat agent_sha256 against ``target_sha`` and
+            # auto-enqueue a rollback if the host fails to pick up the
+            # new bytes within the grace window.
+            try:
+                from db import pg_transaction as _pg_txn
+
+                with _pg_txn() as _conn:
+                    _cur = _conn.cursor()
+                    _cur.execute(
+                        "INSERT INTO agent_rollouts "
+                        "(host_id, from_sha, target_sha) VALUES (%s, %s, %s)",
+                        (hid, (h.get("agent_sha256") or None), sha256),
+                    )
+            except Exception as _e:
+                # Tracking failure must not block the rollout itself —
+                # worst case we lose auto-rollback for this host.
+                log.warning("rollout: tracking insert failed host=%s: %s", hid, _e)
+        except Exception as e:
+            log.warning("rollout: enqueue failed for host=%s: %s", hid, e)
+
+    return {
+        "ok": True,
+        "version": version,
+        "sha256": sha256,
+        "batch_pct": batch_pct,
+        "candidates": len(targets),
+        "enqueued": enqueued,
+    }
+
+
+@router.get("/api/admin/reconciler/findings", tags=["Admin"])
+def api_admin_reconciler_findings(request: Request, status: str = "open"):
+    """Get reconciler findings, filtered by status ('open', 'resolved', 'all')."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        if status == "open":
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_findings WHERE resolved_at IS NULL ORDER BY created_at DESC"
+            ).fetchall()
+        elif status == "resolved":
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_findings WHERE resolved_at IS NOT NULL ORDER BY resolved_at DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_findings ORDER BY created_at DESC"
+            ).fetchall()
+
+        findings = []
+        for r in rows:
+            findings.append(
+                {
+                    "finding_id": str(r["finding_id"]),
+                    "resource_type": r["resource_type"],
+                    "resource_id": r["resource_id"],
+                    "tenant_id": r["tenant_id"],
+                    "finding_type": r["finding_type"],
+                    "severity": r["severity"],
+                    "summary": r["summary"],
+                    "desired": r["desired"],
+                    "observed": r["observed"],
+                    "action_taken": r["action_taken"],
+                    "action_result": r["action_result"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                    "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+                }
+            )
+        return {"ok": True, "findings": findings}
+
+
+def _reconciler_finding_uuid(finding_id: str) -> str:
+    """404 for an id Postgres cannot even parse.
+
+    `reconciliation_findings.finding_id` is a `uuid` column and these routes
+    take the path parameter as a plain `str`, so a typo or a truncated
+    copy-paste reached the database verbatim and came back as
+    `InvalidTextRepresentation` — a 500, for a bad URL. From the caller's side
+    there is no difference worth reporting between "that is not a finding id"
+    and "there is no such finding", and the latter is what the valid-but-absent
+    case already answers.
+    """
+    try:
+        uuid.UUID(str(finding_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="Finding not found") from None
+    return finding_id
+
+
+@router.post("/api/admin/reconciler/findings/{finding_id}/enforce", tags=["Admin"])
+def api_admin_reconciler_enforce(finding_id: str, request: Request):
+    """Manually enforce remediation for a specific finding."""
+    _require_admin(request)
+    _reconciler_finding_uuid(finding_id)
+    from db import _get_pg_pool
+    from psycopg.types.json import Jsonb
+    from psycopg.rows import dict_row
+    from control_plane.reconcile import (
+        _enqueue_stop_container,
+        _expedite_lease_expiry,
+        _release_orphaned_allocations,
+    )
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        finding = conn.execute(
+            "SELECT * FROM reconciliation_findings WHERE finding_id = %s", (finding_id,)
+        ).fetchone()
+        if not finding:
+            raise HTTPException(status_code=404, detail="Finding not found")
+
+        if finding["resolved_at"] is not None:
+            raise HTTPException(status_code=400, detail="Finding is already resolved")
+
+        finding_type = finding["finding_type"]
+        resource_id = finding["resource_id"]
+        observed = finding["observed"] or {}
+        desired = finding["desired"] or {}
+
+        action_taken = None
+        action_result = {}
+
+        if finding_type == "attempt_container_missing":
+            # Expedite lease expiry on the attempt
+            attempt_id = observed.get("attempt_id") or desired.get("attempt_id")
+            if not attempt_id:
+                raise HTTPException(
+                    status_code=400, detail="Could not identify attempt_id for enforcement"
+                )
+            action_taken = "expire_lease"
+            action_result = _expedite_lease_expiry(conn, attempt_id=attempt_id)
+
+        elif finding_type == "stale_fence_container":
+            # Stop the stale container
+            container_name = observed.get("container_name")
+            if not container_name:
+                raise HTTPException(
+                    status_code=400, detail="Could not identify container_name for enforcement"
+                )
+            action_taken = "stop_container"
+            action_result = _enqueue_stop_container(
+                conn,
+                host_id=resource_id,
+                container_name=str(container_name),
+                reason="Manually enforced remediation for stale fence container",
+            )
+
+        elif finding_type == "orphaned_allocation":
+            # Release orphaned allocations
+            orphans = observed.get("orphans", [])
+            allocation_ids = [o["allocation_id"] for o in orphans if "allocation_id" in o]
+            if not allocation_ids:
+                raise HTTPException(status_code=400, detail="No allocation_ids found to release")
+            action_taken = "release_allocation"
+            action_result = _release_orphaned_allocations(conn, allocation_ids)
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No manual enforcement defined for finding type '{finding_type}'",
+            )
+
+        conn.execute(
+            """
+            UPDATE reconciliation_findings
+               SET action_taken = %s,
+                   action_result = %s,
+                   resolved_at = clock_timestamp()
+             WHERE finding_id = %s
+            """,
+            (action_taken, Jsonb(action_result), finding_id),
+        )
+
+        return {
+            "ok": True,
+            "finding_id": finding_id,
+            "action_taken": action_taken,
+            "action_result": action_result,
+        }
+
+
+@router.post("/api/admin/reconciler/findings/{finding_id}/dismiss", tags=["Admin"])
+def api_admin_reconciler_dismiss(finding_id: str, request: Request):
+    """Manually dismiss/resolve a finding without enforcing remediation."""
+    _require_admin(request)
+    _reconciler_finding_uuid(finding_id)
+    from db import _get_pg_pool
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        # `RETURNING` rather than a bare UPDATE: the previous version answered
+        # `{"ok": true}` whatever happened, so dismissing a mistyped id, or one
+        # already resolved, looked exactly like dismissing a live finding. An
+        # operator clearing a queue would have been told the work was done.
+        row = conn.execute(
+            """
+            UPDATE reconciliation_findings
+               SET resolved_at = clock_timestamp()
+             WHERE finding_id = %s AND resolved_at IS NULL
+         RETURNING resolved_at
+            """,
+            (finding_id,),
+        ).fetchone()
+        if row is None:
+            # Distinguishing the two costs one cheap read and is the difference
+            # between "you already did this" and "you are looking at the wrong
+            # finding".
+            exists = conn.execute(
+                "SELECT 1 FROM reconciliation_findings WHERE finding_id = %s",
+                (finding_id,),
+            ).fetchone()
+            if exists is None:
+                raise HTTPException(status_code=404, detail="Finding not found")
+            raise HTTPException(status_code=400, detail="Finding is already resolved")
+        return {
+            "ok": True,
+            "finding_id": finding_id,
+            "resolved_at": row[0].isoformat() if row[0] else None,
+        }
+
+
+@router.post("/api/admin/reconciler/reconcile-host/{host_id}", tags=["Admin"])
+def api_admin_reconcile_host(host_id: str, request: Request):
+    """Manually trigger a reconciliation pass on a specific host."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from control_plane.reconcile import reconcile_host
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        report = reconcile_host(conn, host_id)
+        return {
+            "ok": True,
+            "host_id": host_id,
+            "report": {
+                "host_id": report.host_id,
+                "findings_opened": report.findings_opened,
+                "findings_resolved": report.findings_resolved,
+                "actions_taken": report.actions_taken,
+            },
+        }
+
+
+@router.get("/api/admin/control-plane/jobs", tags=["Admin"])
+def api_admin_control_plane_jobs(request: Request):
+    """List jobs with their transactional active attempts, lease states, and fencing tokens."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        # Get all jobs
+        jobs_rows = conn.execute(
+            "SELECT job_id, status, active_attempt_id, submitted_at, payload FROM jobs ORDER BY submitted_at DESC LIMIT 100"
+        ).fetchall()
+
+        jobs = []
+        for r in jobs_rows:
+            jid = r["job_id"]
+            # Fetch all attempts for this job
+            attempts_rows = conn.execute(
+                """
+                SELECT a.attempt_id, a.host_id, a.status, a.fencing_token,
+                       a.lease_claimed_at, l.expires_at AS lease_expires_at,
+                       a.reserved_at AS created_at, a.ended_at AS finished_at
+                  FROM job_attempts a
+                  LEFT JOIN placement_leases l ON a.attempt_id = l.attempt_id AND l.status IN ('offered', 'active')
+                 WHERE a.job_id = %s
+                 ORDER BY a.reserved_at DESC
+                """,
+                (jid,),
+            ).fetchall()
+
+            attempts = []
+            for ar in attempts_rows:
+                attempts.append(
+                    {
+                        "attempt_id": str(ar["attempt_id"]),
+                        "host_id": ar["host_id"],
+                        "status": ar["status"],
+                        "fencing_token": ar["fencing_token"],
+                        "lease_claimed_at": (
+                            ar["lease_claimed_at"].isoformat() if ar["lease_claimed_at"] else None
+                        ),
+                        "lease_expires_at": (
+                            ar["lease_expires_at"].isoformat() if ar["lease_expires_at"] else None
+                        ),
+                        "created_at": ar["created_at"].isoformat() if ar["created_at"] else None,
+                        "finished_at": ar["finished_at"].isoformat() if ar["finished_at"] else None,
+                    }
+                )
+
+            payload = r["payload"] or {}
+            # If payload is a string (legacy/unparsed), load it or default to empty dict
+            if isinstance(payload, str):
+                import json
+
+                try:
+                    payload = json.loads(payload)
+                except Exception:
+                    payload = {}
+
+            jobs.append(
+                {
+                    "job_id": jid,
+                    "status": r["status"],
+                    "active_attempt_id": (
+                        str(r["active_attempt_id"]) if r["active_attempt_id"] else None
+                    ),
+                    "queue_reason": payload.get("queue_reason"),
+                    "queue_reason_detail": payload.get("queue_reason_detail"),
+                    "submitted_at": r["submitted_at"],
+                    "attempts": attempts,
+                }
+            )
+
+        return {"ok": True, "jobs": jobs}
+
+
+@router.get("/api/admin/control-plane/scheduled-tasks", tags=["Admin"])
+def api_admin_control_plane_scheduled_tasks(request: Request):
+    """List durable scheduled tasks from database."""
+    _require_admin(request)
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        rows = conn.execute("SELECT * FROM scheduled_tasks ORDER BY task_name LIMIT 100").fetchall()
+
+        tasks = []
+        for r in rows:
+            tasks.append(
+                {
+                    "task_name": r["task_name"],
+                    "enabled": r["enabled"],
+                    "interval_seconds": r["interval_seconds"],
+                    "next_run_at": r["next_run_at"].isoformat() if r["next_run_at"] else None,
+                    "last_run_at": r["last_run_at"].isoformat() if r["last_run_at"] else None,
+                    "last_status": r["last_status"],
+                    "last_error": r["last_error"],
+                    "claim_owner": r["claim_owner"],
+                    "claim_expires_at": (
+                        r["claim_expires_at"].isoformat() if r["claim_expires_at"] else None
+                    ),
+                    "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                }
+            )
+        return {"ok": True, "tasks": tasks}
+
+
+# ── Per-host agent tokens (blueprint §19.2 — field-wide bearer rotation) ──
+
+
+@router.get("/api/admin/agent-tokens/coverage", tags=["Admin"])
+def api_admin_agent_token_coverage(request: Request):
+    """How far field-wide rotation has progressed across the fleet.
+
+    Operators must read this before flipping
+    ``XCELSIOR_AGENT_HOST_TOKENS=require``: any host listed in
+    ``missing`` would be locked out of the control plane by that flip.
+    """
+    _require_admin(request)
+    from control_plane.agent_tokens import host_token_mode, rotation_coverage
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        coverage = rotation_coverage(conn)
+    return {"ok": True, "mode": host_token_mode(), **coverage}
+
+
+@router.get("/api/admin/hosts/{host_id}/agent-tokens", tags=["Admin"])
+def api_admin_list_host_agent_tokens(host_id: str, request: Request):
+    """Credential history for one host. Secrets are never returned."""
+    _require_admin(request)
+    from control_plane.agent_tokens import list_tokens
+    from db import _get_pg_pool
+
+    with _get_pg_pool().connection() as conn:
+        tokens = list_tokens(conn, host_id)
+    return {"ok": True, "host_id": host_id, "tokens": tokens}
+
+
+@router.post("/api/admin/hosts/{host_id}/agent-tokens", tags=["Admin"])
+def api_admin_issue_host_agent_token(host_id: str, request: Request):
+    """Issue (or rotate) this host's agent token. Returns the secret once.
+
+    Any existing active token is superseded with a grace window rather
+    than revoked, so issuing a replacement never strands a running
+    worker mid-poll.
+    """
+    user = _require_admin(request)
+    from control_plane.agent_tokens import UnknownHost, issue_token
+    from control_plane.db import run_transaction
+
+    actor = str((user or {}).get("user_id") or (user or {}).get("email") or "admin")
+    try:
+        issued = run_transaction(
+            lambda c: issue_token(c, host_id, issued_by=actor, reason="admin_issue"),
+            what="admin_issue_host_agent_token",
+        )
+    except UnknownHost as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    return {
+        "ok": True,
+        "host_id": issued.host_id,
+        "token": issued.secret,
+        "token_id": issued.token_id,
+        "token_prefix": issued.prefix,
+        "expires_at": issued.expires_at.isoformat(),
+        "warning": "This secret is shown once. Store it on the host now.",
+    }
+
+
+@router.post("/api/admin/hosts/{host_id}/agent-tokens/revoke", tags=["Admin"])
+def api_admin_revoke_host_agent_tokens(host_id: str, request: Request):
+    """Revoke every live token for a host — immediate, no grace window."""
+    _require_admin(request)
+    from control_plane.agent_tokens import revoke_token
+    from control_plane.db import run_transaction
+
+    revoked = run_transaction(
+        lambda c: revoke_token(c, host_id=host_id, reason="admin_revocation"),
+        what="admin_revoke_host_agent_tokens",
+    )
+    return {"ok": True, "host_id": host_id, "revoked": revoked}

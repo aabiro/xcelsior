@@ -1,0 +1,78 @@
+---
+title: Trust & Controls
+subtitle: What the platform enforces, and how to prove what happened.
+slug: compliance
+---
+
+{/* residency-guard: documents-removal — states plainly that no residency guarantee exists */}
+
+## Overview
+
+Xcelsior is a global marketplace. Capacity comes from independent hosts around
+the world, and placement is decided on price, availability, GPU model, and host
+reputation. **We do not offer a data-residency guarantee**, because a
+marketplace whose supply is independent operators in many countries cannot
+honestly promise a workload stays in one of them.
+
+What we do offer is enforcement you can verify: every action is scoped, every
+destructive or spending action is approved by a human before it runs, and every
+one of them is recorded. That is what a security review can actually check.
+
+If a workload must be processed in a particular place, select capacity by region
+at launch and use the audit trail below as evidence of where it ran.
+
+## Access control
+
+Credentials are scoped to the operations they need. There is no wildcard scope:
+a token that can read instances cannot launch one, and a token issued for tenant
+automation can never reach host or control-plane operations.
+
+- Scopes are checked at the edge and again at the API, and the two agree.
+- A scope requirement is **cumulative**. Holding one of a tool's several scopes
+  is not sufficient to invoke it.
+- Machine credentials — OAuth client-credentials tokens and agent API keys — are
+  scope-checked identically. Narrowing a credential genuinely narrows it.
+
+## Human approval on anything destructive or costly
+
+Terminating an instance, deleting a volume, moving money, or committing to spend
+does not execute on the strength of an argument in a tool call. The server
+prepares an **action plan** describing exactly what will happen, and a human
+approves that specific plan before anything runs.
+
+- A plan is bound to the server, not the caller. Changing the request after
+  approval invalidates it.
+- A `confirm: true` flag is never a substitute for approval.
+- Plans expire, so an unapproved plan becomes unexecutable rather than lingering.
+
+## Audit trail
+
+Every action is recorded with the identity that authorised it, the plan that was
+approved, what ran, on which host, and what it cost. The chain is tamper-evident
+and exportable.
+
+This is evidence **after the fact**, which is the honest thing to offer. It tells
+you where a workload ran. It is not a promise about where the next one will.
+
+## Privacy
+
+- **Consent** is recorded before a customer is charged and can be withdrawn at
+  any time from Settings.
+- **Retention** policies are configurable, and expired data is purged on a
+  schedule rather than on request.
+- **Export and erasure** are self-service from your account, and each request is
+  trackable to completion.
+- Personal information is handled under the privacy law applicable to Xcelsior
+  Compute Inc. as a Canadian company. That is a statement about the operator,
+  not a claim about where your compute runs.
+
+## Tax
+
+Sales tax is calculated from your billing address and appears on every invoice.
+GST/HST applies to Canadian customers. It is unrelated to where a GPU sits.
+
+## Further reading
+
+- [Security](https://xcelsior.ca/security), the controls behind the platform
+- [Privacy Policy](https://xcelsior.ca/privacy)
+- [Terms](https://xcelsior.ca/terms)

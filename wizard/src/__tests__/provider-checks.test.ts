@@ -1,0 +1,364 @@
+// Tests for provider-checks.ts — pure functions: runVerificationChecks, buildVerificationReport
+
+import { describe, it, expect } from "vitest";
+import {
+    runVerificationChecks,
+    buildVerificationReport,
+    benchmarkUnavailableResults,
+    buildWizardVerificationResults,
+    buildWorkerEnvContent,
+    hasFreshWorkerHeartbeat,
+    mergeAuthorizedKeys,
+    MINIMUM_VERSIONS,
+    sanitizeHostSshUser,
+    VERIFICATION_THRESHOLDS,
+    type GpuInfo,
+    type BenchmarkResult,
+    type NetworkBenchResult,
+    type VersionCheck,
+} from "../provider-checks.js";
+
+// ── Fixtures ─────────────────────────────────────────────────────────
+
+function makeGpu(overrides: Partial<GpuInfo> = {}): GpuInfo {
+    return {
+        gpu_model: "NVIDIA RTX 4090",
+        total_vram_gb: 24,
+        free_vram_gb: 22,
+        serial: "SN-123",
+        uuid: "GPU-abc-123-def-456",
+        pci_bus_id: "00:01.0",
+        driver_version: "555.42.02",
+        compute_capability: "8.9",
+        ...overrides,
+    };
+}
+
+function makeBench(overrides: Partial<BenchmarkResult> = {}): BenchmarkResult {
+    return {
+        tflops: 82.5,
+        pcie_bandwidth_gbps: 14.2,
+        pcie_h2d_gbps: 13.1,
+        pcie_d2h_gbps: 15.3,
+        gpu_temp_celsius: 72,
+        gpu_temp_avg_celsius: 68,
+        gpu_temp_samples: 10,
+        gpu_model: "NVIDIA RTX 4090",
+        total_vram_gb: 24,
+        compute_capability: "8.9",
+        cuda_version: "12.4",
+        driver_version: "555.42.02",
+        xcu_score: 950,
+        elapsed_s: 12.5,
+        ...overrides,
+    };
+}
+
+function makeNetwork(overrides: Partial<NetworkBenchResult> = {}): NetworkBenchResult {
+    return {
+        latency_avg_ms: 15,
+        latency_min_ms: 10,
+        latency_max_ms: 25,
+        jitter_ms: 5,
+        packet_loss_pct: 0,
+        throughput_mbps: 500,
+        ...overrides,
+    };
+}
+
+function makeVersions(allPass = true): VersionCheck[] {
+    return Object.entries(MINIMUM_VERSIONS).map(([component, minimum]) => ({
+        component,
+        version: allPass ? minimum : null,
+        minimum,
+        passed: allPass,
+    }));
+}
+
+// ── Tests ────────────────────────────────────────────────────────────
+
+describe("worker installation heartbeat", () => {
+    const since = Date.parse("2026-10-10T12:00:00Z");
+    it("accepts a new v2 observation while the legacy heartbeat is stale", () => {
+        expect(hasFreshWorkerHeartbeat({ last_seen: since / 1000 - 3600, last_observed_at: since / 1000 + 1 }, since)).toBe(true);
+    });
+    it("still accepts a fresh v1 heartbeat", () => {
+        expect(hasFreshWorkerHeartbeat({ last_seen: "2026-10-10T12:00:01Z", last_observed_at: null }, since)).toBe(true);
+    });
+    it("does not treat an active or admitted host as evidence of a fresh heartbeat", () => {
+        expect(hasFreshWorkerHeartbeat({ status: "active", admitted: true, last_observed_at: since / 1000 - 60 }, since)).toBe(false);
+        expect(hasFreshWorkerHeartbeat({ last_seen: "invalid" }, since)).toBe(false);
+        expect(hasFreshWorkerHeartbeat(undefined, since)).toBe(false);
+    });
+});
+
+describe("runVerificationChecks", () => {
+    it("all checks pass with good hardware", () => {
+        const checks = runVerificationChecks(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        expect(checks.length).toBeGreaterThanOrEqual(7);
+        expect(checks.every((c) => c.passed)).toBe(true);
+    });
+
+    it("fails GPU Identity when model is empty", () => {
+        const checks = runVerificationChecks(
+            makeGpu({ gpu_model: "", uuid: "" }),
+            makeBench(),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const identity = checks.find((c) => c.name === "GPU Identity");
+        expect(identity?.passed).toBe(false);
+    });
+
+    it("fails CUDA Readiness when compute capability is too low", () => {
+        const checks = runVerificationChecks(
+            makeGpu({ compute_capability: "5.0" }),
+            makeBench({ compute_capability: "5.0" }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const cuda = checks.find((c) => c.name === "CUDA Readiness");
+        expect(cuda?.passed).toBe(false);
+    });
+
+    it("fails PCIe Bandwidth when below threshold", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench({ pcie_bandwidth_gbps: 4.0 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const pcie = checks.find((c) => c.name === "PCIe Bandwidth");
+        expect(pcie?.passed).toBe(false);
+    });
+
+    it("thermal passes when sensor unavailable (temp = 0)", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench({ gpu_temp_celsius: 0 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const thermal = checks.find((c) => c.name === "Thermal Stability");
+        expect(thermal?.passed).toBe(true);
+        expect(thermal?.detail).toContain("unavailable");
+    });
+
+    it("thermal fails when temp exceeds threshold", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench({ gpu_temp_celsius: 95 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const thermal = checks.find((c) => c.name === "Thermal Stability");
+        expect(thermal?.passed).toBe(false);
+    });
+
+    it("fails Network Quality on high packet loss", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench(),
+            makeNetwork({ packet_loss_pct: 5 }),
+            makeVersions(),
+        );
+        const net = checks.find((c) => c.name === "Network Quality");
+        expect(net?.passed).toBe(false);
+    });
+
+    it("fails Network Quality on high jitter", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench(),
+            makeNetwork({ jitter_ms: 100 }),
+            makeVersions(),
+        );
+        const net = checks.find((c) => c.name === "Network Quality");
+        expect(net?.passed).toBe(false);
+    });
+
+    it("fails Network Quality on low throughput", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench(),
+            makeNetwork({ throughput_mbps: 50 }),
+            makeVersions(),
+        );
+        const net = checks.find((c) => c.name === "Network Quality");
+        expect(net?.passed).toBe(false);
+    });
+
+    it("fails Memory Integrity when VRAM mismatch", () => {
+        const checks = runVerificationChecks(
+            makeGpu({ total_vram_gb: 24 }),
+            makeBench({ total_vram_gb: 20 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const mem = checks.find((c) => c.name === "Memory Integrity");
+        expect(mem?.passed).toBe(false);
+    });
+
+    it("fails Security Posture when versions fail", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench(),
+            makeNetwork(),
+            makeVersions(false),
+        );
+        const sec = checks.find((c) => c.name === "Security Posture");
+        expect(sec?.passed).toBe(false);
+    });
+
+    it("network passes at exact threshold boundary", () => {
+        const T = VERIFICATION_THRESHOLDS;
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench(),
+            makeNetwork({
+                packet_loss_pct: T.max_network_loss_pct,
+                jitter_ms: T.max_network_jitter_ms,
+                throughput_mbps: T.min_network_throughput_mbps,
+            }),
+            makeVersions(),
+        );
+        const net = checks.find((c) => c.name === "Network Quality");
+        expect(net?.passed).toBe(true);
+    });
+});
+
+describe("buildVerificationReport", () => {
+    it("returns structured report with allPassed true", () => {
+        const report = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        expect(report.allPassed).toBe(true);
+        expect(report.checks.length).toBeGreaterThanOrEqual(7);
+        expect(report.gpu_fingerprint).toContain("NVIDIA RTX 4090");
+        expect(report.gpu_fingerprint).toContain(makeGpu().uuid);
+        expect(report.benchmark).toBeDefined();
+        expect(report.network).toBeDefined();
+        expect(report.versions).toBeDefined();
+    });
+
+    it("returns allPassed false when any check fails", () => {
+        const report = buildVerificationReport(
+            makeGpu({ gpu_model: "" }),
+            makeBench(),
+            makeNetwork(),
+            makeVersions(),
+        );
+        expect(report.allPassed).toBe(false);
+    });
+
+    it("includes zeroed network data when network bench was skipped", () => {
+        const zeroNet = makeNetwork({ latency_avg_ms: 0, jitter_ms: 0, packet_loss_pct: 0, throughput_mbps: 0 });
+        const report = buildVerificationReport(makeGpu(), makeBench(), zeroNet, makeVersions());
+        // Network check should fail on throughput
+        const net = report.checks.find((c) => c.name === "Network Quality");
+        expect(net?.passed).toBe(false);
+        expect(report.allPassed).toBe(false);
+    });
+});
+
+describe("wizard verification fail-closed boundary", () => {
+    it("treats an unavailable benchmark as failed", () => {
+        const results = benchmarkUnavailableResults("nvidia-smi query failed");
+        expect(results).toHaveLength(1);
+        expect(results[0].ok).toBe(false);
+        expect(results[0].detail).toContain("nvidia-smi");
+    });
+
+    it("does not report success when server verification is unavailable", () => {
+        const report = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        const results = buildWizardVerificationResults(report);
+        const server = results.find((item) => item.name === "Server Verification");
+        expect(server?.ok).toBe(false);
+        expect(server?.detail).toContain("not verified or admitted");
+        expect(results.every((item) => item.ok)).toBe(false);
+    });
+
+    it("does not report success for a non-verified server state", () => {
+        const report = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        const results = buildWizardVerificationResults(report, { ok: true, state: "deverified" });
+        expect(results.find((item) => item.name === "Server Verification")?.ok).toBe(false);
+        expect(results.every((item) => item.ok)).toBe(false);
+    });
+
+    it("requires both local checks and a verified server decision", () => {
+        const passing = buildVerificationReport(makeGpu(), makeBench(), makeNetwork(), makeVersions());
+        expect(
+            buildWizardVerificationResults(passing, { ok: true, state: "verified" })
+                .every((item) => item.ok),
+        ).toBe(true);
+
+        const failing = buildVerificationReport(
+            makeGpu(),
+            makeBench({ pcie_bandwidth_gbps: 1 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        expect(
+            buildWizardVerificationResults(failing, { ok: true, state: "verified" })
+                .every((item) => item.ok),
+        ).toBe(false);
+    });
+});
+
+describe("constants", () => {
+    it("MINIMUM_VERSIONS has required components", () => {
+        expect(MINIMUM_VERSIONS.runc).toBeDefined();
+        expect(MINIMUM_VERSIONS.nvidia_toolkit).toBeDefined();
+        expect(MINIMUM_VERSIONS.nvidia_driver).toBeDefined();
+        expect(MINIMUM_VERSIONS.docker).toBeDefined();
+    });
+
+    it("VERIFICATION_THRESHOLDS has expected fields", () => {
+        expect(VERIFICATION_THRESHOLDS.min_pcie_bandwidth_gbps).toBeGreaterThan(0);
+        expect(VERIFICATION_THRESHOLDS.max_gpu_temp_celsius).toBeGreaterThan(0);
+        expect(VERIFICATION_THRESHOLDS.min_network_throughput_mbps).toBeGreaterThan(0);
+    });
+});
+
+describe("worker host SSH setup helpers", () => {
+    it("accepts normal local Unix account names", () => {
+        expect(sanitizeHostSshUser("aaryn")).toBe("aaryn");
+        expect(sanitizeHostSshUser("gpu-node_01")).toBe("gpu-node_01");
+        expect(sanitizeHostSshUser("provider.user")).toBe("provider.user");
+    });
+
+    it("rejects unsafe SSH user values", () => {
+        expect(sanitizeHostSshUser("bad user")).toBe("");
+        expect(sanitizeHostSshUser("aaryn@example.com")).toBe("");
+        expect(sanitizeHostSshUser("../../root")).toBe("");
+        expect(sanitizeHostSshUser("")).toBe("");
+    });
+
+    it("adds the platform key to authorized_keys once", () => {
+        const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest xcelsior";
+        const first = mergeAuthorizedKeys("", key);
+        expect(first.changed).toBe(true);
+        expect(first.content).toBe(`${key}\n`);
+
+        const second = mergeAuthorizedKeys(first.content, key);
+        expect(second.changed).toBe(false);
+        expect(second.content).toBe(first.content);
+    });
+
+    it("writes the host SSH user into worker.env", () => {
+        const env = buildWorkerEnvContent({
+            hostId: "host-1",
+            apiUrl: "https://xcelsior.ca",
+            hostIp: "100.64.0.6",
+            hostSshUser: "provider",
+            apiToken: "token",
+        });
+        expect(env).toContain("XCELSIOR_HOST_ID=host-1\n");
+        expect(env).toContain("XCELSIOR_HOST_SSH_USER=provider\n");
+        expect(env).toContain("XCELSIOR_API_TOKEN=token\n");
+    });
+
+    it.each(["https://example.test?a=1&b=2", "$(touch /tmp/unwanted)", "~/.secret", "value\nCOMMAND=bad"])("rejects shell syntax in worker configuration: %s", (apiUrl) => {
+        expect(() => buildWorkerEnvContent({
+            hostId: "host-1", apiUrl, hostIp: "100.64.0.6", hostSshUser: "provider",
+        })).toThrow("Unsupported characters");
+    });
+});

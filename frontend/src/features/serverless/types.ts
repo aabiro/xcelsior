@@ -1,0 +1,42 @@
+export type DeployMethod = "preset" | "custom";
+
+export type ScalingPolicyType = "queue_request_count" | "queue_delay";
+export type ExecutionMode = "sync" | "async";
+
+export interface EnvRow {
+  key: string;
+  value: string;
+}
+
+export type ManagedEngineId = "vllm" | "tgi" | "sglang";
+export type CustomSourceType = "docker" | "github";
+
+export interface DeployStudioForm {
+  name: string;
+  method: DeployMethod;
+  managedEngine: ManagedEngineId;
+  customSource: CustomSourceType;
+  githubRepo: string;
+  githubBranch: string;
+  modelRef: string;
+  imageRef: string;
+  startupCommand: string;
+  httpPort: number;
+  healthCheckPath: string;
+  registryAuth: string;
+  cudaVersion: string;
+  gpuTier: string;
+  gpuCount: number;
+  region: string;
+  minWorkers: number;
+  maxWorkers: number;
+  maxConcurrency: number;
+  idleTimeoutSec: number;
+  executionMode: ExecutionMode;
+  queueTimeoutSec: number;
+  scalingPolicyType: ScalingPolicyType;
+  scalingPolicyValue: number;
+  envRows: EnvRow[];
+}
+
+export type DetailTab = "overview" | "workers" | "jobs" | "tryit" | "keys";

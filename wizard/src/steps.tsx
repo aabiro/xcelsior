@@ -1,0 +1,881 @@
+// Xcelsior Wizard — Step Renderers
+// Pure display components for each step type in the structured flow.
+// No state management — all state lives in useWizardFlow.
+
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { Text, Box, useInput } from "ink";
+import SelectInput from "ink-select-input";
+import TextInput from "ink-text-input";
+import { DEVICE_BROWSER_DELAY_MS, type SelectOption } from "./wizard-flow.js";
+import type { AutoCheckResults, ProviderSummaryData } from "./useWizardFlow.js";
+import { openUrl } from "./open-url.js";
+import { tokenFilePath } from "./wizard-state.js";
+import { displayCheckName } from "./check-labels.js";
+import { detectAgents, describeAgents, writeXcelsiorContext } from "./agent-context.js";
+
+// ── Brand spinner ────────────────────────────────────────────────────
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const BRAND_GRADIENT = [
+  "#00d4ff", // cyan
+  "#2ea9f8", // cyan-blue
+  "#5c6ff2", // blue-purple
+  "#7c3aed", // purple
+  "#9c306c", // purple-red
+  "#dc2626", // red
+];
+
+export function BrandSpinner({ label }: { label?: string }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 80);
+    return () => clearInterval(id);
+  }, []);
+  const frame = SPINNER_FRAMES[tick % SPINNER_FRAMES.length];
+  const color = BRAND_GRADIENT[tick % BRAND_GRADIENT.length];
+  return (
+    <Text>
+      <Text color={color} bold>{frame}</Text>
+      {label ? <Text dimColor> {label}</Text> : null}
+    </Text>
+  );
+}
+
+// ── Progress bar ─────────────────────────────────────────────────────
+
+interface ProgressProps {
+  current: number;
+  total: number;
+}
+
+export function ProgressBar({ current, total }: ProgressProps) {
+  const filled = Math.round((current / total) * 20);
+  const empty = 20 - filled;
+  return (
+    <Box justifyContent="center" marginTop={1} marginBottom={1}>
+      <Text dimColor>
+        [{"█".repeat(filled)}{"░".repeat(empty)}] {current}/{total}
+      </Text>
+    </Box>
+  );
+}
+
+// ── Select step ──────────────────────────────────────────────────────
+
+interface SelectStepProps {
+  options: SelectOption[];
+  onSelect: (value: string) => void;
+}
+
+export function SelectStep({ options, onSelect }: SelectStepProps) {
+  if (!options || options.length === 0) {
+    return (
+      <Box>
+        <Text dimColor>No options available. Press <Text bold>Enter</Text> to continue.</Text>
+      </Box>
+    );
+  }
+  return (
+    <Box>
+      <SelectInput
+        items={options}
+        onSelect={(item) => onSelect(item.value)}
+      />
+    </Box>
+  );
+}
+
+// ── Text input step ──────────────────────────────────────────────────
+
+interface TextStepProps {
+  placeholder?: string;
+  onSubmit: (value: string) => void;
+  /** If user types a question (starts with ? or "help"), route to AI */
+  onAskAi?: (question: string) => void;
+  /** Validation error from the last submission */
+  validationError?: string | null;
+}
+
+export function TextStep({ placeholder, onSubmit, onAskAi, validationError }: TextStepProps) {
+  const [value, setValue] = useState("");
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      // Detect questions — route to AI escape hatch
+      if (onAskAi && (trimmed.startsWith("?") || trimmed.toLowerCase().startsWith("help"))) {
+        onAskAi(trimmed.replace(/^\?/, "").trim());
+        setValue("");
+        return;
+      }
+      onSubmit(trimmed);
+      setValue("");
+    },
+    [onSubmit, onAskAi],
+  );
+
+  return (
+    <Box flexDirection="column">
+      <Box>
+        <Text color="#00d4ff">{"› "}</Text>
+        <TextInput
+          value={value}
+          onChange={setValue}
+          onSubmit={handleSubmit}
+          placeholder={placeholder}
+        />
+      </Box>
+      {validationError && (
+        <Text color="#ef4444">  ⚠ {validationError}</Text>
+      )}
+    </Box>
+  );
+}
+
+// ── Auto-check step (results display) ────────────────────────────────
+
+interface AutoCheckStepProps {
+  results?: AutoCheckResults;
+  /** When true, checks failed and user can retry or skip */
+  canRetry?: boolean;
+  /** When true, checks passed and waiting for Enter to continue */
+  awaitContinue?: boolean;
+  /** When true, user cannot skip (must retry or fix) */
+  required?: boolean;
+  /** Success title shown above results when all checks pass */
+  successTitle?: string;
+  /** Static per-step help shown on failure when AI is unavailable (Part A). */
+  staticHelp?: string[];
+  /** Line introducing the static help; defaults to the offline wording. */
+  staticHelpTitle?: string;
+  onRetry?: () => void;
+  onSkip?: () => void;
+  /** Leave the failed check and choose a different path */
+  onChangePath?: () => void;
+  onContinue?: () => void;
+}
+
+export function AutoCheckStep({ results, canRetry, awaitContinue, required, successTitle, staticHelp, staticHelpTitle, onRetry, onSkip, onChangePath, onContinue }: AutoCheckStepProps) {
+  useInput((input) => {
+    if (canRetry) {
+      if (input === "\r" || input === "r" || input === "R") onRetry?.();
+      if (!required && (input === "s" || input === "S")) onSkip?.();
+      if (onChangePath && (input === "b" || input === "B")) onChangePath();
+    }
+    if (awaitContinue && input === "\r") onContinue?.();
+  });
+
+  if (!results) {
+    return (
+      <Box>
+        <BrandSpinner label="Running checks..." />
+      </Box>
+    );
+  }
+
+  const allPassed = results.items.every((r) => r.ok);
+
+  return (
+    <Box flexDirection="column">
+      {allPassed && successTitle && (
+        <Box marginBottom={1}>
+          <Text bold color="#22c55e">✔ {successTitle}</Text>
+        </Box>
+      )}
+      {!allPassed && (
+        <Box marginBottom={1}>
+          <Text bold color="#ef4444">✗ {results.items.filter((r) => !r.ok).length} check(s) failed</Text>
+        </Box>
+      )}
+      {results.items.map((r) => (
+        <Box key={r.name} flexDirection="column">
+          <Text>
+            <Text color={r.ok ? "#22c55e" : "#ef4444"}>
+              {r.ok ? "✓" : "✗"}
+            </Text>
+            <Text> {displayCheckName(r.name)}: {r.detail}</Text>
+          </Text>
+          {!r.ok && r.remediation && (
+            <Text color="#fbbf24">    ↳ {r.remediation}</Text>
+          )}
+          {!r.ok && r.url && (
+            <Text color="#00d4ff">    ↳ {r.url}</Text>
+          )}
+        </Box>
+      ))}
+      {canRetry && staticHelp && staticHelp.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="#fbbf24">{staticHelpTitle ?? "Hexara is offline — here's how to fix it:"}</Text>
+          {staticHelp.map((line, i) => (
+            <Text key={i} color="#94a3b8">  • {line}</Text>
+          ))}
+        </Box>
+      )}
+      {canRetry && (
+        <Box marginTop={1}>
+          <Text dimColor>
+            Press <Text bold>Enter</Text> to retry
+            {!required && <Text>, <Text bold>s</Text> to skip</Text>}
+            {onChangePath && <Text>, <Text bold>b</Text> to go back and choose a different path</Text>}
+            , <Text bold>q</Text> to quit
+          </Text>
+        </Box>
+      )}
+      {awaitContinue && (
+        <Box marginTop={1}>
+          <Text dimColor>
+            Press <Text bold>Enter</Text> to continue
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// ── SDK snippet step (SDK wizard track finale) ───────────────────────
+
+interface SdkSnippetStepProps {
+  snippet: string;
+  envPath: string;
+  onConfirm: () => void;
+}
+
+export function SdkSnippetStep({ snippet, envPath, onConfirm }: SdkSnippetStepProps) {
+  useInput((input) => {
+    if (input === "y" || input === "Y" || input === "\r") onConfirm();
+  });
+
+  const lines = snippet ? snippet.split("\n") : ["// Starter snippet will appear here after credentials step"];
+
+  return (
+    <Box flexDirection="column">
+      <Text color="#22c55e" bold>SDK integration ready!</Text>
+      <Text dimColor>  Credentials written to <Text bold>{envPath}</Text></Text>
+      <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="#374151" paddingX={1}>
+        <Text color="#00d4ff" bold>Starter code</Text>
+        {lines.map((line, i) => (
+          <Text key={i} dimColor>{line || " "}</Text>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text>Press <Text bold>y</Text> or <Text bold>Enter</Text> to finish · Hexara says you&apos;re good to ship</Text>
+      </Box>
+    </Box>
+  );
+}
+
+// ── Confirm step ─────────────────────────────────────────────────────
+
+interface ConfirmStepProps {
+  label: string;
+  onConfirm: (yes: boolean) => void;
+  /** Show a summary of what's being confirmed */
+  summary?: string[];
+  /** Validation error on bad key press */
+  error?: string | null;
+}
+
+export function ConfirmStep({ label, onConfirm, summary, error }: ConfirmStepProps) {
+  useInput((input) => {
+    if (input === "y" || input === "Y") onConfirm(true);
+    else if (input === "n" || input === "N") onConfirm(false);
+    // All other keys including Enter are ignored — validation in useWizardFlow
+  });
+
+  return (
+    <Box flexDirection="column">
+      {summary && summary.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          {summary.map((line, i) => (
+            <Text key={i} dimColor>  {line}</Text>
+          ))}
+        </Box>
+      )}
+      <Text>{label}</Text>
+      <Text dimColor>Press <Text bold>y</Text> to confirm, <Text bold>n</Text> to cancel</Text>
+      {error && <Text color="#ef4444">  ⚠ {error}</Text>}
+    </Box>
+  );
+}
+
+// ── Device Auth step ─────────────────────────────────────────────────
+
+interface DeviceAuthStepProps {
+  userCode: string | null;
+  verificationUri: string | null;
+  status: "loading" | "waiting" | "authorized" | "error" | "manual";
+  token?: string;
+  email?: string;
+  errorMessage?: string;
+  /** When authorized, pressing Enter continues */
+  onContinue?: () => void;
+  /** Open browser immediately (skip countdown) */
+  onOpenBrowser?: () => void;
+  /** Leave sign-in and choose a different path */
+  onBack?: () => void;
+  /** Whether the link opened a browser: null until tried */
+  browserOpened?: boolean | null;
+  /** Detected project .env path (written successfully), or null */
+  envPath?: string | null;
+  /** If token save failed, this is the error message */
+  tokenSaveError?: string | null;
+  /** Worker OAuth client (provider/both) — shown once after auth */
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+}
+
+export function DeviceAuthStep({
+  userCode, verificationUri, status, token, email, errorMessage, onContinue, onOpenBrowser, onBack, browserOpened, envPath, tokenSaveError,
+  oauthClientId, oauthClientSecret,
+}: DeviceAuthStepProps) {
+  // Seeded on first render: starting at null drew "Opened in your browser"
+  // for a frame before the countdown began.
+  const [countdown, setCountdown] = useState<number | null>(() =>
+    status === "waiting" && verificationUri ? Math.round(DEVICE_BROWSER_DELAY_MS / 1000) : null);
+  const [tokenRevealed, setTokenRevealed] = useState(false);
+
+  useInput((input) => {
+    if (status === "authorized" && input === "\r") onContinue?.();
+    if (status === "authorized" && (input === "v" || input === "V")) setTokenRevealed((r) => !r);
+    if (status === "waiting" && input === "\r" && countdown !== null && countdown > 0) {
+      setCountdown(0);
+      onOpenBrowser?.();
+    }
+    if (onBack && (status === "waiting" || status === "error") && (input === "b" || input === "B")) onBack();
+  });
+
+  // Count down to the browser opening once the verification URI arrives
+  useEffect(() => {
+    if (status === "waiting" && verificationUri && countdown === null) {
+      setCountdown(Math.round(DEVICE_BROWSER_DELAY_MS / 1000));
+    }
+  }, [status, verificationUri]);
+
+  // Tick the countdown
+  useEffect(() => {
+    if (countdown === null || countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  if (status === "loading") {
+    return (
+      <Box>
+        <BrandSpinner label="Initiating authentication..." />
+      </Box>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <Box flexDirection="column">
+        <Text color="#ef4444">✗ {errorMessage ?? "Authentication failed"}</Text>
+        <Text dimColor>
+          Press <Text bold>Enter</Text> to retry, <Text bold>m</Text> for manual token paste
+          {onBack && <Text>, <Text bold>b</Text> to go back</Text>}
+        </Text>
+      </Box>
+    );
+  }
+
+  if (status === "authorized") {
+    return (
+      <Box flexDirection="column">
+        <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
+        {token && (
+          <Box marginTop={1} flexDirection="column">
+            <Text>{token.startsWith("xcel_ai_") ? "Your API key:" : "Your sign-in access token:"}</Text>
+            <Box marginTop={0}>
+              <Text bold color="#ffcc00" wrap="wrap">
+                {tokenRevealed
+                  ? token
+                  : (token.length > 12 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : "••••••••")}
+              </Text>
+            </Box>
+            <Text dimColor>Press <Text bold>v</Text> to {tokenRevealed ? "hide" : "reveal"} full token</Text>
+            {tokenSaveError ? (
+              <Text color="#ef4444">✗ Failed to save token: {tokenSaveError}</Text>
+            ) : (
+              <>
+                <Text color="#22c55e">✓ Saved to <Text bold>{tokenFilePath()}</Text></Text>
+                {envPath && (
+                  <Text color="#22c55e">✓ Written to <Text bold>{envPath}</Text></Text>
+                )}
+              </>
+            )}
+          </Box>
+        )}
+        {oauthClientId && oauthClientSecret && (
+          <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="#fbbf24" paddingX={1}>
+            <Text bold color="#fbbf24">Agent credentials (copy now — not shown again)</Text>
+            <Text>  Client ID: <Text bold color="#ffcc00" wrap="wrap">{oauthClientId}</Text></Text>
+            <Text>  Client secret: <Text bold color="#ffcc00" wrap="wrap">{oauthClientSecret}</Text></Text>
+            <Text dimColor>  Also written to <Text bold>~/.xcelsior/.env</Text> for the worker agent</Text>
+          </Box>
+        )}
+        <Box marginTop={1}>
+          <Text dimColor>Press <Text bold>Enter</Text> to continue</Text>
+        </Box>
+      </Box>
+    );
+  }
+
+  if (status === "manual") {
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>Manual authentication — paste your API key below</Text>
+      </Box>
+    );
+  }
+
+  // status === "waiting"
+  // The code was bold-on-inverse yellow, which some terminal themes render as
+  // pale text on pale yellow. Default foreground in a box reads in every theme,
+  // and spacing the characters keeps 0/O and 8/B apart.
+  return (
+    <Box flexDirection="column">
+      {userCode && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text>Check that your browser shows this code, then approve it:</Text>
+          <Box borderStyle="round" borderColor="#00d4ff" paddingX={3} alignSelf="flex-start">
+            <Text bold>{userCode.split("").join(" ")}</Text>
+          </Box>
+        </Box>
+      )}
+      {verificationUri && countdown !== null && countdown > 0 && (
+        <Text>Opening your browser in <Text bold>{countdown}s</Text> — press <Text bold>Enter</Text> to open it now</Text>
+      )}
+      {/* Only once the launcher reports success: the countdown reaches zero
+          before it answers, which flashed "opened" on machines with no browser. */}
+      {verificationUri && countdown !== null && countdown <= 0 && browserOpened === true && (
+        <Text color="#22c55e">✓ Opened in your browser</Text>
+      )}
+      {verificationUri && countdown !== null && countdown <= 0 && browserOpened == null && (
+        <Text>Opening your browser…</Text>
+      )}
+      {verificationUri && browserOpened === false ? (
+        <Text>
+          <Text color="#fbbf24">{"Couldn't open a browser here."}</Text> On any device, go to{" "}
+          <Text color="#00d4ff" underline>{verificationUri}</Text> and enter the code.
+        </Text>
+      ) : verificationUri ? (
+        <Text dimColor>No browser? Go to <Text color="#00d4ff" underline>{verificationUri}</Text> and enter the code.</Text>
+      ) : null}
+      <Box marginTop={1}>
+        <BrandSpinner label="Waiting for you to approve..." />
+      </Box>
+      <Box marginTop={0}>
+        <Text dimColor>
+          Press <Text bold>m</Text> to paste a token instead
+          {onBack && <Text>, <Text bold>b</Text> to go back</Text>}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+// ── Manual token input (fallback for device-auth) ────────────────────
+
+interface ManualTokenStepProps {
+  onSubmit: (token: string) => void;
+}
+
+export function ManualTokenStep({ onSubmit }: ManualTokenStepProps) {
+  const [value, setValue] = useState("");
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return; // don't accept empty
+      onSubmit(trimmed);
+      setValue("");
+    },
+    [onSubmit],
+  );
+
+  return (
+    <Box flexDirection="column">
+      <Text dimColor>Paste your API key or sign-in token:</Text>
+      <Box>
+        <Text color="#00d4ff">{"› "}</Text>
+        <TextInput
+          value={value}
+          onChange={setValue}
+          onSubmit={handleSubmit}
+          placeholder="xcel_ai_... or xoa_..."
+        />
+      </Box>
+    </Box>
+  );
+}
+
+// ── GPU browser / marketplace results ────────────────────────────────
+
+interface GpuBrowseStepProps {
+  loading: boolean;
+  count?: number;
+  error?: string;
+}
+
+export function GpuBrowseStep({ loading, count, error }: GpuBrowseStepProps) {
+  if (loading) {
+    return (
+      <Box>
+        <BrandSpinner label="Searching the marketplace..." />
+      </Box>
+    );
+  }
+  if (error) {
+    return (
+      <Box flexDirection="column">
+        <Text color="#ef4444">✗ {error}</Text>
+        <Text dimColor>Press <Text bold>Enter</Text> to retry</Text>
+      </Box>
+    );
+  }
+  return (
+    <Box>
+      <Text color="#22c55e">✓ Found {count ?? 0} available GPU(s)</Text>
+    </Box>
+  );
+}
+
+// ── Payment gate step ────────────────────────────────────────────────
+
+interface PaymentGateStepProps {
+  balance: number;
+  required: number;
+  polling: boolean;
+  billingUrl: string;
+  onSkip: () => void;
+}
+
+export function PaymentGateStep({ balance, required, polling, billingUrl, onSkip }: PaymentGateStepProps) {
+  useInput((input) => {
+    if (input === "s" || input === "S") onSkip();
+  });
+
+  return (
+    <Box flexDirection="column">
+      <Text>Balance: <Text bold color="#ffcc00">${balance.toFixed(2)}</Text> — need at least <Text bold>${required.toFixed(2)}/hr</Text></Text>
+      <Box marginTop={1}>
+        <Text>Add funds → <Text bold color="#00d4ff">{billingUrl}</Text></Text>
+      </Box>
+      {polling && (
+        <BrandSpinner label="Checking for deposit..." />
+      )}
+      <Box marginTop={1}>
+        <Text dimColor>Press <Text bold>s</Text> to skip (instance may stop if balance runs out)</Text>
+      </Box>
+    </Box>
+  );
+}
+
+// ── Provider summary step ────────────────────────────────────────────
+
+interface ProviderSummaryStepProps {
+  summary: ProviderSummaryData;
+  onConfirm: (yes: boolean) => void;
+  error?: string | null;
+}
+
+export function ProviderSummaryStep({ summary, onConfirm, error }: ProviderSummaryStepProps) {
+  useInput((input) => {
+    if (input === "y" || input === "Y") onConfirm(true);
+    else if (input === "n" || input === "N") onConfirm(false);
+  });
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="column" borderStyle="round" borderColor="#22c55e" paddingX={2} paddingY={1}>
+        <Text bold color="#22c55e">Provider Setup Recorded</Text>
+        <Text />
+        <Text>  GPU: <Text bold>{summary.gpuModel}</Text> · {summary.vramGb} GB VRAM</Text>
+        <Text>  XCU Score: <Text bold color="#ffcc00">{summary.xcuScore}</Text> ({summary.tflops} TFLOPS)</Text>
+        <Text>  Status: <Text bold color={summary.verified ? "#22c55e" : "#ef4444"}>{summary.verified ? "VERIFIED ✓" : summary.verificationState.toUpperCase()}</Text></Text>
+        <Text>  Host ID: <Text bold>{summary.hostId}</Text></Text>
+        <Text>  Pricing: <Text bold>${summary.costPerHour.toFixed(2)}/hr ({summary.pricing})</Text></Text>
+        {summary.spotEnabled != null && (
+          <Text>  Spot: <Text bold color={summary.spotEnabled ? "#22c55e" : "#94a3b8"}>
+            {summary.spotEnabled ? `enabled · floor ¢${summary.spotMinCents ?? 0}/hr` : "disabled"}
+          </Text></Text>
+        )}
+        <Text>  Admission: <Text bold color={summary.admitted ? "#22c55e" : "#ef4444"}>{summary.admitted ? "Admitted ✓" : "Pending"}</Text></Text>
+        <Text>  Runtime: <Text bold>{summary.runtimeRecommendation}</Text></Text>
+        <Text>  Reputation: <Text bold color="#a78bfa">{summary.reputationPoints} pts — {summary.tier}</Text></Text>
+        <Text />
+        <Text dimColor>{summary.admitted ? "Your GPU is now listed on the marketplace!" : "Your GPU is registered but pending admission review."}</Text>
+        <Text dimColor>Install the worker agent for ongoing telemetry and job polling:</Text>
+        <Text dimColor>  <Text bold>xcelsior worker install</Text> or see Dashboard → Hosts → Add Host</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>Press <Text bold>y</Text> to save config, <Text bold>n</Text> to cancel</Text>
+      </Box>
+      {error && <Text color="#ef4444">  ⚠ {error}</Text>}
+    </Box>
+  );
+}
+
+// ── Done step ────────────────────────────────────────────────────────
+
+interface DoneStepProps {
+  answers: Record<string, string | string[]>;
+  instanceInfo?: {
+    job_id: string;
+    host_ip?: string;
+    ssh_port?: number;
+    status: string;
+  };
+  /** Called when user presses Enter/q — triggers wizard exit animation */
+  onExit: () => void;
+}
+
+interface DeepenerItem {
+  label: string;
+  value: string;
+}
+
+/** Build the post-flow "Go further" menu items for a mode (Part G). */
+export function buildDeepenerItems(mode: string, baseUrl: string, agentNames?: string): DeepenerItem[] {
+  const items: DeepenerItem[] = [];
+  if (mode === "provide" || mode === "both") {
+    items.push({ label: "🛠  Keep earning 24/7 — run: xcelsior worker install", value: "note:Run  xcelsior worker install  — credentials are already saved to ~/.xcelsior/.env" });
+  }
+  if (mode === "sdk") {
+    items.push({ label: "📦 SDK docs & API reference", value: `url:${baseUrl}/dashboard/settings` });
+    items.push({ label: "🖥  Browse GPUs from code", value: `url:${baseUrl}/dashboard/marketplace` });
+  }
+  if (mode === "rent" || mode === "both") {
+    items.push({ label: "🖥  Manage instances & SSH config", value: `url:${baseUrl}/dashboard/instances` });
+  }
+  items.push({ label: "🔔 Set up job & earnings alerts (notifications)", value: `url:${baseUrl}/dashboard/settings/notifications` });
+  items.push({ label: "📊 Open your dashboard", value: `url:${baseUrl}/dashboard` });
+  if (agentNames) {
+    items.push({ label: `🤖 Add Xcelsior context for ${agentNames}`, value: "agent-context" });
+  }
+  items.push({ label: "✓ Finish & exit", value: "exit" });
+  return items;
+}
+
+export function DoneStep({ answers, instanceInfo, onExit }: DoneStepProps) {
+  const mode = (answers.mode as string) || "rent";
+  const baseUrl = (answers["_api_base_url"] as string) || "https://xcelsior.ca";
+  const [note, setNote] = useState<string | null>(null);
+
+  // SelectInput owns Enter/arrows; we only keep `q` as a quick-quit shortcut.
+  useInput((input) => {
+    if (input === "q") onExit();
+  });
+
+  const agents = useMemo(() => detectAgents(), []);
+  const items = buildDeepenerItems(mode, baseUrl, agents.length ? describeAgents(agents) : undefined);
+  const handleSelect = useCallback((item: DeepenerItem) => {
+    const v = item.value;
+    if (v === "exit") { onExit(); return; }
+    if (v === "agent-context") {
+      try {
+        const r = writeXcelsiorContext(process.cwd(), baseUrl);
+        setNote(`${r.action === "unchanged" ? "Already present" : r.action} → ${r.path} (restart your agent to pick it up)`);
+      } catch (e) {
+        setNote(`Couldn't write AGENTS.md: ${e instanceof Error ? e.message : "error"}`);
+      }
+      return;
+    }
+    if (v.startsWith("url:")) {
+      const url = v.slice(4);
+      setNote(`Opening ${url} …`);
+      void openUrl(url);
+      return;
+    }
+    if (v.startsWith("note:")) { setNote(v.slice(5)); return; }
+  }, [onExit, baseUrl]);
+
+  const modeLabel =
+    mode === "rent" ? "GPU Renter"
+      : mode === "provide" ? "GPU Provider"
+        : mode === "sdk" ? "SDK Integration"
+          : "Renter + Provider";
+
+  return (
+    <Box flexDirection="column">
+      <Text color="#22c55e" bold>Configuration saved!</Text>
+      <Text>  Mode: <Text bold>{modeLabel}</Text></Text>
+
+      {instanceInfo && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="#22c55e" bold>Instance launched!</Text>
+          <Text>  Status: <Text bold>{instanceInfo.status}</Text> (may take a few minutes to spin up)</Text>
+          {instanceInfo.host_ip && instanceInfo.ssh_port && (
+            <Text>  SSH: <Text bold>ssh -p {instanceInfo.ssh_port} user@{instanceInfo.host_ip}</Text></Text>
+          )}
+          <Text>  Dashboard: <Text bold color="#00d4ff">{baseUrl}/dashboard/instances/{instanceInfo.job_id}</Text></Text>
+        </Box>
+      )}
+
+      {!instanceInfo && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="#00d4ff">Next steps:</Text>
+          {mode === "sdk" && (
+            <>
+              <Text>  • Import the SDK and call <Text bold>client.instances.list()</Text></Text>
+              <Text>  • OAuth client saved in Dashboard → Settings → API</Text>
+            </>
+          )}
+          {(mode === "rent" || mode === "both") && (
+            <Text>  • Browse GPUs: <Text bold>xcelsior marketplace</Text></Text>
+          )}
+          {(mode === "provide" || mode === "both") && (
+            <Text>  • Register host: <Text bold>xcelsior host-add</Text></Text>
+          )}
+          <Text>  • AI assistant: <Text bold>xcelsior ai</Text></Text>
+        </Box>
+      )}
+
+      {/* Go further — interactive post-flow deepeners (Part G) */}
+      <Box flexDirection="column" marginTop={1}>
+        <Text color="#fbbf24" bold>Go further</Text>
+        <SelectInput items={items} onSelect={handleSelect} />
+        {note && <Text color="#22c55e">  {note}</Text>}
+      </Box>
+
+      <Box marginTop={1}>
+        <Text color="#a78bfa" italic>Hexara will be here whenever you need — just run `xcelsior setup` to summon the wizard again.</Text>
+      </Box>
+      <Text />
+      <Text dimColor>↑↓ navigate · enter select · <Text bold>q</Text> to exit</Text>
+    </Box>
+  );
+}
+
+// ── AI Response Inline (with chat history) ──────────────────────────
+
+interface ChatMessage {
+  question: string;
+  answer: string;
+}
+
+interface AiToolCallDisplay {
+  name: string;
+  input: Record<string, unknown>;
+  output?: Record<string, unknown>;
+}
+
+interface AiPendingConfirmDisplay {
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+}
+
+interface AiResponseProps {
+  response: string;
+  streaming: boolean;
+  onDismiss: () => void;
+  /** Previous Q&A pairs from this step's session */
+  chatHistory?: ChatMessage[];
+  /** The current question being answered */
+  currentQuestion?: string;
+  /** Tool calls made during this response */
+  toolCalls?: AiToolCallDisplay[];
+  /** Pending write action confirmation */
+  pendingConfirmation?: AiPendingConfirmDisplay;
+}
+
+export function AiResponse({ response, streaming, onDismiss, chatHistory, currentQuestion, toolCalls, pendingConfirmation }: AiResponseProps) {
+  useInput((input) => {
+    if (!streaming && !pendingConfirmation && (input === "\r" || input === " ")) {
+      onDismiss();
+    }
+  });
+
+  return (
+    <Box
+      flexDirection="column"
+     
+      borderStyle="round"
+      borderColor="#a78bfa"
+      paddingX={1}
+      paddingY={0}
+    >
+      <Text color="#a78bfa" bold>Hexara</Text>
+      {/* Previous chat history */}
+      {chatHistory && chatHistory.map((msg, i) => (
+        <Box key={i} flexDirection="column" marginBottom={1}>
+          <Text color="#00d4ff" dimColor>  You: {msg.question}</Text>
+          <Text wrap="wrap">  {msg.answer}</Text>
+        </Box>
+      ))}
+      {/* Current question */}
+      {currentQuestion && (
+        <Text color="#00d4ff" dimColor>  You: {currentQuestion}</Text>
+      )}
+      {/* Tool call indicators */}
+      {toolCalls && toolCalls.length > 0 && (
+        <Box flexDirection="column" marginTop={0} marginBottom={0}>
+          {toolCalls.map((tc, i) => (
+            <Text key={i} color="#facc15" dimColor>
+              {tc.output ? "✓" : "⟳"} {tc.name}
+            </Text>
+          ))}
+        </Box>
+      )}
+      {/* Current response */}
+      <Text wrap="wrap">  {response}</Text>
+      {/* Pending confirmation prompt */}
+      {pendingConfirmation && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="#facc15" bold>
+            ⚠ Hexara wants to run: {pendingConfirmation.toolName}
+          </Text>
+          {Object.keys(pendingConfirmation.toolArgs).length > 0 && (
+            <Text dimColor>  Args: {JSON.stringify(pendingConfirmation.toolArgs)}</Text>
+          )}
+          <Text>Press <Text bold color="#22c55e">y</Text> to approve or <Text bold color="#ef4444">n</Text> to reject</Text>
+        </Box>
+      )}
+      {!streaming && !pendingConfirmation && (
+        <Box marginTop={1}>
+          <Text dimColor>Press <Text bold>Enter</Text> to continue · <Text bold>?</Text> to ask another question</Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// ── Inline AI prompt (for non-text steps) ───────────────────────────
+
+interface AiPromptProps {
+  onSubmit: (question: string) => void;
+  onCancel: () => void;
+}
+
+export function AiPrompt({ onSubmit, onCancel }: AiPromptProps) {
+  const [value, setValue] = useState("");
+
+  useInput((_input, key) => {
+    if (key.escape) onCancel();
+  });
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) {
+        onCancel();
+        return;
+      }
+      onSubmit(trimmed);
+      setValue("");
+    },
+    [onSubmit, onCancel],
+  );
+
+  return (
+    <Box>
+      <Text color="#a78bfa">Ask Hexara: </Text>
+      <TextInput
+        value={value}
+        onChange={setValue}
+        onSubmit={handleSubmit}
+        placeholder="Type your question..."
+      />
+    </Box>
+  );
+}

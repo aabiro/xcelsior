@@ -1,0 +1,1501 @@
+"use client";
+
+/* eslint-disable @next/next/no-img-element */
+
+import { useCallback, useEffect, useState, useRef } from "react";
+import Link from "next/link";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge, StatusBadge } from "@/components/ui/badge";
+import { Input, Label, NumberInput, Select, TextArea } from "@/components/ui/input";
+import { Pagination, usePagination } from "@/components/ui/pagination";
+import { Dialog } from "@/components/ui/dialog";
+import { StatCard } from "@/components/ui/stat-card";
+import { GpuModelSelector } from "@/components/ui/gpu-model-selector";
+import {
+  Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
+  Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
+  HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft, Trash2, Gift,
+} from "lucide-react";
+import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
+import { deleteHost } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
+import { useLocale } from "@/lib/locale";
+import type { Host } from "@/lib/api";
+import { toast } from "sonner";
+import { useEventStream } from "@/hooks/useEventStream";
+import { cn } from "@/lib/utils";
+
+type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
+type SortDir = "asc" | "desc";
+type InstallView = "sdk" | "quickstart";
+
+function HostSortIcon({
+  col,
+  sortKey,
+  sortDir,
+}: {
+  col: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+}) {
+  if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+  return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+}
+
+export default function HostsPage() {
+  const [hosts, setHosts] = useState<Host[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("hostname");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [page, setPage] = useState(1);
+  const [showRegister, setShowRegister] = useState(false);
+  const [showInstall, setShowInstall] = useState(false);
+  const [installInitialView, setInstallInitialView] = useState<InstallView>("sdk");
+  const [installOpenKey, setInstallOpenKey] = useState(0);
+
+  const openInstallModal = useCallback((view: InstallView) => {
+    setInstallInitialView(view);
+    setInstallOpenKey((k) => k + 1);
+    setShowInstall(true);
+  }, []);
+  const [deleteTarget, setDeleteTarget] = useState<Host | null>(null);
+  const api = useApi();
+  const { t } = useLocale();
+
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
+    api.fetchHosts()
+      .then((res) => setHosts(res.hosts || []))
+      .catch(() => toast.error("Failed to load hosts"))
+      .finally(() => setLoading(false));
+  }, [api]);
+
+  useEffect(() => {
+    let active = true;
+    api.fetchHosts()
+      .then((res) => { if (active) setHosts(res.hosts || []); })
+      .catch(() => { if (active) toast.error("Failed to load hosts"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api]);
+
+  // Live updates, re-fetch list on host changes
+  useEventStream({
+    eventTypes: ["host_registered", "host_removed", "job_status"],
+    onEvent: () => { load({ refresh: true }); },
+  });
+
+  const filtered = hosts
+    .filter((h) => {
+      if (statusFilter !== "all" && h.status !== statusFilter) return false;
+      if (search && !h.hostname?.toLowerCase().includes(search.toLowerCase()) && !h.host_id?.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const av = (a as unknown as Record<string, unknown>)[sortKey] ?? "";
+      const bv = (b as unknown as Record<string, unknown>)[sortKey] ?? "";
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+  const { paginate, totalPages } = usePagination(filtered, 10);
+  const pageItems = paginate(page);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+    setPage(1);
+  }
+
+  const activeHosts = hosts.filter((h) => h.status === "active").length;
+  const offlineHosts = hosts.filter((h) => h.status === "offline").length;
+  const totalVram = hosts.reduce((sum, h) => sum + (h.vram_gb || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/5 p-6 md:p-8">
+        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-accent-cyan/10 blur-3xl" />
+        <div className="absolute -bottom-10 -left-10 h-48 w-48 rounded-full bg-accent-violet/10 blur-3xl" />
+        <div className="relative z-10 flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent-cyan/10 ring-1 ring-accent-cyan/20">
+                <Server className="h-6 w-6 text-accent-cyan" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">{t("dash.hosts.title")}</h1>
+                <p className="text-sm text-text-secondary">
+                  Manage your GPU compute infrastructure
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-text-muted max-w-lg mt-3">
+              Register GPU machines to earn revenue by providing compute power to the Xcelsior network.
+              Each host runs the{" "}
+              <button
+                type="button"
+                onClick={() => setShowInstall(true)}
+                className="text-accent-cyan hover:underline font-medium"
+              >
+                worker agent
+              </button>{" "}
+              to accept and execute jobs.
+            </p>
+            {/* Phase 4 supply incentive, mirrors PROVIDER_INTRO_FEE_DAYS (default 90). */}
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-xs font-medium text-emerald">
+              <Gift className="h-3.5 w-3.5" />
+              New providers keep 100%, 0% platform fee for your first 90 days.
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              className="h-10"
+              onClick={() => load({ refresh: true })}
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t("common.refresh")}
+            </Button>
+            <Button
+              className="h-10 bg-accent-cyan hover:bg-accent-cyan/90 text-navy"
+              data-action="register"
+              onClick={() => setShowRegister(true)}
+            >
+              <Plus className="h-4 w-4" />
+              Register Host
+            </Button>
+            <Button
+              variant="outline"
+              className="h-10 border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10 hover:border-accent-cyan/50 shadow-sm shadow-accent-cyan/10 hover:shadow-accent-cyan/20 transition-all duration-200"
+              data-action="install"
+              onClick={() => openInstallModal("sdk")}
+            >
+              <Terminal className="h-4 w-4" />
+              Install Worker
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard label="Total Hosts" value={hosts.length} icon={Server} glow="cyan" />
+        <StatCard label="Active" value={activeHosts} icon={Activity} glow="emerald" />
+        <StatCard label="Offline" value={offlineHosts} icon={AlertCircle} glow="gold" />
+        <StatCard label="Total VRAM" value={`${totalVram} GB`} icon={HardDrive} glow="violet" />
+      </div>
+
+      <HostSetupGuideCard
+        onRegister={() => setShowRegister(true)}
+        onInstall={() => openInstallModal("sdk")}
+        onManualSetup={() => openInstallModal("quickstart")}
+      />
+
+      {/* Register Host Modal */}
+      <Dialog
+        open={showRegister}
+        onClose={() => setShowRegister(false)}
+        title="Register a GPU Host"
+        description="Add your machine to the Xcelsior network and start earning from compute jobs."
+        maxWidth="max-w-xl"
+      >
+        <RegisterHostForm api={api} onDone={() => { setShowRegister(false); load({ refresh: true }); }} />
+      </Dialog>
+
+      {/* Install Worker Modal */}
+      <DeleteHostDialog
+        host={deleteTarget}
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async (hostId) => {
+          await deleteHost(hostId);
+          toast.success("Host removed");
+          load({ refresh: true });
+        }}
+      />
+
+      <Dialog
+        open={showInstall}
+        onClose={() => setShowInstall(false)}
+        title="Install Worker Agent"
+        description="Set up the Xcelsior worker agent on your GPU host to start accepting compute jobs."
+        maxWidth="max-w-3xl"
+        className="border-accent-cyan/20 shadow-lg shadow-accent-cyan/5 h-[82vh]"
+        bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
+      >
+        <InstallWorkerSection key={installOpenKey} initialView={installInitialView} />
+      </Dialog>
+
+      {/* Architecture, always visible */}
+      <ArchitectureCard />
+
+      {/* Filters Card */}
+      <Card className="border-border/60">
+        <CardContent className="py-4 px-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted pointer-events-none" />
+              <Input 
+                className="pl-10 h-10" 
+                placeholder="Search by hostname or ID..." 
+                value={search} 
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              />
+            </div>
+            <Select 
+              className="h-10 min-w-[160px]" 
+              value={statusFilter} 
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="pending">Pending</option>
+              <option value="draining">Draining</option>
+              <option value="offline">Offline</option>
+              <option value="maintenance">Maintenance</option>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Hosts Table */}
+      {loading ? (
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-[72px] rounded-xl bg-surface skeleton-pulse" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <Card className="border-border/60 overflow-hidden">
+          <div className="relative py-16 px-8 text-center">
+            <div className="absolute inset-0 bg-gradient-to-b from-accent-cyan/5 to-transparent" />
+            <div className="relative">
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-surface-hover ring-1 ring-border">
+                <Server className="h-10 w-10 text-text-muted" />
+              </div>
+              <h3 className="text-xl font-semibold mb-2">{t("dash.hosts.empty")}</h3>
+              <p className="text-sm text-text-secondary mb-8 max-w-md mx-auto">
+                {t("dash.hosts.empty_desc")} Get started by registering your first GPU host
+                or installing the worker agent on your machine.
+              </p>
+              <div className="flex flex-col sm:flex-row justify-center gap-3">
+                <Button
+                  className="h-11 bg-accent-cyan hover:bg-accent-cyan/90 text-navy"
+                  onClick={() => setShowRegister(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Register Your First Host
+                </Button>
+                <Button variant="outline" className="h-11" onClick={() => openInstallModal("sdk")}>
+                  <Terminal className="h-4 w-4" />
+                  View Installation Guide
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card className="border-border/60 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 bg-gradient-to-r from-surface-hover/80 to-surface-hover/40">
+                  <th 
+                    className="h-12 px-5 text-left font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                    onClick={() => toggleSort("hostname")}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Server className="h-3.5 w-3.5 text-text-muted" />
+                      Host
+                      <HostSortIcon col="hostname" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th 
+                    className="h-12 px-4 text-left font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                    onClick={() => toggleSort("gpu_model")}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Cpu className="h-3.5 w-3.5 text-text-muted" />
+                      GPU Model
+                      <HostSortIcon col="gpu_model" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th 
+                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                    onClick={() => toggleSort("status")}
+                  >
+                    <span className="inline-flex items-center gap-2 justify-center">
+                      Status
+                      <HostSortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th 
+                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                    onClick={() => toggleSort("vram_gb")}
+                  >
+                    <span className="inline-flex items-center gap-2 justify-center">
+                      <HardDrive className="h-3.5 w-3.5 text-text-muted" />
+                      VRAM
+                      <HostSortIcon col="vram_gb" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th 
+                    className="h-12 px-4 text-center font-semibold text-text-primary cursor-pointer select-none hover:bg-surface-hover/60 transition-colors" 
+                    onClick={() => toggleSort("cost_per_hour")}
+                  >
+                    <span className="inline-flex items-center gap-2 justify-center">
+                      <DollarSign className="h-3.5 w-3.5 text-text-muted" />
+                      Rate
+                      <HostSortIcon col="cost_per_hour" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th className="h-12 px-5 text-right font-semibold text-text-primary">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((host, idx) => (
+                  <tr 
+                    key={host.host_id} 
+                    className={cn(
+                      "group transition-colors hover:bg-accent-cyan/5",
+                      idx !== pageItems.length - 1 && "border-b border-border/40"
+                    )}
+                  >
+                    <td className="py-4 px-5">
+                      <Link href={`/dashboard/hosts/${host.host_id}`} className="group/link">
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "flex h-10 w-10 items-center justify-center rounded-lg ring-1 transition-colors",
+                            host.status === "active" 
+                              ? "bg-emerald/10 ring-emerald/20 text-emerald" 
+                              : "bg-surface-hover ring-border text-text-muted"
+                          )}>
+                            <Server className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-text-primary group-hover/link:text-accent-cyan transition-colors flex items-center gap-2 flex-wrap">
+                              {host.hostname || "Unnamed Host"}
+                              {host.spot_enabled !== false && (
+                                <span className="rounded-full border border-emerald/30 bg-emerald/10 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-emerald">
+                                  Spot
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-text-muted font-mono mt-0.5">
+                              {host.host_id?.slice(0, 12)}...
+                            </p>
+                          </div>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="py-4 px-4">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="default" className="font-mono text-xs px-2 py-0.5">
+                          {host.gpu_model || "Unknown"}
+                        </Badge>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4 text-center">
+                      <div className="inline-flex flex-col items-center gap-1">
+                        <StatusBadge status={host.status} />
+                        {host.admitted === false || String(host.admitted) === "false" ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-accent-gold"
+                            title={
+                              (host.admission_details?.rejection_reasons || []).join("; ")
+                              || "Worker has not passed admission yet, this host won't appear in GPU pickers until it does."
+                            }
+                          >
+                            <ShieldAlert className="h-2.5 w-2.5" /> Pending admission
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="py-4 px-4 text-center">
+                      <span className="font-mono text-sm text-text-secondary">
+                        {host.vram_gb ? `${host.vram_gb} GB` : "-"}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 text-center">
+                      <span className={cn(
+                        "font-mono text-sm font-medium",
+                        host.cost_per_hour ? "text-emerald" : "text-text-muted"
+                      )}>
+                        {host.cost_per_hour ? `$${Number(host.cost_per_hour).toFixed(2)}/hr` : "Platform rate"}
+                      </span>
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                          onClick={() => setDeleteTarget(host)}
+                          title="Remove host"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <Link href={`/dashboard/hosts/${host.host_id}`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-text-secondary hover:text-accent-cyan hover:bg-accent-cyan/10"
+                          >
+                            View
+                            <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                          </Button>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {totalPages > 1 && (
+            <div className="border-t border-border/60 bg-surface-hover/30 px-5 py-3 flex items-center justify-between">
+              <span className="text-xs text-text-muted">
+                Showing {pageItems.length} of {filtered.length} host{filtered.length !== 1 ? "s" : ""}
+              </span>
+              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            </div>
+          )}
+        </Card>
+      )}
+
+      <ProviderTipsCard hosts={hosts} />
+    </div>
+  );
+}
+
+/* ── Register Host Form (renders inside Dialog) ─────────────────── */
+
+function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () => void }) {
+  const { t } = useLocale();
+  const [step, setStep] = useState<1 | 2>(1);
+  const [hostname, setHostname] = useState("");
+  const [gpuModel, setGpuModel] = useState("");
+  const [vramGb, setVramGb] = useState("");
+  const [location, setLocation] = useState("");
+  const [notes, setNotes] = useState("");
+  const [spotEnabled, setSpotEnabled] = useState(true);
+  const [spotMinCents, setSpotMinCents] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const trimmedHostname = hostname.trim();
+      if (!trimmedHostname) {
+        toast.error("Hostname is required");
+        setLoading(false);
+        return;
+      }
+      if (!gpuModel) {
+        toast.error("GPU model is required");
+        setLoading(false);
+        return;
+      }
+
+      // Parse location into country + province for the backend
+      let country = "CA";
+      let province = "";
+      if (location.startsWith("ca-")) {
+        country = "CA";
+        province = location.slice(3); // "ca-AB" → "AB"
+      } else if (location.startsWith("us-")) {
+        country = "US";
+      } else if (location.startsWith("eu-")) {
+        country = "EU";
+      } else if (location.startsWith("ap-")) {
+        country = "AP";
+      }
+
+      const parsedVram = vramGb ? parseFloat(vramGb) : 0;
+      if (parsedVram <= 0 || isNaN(parsedVram)) {
+        toast.error("VRAM must be greater than 0");
+        setLoading(false);
+        return;
+      }
+      await api.registerHostWeb({
+        hostname: trimmedHostname,
+        gpu_model: gpuModel,
+        vram_gb: parsedVram,
+        country,
+        province,
+        region: location || undefined,
+        notes: notes.trim() || undefined,
+        spot_enabled: spotEnabled,
+        spot_min_cents: spotEnabled ? spotMinCents : 0,
+      });
+      toast.success("Host registered as pending. Install the worker agent to begin verification.");
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to register host");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-4">
+      {/* Progress indicator */}
+      <div className="flex items-center gap-2 mb-6">
+        <div className={cn(
+          "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+          step >= 1 ? "bg-accent-cyan text-navy" : "bg-surface-hover text-text-muted"
+        )}>1</div>
+        <div className={cn("h-0.5 flex-1 rounded-full transition-colors", step >= 2 ? "bg-accent-cyan" : "bg-border")} />
+        <div className={cn(
+          "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+          step >= 2 ? "bg-accent-cyan text-navy" : "bg-surface-hover text-text-muted"
+        )}>2</div>
+      </div>
+
+      {step === 1 && (
+        <div className="space-y-5">
+          <div className="rounded-lg bg-accent-cyan/5 border border-accent-cyan/20 p-4">
+            <div className="flex gap-3">
+              <Info className="h-5 w-5 text-accent-cyan shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-text-primary mb-1">What is host registration?</p>
+                <p className="text-text-secondary leading-relaxed">
+                  Registering creates a record of your GPU machine in the Xcelsior network. 
+                  Registration stays pending and unlisted. Install the worker agent so
+                  Xcelsior can verify the machine before it accepts compute jobs.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">
+              Hostname <span className="text-accent-red">*</span>
+            </Label>
+            <Input 
+              value={hostname} 
+              onChange={(e) => setHostname(e.target.value)} 
+              required 
+              maxLength={128}
+              placeholder="e.g., gpu-server-01 or my-workstation"
+              className="h-10"
+            />
+            <p className="text-xs text-text-muted">
+              A friendly name to identify this machine in your dashboard
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">
+              GPU Model <span className="text-accent-red">*</span>
+            </Label>
+            <GpuModelSelector
+              value={gpuModel}
+              onChange={({ model, vram_gb }) => {
+                setGpuModel(model);
+                setVramGb(String(vram_gb));
+                api.fetchSpotFloorSuggestion(model)
+                  .then((res) => setSpotMinCents(res.suggested_min_cents))
+                  .catch(() => {});
+              }}
+              placeholder="Search GPUs..."
+            />
+            <p className="text-xs text-text-muted">
+              The worker agent will auto-detect this, but we need it for initial registration
+            </p>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <Button type="button" onClick={() => setStep(2)} disabled={!hostname.trim() || !gpuModel}>
+              Continue
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">VRAM (GB)</Label>
+              <NumberInput
+                value={vramGb ? parseFloat(vramGb) : 0}
+                onChange={(val) => setVramGb(String(val))}
+                min={1}
+                max={192}
+                step={1}
+              />
+              <p className="text-xs text-text-muted">Auto-filled from GPU selection</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Hourly Rate</Label>
+              <p className="text-xs text-text-muted bg-surface-hover rounded-md px-3 py-2">Rates are set automatically based on GPU model and tier. You&apos;ll earn the platform rate for your GPU.</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Location</Label>
+            <Select
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="h-10"
+            >
+              <option value="">Select region (optional)...</option>
+              <optgroup label="Canada">
+                <option value="ca-AB">Alberta</option>
+                <option value="ca-BC">British Columbia</option>
+                <option value="ca-MB">Manitoba</option>
+                <option value="ca-NB">New Brunswick</option>
+                <option value="ca-NL">Newfoundland and Labrador</option>
+                <option value="ca-NS">Nova Scotia</option>
+                <option value="ca-NT">Northwest Territories</option>
+                <option value="ca-NU">Nunavut</option>
+                <option value="ca-ON">Ontario</option>
+                <option value="ca-PE">Prince Edward Island</option>
+                <option value="ca-QC">Quebec</option>
+                <option value="ca-SK">Saskatchewan</option>
+                <option value="ca-YT">Yukon</option>
+              </optgroup>
+              <optgroup label="United States">
+                <option value="us-east">US East</option>
+                <option value="us-west">US West</option>
+                <option value="us-central">US Central</option>
+              </optgroup>
+              <optgroup label="Europe">
+                <option value="eu-west">EU West</option>
+                <option value="eu-central">EU Central</option>
+                <option value="eu-uk">United Kingdom</option>
+                <option value="eu-nordics">Nordics</option>
+              </optgroup>
+              <optgroup label="Asia Pacific">
+                <option value="ap-southeast">AP Southeast</option>
+                <option value="ap-northeast">AP Northeast</option>
+                <option value="ap-south">AP South</option>
+              </optgroup>
+            </Select>
+          </div>
+
+          <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Enable spot instances</p>
+                <p className="text-xs text-text-muted">Accept interruptible workloads at spot rates</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpotEnabled(!spotEnabled)}
+                className={cn(
+                  "h-5 w-9 rounded-full relative shrink-0 transition-colors",
+                  spotEnabled ? "bg-emerald" : "bg-border",
+                )}
+              >
+                <div
+                  className={cn(
+                    "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform shadow-sm",
+                    spotEnabled ? "translate-x-4" : "translate-x-0.5",
+                  )}
+                />
+              </button>
+            </div>
+            {spotEnabled && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Minimum spot floor (¢/hr)</Label>
+                <NumberInput
+                  min={0}
+                  max={100000}
+                  value={spotMinCents}
+                  onChange={(v) => setSpotMinCents(Math.max(0, v))}
+                />
+                <p className="text-[10px] text-text-muted">Suggested defaults apply per GPU class, no bidding required</p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Notes</Label>
+            <TextArea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional info about this host (CPU, RAM, network speed, etc.)"
+              rows={3}
+              maxLength={1000}
+              className="resize-none"
+            />
+            <p className="text-xs text-text-muted text-right">{notes.length}/1000</p>
+          </div>
+
+          <div className="rounded-lg bg-surface-hover border border-border p-4">
+            <div className="flex gap-3">
+              <Shield className="h-5 w-5 text-emerald shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-text-primary">What happens next?</p>
+                <p className="text-text-muted mt-1">
+                  After registration, run the worker agent installer on your machine. 
+                  It will automatically connect this host and verify your GPU specs.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-between pt-2">
+            <Button type="button" variant="ghost" onClick={() => setStep(1)}>
+              Back
+            </Button>
+            <Button type="submit" disabled={loading} className="bg-accent-cyan hover:bg-accent-cyan/90 text-navy">
+              {loading ? "Registering..." : "Register Host"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </form>
+  );
+}
+
+/* ── Install Worker Section (renders inside Dialog) ──────────────── */
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
+const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
+const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.7";
+const SDK_INSTALL_CMD = "npm install @xcelsior-gpu/sdk";
+
+const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
+
+## Option A: AI Onboarding Wizard (Recommended)
+
+### 1. Register host (dashboard)
+Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also register for you).
+
+### 2. Run the wizard (one command on the GPU host)
+
+\`\`\`bash
+npx @xcelsior-gpu/wizard@0.1.7
+\`\`\`
+
+(\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
+
+**Provide GPUs** (host setup): hardware detection, host registration, pricing, and worker service install.
+
+**Integrate SDK** (app setup, wizard): same command from your project directory, detects your framework, installs the package, creates API credentials, writes your env file, and verifies the connection.
+
+### SDK without the wizard (manual)
+
+\`\`\`bash
+${SDK_INSTALL_CMD}
+\`\`\`
+
+Then add your API token from Settings → API & SSH (\`XCELSIOR_API_TOKEN\` or OAuth client). Docs: ${APP_URL}/docs/sdk/typescript-sdk
+
+### SDK Commands (available after setup)
+
+\`\`\`bash
+xcelsior status                                  # Worker status
+xcelsior jobs --watch                            # Live job queue
+xcelsior pricing set --gpu "RTX 4090" --rate 0.45  # Update pricing
+xcelsior diagnostics --full                      # Run diagnostics
+xcelsior earnings --period 30d                   # Earnings summary
+\`\`\`
+
+### Requirements
+- Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0, Ubuntu 22.04+ or WSL2
+
+## Option B: Manual Setup (no Node.js)
+
+### 1. Register the host and create a key
+- ${APP_URL}/dashboard/hosts → "Register Host"; note the Host ID.
+- ${APP_URL}/dashboard/settings → API & SSH; create an API key (or an OAuth client ID + secret).
+
+### 2. Run the installer on the GPU host
+
+\`\`\`bash
+curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only
+\`\`\`
+
+It checks your GPU driver and Docker, asks for your Host ID and API key, installs the Xcelsior worker as a background service, and connects your machine securely. Nothing else needs to be set up by hand. When it finishes, your host shows as pending while we review it.
+
+### 3. Verify
+
+\`\`\`bash
+systemctl status xcelsior-worker
+journalctl -u xcelsior-worker -f
+\`\`\`
+
+To change a setting (for example a new API key), edit \`~/.xcelsior/worker.env\` and run \`sudo systemctl restart xcelsior-worker\`.
+
+## Notes
+- \`nvidia-smi\` not found → install a supported NVIDIA driver (550 or newer)
+- Docker permission denied → \`sudo usermod -aG docker $USER\`
+- Can't connect → check firewall allows outbound HTTPS to ${APP_HOST}:443
+- Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
+
+function SdkIntegrateInfoCard({
+  compact = false,
+  copied,
+  onCopy,
+}: {
+  compact?: boolean;
+  copied?: string | null;
+  onCopy?: (label: string, text: string) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-accent-violet/20 bg-accent-violet/5",
+        compact ? "p-3" : "p-3.5",
+      )}
+    >
+      <div className="flex gap-2.5">
+        <Code2 className="h-4 w-4 text-accent-violet shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-text-primary">
+              {compact ? "Building an app?" : "Integrate the TypeScript SDK"}
+            </p>
+            {!compact && (
+              <p className="text-xs text-text-muted mt-0.5">
+                Same <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code> package, wizard or manual install.
+              </p>
+            )}
+          </div>
+
+          <div className={compact ? "space-y-2" : "space-y-2.5"}>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-accent-cyan mb-1">
+                Recommended, wizard
+              </p>
+              {compact ? (
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  Run <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">{WIZARD_CMD}</code> from your project and choose{" "}
+                  <span className="font-medium text-text-primary">Integrate SDK</span>. Installs the package, credentials, and env for you.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-text-secondary mb-2 leading-relaxed">
+                    From your project directory, run the wizard and choose <span className="font-medium text-text-primary">Integrate SDK</span>.
+                    It detects your framework, installs <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code>,
+                    creates API credentials, writes your <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">.env</code> snippet, and verifies the connection.
+                  </p>
+                  {onCopy ? (
+                    <CodeSnippet label="sdk-wizard-cmd" text={WIZARD_CMD} copied={copied ?? null} onCopy={onCopy} />
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted mb-1">
+                Or install manually
+              </p>
+              {compact ? (
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">{SDK_INSTALL_CMD}</code> in your project, then add an API token from Settings → API &amp; SSH.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-text-secondary mb-2 leading-relaxed">
+                    Skip the wizard and add the package yourself. Create an API token or OAuth client in Settings → API &amp; SSH, then wire it into your app.
+                  </p>
+                  {onCopy ? (
+                    <CodeSnippet label="sdk-install-cmd" text={SDK_INSTALL_CMD} copied={copied ?? null} onCopy={onCopy} />
+                  ) : (
+                    <code className="block rounded-lg bg-surface-hover px-3 py-2 text-[13px] font-mono text-text-secondary">{SDK_INSTALL_CMD}</code>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <a
+            href="https://docs.xcelsior.ca/sdk/typescript-sdk"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-violet hover:underline"
+          >
+            TypeScript SDK docs
+            <ChevronRight className="h-3 w-3" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CodeSnippet({
+  label,
+  text,
+  copied,
+  onCopy,
+  className,
+}: {
+  label: string;
+  text: string;
+  copied: string | null;
+  onCopy: (label: string, text: string) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "relative flex items-start gap-2 overflow-hidden rounded-2xl border border-border bg-surface px-4 py-3 shadow-sm",
+        className,
+      )}
+    >
+      <pre className="min-w-0 flex-1 overflow-x-auto text-[13px] font-mono leading-relaxed text-text-primary">{text}</pre>
+      <button
+        onClick={() => onCopy(label, text)}
+        className="shrink-0 flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
+      >
+        {copied === label ? (
+          <>
+            <Check className="h-3 w-3 text-emerald" /> Copied
+          </>
+        ) : (
+          <>
+            <Copy className="h-3 w-3" /> Copy
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function HostSetupGuideCard({
+  onRegister,
+  onInstall,
+  onManualSetup,
+}: {
+  onRegister: () => void;
+  onInstall: () => void;
+  onManualSetup: () => void;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function handleCopy(label: string, text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    toast.success("Copied to clipboard");
+    setTimeout(() => setCopied((current) => current === label ? null : current), 2000);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
+      {/* Steps card */}
+      <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04]">
+        <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
+        <div className="absolute bottom-0 left-12 h-32 w-32 rounded-full bg-accent-violet/10 blur-3xl" />
+        <div className="relative p-6 md:p-7">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-accent-cyan">Become a Host</p>
+
+          <div className="mt-5 space-y-5">
+            {/* Step 1 */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent-cyan/25 bg-accent-cyan/10 text-sm font-semibold text-accent-cyan">
+                1
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary">Register host</p>
+                <p className="mt-0.5 text-xs text-text-muted">Create the machine record in your dashboard.</p>
+                <Button
+                  className="mt-3 h-10 rounded-full bg-accent-cyan px-4 text-navy hover:bg-accent-cyan/90"
+                  onClick={onRegister}
+                >
+                  <Plus className="h-4 w-4" />
+                  Register Host
+                </Button>
+              </div>
+            </div>
+
+            <div className="ml-4 border-t border-border/40" />
+
+            {/* Step 2 */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent-violet/25 bg-accent-violet/10 text-sm font-semibold text-accent-violet">
+                2
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  One command on your GPU host. Choose <span className="font-medium text-text-secondary">Provide GPUs</span> when prompted.
+                </p>
+                <div className="mt-3">
+                  <CodeSnippet label="host-card-wizard" text={WIZARD_CMD} copied={copied} onCopy={handleCopy} />
+                </div>
+                <p className="mt-2 text-xs text-text-muted">
+                  or{" "}
+                  <button
+                    type="button"
+                    onClick={onManualSetup}
+                    className="font-medium text-accent-violet hover:underline"
+                  >
+                    manual setup
+                  </button>
+                </p>
+              </div>
+            </div>
+
+            <div className="ml-4 border-t border-border/40" />
+
+            {/* Step 3 */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald/25 bg-emerald/10 text-sm font-semibold text-emerald">
+                3
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary">Install worker</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Connect your machine and start accepting jobs from the marketplace.
+                </p>
+                <Button
+                  variant="outline"
+                  className="mt-3 h-10 border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10"
+                  onClick={onInstall}
+                >
+                  <Terminal className="h-4 w-4" />
+                  Install Worker
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Large hero SVG — palette matches overview launch/provider assets */}
+      <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
+        <img
+          src="/mesh-dark.svg"
+          alt=""
+          aria-hidden
+          width={1200}
+          height={900}
+          loading="eager"
+          decoding="sync"
+          fetchPriority="high"
+          className="site-theme-dark h-full w-full object-contain"
+        />
+        <img
+          src="/mesh-light.svg"
+          alt=""
+          aria-hidden
+          width={1200}
+          height={900}
+          loading="eager"
+          decoding="sync"
+          fetchPriority="high"
+          className="site-theme-light h-full w-full object-contain"
+        />
+        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
+        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />
+      </div>
+      </div>
+
+      {/* SDK integration, same content as Install Worker modal */}
+      <Card className="border-border/60 bg-gradient-to-br from-surface via-surface to-accent-violet/[0.04]">
+        <div className="p-6 md:p-7">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-1.5 rounded-full bg-accent-violet/10 border border-accent-violet/20 px-3 py-1 text-xs font-medium text-accent-violet">
+              <Code2 className="h-3.5 w-3.5" />
+              TypeScript SDK
+            </div>
+            <span className="text-[11px] text-text-muted">For app developers</span>
+          </div>
+          <SdkIntegrateInfoCard copied={copied} onCopy={handleCopy} />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("xcelsior_tips_dismissed") === "1";
+    return false;
+  });
+
+  const dismiss = () => {
+    setDismissed(true);
+    localStorage.setItem("xcelsior_tips_dismissed", "1");
+  };
+
+  const restore = () => {
+    setDismissed(false);
+    localStorage.removeItem("xcelsior_tips_dismissed");
+  };
+
+  if (dismissed) {
+    return (
+      <button
+        onClick={restore}
+        className="flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-cyan transition-colors"
+      >
+        <Info className="h-3 w-3" /> Show tips
+      </button>
+    );
+  }
+
+  const activeHosts = hosts.filter((h) => h.status === "active");
+  const hasHosts = hosts.length > 0;
+  const hasActive = activeHosts.length > 0;
+
+  // Determine state
+  type TipState = "empty" | "registered" | "active";
+  const state: TipState = hasActive ? "active" : hasHosts ? "registered" : "empty";
+
+  const tips: Record<TipState, { icon: typeof Zap; color: string; title: string; description: string; items: string[]; cta?: { label: string; action: string } }> = {
+    empty: {
+      icon: Server,
+      color: "accent-cyan",
+      title: "Get started: register your first GPU",
+      description: "You haven't registered any hosts yet. Add your machine to the Xcelsior network to start earning revenue from GPU compute jobs.",
+      items: [
+        "Click Register Host above to add your GPU machine",
+        "You'll need: hostname, GPU model, VRAM, and a price per hour",
+        "After registering, install the worker agent to go online",
+        "Competitive pricing tip: check Spot Pricing for current market rates",
+      ],
+      cta: { label: "Register Host", action: "register" },
+    },
+    registered: {
+      icon: Terminal,
+      color: "accent-violet",
+      title: "Almost there: install the worker agent",
+      description: `You have ${hosts.length} host${hosts.length > 1 ? "s" : ""} registered but none are active. Install the worker agent to begin authoritative verification.`,
+      items: [
+        "Click Install Worker above for setup instructions",
+        "The agent runs as a background process and sends heartbeats every 30s",
+        "Make sure Docker is installed and your user is in the docker group",
+        `Allow outbound HTTPS to ${APP_HOST}:443 through your firewall`,
+        "The host stays pending and unlisted until worker verification admits it",
+      ],
+      cta: { label: "Install Worker", action: "install" },
+    },
+    active: {
+      icon: Zap,
+      color: "emerald",
+      title: "You're live! Tips to maximize earnings",
+      description: `${activeHosts.length} of ${hosts.length} host${hosts.length > 1 ? "s" : ""} active. Your GPU is accepting jobs from the marketplace. Here are tips to maximize your revenue.`,
+      items: [
+        "Keep your worker agent running 24/7 for highest uptime score",
+        "Competitive pricing improves job assignment priority, check Spot Pricing",
+        "Monitor GPU utilization in your host detail page for performance insights",
+        "Complete identity verification to unlock higher trust tiers and premium jobs",
+        "Set up Stripe payouts in Earnings to receive your revenue",
+      ],
+    },
+  };
+
+  const tip = tips[state];
+  const Icon = tip.icon;
+
+  return (
+    <Card className="border-border/60 relative overflow-hidden bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.03]">
+      <div className={cn("absolute top-0 left-0 right-0 h-[2px]", {
+        "bg-accent-cyan": state === "empty",
+        "bg-accent-violet": state === "registered",
+        "bg-emerald": state === "active",
+      })} />
+      <div className="px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg shrink-0 mt-0.5", {
+              "bg-accent-cyan/10 text-accent-cyan": state === "empty",
+              "bg-accent-violet/10 text-accent-violet": state === "registered",
+              "bg-emerald/10 text-emerald": state === "active",
+            })}>
+              <Icon className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-text-secondary">{tip.title}</h3>
+              <p className="text-xs text-text-muted mt-1 max-w-xl leading-relaxed">{tip.description}</p>
+            </div>
+          </div>
+          <button
+            onClick={dismiss}
+            className="text-text-muted hover:text-text-secondary text-xs shrink-0 mt-1 opacity-60 hover:opacity-100 transition-opacity"
+            title="Dismiss tips"
+          >
+            ✕
+          </button>
+        </div>
+
+        <ul className="mt-3 ml-11 space-y-1.5">
+          {tip.items.map((item, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-text-muted leading-relaxed">
+              <ChevronRight className="h-3 w-3 text-text-muted/60 shrink-0 mt-0.5" />
+              {item}
+            </li>
+          ))}
+        </ul>
+
+        {tip.cta && (
+          <div className="mt-4 ml-11">
+            <Button
+              variant="outline"
+              className={cn("h-8 text-xs", {
+                "border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/5": state === "empty",
+                "border-accent-violet/30 text-accent-violet hover:bg-accent-violet/5": state === "registered",
+              })}
+              onClick={() => {
+                const el = document.querySelector(`[data-action="${tip.cta!.action}"]`);
+                if (el) (el as HTMLButtonElement).click();
+              }}
+            >
+              <ArrowRight className="h-3 w-3" />
+              {tip.cta.label}
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/* ── Architecture Card, always visible (not dismissible) ────────── */
+
+function ArchitectureCard() {
+  return (
+    <Card className="border-border/60 relative overflow-hidden bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.03]">
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-gold" />
+      <div className="px-5 py-4">
+        <p className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+          <Shield className="h-3.5 w-3.5 text-accent-cyan" /> How it works
+        </p>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { n: "1", label: "Worker Agent", desc: "Lightweight process sends heartbeats every 30s", color: "accent-cyan" },
+            { n: "2", label: "Job Assignment", desc: "Scheduler matches renters to your GPU via lease", color: "accent-violet" },
+            { n: "3", label: "Secure Container", desc: "Sandboxed Docker with GPU access + SSH keys", color: "emerald" },
+            { n: "4", label: "Earn Revenue", desc: "Per-second billing, real-time telemetry", color: "accent-gold" },
+          ].map((step) => (
+            <div key={step.n} className={cn("rounded-lg border border-border/40 p-3 flex items-start gap-2.5 bg-gradient-to-br from-transparent", `to-${step.color}/[0.03]`)}>
+              <div className={cn("flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold shrink-0", `bg-${step.color}/10 text-${step.color} ring-1 ring-${step.color}/20`)}>
+                {step.n}
+              </div>
+              <div>
+                <p className="text-xs font-medium text-text-secondary">{step.label}</p>
+                <p className="text-[11px] text-text-muted leading-tight mt-0.5">{step.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function InstallWorkerSection({
+  initialView = "sdk",
+}: {
+  initialView?: InstallView;
+}) {
+  const [view, setView] = useState<InstallView>(initialView);
+  const [copied, setCopied] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  function copy(label: string, text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    toast.success(label === "llm-prompt" ? "LLM prompt copied to clipboard" : "Copied to clipboard");
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  function switchView() {
+    setView(view === "sdk" ? "quickstart" : "sdk");
+    contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Scrollable content with subtle inner side borders */}
+      <div
+        ref={contentRef}
+        className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-2 border-l border-r border-border/20"
+      >
+        <div className="rounded-lg border border-white/5 ring-1 ring-inset ring-border/20 p-4">
+          {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
+        </div>
+      </div>
+
+      {/* Pinned footer, brand-line separator + side borders */}
+      <div className="border-l border-r border-b border-border/20 rounded-b-xl overflow-hidden">
+        <div className="brand-line" />
+        <div className="bg-surface/95 backdrop-blur-sm px-6 py-4">
+          <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-text-muted max-w-sm leading-relaxed">
+            Get started with a code quickstart or copy these setup steps as a prompt.
+          </p>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => copy("llm-prompt", LLM_INSTALL_PROMPT)}
+              className="flex items-center gap-2 rounded-lg border border-accent-cyan/30 bg-gradient-to-r from-accent-cyan/5 to-accent-violet/5 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/50 hover:text-accent-cyan hover:from-accent-cyan/10 hover:to-accent-violet/10 transition-all duration-200"
+            >
+              {copied === "llm-prompt" ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Clipboard className="h-3.5 w-3.5" />}
+              Copy prompt for LLM
+            </button>
+            <button
+              onClick={switchView}
+              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-accent-cyan to-accent-cyan/90 text-navy px-3.5 py-2 text-xs font-semibold hover:from-accent-cyan/90 hover:to-accent-cyan transition-all duration-200 shadow-sm shadow-accent-cyan/25"
+            >
+              {view === "sdk" ? (
+                <>View Manual Setup <ArrowRight className="h-3.5 w-3.5" /></>
+              ) : (
+                <><ArrowLeft className="h-3.5 w-3.5" /> View Wizard Setup</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  );
+}
+
+/* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
+
+function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
+  const quickCmds = `# Check worker status
+xcelsior status
+
+# View live job queue
+xcelsior jobs --watch
+
+# Update pricing dynamically
+xcelsior pricing set --gpu "RTX 4090" --rate 0.45
+
+# Run diagnostics
+xcelsior diagnostics --full
+
+# View earnings summary
+xcelsior earnings --period 30d`;
+
+  return (
+    <div className="space-y-5 mt-2">
+      {/* Header pill */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 px-3 py-1 text-xs font-medium text-accent-cyan">
+          <Package className="h-3.5 w-3.5" />
+          AI Onboarding Wizard
+        </div>
+        <span className="text-[11px] text-text-muted">Recommended</span>
+      </div>
+
+      {/* Step 1: Run wizard */}
+      <div>
+        <p className="text-sm font-medium mb-1.5">1. Run the AI Onboarding Wizard</p>
+        <p className="text-xs text-text-secondary mb-2">
+          One command for host setup <em>and</em> SDK integration. <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">npx</code> runs the wizard without a global install (no <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">/usr/lib/node_modules</code> permission issues). Requires Node.js &ge; 18.
+        </p>
+        <CodeSnippet label="wizard-cmd" text={WIZARD_CMD} copied={copied} onCopy={onCopy} />
+        <p className="text-[11px] text-text-muted mt-2">
+          At the first prompt, pick your path: <span className="font-medium text-text-secondary">Provide GPUs</span> on your GPU machine for host setup. For app integration, see below, wizard or manual <code className="bg-surface-hover px-1 py-0.5 rounded">{SDK_INSTALL_CMD}</code>.
+        </p>
+      </div>
+
+      <SdkIntegrateInfoCard copied={copied} onCopy={onCopy} />
+
+      {/* What the wizard does */}
+      <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3.5">
+        <p className="text-xs font-medium text-text-primary mb-2">Wizard paths at the first prompt:</p>
+        <ul className="text-xs text-text-secondary space-y-1.5">
+          <li className="flex items-start gap-2">
+            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
+            <span><span className="font-medium text-text-primary">Provide GPUs</span>, check compatibility, register a pending host, set pricing, install the worker service for verification</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent-violet mt-0.5">&#x2022;</span>
+            <span><span className="font-medium text-text-primary">Integrate SDK</span>, detect project, install package, create credentials, verify API, starter snippet</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
+            <span><span className="font-medium text-text-primary">Rent GPUs</span> or <span className="font-medium text-text-primary">Both</span>, marketplace onboarding for running jobs</span>
+          </li>
+        </ul>
+      </div>
+
+      {/* Step 2: Quick-start commands */}
+      <div>
+        <p className="text-sm font-medium mb-1.5">2. Quick-start commands</p>
+        <p className="text-xs text-text-secondary mb-2">
+          After setup, use these SDK commands to manage your worker:
+        </p>
+        <CodeSnippet label="quick-cmds" text={quickCmds} copied={copied} onCopy={onCopy} />
+      </div>
+
+      {/* Pre-install requirements */}
+      <div className="rounded-lg bg-surface-hover/30 border border-border/40 p-3.5">
+        <div className="flex gap-2.5">
+          <Info className="h-4 w-4 text-accent-cyan shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-text-primary mb-1.5">Pre-install requirements</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-text-secondary">
+              <span>Node.js &ge; 18</span>
+              <span>NVIDIA drivers &ge; 550</span>
+              <span>Docker Engine &ge; 24.0</span>
+              <span>Ubuntu 22.04+ or WSL2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Manual Quickstart View ──────────────────────────────────────── */
+
+function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
+  // Keep in step with scripts/install.sh: it writes worker.env and the systemd
+  // service itself, so the manual path is the installer without the wizard.
+  const installCmd = `curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only`;
+
+  const verifyCmd = `systemctl status xcelsior-worker
+journalctl -u xcelsior-worker -f`;
+
+  const changeCmd = `nano ~/.xcelsior/worker.env
+sudo systemctl restart xcelsior-worker`;
+
+  return (
+    <div className="space-y-5 mt-2">
+      {/* Header pill */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 rounded-full bg-accent-violet/10 border border-accent-violet/20 px-3 py-1 text-xs font-medium text-accent-violet">
+          <Code2 className="h-3.5 w-3.5" />
+          Manual Setup
+        </div>
+        <span className="text-[11px] text-text-muted">No Node.js needed</span>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">1. Register the host and create a key</p>
+        <p className="text-xs text-text-secondary mb-2">
+          Click &quot;Register Host&quot; on this page and note the Host ID, then create an API key (or an OAuth
+          client) under Settings &rarr; API &amp; SSH.
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">2. Run the installer on your GPU host</p>
+        <p className="text-xs text-text-secondary mb-2">
+          It checks your GPU driver and Docker, asks for your Host ID and API key, installs the Xcelsior
+          worker as a background service, and connects your machine securely. When it finishes, your host
+          shows as pending while we review it.
+        </p>
+        <CodeSnippet label="install" text={installCmd} copied={copied} onCopy={onCopy} />
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">3. Verify</p>
+        <p className="text-xs text-text-secondary mb-2">Confirm the worker is running:</p>
+        <CodeSnippet label="verify" text={verifyCmd} copied={copied} onCopy={onCopy} />
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">Changing settings later</p>
+        <CodeSnippet label="settings" text={changeCmd} copied={copied} onCopy={onCopy} />
+      </div>
+    </div>
+  );
+}

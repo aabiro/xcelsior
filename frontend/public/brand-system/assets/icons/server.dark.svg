@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+<defs>
+    <linearGradient id="sd-body" x1="26" y1="20" x2="102" y2="106" gradientUnits="userSpaceOnUse"><stop stop-color="#17243d"></stop><stop offset=".55" stop-color="#0c1526"></stop><stop offset="1" stop-color="#070f1c"></stop></linearGradient>
+    <linearGradient id="sd-edge" x1="24" y1="20" x2="104" y2="108" gradientUnits="userSpaceOnUse"><stop stop-color="#38dbff"></stop><stop offset=".6" stop-color="#9b6dff"></stop><stop offset="1" stop-color="#34d399"></stop></linearGradient>
+    <radialGradient id="sd-sh" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#38dbff" stop-opacity="0.28"></stop><stop offset="100%" stop-color="#38dbff" stop-opacity="0"></stop></radialGradient>
+  <filter id="sd-glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="4.5" flood-color="#38dbff" flood-opacity=".55"></feDropShadow><feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#9b6dff" flood-opacity=".3"></feDropShadow></filter></defs>
+  <ellipse cx="64" cy="116" rx="42" ry="7" fill="url(#sd-sh)"></ellipse>
+  <g filter="url(#sd-glow)">
+    <rect x="26" y="22" width="76" height="24" rx="7" fill="url(#sd-body)" stroke="url(#sd-edge)" stroke-width="2.2"></rect>
+    <rect x="32" y="28" width="4.5" height="12" rx="2.2" fill="url(#sd-edge)"></rect>
+    <g stroke="#38dbff" stroke-opacity="0.32" stroke-width="2" stroke-linecap="round"><path d="M42 29h20M42 34h20M42 39h16"></path></g>
+    <circle cx="88" cy="34" r="2.6" fill="#34d399"></circle>
+    <circle cx="96" cy="34" r="2.6" fill="#38dbff"></circle>
+    <rect x="26" y="52" width="76" height="24" rx="7" fill="url(#sd-body)" stroke="url(#sd-edge)" stroke-width="2.2"></rect>
+    <rect x="32" y="58" width="4.5" height="12" rx="2.2" fill="url(#sd-edge)"></rect>
+    <g stroke="#38dbff" stroke-opacity="0.32" stroke-width="2" stroke-linecap="round"><path d="M42 59h20M42 64h20M42 69h16"></path></g>
+    <circle cx="88" cy="64" r="2.6" fill="#38dbff"></circle>
+    <circle cx="96" cy="64" r="2.6" fill="#9b6dff"></circle>
+    <rect x="26" y="82" width="76" height="24" rx="7" fill="url(#sd-body)" stroke="url(#sd-edge)" stroke-width="2.2"></rect>
+    <rect x="32" y="88" width="4.5" height="12" rx="2.2" fill="url(#sd-edge)"></rect>
+    <g stroke="#38dbff" stroke-opacity="0.32" stroke-width="2" stroke-linecap="round"><path d="M42 89h20M42 94h20M42 99h16"></path></g>
+    <circle cx="88" cy="94" r="2.6" fill="#9b6dff"></circle>
+    <circle cx="96" cy="94" r="2.6" fill="#34d399"></circle></g>
+</svg>
