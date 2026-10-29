@@ -80,7 +80,13 @@ def test_claim_delivers_admitted_environment_without_plaintext_storage(native):
                 "SELECT args FROM agent_commands WHERE job_id=%s", (native.jid,)
             ).fetchall()
             assert secret not in json.dumps(commands)
-        replay = client.post("/agent/v2/leases/claim", json=claim_body(r), headers=headers)
+        # The claiming session may replay a lost response; any other session is
+        # refused and never sees the environment.
+        replay = client.post(
+            "/agent/v2/leases/claim",
+            json={**claim_body(r), "worker_session_id": "another-worker"},
+            headers=headers,
+        )
         assert replay.status_code == 409
         assert secret not in replay.text
 
