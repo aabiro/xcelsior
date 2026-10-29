@@ -70,10 +70,10 @@ this whole review sequence has been about.
 
 ```bash
 # one job, then the container is gone
-./scripts/ci-runner/run-runner.sh
+./api/scripts/ci-runner/run-runner.sh
 
 # keep serving jobs
-./scripts/ci-runner/run-runner.sh --loop
+./api/scripts/ci-runner/run-runner.sh --loop
 ```
 
 The registration token is minted fresh from the API on each start, expires in an
@@ -87,7 +87,7 @@ broken workflow. `xcelsior-ci-runner.service` fixes that:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-ln -sf "$PWD/scripts/ci-runner/xcelsior-ci-runner.service" ~/.config/systemd/user/
+ln -sf "$PWD/api/scripts/ci-runner/xcelsior-ci-runner.service" ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now xcelsior-ci-runner
 sudo loginctl enable-linger "$USER"   # survive logout and reboot
