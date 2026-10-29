@@ -188,7 +188,9 @@ def test_deletion_status_is_reachable_without_a_token() -> None:
 
 def test_unknown_facebook_id_status_says_there_is_no_account(production, monkeypatch) -> None:
     """A signed callback for an unknown id is a receipt, and the page can open it."""
-    assert auth_mod._USE_PERSISTENT_AUTH is False
+    # The in-memory receipt path. Asserting the flag instead made this depend on
+    # `.env.test` setting XCELSIOR_PERSISTENT_AUTH=false; the code default is true.
+    monkeypatch.setattr(auth_mod, "_USE_PERSISTENT_AUTH", False)
     monkeypatch.setattr(auth_mod, "_user_for_facebook", lambda fb_user_id: None)
     r = client.post(
         "/api/auth/oauth/facebook/delete-data",
