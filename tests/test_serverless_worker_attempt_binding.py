@@ -8,8 +8,6 @@ set. This drives the real reservation authority (`reserve_and_bind`) end to end.
 
 from __future__ import annotations
 
-from tests.native_jobs import admit_fixture_job, fixture_devices_serve
-
 import json
 import time
 import uuid
@@ -72,8 +70,8 @@ def _mkhost(scratch, *, gpus=1):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state, inventory_generation, admission_state, capabilities, last_observed_at)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 1, 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
+                                  administrative_state, availability_state, inventory_generation, admission_state)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 1, 'admitted')""",
             (host_id, time.time(), json.dumps({"admitted": True})),
         )
         for i in range(gpus):
@@ -84,49 +82,31 @@ def _mkhost(scratch, *, gpus=1):
                    VALUES (%s, %s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
                 (host_id, f"GPU-{host_id}-{i}", i),
             )
-        scratch["hosts"].append(host_id)
-        fixture_devices_serve(conn, scratch["jobs"], scratch["hosts"])
         conn.commit()
+    scratch["hosts"].append(host_id)
     return host_id
 
 
-def _mk_serverless_job(
-    scratch, worker_id: str, *, num_gpus=1, serverless=True, preemptible=False, billable=False
-):
+def _mk_serverless_job(scratch, worker_id: str, *, num_gpus=1):
     """A serverless_worker job that carries its worker id in the payload, as
     provision_worker's _set_job_fields does."""
     job_id = f"job-swk-{uuid.uuid4().hex[:10]}"
     payload = {
         "name": job_id,
         "num_gpus": num_gpus,
-        "preemptible": preemptible,
         "job_type": "serverless_worker",
         "serverless_worker_id": worker_id,
         "gpu_model": job_id,  # unique claim scope so we never claim foreign residue
     }
-    worker = ServerlessRepo().get_worker(worker_id)
-    payload["serverless_endpoint_id"] = worker["endpoint_id"]
-    if billable:
-        payload["owner"] = ServerlessRepo().get_endpoint(worker["endpoint_id"])["owner_id"]
-    if not serverless:
-        for key in ("job_type", "serverless_worker_id", "serverless_endpoint_id"):
-            payload.pop(key, None)
-    with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE serverless_workers SET scheduler_job_id=%s WHERE worker_id=%s",
-            (job_id, worker_id),
-        )
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at, effective_priority)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
+                                 phase, desired_state, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
             (job_id, time.time(), json.dumps(payload)),
         )
-        admit_fixture_job(conn, job_id)
-        scratch["jobs"].append(job_id)
-        fixture_devices_serve(conn, scratch["jobs"], scratch["hosts"])
         conn.commit()
+    scratch["jobs"].append(job_id)
     return job_id
 
 
@@ -209,11 +189,10 @@ def test_non_serverless_job_leaves_workers_untouched(scratch):
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO jobs (job_id, status, priority, submitted_at, payload,
-                                 phase, desired_state, queued_at, effective_priority)
-               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now(), 0)""",
+                                 phase, desired_state, queued_at)
+               VALUES (%s, 'queued', 0, %s, %s, 'pending', 'running', now())""",
             (plain, time.time(), json.dumps(payload)),
         )
-        admit_fixture_job(conn, plain)
         conn.commit()
     scratch["jobs"].append(plain)
     host_id = _mkhost(scratch, gpus=1)
@@ -257,13 +236,8 @@ def test_serverless_worker_metered_once_on_fenced_stop(scratch, monkeypatch):
     scratch["endpoints"].append(ep["endpoint_id"])
     worker = repo.create_worker(ep["endpoint_id"], gpu_count=1)
     scratch["workers"].append(worker["worker_id"])
-    job_id = _mk_serverless_job(scratch, worker["worker_id"], num_gpus=1, billable=True)
+    job_id = _mk_serverless_job(scratch, worker["worker_id"], num_gpus=1)
     host_id = _mkhost(scratch, gpus=1)
-    with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE hosts SET payload=payload||%s WHERE host_id=%s",
-            (json.dumps({"cost_per_hour": 0}), host_id),
-        )
 
     with _pool.connection() as conn:
         claimed = claim_next_job(conn, replica_id="b31m", scope_gpu_models=[job_id])

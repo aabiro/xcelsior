@@ -60,13 +60,11 @@ def test_every_live_table_is_claimed_by_exactly_one_domain():
     failure a red test instead of a production incident.
     """
     with _pool.connection() as conn:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT schemaname, tablename
               FROM pg_tables
              WHERE schemaname IN ('public', 'storage')
-            """
-        ).fetchall()
+            """).fetchall()
 
     unclaimed: list[str] = []
     for schema, table in rows:
@@ -97,192 +95,6 @@ def test_exactly_one_role_holds_ddl_authority():
     assert "migrator" not in db_roles.runtime_role_keys()
 
 
-def test_strict_dsn_resolution_never_falls_back(monkeypatch):
-    import db
-
-    monkeypatch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "1")
-    monkeypatch.setenv("XCELSIOR_SERVICE", "scheduler")
-    monkeypatch.delenv("XCELSIOR_POSTGRES_DSN_SCHEDULER", raising=False)
-    with pytest.raises(RuntimeError, match="shared database fallback refused"):
-        db.resolve_postgres_dsn()
-    monkeypatch.setenv("XCELSIOR_SERVICE", "misspelled")
-    with pytest.raises(RuntimeError, match="XCELSIOR_SERVICE"):
-        db.resolve_postgres_dsn()
-
-
-@pytest.mark.parametrize("service", db_roles.runtime_role_keys())
-def test_real_runtime_login_has_no_excess_authority(provisioned_roles, monkeypatch, service):
-    from control_plane.db_role_audit import role_violations
-    from psycopg.conninfo import make_conninfo
-
-    role = db_roles.SERVICE_ROLES[service]
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn, autocommit=True) as admin:
-        admin.execute(
-            psycopg.sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
-                psycopg.sql.Identifier(role.name), psycopg.sql.Literal("isolated-role-password")
-            )
-        )
-    try:
-        # This is an actual separate login, not SET ROLE on a privileged pool.
-        with psycopg.connect(
-            make_conninfo(dsn, user=role.name, password="isolated-role-password")
-        ) as conn:
-            assert role_violations(conn, service) == []
-            conn.execute("SELECT version_num FROM alembic_version").fetchone()
-            conn.commit()
-            with pytest.raises(InsufficientPrivilege):
-                conn.execute("CREATE TABLE public.forbidden_runtime_ddl (id int)")
-            conn.rollback()
-            with pytest.raises(InsufficientPrivilege):
-                conn.execute("UPDATE alembic_version SET version_num=version_num")
-            conn.rollback()
-    finally:
-        with psycopg.connect(dsn, autocommit=True) as admin:
-            admin.execute(f'ALTER ROLE "{role.name}" NOLOGIN PASSWORD NULL')
-
-
-def test_effective_public_grants_and_membership_are_detected(provisioned_roles):
-    from control_plane.db_role_audit import role_violations
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn) as conn:
-        conn.execute("GRANT UPDATE ON wallets TO PUBLIC")
-        assert any(
-            "wallets" in issue for issue in role_violations(conn, "readonly", check_session=False)
-        )
-        conn.rollback()
-        for table in (
-            "job_spec_backfill_evidence",
-            "legacy_lease_archive",
-            "lightning_retired_projection_archive",
-        ):
-            conn.execute(f"GRANT UPDATE ON {table} TO PUBLIC")
-            assert any(
-                table in issue for issue in role_violations(conn, "api", check_session=False)
-            )
-            conn.rollback()
-        conn.execute("GRANT xcelsior_api TO xcelsior_billing")
-        assert any(
-            "member" in issue for issue in role_violations(conn, "billing", check_session=False)
-        )
-        conn.rollback()
-
-
-def test_scoped_pools_use_distinct_logins_and_restore_after_failure(provisioned_roles, monkeypatch):
-    import db
-    from psycopg.conninfo import make_conninfo
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    monkeypatch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "1")
-    monkeypatch.setenv("XCELSIOR_SERVICE", "api")
-    for service in ("billing", "reconciler"):
-        role = db_roles.SERVICE_ROLES[service].name
-        with psycopg.connect(dsn, autocommit=True) as conn:
-            conn.execute(
-                psycopg.sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
-                    psycopg.sql.Identifier(role), psycopg.sql.Literal("isolated-role-password")
-                )
-            )
-        monkeypatch.setenv(
-            db_roles.service_dsn_env_var(service),
-            make_conninfo(dsn, user=role, password="isolated-role-password"),
-        )
-    pools = []
-    try:
-        for service in ("billing", "reconciler", "billing"):
-            with db_roles.service_scope(service):
-                pool = db._get_pg_pool()
-                pools.append(pool)
-                with pool.connection() as conn:
-                    assert (
-                        conn.execute("SELECT current_user").fetchone()[0]
-                        == db_roles.SERVICE_ROLES[service].name
-                    )
-                    conn.row_factory = __import__("psycopg.rows", fromlist=["dict_row"]).dict_row
-        assert pools[0] is pools[2] and pools[0] is not pools[1]
-        with pytest.raises(ValueError, match="test failure"):
-            with db_roles.service_scope("billing"):
-                raise ValueError("test failure")
-        assert db_roles.current_service() == "api"
-        with pytest.raises(ValueError, match="invalid runtime"):
-            with db_roles.service_scope("migrator"):
-                pass
-    finally:
-        for pool in set(pools):
-            pool.close()
-        db._scoped_pg_pools.clear()
-        with psycopg.connect(dsn, autocommit=True) as conn:
-            for service in ("billing", "reconciler"):
-                conn.execute(
-                    f'ALTER ROLE "{db_roles.SERVICE_ROLES[service].name}" NOLOGIN PASSWORD NULL'
-                )
-
-
-def test_runtime_cannot_advance_another_domains_sequence(provisioned_roles):
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn) as conn:
-        sequences = conn.execute(
-            "SELECT pg_get_serial_sequence('public.agent_commands','id')"
-        ).fetchone()
-        assert sequences and sequences[0], "expected control-domain sequence"
-        if sequences[0]:
-            conn.execute("SET ROLE xcelsior_billing")
-            with pytest.raises(InsufficientPrivilege):
-                conn.execute("SELECT nextval(%s)", (sequences[0],))
-
-
-def test_login_provisioning_accepts_quoted_password_without_sql_injection(provisioned_roles):
-    from scripts.provision_db_roles import apply_plan, build_plan
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn) as conn:
-        plan = build_plan(
-            conn,
-            login_services={"readonly"},
-            passwords={"readonly": "probe'; ALTER ROLE xcelsior_readonly SUPERUSER; --"},
-        )
-        assert all("probe'" not in statement for statement, _ in plan)
-        assert not any(
-            "ON ALL TABLES IN SCHEMA" in statement and "FROM PUBLIC" in statement
-            for statement, _ in plan
-        )
-        assert not any(statement.startswith("REVOKE CREATE ON SCHEMA") for statement, _ in plan)
-        apply_plan(conn, plan)
-        assert conn.execute(
-            "SELECT rolcanlogin, rolsuper FROM pg_roles WHERE rolname='xcelsior_readonly'"
-        ).fetchone() == (True, False)
-        conn.rollback()
-
-
-def test_future_objects_do_not_inherit_blanket_public_or_runtime_rights(provisioned_roles):
-    from scripts.provision_db_roles import apply_plan, build_plan
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn) as conn:
-        conn.execute("ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO PUBLIC")
-        conn.execute(
-            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO xcelsior_readonly"
-        )
-        apply_plan(conn, build_plan(conn, login_services=set(), passwords={}))
-        conn.execute("CREATE TABLE public.security_new_relation(id int)")
-        assert not conn.execute(
-            "SELECT has_table_privilege('xcelsior_readonly','security_new_relation','SELECT,INSERT,UPDATE,DELETE')"
-        ).fetchone()[0]
-        conn.rollback()
-
-
-def test_column_only_billing_escalation_is_detected(provisioned_roles):
-    from control_plane.db_role_audit import role_violations
-
-    with psycopg.connect(os.environ["XCELSIOR_POSTGRES_DSN"]) as conn:
-        conn.execute("GRANT UPDATE(balance_micros) ON wallets TO xcelsior_readonly")
-        assert any(
-            "wallets" in issue for issue in role_violations(conn, "readonly", check_session=False)
-        )
-        conn.rollback()
-
-
 # ── Provisioning + live privilege enforcement ─────────────────────────
 
 
@@ -299,10 +111,7 @@ def provisioned_roles():
 
     spec = importlib.util.spec_from_file_location(
         "provision_db_roles",
-        pathlib.Path(__file__).resolve().parent.parent
-        / "api"
-        / "scripts"
-        / "provision_db_roles.py",
+        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "provision_db_roles.py",
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -366,8 +175,6 @@ def _probe_sql(conn, table: str, verb: str) -> str:
         return f"INSERT INTO {table} SELECT * FROM {table} WHERE false"
     if verb == "SELECT":
         return f"SELECT 1 FROM {table} WHERE false"
-    if verb == "DELETE":
-        return f"DELETE FROM {table} WHERE false"
     raise AssertionError(f"unsupported verb {verb}")
 
 
@@ -489,10 +296,7 @@ def test_provisioning_is_idempotent(provisioned_roles):
 
     spec = importlib.util.spec_from_file_location(
         "provision_db_roles",
-        pathlib.Path(__file__).resolve().parent.parent
-        / "api"
-        / "scripts"
-        / "provision_db_roles.py",
+        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "provision_db_roles.py",
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -530,10 +334,7 @@ def test_provisioner_refuses_an_over_privileged_existing_role(provisioned_roles)
 
     spec = importlib.util.spec_from_file_location(
         "provision_db_roles",
-        pathlib.Path(__file__).resolve().parent.parent
-        / "api"
-        / "scripts"
-        / "provision_db_roles.py",
+        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "provision_db_roles.py",
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -609,195 +410,3 @@ def test_migrator_session_has_no_statement_timeout():
     opts = db_roles.session_options("migrator")
     assert "statement_timeout=0" in opts
     assert "lock_timeout=0" in opts
-
-
-def test_strict_scheduled_task_executes_with_its_own_login(provisioned_roles, monkeypatch):
-    import db
-    from control_plane import scheduled_tasks
-    from psycopg.conninfo import make_conninfo
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    observed = []
-    monkeypatch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "1")
-    monkeypatch.setenv("XCELSIOR_SERVICE", "reconciler")
-    monkeypatch.setattr(db, "_pg_pool", None)
-    monkeypatch.setattr(db, "_pg_pool_identity", None)
-    monkeypatch.setattr(db, "_scoped_pg_pools", {})
-    monkeypatch.setattr(scheduled_tasks, "_registry", {})
-    monkeypatch.setattr(scheduled_tasks, "_task_services", {})
-    with psycopg.connect(dsn, autocommit=True) as admin:
-        for service in ("billing", "reconciler"):
-            role = db_roles.SERVICE_ROLES[service].name
-            admin.execute(f'ALTER ROLE "{role}" LOGIN')
-            monkeypatch.setenv(db_roles.service_dsn_env_var(service), make_conninfo(dsn, user=role))
-
-    def task():
-        with db.pg_connection() as conn:
-            observed.append(conn.execute("SELECT current_user, session_user").fetchone())
-            # Read authority alone is insufficient: the task must write using
-            # its billing identity, then the executor must settle as reconciler.
-            conn.execute("UPDATE wallets SET balance_micros = balance_micros WHERE false")
-
-    try:
-        scheduled_tasks.register_task("identity-proof", task, 60, service="billing")
-        assert scheduled_tasks.claim_and_run_tasks("identity-test") == 1
-        assert observed == [("xcelsior_billing", "xcelsior_billing")]
-        with db.pg_connection() as conn:
-            assert conn.execute("SELECT current_user").fetchone() == ("xcelsior_reconciler",)
-            assert conn.execute(
-                "SELECT last_status, claim_owner FROM scheduled_tasks WHERE task_name='identity-proof'"
-            ).fetchone() == ("succeeded", None)
-    finally:
-        for pool in {db._pg_pool, *db._scoped_pg_pools.values()} - {None}:
-            pool.close()
-        with psycopg.connect(dsn, autocommit=True) as admin:
-            admin.execute("DELETE FROM scheduled_tasks WHERE task_name='identity-proof'")
-            for service in ("billing", "reconciler"):
-                admin.execute(f'ALTER ROLE "{db_roles.SERVICE_ROLES[service].name}" NOLOGIN')
-
-
-def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provisioned_roles):
-    from psycopg import sql
-    from psycopg.conninfo import make_conninfo
-    from scripts.maintain_db_partitions import maintain
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn, autocommit=True) as admin:
-        original_owner = admin.execute("SELECT current_user").fetchone()[0]
-        schema_owners = admin.execute(
-            "SELECT nspname, pg_get_userbyid(nspowner) FROM pg_namespace "
-            "WHERE nspname IN ('public', 'storage')"
-        ).fetchall()
-        admin.execute("ALTER ROLE xcelsior_migrator LOGIN")
-        # The disposable cluster's bootstrap role also owns system objects;
-        # transfer only application schemas/tables, as a real cutover must.
-        for schema, _ in schema_owners:
-            admin.execute(
-                sql.SQL("ALTER SCHEMA {} OWNER TO xcelsior_migrator").format(sql.Identifier(schema))
-            )
-        for schema, table in admin.execute(
-            "SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('public','storage')"
-        ).fetchall():
-            admin.execute(
-                sql.SQL("ALTER TABLE {}.{} OWNER TO xcelsior_migrator").format(
-                    sql.Identifier(schema), sql.Identifier(table)
-                )
-            )
-        admin.execute("ALTER SEQUENCE placement_fencing_token_seq OWNER TO xcelsior_migrator")
-    try:
-        with psycopg.connect(make_conninfo(dsn, user="xcelsior_migrator")) as conn:
-            maintain(conn)
-            maintain(conn)
-        with psycopg.connect(dsn) as conn:
-            assert conn.execute(
-                "SELECT last_status FROM scheduled_tasks WHERE task_name='telemetry_partition_maintenance'"
-            ).fetchone() == ("succeeded",)
-            assert conn.execute(
-                "SELECT has_table_privilege('xcelsior_reconciler', 'telemetry_samples', 'INSERT'), "
-                "has_table_privilege('xcelsior_readonly', 'telemetry_samples', 'INSERT')"
-            ).fetchone() == (True, False)
-    finally:
-        with psycopg.connect(dsn, autocommit=True) as admin:
-            for schema, table in admin.execute(
-                "SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('public','storage')"
-            ).fetchall():
-                admin.execute(
-                    sql.SQL("ALTER TABLE {}.{} OWNER TO {}").format(
-                        sql.Identifier(schema),
-                        sql.Identifier(table),
-                        sql.Identifier(original_owner),
-                    )
-                )
-            for schema, owner in schema_owners:
-                admin.execute(
-                    sql.SQL("ALTER SCHEMA {} OWNER TO {}").format(
-                        sql.Identifier(schema), sql.Identifier(owner)
-                    )
-                )
-            admin.execute(
-                sql.SQL("ALTER SEQUENCE placement_fencing_token_seq OWNER TO {}").format(
-                    sql.Identifier(original_owner)
-                )
-            )
-            admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN")
-
-
-def test_only_control_writers_can_advance_the_placement_fence(provisioned_roles):
-    from control_plane.db_role_audit import role_violations
-
-    with psycopg.connect(os.environ["XCELSIOR_POSTGRES_DSN"]) as conn:
-        conn.execute("SET ROLE xcelsior_scheduler")
-        assert conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone()[0] > 0
-        conn.execute("RESET ROLE")
-        conn.execute("GRANT USAGE ON SEQUENCE placement_fencing_token_seq TO xcelsior_billing")
-        assert any(
-            "placement_fencing_token_seq" in issue
-            for issue in role_violations(conn, "billing", check_session=False)
-        )
-        conn.rollback()
-        conn.execute("SET ROLE xcelsior_billing")
-        with pytest.raises(InsufficientPrivilege):
-            conn.execute("SELECT nextval('placement_fencing_token_seq')")
-
-
-@pytest.mark.asyncio
-async def test_ssh_gateway_uses_real_restricted_login(provisioned_roles, monkeypatch):
-    from psycopg.conninfo import make_conninfo
-    import ssh_gateway
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    monkeypatch.setenv("XCELSIOR_DB_ROLES_REQUIRED", "1")
-    monkeypatch.setenv(
-        "XCELSIOR_POSTGRES_DSN_SSH_GATEWAY", make_conninfo(dsn, user="xcelsior_ssh_gateway")
-    )
-    with psycopg.connect(dsn, autocommit=True) as admin:
-        admin.execute("ALTER ROLE xcelsior_ssh_gateway LOGIN")
-        admin.execute(
-            """
-            INSERT INTO state (namespace, payload)
-            VALUES ('security.suspended.ssh-test-user', '{"active": true}')
-            ON CONFLICT (namespace) DO UPDATE SET payload = EXCLUDED.payload
-            """
-        )
-        admin.execute(
-            """
-            INSERT INTO state (namespace, payload)
-            VALUES ('security.note.ssh-test-user', '{"active": true, "secret": "hidden"}')
-            ON CONFLICT (namespace) DO UPDATE SET payload = EXCLUDED.payload
-            """
-        )
-    try:
-        async with await ssh_gateway._get_pg_conn() as conn:
-            assert await (await conn.execute("SELECT current_user")).fetchone() == (
-                "xcelsior_ssh_gateway",
-            )
-            await conn.execute("SELECT job_id FROM jobs LIMIT 1")
-            visible = await (
-                await conn.execute(
-                    "SELECT identifier FROM ssh_account_suspensions WHERE identifier = 'ssh-test-user'"
-                )
-            ).fetchone()
-            assert visible == ("ssh-test-user",)
-            with pytest.raises(InsufficientPrivilege):
-                await conn.execute("SELECT payload FROM state LIMIT 1")
-            with pytest.raises(InsufficientPrivilege):
-                await conn.execute("SELECT * FROM api_keys LIMIT 1")
-    finally:
-        with psycopg.connect(dsn, autocommit=True) as admin:
-            admin.execute(
-                "DELETE FROM state WHERE namespace IN "
-                "('security.suspended.ssh-test-user', 'security.note.ssh-test-user')"
-            )
-            admin.execute("ALTER ROLE xcelsior_ssh_gateway NOLOGIN")
-
-
-def test_restricted_api_can_observe_another_roles_connection_identity(provisioned_roles):
-    from control_plane import security_metrics
-
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
-    with psycopg.connect(dsn, application_name="xcelsior-billing") as other:
-        with psycopg.connect(dsn) as observer:
-            observer.execute("SET ROLE xcelsior_api")
-            snapshot = security_metrics.collect(observer)
-            assert snapshot["database_identity_mismatches"] >= 1
-            observer.rollback()

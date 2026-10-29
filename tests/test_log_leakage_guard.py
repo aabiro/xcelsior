@@ -26,16 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Directories to skip entirely
-SKIP_DIRS = {
-    "tests",
-    "venv",
-    ".venv",
-    "env",
-    "__pycache__",
-    "site-packages",
-    "node_modules",
-    "worktrees",
-}
+SKIP_DIRS = {"tests", "venv", ".venv", "env", "__pycache__", "site-packages", "node_modules"}
 
 # Regex to match log-style call names
 _LOG_METHODS = re.compile(r"^(info|debug|warning|warn|error|critical|exception)$")
@@ -63,13 +54,13 @@ _SENSITIVE_FRAGMENTS = (
 _ALLOWLIST: set[tuple[str, int]] = {
     # stripe_connect.py logs only the public key-type prefix (sk_live / sk_test),
     # not any secret material — STRIPE_SECRET_KEY[:7] == "sk_live" or "sk_test".
-    ("billing/stripe_connect.py", 50),
+    ("stripe_connect.py", 50),
     # security.py warns that the dev key is in use — no value is logged.
-    ("auth/security.py", 41),
+    ("security.py", 41),
     # security.py logs failure to decrypt by *name*, not by value.
-    ("auth/security.py", 1140),
+    ("security.py", 1140),
     # worker_agent.py logs an exception object, not the credential value.
-    ("workers/worker_agent.py", 593),
+    ("worker_agent.py", 593),
 }
 
 

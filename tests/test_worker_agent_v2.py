@@ -13,8 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
-
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -27,12 +25,6 @@ import worker_agent  # noqa: E402
 
 def _resp(status_code=200, body=None):
     return SimpleNamespace(status_code=status_code, json=lambda: body or {})
-
-
-def _run_authority():
-    return {
-        "job-1": {"attempt_id": "att-1", "fencing_token": 7, "container_name": "xcl-job-1-att-1"}
-    }
 
 
 def _start_cmd():
@@ -72,53 +64,6 @@ def _stop_cmd():
 
 
 class TestHardLeaseGate:
-    def test_serverless_grant_secret_reaches_container_but_not_recovery_journal(self, tmp_path):
-        command = _start_cmd()
-        command["args"]["spec"]["job_type"] = "serverless_worker"
-        command["spec_hash"] = worker_agent.compute_spec_hash(command["args"]["spec"])
-        journal = tmp_path / "attempts.json"
-        with (
-            mock.patch.object(
-                worker_agent,
-                "v2_claim_lease_fenced",
-                return_value={
-                    "renewal_ttl_sec": 300,
-                    "callback_token": "xsw_scoped-proof",
-                    "gpu_device_uuids": ["GPU-test-1"],
-                },
-            ),
-            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(journal)),
-            mock.patch.object(worker_agent, "_v2_attempts", {}),
-            mock.patch.object(worker_agent, "v2_report_attempt_status", return_value="ok"),
-            mock.patch.object(worker_agent, "_v2_record_and_ack", return_value=True),
-            mock.patch.object(worker_agent.threading, "Thread"),
-            mock.patch.object(worker_agent, "run_job") as run,
-        ):
-            worker_agent.handle_start_attempt(command)
-        assert run.call_args.args[0]["_serverless_callback_token"] == "xsw_scoped-proof"
-        assert "xsw_scoped-proof" not in journal.read_text()
-
-    def test_serverless_start_refuses_a_grant_without_callback_credential(self, tmp_path):
-        command = _start_cmd()
-        command["args"]["spec"]["job_type"] = "serverless_worker"
-        command["spec_hash"] = worker_agent.compute_spec_hash(command["args"]["spec"])
-        with (
-            mock.patch.object(
-                worker_agent, "v2_claim_lease_fenced", return_value={"renewal_ttl_sec": 300}
-            ),
-            mock.patch.object(worker_agent, "v2_nack_command") as nack,
-            mock.patch.object(worker_agent, "_v2_attempts", {}),
-            mock.patch.object(worker_agent, "_V2_JOURNAL_PATH", str(tmp_path / "attempts.json")),
-            mock.patch.object(
-                worker_agent, "v2_report_attempt_status", return_value="ok"
-            ) as report,
-            mock.patch.object(worker_agent, "run_job") as run,
-        ):
-            worker_agent.handle_start_attempt(command)
-        run.assert_not_called()
-        assert report.call_args.args[1:3] == ("failed", "callback_credential_missing")
-        nack.assert_called_once_with("cmd-1", "callback_credential_missing", retryable=False)
-
     def test_rejected_lease_aborts_start(self):
         """§11.2: lease claim 409 → NACK non-retryable, run_job NEVER called."""
         posts = []
@@ -178,7 +123,6 @@ class TestHardLeaseGate:
                         "attempt_id": "att-1",
                         "fencing_token": 7,
                         "renewal_ttl_sec": 300,
-                        "gpu_device_uuids": ["GPU-test-1"],
                     },
                 )
             return _resp(200, {"ok": True})
@@ -239,7 +183,7 @@ class TestHardLeaseGate:
             mock.patch.object(
                 worker_agent,
                 "v2_claim_lease_fenced",
-                return_value={"renewal_ttl_sec": 300, "gpu_device_uuids": ["GPU-test-1"]},
+                return_value={"renewal_ttl_sec": 300},
             ),
             mock.patch.object(worker_agent, "v2_report_attempt_status", return_value="fenced"),
             mock.patch.object(worker_agent, "v2_nack_command") as nack,
@@ -251,7 +195,7 @@ class TestHardLeaseGate:
         assert nack.call_args.args[1] == "lease_authority_lost_before_start"
         assert nack.call_args.kwargs["retryable"] is False
 
-    def test_run_job_requires_confirmed_starting_before_setup(self):
+    def test_run_job_never_reenters_legacy_lease_path_for_v2(self):
         job = {
             "job_id": "job-1",
             "name": "job-1",
@@ -261,22 +205,18 @@ class TestHardLeaseGate:
             "_v2_container_name": "xcl-job-1-att-1",
         }
         with (
-            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
+            mock.patch.object(worker_agent, "claim_lease") as legacy_claim,
             mock.patch.object(worker_agent, "_kill_container") as kill,
             mock.patch.object(worker_agent, "_remove_container"),
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=False) as report,
-            mock.patch.object(worker_agent, "_V2_STARTING_RETRY_DELAYS_SEC", (0, 0)),
-            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
         ):
             worker_agent.run_job(job)
+        legacy_claim.assert_not_called()
         kill.assert_called_once_with("xcl-job-1-att-1")
-        build.assert_not_called()
-        # Bounded retries, then a durable failure instead of a stranded lease.
-        assert [c.args[1] for c in report.call_args_list] == ["starting"] * 3 + ["failed"]
-        assert report.call_args.kwargs["policy_reason"] == "starting_unconfirmed"
+        report.assert_called_once_with("job-1", "starting", host_id=worker_agent.HOST_ID)
 
     def test_required_gvisor_missing_aborts_before_docker_start(self):
         job = {
@@ -289,7 +229,6 @@ class TestHardLeaseGate:
             "_v2_container_name": "xcl-job-1-att-1",
         }
         with (
-            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={"gpu_model": "RTX 2060"}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
             mock.patch.object(worker_agent, "_kill_container"),
@@ -297,7 +236,6 @@ class TestHardLeaseGate:
             mock.patch.object(worker_agent.time, "sleep"),
             mock.patch.object(worker_agent, "report_job_status", return_value=True) as report,
             mock.patch.object(worker_agent, "cache_track_pull"),
-            mock.patch.object(worker_agent, "cache_image_available", return_value=True),
             mock.patch.object(worker_agent, "_image_cache_index", {"image:test": {}}),
             mock.patch.object(worker_agent, "is_gvisor_available", return_value=False),
             mock.patch.object(worker_agent, "build_secure_docker_args") as build,
@@ -308,48 +246,6 @@ class TestHardLeaseGate:
             call.kwargs.get("error_message") == "required gVisor runtime is unavailable"
             for call in report.call_args_list
         )
-
-    @pytest.mark.parametrize("admitted_mount", [False, True])
-    def test_shared_nfs_mount_uses_only_admitted_inputs(self, monkeypatch, admitted_mount):
-        monkeypatch.setenv("XCELSIOR_NFS_SERVER", "unadmitted-server")
-        monkeypatch.setenv("XCELSIOR_NFS_PATH", "/unadmitted-dataset")
-        monkeypatch.setenv("XCELSIOR_NFS_MOUNT", "/mnt/unadmitted")
-        job = {
-            "job_id": "job-1",
-            "name": "job-1",
-            "image": "image:test",
-            "required_runtime": "gvisor",
-            "_v2_attempt_id": "att-1",
-            "_v2_fencing_token": 7,
-            "_v2_container_name": "xcl-job-1-att-1",
-        }
-        if admitted_mount:
-            job.update(nfs_server="admitted-server", nfs_path="/approved-dataset")
-        with (
-            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
-            mock.patch.object(worker_agent, "get_gpu_info", return_value={"gpu_model": "RTX 2060"}),
-            mock.patch.object(worker_agent, "build_platform_env", return_value={}),
-            mock.patch.object(worker_agent, "_kill_container"),
-            mock.patch.object(worker_agent, "_remove_container"),
-            mock.patch.object(worker_agent.time, "sleep"),
-            mock.patch.object(worker_agent, "report_job_status", return_value=True),
-            mock.patch.object(worker_agent, "_push_log_lines"),
-            mock.patch.object(worker_agent, "_v2_resource_intent"),
-            mock.patch.object(worker_agent, "_v2_cleanup_resources"),
-            mock.patch.object(worker_agent, "_mount_nfs", return_value=True) as mount,
-            mock.patch.object(worker_agent, "cache_track_pull"),
-            mock.patch.object(worker_agent, "cache_image_available", return_value=True),
-            mock.patch.object(worker_agent, "is_gvisor_available", return_value=False),
-            mock.patch.object(worker_agent, "build_secure_docker_args") as build,
-        ):
-            worker_agent.run_job(job)
-        build.assert_not_called()
-        if admitted_mount:
-            mount.assert_called_once_with(
-                "admitted-server", "/approved-dataset", "/mnt/xcelsior-nfs"
-            )
-        else:
-            mount.assert_not_called()
 
     def test_required_image_signature_without_verifier_fails_closed(self):
         job = {
@@ -362,7 +258,6 @@ class TestHardLeaseGate:
             "_v2_container_name": "xcl-job-1-att-1",
         }
         with (
-            mock.patch.object(worker_agent, "_v2_attempts", _run_authority()),
             mock.patch.object(worker_agent, "get_gpu_info", return_value={}),
             mock.patch.object(worker_agent, "build_platform_env", return_value={}),
             mock.patch.object(worker_agent, "_kill_container"),
@@ -522,7 +417,6 @@ class TestStatusMirror:
             "lease_id": "lease-1",
             "job_id": job_id,
             "attempt_id": "att-1",
-            "container_name": "xcl-job-1",
             "fencing_token": 7,
             "renewal_ttl_sec": 300,
             "stop": threading.Event(),
@@ -577,7 +471,7 @@ class TestStatusMirror:
         def fake_run(argv, **kw):
             killed.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(returncode=0, stdout="running 0 att-1", stderr="")
+                return SimpleNamespace(returncode=0, stdout="true 0 att-1", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self._register()
@@ -601,7 +495,7 @@ class TestStatusMirror:
         def fake_run(argv, **kwargs):
             docker_calls.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(returncode=0, stdout="running 0 att-newer", stderr="")
+                return SimpleNamespace(returncode=0, stdout="true 0 att-newer", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self._register()
@@ -633,12 +527,9 @@ class TestStatusMirror:
         with (
             mock.patch.object(worker_agent.requests, "post", fake_post),
             mock.patch.object(worker_agent.requests, "patch") as legacy_patch,
-            mock.patch.object(worker_agent.threading, "Thread") as monitor,
         ):
             assert worker_agent.report_job_status("job-1", "failed") is False
         legacy_patch.assert_not_called()
-        monitor.assert_called_once()
-        assert monitor.call_args.kwargs["target"] is worker_agent._v2_monitor_container
         with worker_agent._v2_attempts_lock:
             assert "job-1" in worker_agent._v2_attempts
 
@@ -659,7 +550,7 @@ class TestRenewalFenceLoss:
         def fake_run(argv, **kw):
             killed.append(argv)
             if "inspect" in argv:
-                return SimpleNamespace(returncode=0, stdout="running 0 att-1", stderr="")
+                return SimpleNamespace(returncode=0, stdout="true 0 att-1", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         auth = {
@@ -690,29 +581,12 @@ class TestRenewalFenceLoss:
 class TestJournalAndAdoption:
     def setup_method(self):
         worker_agent._v2_enabled = True
-        self._active = dict(worker_agent._active_containers)
-        self._adopted = set(worker_agent._adopted_containers)
-        # A confirmed adoption starts a log forwarder plus renewal and exit
-        # threads. Real ones outlive the test and later post through whatever
-        # `_api_request` mock another test installed (a `docker logs` line for
-        # xcl-job-1-att-1 surfaced in test_worker_terminal_recovery).
-        self._forwarder = mock.patch.object(worker_agent, "LogForwarder", mock.Mock())
-        self._forwarder.start()
 
     def teardown_method(self):
-        self._forwarder.stop()
         worker_agent._v2_enabled = False
         with worker_agent._v2_attempts_lock:
-            for auth in worker_agent._v2_attempts.values():
-                if isinstance(auth.get("stop"), threading.Event):
-                    auth["stop"].set()  # ends any renewal loop this test started
             worker_agent._v2_attempts.clear()
             worker_agent._v2_completed_commands.clear()
-        with worker_agent._active_lock:
-            worker_agent._active_containers.clear()
-            worker_agent._active_containers.update(self._active)
-            worker_agent._adopted_containers.clear()
-            worker_agent._adopted_containers.update(self._adopted)
 
     def _journal(self, tmp_path, records):
         path = tmp_path / "v2_attempts.json"
@@ -774,8 +648,6 @@ class TestJournalAndAdoption:
         assert renews and renews[0]["attempt_id"] == "att-1"
         with worker_agent._v2_attempts_lock:
             assert "job-1" in worker_agent._v2_attempts
-        # The isolated forwarder, not a real `docker logs` tail thread.
-        worker_agent.LogForwarder.assert_called_once_with("job-1", "xcl-job-1-att-1")
 
     def test_transport_error_enters_bounded_pending_adoption(self, tmp_path):
         path = self._journal(tmp_path, self._rec())

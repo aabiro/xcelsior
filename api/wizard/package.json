@@ -1,7 +1,17 @@
 {
   "name": "@xcelsior-gpu/wizard",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Xcelsior interactive CLI wizard — Ink-based setup & onboarding",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aabiro/xcelsior.git",
+    "directory": "api/wizard"
+  },
+  "homepage": "https://docs.xcelsior.ca",
+  "bugs": {
+    "url": "https://github.com/aabiro/xcelsior/issues"
+  },
   "type": "module",
   "bin": {
     "xcelsior-wizard": "dist/src/index.js"

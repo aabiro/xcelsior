@@ -49,9 +49,9 @@ from tests._source_tree import iter_source_files, read_source, strip_ts_comments
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-MCP_TOOL = ROOT / "api/mcp/src/tools/compute.ts"
-UI_COMPONENT = ROOT / "api/frontend/src/components/instances/host-key-verification.tsx"
-PY_VALIDATOR = ROOT / "hosts" / "host_key_fingerprint.py"
+MCP_TOOL = ROOT / "mcp/src/tools/compute.ts"
+UI_COMPONENT = ROOT / "frontend/src/components/instances/host-key-verification.tsx"
+PY_VALIDATOR = ROOT / "host_key_fingerprint.py"
 
 #: `ssh-keyscan` through the end of the pipe, however the source spells it.
 _COMMAND_SPAN = re.compile(r"ssh-keyscan.*?ssh-keygen\s+-lf\s+-", re.DOTALL)
@@ -159,8 +159,8 @@ def test_the_browser_never_stores_a_terminal_ticket():
     """
     offenders: list[str] = []
     sources = [
-        *iter_source_files("*.ts", include_prefixes=("api/frontend/src/",)),
-        *iter_source_files("*.tsx", include_prefixes=("api/frontend/src/",)),
+        *iter_source_files("*.ts", include_prefixes=("frontend/src/",)),
+        *iter_source_files("*.tsx", include_prefixes=("frontend/src/",)),
     ]
     assert sources, "no frontend sources found; the include prefix is wrong"
     for path, _rel in sources:

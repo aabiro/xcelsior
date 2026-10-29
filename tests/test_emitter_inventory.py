@@ -29,24 +29,24 @@ _EMITTERS = {"broadcast_sse", "emit_event"}
 # Every non-test file that CALLS an emitter, with its classification + why.
 _EMITTER_FILES: dict[str, str] = {
     # ── durable / persistence path ────────────────────────────────────
-    "workers/scheduler.py": "durable — job lifecycle routes through try_append_lifecycle_outbox; SSE mirrors it",
-    "api/routes/instances.py": "durable — instance transitions are persisted via the scheduler outbox; these SSE calls mirror for the UI",
+    "scheduler.py": "durable — job lifecycle routes through try_append_lifecycle_outbox; SSE mirrors it",
+    "routes/instances.py": "durable — instance transitions are persisted via the scheduler outbox; these SSE calls mirror for the UI",
     # ── emitter primitive ─────────────────────────────────────────────
-    "api/api.py": "primitive — app-level SSE broadcast wiring",
+    "api.py": "primitive — app-level SSE broadcast wiring",
     # ── process-local, UI-facing (B4.7 residuals to route through outbox) ──
-    "api/routes/hosts.py": "process_local — host UI SSE (hosts dual-emit residual)",
-    "api/routes/volumes.py": "process_local — volume UI SSE (volumes residual)",
-    "api/routes/teams.py": "process_local — team UI SSE (teams residual)",
-    "api/routes/billing.py": "process_local — wallet/billing UI SSE (billing wallet residual)",
-    "api/routes/agent.py": "process_local — agent telemetry/command UI SSE (agent telemetry residual)",
-    "api/routes/admin.py": "process_local — admin dashboard UI SSE",
-    "api/routes/auth.py": "process_local — auth/session UI SSE",
-    "api/routes/providers.py": "process_local — provider UI SSE",
-    "api/routes/verification.py": "process_local — host verification UI SSE",
-    "api/routes/inference.py": "process_local — inference UI SSE",
-    "api/routes/serverless.py": "process_local — serverless UI SSE",
-    "api/serverless/service.py": "process_local — serverless worker UI SSE",
-    "api/routes/spot.py": "process_local — spot pricing UI SSE",
+    "routes/hosts.py": "process_local — host UI SSE (hosts dual-emit residual)",
+    "routes/volumes.py": "process_local — volume UI SSE (volumes residual)",
+    "routes/teams.py": "process_local — team UI SSE (teams residual)",
+    "routes/billing.py": "process_local — wallet/billing UI SSE (billing wallet residual)",
+    "routes/agent.py": "process_local — agent telemetry/command UI SSE (agent telemetry residual)",
+    "routes/admin.py": "process_local — admin dashboard UI SSE",
+    "routes/auth.py": "process_local — auth/session UI SSE",
+    "routes/providers.py": "process_local — provider UI SSE",
+    "routes/verification.py": "process_local — host verification UI SSE",
+    "routes/inference.py": "process_local — inference UI SSE",
+    "routes/serverless.py": "process_local — serverless UI SSE",
+    "serverless/service.py": "process_local — serverless worker UI SSE",
+    "routes/spot.py": "process_local — spot pricing UI SSE",
 }
 
 
@@ -54,18 +54,7 @@ def _emitter_files() -> set[str]:
     found: set[str] = set()
     for path in REPO.rglob("*.py"):
         rel = path.relative_to(REPO).as_posix()
-        if rel.startswith(
-            (
-                "tests/",
-                ".venv/",
-                "venv/",
-                "node_modules/",
-                "mcp/",
-                "api/mcp/",
-                "artifacts/",
-                "core/artifacts/",
-            )
-        ):
+        if rel.startswith(("tests/", ".venv/", "venv/", "node_modules/", "mcp/")):
             continue
         # macOS AppleDouble sidecars (`._foo.py`) are binary resource forks
         # written when the tree is reached over a share — not source, and they

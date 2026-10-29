@@ -102,7 +102,6 @@ def endpoint_id(user_headers):
         "/api/v2/serverless/endpoints",
         headers=user_headers,
         json={
-            "gpu_type": "RTX 4090",
             "name": "phase8-ep",
             "mode": "custom",
             "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -185,7 +184,6 @@ class TestServerlessPhase8Routes:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
-                "gpu_type": "RTX 4090",
                 "name": f"rpm-{uuid.uuid4().hex[:6]}",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",
@@ -245,7 +243,6 @@ class TestWebhookDelivery:
         owner = f"cust-{uuid.uuid4().hex[:12]}"
         ep = repo.create_endpoint(
             EndpointCreate(
-                gpu_tier="RTX 4090",
                 owner_id=owner,
                 name="wh-ep",
                 mode="custom",
@@ -289,11 +286,7 @@ class TestWebhookDelivery:
             assert done is not None
             import serverless.webhooks as wh
 
-            # Test receiver is local; permit only this test's exact address.
-            # The real transport (including pinning and signing) still runs.
-            import public_http
-
-            monkeypatch.setattr(public_http, "_public_address", lambda addr: addr == "127.0.0.1")
+            monkeypatch.setattr(wh, "validate_webhook_url", _allow_local)
             assert deliver_job_webhook(repo, done) is True
             refreshed = repo.get_job(job["job_id"])
             assert refreshed is not None
@@ -315,7 +308,6 @@ class TestQueueBackpressure:
             "/api/v2/serverless/endpoints",
             headers=user_headers,
             json={
-                "gpu_type": "RTX 4090",
                 "name": f"queue-{uuid.uuid4().hex[:6]}",
                 "mode": "custom",
                 "docker_image": "xcelsior/serverless-base:cuda12.4-py3.12",

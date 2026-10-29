@@ -23,21 +23,8 @@ from psycopg.types.json import Jsonb
 log = logging.getLogger("xcelsior.control_plane.observations")
 
 OBSERVED_STATES = (
-    "preparing",
-    "running",
-    "paused",
-    "exited",
-    "removing",
-    "unmanaged",
-    "unknown",
+    "preparing", "running", "paused", "exited", "removing", "unmanaged", "unknown",
 )
-
-
-# An unseen (or waiting) session may take over the host only once the current
-# session has been silent this long. Workers report every 60 s, so a live
-# session is never this quiet; a restarted worker waits at most this long, which
-# stays well inside the 300 s scheduling freshness window.
-DEFAULT_SESSION_HANDOFF_SILENCE_SEC = 150.0
 
 
 @dataclass(frozen=True)
@@ -45,17 +32,6 @@ class IngestResult:
     observation_id: str | None
     duplicate: bool
     workloads: int
-    #: ``current``: this session owns the host's observed state;
-    #: ``pending``: a newer process waiting for the current session to go
-    #: silent; ``retired``: superseded — this session can never apply state
-    #: again, so its worker should rotate to a fresh session id.
-    session_state: str = "current"
-    #: Whether this report changed the host's accepted observed state.
-    applied: bool = False
-
-    @property
-    def stale(self) -> bool:
-        return self.session_state == "retired"
 
 
 def _get(row: Any, key: str, index: int) -> Any:
@@ -81,7 +57,6 @@ def ingest_observation(
     capabilities: dict[str, Any] | None = None,
     conditions: dict[str, Any] | None = None,
     gpu_inventory: list[dict[str, Any]] | None = None,
-    handoff_silence_sec: float = DEFAULT_SESSION_HANDOFF_SILENCE_SEC,
 ) -> IngestResult:
     """Store one full-state observation inside the caller's transaction.
 
@@ -89,95 +64,7 @@ def ingest_observation(
     triple is a duplicate delivery and ingests nothing (at-least-once
     transport safe). Also enqueues the host for reconciliation and
     freshens ``hosts.last_observed_at``.
-
-    Session handoff: a session other than the host's current one may take
-    over only when the current session has been silent for
-    ``handoff_silence_sec`` (DB clock). Until then it is *pending*: its
-    snapshot is kept as evidence but applies nothing, and it takes over by
-    itself on a later report once the current session goes quiet. A delayed
-    first report from an older process therefore cannot retire the live
-    session. A superseded session is *retired* for good and the result says
-    so (``stale``) so its worker can rotate.
     """
-    if gpu_inventory is not None:
-        from control_plane.physical_inventory import validate_inventory
-
-        validate_inventory(gpu_inventory)
-    host = conn.execute(
-        "SELECT observation_session_id,"
-        "(last_observed_at IS NULL OR last_observed_at < clock_timestamp()"
-        " - make_interval(secs => %s)) AS current_silent "
-        "FROM hosts WHERE host_id=%s FOR UPDATE",
-        (handoff_silence_sec, host_id),
-    ).fetchone()
-    if host is None:
-        raise ValueError("observation host is not registered")
-    current_session = _get(host, "observation_session_id", 0)
-    may_supersede = current_session is None or bool(_get(host, "current_silent", 1))
-    previous = conn.execute(
-        "SELECT highest_generation,retired_at FROM host_observation_sessions "
-        "WHERE host_id=%s AND session_id=%s",
-        (host_id, session_id),
-    ).fetchone()
-    session_state = "current"
-    # Snapshot retention cannot erase a session's retirement or accepted
-    # generation. A known non-current session is diagnostic evidence only,
-    # unless it is a waiting successor whose predecessor has gone silent.
-    stale = False
-    takeover = False
-    if previous is not None:
-        if _get(previous, "retired_at", 1) is not None:
-            session_state, stale = "retired", True
-        elif current_session != session_id:
-            if may_supersede:
-                takeover = True
-            else:
-                session_state, stale = "pending", True
-        stale = stale or observation_generation <= _get(previous, "highest_generation", 0)
-    elif current_session not in (None, session_id) and not may_supersede:
-        # The registry permits exactly one non-retired session per host.
-        # Keep a waiting successor in the diagnostic snapshots until takeover;
-        # registering it here would collide with the live session's unique key.
-        session_state, stale = "pending", True
-    else:
-        takeover = True
-    if takeover:
-        # A writer that predates the registry (an older runtime still serving
-        # during a handoff) can record a current session without a registry
-        # row. Register it from its retained snapshots instead of refusing
-        # every later report, so its generation fence still holds.
-        conn.execute(
-            "UPDATE host_observation_sessions SET retired_at=clock_timestamp() "
-            "WHERE host_id=%s AND retired_at IS NULL AND session_id IS DISTINCT FROM %s",
-            (host_id, session_id),
-        )
-        if current_session is not None and current_session != session_id:
-            # Record the session the previous writer left behind even when its
-            # snapshots were already pruned. A later replay stays retired.
-            conn.execute(
-                """INSERT INTO host_observation_sessions
-                   (host_id,session_id,highest_generation,retired_at)
-                   VALUES (%s,%s,COALESCE((
-                       SELECT max(inventory_generation) FROM host_observations
-                        WHERE host_id=%s AND session_id=%s),-1),clock_timestamp())
-                   ON CONFLICT(host_id,session_id) DO NOTHING""",
-                (host_id, current_session, host_id, current_session),
-            )
-        previous = conn.execute(
-            """INSERT INTO host_observation_sessions(host_id,session_id,highest_generation)
-               VALUES (%s,%s,COALESCE((
-                   SELECT max(inventory_generation) FROM host_observations
-                    WHERE host_id=%s AND session_id=%s),-1))
-               ON CONFLICT(host_id,session_id) DO UPDATE
-                  SET highest_generation=host_observation_sessions.highest_generation
-               RETURNING highest_generation,retired_at""",
-            (host_id, session_id, host_id, session_id),
-        ).fetchone()
-        stale = _get(previous, "retired_at", 1) is not None or (
-            observation_generation <= _get(previous, "highest_generation", 0)
-        )
-        if _get(previous, "retired_at", 1) is not None:
-            session_state = "retired"
     row = conn.execute(
         """
         INSERT INTO host_observations
@@ -191,22 +78,14 @@ def ingest_observation(
         RETURNING observation_id
         """,
         (
-            host_id,
-            session_id,
-            observation_generation,
-            agent_version,
-            Jsonb(capabilities or {}),
-            Jsonb(conditions or {}),
-            Jsonb(gpu_inventory or []),
-            len(workloads),
-            worker_reported_at,
-            worker_reported_at or 0.0,
+            host_id, session_id, observation_generation, agent_version,
+            Jsonb(capabilities or {}), Jsonb(conditions or {}),
+            Jsonb(gpu_inventory or []), len(workloads),
+            worker_reported_at, worker_reported_at or 0.0,
         ),
     ).fetchone()
     if row is None:
-        return IngestResult(
-            observation_id=None, duplicate=True, workloads=0, session_state=session_state
-        )
+        return IngestResult(observation_id=None, duplicate=True, workloads=0)
     observation_id = str(_get(row, "observation_id", 0))
 
     for w in workloads:
@@ -219,9 +98,7 @@ def ingest_observation(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                observation_id,
-                host_id,
-                session_id,
+                observation_id, host_id, session_id,
                 w.get("job_id") or None,
                 w.get("attempt_id") or None,
                 int(w["fencing_token"]) if w.get("fencing_token") else None,
@@ -233,39 +110,11 @@ def ingest_observation(
             ),
         )
 
-    if stale:
-        return IngestResult(
-            observation_id=observation_id,
-            duplicate=False,
-            workloads=len(workloads),
-            session_state=session_state,
-        )
+    # received_at (DB clock) is the freshness signal §12.2.
     conn.execute(
-        "UPDATE host_observation_sessions SET highest_generation=%s,latest_observation_id=%s "
-        "WHERE host_id=%s AND session_id=%s AND retired_at IS NULL",
-        (observation_generation, observation_id, host_id, session_id),
+        "UPDATE hosts SET last_observed_at = clock_timestamp() WHERE host_id = %s",
+        (host_id,),
     )
-    # received_at (DB clock) is the freshness signal §12.2. Capability and
-    # condition observations confer no operator admission or execution intent.
-    conn.execute(
-        "UPDATE hosts SET last_observed_at=clock_timestamp(),observation_session_id=%s, "
-        "capabilities=COALESCE(%s::jsonb,capabilities),conditions=COALESCE(%s::jsonb,conditions), "
-        "availability_state=CASE WHEN %s THEN 'not_ready' "
-        "WHEN %s AND status='active' THEN 'ready' ELSE availability_state END "
-        "WHERE host_id=%s",
-        (
-            session_id,
-            Jsonb(capabilities) if capabilities is not None else None,
-            Jsonb(conditions) if conditions is not None else None,
-            gpu_inventory == [] or (conditions or {}).get("gpu_inventory") == "unavailable",
-            bool(gpu_inventory),
-            host_id,
-        ),
-    )
-    if gpu_inventory is not None:
-        from control_plane.physical_inventory import sync_physical_inventory
-
-        sync_physical_inventory(conn, host_id=host_id, inventory=gpu_inventory)
     # PK-coalesced: one pending reconcile per host, soonest due_at wins.
     conn.execute(
         """
@@ -297,7 +146,7 @@ def ingest_observation(
         (f"agent:{session_id}", host_id),
     )
     return IngestResult(
-        observation_id=observation_id, duplicate=False, workloads=len(workloads), applied=True
+        observation_id=observation_id, duplicate=False, workloads=len(workloads)
     )
 
 
@@ -305,13 +154,10 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
     """The newest snapshot header for a host, with its workloads."""
     row = conn.execute(
         """
-        SELECT o.observation_id, o.session_id, o.inventory_generation, o.received_at
-          FROM host_observations o
-          JOIN host_observation_sessions s ON s.host_id=o.host_id AND s.session_id=o.session_id
-              AND s.latest_observation_id=o.observation_id
-              AND s.highest_generation=o.inventory_generation AND s.retired_at IS NULL
-          JOIN hosts h ON h.host_id=o.host_id AND h.observation_session_id=o.session_id
-         WHERE o.host_id = %s
+        SELECT observation_id, session_id, inventory_generation, received_at
+          FROM host_observations
+         WHERE host_id = %s
+         ORDER BY received_at DESC
          LIMIT 1
         """,
         (host_id,),
@@ -323,7 +169,8 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
         {
             "job_id": _get(w, "job_id", 0),
             "attempt_id": (
-                str(_get(w, "attempt_id", 1)) if _get(w, "attempt_id", 1) is not None else None
+                str(_get(w, "attempt_id", 1))
+                if _get(w, "attempt_id", 1) is not None else None
             ),
             "fencing_token": _get(w, "fencing_token", 2),
             "container_name": _get(w, "container_name", 3),
@@ -350,8 +197,10 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
     }
 
 
-def prune_observations(conn: Connection, *, retention_days: int = 3, limit: int = 2000) -> int:
-    """Prune diagnostic snapshots; durable session fences deliberately survive."""
+def prune_observations(
+    conn: Connection, *, retention_days: int = 3, limit: int = 2000
+) -> int:
+    """Observations are high-volume diagnostics; keep a short window."""
     result = conn.execute(
         """
         DELETE FROM host_observations

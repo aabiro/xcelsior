@@ -1581,7 +1581,9 @@ def get_tier_by_priority(priority):
 
 def list_tiers():
     """Return all tiers with their details."""
-    return {name: dict(info) for name, info in PRIORITY_TIERS.items()}
+    from service_tier_pricing import SERVICE_TIERS
+
+    return {name: dict(info) for name, info in SERVICE_TIERS.items()}
 
 
 # ── Phase 3: Job Queue ────────────────────────────────────────────────
@@ -1653,6 +1655,11 @@ def submit_job(
     serverless_config=None,
     conn=None,
     admitted_launch_spec=None,
+    service_tier_price_id=None,
+    gpu_exclusive_price_id=None,
+    queue_bid_price_id=None,
+    queue_bid_units=0,
+    wallet_hold_id=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1687,6 +1694,11 @@ def submit_job(
             "name": name,
             "vram_needed_gb": vram_needed_gb,
             "tier": tier,
+            "service_tier_price_id": service_tier_price_id,
+            "exclusive_gpu": exclusive_gpu,
+            "gpu_exclusive_price_id": gpu_exclusive_price_id,
+            "queue_bid_price_id": queue_bid_price_id,
+            "queue_bid_units": queue_bid_units,
             "num_gpus": num_gpus,
             "gpu_model": gpu_model,
             "nfs_server": nfs_server,
@@ -1719,7 +1731,7 @@ def submit_job(
                 "version": 1,
                 "launch_spec": launch_spec,
                 "owner": str(owner or ""),
-                "priority": None if tier else int(priority or 0),
+                "priority": None,
                 "exclusive_gpu": bool(exclusive_gpu),
                 "job_type": str(job_type or "").strip(),
                 "preferred_host_id": preferred_host_id or None,
@@ -1762,28 +1774,32 @@ def submit_job(
     if pricing_mode not in ("on_demand", "spot", "reserved"):
         pricing_mode = "on_demand"
 
-    if pricing_mode == "spot":
-        tier = "spot"
-    # Tier overrides raw priority
-    if tier and tier in PRIORITY_TIERS:
-        tier_info = PRIORITY_TIERS[tier]
-        priority = tier_info["priority"]
-    elif tier:
-        log.warning("UNKNOWN TIER '%s' — defaulting to on-demand", tier)
-        tier = "on-demand"
-        priority = 1
-    else:
-        tier = get_tier_by_priority(priority)
+    from service_tier_pricing import SERVICE_TIERS, normalize_tier, quote_tier
 
-    if pricing_mode == "spot":
-        tier = "spot"
-        tier_info = PRIORITY_TIERS["spot"]
-        priority = tier_info["priority"]
-
-    # Spot tier: mark job as interruptible
-    is_spot = pricing_mode == "spot" or PRIORITY_TIERS.get(tier, {}).get("spot", False)
-    if is_spot:
+    if tier == "spot":
         pricing_mode = "spot"
+    tier = normalize_tier(tier)
+    service_tier_quote = None
+    # Serverless has its own admitted billing quote; its internal workers do
+    # not buy an instance queue class. New customer instances always do.
+    if serverless_config is None and (
+        owner or service_tier_price_id or tier != "standard" or exclusive_gpu or queue_bid_units
+    ):
+        if not gpu_model:
+            raise ValueError("Select a GPU model before requesting a priced service tier")
+        service_tier_quote = quote_tier(
+            gpu_model,
+            pricing_mode,
+            tier=tier,
+            num_gpus=max(1, int(num_gpus or 1)),
+            price_id=service_tier_price_id,
+            gpu_exclusive=bool(exclusive_gpu),
+            gpu_exclusive_price_id=gpu_exclusive_price_id,
+            queue_bid_units=queue_bid_units,
+            queue_bid_price_id=queue_bid_price_id,
+        )
+    priority = SERVICE_TIERS[tier]["priority"] if service_tier_quote else 1
+    is_spot = pricing_mode == "spot"
 
     normalized_region = ""
     if region:
@@ -1832,7 +1848,18 @@ def submit_job(
         "ssh_port": int(ssh_port or 22),
         "volume_ids": volume_ids or [],
         "encrypted_workspace": bool(encrypted_workspace),
-        "exclusive_gpu": bool(exclusive_gpu),
+        "exclusive_gpu": (
+            bool(service_tier_quote.get("gpu_exclusive"))
+            if service_tier_quote
+            else bool(exclusive_gpu)
+        ),
+        "host_exclusive": bool(service_tier_quote and service_tier_quote["host_exclusive"]),
+        "service_tier_quote": service_tier_quote,
+        "service_tier_price_id": (
+            service_tier_quote["stripe_price_id"] if service_tier_quote else None
+        ),
+        "queue_bid_price_id": queue_bid_price_id,
+        "queue_bid_units": queue_bid_units,
         # P2.1 — optional provisioning hooks (all bounded by the agent to 15 s).
         "init_script": init_script or "",
         "git_repo": git_repo or "",
@@ -1875,22 +1902,52 @@ def submit_job(
         job["pricing_mode"] = "spot"
         from control_plane.spot_admission import lock_admission_quote
 
-        lock_admission_quote(job)
+        if not service_tier_quote:
+            lock_admission_quote(job)
+        else:
+            job["spot_rate_cad"] = service_tier_quote["total_per_hour_cad"] / job["num_gpus"]
 
-    outbox_enqueued = False
-    with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
-        # Fairness and quota policy key on the admitted spec's team/tenant.
-        # Both are resolved here from the server-selected owner, never taken
-        # from the request, and frozen into the spec with the rest of it.
-        job.update(_admission_identity(write_conn, owner))
-        admitted = _upsert_job_row(
-            write_conn, job, admission_spec=launch_spec, admission_request=admission_request
+    if service_tier_quote:
+        from service_tier_pricing import fund_tier_submission, TierSchedulingUnavailable
+        from control_plane.scheduler.config import SchedulerConfig
+
+        if not owner or not SchedulerConfig.from_env().owns_job(job):
+            raise TierSchedulingUnavailable("Paid service tiers require a customer and native scheduler ownership")
+        job["wallet_hold_id"] = fund_tier_submission(
+            owner, job["job_id"], service_tier_quote, hold_id=wallet_hold_id
         )
-        if admitted is not None:
-            job = admitted
-        if _active_backend() == "postgres":
-            _append_submission_outbox(write_conn, str(job["job_id"]))
-            outbox_enqueued = True
+    outbox_enqueued = False
+    try:
+        with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
+            # Fairness and quota policy key on the admitted spec's team/tenant.
+            # Both are resolved here from the server-selected owner, never taken
+            # from the request, and frozen into the spec with the rest of it.
+            job.update(_admission_identity(write_conn, owner))
+            admitted = _upsert_job_row(
+                write_conn, job, admission_spec=launch_spec, admission_request=admission_request
+            )
+            if admitted is not None:
+                job = admitted
+            if _active_backend() == "postgres":
+                from control_plane.queue_bids import record_submission
+
+                record_submission(write_conn, job)
+                if service_tier_quote:
+                    write_conn.execute(
+                        "UPDATE jobs SET wallet_hold_id=%s::uuid WHERE job_id=%s",
+                        (job["wallet_hold_id"], job["job_id"]),
+                    )
+                _append_submission_outbox(write_conn, str(job["job_id"]))
+                outbox_enqueued = True
+
+    except Exception:
+        if service_tier_quote:
+            from billing import get_billing_engine
+
+            get_billing_engine().release_wallet_hold(
+                job["wallet_hold_id"], reason="submission_failed"
+            )
+        raise
 
     # Mirror to secondary DB
     if conn is None:

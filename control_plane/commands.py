@@ -81,7 +81,6 @@ def enqueue_current_attempt_command(
     created_by: str,
     idempotency_key: str | None = None,
     expires_in_sec: int = 900,
-    lock_nowait: bool = False,
 ) -> EnqueuedAttemptCommand:
     """Enqueue a lifecycle command bound to the job's current authority.
 
@@ -89,10 +88,6 @@ def enqueue_current_attempt_command(
     the tuple in the durable command cannot race a concurrent re-placement.
     Retried API requests collapse on ``idempotency_key``.
     """
-    # A reconciler already owns the queue row. Runtime writers own their
-    # command/lease row before their trigger requests that queue row, so repair
-    # must not wait in the opposite order. Ordinary lifecycle callers retain
-    # their existing blocking locks.
     authority = conn.execute(
         """
         SELECT j.active_attempt_id, a.host_id, a.fencing_token, a.spec_hash,
@@ -110,11 +105,13 @@ def enqueue_current_attempt_command(
          ORDER BY l.claimed_at DESC NULLS LAST
          LIMIT 1
            FOR UPDATE OF j, a, l
-        """ + (" NOWAIT" if lock_nowait else ""),
+        """,
         (job_id,),
     ).fetchone()
     if authority is None:
-        raise CommandProtocolError(f"job {job_id} has no active fenced authority", job_id=job_id)
+        raise CommandProtocolError(
+            f"job {job_id} has no active fenced authority", job_id=job_id
+        )
     attempt_id = str(_get(authority, "active_attempt_id", 0))
     host_id = str(_get(authority, "host_id", 1))
     fencing_token = int(_get(authority, "fencing_token", 2))
@@ -232,7 +229,9 @@ def claim_commands(
             args=_get(r, "args", 2) or {},
             job_id=_get(r, "job_id", 3),
             attempt_id=(
-                str(_get(r, "attempt_id", 4)) if _get(r, "attempt_id", 4) is not None else None
+                str(_get(r, "attempt_id", 4))
+                if _get(r, "attempt_id", 4) is not None
+                else None
             ),
             fencing_token=_get(r, "fencing_token", 5),
             spec_hash=_get(r, "spec_hash", 6),
@@ -249,8 +248,6 @@ def ack_command(
     *,
     command_id: str,
     host_id: str,
-    worker_session_id: str | None = None,
-    claim_attempt: int | None = None,
     result: dict[str, Any] | None = None,
     result_retention_sec: int = DEFAULT_RESULT_RETENTION_SEC,
 ) -> AckOutcome:
@@ -269,8 +266,6 @@ def ack_command(
          WHERE command_id = %(command_id)s
            AND claim_owner = %(host_id)s
            AND status = 'claimed'
-           AND (%(session)s::text IS NULL OR claim_session = %(session)s)
-           AND (%(attempt)s::integer IS NULL OR attempt_count = %(attempt)s)
         RETURNING command_id
         """,
         {
@@ -278,8 +273,6 @@ def ack_command(
             "retention": result_retention_sec,
             "command_id": command_id,
             "host_id": host_id,
-            "session": worker_session_id,
-            "attempt": claim_attempt,
         },
     ).fetchone()
     if row is not None:
@@ -287,20 +280,17 @@ def ack_command(
     # Not transitioned — either a duplicate ACK (fine, replay stored
     # result) or an illegitimate one (error).
     existing = conn.execute(
-        "SELECT status, claim_owner, ack_result, claim_session, attempt_count FROM agent_commands "
+        "SELECT status, claim_owner, ack_result FROM agent_commands "
         "WHERE command_id = %s",
         (command_id,),
     ).fetchone()
     if existing is None:
-        raise CommandProtocolError(f"command {command_id} does not exist", command_id=command_id)
+        raise CommandProtocolError(
+            f"command {command_id} does not exist", command_id=command_id
+        )
     status = _get(existing, "status", 0)
     owner = _get(existing, "claim_owner", 1)
-    if (
-        status == "acknowledged"
-        and owner == host_id
-        and (worker_session_id is None or _get(existing, "claim_session", 3) == worker_session_id)
-        and (claim_attempt is None or _get(existing, "attempt_count", 4) == claim_attempt)
-    ):
+    if status == "acknowledged" and owner == host_id:
         return AckOutcome(
             command_id=command_id,
             duplicate=True,
@@ -318,8 +308,6 @@ def nack_command(
     *,
     command_id: str,
     host_id: str,
-    worker_session_id: str | None = None,
-    claim_attempt: int | None = None,
     error_code: str,
     error_details: dict[str, Any] | None = None,
     retryable: bool = True,
@@ -341,8 +329,6 @@ def nack_command(
          WHERE command_id = %(command_id)s
            AND claim_owner = %(host_id)s
            AND status = 'claimed'
-           AND (%(session)s::text IS NULL OR claim_session = %(session)s)
-           AND (%(attempt)s::integer IS NULL OR attempt_count = %(attempt)s)
         RETURNING attempt_count, max_attempts
         """,
         {
@@ -350,8 +336,6 @@ def nack_command(
             "details": Jsonb(error_details or {}),
             "command_id": command_id,
             "host_id": host_id,
-            "session": worker_session_id,
-            "attempt": claim_attempt,
         },
     ).fetchone()
     if row is None:

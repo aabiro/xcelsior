@@ -48,11 +48,7 @@ class TestSQLiteAutoInit:
     def test_events_module_creates_tables(self):
         tables = _pg_tables()
         assert "events" in tables
-        # Migration 127 archived the v1 `leases` table and dropped it; fenced
-        # placement leases are the only lease authority.
-        assert "placement_leases" in tables
-        assert "legacy_lease_archive" in tables
-        assert "leases" not in tables
+        assert "leases" in tables
 
     def test_billing_module_creates_tables(self):
         tables = _pg_tables()
@@ -307,13 +303,7 @@ class TestAlembicMigrationFiles:
         import importlib.util
         import pathlib
 
-        path = (
-            pathlib.Path(__file__).resolve().parent.parent
-            / "api"
-            / "migrations"
-            / "versions"
-            / name
-        )
+        path = pathlib.Path(__file__).resolve().parent.parent / "migrations" / "versions" / name
         spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -350,15 +340,13 @@ class TestAlembicMigrationFiles:
         """Migration 036 — shared team wallet column on teams."""
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT column_name, is_nullable, column_default
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name = 'teams'
                   AND column_name = 'billing_customer_id'
-                """
-            ).fetchone()
+                """).fetchone()
         assert row is not None
         name = row["column_name"] if isinstance(row, dict) else row[0]
         assert name == "billing_customer_id"

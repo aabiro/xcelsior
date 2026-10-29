@@ -360,7 +360,7 @@ def render(rows: list[dict[str, str]]) -> str:
                 f"| {label.get('notes', '')} |"
             )
         out.append("")
-    return "\n".join(out) + "\n"
+    return "\n".join(out).rstrip() + "\n"
 
 
 def main() -> None:

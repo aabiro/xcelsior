@@ -7,9 +7,6 @@ x-api-environment: &api-env
   XCELSIOR_WEBAUTHN_RP_ID: ${XCELSIOR_WEBAUTHN_RP_ID:-xcelsior.ca}
   XCELSIOR_WEBAUTHN_ORIGIN: ${XCELSIOR_WEBAUTHN_ORIGIN:-https://xcelsior.ca}
   XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
-  XCELSIOR_SERVICE: api
-  XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
-  XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
   XCELSIOR_DB_PATH: /data/xcelsior.db
   XCELSIOR_AUTH_DB_PATH: /data/auth.db
   XCELSIOR_BILLING_DB_PATH: /data/xcelsior_billing.db
@@ -29,13 +26,10 @@ x-api-environment: &api-env
   XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
   XCELSIOR_LOG_FILE: /data/xcelsior.log
   XCELSIOR_LOG_FORMAT: ${XCELSIOR_LOG_FORMAT:-json}
-  XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@${XCELSIOR_POSTGRES_HOST:-127.0.0.1}:${XCELSIOR_POSTGRES_PORT:-5432}/${XCELSIOR_POSTGRES_DB:-xcelsior}
+  XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
   XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-postgres}
   XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
   XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
-  XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_REQUESTS: ${XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_REQUESTS:-20}
-  XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC:-300}
-  XCELSIOR_LEASE_STOP_EVIDENCE_TIMEOUT_SEC: ${XCELSIOR_LEASE_STOP_EVIDENCE_TIMEOUT_SEC:-3600}
   # Serverless rate-limit degradation policy (companion §2.3/§5.5): what
   # happens when the global Redis limiter is unavailable. Production must
   # declare it (undefined fails /readyz); no silent per-process fallback.
@@ -44,7 +38,6 @@ x-api-environment: &api-env
   # The API still runs legacy queue walkers during rollout; without these
   # values it cannot skip jobs owned by the transactional scheduler.
   XCELSIOR_SCHEDULER_MODE: ${XCELSIOR_SCHEDULER_MODE:-paused}
-  XCELSIOR_RETIRED_LEGACY_PATHS: ${XCELSIOR_RETIRED_LEGACY_PATHS:-}
   XCELSIOR_SCHEDULER_CANARY_GPU_MODELS: ${XCELSIOR_SCHEDULER_CANARY_GPU_MODELS:-}
   XCELSIOR_SCHEDULER_CANARY_HOSTS: ${XCELSIOR_SCHEDULER_CANARY_HOSTS:-}
   XCELSIOR_SCHEDULER_CLAIMS_ENABLED: ${XCELSIOR_SCHEDULER_CLAIMS_ENABLED:-true}
@@ -97,11 +90,6 @@ x-api-environment: &api-env
   # providers without a client id (GET /api/auth/oauth/providers).
   FACEBOOK_CLIENT_ID: ${FACEBOOK_CLIENT_ID:-}
   FACEBOOK_CLIENT_SECRET: ${FACEBOOK_CLIENT_SECRET:-}
-  # Meta Conversions API. The token stays on the API; the pixel id is public.
-  META_PIXEL_ID: ${META_PIXEL_ID:-}
-  META_DATASET_ID: ${META_DATASET_ID:-}
-  META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
-  META_TEST_EVENT_CODE: ${META_TEST_EVENT_CODE:-}
   # Stripe Connect
   XCELSIOR_STRIPE_MODE: ${XCELSIOR_STRIPE_MODE:-sandbox}
   XCELSIOR_STRIPE_SECRET_KEY: ${XCELSIOR_STRIPE_SECRET_KEY:-}
@@ -260,11 +248,6 @@ x-api-environment: &api-env
   XCELSIOR_SECRETS_BACKEND: ${XCELSIOR_SECRETS_BACKEND:-}
   XCELSIOR_ENV_FILE: ${XCELSIOR_ENV_FILE:-}
   XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING:-report_only}
-  XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING:-report_only}
-  # Billing repairs run in the API/maintenance identity, each opt-in independently.
-  XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING: ${XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING:-report_only}
-  XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER: ${XCELSIOR_RECONCILE_ACTION_BILLING_MISSING_METER:-report_only}
-  XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER: ${XCELSIOR_RECONCILE_ACTION_BILLING_ORPHANED_METER:-report_only}
   # Serverless inference (feature flag + autoscaler/reaper tuning)
   XCELSIOR_SERVERLESS_ENABLED: ${XCELSIOR_SERVERLESS_ENABLED:-false}
   XCELSIOR_SERVERLESS_ALLOWLIST: ${XCELSIOR_SERVERLESS_ALLOWLIST:-}
@@ -443,14 +426,13 @@ services:
   api:
     build: .
     <<: *api-hardening
-    command: ["/bin/sh", "api/scripts/start_api.sh"]
+    command: gunicorn api:app -c gunicorn.conf.py
     # Phase 10: API is unprivileged — LUKS/NFS privileged ops run via SSH
     # to the host or the volume-provisioner service (no SYS_ADMIN here).
     environment:
       <<: *api-env
       XCELSIOR_SERVICE: api
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
-      XCELSIOR_API_EFFECT_DISPATCHER: ${XCELSIOR_API_EFFECT_DISPATCHER:-true}
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
       # Defaults to the production value; the staging runner sets 127.0.0.1.
       XCELSIOR_API_BIND: ${XCELSIOR_API_BIND:-0.0.0.0}
@@ -474,12 +456,11 @@ services:
   api-blue:
     build: .
     <<: *api-hardening
-    command: ["/bin/sh", "api/scripts/start_api.sh"]
+    command: gunicorn api:app -c gunicorn.conf.py
     environment:
       <<: *api-env
       XCELSIOR_SERVICE: api
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
-      XCELSIOR_API_EFFECT_DISPATCHER: ${XCELSIOR_API_EFFECT_DISPATCHER:-true}
       XCELSIOR_API_PORT: ${XCELSIOR_API_BLUE_PORT:-9501}
       XCELSIOR_BG_TASKS: "false"
     network_mode: host
@@ -504,7 +485,6 @@ services:
       # Companion §4.2/§4.3: own connection identity, and (once an
       # operator sets the DSN) its own least-privilege role.
       XCELSIOR_SERVICE: scheduler
-      XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
       XCELSIOR_AUTOSCALE: ${XCELSIOR_AUTOSCALE:-}
       XCELSIOR_AUTOSCALE_PROVIDER: ${XCELSIOR_AUTOSCALE_PROVIDER:-}
       XCELSIOR_EMAIL_REPLY_TO: ${XCELSIOR_EMAIL_REPLY_TO:-}
@@ -525,7 +505,7 @@ services:
       XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
       XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
       XCELSIOR_LOG_FILE: /data/xcelsior.log
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@${XCELSIOR_POSTGRES_HOST:-127.0.0.1}:${XCELSIOR_POSTGRES_PORT:-5432}/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       # Track A: paused | shadow | canary | active (shadow = read-only
       # comparison of the new placement pipeline against this legacy loop)
       XCELSIOR_SCHEDULER_MODE: ${XCELSIOR_SCHEDULER_MODE:-paused}
@@ -546,7 +526,6 @@ services:
       XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING: ${XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING:-report_only}
       XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION: ${XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION:-report_only}
       XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING:-report_only}
-      XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING:-report_only}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
       XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
       XCELSIOR_SMTP_PORT: ${XCELSIOR_SMTP_PORT:-587}
@@ -620,15 +599,12 @@ services:
   bg-worker:
     build: .
     <<: *api-hardening
-    command: python workers/bg_worker.py
+    command: python bg_worker.py
     network_mode: host
     environment:
       <<: *api-env
-      XCELSIOR_SERVICE: ${XCELSIOR_MAINTENANCE_DB_SERVICE:-reconciler}
-      XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE: ${XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE:-0}
-      XCELSIOR_POSTGRES_DSN_RECONCILER: ${XCELSIOR_POSTGRES_DSN_RECONCILER:-}
+      XCELSIOR_SERVICE: billing
       XCELSIOR_POSTGRES_DSN_BILLING: ${XCELSIOR_POSTGRES_DSN_BILLING:-}
-      XCELSIOR_POSTGRES_DSN_PROJECTOR: ${XCELSIOR_POSTGRES_DSN_PROJECTOR:-}
     volumes: *api-volumes
     restart: unless-stopped
     depends_on:
@@ -643,7 +619,7 @@ services:
       retries: 3
 
   mcp:
-    build: ./api/mcp
+    build: ./mcp
     network_mode: host
     environment:
       XCELSIOR_API_URL: ${XCELSIOR_API_URL:-http://127.0.0.1:9500}
@@ -706,7 +682,7 @@ services:
 
   frontend:
     build:
-      context: ./api/frontend
+      context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://xcelsior.ca}
@@ -717,7 +693,6 @@ services:
         NEXT_PUBLIC_PAYPAL_MODE: ${NEXT_PUBLIC_PAYPAL_MODE:-sandbox}
         NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
-        META_PIXEL_ID: ${META_PIXEL_ID:-}
         NEXT_PUBLIC_REOWN_PROJECT_ID: ${NEXT_PUBLIC_REOWN_PROJECT_ID:-}
         # Public/write-only phc_ token: Next.js must receive this while building
         # because NEXT_PUBLIC_* values are inlined into the browser bundle.
@@ -727,7 +702,6 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://localhost:9555}
-      META_PIXEL_ID: ${META_PIXEL_ID:-}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
       NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
@@ -737,13 +711,10 @@ services:
 
   ssh-gateway:
     build: .
-    command: python hosts/ssh_gateway.py
+    command: python ssh_gateway.py
     network_mode: host
     environment:
-      XCELSIOR_SERVICE: ssh_gateway
-      XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
-      XCELSIOR_POSTGRES_DSN_SSH_GATEWAY: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:-}
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@${XCELSIOR_POSTGRES_HOST:-127.0.0.1}:${XCELSIOR_POSTGRES_PORT:-5432}/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       SSH_GW_HEALTH_PORT: "9510"
       SSH_GW_MAX_CONNS: "10"
       SSH_GW_IDLE_TIMEOUT: "3600"
@@ -765,14 +736,11 @@ services:
 
   ssh-gateway-blue:
     build: .
-    command: python hosts/ssh_gateway.py
+    command: python ssh_gateway.py
     network_mode: host
     profiles: ["blue"]
     environment:
-      XCELSIOR_SERVICE: ssh_gateway
-      XCELSIOR_DB_ROLES_REQUIRED: ${XCELSIOR_DB_ROLES_REQUIRED:-0}
-      XCELSIOR_POSTGRES_DSN_SSH_GATEWAY: ${XCELSIOR_POSTGRES_DSN_SSH_GATEWAY:-}
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@${XCELSIOR_POSTGRES_HOST:-127.0.0.1}:${XCELSIOR_POSTGRES_PORT:-5432}/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       SSH_GW_HEALTH_PORT: "9511"
       SSH_GW_MAX_CONNS: "10"
       SSH_GW_IDLE_TIMEOUT: "3600"
@@ -794,7 +762,7 @@ services:
   # Default production path is host-SSH from API without this profile.
   volume-provisioner:
     build:
-      context: ./api/infra/volume-provisioner
+      context: ./infra/volume-provisioner
     profiles: ["volume-provisioner"]
     network_mode: host
     cap_add:
@@ -823,7 +791,7 @@ services:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
     volumes:
-      - ./api/infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - otel-collector-data:/var/lib/otelcol
     networks:
@@ -870,9 +838,9 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
-      - ./api/infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./api/infra/observability/prometheus/recording-rules.yml:/etc/prometheus/rules/recording-rules.yml:ro
-      - ./api/infra/observability/prometheus/alert-rules.yml:/etc/prometheus/rules/alert-rules.yml:ro
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus/recording-rules.yml:/etc/prometheus/rules/recording-rules.yml:ro
+      - ./infra/observability/prometheus/alert-rules.yml:/etc/prometheus/rules/alert-rules.yml:ro
       - prometheus-data:/prometheus
     networks:
       - observability
@@ -911,7 +879,7 @@ services:
     ports:
       - "127.0.0.1:9093:9093"
     volumes:
-      - ${XCELSIOR_ALERTMANAGER_CONFIG_PATH:-./api/infra/observability/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+      - ${XCELSIOR_ALERTMANAGER_CONFIG_PATH:-./infra/observability/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
     networks:
       - observability
@@ -947,9 +915,9 @@ services:
     ports:
       - "127.0.0.1:3001:3000"
     volumes:
-      - ./api/infra/observability/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
-      - ./api/infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./api/infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./infra/observability/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     networks:
       - observability
@@ -982,12 +950,8 @@ services:
     image: grafana/loki:3.5.3
     command:
       - -config.file=/etc/loki/loki.yaml
-    # Loopback only, for the host's native Grafana. Not 3100: another service
-    # on the production host already holds it.
-    ports:
-      - "127.0.0.1:3110:3100"
     volumes:
-      - ./api/infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - ./infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
     networks:
       - observability
@@ -1016,7 +980,7 @@ services:
     command:
       - -config.file=/etc/tempo/tempo.yaml
     volumes:
-      - ./api/infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - ./infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
     networks:
       - observability
@@ -1045,7 +1009,7 @@ services:
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
     environment:
-      DATA_SOURCE_URI: ${XCELSIOR_POSTGRES_EXPORTER_URI:-${XCELSIOR_POSTGRES_HOST:-host.docker.internal}:${XCELSIOR_POSTGRES_PORT:-5432}/${XCELSIOR_POSTGRES_DB:-xcelsior}?sslmode=disable}
+      DATA_SOURCE_URI: ${XCELSIOR_POSTGRES_EXPORTER_URI:-host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}?sslmode=disable}
       DATA_SOURCE_USER: ${XCELSIOR_POSTGRES_EXPORTER_USER:-xcelsior}
       DATA_SOURCE_PASS: ${XCELSIOR_POSTGRES_EXPORTER_PASSWORD:-${XCELSIOR_POSTGRES_PASSWORD:-}}
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"

@@ -11,7 +11,7 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_spot_cap_")
 _tmpdir = _tmp_ctx.name
 
-os.environ.setdefault("XCELSIOR_API_TOKEN", "test-token-not-for-production")
+os.environ["XCELSIOR_API_TOKEN"] = ""
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 
@@ -84,7 +84,7 @@ class TestSpotCapacityGating:
 
     def test_spot_pool_exhausted_skips_host(self):
         _host("h1", spot_gpu_slots=1, gpu_count=1)
-        running = scheduler.submit_job("occupier", 8, pricing_mode="spot", gpu_model="RTX 4090")
+        running = scheduler.submit_job("occupier", 8, pricing_mode="spot")
         scheduler.update_job_status(running["job_id"], "running", host_id="h1")
         queued = scheduler.submit_job("waiter", 8, pricing_mode="spot", gpu_model="RTX 4090")
         picked = scheduler.allocate(queued, scheduler.list_hosts())
@@ -97,15 +97,7 @@ class TestSpotCapacityGating:
         assert picked is not None
         assert picked["host_id"] == "h1"
 
-    def test_process_queue_respects_spot_capacity(self, monkeypatch):
-        from control_plane.scheduler.config import SchedulerConfig, SchedulerMode
-
-        monkeypatch.setattr(
-            scheduler,
-            "_cp_config",
-            SchedulerConfig(mode=SchedulerMode.ACTIVE, replica_id="spot-pool-test"),
-        )
-        monkeypatch.setattr(scheduler, "_cp_service", None)
+    def test_process_queue_respects_spot_capacity(self):
         _host("good")
         _host("bad", spot_enabled=False)
         job = scheduler.submit_job("pq-spot", 8, pricing_mode="spot", gpu_model="RTX 4090")
@@ -116,6 +108,20 @@ class TestSpotCapacityGating:
         refreshed = scheduler.get_job(job["job_id"])
         assert refreshed.get("spot_rate_cad") is not None
         assert refreshed.get("pricing_mode") == "spot"
+
+
+class TestPreemptionLifecycle:
+    def test_preempt_increments_count_and_requeues(self):
+        _host("pre-h")
+        job = scheduler.submit_job("preempt-me", 8, pricing_mode="spot")
+        scheduler.update_job_status(job["job_id"], "running", host_id="pre-h")
+        result = scheduler.preempt_job(job["job_id"])
+        assert result is not None
+        assert result["status"] == "queued"
+        assert result.get("preempted_at") is not None
+        assert result.get("preemption_count") == 1
+        assert result.get("pricing_mode") == "spot"
+        assert result.get("preemptible") is True
 
 
 class TestHostSpotSettings:

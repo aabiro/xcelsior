@@ -27,13 +27,13 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # an interactive-instance launch (or are non-network operator tools).
 _JOB_WRITER_ALLOWLIST: dict[str, str] = {
     "control_plane/launch/service.py": "the unified launch service — the sanctioned authority (§14)",
-    "api/routes/instances.py": "REST /instance adapter — canonical-spec-aligned with the service (B2.6); full delegation is the B2.7 consolidation residual",
-    "api/serverless/service.py": "serverless worker provisioning — distinct lifecycle; B3.1 binds these to fenced attempts",
-    "workers/inference.py": "PEL inference job submission — request/response inference, not an interactive instance",
-    "api/routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
-    "core/ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
-    "core/cli.py": "local operator/dev CLI — not a network surface",
-    "api/scripts/seed_reviewer_account.py": (
+    "routes/instances.py": "REST /instance adapter — canonical-spec-aligned with the service (B2.6); full delegation is the B2.7 consolidation residual",
+    "serverless/service.py": "serverless worker provisioning — distinct lifecycle; B3.1 binds these to fenced attempts",
+    "inference.py": "PEL inference job submission — request/response inference, not an interactive instance",
+    "routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
+    "ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
+    "cli.py": "local operator/dev CLI — not a network surface",
+    "scripts/seed_reviewer_account.py": (
         "one-shot operator script that plants sample instances on the connector "
         "reviewer's own tenant — not a network surface, and deliberately does "
         "not go through the launch service because a demo account must never "
@@ -42,24 +42,13 @@ _JOB_WRITER_ALLOWLIST: dict[str, str] = {
 }
 
 # The low-level ``jobs`` row insert must live only in the persistence authority.
-_ROW_INSERT_ALLOWED = {"scheduler.py", "db.py", "worker_billing_acceptance.py"}
+_ROW_INSERT_ALLOWED = {"scheduler.py", "db.py"}
 
 
 def _iter_py_files():
     for path in REPO.rglob("*.py"):
         rel = path.relative_to(REPO).as_posix()
-        if rel.startswith(
-            (
-                "tests/",
-                ".venv/",
-                "venv/",
-                "node_modules/",
-                "mcp/",
-                "api/mcp/",
-                "artifacts/",
-                "core/artifacts/",
-            )
-        ):
+        if rel.startswith(("tests/", ".venv/", "venv/", "node_modules/", "mcp/")):
             continue
         # AppleDouble sidecars: macOS writes `._foo.py` next to `foo.py` when the
         # tree is reached over a network share, and they are binary resource

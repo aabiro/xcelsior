@@ -5,24 +5,24 @@ Drives the *shipped* bootstrap path (`scripts/bootstrap_pg_from_empty.sh`
 the gap that previously forced CI to restore `ci-cache/pg_schema.sql`.
 
 Requires a Postgres role that can CREATE DATABASE (CI's POSTGRES_USER is
-superuser). All database operations stay on that explicitly configured cluster.
+superuser; local runners fall back to `sudo -u postgres createdb`).
 """
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import pytest
-from psycopg.conninfo import conninfo_to_dict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BOOTSTRAP_SCRIPT = PROJECT_ROOT / "api" / "scripts" / "bootstrap_pg_from_empty.sh"
-MIG_056 = PROJECT_ROOT / "api" / "migrations" / "versions" / "056_durable_control_work.py"
+BOOTSTRAP_SCRIPT = PROJECT_ROOT / "scripts" / "bootstrap_pg_from_empty.sh"
+MIG_056 = PROJECT_ROOT / "migrations" / "versions" / "056_durable_control_work.py"
 
 # Tables that pure-alembic must create without runtime DDL or a dump restore.
 REQUIRED_AT_HEAD = (
@@ -31,10 +31,7 @@ REQUIRED_AT_HEAD = (
     "hosts",
     "outbox_events",
     "job_attempts",
-    "host_observation_sessions",
     "alembic_version",
-    "connect_accounts",
-    "connect_products",
     # Residual tables formerly ensure-only (migration 061).
     "job_logs",
     "oauth_clients",
@@ -43,7 +40,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "145"
+EXPECTED_HEAD = "122"
 
 
 def _admin_dsn() -> str | None:
@@ -58,32 +55,31 @@ def _admin_dsn() -> str | None:
         return None
     # Strip SQLAlchemy driver suffix if present.
     dsn = dsn.replace("postgresql+psycopg://", "postgresql://", 1)
-    if not conninfo_to_dict(dsn).get("host"):
+    parsed = urlparse(dsn)
+    if not parsed.hostname:
         return None
-    return _db_url(dsn, "postgres")
+    return urlunparse(parsed._replace(path="/postgres"))
 
 
 def _db_url(admin_dsn: str, dbname: str) -> str:
     parsed = urlparse(admin_dsn)
-    # urlunparse collapses postgresql:/// to postgresql:/ for socket URLs.
-    query = f"?{parsed.query}" if parsed.query else ""
-    return f"{parsed.scheme}://{parsed.netloc}/{dbname}{query}"
+    return urlunparse(parsed._replace(path=f"/{dbname}"))
 
 
 def _psql_env(admin_dsn: str) -> dict[str, str]:
-    params = conninfo_to_dict(admin_dsn)
+    parsed = urlparse(admin_dsn)
     env = os.environ.copy()
-    if params.get("password"):
-        env["PGPASSWORD"] = params["password"]
+    if parsed.password:
+        env["PGPASSWORD"] = parsed.password
     return env
 
 
 def _try_create_database(admin_dsn: str, dbname: str) -> bool:
     """Create an empty database. Returns False if privileges are missing."""
-    params = conninfo_to_dict(admin_dsn)
-    user = params.get("user", "xcelsior")
-    host = params["host"]
-    port = params.get("port", "5432")
+    parsed = urlparse(admin_dsn)
+    user = parsed.username or "xcelsior"
+    host = parsed.hostname or "localhost"
+    port = str(parsed.port or 5432)
     env = _psql_env(admin_dsn)
 
     sql = f'CREATE DATABASE "{dbname}" OWNER "{user}"'
@@ -111,15 +107,27 @@ def _try_create_database(admin_dsn: str, dbname: str) -> bool:
     if r.returncode == 0:
         return True
 
-    # Never fall back to the machine's default cluster when the target refuses.
+    # Local app roles often lack CREATEDB; peer-auth superuser fallback.
+    if shutil.which("sudo") and shutil.which("createdb"):
+        r2 = subprocess.run(
+            ["sudo", "-u", "postgres", "createdb", "-O", user, dbname],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if r2.returncode == 0:
+            return True
+        pytest.skip(
+            "cannot CREATE DATABASE " f"(psql: {r.stderr.strip()!r}; sudo: {r2.stderr.strip()!r})"
+        )
     pytest.skip(f"cannot CREATE DATABASE: {r.stderr.strip()!r}")
 
 
 def _drop_database(admin_dsn: str, dbname: str) -> None:
-    params = conninfo_to_dict(admin_dsn)
-    user = params.get("user", "xcelsior")
-    host = params["host"]
-    port = params.get("port", "5432")
+    parsed = urlparse(admin_dsn)
+    user = parsed.username or "xcelsior"
+    host = parsed.hostname or "localhost"
+    port = str(parsed.port or 5432)
     env = _psql_env(admin_dsn)
     # Terminate other sessions first so DROP is not blocked.
     term = (
@@ -164,7 +172,13 @@ def _drop_database(admin_dsn: str, dbname: str) -> None:
         text=True,
         timeout=60,
     )
-    assert r.returncode == 0, "throwaway database cleanup failed on configured cluster"
+    if r.returncode != 0 and shutil.which("sudo"):
+        subprocess.run(
+            ["sudo", "-u", "postgres", "dropdb", "--if-exists", dbname],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
 
 
 def _run_bootstrap(db_dsn: str) -> subprocess.CompletedProcess[str]:

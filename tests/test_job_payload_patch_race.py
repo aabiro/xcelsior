@@ -31,9 +31,12 @@ pytestmark = pytest.mark.skipif(not _native, reason="native job rows need Postgr
 
 
 @pytest.fixture
-def job_id():
+def job_id(paid_instance_variant):
+    marker = uuid.uuid4().hex
+    owner, model = "patch-owner-" + marker, "Patch GPU " + marker
+    paid_instance_variant(model, owner)
     job = scheduler.submit_job(
-        name=f"patch-race-{uuid.uuid4().hex[:8]}", vram_needed_gb=1, owner="patch-race-owner"
+        name=f"patch-race-{uuid.uuid4().hex[:8]}", vram_needed_gb=1, owner=owner, gpu_model=model
     )
     yield job["job_id"]
     with _pool.connection() as conn:

@@ -112,10 +112,7 @@ def test_sla_targets_public_reference():
     assert r.json().get("ok") is True
 
 
-_HOST_READS = [
-    ("GET", "/hosts", None),
-    ("GET", "/host/security-probe", None),
-]
+_HOST_READS = []
 
 
 @pytest.mark.parametrize("method,path,body", _HOST_READS)

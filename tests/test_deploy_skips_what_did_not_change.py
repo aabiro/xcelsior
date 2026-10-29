@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DEPLOY = ROOT / "api" / "scripts" / "deploy.sh"
+DEPLOY = ROOT / "scripts" / "deploy.sh"
 
 
 def _function(name: str) -> str:

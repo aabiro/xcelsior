@@ -35,14 +35,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: Each surface, and the pattern that extracts its default.
 SOURCES = {
-    "workers/worker_agent.py": re.compile(r'"XCELSIOR_PUBLIC_SSH_HOST":\s*"([^"]+)"'),
-    "core/ai_assistant_config.py": re.compile(
+    "worker_agent.py": re.compile(r'"XCELSIOR_PUBLIC_SSH_HOST":\s*"([^"]+)"'),
+    "ai_assistant_config.py": re.compile(
         r'SSH_HOST\s*=\s*os\.environ\.get\(\s*"XCELSIOR_SSH_HOST",\s*"([^"]+)"'
     ),
-    "api/frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx": re.compile(
+    "frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx": re.compile(
         r'SSH_HOST\s*=\s*process\.env\.NEXT_PUBLIC_SSH_HOST\s*\|\|\s*"([^"]+)"'
     ),
-    "api/mcp/src/config.ts": re.compile(r'process\.env\.XCELSIOR_SSH_HOST\s*\|\|\s*"([^"]+)"'),
+    "mcp/src/config.ts": re.compile(r'process\.env\.XCELSIOR_SSH_HOST\s*\|\|\s*"([^"]+)"'),
 }
 
 

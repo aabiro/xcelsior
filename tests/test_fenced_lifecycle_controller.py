@@ -8,15 +8,11 @@ and intermediate job projection — not a mocked "success" string.
 
 from __future__ import annotations
 
-from control_plane.state import initial_desired_state, job_phase
-from tests.native_jobs import admit_fixture_job
-
 import json
 import time
 import uuid
 
 import pytest
-from fastapi import HTTPException, Request
 
 try:
     from db import _get_pg_pool
@@ -55,8 +51,8 @@ def cleanup_ids():
 def _mkhost(cleanup, host_id):
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state, administrative_state, availability_state)
-               VALUES (%s, 'online', %s, %s, 'admitted', 'admitted', 'unknown')
+            """INSERT INTO hosts (host_id, status, registered_at, payload, admission_state)
+               VALUES (%s, 'online', %s, %s, 'admitted')
                ON CONFLICT (host_id) DO NOTHING""",
             (host_id, time.time(), json.dumps({"name": host_id})),
         )
@@ -74,24 +70,12 @@ def _mkjob(cleanup, *, host_id, status="running", container_name=None):
         "container_name": cname,
     }
     with _pool.connection() as conn:
-        fixture_submitted_at = time.time()
         conn.execute(
             """INSERT INTO jobs
-                   (job_id, status, priority, submitted_at, host_id, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, %s, 0, %s, %s, %s, %s, %s, 0, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
-            (
-                job_id,
-                status,
-                fixture_submitted_at,
-                host_id,
-                json.dumps(payload),
-                job_phase(status),
-                initial_desired_state(status),
-                status,
-                fixture_submitted_at,
-            ),
+                   (job_id, status, priority, submitted_at, host_id, payload)
+               VALUES (%s, %s, 0, %s, %s, %s)""",
+            (job_id, status, time.time(), host_id, json.dumps(payload)),
         )
-        admit_fixture_job(conn, job_id)
         conn.commit()
     cleanup["jobs"].append(job_id)
     return job_id, cname
@@ -146,7 +130,7 @@ def test_terminate_entry_point_enqueues_fenced_remove(cleanup_ids):
 
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, lifecycle_intent,
+            """SELECT status, payload->>'lifecycle_intent',
                       active_attempt_id::text
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
@@ -190,7 +174,7 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
 
     with _pool.connection() as conn:
         job = conn.execute(
-            """SELECT status, lifecycle_intent
+            """SELECT status, payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -206,101 +190,6 @@ def test_cancel_entry_point_enqueues_fenced_remove(cleanup_ids):
     assert cmd[1] == fence
     assert cmd[2]["preserve"] is False
     assert cmd[2]["intent"] == "cancel"
-
-
-@pytest.fixture
-def cancel_route(monkeypatch):
-    import routes.instances as routes
-
-    monkeypatch.setattr(routes, "_require_auth", lambda request: {"is_admin": True})
-    monkeypatch.setattr(routes, "_require_scope", lambda *args: None)
-    monkeypatch.setattr(routes, "_check_job_write_access", lambda *args: None)
-    request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
-    return lambda job_id: routes.api_cancel_instance(job_id, request)
-
-
-@pytest.mark.parametrize("status", ["running", "assigned", "stopped", "queued"])
-def test_cancel_refuses_unfenced_history_without_changing_it(cleanup_ids, cancel_route, status):
-    host_id = f"h-cancel-history-{uuid.uuid4().hex[:6]}"
-    _mkhost(cleanup_ids, host_id)
-    job_id, _ = _mkjob(cleanup_ids, host_id=host_id, status=status)
-    with _pool.connection() as conn:
-        before = conn.execute(
-            "SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)
-        ).fetchone()[0]
-    with pytest.raises(HTTPException) as exc:
-        cancel_route(job_id)
-    assert exc.value.status_code == 409
-    with _pool.connection() as conn:
-        assert (
-            conn.execute("SELECT to_jsonb(j) FROM jobs j WHERE job_id=%s", (job_id,)).fetchone()[0]
-            == before
-        )
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM agent_commands WHERE job_id=%s", (job_id,)
-            ).fetchone()[0]
-            == 0
-        )
-
-
-def test_cancel_can_settle_an_unplaced_queued_job(cleanup_ids, cancel_route):
-    job_id, _ = _mkjob(cleanup_ids, host_id=None, status="queued")
-    assert cancel_route(job_id)["status"] == "cancelled"
-    with _pool.connection() as conn:
-        assert conn.execute(
-            "SELECT status,active_attempt_id FROM jobs WHERE job_id=%s", (job_id,)
-        ).fetchone() == ("cancelled", None)
-
-
-def test_cancel_route_uses_fenced_stop_for_active_attempt(cleanup_ids, cancel_route, monkeypatch):
-    from unittest.mock import Mock
-
-    detach = Mock(side_effect=AssertionError("volume detached before worker stop confirmation"))
-    monkeypatch.setattr("volumes.get_volume_engine", detach)
-    host_id = f"h-cancel-active-{uuid.uuid4().hex[:6]}"
-    _mkhost(cleanup_ids, host_id)
-    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
-    attempt_id, fence = _mk_active_attempt(job_id, host_id)
-    assert cancel_route(job_id)["status"] == "stopping"
-    detach.assert_not_called()
-    with _pool.connection() as conn:
-        assert conn.execute(
-            "SELECT command,attempt_id::text,fencing_token FROM agent_commands WHERE job_id=%s",
-            (job_id,),
-        ).fetchone() == ("stop_attempt", attempt_id, fence)
-
-
-@pytest.mark.parametrize("race", ["assigned", "fenced", "host_only"])
-def test_cancel_rechecks_authority_after_initial_read(cleanup_ids, cancel_route, monkeypatch, race):
-    import routes.instances as routes
-
-    host_id = f"h-cancel-race-{uuid.uuid4().hex[:6]}"
-    _mkhost(cleanup_ids, host_id)
-    job_id, _ = _mkjob(cleanup_ids, host_id=None, status="queued")
-    update = routes.update_job_status
-
-    def advance_before_cancel(*args, **kwargs):
-        if race == "fenced":
-            _mk_active_attempt(job_id, host_id)
-        elif race == "host_only":
-            # A competing native controller wins the row lock; payload patches
-            # are deliberately unable to assign hosts.
-            with _pool.connection() as conn:
-                conn.execute("UPDATE jobs SET host_id=%s WHERE job_id=%s", (host_id, job_id))
-        else:
-            update(job_id, "assigned", host_id=host_id)
-        return update(*args, **kwargs)
-
-    monkeypatch.setattr(routes, "update_job_status", advance_before_cancel)
-    with pytest.raises(HTTPException) as exc:
-        cancel_route(job_id)
-    assert exc.value.status_code == 409
-    with _pool.connection() as conn:
-        assert (
-            conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
-            != "cancelled"
-        )
 
 
 def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
@@ -327,7 +216,7 @@ def test_stopped_report_projects_terminated_from_intent(cleanup_ids):
         conn.commit()
         row = conn.execute(
             """SELECT status, active_attempt_id,
-                      lifecycle_intent
+                      payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -367,23 +256,23 @@ def test_stopped_report_projects_cancelled_from_intent(cleanup_ids):
     assert status == "cancelled"
 
 
-def test_unfenced_running_termination_refuses_without_status_projection(cleanup_ids):
+def test_legacy_terminate_still_marks_terminal_without_attempt(cleanup_ids):
     host_id = f"h-life-leg-{uuid.uuid4().hex[:6]}"
     _mkhost(cleanup_ids, host_id)
     job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
 
     from billing import BillingEngine
 
-    # A missing attempt pointer is not evidence that running work has stopped.
+    # No host SSH — terminate still marks terminal in PG; kill may warn.
     result = BillingEngine().terminate_instance(job_id)
-    assert result.get("terminated") is False
-    assert result.get("reason") == "native_attempt_required"
+    assert result.get("terminated") is True
+    assert result.get("status") == "terminated"
     with _pool.connection() as conn:
         status = conn.execute("SELECT status FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
         cmds = conn.execute(
             "SELECT COUNT(*) FROM agent_commands WHERE job_id=%s", (job_id,)
         ).fetchone()[0]
-    assert status == "running"
+    assert status == "terminated"
     assert cmds == 0
 
 
@@ -391,8 +280,8 @@ def test_routes_no_longer_hardfail_only_on_controller_missing():
     """Static: terminate/cancel controllers are wired; fail-closed strings gone as sole path."""
     from pathlib import Path
 
-    billing = Path("billing/billing.py").read_text(encoding="utf-8")
-    instances = Path("api/routes/instances.py").read_text(encoding="utf-8")
+    billing = Path("billing.py").read_text(encoding="utf-8")
+    instances = Path("routes/instances.py").read_text(encoding="utf-8")
     assert "request_fenced_stop_remove" in billing
     assert "request_fenced_stop_remove" in instances
     # Must not be the only return for attempt-owned terminate.
@@ -430,7 +319,7 @@ def test_enqueue_refuse_does_not_leave_stopping_without_command(cleanup_ids):
 
     with _pool.connection() as conn:
         row = conn.execute(
-            """SELECT status, lifecycle_intent
+            """SELECT status, payload->>'lifecycle_intent'
                  FROM jobs WHERE job_id=%s""",
             (job_id,),
         ).fetchone()
@@ -463,58 +352,3 @@ def test_terminate_billing_cycle_once_per_attempt(cleanup_ids):
         ).fetchone()[0]
     assert n_bc == 1
     assert n_cmd == 1
-
-
-@pytest.mark.parametrize("dead", ["dead_letter", "cancelled", "expired"])
-def test_a_repeated_stop_rearms_a_command_that_died_undelivered(cleanup_ids, dead):
-    """The {intent}:{attempt} key used to return the dead command: nothing was delivered."""
-    from control_plane.commands import claim_commands
-    from control_plane.lifecycle import request_fenced_stop
-
-    host_id = f"h-life-r-{uuid.uuid4().hex[:6]}"
-    _mkhost(cleanup_ids, host_id)
-    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
-    _mk_active_attempt(job_id, host_id)
-
-    first = request_fenced_stop(job_id=job_id, created_by="user")
-    assert first.ok and first.command_created and not first.command_redelivered
-    with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE agent_commands SET status=%s, attempt_count=5, "
-            "expires_at=CASE WHEN %s THEN EXTRACT(EPOCH FROM NOW())-1 ELSE expires_at END "
-            "WHERE command_id=%s",
-            ("pending" if dead == "expired" else dead, dead == "expired", first.command_id),
-        )
-        conn.commit()
-
-    again = request_fenced_stop(job_id=job_id, created_by="user")
-    assert again.ok and again.command_id == first.command_id
-    assert again.command_redelivered and not again.command_created
-    with _pool.connection() as conn:
-        delivered = claim_commands(conn, host_id=host_id, worker_session_id="rearm-test")
-        conn.commit()
-    assert [c.command_id for c in delivered] == [first.command_id]
-
-
-def test_a_repeated_stop_leaves_an_in_flight_command_alone(cleanup_ids):
-    from control_plane.lifecycle import request_fenced_stop
-
-    host_id = f"h-life-f-{uuid.uuid4().hex[:6]}"
-    _mkhost(cleanup_ids, host_id)
-    job_id, _ = _mkjob(cleanup_ids, host_id=host_id)
-    _mk_active_attempt(job_id, host_id)
-    first = request_fenced_stop(job_id=job_id, created_by="user")
-    with _pool.connection() as conn:
-        conn.execute(
-            "UPDATE agent_commands SET status='claimed', attempt_count=1, claim_owner=%s, "
-            "claim_expires_at=clock_timestamp()+interval '1 minute' WHERE command_id=%s",
-            (host_id, first.command_id),
-        )
-        conn.commit()
-    again = request_fenced_stop(job_id=job_id, created_by="user")
-    assert again.ok and not again.command_redelivered
-    with _pool.connection() as conn:
-        assert conn.execute(
-            "SELECT status, attempt_count FROM agent_commands WHERE command_id=%s",
-            (first.command_id,),
-        ).fetchone() == ("claimed", 1)

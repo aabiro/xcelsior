@@ -57,15 +57,9 @@ ALLOWED_ABSENT = {
 
 def _tracked() -> set[str]:
     out = subprocess.run(
-        ["git", "ls-files", "docs", "api/docs"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
+        ["git", "ls-files", "docs"], cwd=ROOT, capture_output=True, text=True, check=True
     )
-    tracked = set(out.stdout.split())
-    tracked.update(p.removeprefix("api/") for p in list(tracked) if p.startswith("api/docs/"))
-    return tracked
+    return set(out.stdout.split())
 
 
 def _citations() -> dict[str, list[str]]:

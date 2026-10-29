@@ -40,10 +40,10 @@ from control_plane.scheduler.filters import FilterReason, aggregate_reason  # no
 from tests._source_tree import strip_ts_comments  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-COMPONENT = ROOT / "api/frontend/src/components/instances/placement-explanation.tsx"
-PAGE = ROOT / "api/frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx"
-API_TS = ROOT / "api/frontend/src/lib/api.ts"
-MCP_TOOL = ROOT / "api/mcp/src/tools/diagnostics.ts"
+COMPONENT = ROOT / "frontend/src/components/instances/placement-explanation.tsx"
+PAGE = ROOT / "frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx"
+API_TS = ROOT / "frontend/src/lib/api.ts"
+MCP_TOOL = ROOT / "mcp/src/tools/diagnostics.ts"
 
 
 def _explanation() -> dict:
@@ -151,6 +151,24 @@ def test_the_attempt_type_does_not_carry_the_explanation_blob():
         "`InstanceAttempt` now types `placement_explanation`, which carries the "
         "per-host rejections map. The customer surface renders the redacted "
         "aggregate from the dedicated endpoint instead."
+    )
+
+
+def test_the_lease_route_aliases_the_host_rather_than_naming_it():
+    """The component renders `host_alias` as-is, so the route must redact it."""
+    source = (ROOT / "routes/control_plane_v1.py").read_text(encoding="utf-8")
+    # The whole function, not up to the first `return` — the handler returns
+    # early for "no lease", and matching that stops before the aliasing code.
+    # The first draft did exactly that and failed against a correct route.
+    match = re.search(
+        r"def api_v1_instance_active_lease\(.*?(?=\n@router\.|\ndef )", source, re.DOTALL
+    )
+    assert match, "the active-lease handler moved; re-point this guard"
+    body = match.group(0)
+    assert "host_alias" in body, "the lease no longer carries an alias"
+    assert 'lease.pop("host_id")' in body, (
+        "the raw `host_id` is no longer popped from the lease payload, so the "
+        "component — which renders what it is given — would print it"
     )
 
 

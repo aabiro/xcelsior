@@ -66,15 +66,6 @@ def sse_payload_for(event: OutboxEvent) -> dict | None:
     user-visible shape (unknown types publish silently — forward
     compatible with producers this build doesn't know yet)."""
     p = event.payload or {}
-    if event.event_type in ("job.v1.http_ports_ready", "job.v1.auto_launch_ports_ready"):
-        return {
-            "type": (
-                "http_ports_ready"
-                if event.event_type == "job.v1.http_ports_ready"
-                else "auto_launch_ready"
-            ),
-            "data": {**p, "job_id": event.aggregate_id},
-        }
     if event.event_type == "job.v1.placement_reserved":
         return {
             "type": "job_status",
@@ -329,43 +320,12 @@ def handle_legacy_audit(event: OutboxEvent) -> None:
     log.debug("legacy audit destination %s handed to projection runtime", event.event_id)
 
 
-# These classes mutate billing, notifications, or serverless rows. The
-# scheduler dispatcher must not claim them: its handlers would fail the
-# service check and dead-letter the intent.
-API_EFFECT_DESTINATIONS = (
-    "billing_notice",
-    "billing_stop",
-    "attempt_settlement",
-)
-
-
 def default_handlers() -> dict:
-    from control_plane.billing_effects import (
-        handle_attempt_settlement,
-        handle_failed_cycle_stop,
-        handle_wallet_notice,
-    )
-
     return {
-        "billing_notice": handle_wallet_notice,
-        "billing_stop": handle_failed_cycle_stop,
-        "attempt_settlement": handle_attempt_settlement,
         "default": handle_default,
         "agent_wake": handle_agent_wake,
         "audit": handle_legacy_audit,
     }
-
-
-def scheduler_handlers() -> dict:
-    handlers = default_handlers()
-    for name in API_EFFECT_DESTINATIONS:
-        handlers.pop(name, None)
-    return handlers
-
-
-def api_effect_handlers() -> dict:
-    handlers = default_handlers()
-    return {name: handlers[name] for name in API_EFFECT_DESTINATIONS}
 
 
 def prune_settled_events(
@@ -458,9 +418,6 @@ def run_dispatcher_loop(
     dispatcher_id: str | None = None,
     stop: threading.Event | None = None,
     interval_sec: float = _DISPATCH_INTERVAL_SEC,
-    handlers: dict | None = None,
-    include_destination_classes: tuple[str, ...] | None = None,
-    exclude_destination_classes: tuple[str, ...] | None = None,
 ) -> None:
     """Blocking dispatch loop: claim → deliver → settle, plus retention.
 
@@ -468,12 +425,7 @@ def run_dispatcher_loop(
     Failures are contained per cycle — the loop must outlive transient DB
     or handler trouble.
     """
-    dispatcher = OutboxDispatcher(
-        dispatcher_id or f"outbox-{os.getpid()}",
-        handlers or default_handlers(),
-        include_destination_classes=include_destination_classes,
-        exclude_destination_classes=exclude_destination_classes,
-    )
+    dispatcher = OutboxDispatcher(dispatcher_id or f"outbox-{os.getpid()}", default_handlers())
     stop = stop or threading.Event()
     cycles = 0
     heartbeat = ServiceHeartbeat(
@@ -502,28 +454,13 @@ def run_dispatcher_loop(
         stop.wait(interval_sec)
 
 
-def start_outbox_dispatcher(*, audience: str = "scheduler") -> threading.Thread | None:
-    """Start one dispatcher audience.
+def start_outbox_dispatcher() -> threading.Thread | None:
+    """Start the dispatcher thread (scheduler-worker container).
 
-    The scheduler audience delivers SSE and command intents and never claims
-    API-owned billing effects. The API audience delivers only those effects.
-    ``XCELSIOR_OUTBOX_DISPATCHER=false`` disables the scheduler audience.
-    ``XCELSIOR_API_EFFECT_DISPATCHER=false`` disables the API audience.
+    Gated by ``XCELSIOR_OUTBOX_DISPATCHER`` (default on) and the presence
+    of the outbox table; SKIP LOCKED claims make extra replicas safe.
     """
-    if audience == "api":
-        enabled = (os.environ.get("XCELSIOR_API_EFFECT_DISPATCHER") or "true").strip().lower()
-        handlers = api_effect_handlers()
-        include: tuple[str, ...] | None = API_EFFECT_DESTINATIONS
-        exclude: tuple[str, ...] | None = None
-        name = "api-effect-dispatcher"
-    elif audience == "scheduler":
-        enabled = (os.environ.get("XCELSIOR_OUTBOX_DISPATCHER") or "true").strip().lower()
-        handlers = scheduler_handlers()
-        include = None
-        exclude = API_EFFECT_DESTINATIONS
-        name = "outbox-dispatcher"
-    else:
-        raise ValueError("outbox audience must be api or scheduler")
+    enabled = (os.environ.get("XCELSIOR_OUTBOX_DISPATCHER") or "true").strip().lower()
     if enabled in ("0", "false", "no", "off"):
         return None
     try:
@@ -533,19 +470,6 @@ def start_outbox_dispatcher(*, audience: str = "scheduler") -> threading.Thread 
     except Exception as e:
         log.error("outbox schema check failed (%s) — dispatcher not starting", e)
         return None
-    stop = threading.Event()
-    thread = threading.Thread(
-        target=run_dispatcher_loop,
-        name=name,
-        kwargs={
-            "dispatcher_id": f"{name}-{os.getpid()}",
-            "stop": stop,
-            "handlers": handlers,
-            "include_destination_classes": include,
-            "exclude_destination_classes": exclude,
-        },
-        daemon=True,
-    )
-    thread.stop_event = stop  # type: ignore[attr-defined]
+    thread = threading.Thread(target=run_dispatcher_loop, name="outbox-dispatcher", daemon=True)
     thread.start()
     return thread

@@ -193,22 +193,15 @@ def create_plan(
         if len(selected) >= needed:
             return None  # Normal reservation can place without disrupting anyone.
         victims: dict[str, dict[str, Any]] = {}
-        # The accounting clock lock also serializes operator policy publication.
-        # Recheck current class/entitlement; a revision can protect a running team.
-        from control_plane.scheduler.fairness import team_key_sql
-
-        key = team_key_sql()
+        # Queue bids and aging buy no eviction right. Compare only the
+        # originally purchased class; raw priority and operator weights cannot
+        # make a lower-priced instance displace a higher-priced customer.
         ranks = {
-            r["job_id"]: (r["rank"], r["entitlement"])
-            for r in cur.execute(
-                f"""
-            SELECT j.job_id,COALESCE(p.administrative_class,0)*1000
-                +GREATEST(0,LEAST(COALESCE(j.priority,0),979)) AS rank,
-                COALESCE(p.reservation_entitlement,0) AS entitlement
-            FROM jobs j LEFT JOIN LATERAL (SELECT * FROM scheduling_team_policies
-                WHERE team_key={key} ORDER BY version DESC LIMIT 1) p ON TRUE
-            WHERE j.job_id=ANY(%s)""",
-                (ids,),
+            row["job_id"]: (row["rank"], 0)
+            for row in cur.execute(
+                """SELECT job_id, CASE spec->'service_tier_quote'->>'tier'
+                    WHEN 'dedicated' THEN 3 WHEN 'premium' THEN 2 ELSE 1 END AS rank
+                   FROM jobs WHERE job_id=ANY(%s)""", (ids,),
             ).fetchall()
         }
         nominee_rank = ranks[job_id]

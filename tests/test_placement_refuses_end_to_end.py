@@ -86,12 +86,14 @@ def fleet():
 
     with pg_transaction() as conn:
         for host_id, cost, gpu in ((cheap, 0.20, model), (good, 0.22, model)):
-            # The trusted fixture writes admission and capability facts into
-            # native columns; payload observations grant no placement authority.
+            # `admission_state`, **not** `administrative_state`: a BEFORE
+            # trigger (`control_plane_project_host`) derives the latter from
+            # the former, so setting the projected column directly is silently
+            # overwritten and the host arrives at the hard filter as `pending`.
             conn.execute(
                 """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                      admission_state, admitted_at, administrative_state, availability_state, capabilities, last_observed_at)
-                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp(), 'admitted', 'ready', '{"egress_isolation":true}', clock_timestamp())""",
+                                      admission_state, admitted_at)
+                   VALUES (%s, 'active', %s, %s, 'admitted', clock_timestamp())""",
                 (
                     host_id,
                     now,
@@ -157,10 +159,6 @@ def fleet():
                 (host_id, score, score),
             )
 
-    from tests._db_helpers import report_test_host_inventory
-
-    for host_id in (cheap, good):
-        report_test_host_inventory(host_id)
     yield {"cheap": cheap, "good": good, "gpu_model": model}
 
     ids = [cheap, good]

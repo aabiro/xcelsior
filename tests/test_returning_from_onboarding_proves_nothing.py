@@ -45,7 +45,7 @@ import pathlib
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-STRIPE_CONNECT = ROOT / "billing" / "stripe_connect.py"
+STRIPE_CONNECT = ROOT / "stripe_connect.py"
 
 #: The single function that writes `status='active'` and stamps `onboarded_at`.
 COMPLETION = "complete_onboarding"
@@ -171,7 +171,7 @@ def test_no_request_handler_completes_onboarding_directly():
     looks right, and a provider who abandoned KYC is payout-eligible.
     """
     offenders = []
-    for path in sorted((ROOT / "api" / "routes").glob("*.py")):
+    for path in sorted((ROOT / "routes").glob("*.py")):
         text = path.read_text(encoding="utf-8", errors="ignore")
         if COMPLETION not in text:
             continue

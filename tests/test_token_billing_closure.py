@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from contextlib import ExitStack
 import time
 import uuid
 from unittest.mock import patch
@@ -66,14 +65,6 @@ def persistent_auth(monkeypatch):
 
 
 @pytest.fixture
-def priced_worker():
-    from tests.fixtures.native_serverless import running_serverless
-
-    with ExitStack() as stack:
-        yield lambda repo, endpoint_id: stack.enter_context(running_serverless(repo, endpoint_id))
-
-
-@pytest.fixture
 def blended_billing_env(monkeypatch):
     monkeypatch.delenv("XCELSIOR_SERVERLESS_BLENDED_BILLING", raising=False)
     monkeypatch.setenv("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "1")
@@ -125,14 +116,9 @@ class TestTokenBillingClosure:
             created = client.post(
                 "/api/v2/serverless/endpoints",
                 headers=headers,
-                json={
-                    "name": f"anc-{key}",
-                    "mode": "preset",
-                    "gpu_type": "RTX 4090",
-                    "model_name": model_name,
-                },
+                json={"name": f"anc-{key}", "mode": "preset", "model_name": model_name},
             )
-            assert created.status_code == 200, created.text
+            assert created.status_code == 200
             ep_id = created.json()["endpoint"]["endpoint_id"]
             built = mac_by_key.get(key) or execute_anchor_builder(key)
             payload = built["payload"]
@@ -171,7 +157,7 @@ class TestTokenBillingClosure:
         write_json_artifact("anchor-workloads.json", evidence)
         write_json_artifact("anchor-workloads.log", evidence)
 
-    def test_usage_api_proxy_traffic(self, fake_vllm_port, priced_worker):
+    def test_usage_api_proxy_traffic(self, fake_vllm_port):
         headers, cust = register_funded_headers(client, "usage")
         repo = ServerlessRepo()
         created = client.post(
@@ -180,7 +166,6 @@ class TestTokenBillingClosure:
             json={
                 "name": f"usage-{uuid.uuid4().hex[:4]}",
                 "mode": "preset",
-                "gpu_type": "RTX 4090",
                 "model_name": "Qwen/Qwen3-8B",
                 "gpu_type": "RTX 4090",
             },
@@ -213,7 +198,9 @@ class TestTokenBillingClosure:
                 ttft_ms=95,
             )
 
-        w2 = priced_worker(repo, ep_id)
+        tick_job = f"sched-usage-tick-{uuid.uuid4().hex[:8]}"
+        w2 = repo.create_worker(ep_id, scheduler_job_id=tick_job)
+        repo.update_worker(str(w2["worker_id"]), state="ready", allocated_at=time.time() - 130)
         billed_workers = bill_active_serverless_workers(get_billing_engine())
         assert billed_workers >= 1
 
@@ -248,7 +235,9 @@ class TestTokenBillingClosure:
         rate = get_gpu_rate_per_hour("RTX 4090", "ca-east")
         gpu_slice = estimate_cost_cad(130, rate, 1)
         token_win_cost = max(gpu_slice * 10, 2.50)
-        priced_worker(repo, ep_id)  # A second independently claimed, priced worker.
+        tick_job2 = f"sched-usage-token-win-{uuid.uuid4().hex[:8]}"
+        w3 = repo.create_worker(ep_id, scheduler_job_id=tick_job2)
+        repo.update_worker(str(w3["worker_id"]), state="ready", allocated_at=time.time() - 130)
         repo.accrue_endpoint_token_cost(ep_id, token_win_cost)
         wallet_before = float(billing.get_wallet(cust)["balance_cad"])
         cycle = billing.auto_billing_cycle()
@@ -287,9 +276,7 @@ class TestTokenBillingClosure:
         write_json_artifact("usage-sample.json", sample)
         client.delete(f"/api/v2/serverless/endpoints/{ep_id}", headers=headers)
 
-    def test_proxy_stream_embed_worker_blended_charge(
-        self, fake_vllm_port, blended_billing_env, priced_worker
-    ):
+    def test_proxy_stream_embed_worker_blended_charge(self, fake_vllm_port, blended_billing_env):
         headers, cust = register_funded_headers(client, "e2e")
         repo = ServerlessRepo()
         billing = get_billing_engine()
@@ -302,7 +289,6 @@ class TestTokenBillingClosure:
             json={
                 "name": f"e2e-{uuid.uuid4().hex[:4]}",
                 "mode": "preset",
-                "gpu_type": "RTX 4090",
                 "model_name": "Qwen/Qwen3-8B",
             },
         ).json()["endpoint"]
@@ -313,7 +299,6 @@ class TestTokenBillingClosure:
             json={
                 "name": f"emb-{uuid.uuid4().hex[:4]}",
                 "mode": "preset",
-                "gpu_type": "RTX 4090",
                 "model_name": "BAAI/bge-m3",
             },
         ).json()["endpoint"]
@@ -352,7 +337,8 @@ class TestTokenBillingClosure:
         assert r_emb.status_code == 200
         transcript["cases"].append({"case": "embeddings", "usage": r_emb.json().get("usage")})
 
-        w = priced_worker(repo, chat_id)
+        w = repo.create_worker(chat_id, scheduler_job_id="sched-blend")
+        repo.update_worker(str(w["worker_id"]), state="ready", allocated_at=time.time() - 130)
         meta = token_cost_metadata(2500, 800, model_ref="Qwen/Qwen3-8B", cached_tokens=1200)
         repo.accrue_endpoint_token_cost(chat_id, float(meta["total_token_cost_cad"]))
 
@@ -392,12 +378,7 @@ class TestTokenBillingClosure:
         created = client.post(
             "/api/v2/serverless/endpoints",
             headers=headers,
-            json={
-                "name": "spec-test",
-                "mode": "preset",
-                "gpu_type": "RTX 4090",
-                "model_name": model,
-            },
+            json={"name": "spec-test", "mode": "preset", "model_name": model},
         )
         ep_id = created.json()["endpoint"]["endpoint_id"]
 

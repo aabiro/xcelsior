@@ -48,7 +48,7 @@ else:
     if not _has:  # pragma: no cover
         pytestmark = pytest.mark.skip("test database is behind migration 111")
 
-ROUTES = "api/routes/instances.py"
+ROUTES = "routes/instances.py"
 
 
 # ── The column, and that it is genuinely nullable ─────────────────────
@@ -159,7 +159,7 @@ def test_the_sweep_exists_and_pins_a_digest():
     """
     import pathlib
 
-    routes = pathlib.Path("api/routes/instances.py").read_text(encoding="utf-8")
+    routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
     assert (
         '@router.post("/api/v1/image-sweep-plans/{plan_id}/execute"' in routes
     ), "the sweep execute route is gone; if it moved, point this at it"
@@ -191,7 +191,7 @@ def test_the_sweep_funds_every_member_before_submitting_it():
     """
     import pathlib
 
-    routes = pathlib.Path("api/routes/instances.py").read_text(encoding="utf-8")
+    routes = pathlib.Path("routes/instances.py").read_text(encoding="utf-8")
     start = routes.index("def api_execute_image_sweep_plan(")
     body = routes[start : routes.index("\n@router.", start + 1)]
     assert "_wallet_preflight(" in body, "the sweep no longer funds members before submitting them"
@@ -291,7 +291,7 @@ def test_the_worker_reads_the_digest_at_push_time():
     """
     import pathlib
 
-    agent = pathlib.Path("workers/worker_agent.py").read_text(encoding="utf-8")
+    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
     assert "def _read_repo_digest(" in agent, "the worker no longer reads a digest"
     assert (
         '"{{index .RepoDigests 0}}"' in agent
@@ -309,7 +309,7 @@ def test_a_digest_that_is_not_one_is_not_recorded():
     """
     import pathlib
 
-    agent = pathlib.Path("workers/worker_agent.py").read_text(encoding="utf-8")
+    agent = pathlib.Path("worker_agent.py").read_text(encoding="utf-8")
     assert (
         'return digest if "@sha256:" in digest else ""' in agent
     ), "the worker no longer checks the digest is shaped like one before reporting it"

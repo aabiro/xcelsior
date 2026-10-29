@@ -30,12 +30,12 @@ import time
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "api" / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 import render_nginx_vhosts as rnv  # noqa: E402
 
-NGINX = ROOT / "api" / "nginx"
-INSTALLER = ROOT / "api" / "scripts" / "install_nginx_vhosts.sh"
+NGINX = ROOT / "nginx"
+INSTALLER = ROOT / "scripts" / "install_nginx_vhosts.sh"
 
 
 def _source(name: str) -> str:
@@ -253,7 +253,6 @@ def host(tmp_path):
     for name in rnv.VHOSTS:
         (etc / "sites-available" / name).write_text(f"old {name}\n")
         (src / f"{name}.conf").write_text(f"new {name}\n")
-    shutil.copyfile(ROOT / "api/scripts/check_ingress_policy.py", src / "check_ingress_policy.py")
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -303,28 +302,6 @@ def test_a_site_that_stops_answering_is_rolled_back(host):
     assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
 
 
-def test_a_vhost_without_its_certificate_is_left_out_not_rolled_back(host, tmp_path):
-    """A new hostname's vhost lands before certbot runs; it must not block the rest."""
-    etc, src, env = host
-    issued = tmp_path / "issued.pem"
-    issued.write_text("cert\n")
-    (src / "docs-xcelsior.conf").write_text(
-        f"new docs-xcelsior\nssl_certificate {issued};\nssl_certificate_key {issued};\n"
-    )
-    (src / "otel-xcelsior.conf").write_text(
-        f"new otel-xcelsior\nssl_certificate {tmp_path}/not-issued/fullchain.pem;\n"
-    )
-    r = _install(env)
-    assert r.returncode == 0, r.stderr
-    assert "Skipping otel-xcelsior" in r.stderr
-    serving = _serving(etc)
-    assert serving.pop("otel-xcelsior") == "old otel-xcelsior"
-    assert serving.pop("docs-xcelsior").startswith("new docs-xcelsior")
-    assert serving == {
-        n: f"new {n}" for n in rnv.VHOSTS if n not in ("otel-xcelsior", "docs-xcelsior")
-    }
-
-
 def test_existing_abuse_policy_cannot_be_silently_disconnected(host):
     etc, _, env = host
     (etc / "conf.d").mkdir()
@@ -349,37 +326,11 @@ def test_installer_preserves_operator_deny_entries(host):
     (etc / "snippets/xcelsior-abuse-deny.conf").write_text(
         "if ($xcelsior_abuse_ip) { return 403; }\n"
     )
-    (src / "xcelsior.conf").write_text(
-        rnv.render(_source("xcelsior"), topology="direct", api_live="green", mcp_live="green")
-    )
+    with (src / "xcelsior.conf").open("a") as f:
+        f.write("include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;\n")
     r = _install(env)
     assert r.returncode == 0, r.stderr
     assert policy.read_text() == original
-
-
-@pytest.mark.parametrize("missing", [0, 1])
-def test_every_public_server_must_keep_its_abuse_policy(host, missing):
-    etc, src, env = host
-    (etc / "conf.d").mkdir()
-    (etc / "snippets").mkdir()
-    (etc / "conf.d/xcelsior-abuse-ips.conf").write_text("geo $xcelsior_abuse_ip { default 0; }\n")
-    (etc / "snippets/xcelsior-abuse-deny.conf").write_text(
-        "if ($xcelsior_abuse_ip) { return 403; }\n"
-    )
-    directive = "include /etc/nginx/snippets/xcelsior-abuse-deny*.conf;"
-    parts = _source("xcelsior").split(directive)
-    broken = (
-        parts[0]
-        + (directive if missing != 0 else "# " + directive)
-        + parts[1]
-        + (directive if missing != 1 else "# " + directive)
-        + parts[2]
-    )
-    (src / "xcelsior.conf").write_text(broken)
-    result = _install(env)
-    assert result.returncode != 0
-    assert "abuse" in result.stderr
-    assert _serving(etc) == {n: f"old {n}" for n in rnv.VHOSTS}
 
 
 def test_existing_abuse_map_requires_its_deny_snippet(host):

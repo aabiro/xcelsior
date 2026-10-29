@@ -1,13 +1,9 @@
-"""Native lifecycle columns, inventory sync, canary partition, and
+"""Phase 4 — projection triggers, inventory sync, canary partition, and
 the authoritative scheduler tick (claim → filter → score → reserve).
 
 Runs against the real test PostgreSQL. Everything is scoped by unique
 markers (gpu_model / host pool) so shared-DB residue can't interfere.
 """
-
-from tests.native_jobs import admit_fixture_job
-
-from control_plane.state import host_states, initial_desired_state, job_phase
 
 import json
 import time
@@ -16,15 +12,14 @@ import uuid
 import pytest
 
 try:
-    from db import DatabaseOps, _get_pg_pool
+    from db import _get_pg_pool
 
     _pool = _get_pg_pool()
     with _pool.connection() as _c:
         _c.execute("SELECT 1").fetchone()
         _migrated = (
             _c.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='jobs' AND column_name='phase'"
+                "SELECT tgname FROM pg_trigger " "WHERE tgname='trg_jobs_control_plane_projection'"
             ).fetchone()
             is not None
         )
@@ -33,7 +28,7 @@ except Exception as _e:  # pragma: no cover - skip path
     _pool = None
 else:
     if not _migrated:  # pragma: no cover - skip path
-        pytestmark = pytest.mark.skip("native lifecycle columns missing")
+        pytestmark = pytest.mark.skip("test database not migrated to >= 059")
 
 from control_plane.db import run_transaction
 from control_plane.inventory import sync_host_gpu_inventory
@@ -77,16 +72,14 @@ def _mk_host(
         # host. payload.admitted is kept only because callers assert on it.
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  admission_state, administrative_state, availability_state, capabilities, last_observed_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, '{"egress_isolation":true}', clock_timestamp())""",
+                                  admission_state)
+               VALUES (%s, %s, %s, %s, %s)""",
             (
                 host_id,
                 status,
                 time.time(),
                 json.dumps(payload),
                 "admitted" if admitted else "pending",
-                host_states(status, "admitted" if admitted else "pending")[0],
-                host_states(status, "admitted" if admitted else "pending")[1],
             ),
         )
         conn.commit()
@@ -119,24 +112,11 @@ def _mk_job(
     if scheduler:
         payload["scheduler"] = scheduler
     with _pool.connection() as conn:
-        fixture_submitted_at = time.time()
         conn.execute(
-            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, desired_state, effective_priority, queued_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IN ('queued','preempted') THEN to_timestamp(%s) ELSE NULL END)""",
-            (
-                job_id,
-                status,
-                priority,
-                fixture_submitted_at,
-                json.dumps(payload),
-                job_phase(status),
-                initial_desired_state(status),
-                priority,
-                status,
-                fixture_submitted_at,
-            ),
+            """INSERT INTO jobs (job_id, status, priority, submitted_at, payload)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (job_id, status, priority, time.time(), json.dumps(payload)),
         )
-        admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
     return payload
@@ -183,7 +163,7 @@ def _host_row(host_id):
     }
 
 
-class TestNativeLifecycleColumns:
+class TestProjectionTriggers:
     def test_insert_projects_all_columns(self, fleet):
         marker = uuid.uuid4().hex[:8]
         job_id = f"j-{marker}-a"
@@ -194,16 +174,14 @@ class TestNativeLifecycleColumns:
         assert row["effective_priority"] == 7
         assert row["queued_at"] is not None
 
-    def test_status_writer_sets_native_columns(self, fleet):
-        """The persistence writer owns lifecycle fields after contraction."""
+    def test_raw_status_update_reprojects(self, fleet):
+        """The billing/reaper-style raw UPDATE keeps the projection true."""
         marker = uuid.uuid4().hex[:8]
         job_id = f"j-{marker}-b"
         _mk_job(fleet, job_id, gpu_model=f"m-{marker}")
         with _pool.connection() as conn:
-            for status in ("running", "stopping"):
-                job = DatabaseOps.get_job(conn, job_id, backend="postgres")
-                job["status"] = status
-                DatabaseOps.upsert_job(conn, job, backend="postgres")
+            conn.execute("UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,))
+            conn.execute("UPDATE jobs SET status='stopping' WHERE job_id=%s", (job_id,))
             conn.commit()
         row = _job_row(job_id)
         assert row["phase"] == "running"
@@ -232,14 +210,14 @@ class TestNativeLifecycleColumns:
         row = _host_row(host_id)
         assert row["administrative_state"] == "pending"
 
-    def test_admission_and_scheduling_state_are_explicit(self, fleet):
-        """A trusted writer supplies both normalized admission and admin state."""
+    def test_admission_state_drives_the_projection(self, fleet):
+        """The authority column is what promotes a host."""
         marker = uuid.uuid4().hex[:8]
         host_id = f"h-{marker}-adm2"
         _mk_host(fleet, host_id, gpu_model=f"m-{marker}", admitted=False)
         with _pool.connection() as conn:
             conn.execute(
-                "UPDATE hosts SET admission_state='admitted',administrative_state='admitted' WHERE host_id=%s",
+                "UPDATE hosts SET admission_state = 'admitted' WHERE host_id=%s",
                 (host_id,),
             )
             conn.commit()
@@ -323,13 +301,6 @@ class TestCanaryPartition:
 
 class TestSchedulerServiceTick:
     def _cfg(self, marker, hosts, **overrides):
-        from tests._db_helpers import report_test_host_inventory
-
-        for host_id in hosts:
-            with _pool.connection() as conn:
-                exists = conn.execute("SELECT 1 FROM hosts WHERE host_id=%s", (host_id,)).fetchone()
-            if exists:
-                report_test_host_inventory(host_id)
         defaults = dict(
             mode=SchedulerMode.CANARY,
             replica_id=f"svc-{marker}",
@@ -406,6 +377,12 @@ class TestSchedulerServiceTick:
             ).fetchone()
         assert attempt[0] == trace_id
         assert command[0] == trace_id
+
+        # The legacy SSH starter must skip this attempt-owned job.
+        import scheduler as legacy_scheduler
+
+        owned = legacy_scheduler._attempt_owned_job_ids()
+        assert job_id in owned
 
     def test_kill_switch_stops_claims(self, fleet):
         marker = uuid.uuid4().hex[:8]
