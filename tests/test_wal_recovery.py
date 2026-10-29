@@ -92,7 +92,10 @@ def test_real_base_backup_replays_only_through_the_named_restore_point(tmp_path)
     # This creates its own checksum-enabled cluster under the security runner's
     # scratch space. It never connects to or reconfigures an existing cluster.
     assert os.environ["XCELSIOR_SKIP_DOTENV"] == "1"
-    assert "xcl-sec-pg-" in str(tmp_path)
+    if "xcl-sec-pg-" not in str(tmp_path):
+        # Only `api/scripts/run_security_gates.py` provides that scratch space,
+        # and it fails any run with a skip, so this cannot be skipped there.
+        pytest.skip("runs only under api/scripts/run_security_gates.py")
     binary = Path(shutil.which("pg_config")).resolve().parent
     if not (binary / "initdb").exists():
         binary = Path("/usr/lib/postgresql/16/bin")
