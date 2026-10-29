@@ -35,6 +35,7 @@ def _not_root(monkeypatch):
 
     monkeypatch.setattr(os, "geteuid", lambda: 1000)
 
+
 PRIMARY_CONFIG = {
     "server_url": "https://hs.xcelsior.ca",
     "listen_addr": "127.0.0.1:8443",
