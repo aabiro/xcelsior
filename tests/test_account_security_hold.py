@@ -148,13 +148,20 @@ def test_scheduler_rejects_suspended_account(suspended):
 
 
 def test_requeue_rejects_suspended_account(suspended):
-    from scheduler import requeue_job, submit_job, get_job, _set_job_fields
+    from scheduler import requeue_job, submit_job, get_job
 
     # Normal user job can be submitted
     job = submit_job(name="test-requeue", vram_needed_gb=1, owner="normal-user")
     job_id = job["job_id"]
     try:
-        _set_job_fields(job_id, status="failed", owner=suspended)
+        # Status and owner are authority columns a payload patch may not set.
+        from psycopg.types.json import Jsonb
+
+        with get_engine().transaction() as (conn, backend):
+            conn.execute(
+                "UPDATE jobs SET status='failed', owner_id=%s, payload=payload||%s WHERE job_id=%s",
+                (suspended, Jsonb({"status": "failed", "owner": suspended}), job_id),
+            )
         result = requeue_job(job_id, user_initiated=True)
         assert result is None
     finally:
