@@ -81,4 +81,18 @@ describe("StripeConnectEmbedded", () => {
     await expect(fetchClientSecret()).resolves.toBe("secret-2");
     expect(mocks.createProviderAccountSession).toHaveBeenCalledTimes(2);
   });
+
+  it("shows the error box when connect.js fails to load instead of a blank panel", async () => {
+    mocks.createProviderAccountSession.mockResolvedValue({ client_secret: "secret-1" });
+    const create = vi.fn(() => document.createElement("div"));
+    mocks.loadConnectAndInitialize.mockImplementation(() => ({
+      create,
+      debugInstance: () => Promise.reject(new Error("Failed to load Connect.js")),
+    }));
+    render(<StripeConnectEmbedded providerId="prov-1" mode="manage" />);
+
+    expect(await screen.findByText("Failed to load Connect.js")).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByText("Connect components ready")).not.toBeInTheDocument();
+  });
 });
