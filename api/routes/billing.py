@@ -358,6 +358,22 @@ def _paypal_settled_cad(capture: dict) -> float | None:
     return value if value > 0 else None
 
 
+def _refuse_paypal_order_for_another_wallet(
+    order_id: str, order: dict, expected_custom_id: str
+) -> None:
+    """Refuse with 403 an order whose ``custom_id`` names a different wallet."""
+    units = order.get("purchase_units") or []
+    custom_id = (units[0].get("custom_id") if units else "") or ""
+    if custom_id != expected_custom_id:
+        log.warning(
+            "PayPal capture refused: order %s belongs to %r, not %r",
+            order_id,
+            custom_id,
+            expected_custom_id,
+        )
+        raise HTTPException(403, "This PayPal order was not created for this wallet")
+
+
 def _paypal_capture_order(
     order_id: str,
     token: str | None = None,
@@ -373,16 +389,7 @@ def _paypal_capture_order(
     token = token or _paypal_access_token()
     order = _paypal_get_order(order_id, token)
     if expected_custom_id is not None:
-        units = order.get("purchase_units") or []
-        custom_id = (units[0].get("custom_id") if units else "") or ""
-        if custom_id != expected_custom_id:
-            log.warning(
-                "PayPal capture refused: order %s belongs to %r, not %r",
-                order_id,
-                custom_id,
-                expected_custom_id,
-            )
-            raise HTTPException(403, "This PayPal order was not created for this wallet")
+        _refuse_paypal_order_for_another_wallet(order_id, order, expected_custom_id)
     status = order.get("status", "")
     if status == "COMPLETED":
         return order
