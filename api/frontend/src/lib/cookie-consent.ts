@@ -1,4 +1,8 @@
-/** The visitor's cookie-banner choice. Only "marketing" (Meta Pixel and Conversions API) needs opt-in. */
+/**
+ * The visitor's cookie-banner choice. One answer covers every optional cookie:
+ * Meta Pixel and Conversions API, Google Analytics and identified PostHog.
+ * It is stored as `marketing` because the API reads that field for Meta.
+ */
 
 const COOKIE_NAME = "xcelsior_consent";
 const STORAGE_KEY = "xcelsior.cookieConsent";
