@@ -131,7 +131,7 @@ def test_team_admin_can_deposit_to_team_wallet(team_setup):
 def test_team_member_job_uses_team_wallet(team_setup):
     r = client.post(
         "/instance",
-        json={"name": "team-shared-job", "vram_needed_gb": 1},
+        json={"name": "team-shared-job", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=team_setup["member"]["headers"],
     )
     assert r.status_code == 200, r.text[:200]
@@ -145,7 +145,7 @@ def test_team_member_job_uses_team_wallet(team_setup):
 def test_team_member_sees_peer_instances(team_setup):
     created = client.post(
         "/instance",
-        json={"name": "peer-visible", "vram_needed_gb": 1},
+        json={"name": "peer-visible", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=team_setup["admin"]["headers"],
     )
     assert created.status_code == 200, created.text[:200]

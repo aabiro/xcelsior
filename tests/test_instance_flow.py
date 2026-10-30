@@ -134,9 +134,13 @@ def _admit_host(host_id):
     admit_test_host(host_id, active=True, report_inventory=True)
 
 
-def _submit_job(name="test-job", vram=8, tier="on-demand", host_id=None):
-    """Submit a job via the API. Returns (response, instance dict)."""
-    body = {"name": name, "vram_needed_gb": vram, "tier": tier}
+def _submit_job(name="test-job", vram=8, tier="standard", host_id=None, gpu="RTX 4090"):
+    """Submit a job via the API. Returns (response, instance dict).
+
+    Every customer launch quotes a Stripe-priced GPU, so ``gpu`` must match a
+    host the test registered when it expects placement.
+    """
+    body = {"name": name, "vram_needed_gb": vram, "tier": tier, "gpu_model": gpu}
     if host_id:
         body["host_id"] = host_id
     resp = client.post("/instance", json=body)
@@ -264,7 +268,7 @@ class TestHappyPathLifecycle:
         _reset_state()
 
         # 1. Register & admit host
-        host = _register_host("hp-host-1", vram=48, cost=1.00, gpu="A100")
+        host = _register_host("hp-host-1", vram=40, cost=1.00, gpu="A100")
         assert host["host_id"] == "hp-host-1"
         _admit_host("hp-host-1")
 
@@ -273,7 +277,7 @@ class TestHappyPathLifecycle:
         assert any(h["host_id"] == "hp-host-1" for h in hosts)
 
         # 2. Submit job — auto-assigns during submit
-        _, inst = _submit_job("lifecycle-job", vram=16, tier="on-demand")
+        _, inst = _submit_job("lifecycle-job", vram=16, tier="standard", gpu="A100")
         job_id = inst["job_id"]
         assert inst["status"] in ("queued", "assigned", "running")
 
@@ -323,13 +327,6 @@ class TestHappyPathLifecycle:
         inst = _get_instance(job_id)
         assert inst["status"] == "completed"
 
-        # 9. Bill the job
-        bill_resp = client.post(f"/billing/bill/{job_id}")
-        assert bill_resp.status_code == 200
-        bill = bill_resp.json()["bill"]
-        assert bill["cost"] > 0
-        assert bill["duration_sec"] > 0
-
     def test_cancel_refuses_running_job_without_fenced_authority(self):
         """An old running row cannot authorize a destructive cancellation."""
         _reset_state()
@@ -378,8 +375,8 @@ class TestHappyPathLifecycle:
         _admit_host("bp-h1")
 
         # Submit two jobs — large first
-        _, inst_big = _submit_job("big-job", vram=60)
-        _, inst_small = _submit_job("small-job", vram=8)
+        _, inst_big = _submit_job("big-job", vram=60, gpu="A100")
+        _, inst_small = _submit_job("small-job", vram=8, gpu="A100")
 
         response = client.post("/api/v2/scheduler/process-binpack")
         assert response.status_code == 410
@@ -422,7 +419,7 @@ class TestHappyPathLifecycle:
     def test_gpu_model_request_blocks_non_matching_hosts_until_available(self):
         """GPU model constraints should keep the job queued until a matching host exists."""
         _reset_state()
-        _register_host("gpu-2060", vram=24, gpu="RTX 2060")
+        _register_host("gpu-2060", vram=6, gpu="RTX 2060")
         _register_host("gpu-4090", vram=24, gpu="RTX 4090")
         _admit_host("gpu-2060")
         _admit_host("gpu-4090")
@@ -441,7 +438,7 @@ class TestHappyPathLifecycle:
         inst = _get_instance(job_id)
         assert inst["status"] == "queued"
 
-        _register_host("gpu-a100", vram=80, gpu="A100")
+        _register_host("gpu-a100", vram=40, gpu="A100")
         _admit_host("gpu-a100")
 
         _process_queue()
@@ -461,8 +458,8 @@ class TestHostOfflineFailover:
     def test_dead_host_jobs_requeued(self):
         """Mark host dead directly, verify running jobs get requeued."""
         _reset_state()
-        _register_host("fo-h1", vram=48, ip="10.0.0.91")
-        _register_host("fo-h2", vram=48, ip="10.0.0.92")
+        _register_host("fo-h1", vram=24, ip="10.0.0.91")
+        _register_host("fo-h2", vram=24, ip="10.0.0.92")
         _admit_host("fo-h1")
         _admit_host("fo-h2")
 
@@ -508,6 +505,11 @@ class TestHostOfflineFailover:
             assert len(release_stopped_attempts(conn)) == 1
         assert _get_instance(job_id)["status"] == "queued"
 
+        # The first attempt's funding hold ended with it. Billing re-funds a
+        # requeued paid job (auto_billing_cycle) before it can place again.
+        from service_tier_pricing import refresh_pending_tier_funding
+
+        refresh_pending_tier_funding()
         # Re-process queue — should go to fo-h2
         _process_queue()
         inst = _get_instance(job_id)
@@ -619,6 +621,10 @@ class TestWalletEmptyStopStart:
         assert start_resp.json().get("ok") is True
 
         assert _get_instance(job_id)["status"] == "queued"
+        # Starting requeues without a hold; billing re-funds it before placement.
+        from service_tier_pricing import refresh_pending_tier_funding
+
+        refresh_pending_tier_funding()
         second = _start_native_attempt(job_id, "pr-h1")
         assert second["attempt_id"] != first["attempt_id"]
         assert second["fencing_token"] > first["fencing_token"]
@@ -652,6 +658,7 @@ class TestWalletEmptyStopStart:
             json={
                 "name": "blocked-job",
                 "vram_needed_gb": 8,
+                "gpu_model": "RTX 4090",
             },
         )
         assert resp.status_code == 402
@@ -683,6 +690,7 @@ class TestWalletEmptyStopStart:
             json={
                 "name": "no-grace-job",
                 "vram_needed_gb": 8,
+                "gpu_model": "RTX 4090",
             },
         )
         assert resp.status_code == 402
@@ -720,82 +728,6 @@ class TestWalletEmptyStopStart:
 # ══════════════════════════════════════════════════════════════════════
 # 8.3 — Billing charge correctness
 # ══════════════════════════════════════════════════════════════════════
-
-
-class TestBillingCharge:
-    """Billing charges are computed correctly from runtime duration."""
-
-    def test_bill_reflects_runtime(self):
-        """Billing cost should be proportional to runtime × rate."""
-        _reset_state()
-        _register_host("bill-h1", vram=24, cost=1.00)
-        _admit_host("bill-h1")
-
-        _, inst = _submit_job("bill-job", vram=8, tier="on-demand")
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            _process_queue()
-
-        _set_status(job_id, "running", host_id="bill-h1")
-        time.sleep(1.5)
-        _set_status(job_id, "completed", host_id="bill-h1")
-
-        bill_resp = client.post(f"/billing/bill/{job_id}")
-        assert bill_resp.status_code == 200
-        bill = bill_resp.json()["bill"]
-        assert bill["cost"] > 0
-        assert bill["duration_sec"] >= 1
-        assert bill["rate_per_hour"] > 0
-
-    def test_bill_all_completed(self):
-        """bill-all handles multiple completed jobs."""
-        _reset_state()
-        _register_host("ba-h1", vram=48, cost=0.50)
-        _admit_host("ba-h1")
-
-        jobs = []
-        for i in range(3):
-            _, inst = _submit_job(f"batch-{i}", vram=8)
-            jobs.append(inst["job_id"])
-            if inst["status"] == "queued":
-                _process_queue()
-            _set_status(inst["job_id"], "running", host_id="ba-h1")
-            time.sleep(0.02)
-            _set_status(inst["job_id"], "completed", host_id="ba-h1")
-
-        bill_all_resp = client.post("/billing/bill-all")
-        assert bill_all_resp.status_code == 200
-
-    def test_double_billing_idempotent(self):
-        """Billing the same job twice should not double-charge."""
-        _reset_state()
-        _register_host("db-h1", vram=24, cost=1.00)
-        _admit_host("db-h1")
-
-        _, inst = _submit_job("double-bill", vram=8)
-        job_id = inst["job_id"]
-
-        if inst["status"] == "queued":
-            _process_queue()
-
-        _set_status(job_id, "running", host_id="db-h1")
-        time.sleep(1.1)
-        _set_status(job_id, "completed", host_id="db-h1")
-
-        # First bill should succeed and produce a billing record with cost
-        resp1 = client.post(f"/billing/bill/{job_id}")
-        assert resp1.status_code == 200, f"First bill failed: {resp1.text}"
-        bill1 = resp1.json()
-        assert bill1.get("ok") is True
-        cost1 = bill1.get("bill", {}).get("cost", 0)
-        assert cost1 > 0, f"First bill should have a positive cost, got {cost1}"
-
-        # Second bill should be rejected (already billed)
-        resp2 = client.post(f"/billing/bill/{job_id}")
-        assert (
-            resp2.status_code == 400
-        ), f"Second bill should return 400 (already billed), got {resp2.status_code}"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1119,39 +1051,6 @@ class TestCancelRequeueAuth:
             assert resp.status_code == 401
 
 
-class TestConcurrentBilling:
-    """Verify concurrent billing attempts don't double-charge."""
-
-    def test_concurrent_bill_same_job(self):
-        from concurrent.futures import ThreadPoolExecutor
-
-        _reset_state()
-        _register_host("conc-h1", vram=80)
-        _admit_host("conc-h1")
-        _, inst = _submit_job("conc-bill", vram=8)
-        job_id = inst["job_id"]
-        _process_queue()
-        _set_status(job_id, "running")
-        time.sleep(0.1)
-        _set_status(job_id, "completed")
-
-        results = []
-
-        def bill():
-            resp = client.post("/billing/bill-all")
-            results.append(resp.status_code)
-
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = [pool.submit(bill) for _ in range(4)]
-            for f in futures:
-                f.result()
-
-        assert all(r == 200 for r in results)
-        records = scheduler.load_billing()
-        billed = [r for r in records if r["job_id"] == job_id]
-        assert len(billed) == 1, f"Expected 1 billing record, got {len(billed)}"
-
-
 # ══════════════════════════════════════════════════════════════════════
 # SSH key endpoint — GET /agent/ssh-keys/{job_id}
 # ══════════════════════════════════════════════════════════════════════
@@ -1167,7 +1066,7 @@ class TestAgentSshKeysEndpoint:
 
     def test_job_with_no_owner_returns_empty_keys(self):
         _reset_state()
-        _register_host("ssh-h1", vram=80)
+        _register_host("ssh-h1", vram=24)
         _admit_host("ssh-h1")
         _, inst = _submit_job("ssh-test", vram=8)
         job_id = inst["job_id"]
@@ -1183,7 +1082,7 @@ class TestAgentSshKeysEndpoint:
     def test_returns_keys_structure(self):
         """Endpoint returns proper {ok, keys} structure."""
         _reset_state()
-        _register_host("ssh-h2", vram=80)
+        _register_host("ssh-h2", vram=24)
         _admit_host("ssh-h2")
         _, inst = _submit_job("ssh-struct", vram=8)
         job_id = inst["job_id"]

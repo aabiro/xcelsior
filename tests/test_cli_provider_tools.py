@@ -9,7 +9,7 @@ def test_cmd_run_passes_required_gpu_model(capsys):
         "job_id": "job-1",
         "name": "cuda-smoke",
         "vram_needed_gb": 2,
-        "tier": "free",
+        "tier": "standard",
         "priority": 0,
         "num_gpus": 1,
         "gpu_model": "RTX 3060",

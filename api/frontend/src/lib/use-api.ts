@@ -17,7 +17,6 @@ export function useApi() {
     submitInstance: api.submitInstance,
     cancelInstance: api.cancelInstance,
     requeueInstance: api.requeueInstance,
-    fetchBilling: api.fetchBilling,
     fetchWallet: api.fetchWallet,
     fetchMarketplace: api.fetchMarketplace,
     searchMarketplace: api.searchMarketplace,

@@ -58,8 +58,9 @@ def test_migration_061_owns_residual_ensure_objects():
 def test_ensure_pg_tables_source_is_seed_only():
     """Shipped ensure must not contain CREATE/ALTER for control-plane tables."""
     src = inspect.getsource(_ensure_pg_tables)
-    # Must seed reference pricing.
-    assert "_seed_gpu_pricing" in src
+    # Prices have one writer, the Stripe catalog import; startup seeds nothing.
+    assert "_seed_gpu_pricing" not in src
+    assert "INSERT" not in src.upper()
     # Must refuse unmigrated DBs rather than invent schema.
     assert "_pg_schema_is_migrated" in src
     # No residual CREATE / ALTER TABLE in the body.

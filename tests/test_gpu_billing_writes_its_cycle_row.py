@@ -92,7 +92,7 @@ def unclaimed_running_job():
         "host_gpu_model": "RTX 4090",
         "num_gpus": 1,
         "pricing_mode": "on_demand",
-        "tier": "free",
+        "tier": "standard",
     }
     pool = _get_pg_pool()
     with pool.connection() as conn:

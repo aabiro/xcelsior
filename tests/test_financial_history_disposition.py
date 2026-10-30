@@ -26,8 +26,8 @@ def duplicate_cluster():
         for index in range(3):
             end = start + 62 + index * 0.02
             conn.execute(
-                """INSERT INTO billing_cycles(cycle_id,job_id,customer_id,host_id,resource_type,period_start,period_end,duration_seconds,rate_per_hour,tier_multiplier,amount_micros,status,created_at)
-                VALUES(%s,%s,%s,'','volume',%s,%s,%s,0.004795,1,100,'charged',%s)""",
+                """INSERT INTO billing_cycles(cycle_id,job_id,customer_id,host_id,resource_type,period_start,period_end,duration_seconds,rate_per_hour,amount_micros,status,created_at)
+                VALUES(%s,%s,%s,'','volume',%s,%s,%s,0.004795,100,'charged',%s)""",
                 (job + str(index), job, owner, start, end, end - start, end),
             )
             conn.execute(

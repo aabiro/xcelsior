@@ -112,6 +112,8 @@ def api_volumes_available(request: Request):
             "size_gb": v.get("size_gb", 0),
             "region": v.get("region", ""),
             "encrypted": v.get("encrypted", False),
+            "price_per_gb_month_cad": VOLUME_PRICE_PER_GB_MONTH_CAD,
+            "monthly_cost_cad": round(v.get("size_gb", 0) * VOLUME_PRICE_PER_GB_MONTH_CAD, 2),
         }
         for v in volumes
         if v.get("status") == "available"

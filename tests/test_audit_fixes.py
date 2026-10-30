@@ -318,30 +318,20 @@ class TestConsentManagerDictRows:
 # ── GPU pricing unknown model warning ────────────────────────────────
 
 
-class TestGPUPricingWarning:
-    """Test that unknown GPU models produce a warning log."""
+class TestGPUPricingUnknownModel:
+    """An unknown GPU has no rate; it was once priced as an RTX 4090 with a warning."""
 
-    def test_unknown_gpu_logs_warning(self, caplog):
-        from reputation import get_reference_rate
+    def test_unknown_gpu_has_no_rate(self):
+        from pricing_reference import get_rate
 
-        with caplog.at_level(logging.WARNING, logger="reputation"):
-            rate = get_reference_rate("Tesla V100")
-        assert rate > 0
-        assert "unknown GPU model" in caplog.text
-        assert "Tesla V100" in caplog.text
+        assert get_rate("Tesla K80") == 0.0
 
-    def test_known_gpu_no_warning(self, caplog):
-        from reputation import get_reference_rate
+    def test_known_gpu_is_priced(self):
+        from pricing_reference import get_rate
 
-        with caplog.at_level(logging.WARNING, logger="reputation"):
-            rate = get_reference_rate("RTX 4090")
-        assert rate > 0
-        assert "unknown GPU model" not in caplog.text
+        assert get_rate("RTX 4090") > 0
 
-    def test_substring_match_no_warning(self, caplog):
-        from reputation import get_reference_rate
+    def test_driver_name_is_priced_as_its_model(self):
+        from pricing_reference import get_rate
 
-        with caplog.at_level(logging.WARNING, logger="reputation"):
-            rate = get_reference_rate("NVIDIA GeForce RTX 4090")
-        assert rate > 0
-        assert "unknown GPU model" not in caplog.text
+        assert get_rate("NVIDIA GeForce RTX 4090") == get_rate("RTX 4090") > 0

@@ -56,9 +56,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "exists. Read-only and free. Listings belong to independent hosts and change without notice.",
 
   list_tiers:
-    "List the compute tier catalog: tier names and the VRAM bands they cover. Use when the user " +
-    "talks in tiers rather than specific GPU models, or to map a VRAM requirement onto a tier. " +
-    "Read-only and free.",
+    "List Standard, Premium and Dedicated service tiers and their queue and isolation policies. " +
+    "Supply gpu_model to include exact Stripe Prices, the optional GPU-only exclusivity add-on " +
+    "and qualified whole-host GPU counts. Use before choosing a paid launch tier. Read-only and free.",
 
   // ── Compute ─────────────────────────────────────────────────────────────
   list_instances:

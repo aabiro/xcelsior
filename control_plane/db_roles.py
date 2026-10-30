@@ -109,6 +109,7 @@ CONTROL_TABLES = frozenset(
         "host_admission_evidence",
         "host_admission_decisions",
         "job_attempts",
+        "queue_bid_events",
         "job_logs",
         "job_failure_log",
         "host_gpu_devices",
@@ -200,6 +201,7 @@ BILLING_TABLES = frozenset(
         "ln_deposits",
         "stripe_event_inbox",
         "stripe_meter_event_outbox",
+        "stripe_compute_prices",
         "storage_billing_rates",
     }
 )

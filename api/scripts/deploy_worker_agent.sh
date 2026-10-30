@@ -110,7 +110,8 @@ ssh "${SSH_OPTS[@]}" "$TARGET" "true" >/dev/null
 python3 "$SCRIPT_DIR/sign-static-agent.py" >/dev/null
 
 rsync -az --partial "${RSYNC_COMPRESS_OPTS[@]}" -e "$(_rsync_shell)" \
-  "$SRC" "$TARGET:${REMOTE_DIR}/worker_agent.py"
+  "$SRC" "$PROJECT_DIR/auth/security.py" "$PROJECT_DIR/workers/hardware_isolation.py" \
+  "$TARGET:${REMOTE_DIR}/"
 
 ssh "${SSH_OPTS[@]}" "$TARGET" "sudo systemctl restart xcelsior-worker"
 ssh "${SSH_OPTS[@]}" "$TARGET" "sudo systemctl is-active --quiet xcelsior-worker"

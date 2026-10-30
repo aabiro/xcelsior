@@ -29,6 +29,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 from api import app
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 
 client = TestClient(app)
 
@@ -69,7 +70,8 @@ def job_with_secrets():
         name=f"cpv1-probe-{uuid.uuid4().hex[:8]}",
         vram_needed_gb=2,
         image="xcelsior/probe:latest",
-        owner="cpv1-probe-owner",
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner("cpv1-probe-owner"),
     )
     job_id = job.get("job_id") or job.get("id")
     assert job_id, f"submit_job returned no id: {job}"

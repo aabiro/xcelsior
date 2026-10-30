@@ -45,6 +45,7 @@ ALIASED = re.compile(r"\bAS\s+([a-z_][a-z0-9_]*_(?:cad|micros))\b", re.IGNORECAS
 FROM_TABLE = re.compile(r"\b(?:FROM|UPDATE|INTO)\s+([a-z_][a-z0-9_]*)\b", re.IGNORECASE)
 # A CTE or subquery makes "the one table" ambiguous; so does an explicit JOIN.
 MULTI_TABLE = re.compile(r"\b(?:JOIN|WITH)\b", re.IGNORECASE)
+SQL_STRING = re.compile(r"'(?:[^']|'')*'")
 # A `--` comment inside the literal is prose. `billing.py` explains next to the
 # INSERT that "087 dropped total_cost_cad" — which a text scan reads as a
 # reference to the dropped column, the same recursion that has flagged this
@@ -116,7 +117,10 @@ def test_money_columns_named_in_sql_exist_on_their_table():
         table = next(iter(tables))
         columns = schema[table]
         aliases = {a.lower() for a in ALIASED.findall(sql)}
-        for ident in {i.lower() for i in MONEY_IDENT.findall(sql)}:
+        # A single-quoted token is a string (e.g. a JSON key read with ->>),
+        # never a column, so it cannot name a missing one.
+        unquoted = SQL_STRING.sub("''", sql)
+        for ident in {i.lower() for i in MONEY_IDENT.findall(unquoted)}:
             if ident in aliases or ident in columns:
                 continue
             bad.append(f"{rel}:{lineno}: {table}.{ident} does not exist")

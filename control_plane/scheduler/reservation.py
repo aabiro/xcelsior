@@ -120,6 +120,55 @@ def _require(row: Any) -> Any:
     return row
 
 
+def _require_paid_scope(
+    conn: Connection,
+    *,
+    job_id: str,
+    owner: str | None,
+    quote: dict[str, Any],
+    num_gpus: int,
+    host_exclusive: bool,
+    exclusive_gpu: bool,
+    capabilities: dict[str, Any],
+) -> None:
+    """Revalidate a purchased tier against immutable Prices, funds and the host.
+
+    Runs under the job and host locks, so a revoked capability or an expired
+    hold cannot be used by a score computed in an earlier transaction.
+    """
+    from service_tier_pricing import validate_persisted_quote
+
+    try:
+        required = validate_persisted_quote(conn, quote)
+    except ValueError as exc:
+        raise HostNotEligible("The funded service-tier price is invalid", reason=str(exc)) from exc
+    if quote.get("num_gpus") != num_gpus or bool(quote.get("host_exclusive")) != host_exclusive:
+        raise JobNotSchedulable("The allocation differs from the funded service-tier scope")
+    if not conn.execute(
+        """SELECT 1 FROM wallet_holds WHERE job_id=%s AND customer_id=%s
+             AND status='held' AND expires_at>EXTRACT(EPOCH FROM clock_timestamp())
+             AND amount_micros>=%s""",
+        (job_id, owner, required),
+    ).fetchone():
+        raise JobNotSchedulable("The service-tier funding hold is expired or unavailable")
+    if capabilities.get("gpu_uuid_binding") is not True:
+        raise HostNotEligible("Worker GPU allocation enforcement is not qualified")
+    if host_exclusive and capabilities.get("dedicated_host") is not True:
+        raise HostNotEligible("Physical-host exclusivity is not qualified")
+    if exclusive_gpu and not host_exclusive and capabilities.get("gpu_exclusivity") is not True:
+        raise HostNotEligible("GPU exclusivity is not qualified")
+
+
+def _device_matches_quote(row: Any, quote: dict[str, Any]) -> bool:
+    """A paid quote binds the priced GPU variant, not merely a model substring."""
+    from host_metadata import normalize_gpu_model
+
+    if normalize_gpu_model(_one(row, "model", 5)) != normalize_gpu_model(quote["gpu_model"]):
+        return False
+    expected_mb = int(quote["vram_gb"]) * 1024
+    return expected_mb * 0.95 <= int(_one(row, "total_vram_mb", 6) or 0) <= expected_mb * 1.05
+
+
 def reserve_and_bind(
     conn: Connection,
     *,
@@ -287,6 +336,30 @@ def reserve_and_bind(
             raise HostNotEligible(
                 reason.message, filter_reason=reason.code, filter_details=reason.details
             )
+    tier_quote = spec.get("service_tier_quote") or None
+    host_exclusive = bool(spec.get("host_exclusive"))
+    if tier_quote:
+        _require_paid_scope(
+            conn,
+            job_id=job_id,
+            owner=_one(job, "owner_id", 10) or spec.get("owner"),
+            quote=tier_quote,
+            num_gpus=num_gpus,
+            host_exclusive=host_exclusive,
+            exclusive_gpu=bool(spec.get("exclusive_gpu")),
+            capabilities=locked_host.get("capabilities") or {},
+        )
+    # A Dedicated attempt owns the physical host; nothing else may join it.
+    occupied = conn.execute(
+        "SELECT host_exclusive FROM job_attempts WHERE host_id=%s AND ended_at IS NULL AND job_id<>%s",
+        (host_id, job_id),
+    ).fetchall()
+    if any(bool(_one(row, "host_exclusive", 0)) for row in occupied):
+        raise CapacityConflict("Physical host is reserved exclusively", host_id=host_id)
+    if host_exclusive and occupied:
+        raise CapacityConflict(
+            "Dedicated cannot share a physical host that is already occupied", host_id=host_id
+        )
     inventory_generation = int(_one(host, "inventory_generation", 2))
     if (
         expected_inventory_generation is not None
@@ -307,7 +380,7 @@ def reserve_and_bind(
     devices = conn.execute(
         """
         SELECT d.gpu_device_id, d.gpu_uuid, d.allocation_mode, d.health,
-               d.allocatable_vram_mb, d.model
+               d.allocatable_vram_mb, d.model, d.total_vram_mb
           FROM host_gpu_devices d
          WHERE d.host_id = %s
            AND d.retired_at IS NULL
@@ -357,6 +430,12 @@ def reserve_and_bind(
         if reason is not None:
             raise HostNotEligible(reason.message, spot_policy_reason=reason.code)
 
+    if host_exclusive and num_gpus != len(physical):
+        raise CapacityConflict(
+            "Dedicated must reserve every GPU on the physical host",
+            requested=num_gpus,
+            total=len(physical),
+        )
     allocated = {
         str(_one(row, "gpu_device_id", 0))
         for row in conn.execute(
@@ -405,6 +484,8 @@ def reserve_and_bind(
         ):
             continue
         if requested_vram_mb and int(_one(row, "allocatable_vram_mb", 4)) < requested_vram_mb:
+            continue
+        if tier_quote and not _device_matches_quote(row, tier_quote):
             continue
         free.append((device_id, str(_one(row, "gpu_uuid", 1))))
     if len(free) < num_gpus:
@@ -470,8 +551,8 @@ def reserve_and_bind(
             INSERT INTO job_attempts
                 (job_id, attempt_number, status, host_id, fencing_token,
                  job_generation, spec_hash, policy_version, placement_score,
-                 placement_explanation, created_by, trace_id)
-            VALUES (%s, %s, 'reserved', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 placement_explanation, created_by, trace_id, host_exclusive)
+            VALUES (%s, %s, 'reserved', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING attempt_id
             """,
         (
@@ -486,6 +567,7 @@ def reserve_and_bind(
             Jsonb(explanation),
             f"scheduler:{replica_id}",
             trace_id,
+            host_exclusive,
         ),
     ).fetchone()
     attempt_id = str(_require(attempt_id_row)[0])
