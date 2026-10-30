@@ -30,6 +30,17 @@ describe("PostHog browser instrumentation", () => {
     );
   });
 
+  it("stays cookieless until the visitor accepts cookies", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "phc_test_project_token");
+
+    await import("../../instrumentation-client");
+
+    expect(init).toHaveBeenCalledWith(
+      "phc_test_project_token",
+      expect.objectContaining({ opt_out_capturing_by_default: true, cookieless_mode: "on_reject" }),
+    );
+  });
+
   it("does not initialize without a project token", async () => {
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "");
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { SITE_ASSETS } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
+import { openCookiePreferences } from "@/lib/cookie-consent";
 
 const footerColumns = [
   {
@@ -79,6 +80,15 @@ export function Footer() {
                       </Link>
                     )
                   ))}
+                  {column.head === "footer.legal" ? (
+                    <button
+                      type="button"
+                      onClick={openCookiePreferences}
+                      style={{ fontSize: 14, textAlign: "left", background: "none", border: 0, padding: 0, color: "inherit", cursor: "pointer" }}
+                    >
+                      {t("footer.cookies")}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}

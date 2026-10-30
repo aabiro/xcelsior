@@ -9,6 +9,10 @@ if (posthogToken) {
     capture_pageview: "history_change",
     capture_pageleave: true,
     capture_exceptions: true,
+    // Nothing that identifies a visitor is stored until they accept cookies;
+    // until then (and after Decline) events are counted cookieless.
+    opt_out_capturing_by_default: true,
+    cookieless_mode: "on_reject",
     debug: process.env.NODE_ENV === "development",
   });
 }
