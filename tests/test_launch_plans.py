@@ -74,6 +74,7 @@ def test_preview_creates_a_plan_and_no_side_effects(cleanup_plans):
             "num_gpus": 1,
             "image": "pytorch/pytorch:latest",
             "interactive": True,
+            "gpu_model": "RTX 4090",
         },
     )
     assert resp.status_code == 200, resp.text
@@ -116,9 +117,12 @@ def test_preview_persists_canonical_spec_and_hash(cleanup_plans):
     cleanup_plans.append(plan_id)
 
     # The stored canonical args and hash must match what the canonicalizer
-    # produces for the same input — the binding the worker later verifies.
+    # produces for the same input — the binding the worker later verifies —
+    # with the server-bound Standard tier and its exact Stripe Price.
     from control_plane.launch import canonicalize, spec_hash
+    from service_tier_pricing import quote_tier
 
+    bound = quote_tier("H100", "on_demand", num_gpus=2, min_vram_gb=40)
     expected = canonicalize(
         {
             "name": "b23-canon",
@@ -126,6 +130,8 @@ def test_preview_persists_canonical_spec_and_hash(cleanup_plans):
             "num_gpus": 2,
             "interactive": False,
             "vram_needed_gb": 40,
+            "tier": "standard",
+            "service_tier_price_id": bound["stripe_price_id"],
         }
     )
     with _pool.connection() as conn:

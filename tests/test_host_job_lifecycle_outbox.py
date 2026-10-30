@@ -40,6 +40,7 @@ from control_plane.outbox_runtime import (
     sse_payload_for,
     try_append_lifecycle_outbox,
 )
+from tests._db_helpers import fund_test_owner
 
 
 @pytest.fixture
@@ -178,7 +179,7 @@ def test_sse_payload_projections_for_host_and_job_lifecycle():
         aggregate_type="job",
         aggregate_id="j1",
         event_type="job.v1.submitted",
-        payload={"name": "n", "tier": "on-demand"},
+        payload={"name": "n", "tier": "standard"},
         headers={},
         destination_class="default",
         idempotency_key="k3",
@@ -312,7 +313,7 @@ def test_submit_job_appends_submitted_outbox(cleanup, monkeypatch):
     emit_calls: list = []
     monkeypatch.setattr(sched, "emit_event", lambda et, data: emit_calls.append((et, data)))
 
-    job = sched.submit_job("lifecycle-outbox-job", 8.0, tier="on-demand")
+    job = sched.submit_job("lifecycle-outbox-job", 8.0, tier="standard")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 
@@ -320,7 +321,7 @@ def test_submit_job_appends_submitted_outbox(cleanup, monkeypatch):
     assert len(rows) == 1
     payload = _payload(rows[0])
     assert payload.get("name") == "lifecycle-outbox-job"
-    assert payload.get("tier") == "on-demand"
+    assert payload.get("tier") == "standard"
     assert rows[0]["published_at"] is None
     assert [c for c in emit_calls if c[0] == "job_submitted"] == []
 
@@ -337,7 +338,7 @@ def test_unfenced_preemption_cannot_mutate_or_publish(cleanup, monkeypatch):
         8.0,
         pricing_mode="spot",
         gpu_model="RTX 4090",
-        owner="spot-owner@test",
+        owner=fund_test_owner("spot-owner@test"),
     )
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
@@ -377,7 +378,7 @@ def test_submit_job_outbox_dispatches_to_notify(cleanup):
     """End-to-end: submit → outbox row → dispatcher → LISTEN."""
     import scheduler as sched
 
-    job = sched.submit_job("dispatch-listen-job", 4.0, tier="on-demand")
+    job = sched.submit_job("dispatch-listen-job", 4.0, tier="standard")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 

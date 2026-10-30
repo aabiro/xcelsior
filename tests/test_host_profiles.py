@@ -6,7 +6,6 @@ from host_profiles import (
     get_host_profile,
     validate_job_for_profile,
 )
-from reputation import GPU_REFERENCE_PRICING_CAD, get_reference_rate
 
 
 def test_rtx3060_profile_defaults():
@@ -63,5 +62,8 @@ def test_validate_job_for_profile_rejects_oversized_job():
 
 
 def test_rtx3060_reference_pricing_available():
-    assert "RTX 3060" in GPU_REFERENCE_PRICING_CAD
-    assert get_reference_rate("NVIDIA GeForce RTX 3060") == 0.16
+    from pricing_reference import get_rate
+
+    # The profile's GPU is priced in the Stripe catalog, under its driver name too.
+    assert get_rate("NVIDIA GeForce RTX 3060") > 0
+    assert get_rate("NVIDIA GeForce RTX 3060") == get_rate("RTX 3060")

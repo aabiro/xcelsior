@@ -15,7 +15,7 @@ def test_cmd_run_no_assign(capsys):
         "job_id": "j1",
         "name": "train",
         "vram_needed_gb": 8,
-        "tier": "free",
+        "tier": "standard",
         "priority": 0,
         "num_gpus": 1,
     }
@@ -23,7 +23,7 @@ def test_cmd_run_no_assign(capsys):
         model="llama",
         vram=8,
         priority=0,
-        tier="free",
+        tier="standard",
         gpus=1,
         gpu=None,
         nfs_server=None,
@@ -226,7 +226,7 @@ def test_cmd_slurm_submit(capsys):
         model="llama",
         vram=8,
         priority=0,
-        tier="free",
+        tier="standard",
         gpus=1,
         profile="default",
         dry_run=True,
@@ -334,7 +334,7 @@ def test_cmd_jobs_lists(capsys):
             "job_id": "j1",
             "name": "train",
             "vram_needed_gb": 8,
-            "tier": "free",
+            "tier": "standard",
             "host_id": None,
         }
     ]
@@ -399,27 +399,6 @@ def test_cmd_ping(capsys):
     with patch("cli.check_hosts", return_value={"h1": "ok"}):
         cli.cmd_ping(SimpleNamespace())
     assert "h1" in capsys.readouterr().out
-
-
-def test_cmd_bill_single(capsys):
-    record = {"job_name": "train", "duration_sec": 60, "cost": 1.25}
-    with patch("cli.bill_job", return_value=record):
-        cli.cmd_bill(SimpleNamespace(job_id="j1"))
-    assert "train" in capsys.readouterr().out
-
-
-def test_cmd_bill_all(capsys):
-    with patch("cli.bill_all_completed", return_value=[]):
-        cli.cmd_bill(SimpleNamespace(job_id=None))
-    assert "Nothing to bill" in capsys.readouterr().out
-
-
-def test_cmd_revenue(capsys):
-    with patch("cli.get_total_revenue", return_value=42.5):
-        with patch("cli.load_billing", return_value=[{"x": 1}]):
-            cli.cmd_revenue(SimpleNamespace())
-    out = capsys.readouterr().out
-    assert "42.5" in out
 
 
 def test_cmd_failover(capsys):

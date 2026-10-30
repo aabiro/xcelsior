@@ -63,6 +63,12 @@ def _hourly_burn_cad(spec: dict[str, Any], host: dict[str, Any] | None) -> float
         gpu_model=str(spec.get("gpu_model") or "") or None,
         num_gpus=int(spec.get("num_gpus") or 1),
         host=host,
+        tier=str(spec.get("tier") or "standard"),
+        service_tier_price_id=spec.get("service_tier_price_id") or None,
+        gpu_exclusive_price_id=spec.get("gpu_exclusive_price_id") or None,
+        queue_bid_units=int(spec.get("queue_bid_units") or 0),
+        queue_bid_price_id=spec.get("queue_bid_price_id") or None,
+        gpu_exclusive=bool(spec.get("exclusive_gpu")),
     )
 
 
@@ -87,7 +93,7 @@ def quote_launch(
     estimate_micros = cad_to_micros(hourly_cad * runway)
     # Version is deterministic in the inputs: same rate -> same version, so a
     # replayed quote is byte-stable and a moved rate is visibly different.
-    pricing_version = f"{PRICING_CATALOG_VERSION}:{hourly_micros}:{currency}"
+    pricing_version = f"{PRICING_CATALOG_VERSION}:{hourly_micros}:{currency}:{spec.get('service_tier_price_id') or ''}:{spec.get('gpu_exclusive_price_id') or ''}:{spec.get('queue_bid_price_id') or ''}:{spec.get('queue_bid_units') or 0}"
     return Quote(
         quote_id=f"q_{uuid.uuid4().hex}",
         pricing_version=pricing_version,

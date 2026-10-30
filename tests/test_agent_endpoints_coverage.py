@@ -33,7 +33,7 @@ def job_id():
     assert dep.status_code == 200
     inst = client.post(
         "/instance",
-        json={"name": f"agt-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 1},
+        json={"name": f"agt-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=headers,
     ).json()["instance"]
     return inst["job_id"]

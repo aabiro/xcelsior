@@ -139,6 +139,14 @@ def canonicalize(request: dict[str, Any]) -> dict[str, Any]:
         "ssh_port": _int(request.get("ssh_port"), 22),
         "pricing_mode": pricing_mode,
         "tier": _s(request.get("tier")),
+        "service_tier_price_id": _s(request.get("service_tier_price_id")),
+        "gpu_exclusive_price_id": _s(request.get("gpu_exclusive_price_id")),
+        "queue_bid_units": _int(request.get("queue_bid_units"), 0),
+        "queue_bid_price_id": _s(request.get("queue_bid_price_id")),
+        "exclusive_gpu": bool(
+            request.get("exclusive_gpu", False) or _s(request.get("tier")) == "dedicated"
+        ),
+        "host_exclusive": _s(request.get("tier")) == "dedicated",
         "nfs_server": _s(request.get("nfs_server")),
         "nfs_path": _s(request.get("nfs_path")),
         "nfs_mount_point": _s(request.get("nfs_mount_point")),
