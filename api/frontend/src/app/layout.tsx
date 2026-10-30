@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
 import { MetaPixel } from "@/components/analytics/MetaPixel";
+import { CookieBanner } from "@/components/CookieBanner";
+import { AnalyticsConsent } from "@/components/analytics/AnalyticsConsent";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
 import { ClientToaster } from "@/components/ClientToaster";
 import { BRAND_ASSET_ORIGIN, SITE_ASSETS } from "@/lib/brand-assets";
@@ -132,7 +134,7 @@ export default function RootLayout({
               strategy="lazyOnload"
             />
             <Script id="gtag-init" strategy="lazyOnload">
-              {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{anonymize_ip:true});`}
+              {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}var c=/(?:^|; )xcelsior_consent=([^;]*)/.exec(document.cookie),ok=false;try{ok=!!c&&JSON.parse(decodeURIComponent(c[1])).marketing===true}catch(e){}var s=ok?'granted':'denied';gtag('consent','default',{ad_storage:s,analytics_storage:s,ad_user_data:s,ad_personalization:s});gtag('js',new Date());gtag('config','${GA_ID}',{anonymize_ip:true});`}
             </Script>
           </>
         )}
@@ -168,10 +170,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <Providers>
-          {META_PIXEL_ID ? <MetaPixel pixelId={META_PIXEL_ID} /> : null}
+          <MetaPixel pixelId={META_PIXEL_ID ?? ""} />
+          <AnalyticsConsent />
           {children}
           <RootClientWidgets />
           <ClientToaster />
+          <CookieBanner />
         </Providers>
       </body>
     </html>

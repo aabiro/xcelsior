@@ -1082,7 +1082,7 @@ class StripeConnectManager:
                     "description": pi_description,
                     "statement_descriptor_suffix": "CREDITS",
                 }
-                for ads_key in ("fbp", "fbc", "client_ip"):
+                for ads_key in ("fbp", "fbc", "client_ip", "mkt_consent"):
                     ads_value = str((ads or {}).get(ads_key) or "").strip()
                     if ads_value:
                         pi_kwargs["metadata"][ads_key] = ads_value[:500]
@@ -1701,10 +1701,15 @@ class StripeConnectManager:
         )
         try:
             from db import UserStore
-            from meta_capi import track_event
+            from meta_capi import account_consent, track_event
 
             payer = UserStore.get_user_by_customer_id(customer_id)
             meta = data.get("metadata") or {}
+            # The account's latest banner choice wins, so an opt-out also stops
+            # auto top-ups; checkout metadata covers buyers with no saved choice.
+            consent = account_consent(payer)
+            if consent is None:
+                consent = meta.get("mkt_consent") == "granted"
             shipping_addr = (data.get("shipping") or {}).get("address")
             stripe_addr = shipping_addr if isinstance(shipping_addr, dict) else None
             track_event(
@@ -1714,6 +1719,7 @@ class StripeConnectManager:
                 billing_address=stripe_addr,
                 custom_data={"value": amount_cad, "currency": "CAD", "content_type": "product"},
                 external_id=customer_id,
+                consent=consent,
                 fbp=meta.get("fbp"),
                 fbc=meta.get("fbc"),
                 client_ip=meta.get("client_ip"),

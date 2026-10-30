@@ -2267,6 +2267,10 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "PUT /api/meta/consent": {
+    "class": "internal",
+    "notes": "The browser cookie banner saves the visitor's own ad-tracking choice so payment webhooks can honour it; consent is the person's to give, never an agent's."
+  },
   "PUT /api/providers/seller-profile": {
     "class": "internal",
     "notes": "Saves the legal name, address and tax identifier for seller reporting; first-party dashboard only, so a tax identifier never passes through an agent."

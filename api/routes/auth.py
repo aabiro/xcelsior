@@ -3949,6 +3949,56 @@ def api_set_user_preferences(request: Request, body: dict):
     return {"ok": True}
 
 
+@router.put("/api/meta/consent", tags=["Auth"])
+def api_set_ad_consent(request: Request, body: dict):
+    """Save the cookie-banner marketing choice to the account.
+
+    Payment webhooks and auto top-ups have no browser, so they read this to
+    decide whether a Conversions API event may go out. Opting out also drops
+    the stored click ids. Writes only when the choice changes.
+    """
+    user = _require_user_grant(request)
+    marketing = body.get("marketing")
+    source = body.get("source", "banner")
+    if not isinstance(marketing, bool) or source not in ("banner", "settings"):
+        raise HTTPException(422, "marketing must be true or false; source is banner or settings")
+    email = user["email"]
+    if _USE_PERSISTENT_AUTH:
+        full_user = UserStore.get_user(email) or {}
+    else:
+        with _user_lock:
+            full_user = dict(_users_db.get(email) or {})
+    prefs = dict(_parse_user_preferences(full_user))
+    current = prefs.get("ad_consent")
+    unchanged = (
+        isinstance(current, dict)
+        and current.get("marketing") is marketing
+        and (marketing or "meta_ads" not in prefs)
+    )
+    if unchanged:
+        return {"ok": True, "marketing": marketing, "changed": False}
+    prefs["ad_consent"] = {
+        "marketing": marketing,
+        "updated_at": time.time(),
+        "source": source,
+    }
+    if not marketing:
+        prefs.pop("meta_ads", None)
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(email, {"preferences": prefs})
+    else:
+        with _user_lock:
+            if email in _users_db:
+                _users_db[email]["preferences"] = prefs
+    try:
+        from meta_capi import forget_attribution
+
+        forget_attribution(email)
+    except Exception:
+        log.debug("meta attribution cache reset skipped", exc_info=True)
+    return {"ok": True, "marketing": marketing, "changed": True}
+
+
 # ── OAuth Client Management ──────────────────────────────────────────
 
 
