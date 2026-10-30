@@ -637,6 +637,14 @@ const en: Record<string, string> = {
   "footer.deactivate": "Deactivate account",
   "footer.security": "Security",
   "footer.status": "Status",
+  "footer.cookies": "Cookie preferences",
+
+  /* ── Cookie banner ───────────────────────────────────────────────────── */
+  "cookies.title": "Cookies on Xcelsior",
+  "cookies.body": "We use essential cookies to keep you signed in. With your OK, we also use Meta cookies to measure our ads, and share sign-up and purchase events with Meta. You can change this anytime from the footer.",
+  "cookies.accept": "Accept",
+  "cookies.decline": "Decline",
+  "cookies.privacy_link": "Privacy Policy",
   "footer.copyright": "© {year} Xcelsior Compute Inc. All rights reserved.",
   "footer.canada": "🍁 Canadian owned & operated",
 
