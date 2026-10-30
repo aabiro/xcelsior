@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const ph = vi.hoisted(() => ({
   opt_in_capturing: vi.fn(),
   opt_out_capturing: vi.fn(),
-  has_opted_in_capturing: vi.fn(() => false),
-  has_opted_out_capturing: vi.fn(() => false),
+  get_explicit_consent_status: vi.fn((): "granted" | "denied" | "pending" => "pending"),
 }));
 
 vi.mock("posthog-js", () => ({ default: ph }));
@@ -32,10 +31,10 @@ describe("analytics follow the cookie choice", () => {
     vi.clearAllMocks();
   });
 
-  it("leaves PostHog in its cookieless default and GA denied before a choice", () => {
+  it("keeps PostHog cookieless and GA denied before a choice", () => {
     applyAnalyticsConsent();
     expect(ph.opt_in_capturing).not.toHaveBeenCalled();
-    expect(ph.opt_out_capturing).not.toHaveBeenCalled();
+    expect(ph.opt_out_capturing).toHaveBeenCalledTimes(1);
     expect(gtag).toHaveBeenCalledWith("consent", "update", expect.objectContaining({ analytics_storage: "denied", ad_storage: "denied" }));
   });
 
@@ -44,7 +43,7 @@ describe("analytics follow the cookie choice", () => {
     applyAnalyticsConsent();
     expect(ph.opt_in_capturing).toHaveBeenCalledTimes(1);
     expect(gtag).toHaveBeenCalledWith("consent", "update", expect.objectContaining({ analytics_storage: "granted" }));
-    ph.has_opted_in_capturing.mockReturnValueOnce(true);
+    ph.get_explicit_consent_status.mockReturnValueOnce("granted");
     applyAnalyticsConsent();
     expect(ph.opt_in_capturing).toHaveBeenCalledTimes(1);
   });
