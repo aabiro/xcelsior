@@ -11,9 +11,12 @@ export function applyAnalyticsConsent() {
   const consent = readConsent();
   const granted = consent?.marketing === true;
   try {
-    // Each opt-in records an event, so only call on a real change.
-    if (granted && !posthog.has_opted_in_capturing()) posthog.opt_in_capturing();
-    else if (consent && !granted && !posthog.has_opted_out_capturing()) posthog.opt_out_capturing();
+    // Each opt-in records an event, so only call on a real change. Before any
+    // choice the opt-out is made explicit too: with cookieless_mode on_reject,
+    // posthog-js sends nothing while its consent is still "pending".
+    const status = posthog.get_explicit_consent_status();
+    if (granted && status !== "granted") posthog.opt_in_capturing();
+    else if (!granted && status !== "denied") posthog.opt_out_capturing();
   } catch {
     // PostHog is not initialised without a project token.
   }
