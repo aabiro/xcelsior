@@ -558,6 +558,7 @@ app.add_middleware(
         "X-FB-FBP",
         "X-FB-FBC",
         "X-Event-ID",
+        "X-Marketing-Consent",
     ],
 )
 

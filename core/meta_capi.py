@@ -2,6 +2,11 @@
 
 Browser Pixel and this server sender share an event_id so Meta can deduplicate.
 The access token stays in the environment. Nothing here raises into a request.
+
+No event goes out without marketing consent from the cookie banner. The
+browser states it on every API request (X-Marketing-Consent); a signed-in
+visitor's choice is also saved to the account (preferences.ad_consent) so
+webhooks and auto top-ups, which have no browser, follow it.
 """
 
 from __future__ import annotations
@@ -225,6 +230,59 @@ def split_name(full_name: str | None) -> tuple[str | None, str | None]:
     if len(parts) == 1:
         return parts[0], None
     return parts[0], parts[-1]
+
+
+def request_consent(request: Any | None) -> bool | None:
+    """The banner choice the browser stated on this request, or None if it stated none."""
+    if request is None:
+        return None
+    headers = getattr(request, "headers", {}) or {}
+    getter = getattr(headers, "get", None)
+    if not callable(getter):
+        return None
+    raw = getter("x-marketing-consent") or getter("X-Marketing-Consent") or ""
+    value = str(raw).strip().lower()
+    if value == "granted":
+        return True
+    if value == "denied":
+        return False
+    return None
+
+
+def _account(user: dict | None) -> dict | None:
+    if not user or "preferences" in user or os.environ.get("PYTEST_CURRENT_TEST"):
+        return user
+    email = str(user.get("email") or "").strip()
+    if not email:
+        return user
+    try:
+        from db import UserStore
+
+        return UserStore.get_user(email) or user
+    except Exception:
+        return user
+
+
+def account_consent(user: dict | None) -> bool | None:
+    """The latest banner choice saved to the account, or None if it has none."""
+    saved = _user_prefs(_account(user)).get("ad_consent")
+    if isinstance(saved, dict) and isinstance(saved.get("marketing"), bool):
+        return saved["marketing"]
+    return None
+
+
+def resolve_consent(
+    user: dict | None,
+    request: Any | None = None,
+    consent: bool | None = None,
+) -> bool:
+    """An explicit caller value, else the request's header, else the account. Unknown is no."""
+    if consent is not None:
+        return bool(consent)
+    stated = request_consent(request)
+    if stated is not None:
+        return stated
+    return bool(account_consent(user))
 
 
 def _clean_click_id(value: str | None, kind: str) -> str | None:
@@ -509,6 +567,8 @@ def capture_request_attribution(user: dict | None, request: Any | None) -> None:
     """Remember first-party click ids for a later webhook. Never raises."""
     if not user or request is None:
         return
+    if request_consent(request) is not True:
+        return
     email = str(user.get("email") or "").strip().lower()
     if not email:
         return
@@ -546,6 +606,11 @@ def capture_request_attribution(user: dict | None, request: Any | None) -> None:
         UserStore.update_user(email, {"preferences": raw})
     except Exception:
         log.debug("meta attribution persist failed", exc_info=True)
+
+
+def forget_attribution(email: str | None) -> None:
+    """Drop the cached click-id signature so a later opt-in records them again."""
+    _ATTR_CACHE.pop(str(email or "").strip().lower(), None)
 
 
 def deliver(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -592,10 +657,17 @@ def track_event(
     request: Any | None = None,
     custom_data: dict[str, Any] | None = None,
     action_source: str = "website",
+    consent: bool | None = None,
     **overrides: Any,
 ) -> None:
-    """Queue one event. Returns immediately and never raises."""
+    """Queue one event when the visitor opted in. Returns immediately and never raises.
+
+    ``consent`` is for callers without a browser request (webhooks); otherwise
+    the request's X-Marketing-Consent decides, then the account's saved choice.
+    """
     try:
+        if not resolve_consent(user, request, consent):
+            return
         capture_request_attribution(user, request)
         if not event_name or not event_id or not configured():
             return
@@ -640,8 +712,14 @@ def track_event(
 
 
 def ads_metadata(request: Any | None) -> dict[str, str]:
+    """Checkout metadata for the webhook: the consent choice, and click ids only with consent."""
+    stated = request_consent(request)
+    if stated is None:
+        return {}
+    if not stated:
+        return {"mkt_consent": "denied"}
     ctx = request_context(request)
-    out: dict[str, str] = {}
+    out: dict[str, str] = {"mkt_consent": "granted"}
     if ctx.get("fbp"):
         out["fbp"] = ctx["fbp"]
     if ctx.get("fbc"):
