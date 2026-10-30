@@ -40,13 +40,7 @@ from routes._deps import (
     log,
     otel_span,
 )
-from scheduler import (
-    bill_all_completed,
-    bill_job,
-    get_total_revenue,
-    load_billing,
-    log,
-)
+from scheduler import log
 from db import UserStore
 from stripe_connect import get_stripe_manager
 from billing import get_billing_engine, get_tax_rate_for_province
@@ -56,7 +50,6 @@ from pricing_reference import (
     get_on_demand_rate,
     get_reserved_rate,
 )
-from reputation import GPU_REFERENCE_PRICING_CAD, estimate_job_cost
 
 router = APIRouter()
 
@@ -117,44 +110,6 @@ def _validate_topup_amount(amount_cad: float, user: dict) -> None:
         raise HTTPException(400, f"Amount cannot exceed ${_MAX_TOPUP_CAD:,.0f} CAD")
     if not _is_platform_admin(user) and amount_cad < _MIN_TOPUP_CAD:
         raise HTTPException(400, f"Minimum top-up is ${_MIN_TOPUP_CAD:.2f} CAD")
-
-
-@router.post("/billing/bill/{job_id}", tags=["Billing"])
-def api_bill_instance(job_id: str, request: Request):
-    """Bill a specific completed job."""
-    from routes._deps import _require_platform_worker
-
-    user = _require_auth(request)
-    _require_scope(user, "billing:write")
-    _require_platform_worker(user)
-    with otel_span("billing.bill_job", {"job.id": job_id}):
-        record = bill_job(job_id)
-        if not record:
-            raise HTTPException(status_code=400, detail=f"Could not bill job {job_id}")
-        return {"ok": True, "bill": record}
-
-
-@router.post("/billing/bill-all", tags=["Billing"])
-def api_bill_all(request: Request):
-    """Bill all unbilled completed jobs."""
-    _require_admin(request)
-    try:
-        bills = bill_all_completed()
-    except Exception as exc:
-        log.error("bill_all_completed failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Billing run failed") from exc
-    return {"billed": len(bills), "bills": bills}
-
-
-@router.get("/billing", tags=["Billing"])
-def api_billing(request: Request):
-    """Get all billing records and total revenue (platform admin only)."""
-    _require_admin(request)
-    records = load_billing()
-    return {
-        "records": records,
-        "total_revenue": get_total_revenue(),
-    }
 
 
 @router.get("/api/billing/wallet/{customer_id}", tags=["Billing"])
@@ -403,6 +358,22 @@ def _paypal_settled_cad(capture: dict) -> float | None:
     return value if value > 0 else None
 
 
+def _refuse_paypal_order_for_another_wallet(
+    order_id: str, order: dict, expected_custom_id: str
+) -> None:
+    """Refuse with 403 an order whose ``custom_id`` names a different wallet."""
+    units = order.get("purchase_units") or []
+    custom_id = (units[0].get("custom_id") if units else "") or ""
+    if custom_id != expected_custom_id:
+        log.warning(
+            "PayPal capture refused: order %s belongs to %r, not %r",
+            order_id,
+            custom_id,
+            expected_custom_id,
+        )
+        raise HTTPException(403, "This PayPal order was not created for this wallet")
+
+
 def _paypal_capture_order(
     order_id: str,
     token: str | None = None,
@@ -418,16 +389,7 @@ def _paypal_capture_order(
     token = token or _paypal_access_token()
     order = _paypal_get_order(order_id, token)
     if expected_custom_id is not None:
-        units = order.get("purchase_units") or []
-        custom_id = (units[0].get("custom_id") if units else "") or ""
-        if custom_id != expected_custom_id:
-            log.warning(
-                "PayPal capture refused: order %s belongs to %r, not %r",
-                order_id,
-                custom_id,
-                expected_custom_id,
-            )
-            raise HTTPException(403, "This PayPal order was not created for this wallet")
+        _refuse_paypal_order_for_another_wallet(order_id, order, expected_custom_id)
     status = order.get("status", "")
     if status == "COMPLETED":
         return order
@@ -1456,28 +1418,34 @@ class EstimateRequest(BaseModel):
 @router.post("/api/pricing/estimate", tags=["Billing"])
 def api_estimate_cost(req: EstimateRequest):
     """Estimate what a job will cost, in CAD, before launching it."""
-    estimate = estimate_job_cost(
-        req.gpu_model,
-        req.duration_hours,
-        spot=req.spot,
-    )
+    # The Standard Stripe Price the launch would be quoted (pricing_reference).
+    from pricing_reference import estimate_job_cost
+    from service_tier_pricing import TierPricingUnavailable
+
+    try:
+        estimate = estimate_job_cost(
+            req.gpu_model,
+            req.duration_hours,
+            pricing_mode="spot" if req.spot else "on_demand",
+        )
+    except TierPricingUnavailable as exc:
+        raise HTTPException(400, detail=f"{exc}: {req.gpu_model}") from exc
     return {"ok": True, **estimate}
 
 
 @router.get("/api/pricing/reference", tags=["Billing"])
 def api_reference_pricing():
     """Get reference GPU pricing table in CAD from live ``gpu_pricing``."""
+    # Only imported Stripe Prices; no static fallback table.
     pricing = build_gpu_pricing_reference()
-    source = "gpu_pricing"
     if not pricing:
-        pricing = GPU_REFERENCE_PRICING_CAD
-        source = "static_fallback"
+        raise HTTPException(503, detail="Stripe compute pricing is unavailable")
     return {
         "ok": True,
         "currency": "CAD",
-        "source": source,
+        "source": "gpu_pricing",
         "pricing": pricing,
-        "reference": build_reference_list(pricing) if source == "gpu_pricing" else [],
+        "reference": build_reference_list(pricing),
     }
 
 
@@ -1511,6 +1479,37 @@ def _estimate_province(request: Request, supplied: str) -> str:
     return str(_account_tax_address(user).get("province") or "")
 
 
+@router.get("/api/pricing/service-tiers", tags=["Billing"])
+def api_service_tier_catalog(gpu_model: str, mode: str = "on_demand", vram_gb: int | None = None):
+    """Standard, Premium and Dedicated Prices for one GPU, with qualified whole hosts."""
+    from service_tier_pricing import tier_catalog, TierPricingUnavailable
+
+    try:
+        result = tier_catalog(gpu_model, mode, vram_gb=vram_gb)
+    except TierPricingUnavailable as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+    from db import pg_connection
+    from control_plane.scheduler.snapshot import read_fleet
+
+    with pg_connection() as conn:
+        fleet = read_fleet(conn)
+    result["physical_hosts"] = [
+        {
+            "host_id": host["host_id"],
+            "num_gpus": host["gpu_count"],
+            "region": host.get("region", ""),
+            "available": host["free_gpu_count"] == host["gpu_count"] and host["gpu_count"] > 0,
+        }
+        for host in fleet.hosts
+        if host.get("gpu_model") == gpu_model
+        and host.get("administrative_state") == "admitted"
+        and host.get("availability_state") == "ready"
+        and host["host_id"] not in fleet.stale_host_ids
+        and (host.get("capabilities") or {}).get("dedicated_host") is True
+    ]
+    return result
+
+
 @router.get("/api/pricing/rates", tags=["Billing"])
 def api_pricing_rates(
     request: Request,
@@ -1520,104 +1519,68 @@ def api_pricing_rates(
     priority: str = "normal",
     num_gpus: int = 1,
     province: str = "",
+    service_tier_price_id: str | None = None,
+    gpu_exclusive_price_id: str | None = None,
+    queue_bid_units: int = 0,
+    queue_bid_price_id: str | None = None,
+    exclusive_gpu: bool = False,
+    vram_gb: int | None = None,
 ):
     """Compute effective GPU rate with all pricing variables.
 
-    Returns a full breakdown: base rate, priority multiplier,
-    premium, multi-GPU discount, tax rate, and final per-hour total.
+    Returns the selected Stripe Price, additive service tier and exclusivity
+    amounts, account tax estimate, and final per-hour total.
     Volume (storage) costs are calculated at runtime in billing — not here.
     """
-    from db import pg_connection, GPU_PRIORITY_MULTIPLIERS
+    from service_tier_pricing import quote_tier, TierPricingUnavailable
+    from money import micros_to_cad
 
-    # Validate priority
-    priority = priority.lower()
-    pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
-
-    live_spot_quote = None
-    if mode == "spot":
-        from spot_pricing import compute_live_spot_quote
-
-        live_spot_quote = compute_live_spot_quote(gpu_model, tier=tier)
-
-    with pg_connection() as conn:
-        cur = conn.execute(
-            """SELECT base_rate_micros::double precision / 1000000.0 AS base_rate_cad,
-                      multi_gpu_discount_4, multi_gpu_discount_8, vram_gb
-               FROM gpu_pricing
-               WHERE gpu_model = %s AND tier = %s AND pricing_mode = %s
-                     AND active = TRUE
-               LIMIT 1""",
-            (gpu_model, tier, mode),
+    try:
+        quote = quote_tier(
+            gpu_model,
+            mode,
+            tier=tier,
+            num_gpus=num_gpus,
+            price_id=service_tier_price_id,
+            gpu_exclusive=exclusive_gpu,
+            vram_gb=vram_gb,
+            gpu_exclusive_price_id=gpu_exclusive_price_id,
+            queue_bid_units=queue_bid_units,
+            queue_bid_price_id=queue_bid_price_id,
         )
-        row = cur.fetchone()
-
-    if not row and live_spot_quote is None:
-        raise HTTPException(status_code=404, detail=f"No pricing for {gpu_model}/{tier}/{mode}")
-
-    if row:
-        base_rate = row[0]
-        mg4_disc = row[1]
-        mg8_disc = row[2]
-        vram_gb = row[3]
-    else:
-        # The guard above returns 404 when both row and quote are absent,
-        # so reaching this branch means the live quote exists.
-        assert live_spot_quote is not None
-        base_rate = live_spot_quote.rate_cad
-        mg4_disc = 0.05
-        mg8_disc = 0.10
-        vram_gb = 0
-
-    if live_spot_quote is not None:
-        base_rate = live_spot_quote.rate_cad
-
-    # Multi-GPU discount
-    if num_gpus >= 8:
-        multi_gpu_discount = mg8_disc
-    elif num_gpus >= 4:
-        multi_gpu_discount = mg4_disc
-    else:
-        multi_gpu_discount = 0.0
-
-    # Effective per-GPU rate
-    effective_rate = base_rate * pri_mult * (1 - multi_gpu_discount)
-    effective_rate = round(effective_rate, 4)
-
-    # Per-hour total across all GPUs
-    total_per_hour = round(effective_rate * num_gpus, 4)
-
-    # Tax
+    except TierPricingUnavailable as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     province = _estimate_province(request, province)
     tax_rate, tax_desc = get_tax_rate_for_province(province)
-    tax_amount = round(total_per_hour * tax_rate, 4)
-    total_with_tax = round(total_per_hour + tax_amount, 4)
-
-    result = {
+    total_per_hour = quote["total_per_hour_cad"]
+    tax_amount = round(total_per_hour * tax_rate, 6)
+    return {
         "ok": True,
         "currency": "CAD",
         "gpu_model": gpu_model,
-        "vram_gb": vram_gb,
-        "tier": tier,
+        "vram_gb": quote["vram_gb"],
+        "tier": quote["tier"],
         "pricing_mode": mode,
-        "priority": priority,
+        "priority": quote["priority"],
         "num_gpus": num_gpus,
-        "base_rate_cad": base_rate,
-        "priority_multiplier": pri_mult,
-        "multi_gpu_discount": multi_gpu_discount,
-        "effective_rate_per_gpu": effective_rate,
+        "base_rate_cad": micros_to_cad(quote["base_rate_micros"]),
+        "priority_multiplier": 1,
+        "multi_gpu_discount": 0,
+        "tier_addition_per_gpu_cad": quote["tier_addition_per_gpu_cad"],
+        "queue_bid_addition_per_gpu_cad": micros_to_cad(quote["queue_bid_micros"]),
+        "gpu_exclusive_addition_per_gpu_cad": micros_to_cad(quote["gpu_exclusive_rate_micros"]),
+        "effective_rate_per_gpu": total_per_hour / num_gpus,
         "total_per_hour": total_per_hour,
         "province": province,
         "tax_rate": tax_rate,
         "tax_description": tax_desc,
         "tax_amount": tax_amount,
-        "total_with_tax": total_with_tax,
+        "total_with_tax": round(total_per_hour + tax_amount, 6),
+        "service_tier_price_id": quote["stripe_price_id"],
+        "service_tier_quote": quote,
     }
-    if live_spot_quote is not None:
-        result["on_demand_cad"] = live_spot_quote.on_demand_cad
-        result["savings_pct"] = live_spot_quote.savings_pct
-        result["spot_supply"] = live_spot_quote.supply
-        result["spot_demand"] = live_spot_quote.demand
-    return result
 
 
 @router.get("/api/pricing/spot-quote", tags=["Billing"])
@@ -1629,45 +1592,26 @@ def api_spot_quote(
     province: str = "",
     priority: str = "normal",
 ):
-    """Live spot quote with tax breakdown for launch UI."""
-    from db import GPU_PRIORITY_MULTIPLIERS
-    from spot_pricing import compute_live_spot_quote
+    """The same Stripe-backed quote, projected for spot-specific consumers."""
+    result = api_pricing_rates(request, gpu_model, tier, "spot", "normal", num_gpus, province)
+    from service_tier_pricing import quote_tier
 
-    priority = priority.lower()
-    pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
-    quote = compute_live_spot_quote(gpu_model, tier=tier)
+    standard = quote_tier(gpu_model, "on_demand", tier="standard")
+    on_demand = standard["total_per_hour_cad"]
+    rate = result["effective_rate_per_gpu"]
+    from spot_pricing import get_supply_demand, _provider_floor_cents_by_gpu
 
-    effective_rate = round(quote.rate_cad * pri_mult, 4)
-    total_per_hour = round(effective_rate * num_gpus, 4)
-    province = _estimate_province(request, province)
-    tax_rate, tax_desc = get_tax_rate_for_province(province)
-    tax_amount = round(total_per_hour * tax_rate, 4)
-    total_with_tax = round(total_per_hour + tax_amount, 4)
-
+    supply, demand = get_supply_demand(gpu_model)
     return {
-        "ok": True,
-        "currency": "CAD",
-        "gpu_model": gpu_model,
-        "tier": tier,
-        "pricing_mode": "spot",
-        "num_gpus": num_gpus,
-        "priority": priority,
-        "rate_cad": quote.rate_cad,
-        "on_demand_cad": quote.on_demand_cad,
-        "savings_pct": quote.savings_pct,
-        "spot_cents": quote.spot_cents,
-        "supply": quote.supply,
-        "demand": quote.demand,
-        "provider_floor_cents": quote.provider_floor_cents,
-        "priority_multiplier": pri_mult,
-        "effective_rate_per_gpu": effective_rate,
-        "total_per_hour": total_per_hour,
-        "province": province,
-        "tax_rate": tax_rate,
-        "tax_description": tax_desc,
-        "tax_amount": tax_amount,
-        "total_with_tax": total_with_tax,
-        "as_of": quote.as_of,
+        **result,
+        "rate_cad": rate,
+        "on_demand_cad": on_demand,
+        "savings_pct": round(max(0, 1 - rate / on_demand) * 100, 1) if on_demand else 0,
+        "spot_cents": round(rate * 100),
+        "pricing_source": "stripe",
+        "supply": supply,
+        "demand": demand,
+        "provider_floor_cents": _provider_floor_cents_by_gpu().get(gpu_model, 0),
     }
 
 
@@ -1710,23 +1654,19 @@ def api_reserved_plans():
 
     Compare with on-demand (`POST /instance`) and spot (`POST /instance` with `pricing_mode=spot`).
     """
+    from pricing_reference import commitment_pricing_mode
+
     live = build_gpu_pricing_reference()
     enriched = {}
     for tier_key, tier in RESERVED_PRICING_TIERS.items():
-        samples = {}
-        if live:
-            for gpu in live:
-                rate = get_reserved_rate(gpu, tier_key)
-                if rate > 0:
-                    samples[gpu] = round(rate, 4)
-        else:
-            for gpu, ref in GPU_REFERENCE_PRICING_CAD.items():
-                base = (
-                    ref.get("base_rate_cad", ref.get("cad_per_hour", 0))
-                    if isinstance(ref, dict)
-                    else ref
-                )
-                samples[gpu] = round(base * (1 - tier["discount_pct"] / 100), 4)
+        # Sample rates are the imported Stripe reserved Prices; a term with no
+        # Price (6_month) lists none rather than a computed discount.
+        mode = commitment_pricing_mode(tier_key)
+        samples = {
+            gpu: rates[f"{mode}_cad"]
+            for gpu, rates in live.items()
+            if mode and rates.get(f"{mode}_cad")
+        }
         enriched[tier_key] = {**tier, "sample_hourly_rates_cad": samples}
     return {"ok": True, "currency": "CAD", "reserved_tiers": enriched}
 
@@ -1750,10 +1690,10 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
 
     base_rate = get_on_demand_rate(req.gpu_model)
     discounted_rate = get_reserved_rate(req.gpu_model, req.commitment_type)
-    if discounted_rate <= 0 and base_rate > 0:
-        discounted_rate = round(base_rate * (1 - tier["discount_pct"] / 100), 4)
-    if base_rate <= 0 and discounted_rate <= 0:
-        raise HTTPException(400, f"Unknown GPU model: {req.gpu_model}")
+    if base_rate <= 0 or discounted_rate <= 0:
+        raise HTTPException(
+            400, f"No Stripe Price for {req.gpu_model} on a {req.commitment_type} commitment"
+        )
     tax_rate, tax_desc = get_tax_rate_for_province(req.province)
 
     now = time.time()

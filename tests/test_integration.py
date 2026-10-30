@@ -24,6 +24,7 @@ os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"
 os.environ["XCELSIOR_AUTH_RATE_LIMIT_REQUESTS"] = "5000"
 
 import scheduler
+from tests._db_helpers import fund_test_owner
 from api import app
 
 scheduler.HOSTS_FILE = os.path.join(_tmpdir, "hosts.json")
@@ -81,15 +82,15 @@ def test_job_lifecycle_and_billing_via_api():
             "host_id": "h-int-1",
             "ip": "10.0.0.9",
             "gpu_model": "A100",
-            "total_vram_gb": 80,
-            "free_vram_gb": 80,
+            "total_vram_gb": 40,
+            "free_vram_gb": 40,
             "cost_per_hour": 1.0,
         },
     )
     _admit_host("h-int-1")
 
     create = client.post(
-        "/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium"}
+        "/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium", "gpu_model": "A100"}
     )
     inst = create.json()["instance"]
     job_id = inst["job_id"]
@@ -106,10 +107,6 @@ def test_job_lifecycle_and_billing_via_api():
     report_native_status(client, job_id, "running", headers=headers, host_id="h-int-1")
     time.sleep(1.1)
     report_native_status(client, job_id, "completed", headers=headers, host_id="h-int-1")
-
-    billed = client.post(f"/billing/bill/{job_id}")
-    assert billed.status_code == 200
-    assert billed.json()["bill"]["cost"] > 0
 
 
 def test_marketplace_stats_with_mixed_platform_cuts():
@@ -155,8 +152,8 @@ class TestFullJobLifecycle:
                 "host_id": "lc-h1",
                 "ip": "10.0.0.1",
                 "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
+                "total_vram_gb": 40,
+                "free_vram_gb": 40,
                 "cost_per_hour": 1.0,
             },
         )
@@ -168,6 +165,7 @@ class TestFullJobLifecycle:
                 "name": "lifecycle-job",
                 "vram_needed_gb": 16,
                 "tier": "premium",
+                "gpu_model": "A100",
             },
         ).json()["instance"]
         job_id = job["job_id"]
@@ -185,11 +183,6 @@ class TestFullJobLifecycle:
         report_native_status(client, job_id, "running", headers=headers, host_id="lc-h1")
         time.sleep(1.1)
         report_native_status(client, job_id, "completed", headers=headers, host_id="lc-h1")
-
-        # Bill
-        bill = client.post(f"/billing/bill/{job_id}")
-        assert bill.status_code == 200
-        assert bill.json()["bill"]["cost"] > 0
 
         # Verify job is completed
         detail = client.get(f"/instance/{job_id}")
@@ -217,8 +210,8 @@ class TestGlobalPlacement:
                 "host_id": "de-host",
                 "ip": "10.0.0.10",
                 "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
+                "total_vram_gb": 40,
+                "free_vram_gb": 40,
                 "cost_per_hour": 0.80,
                 "country": "DE",
             },
@@ -230,8 +223,8 @@ class TestGlobalPlacement:
                 "host_id": "ca-host",
                 "ip": "10.0.0.11",
                 "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
+                "total_vram_gb": 40,
+                "free_vram_gb": 40,
                 "cost_per_hour": 1.20,
                 "country": "CA",
             },
@@ -240,7 +233,7 @@ class TestGlobalPlacement:
 
         job = client.post(
             "/instance",
-            json={"name": "global-job", "vram_needed_gb": 16},
+            json={"name": "global-job", "vram_needed_gb": 16, "gpu_model": "A100"},
         ).json()["instance"]
         scheduler.process_queue()
         placed = client.get(f"/instance/{job['job_id']}").json()["instance"]
@@ -255,8 +248,8 @@ class TestGlobalPlacement:
                 "host_id": "de-only",
                 "ip": "10.0.0.12",
                 "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
+                "total_vram_gb": 40,
+                "free_vram_gb": 40,
                 "cost_per_hour": 0.50,
                 "country": "DE",
             },
@@ -265,7 +258,7 @@ class TestGlobalPlacement:
 
         job = client.post(
             "/instance",
-            json={"name": "foreign-fleet-job", "vram_needed_gb": 16},
+            json={"name": "foreign-fleet-job", "vram_needed_gb": 16, "gpu_model": "A100"},
         ).json()["instance"]
         scheduler.process_queue()
         placed = client.get(f"/instance/{job['job_id']}").json()["instance"]
@@ -336,6 +329,7 @@ class TestSecurityAdmission:
             json={
                 "name": "sec-job",
                 "vram_needed_gb": 8,
+                "gpu_model": "RTX 4090",
             },
         ).json()["instance"]
 
@@ -351,8 +345,8 @@ class TestSecurityAdmission:
                 "host_id": "sec-h2",
                 "ip": "10.0.0.61",
                 "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
+                "total_vram_gb": 40,
+                "free_vram_gb": 40,
                 "cost_per_hour": 1.0,
             },
         )
@@ -363,6 +357,7 @@ class TestSecurityAdmission:
             json={
                 "name": "admitted-job",
                 "vram_needed_gb": 16,
+                "gpu_model": "A100",
             },
         ).json()["instance"]
         job_id = job["job_id"]
@@ -413,14 +408,20 @@ class TestSecurityAdmission:
         requirement, not a side effect of a tier string.
         """
         _reset_state()
-        scheduler.register_host("runc-h", "10.0.0.70", "A100", 80, 80, 1.0)
+        scheduler.register_host("runc-h", "10.0.0.70", "A100", 40, 40, 1.0)
         scheduler._set_host_fields("runc-h", admitted=True, recommended_runtime="runc")
         _admit_host("runc-h")
-        scheduler.register_host("gvisor-h", "10.0.0.71", "A100", 80, 80, 1.2)
+        scheduler.register_host("gvisor-h", "10.0.0.71", "A100", 40, 40, 1.2)
         scheduler._set_host_fields("gvisor-h", admitted=True, recommended_runtime="runsc")
         _admit_host("gvisor-h")
 
-        job = scheduler.submit_job("tier-test", 16, tier="premium")
+        job = scheduler.submit_job(
+            "tier-test",
+            16,
+            tier="premium",
+            gpu_model="A100",
+            owner=fund_test_owner("tier-label-owner"),
+        )
         hosts = scheduler.load_hosts()
         cheapest = scheduler.allocate(job, hosts)
 
@@ -491,7 +492,7 @@ class TestMultiGPUAllocation:
         # 082: the projection reads admission_state, not payload.admitted.
         _admit_host("1gpu")
         # Multi-GPU host
-        scheduler.register_host("4gpu", "10.0.0.81", "A100", 80, 80, 2.0)
+        scheduler.register_host("4gpu", "10.0.0.81", "A100", 40, 40, 2.0)
         scheduler._set_host_fields("4gpu", admitted=True, gpu_count=4)
 
         # 082: the projection reads admission_state, not payload.admitted.

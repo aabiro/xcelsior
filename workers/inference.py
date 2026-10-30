@@ -220,7 +220,7 @@ class InferenceEngine:
                 name=f"inference-{endpoint_id}",
                 vram_needed_gb=vram_gb,
                 priority=5,
-                tier="on-demand",
+                tier="standard",
                 num_gpus=1,
                 image=docker_image,
                 command=f"serve --model {model_id}",

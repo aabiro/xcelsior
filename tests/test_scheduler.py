@@ -16,6 +16,7 @@ os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 
 import scheduler
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 
 # Patch file paths to use temp directory
 scheduler.HOSTS_FILE = os.path.join(_tmpdir, "hosts.json")
@@ -260,7 +261,14 @@ class TestHostRegistry:
 
 class TestJobQueue:
     def test_exclusive_gpu_request_survives_persistence_and_dispatch(self):
-        job = scheduler.submit_job("exclusive-smoke", 1, exclusive_gpu=True)
+        # GPU exclusivity is a paid add-on, so the request names a priced GPU.
+        job = scheduler.submit_job(
+            "exclusive-smoke",
+            1,
+            exclusive_gpu=True,
+            gpu_model=PRICED_GPU,
+            owner=fund_test_owner("exclusive-smoke-owner"),
+        )
         assert job["exclusive_gpu"] is True
         stored = scheduler.get_job(job["job_id"])
         assert stored["exclusive_gpu"] is True
@@ -286,20 +294,30 @@ class TestJobQueue:
         assert nxt["name"] == "job-a"
 
     def test_higher_priority_goes_first(self):
-        scheduler.submit_job("low", 8, priority=0)
-        scheduler.submit_job("high", 8, priority=2)
+        # Queue priority comes from the purchased service tier.
+        owner = fund_test_owner("priority-order-owner")
+        scheduler.submit_job("low", 8, gpu_model=PRICED_GPU, owner=owner)
+        scheduler.submit_job("high", 8, gpu_model=PRICED_GPU, owner=owner, tier="premium")
         nxt = scheduler.get_next_job()
         assert nxt["name"] == "high"
 
     def test_tier_overrides_priority(self):
-        job = scheduler.submit_job("test", 8, priority=0, tier="urgent")
-        assert job["priority"] == 3
-        assert job["tier"] == "urgent"
+        job = scheduler.submit_job(
+            "test",
+            8,
+            priority=0,
+            tier="premium",
+            gpu_model=PRICED_GPU,
+            owner=fund_test_owner("tier-priority-owner"),
+        )
+        assert job["priority"] == 2
+        assert job["tier"] == "premium"
 
-    def test_invalid_tier_defaults_to_on_demand(self):
-        job = scheduler.submit_job("test", 8, tier="nonexistent")
-        assert job["tier"] == "on-demand"
-        assert job["priority"] == 1
+    def test_invalid_tier_is_refused(self):
+        # An unknown tier no longer silently becomes on-demand: tiers are
+        # purchased, so guessing one would guess a price.
+        with pytest.raises(ValueError, match="Choose Standard, Premium, or Dedicated"):
+            scheduler.submit_job("test", 8, tier="nonexistent")
 
 
 # ── Phase 3+1: Process Queue ────────────────────────────────────────
@@ -429,60 +447,6 @@ class TestJobStatus:
 # ── Phase 8: Billing ────────────────────────────────────────────────
 
 
-class TestBilling:
-    def test_bill_completed_job(self):
-        job = scheduler.submit_job("test", 8)
-        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        time.sleep(0.01)
-        scheduler.update_job_status(job["job_id"], "completed")
-        record = scheduler.bill_job(job["job_id"])
-        assert record is not None
-        assert record["job_id"] == job["job_id"]
-        assert record["cost"] >= 0
-
-    def test_bill_job_missing_timestamps(self):
-        job = scheduler.submit_job("test", 8)
-        assert scheduler.bill_job(job["job_id"]) is None
-
-    def test_no_duplicate_billing(self):
-        job = scheduler.submit_job("test", 8)
-        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        time.sleep(0.01)
-        scheduler.update_job_status(job["job_id"], "completed")
-        first = scheduler.bill_job(job["job_id"])
-        assert first is not None
-        second = scheduler.bill_job(job["job_id"])
-        assert second is None  # Already billed
-
-    def test_bill_all_completed(self):
-        j1 = scheduler.submit_job("a", 8)
-        j2 = scheduler.submit_job("b", 8)
-        for j in (j1, j2):
-            scheduler.update_job_status(j["job_id"], "running")
-            time.sleep(0.01)
-            scheduler.update_job_status(j["job_id"], "completed")
-        bills = scheduler.bill_all_completed()
-        assert len(bills) == 2
-
-    def test_tier_multiplier_applied(self):
-        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=1.0)
-        job = scheduler.submit_job("test", 8, tier="urgent")
-        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        time.sleep(0.01)
-        scheduler.update_job_status(job["job_id"], "completed")
-        record = scheduler.bill_job(job["job_id"])
-        assert record["tier_multiplier"] == 2.0
-
-    def test_total_revenue(self):
-        job = scheduler.submit_job("test", 8)
-        scheduler.update_job_status(job["job_id"], "running")
-        time.sleep(0.01)
-        scheduler.update_job_status(job["job_id"], "completed")
-        scheduler.bill_job(job["job_id"])
-        revenue = scheduler.get_total_revenue()
-        assert revenue >= 0
-
-
 # ── Phase 14: Failover ───────────────────────────────────────────────
 
 
@@ -570,20 +534,9 @@ class TestFailover:
 class TestPriorityTiers:
     def test_list_tiers(self):
         tiers = scheduler.list_tiers()
-        assert "free" in tiers
-        assert "urgent" in tiers
-        assert tiers["urgent"]["priority"] == 3
-        assert tiers["urgent"]["multiplier"] == 2.0
-
-    def test_get_tier_info(self):
-        info = scheduler.get_tier_info("premium")
-        assert info["priority"] == 2
-        assert info["multiplier"] == 1.5
-
-    def test_get_tier_by_priority(self):
-        assert scheduler.get_tier_by_priority(0) == "free"
-        assert scheduler.get_tier_by_priority(3) == "urgent"
-
+        assert set(tiers) == {"standard", "premium", "dedicated"}
+        assert [tiers[t]["priority"] for t in ("standard", "premium", "dedicated")] == [1, 2, 3]
+        assert tiers["dedicated"]["scope"] == "physical_host"
 
 # ── Phase 17: Marketplace ───────────────────────────────────────────
 
@@ -821,22 +774,6 @@ class TestDatabaseStateWithoutFiles:
                 )
             assert loader() == []
             assert path.read_text() == original
-
-
-class TestBillJobAtomic:
-    def test_bill_job_atomic_dedup(self):
-        """bill_job should not produce duplicate records on sequential calls."""
-        job = scheduler.submit_job("test", 8)
-        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        time.sleep(0.01)
-        scheduler.update_job_status(job["job_id"], "completed")
-
-        first = scheduler.bill_job(job["job_id"])
-        assert first is not None
-        second = scheduler.bill_job(job["job_id"])
-        assert second is None
-        records = scheduler.load_billing()
-        assert sum(1 for r in records if r["job_id"] == job["job_id"]) == 1
 
 
 class TestMarketplaceStatsPerListingCut:

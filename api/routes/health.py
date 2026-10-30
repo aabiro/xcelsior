@@ -1198,14 +1198,6 @@ def metrics_prometheus():
         "# HELP xcelsior_failed_jobs_total Total number of failed jobs",
         "# TYPE xcelsior_failed_jobs_total gauge",
         f'xcelsior_failed_jobs_total {snap.get("failed_jobs", 0)}',
-        "",
-        "# HELP xcelsior_billing_revenue_cad Total revenue in CAD",
-        "# TYPE xcelsior_billing_revenue_cad gauge",
-        f'xcelsior_billing_revenue_cad {snap.get("billing_totals", {}).get("total_revenue", 0)}',
-        "",
-        "# HELP xcelsior_billing_records_total Total billing records",
-        "# TYPE xcelsior_billing_records_total gauge",
-        f'xcelsior_billing_records_total {snap.get("billing_totals", {}).get("records", 0)}',
     ]
 
     # B4.4 projection metrics are derived from durable database state so they

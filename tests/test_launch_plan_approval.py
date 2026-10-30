@@ -62,7 +62,7 @@ def _tenant() -> str:
 
 
 def _preview(principal, scratch, **over):
-    req = {"name": "b24", "num_gpus": 1, "interactive": True}
+    req = {"name": "b24", "num_gpus": 1, "interactive": True, "gpu_model": "RTX 4090"}
     req.update(over)
     result = preview(req, principal=principal)
     scratch["plans"].append(result["plan_id"])

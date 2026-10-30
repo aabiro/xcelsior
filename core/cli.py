@@ -19,6 +19,7 @@ except ImportError:
     RICH_AVAILABLE = False
     console = None
 
+from service_tier_pricing import SERVICE_TIERS
 from scheduler import (
     register_host,
     remove_host,
@@ -28,17 +29,12 @@ from scheduler import (
     list_jobs,
     update_job_status,
     process_queue,
-    bill_job,
-    bill_all_completed,
-    get_total_revenue,
-    load_billing,
     start_health_monitor,
     generate_ssh_keypair,
     get_public_key,
     failover_and_reassign,
     requeue_job,
     list_tiers,
-    PRIORITY_TIERS,
     build_and_push,
     list_builds,
     generate_dockerfile,
@@ -205,31 +201,6 @@ def cmd_ping(args):
     results = check_hosts()
     for host_id, status in results.items():
         print(f"  {host_id}: {status}")
-
-
-def cmd_bill(args):
-    """Bill completed jobs."""
-    if args.job_id:
-        record = bill_job(args.job_id)
-        if record:
-            print(f"  Billed: {record['job_name']} | {record['duration_sec']}s | ${record['cost']}")
-        else:
-            print("Billing failed.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        bills = bill_all_completed()
-        for b in bills:
-            print(f"  {b['job_name']} | {b['duration_sec']}s | ${b['cost']}")
-        if not bills:
-            print("Nothing to bill.")
-
-
-def cmd_revenue(args):
-    """Show total revenue."""
-    total = get_total_revenue()
-    records = load_billing()
-    print(f"Total jobs billed: {len(records)}")
-    print(f"Total revenue:     ${total}")
 
 
 def cmd_failover(args):
@@ -1058,7 +1029,7 @@ def cmd_slurm_submit(args):
         "name": args.model,
         "vram_needed_gb": args.vram,
         "priority": args.priority,
-        "tier": args.tier or "free",
+        "tier": args.tier or "standard",
         "image": getattr(args, "image", ""),
     }
     if args.gpus:
@@ -1174,9 +1145,9 @@ def main():
     p_run.add_argument("--priority", type=int, default=0, help="Job priority")
     p_run.add_argument(
         "--tier",
-        choices=list(PRIORITY_TIERS.keys()),
+        choices=list(SERVICE_TIERS),
         default=None,
-        help="Priority tier (overrides --priority)",
+        help="Purchased service tier (Standard, Premium or Dedicated)",
     )
     p_run.add_argument("--gpus", type=int, default=1, help="Number of GPUs needed (default 1)")
     p_run.add_argument("--gpu", default=None, help="Required GPU model, e.g. RTX 3060")
@@ -1239,15 +1210,6 @@ def main():
     # xcelsior ping
     p_ping = sub.add_parser("ping", help="Health check all hosts")
     p_ping.set_defaults(func=cmd_ping)
-
-    # xcelsior bill
-    p_bill = sub.add_parser("bill", help="Bill completed jobs")
-    p_bill.add_argument("job_id", nargs="?", help="Bill a specific job (or all if omitted)")
-    p_bill.set_defaults(func=cmd_bill)
-
-    # xcelsior revenue
-    p_rev = sub.add_parser("revenue", help="Show total revenue")
-    p_rev.set_defaults(func=cmd_revenue)
 
     # xcelsior failover
     p_fo = sub.add_parser("failover", help="Run failover: requeue jobs from dead hosts")

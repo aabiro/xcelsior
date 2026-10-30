@@ -86,7 +86,7 @@ def _funded_principal(scratch, *, deposit_cad: float = 1000.0) -> Principal:
 
 
 def _plan(principal, scratch, **over) -> str:
-    req = {"name": "b25", "num_gpus": 1, "interactive": True}
+    req = {"name": "b25", "num_gpus": 1, "interactive": True, "gpu_model": "RTX 4090"}
     req.update(over)
     result = preview(req, principal=principal)
     scratch["plans"].append(result["plan_id"])
@@ -153,7 +153,7 @@ def test_execute_carries_plan_trace_into_queued_job(scratch, monkeypatch, implic
         structured_logging, "_get_active_trace_context", lambda: (trace_id, "b" * 16)
     )
     result = preview(
-        {"name": "trace-e2e", "num_gpus": 1, "interactive": True},
+        {"name": "trace-e2e", "num_gpus": 1, "interactive": True, "gpu_model": "RTX 4090"},
         principal=p,
         trace_id=None if implicit else trace_id,
     )
