@@ -23,6 +23,7 @@ import abuse_policy
 import egress_isolation as egress
 from control_plane.scheduler import filters
 from db import DatabaseOps, get_engine
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 
 FIXTURE = Path(__file__).parent / "fixtures" / "docker29_network_inspect_xcelsior_tenant.json"
 
@@ -451,7 +452,9 @@ def test_opening_egress_requires_actor_and_reason():
 def test_submitted_job_carries_the_account_decision(account):
     import scheduler
 
-    job = scheduler.submit_job("egress-probe", 0, owner=account)
+    job = scheduler.submit_job(
+        "egress-probe", 0, gpu_model=PRICED_GPU, owner=fund_test_owner(account)
+    )
     try:
         assert job["egress"] == egress.RESTRICTED
     finally:

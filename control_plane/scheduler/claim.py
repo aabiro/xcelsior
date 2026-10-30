@@ -78,6 +78,25 @@ def claim_next_job(
     ).fetchone()
     if row is None:
         return None
+    spec = _row_get(row, "spec", 6) or {}
+    if _row_get(row, "paid", 12):
+        # Ordering evidence commits or rolls back with the claim itself.
+        from control_plane.queue_bids import record_claim
+
+        record_claim(
+            conn,
+            job_id=str(_row_get(row, "job_id", 0)),
+            owner=str(_row_get(row, "owner_id", 11) or spec.get("owner") or ""),
+            claim_number=int(_row_get(row, "schedule_attempt_count", 3)),
+            quote=spec["service_tier_quote"],
+            effective_tier=int(_row_get(row, "effective_priority", 10)),
+            promoted=bool(_row_get(row, "promoted", 13)),
+            aging_steps=int(_row_get(row, "aging_steps", 14)),
+            aging_credit=int(_row_get(row, "aging_credit", 15)),
+            queue_seconds=_row_get(row, "queue_seconds", 16),
+            effective_bid=int(_row_get(row, "effective_bid", 17)),
+            promoted_at=_row_get(row, "promoted_at", 18),
+        )
     return ClaimedJob(
         job_id=str(_row_get(row, "job_id", 0)),
         claim_token=str(_row_get(row, "schedule_claim_token", 1)),

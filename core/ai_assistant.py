@@ -31,7 +31,6 @@ from ai_assistant_config import (
     ANTHROPIC_API_KEY,
     CONFIRMATION_TTL_SEC,
     CONVERSATION_TITLE_MAX_LEN,
-    DEFAULT_BASE_RATE_CAD,
     DEFAULT_CONVERSATION_LIMIT,
     DEFAULT_DOC_SEARCH_LIMIT,
     DEFAULT_GPU_VRAM_GB,
@@ -661,13 +660,13 @@ def _build_tools() -> list[dict]:
         },
         {
             "name": "estimate_cost",
-            "description": "Estimate the cost for a GPU job given model, count, and duration.",
+            "description": "Estimate the cost for a GPU job given model, count, and duration, at its Stripe prices for on-demand, spot, and 1-month/3-month/1-year reserved.",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "gpu_model": {
                         "type": "string",
-                        "description": "GPU model (e.g., 'RTX 4090', 'A100 80GB')",
+                        "description": "GPU model, optionally with VRAM and form factor (e.g., 'RTX 4090', 'A100 80GB', 'H100 SXM')",
                     },
                     "gpu_count": {"type": "integer", "description": "Number of GPUs"},
                     "hours": {"type": "number", "description": "Duration in hours"},
@@ -703,8 +702,9 @@ def _build_tools() -> list[dict]:
                     "docker_image": {"type": "string", "description": "Docker image to run"},
                     "tier": {
                         "type": "string",
-                        "description": "Pricing tier",
-                        "default": "on-demand",
+                        "description": "Service tier",
+                        "enum": ["standard", "premium", "dedicated"],
+                        "default": "standard",
                     },
                 },
                 "required": ["name", "gpu_model", "vram_needed_gb", "docker_image"],
@@ -968,7 +968,7 @@ def _build_tools() -> list[dict]:
         },
         {
             "name": "get_billing_cycles",
-            "description": "Get detailed per-job billing cycle records: duration, rate, tier multiplier, and final charge.",
+            "description": "Get detailed per-job billing cycle records: duration, rate, service tier, and final charge.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1111,7 +1111,7 @@ def _tool_get_job_details(args: dict, user: dict) -> dict:
         "cost_cad": job.get("total_cost_cad", 0),
         "docker_image": job.get("docker_image", ""),
         "priority": job.get("priority", 0),
-        "tier": job.get("tier", "on-demand"),
+        "tier": job.get("tier", "standard"),
     }
 
 
@@ -1162,21 +1162,22 @@ def _tool_search_marketplace(args: dict, _user: dict) -> dict:
 
 
 def _tool_get_pricing(_args: dict, _user: dict) -> dict:
-    from scheduler import get_current_spot_prices, PRIORITY_TIERS
-    from reputation import GPU_REFERENCE_PRICING_CAD
+    """Stripe rates per GPU and mode, the live spot market, and the service tiers."""
+    from pricing_reference import build_gpu_pricing_reference
+    from scheduler import get_current_spot_prices
+    from service_tier_pricing import SERVICE_TIERS
 
-    spots = get_current_spot_prices()
-    # Flatten reference pricing to base rates
-    ref_rates = {}
-    for gpu, info in GPU_REFERENCE_PRICING_CAD.items():
-        if isinstance(info, dict):
-            ref_rates[gpu] = info.get("base_rate_cad", 0)
-        else:
-            ref_rates[gpu] = info
+    pricing = build_gpu_pricing_reference()
+    if not pricing:
+        return {"error": "Stripe compute pricing is unavailable right now."}
     return {
-        "reference_pricing_cad_per_hour": ref_rates,
-        "spot_prices": spots,
-        "tiers": {k: {"multiplier": v.get("multiplier", 1.0)} for k, v in PRIORITY_TIERS.items()},
+        "currency": "CAD",
+        # Per model's default variant: Standard Stripe Price per GPU-hour by
+        # mode (base_rate_cad = on-demand, spot_cad, reserved_*_cad), plus the
+        # Premium and Dedicated on-demand Prices.
+        "reference_pricing": pricing,
+        "spot_prices": get_current_spot_prices(),
+        "service_tiers": {tier: dict(policy) for tier, policy in SERVICE_TIERS.items()},
     }
 
 
@@ -1268,8 +1269,6 @@ _VRAM_REQUIREMENTS = {
     },
 }
 
-_GPU_VRAM_MAP = {"RTX 3090": 24, "RTX 4090": 24, "RTX 4080": 16, "A100": 80, "H100": 80, "L40": 48}
-
 
 def _classify_workload(workload: str) -> dict:
     """Map a workload description string to a VRAM/GPU profile."""
@@ -1313,22 +1312,22 @@ def _aggregate_offers(live_offers: list) -> dict:
 def _build_gpu_recommendations(
     profile: dict, available_models: dict, budget: float | None
 ) -> list[dict]:
-    """Score and rank GPU recommendations from reference pricing + live availability."""
-    from reputation import GPU_REFERENCE_PRICING_CAD
+    """Rank GPUs by their Standard on-demand Stripe Price, with live availability.
+
+    Each model is its default priced variant (smallest VRAM), the one a launch
+    quote picks; ``min_vram`` is per GPU, so a smaller card never qualifies by
+    being multiplied.
+    """
+    from pricing_reference import build_gpu_pricing_reference
 
     recs = []
-    for gpu_name, info in GPU_REFERENCE_PRICING_CAD.items():
-        if not isinstance(info, dict):
-            continue
-        vram = _GPU_VRAM_MAP.get(gpu_name, DEFAULT_GPU_VRAM_GB)
-        if vram < profile["min_vram"] and profile["gpus"] == 1:
+    for gpu_name, info in build_gpu_pricing_reference().items():
+        vram = int(info["vram_gb"])
+        if vram < profile["min_vram"]:
             continue
 
         gpus_needed = max(profile["gpus"], 1)
-        if vram < profile["min_vram"] and gpus_needed == 1:
-            gpus_needed = -(-profile["min_vram"] // vram)
-
-        hourly = round(info.get("base_rate_cad", DEFAULT_BASE_RATE_CAD) * gpus_needed, 2)
+        hourly = round(info["base_rate_cad"] * gpus_needed, 4)
         avail = available_models.get(gpu_name, {})
         live_price = avail.get("min_price") if avail else None
 
@@ -1378,70 +1377,60 @@ def _tool_recommend_gpu(args: dict, _user: dict) -> dict:  # noqa: C901
 
 
 def _tool_estimate_cost(args: dict, _user: dict) -> dict:
-    from reputation import GPU_REFERENCE_PRICING_CAD
-    from scheduler import PRIORITY_TIERS, get_current_spot_prices
-    from spot_pricing import compute_live_spot_quote
+    """Cost of a GPU job at its Stripe Prices in every pricing mode.
+
+    Each mode is the quote a launch would be charged (Standard tier), so the
+    estimate and the eventual charge come from the same Stripe Price.
+    """
+    from pricing_reference import PRICING_MODES, estimate_job_cost
+    from service_tier_pricing import TierPricingUnavailable
 
     gpu_model = args.get("gpu_model", "RTX 4090")
     gpu_count = args.get("gpu_count", 1)
     hours = args.get("hours", 1)
     use_spot = bool(args.get("spot") or args.get("pricing_mode") == "spot")
-    if not isinstance(gpu_count, (int, float)) or gpu_count < 1 or gpu_count > MAX_GPU_COUNT:
-        return {"error": "GPU count must be between 1 and 64."}
+    if (
+        isinstance(gpu_count, bool)
+        or not isinstance(gpu_count, (int, float))
+        or not 1 <= gpu_count <= MAX_GPU_COUNT
+        or gpu_count != int(gpu_count)
+    ):
+        return {"error": "GPU count must be a whole number between 1 and 64."}
     if not isinstance(hours, (int, float)) or hours <= 0 or hours > MAX_JOB_HOURS:
         return {"error": "Hours must be between 0 and 8760 (1 year)."}
+    gpu_count = int(gpu_count)
 
-    # Find reference price from real pricing data
-    ref_price = None
-    for key, info in GPU_REFERENCE_PRICING_CAD.items():
-        if key.lower().replace(" ", "") in gpu_model.lower().replace(" ", ""):
-            if isinstance(info, dict):
-                ref_price = info.get("base_rate_cad")
-            break
-    if ref_price is None:
-        return {"error": f"Unknown GPU model: {gpu_model}. Try 'RTX 4090', 'A100', 'H100', etc."}
+    estimates = {}
+    for mode in PRICING_MODES:
+        try:
+            estimates[mode] = estimate_job_cost(
+                gpu_model, hours, pricing_mode=mode, num_gpus=gpu_count
+            )
+        except TierPricingUnavailable:
+            continue
+    on_demand = estimates.get("on_demand")
+    if on_demand is None:
+        return {
+            "error": f"Unknown GPU model: {gpu_model} has no Stripe Price. "
+            "Try 'RTX 4090', 'A100 80GB', 'H100', etc."
+        }
 
-    # Use real tier multipliers from PRIORITY_TIERS
-    spot_mult = PRIORITY_TIERS.get("spot", {}).get("multiplier", 0.6)
-    on_demand_mult = PRIORITY_TIERS.get("on-demand", {}).get("multiplier", 1.0)
-    reserved_mult = PRIORITY_TIERS.get("reserved", {}).get("multiplier", 0.8)
-
-    on_demand = ref_price * on_demand_mult * gpu_count * hours
-    reserved = ref_price * reserved_mult * gpu_count * hours
-
-    try:
-        live_spot_rate = compute_live_spot_quote(gpu_model).rate_cad
-    except Exception:
-        live_spot_rate = None
-
-    real_spots = get_current_spot_prices()
-    if live_spot_rate is None:
-        for skey, sprice in real_spots.items():
-            if skey.lower().replace(" ", "") in gpu_model.lower().replace(" ", ""):
-                live_spot_rate = sprice
-                break
-
-    spot_rate = live_spot_rate if live_spot_rate is not None else ref_price * spot_mult
-    spot = spot_rate * gpu_count * hours
-
+    selected = "spot" if use_spot else "on_demand"
     result = {
-        "gpu_model": gpu_model,
+        "gpu_model": on_demand["gpu_model"],
+        "vram_gb": on_demand["vram_gb"],
+        "form_factor": on_demand["form_factor"],
         "gpu_count": gpu_count,
         "hours": hours,
-        "base_rate_cad_per_gpu_hr": ref_price,
-        "on_demand_cad": round(on_demand, 2),
-        "spot_cad": round(spot, 2),
-        "reserved_cad": round(reserved, 2),
-        "spot_rate_cad_per_gpu_hr": round(spot_rate, 4),
-        "pricing_mode": "spot" if use_spot else "on_demand",
-        "tier_multipliers": {
-            "on_demand": on_demand_mult,
-            "spot": spot_mult,
-            "reserved": reserved_mult,
-        },
+        "currency": "CAD",
+        "base_rate_cad_per_gpu_hr": on_demand["rate_per_gpu_cad"],
+        "rates_cad_per_gpu_hr": {mode: e["rate_per_gpu_cad"] for mode, e in estimates.items()},
+        "stripe_price_ids": {mode: e["stripe_price_id"] for mode, e in estimates.items()},
+        **{f"{mode}_cad": e["gross_cost_cad"] for mode, e in estimates.items()},
+        "pricing_mode": selected,
     }
-    if use_spot:
-        result["estimate_cad"] = round(spot, 2)
+    if selected in estimates:
+        result["estimate_cad"] = estimates[selected]["gross_cost_cad"]
     return result
 
 
@@ -1497,7 +1486,9 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
         name=args.get("name", "ai-assisted-job"),
         vram_needed_gb=args.get("vram_needed_gb", DEFAULT_GPU_VRAM_GB),
         priority=1,
-        tier=args.get("tier", "on-demand"),
+        tier=args.get("tier", "standard"),
+        # Every customer launch is quoted from the GPU's Stripe Price.
+        gpu_model=args.get("gpu_model") or None,
         num_gpus=args.get("gpu_count", 1),
         image=args.get("docker_image", ""),
         owner=customer_id,
@@ -2166,7 +2157,7 @@ def _tool_get_billing_cycles(args: dict, user: dict) -> dict:
             if job_id:
                 rows = conn.execute(
                     "SELECT cycle_id, job_id, period_start, period_end, duration_seconds, "
-                    "rate_per_hour, gpu_model, tier, tier_multiplier, "
+                    "rate_per_hour, gpu_model, tier, "
                     "amount_micros / 1000000.0 AS amount_cad, status, created_at "
                     "FROM billing_cycles WHERE customer_id = %s AND job_id = %s "
                     "ORDER BY created_at DESC LIMIT %s",
@@ -2175,7 +2166,7 @@ def _tool_get_billing_cycles(args: dict, user: dict) -> dict:
             else:
                 rows = conn.execute(
                     "SELECT cycle_id, job_id, period_start, period_end, duration_seconds, "
-                    "rate_per_hour, gpu_model, tier, tier_multiplier, "
+                    "rate_per_hour, gpu_model, tier, "
                     "amount_micros / 1000000.0 AS amount_cad, status, created_at "
                     "FROM billing_cycles WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
                     (user_id, limit),
@@ -2564,18 +2555,19 @@ Benchmark result: {tflops} TFLOPS FP16
 {"Failed checks: " + failed if failed else "Benchmark completed."}
 
 XCU SCORE REFERENCE TABLE (FP16 TFLOPS):
-| GPU | Expected TFLOPS | Typical XCU | Community baseline rate |
-|-----|----------------|-------------|------------------------|
-| RTX 3080 | 119 | 119 | ~$0.45/hr |
-| RTX 3090 | 142 | 142 | ~$0.65/hr |
-| RTX 4080 | 120 | 120 | ~$0.70/hr |
-| RTX 4090 | 165 | 165 | ~$1.20/hr |
-| A10G | 125 | 125 | ~$0.85/hr |
-| A100 40GB | 312 | 312 | ~$2.50/hr |
-| A100 80GB | 312 | 312 | ~$3.20/hr |
-| H100 SXM | 800 | 800 | ~$4.50/hr |
+| GPU | Expected TFLOPS | Typical XCU |
+|-----|----------------|-------------|
+| RTX 3080 | 119 | 119 |
+| RTX 3090 | 142 | 142 |
+| RTX 4080 | 120 | 120 |
+| RTX 4090 | 165 | 165 |
+| A10G | 125 | 125 |
+| A100 40GB | 312 | 312 |
+| A100 80GB | 312 | 312 |
+| H100 SXM | 800 | 800 |
 
 XCU is the raw FP16 TFLOPS score — higher = more earnings, higher search ranking on marketplace.
+Rates come only from `get_pricing` / `estimate_cost` (the platform's Stripe prices); never quote a rate from memory.
 
 WHEN BENCHMARK PASSED:
 - Tell them their exact score and what it means in earnings.

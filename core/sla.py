@@ -488,7 +488,10 @@ class SLAEngine:
                 from billing import get_billing_engine
 
                 engine = get_billing_engine()
-                tx = engine.deposit(
+                # A service credit, not money received: grant_credit records
+                # tx_type='credit', so revenue and FINTRAC totals that sum
+                # deposits never count it as cash paid in.
+                tx = engine.grant_credit(
                     customer_id,
                     credit_cad,
                     description=f"SLA credit: host {host_id} month {month} (uptime: {row.get('uptime_pct', 0):.2f}%)",

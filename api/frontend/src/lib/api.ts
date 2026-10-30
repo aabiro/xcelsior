@@ -686,6 +686,11 @@ export interface LaunchInstanceParams {
   num_gpus?: number;
   priority?: string | number;
   tier?: string;
+  service_tier_price_id?: string;
+  gpu_exclusive_price_id?: string;
+  queue_bid_units?: number;
+  queue_bid_price_id?: string;
+  exclusive_gpu?: boolean;
   host_id?: string;
   gpu_model?: string;
   pricing_mode?: "on_demand" | "spot";
@@ -807,13 +812,6 @@ export async function createInstanceStreamTicket(instanceId: string) {
 }
 
 // ── Billing ───────────────────────────────────────────────────────────
-export async function fetchBilling() {
-  // No `ok` envelope: this legacy top-level route returns its payload
-  // directly. Declaring one made `res.ok` `undefined` — harmless only
-  // because nothing gates on it, which is not a reason to keep it wrong.
-  return apiFetch<{ records: BillingRecord[]; total_revenue: number }>("/billing");
-}
-
 export async function fetchWallet(customerId: string) {
   return apiFetch<{ ok: boolean; wallet: Wallet }>(
     `/api/billing/wallet/${encodeURIComponent(customerId)}`,
@@ -1896,13 +1894,52 @@ export async function fetchTransparencyReport(months = 12) {
 }
 
 // ── Compliance ────────────────────────────────────────────────────────
+export interface ServiceTierPrice {
+  tier: "standard" | "premium" | "dedicated";
+  label: string;
+  priority: number;
+  scope: string;
+  stripe_price_id: string;
+  stripe_product_id: string;
+  unit_amount_micros: number;
+  base_rate_micros: number;
+  tier_addition_micros: number;
+  rate_per_gpu_cad: number;
+  tier_addition_per_gpu_cad: number;
+}
+
+export interface ServiceTierCatalog {
+  gpu_model: string;
+  mode: string;
+  vram_gb: number;
+  base_rate_micros: number;
+  base_rate_per_gpu_cad: number;
+  tiers: ServiceTierPrice[];
+  gpu_exclusive_addon: { stripe_price_id: string; unit_amount_micros: number; rate_per_gpu_cad: number } | null;
+  queue_bid_unit: { stripe_price_id: string; unit_amount_micros: number } | null;
+  queue_bid_policy: { version: string; aging_interval_seconds: number; aging_fraction_bps: number; max_tier_promotion: number };
+  physical_hosts: { host_id: string; num_gpus: number; region: string; available: boolean }[];
+}
+
+export async function fetchServiceTierCatalog(gpu_model: string, mode = "on_demand", vram_gb?: number) {
+  const qs = new URLSearchParams({ gpu_model, mode });
+  if (vram_gb) qs.set("vram_gb", String(vram_gb));
+  return apiFetch<ServiceTierCatalog>(`/api/pricing/service-tiers?${qs}`);
+}
+
 export async function fetchPricingRates(params: {
   gpu_model: string;
   tier?: string;
+  vram_gb?: number;
   mode?: string;
   priority?: string;
   num_gpus?: number;
   province?: string;
+  service_tier_price_id?: string;
+  gpu_exclusive_price_id?: string;
+  queue_bid_units?: number;
+  queue_bid_price_id?: string;
+  exclusive_gpu?: boolean;
 }) {
   const qs = new URLSearchParams({
     gpu_model: params.gpu_model,
@@ -1910,8 +1947,14 @@ export async function fetchPricingRates(params: {
     mode: params.mode || "on_demand",
     priority: params.priority || "normal",
     num_gpus: String(params.num_gpus || 1),
-    province: params.province || "ON",
   });
+  if (params.province) qs.set("province", params.province);
+  if (params.vram_gb) qs.set("vram_gb", String(params.vram_gb));
+  if (params.service_tier_price_id) qs.set("service_tier_price_id", params.service_tier_price_id);
+  if (params.gpu_exclusive_price_id) qs.set("gpu_exclusive_price_id", params.gpu_exclusive_price_id);
+  if (params.queue_bid_units) qs.set("queue_bid_units", String(params.queue_bid_units));
+  if (params.queue_bid_price_id) qs.set("queue_bid_price_id", params.queue_bid_price_id);
+  if (params.exclusive_gpu) qs.set("exclusive_gpu", "true");
   return apiFetch<{
     ok: boolean;
     currency: string;
@@ -3183,20 +3226,6 @@ export interface Instance {
 
 /** @deprecated Use Instance instead */
 export type Job = Instance;
-
-export interface BillingRecord {
-  id?: string;
-  job_id: string;
-  host_id: string;
-  amount_cad: number;
-  amount?: number;
-  gpu_model: string;
-  duration_sec: number;
-  billed_at: string;
-  created_at?: string;
-  description?: string;
-  type?: string;
-}
 
 export interface Wallet {
   customer_id: string;

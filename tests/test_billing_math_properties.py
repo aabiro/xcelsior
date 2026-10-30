@@ -70,85 +70,65 @@ def test_unknown_province_falls_back_to_gst(code):
 # ── Cost formula (mirror of billing.py L298-L299) ────────────────────
 #
 #   duration_hr = (completed - started) / 3600
-#   cost = round(duration_hr * base_rate * multiplier * (1 - spot_discount), 4)
+#   cost = round(duration_hr * base_rate * (1 - spot_discount), 4)
 #
 # The formula is pure. We re-implement it in-test to lock the contract.
 
 
-def _cost(duration_hr: float, rate: float, mult: float, spot: float) -> float:
-    return round(duration_hr * rate * mult * (1 - spot), 4)
+def _cost(duration_hr: float, rate: float, spot: float) -> float:
+    return round(duration_hr * rate * (1 - spot), 4)
 
 
 @given(
     hours=st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
     rate=st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False),
-    mult=st.floats(min_value=0.0, max_value=5.0, allow_nan=False, allow_infinity=False),
     spot=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
 )
 @settings(deadline=None, max_examples=100)
-def test_cost_is_non_negative(hours, rate, mult, spot):
-    assert _cost(hours, rate, mult, spot) >= 0
+def test_cost_is_non_negative(hours, rate, spot):
+    assert _cost(hours, rate, spot) >= 0
 
 
 @given(
     hours=st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
     rate=st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False),
-    mult=st.floats(min_value=0.5, max_value=5.0, allow_nan=False, allow_infinity=False),
 )
 @settings(deadline=None, max_examples=100)
-def test_cost_zero_when_any_zero_factor(hours, rate, mult):
+def test_cost_zero_when_any_zero_factor(hours, rate):
     """Zero duration OR zero rate OR 100% spot discount ⇒ zero cost."""
-    assert _cost(0.0, rate, mult, 0.0) == 0.0
-    assert _cost(hours, 0.0, mult, 0.0) == 0.0
-    assert _cost(hours, rate, mult, 1.0) == 0.0
+    assert _cost(0.0, rate, 0.0) == 0.0
+    assert _cost(hours, 0.0, 0.0) == 0.0
+    assert _cost(hours, rate, 1.0) == 0.0
 
 
 @given(
     h1=st.floats(min_value=0.0, max_value=500.0, allow_nan=False, allow_infinity=False),
     h2=st.floats(min_value=0.0, max_value=500.0, allow_nan=False, allow_infinity=False),
     rate=st.floats(min_value=0.01, max_value=100.0, allow_nan=False, allow_infinity=False),
-    mult=st.floats(min_value=0.5, max_value=5.0, allow_nan=False, allow_infinity=False),
     spot=st.floats(min_value=0.0, max_value=0.9, allow_nan=False, allow_infinity=False),
 )
 @settings(deadline=None, max_examples=100)
-def test_cost_monotonic_in_duration(h1, h2, rate, mult, spot):
+def test_cost_monotonic_in_duration(h1, h2, rate, spot):
     """Longer runs must cost at least as much as shorter ones."""
     lo, hi = sorted([h1, h2])
-    c_lo = _cost(lo, rate, mult, spot)
-    c_hi = _cost(hi, rate, mult, spot)
+    c_lo = _cost(lo, rate, spot)
+    c_hi = _cost(hi, rate, spot)
     # round() has a 1e-4 step — allow tolerance at that scale.
-    assert c_hi >= c_lo - 1e-4
-
-
-@given(
-    hours=st.floats(min_value=0.01, max_value=1000.0, allow_nan=False, allow_infinity=False),
-    rate=st.floats(min_value=0.01, max_value=100.0, allow_nan=False, allow_infinity=False),
-    m1=st.floats(min_value=0.5, max_value=5.0, allow_nan=False, allow_infinity=False),
-    m2=st.floats(min_value=0.5, max_value=5.0, allow_nan=False, allow_infinity=False),
-    spot=st.floats(min_value=0.0, max_value=0.9, allow_nan=False, allow_infinity=False),
-)
-@settings(deadline=None, max_examples=100)
-def test_cost_monotonic_in_tier_multiplier(hours, rate, m1, m2, spot):
-    """Higher tier multiplier must yield at least as much cost."""
-    lo, hi = sorted([m1, m2])
-    c_lo = _cost(hours, rate, lo, spot)
-    c_hi = _cost(hours, rate, hi, spot)
     assert c_hi >= c_lo - 1e-4
 
 
 @given(
     hours=st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
     rate=st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False),
-    mult=st.floats(min_value=0.5, max_value=5.0, allow_nan=False, allow_infinity=False),
     s1=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
     s2=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
 )
 @settings(deadline=None, max_examples=100)
-def test_cost_antimonotonic_in_spot_discount(hours, rate, mult, s1, s2):
+def test_cost_antimonotonic_in_spot_discount(hours, rate, s1, s2):
     """Larger spot discount must yield no more cost than smaller discount."""
     lo, hi = sorted([s1, s2])  # lo < hi → hi has bigger discount → smaller cost
-    c_lo_discount = _cost(hours, rate, mult, lo)
-    c_hi_discount = _cost(hours, rate, mult, hi)
+    c_lo_discount = _cost(hours, rate, lo)
+    c_hi_discount = _cost(hours, rate, hi)
     assert c_hi_discount <= c_lo_discount + 1e-4
 
 

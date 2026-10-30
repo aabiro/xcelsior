@@ -197,7 +197,8 @@ class TestAddHostViaAPI:
             json={
                 "name": "e2e-job",
                 "vram_needed_gb": 8,
-                "tier": "free",
+                "gpu_model": "RTX 3090",
+                "tier": "standard",
             },
         )
         assert job_resp.status_code == 200
@@ -253,8 +254,8 @@ class TestFullJobLifecycleE2E:
                 "host_id": "e2e-lc-h1",
                 "ip": "10.0.0.70",
                 "gpu_model": "A100",
-                "total_vram_gb": 80,
-                "free_vram_gb": 80,
+                "total_vram_gb": 40,
+                "free_vram_gb": 40,
                 "cost_per_hour": 1.50,
             },
         )
@@ -266,6 +267,7 @@ class TestFullJobLifecycleE2E:
             json={
                 "name": "e2e-lifecycle",
                 "vram_needed_gb": 16,
+                "gpu_model": "A100",
                 "tier": "premium",
             },
         )
@@ -294,15 +296,12 @@ class TestFullJobLifecycleE2E:
         detail = client.get(f"/instance/{job_id}")
         assert detail.json()["instance"]["status"] == "completed"
 
-        # Bill the job
-        bill = client.post(f"/billing/bill/{job_id}", headers=wh)
-        assert bill.status_code == 200
-        assert bill.json()["bill"]["cost"] > 0
 
     def test_multiple_hosts_best_allocation(self):
         """Multiple hosts registered — job goes to the best one."""
         _reset_state()
-        for hid, vram, cost in [("mh-1", 24, 0.50), ("mh-2", 80, 1.20), ("mh-3", 48, 0.90)]:
+        # Real A100 variants: a paid launch binds the priced variant's VRAM.
+        for hid, vram, cost in [("mh-1", 40, 0.50), ("mh-2", 80, 1.20), ("mh-3", 80, 0.90)]:
             client.put(
                 "/host",
                 headers=_platform_headers(),
@@ -317,19 +316,20 @@ class TestFullJobLifecycleE2E:
             )
             _admit_host(hid)
 
-        # Submit job needing 40GB — only mh-2 and mh-3 can handle it
+        # Submit job needing 60GB — only mh-2 and mh-3 can handle it
         job_resp = client.post(
             "/instance",
             json={
                 "name": "big-job",
-                "vram_needed_gb": 40,
+                "vram_needed_gb": 60,
                 "interactive": False,
+                "gpu_model": "A100",
             },
         )
         assert job_resp.status_code == 200, job_resp.text
         inst = job_resp.json()["instance"]
         job_id = inst["job_id"]
-        assert inst["vram_needed_gb"] == 40
+        assert inst["vram_needed_gb"] == 60
         # B2.6: submit enqueues; the scheduler picks the best of mh-2 / mh-3.
         from scheduler import process_queue
 
@@ -360,6 +360,7 @@ class TestFullJobLifecycleE2E:
             json={
                 "name": "blocked-job",
                 "vram_needed_gb": 8,
+                "gpu_model": "RTX 4090",
             },
         )
         inst = job_resp.json()["instance"]

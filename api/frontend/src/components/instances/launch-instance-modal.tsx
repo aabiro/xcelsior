@@ -17,6 +17,7 @@ import {
   classifyLaunchError,
   listAvailableVolumes,
   fetchPricingRates,
+  fetchServiceTierCatalog,
   fetchSpotFeatureStatus,
 } from "@/lib/api";
 import type {
@@ -27,6 +28,7 @@ import type {
   LaunchInstanceParams,
   MarketplaceListing,
   Volume,
+  ServiceTierCatalog,
 } from "@/lib/api";
 import { PlacementPreferenceControl } from "@/components/instances/placement-preference-control";
 import { cn, generateFunName } from "@/lib/utils";
@@ -38,7 +40,6 @@ import {
   Box,
   CheckCircle,
   CreditCard,
-  DollarSign,
   HardDrive,
   Loader2,
   Lock,
@@ -53,7 +54,6 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { getTeamContext } from "@/lib/team-context";
-import { TeamContextBanner } from "@/components/team/team-context-banner";
 import {
   SpotInterruptWarning,
   SpotKillSwitchBanner,
@@ -68,30 +68,24 @@ const PRICING_MODES = [
     value: "on_demand" as const,
     label: "On-Demand",
     icon: Activity,
-    desc: "Standard rate, guaranteed availability",
-    badge: null,
+    desc: "Keep it running. Your allocated GPU cannot be reclaimed by another customer.",
   },
   {
     value: "spot" as const,
     label: "Spot",
     icon: TrendingDown,
-    desc: "Up to 60% cheaper, may be preempted",
-    badge: "Save up to 60%",
+    desc: "Lower cost. Your instance can be interrupted; save checkpoints so work can resume.",
   },
 ];
 
-const TIERS = [
-  { value: "standard", label: "Standard", desc: "Best effort, no SLA" },
-  { value: "premium", label: "Premium", desc: "99.9% uptime guarantee" },
-  { value: "dedicated", label: "Dedicated", desc: "Highest support and uptime commitment" },
-];
+// Same conversion used by persistent-volume metering in billing/billing.py.
+const HOURS_PER_MONTH = 730;
 
-const PRIORITIES = [
-  { label: "Low", value: "low", numeric: 1 },
-  { label: "Normal", value: "normal", numeric: 3 },
-  { label: "High", value: "high", numeric: 6 },
-  { label: "Critical", value: "critical", numeric: 9 },
-] as const;
+function hourlyPrice(value: number) {
+  const exact = (Math.round(value * 1_000_000) / 1_000_000).toFixed(6).replace(/0+$/, "");
+  const [whole, fraction = ""] = exact.split(".");
+  return `$${whole}.${fraction.padEnd(2, "0")}/hr`;
+}
 
 const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string; icon: string }[] = [
   { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", vram: "24", icon: "pytorch" },
@@ -141,13 +135,17 @@ export function LaunchInstanceModal({
 
   // Form state
   const [instanceName, setInstanceName] = useState(() => generateFunName());
-  const [image, setImage] = useState("");
+  // Follow the default template until the user chooses an image.
+  const [image, setImage] = useState<string | null>(null);
   const [gpuModel, setGpuModel] = useState("");
   const [vramGb, setVramGb] = useState<number | "">("");
   const [numGpus, setNumGpus] = useState("1");
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
-  const [tier, setTier] = useState("standard");
-  const [priority, setPriority] = useState<string>("normal");
+  const [tier, setTier] = useState<"standard" | "premium" | "dedicated">("standard");
+  const [gpuExclusive, setGpuExclusive] = useState(false);
+  const [queueBid, setQueueBid] = useState("0.00");
+  const [tierCatalog, setTierCatalog] = useState<ServiceTierCatalog | null>(null);
+  const [tierPricingError, setTierPricingError] = useState<string | null>(null);
   // No province state, deliberately. Stripe Tax is the merchant-of-record
   // calculation and reads the *account* country/province — `api_create_payment_intent`
   // says so in as many words. `/api/pricing/rates` now follows the same source,
@@ -174,6 +172,8 @@ export function LaunchInstanceModal({
 
   // Dynamic pricing from backend
   const [dynamicRate, setDynamicRate] = useState<{
+    gpu_model: string;
+    pricing_mode: string;
     effective_rate_per_gpu: number;
     total_per_hour: number;
     tax_rate: number;
@@ -192,15 +192,18 @@ export function LaunchInstanceModal({
   const [gpuLoading, setGpuLoading] = useState(true);
   const [spotQuoteLoading, setSpotQuoteLoading] = useState(false);
   const [spotQuoteError, setSpotQuoteError] = useState<string | null>(null);
+  const [quoteRefresh, setQuoteRefresh] = useState(0);
   const [spotFeature, setSpotFeature] = useState<{
     enabled: boolean;
     message?: string | null;
   }>({ enabled: true });
   const effectivePricingMode =
     !spotFeature.enabled && pricingMode === "spot" ? "on_demand" : pricingMode;
+  const priorityLabel = tier === "dedicated" ? "Highest" : tier === "premium" ? "Premium" : "Standard";
 
-  const resolvedImage = image.trim();
-  const selectedTemplate = templates.find((t) => t.image === image);
+  const defaultImage = templates.find((t) => t.id === "pytorch")?.image ?? FALLBACK_TEMPLATES[0].image;
+  const resolvedImage = (image ?? defaultImage).trim();
+  const selectedTemplate = templates.find((t) => t.image === resolvedImage);
   const resolvedGpu = listing?.gpu_model || gpuModel;
   const templateVramGb = selectedTemplate ? Number(selectedTemplate.vram) : undefined;
   const isAutoGpuSelection = !listing && !resolvedGpu;
@@ -214,7 +217,7 @@ export function LaunchInstanceModal({
   const gpuInventoryOptions = Array.from(
     inventorySource.reduce((acc, gpu) => {
       const existing = acc.get(gpu.gpu_model);
-      const price = gpu.price_per_hour_cad > 0 ? gpu.price_per_hour_cad : undefined;
+      const price = gpu.price_per_hour_cad != null && gpu.price_per_hour_cad > 0 ? gpu.price_per_hour_cad : undefined;
 
       if (!existing) {
         acc.set(gpu.gpu_model, {
@@ -266,53 +269,103 @@ export function LaunchInstanceModal({
   })();
   const resolvedVramGb = vramGb || (vramOptionsForGpu.length === 1 ? vramOptionsForGpu[0] : undefined);
 
-  // Pricing, use dynamic rate from backend when available, else fall back to reference
-  const selectedPricing = pricing.find((p) => p.gpu_model === resolvedGpu);
-  const selectedInventory = gpuModelOptions.find((gpu) => gpu.gpu_model === resolvedGpu);
+  // Fleet rates are estimates until placement selects a host.
   const listingRate = listing ? (listing.price_per_hour_cad || listing.price_per_hour || 0) : 0;
-  // Cheapest available rate for "auto" GPU selection
-  const cheapestAvailableRate = (() => {
-    const candidates = gpuModelOptions
-      .map((g) => g.minPricePerHourCad)
-      .filter((p): p is number => p != null && p > 0);
-    if (candidates.length === 0) {
-      const refCandidates = pricing
-        .map((p) => effectivePricingMode === "spot" ? (p.spot_cad ?? p.on_demand_cad) : p.on_demand_cad)
-        .filter((p) => p > 0);
-      return refCandidates.length > 0 ? Math.min(...refCandidates) : null;
-    }
-    return Math.min(...candidates);
-  })();
-  const isEstimatedRate = !dynamicRate && !listing && !resolvedGpu;
-  const effectiveRate = dynamicRate
-    ? dynamicRate.effective_rate_per_gpu
-    : listing
-      ? listingRate
-      : effectivePricingMode === "spot"
-        ? (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad ?? cheapestAvailableRate)
-        : (selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad ?? cheapestAvailableRate);
+  const estimatedGpu = resolvedGpu || gpuModelOptions
+    .filter((entry) => entry.minPricePerHourCad != null)
+    .sort((a, b) => a.minPricePerHourCad! - b.minPricePerHourCad!)[0]?.gpu_model
+    || pricing[0]?.gpu_model;
+  const estimatedInventory = gpuModelOptions.find((entry) => entry.gpu_model === estimatedGpu);
+  const estimatedPricing = pricing.find((entry) => entry.gpu_model === estimatedGpu);
+  const currentRate = dynamicRate && dynamicRate.gpu_model === estimatedGpu && dynamicRate.pricing_mode === effectivePricingMode
+    ? dynamicRate
+    : null;
+  const currentCatalog = tierCatalog?.gpu_model === estimatedGpu && tierCatalog?.mode === effectivePricingMode && (!resolvedVramGb || tierCatalog.vram_gb === resolvedVramGb) ? tierCatalog : null;
+  const selectedTierPrice = currentCatalog?.tiers.find((entry) => entry.tier === tier);
+  const exclusiveAddon = gpuExclusive && tier !== "dedicated" ? currentCatalog?.gpu_exclusive_addon : null;
+  const addonReady = !gpuExclusive || tier === "dedicated" || !!exclusiveAddon;
+  const bidUnit = currentCatalog?.queue_bid_unit;
+  const bidAmount = queueBid.trim() === "" ? 0 : Number(queueBid);
+  const bidMicros = Math.round(bidAmount * 1_000_000);
+  const bidUnits = bidUnit ? Math.round(bidMicros / bidUnit.unit_amount_micros) : 0;
+  const bidReady = Number.isFinite(bidAmount) && bidAmount >= 0 && Math.abs(bidMicros / 1_000_000 - bidAmount) < 1e-12 && bidUnits <= 1_000_000 && (bidAmount === 0 || bidMicros > 0 && !!bidUnit && bidUnits * bidUnit.unit_amount_micros === bidMicros);
+  const effectiveRate = selectedTierPrice && addonReady && bidReady ? (selectedTierPrice.unit_amount_micros + (exclusiveAddon?.unit_amount_micros ?? 0) + bidMicros) / 1_000_000 : null;
+  const nextQueueTier = currentCatalog?.tiers.find((entry) => entry.priority === (selectedTierPrice?.priority ?? 0) + 1);
+  const promotionMinutes = bidReady && bidMicros > 0 && nextQueueTier && selectedTierPrice
+    ? Math.ceil(Math.max(0, nextQueueTier.unit_amount_micros - selectedTierPrice.unit_amount_micros - bidMicros) * 10 / bidMicros) * 15
+    : null;
+  const isEstimatedRate = false;
+  const physicalHosts = currentCatalog?.physical_hosts.filter((host) => !listing?.host_id || host.host_id === listing.host_id) ?? [];
+  const wholeHostSizes = [...new Set(physicalHosts.map((host) => host.num_gpus))].sort((a, b) => a-b);
+  const wholeHostReady = tier !== "dedicated" || wholeHostSizes.includes(Number(numGpus));
+  const computeBasePerHour = currentCatalog ? currentCatalog.base_rate_micros * Number(numGpus) / 1_000_000 : null;
+  const tierAdditionPerHour = selectedTierPrice ? selectedTierPrice.tier_addition_micros * Number(numGpus) / 1_000_000 : null;
+  const exclusivityPerHour = exclusiveAddon ? exclusiveAddon.unit_amount_micros * Number(numGpus) / 1_000_000 : 0;
   const onDemandRate = listing
     ? listingRate
-    : selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad ?? null;
-  const spotRate = dynamicRate && effectivePricingMode === "spot"
-    ? dynamicRate.effective_rate_per_gpu
-    : listing
-      ? (spotPrices[listing.gpu_model] ?? selectedPricing?.spot_cad ?? null)
-      : (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad ?? null);
+    : estimatedInventory?.minPricePerHourCad ?? estimatedPricing?.on_demand_cad ?? null;
+  const spotRate = effectivePricingMode === "spot"
+    ? effectiveRate
+    : spotPrices[estimatedGpu ?? ""] ?? estimatedPricing?.spot_cad ?? null;
   const savingsPct =
     onDemandRate != null && spotRate != null && onDemandRate > spotRate
       ? Math.round((1 - spotRate / onDemandRate) * 100)
       : null;
-  const totalPerHour = dynamicRate
-    ? dynamicRate.total_per_hour
-    : effectiveRate != null ? effectiveRate * Number(numGpus) : null;
+  const computePerHour = effectiveRate != null ? effectiveRate * Number(numGpus) : null;
+  const selectedVolumes = availableVolumes.filter((v) => selectedVolumeIds.includes(v.volume_id));
+  const volumePrices = selectedVolumes.map((volume) =>
+    volume.monthly_cost_cad ?? (volume.price_per_gb_month_cad != null
+      ? volume.size_gb * volume.price_per_gb_month_cad
+      : null),
+  );
+  const volumePricingKnown = selectedVolumes.length === selectedVolumeIds.length && volumePrices.every((cost) => cost != null);
+  const volumeMonthlyCost = volumePrices.reduce<number>((total, cost) => total + (cost ?? 0), 0);
+  const volumePerHour = volumePricingKnown ? volumeMonthlyCost / HOURS_PER_MONTH : null;
+  const totalPerHour = computePerHour != null && volumePerHour != null ? computePerHour + volumePerHour : null;
   // `/api/pricing/rates` is the only source of a tax rate now; the removed
   // fallback read a map that the 404ing fetch always left empty, so it only
   // ever yielded 0.
-  const taxRate = dynamicRate?.tax_rate ?? 0;
-  const totalWithTax = dynamicRate
-    ? dynamicRate.total_with_tax
-    : totalPerHour != null ? totalPerHour * (1 + taxRate) : null;
+  const taxRate = currentRate?.tax_rate;
+  const totalWithTax = totalPerHour != null && taxRate != null ? totalPerHour * (1 + taxRate) : null;
+
+  const priceSummary = (
+    <div className="rounded-lg border border-border p-3 bg-surface space-y-2" aria-live="polite">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-text-secondary">Estimated total (CAD)</span>
+        <span className="text-lg font-bold font-mono" data-testid="launch-total">
+          {totalPerHour != null ? hourlyPrice(totalWithTax ?? totalPerHour) : "Unavailable"}
+        </span>
+      </div>
+      <div className="flex justify-between gap-3 text-xs">
+        <span className="text-text-muted">Compute ({numGpus} {Number(numGpus) === 1 ? "GPU" : "GPUs"})</span>
+        <span>{computeBasePerHour != null ? hourlyPrice(computeBasePerHour) : "Loading prices…"}</span>
+      </div>
+      <div className="flex justify-between gap-3 text-xs">
+        <span className="text-text-muted">{selectedTierPrice?.label ?? tier} service tier</span>
+        <span>{tierAdditionPerHour != null ? `+${hourlyPrice(tierAdditionPerHour)}` : "Loading prices…"}</span>
+      </div>
+      {exclusiveAddon && <div className="flex justify-between gap-3 text-xs"><span className="text-text-muted">Exclusive allocated GPUs</span><span>+{hourlyPrice(exclusivityPerHour)}</span></div>}
+      {bidMicros > 0 && bidReady && <div className="flex justify-between gap-3 text-xs"><span className="text-text-muted">Queue bid ({numGpus} {Number(numGpus) === 1 ? "GPU" : "GPUs"})</span><span>+{hourlyPrice(bidMicros * Number(numGpus) / 1_000_000)}</span></div>}
+      {selectedVolumeIds.length > 0 && (
+        <>
+          <div className="flex justify-between gap-3 text-xs">
+            <span className="text-text-muted">Volume storage ({selectedVolumes.reduce((total, volume) => total + volume.size_gb, 0)} GB)</span>
+            <span>{volumePerHour != null ? hourlyPrice(volumePerHour) : "Price unavailable"}</span>
+          </div>
+          {volumePricingKnown && <p className="text-[11px] text-text-muted">${volumeMonthlyCost.toFixed(2)}/month of existing storage. Already billed separately; attaching adds no new fee. Storage billing continues when compute stops.</p>}
+        </>
+      )}
+      <div className="flex justify-between gap-3 text-xs">
+        <span className="text-text-muted">Estimated tax{taxRate != null ? ` (${(taxRate * 100).toFixed(1)}%)` : ""}</span>
+        <span>{taxRate != null && totalPerHour != null ? hourlyPrice(totalPerHour * taxRate) : "Calculated when available"}</span>
+      </div>
+      <p className="text-[11px] text-text-muted">
+        Prices are locked when your launch is accepted. Usage is billed per second.{" "}
+        {taxRate == null ? "Total excludes tax until the estimate is available. " : ""}
+        {effectivePricingMode === "spot" ? "Spot uses spare capacity and can be interrupted." : "On-demand protects your allocation from reclamation by another customer."}
+      </p>
+    </div>
+  );
 
   // Fetch reference data
   useEffect(() => {
@@ -332,13 +385,15 @@ export function LaunchInstanceModal({
       .then((r) => {
         if (r.templates?.length) {
           setTemplates(
-            r.templates.map((t: ImageTemplate) => ({
-              id: t.id,
-              label: t.label,
-              image: t.image,
-              vram: String(t.default_vram_gb),
-              icon: t.icon,
-            })),
+            r.templates
+              .map((t: ImageTemplate) => ({
+                id: t.id,
+                label: t.label,
+                image: t.image,
+                vram: String(t.default_vram_gb),
+                icon: t.icon,
+              }))
+              .sort((a, b) => Number(b.id === "pytorch") - Number(a.id === "pytorch")),
           );
         }
       })
@@ -381,7 +436,6 @@ export function LaunchInstanceModal({
     return () => window.removeEventListener("xcelsior-team-changed", reloadVolumes);
   }, [open]);
 
-  const selectedVolumes = availableVolumes.filter((v) => selectedVolumeIds.includes(v.volume_id));
   const launchRegion = listing?.region?.trim().toLowerCase() || "";
   const volumeRegionMismatch =
     launchRegion.length > 0 &&
@@ -389,26 +443,33 @@ export function LaunchInstanceModal({
 
   // Dynamic pricing, recompute when any pricing variable changes
   useEffect(() => {
-    if (!open || !resolvedGpu) {
+    if (!open || !estimatedGpu) {
       setDynamicRate(null);
       setSpotQuoteLoading(false);
       return;
     }
     const controller = new AbortController();
+    setDynamicRate(null);
+    setTierCatalog(null);
+    setTierPricingError(null);
+    fetchServiceTierCatalog(estimatedGpu, effectivePricingMode, resolvedVramGb)
+      .then((catalog) => { if (!controller.signal.aborted) setTierCatalog(catalog); })
+      .catch(() => { if (!controller.signal.aborted) setTierPricingError("Unable to load service-tier prices. Retry before launching."); });
     if (effectivePricingMode === "spot") {
       setSpotQuoteLoading(true);
       setSpotQuoteError(null);
     }
     fetchPricingRates({
-      gpu_model: resolvedGpu,
-      tier: effectivePricingMode === "spot" ? "standard" : tier,
+      gpu_model: estimatedGpu,
+      vram_gb: resolvedVramGb,
+      tier: "standard",
       mode: effectivePricingMode,
-      priority,
-      num_gpus: Number(numGpus),
+      priority: "normal",
+      num_gpus: 1,
     })
       .then((r) => {
         if (controller.signal.aborted) return;
-        setDynamicRate(r);
+        setDynamicRate({ ...r, gpu_model: estimatedGpu, pricing_mode: effectivePricingMode });
         if (effectivePricingMode === "spot") setSpotQuoteError(null);
       })
       .catch(() => {
@@ -424,27 +485,10 @@ export function LaunchInstanceModal({
         }
       });
     return () => controller.abort();
-  }, [open, resolvedGpu, tier, effectivePricingMode, priority, numGpus]);
+  }, [open, estimatedGpu, effectivePricingMode, resolvedVramGb, quoteRefresh]);
 
   function reloadSpotQuote() {
-    if (!resolvedGpu || effectivePricingMode !== "spot") return;
-    setSpotQuoteLoading(true);
-    setSpotQuoteError(null);
-    fetchPricingRates({
-      gpu_model: resolvedGpu,
-      tier: "standard",
-      mode: "spot",
-      priority,
-      num_gpus: Number(numGpus),
-    })
-      .then((r) => {
-        setDynamicRate(r);
-        setSpotQuoteError(null);
-      })
-      .catch(() => {
-        setSpotQuoteError("Unable to load spot rate. Check your connection and retry.");
-      })
-      .finally(() => setSpotQuoteLoading(false));
+    setQuoteRefresh((value) => value + 1);
   }
 
   useEffect(() => {
@@ -475,12 +519,13 @@ export function LaunchInstanceModal({
     if (open) {
       setStep("configure");
       setInstanceName(generateFunName());
-      setImage("");
+      setImage(null);
       setNumGpus("1");
       setVramGb("");
       setPricingMode(initialPricingMode ?? "on_demand");
       setTier("standard");
-      setPriority("normal");
+      setGpuExclusive(false);
+      setQueueBid("0.00");
       setSelectedVolumeIds(preSelectedVolumeIds ?? []);
       setLaunchError(null);
       setInstanceId("");
@@ -498,17 +543,21 @@ export function LaunchInstanceModal({
     }
     if (!instanceName.trim()) { toast.error("Enter an instance name"); return; }
     if (!resolvedImage) { toast.error("Select a Docker image"); return; }
+    if (!selectedTierPrice || !wholeHostReady || !addonReady || !volumePricingKnown || !bidReady) { toast.error("Refresh resource prices and check your queue bid and host configuration"); return; }
     setSubmitting(true);
     try {
-      const numericPriority = PRIORITIES.find((p) => p.value === priority)?.numeric ?? 3;
       const params: LaunchInstanceParams = {
         name: instanceName.trim(),
         image: resolvedImage,
         vram_needed_gb: resolvedVramGb,
         num_gpus: Number(numGpus),
-        priority: numericPriority,
         tier,
-        gpu_model: resolvedGpu || undefined,
+        service_tier_price_id: selectedTierPrice.stripe_price_id,
+        gpu_exclusive_price_id: exclusiveAddon?.stripe_price_id,
+        queue_bid_units: bidUnits,
+        queue_bid_price_id: bidUnits > 0 ? bidUnit?.stripe_price_id : undefined,
+        exclusive_gpu: gpuExclusive && tier !== "dedicated",
+        gpu_model: estimatedGpu,
         volume_ids: selectedVolumeIds.length > 0 ? selectedVolumeIds : undefined,
         encrypted_workspace: encryptedWorkspace || undefined,
         template_image_id: templateImageId || undefined,
@@ -516,7 +565,6 @@ export function LaunchInstanceModal({
       if (listing?.host_id) params.host_id = listing.host_id;
       if (effectivePricingMode === "spot") {
         params.pricing_mode = "spot";
-        params.tier = "standard";
       }
       const res = await launchInstance(params);
       const jobId = res.instance?.job_id || "";
@@ -587,10 +635,6 @@ export function LaunchInstanceModal({
             </button>
           </CardHeader>
 
-          <div className="px-6 pb-2">
-            <TeamContextBanner team={team} variant="instances" />
-          </div>
-
           <CardContent className="space-y-5">
             {launchBlocked && (
               <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/10 px-3 py-2 text-sm text-accent-gold">
@@ -650,6 +694,32 @@ export function LaunchInstanceModal({
                     Docker Image
                   </Label>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {templates.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        onClick={() => setImage(tpl.image)}
+                        className={cn(
+                          "group flex min-h-[108px] flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors",
+                          resolvedImage === tpl.image
+                            ? "border-ice-blue/40 bg-ice-blue/5"
+                            : "border-border/80 bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex h-14 w-14 items-center justify-center rounded-2xl transition-transform group-hover:scale-105",
+                            resolvedImage === tpl.image
+                              ? "bg-ice-blue/10"
+                              : "bg-surface/60",
+                          )}
+                        >
+                          <TemplateArtwork template={tpl.id} size={32} />
+                        </div>
+                        <span className="font-medium text-text-primary">{tpl.label}</span>
+                        <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{tpl.vram} GB VRAM</span>
+                      </button>
+                    ))}
                     <button
                       type="button"
                       onClick={() => setImage("")}
@@ -673,36 +743,10 @@ export function LaunchInstanceModal({
                       <span className="font-medium text-text-primary">Custom</span>
                       <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Any image</span>
                     </button>
-                    {templates.map((tpl) => (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        onClick={() => setImage(tpl.image)}
-                        className={cn(
-                          "group flex min-h-[108px] flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors",
-                          image === tpl.image
-                            ? "border-ice-blue/40 bg-ice-blue/5"
-                            : "border-border/80 bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary",
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex h-14 w-14 items-center justify-center rounded-2xl transition-transform group-hover:scale-105",
-                            image === tpl.image
-                              ? "bg-ice-blue/10"
-                              : "bg-surface/60",
-                          )}
-                        >
-                          <TemplateArtwork template={tpl.id} size={32} />
-                        </div>
-                        <span className="font-medium text-text-primary">{tpl.label}</span>
-                        <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{tpl.vram} GB VRAM</span>
-                      </button>
-                    ))}
                   </div>
                   <Input
                     placeholder="docker.io/my-org/my-image:latest"
-                    value={image}
+                    value={image ?? defaultImage}
                     onChange={(e) => setImage(e.target.value)}
                     className="mt-1.5"
                   />
@@ -712,8 +756,9 @@ export function LaunchInstanceModal({
                 {!listing && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label className="text-xs">GPU Model</Label>
+                      <Label htmlFor="launch-gpu-model" className="text-xs">GPU Model</Label>
                       <Select
+                        id="launch-gpu-model"
                         value={gpuModel}
                         onChange={(e) => setGpuModel(e.target.value)}
                         disabled={gpuLoading}
@@ -762,8 +807,10 @@ export function LaunchInstanceModal({
                         )}
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">GPUs</Label>
+                        <Label htmlFor="launch-gpu-count" className="text-xs">GPUs</Label>
                         <NumberInput
+                          id="launch-gpu-count"
+                          disabled={tier === "dedicated"}
                           min={1}
                           max={8}
                           value={numGpus}
@@ -776,7 +823,7 @@ export function LaunchInstanceModal({
 
                 {/* Pricing Mode */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Pricing</Label>
+                  <Label className="text-xs">Can your workload handle interruptions?</Label>
                   {!spotFeature.enabled && (
                     <SpotKillSwitchBanner message={spotFeature.message} />
                   )}
@@ -792,7 +839,6 @@ export function LaunchInstanceModal({
                           onClick={() => {
                             if (spotDisabled) return;
                             setPricingMode(mode.value);
-                            if (mode.value === "spot") setTier("standard");
                           }}
                           className={cn(
                             spotDisabled && "opacity-50 cursor-not-allowed",
@@ -805,9 +851,9 @@ export function LaunchInstanceModal({
                           <div className="flex items-center gap-2 mb-1">
                             <Icon className="h-4 w-4" />
                             <span className="text-sm font-medium">{mode.label}</span>
-                            {mode.badge && (
+                            {mode.value === "spot" && savingsPct != null && savingsPct > 0 && (
                               <span className="ml-auto rounded-full bg-emerald/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald">
-                                {mode.badge}
+                                Save {savingsPct}%
                               </span>
                             )}
                           </div>
@@ -817,6 +863,58 @@ export function LaunchInstanceModal({
                     })}
                   </div>
                 </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Service Tier</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["standard", "premium", "dedicated"] as const).map((value) => {
+                      const price = currentCatalog?.tiers.find((entry) => entry.tier === value);
+                      const count = value === "dedicated" ? wholeHostSizes[0] ?? Number(numGpus) : Number(numGpus);
+                      return <button
+                        key={value} type="button" disabled={!price}
+                        aria-pressed={tier === value}
+                        onClick={() => {
+                          setTier(value);
+                          if (value === "dedicated") {
+                            setGpuExclusive(false);
+                            if (wholeHostSizes.length) setNumGpus(String(wholeHostSizes[0]));
+                          }
+                        }}
+                        className={cn("rounded-lg border p-3 text-left transition-colors disabled:opacity-50", tier === value ? "border-ice-blue/40 bg-ice-blue/5" : "border-border hover:border-text-muted")}
+                      >
+                        <p className="text-sm font-medium capitalize">{value}</p>
+                        <p className="mt-1 text-xs font-mono">{price ? `+${hourlyPrice(price.tier_addition_micros * count / 1_000_000)}` : "Loading prices…"}</p>
+                        <p className="mt-1 text-[11px] text-text-muted">{value === "standard" ? "Standard scheduling" : value === "premium" ? "Priority scheduling" : "Entire physical host · highest priority"}</p>
+                      </button>;
+                    })}
+                  </div>
+                  {tierPricingError && <div className="flex items-center justify-between gap-2 text-xs text-accent-red"><span>{tierPricingError}</span><Button variant="outline" size="sm" onClick={reloadSpotQuote}>Retry pricing</Button></div>}
+                </div>
+
+                <div className="space-y-1.5 rounded-lg border border-border p-3">
+                  <Label htmlFor="launch-queue-bid" className="text-xs">Additional queue bid (CAD / GPU-hour)</Label>
+                  <Input id="launch-queue-bid" type="number" min="0" step={bidUnit ? bidUnit.unit_amount_micros / 1_000_000 : 0.01} value={queueBid} onChange={(event) => setQueueBid(event.target.value)} disabled={!bidUnit} />
+                  <p className="text-[11px] text-text-muted">Optional. Moves your job ahead within its service tier. Added to the running compute rate; no charge while waiting.</p>
+                  <details className="text-[11px] text-text-muted"><summary className="cursor-pointer">How queue aging works</summary><p className="mt-1">Every 15 minutes adds free scheduling credit equal to 10% of your original bid. Your bid plus that credit can promote queue position by one tier. Promoted jobs join a FIFO section behind customers who purchased that tier. Your price and hardware isolation stay unchanged.</p></details>
+                  {promotionMinutes != null && <p className="text-[11px] text-text-secondary">{promotionMinutes === 0 ? `Qualifies for the back of the ${nextQueueTier?.label} queue.` : `Can join the back of the ${nextQueueTier?.label} queue after ${promotionMinutes} minutes waiting.`} Starting still depends on available capacity.</p>}
+                  {!bidReady && <p className="text-xs text-accent-red">Enter a nonnegative amount in {bidUnit ? hourlyPrice(bidUnit.unit_amount_micros / 1_000_000) : "$0.01/hr"} increments.</p>}
+                </div>
+
+                {tier === "dedicated" ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="launch-whole-host" className="text-xs">Physical host size</Label>
+                    <Select id="launch-whole-host" value={numGpus} onChange={(event) => setNumGpus(event.target.value)} disabled={!wholeHostSizes.length}>
+                      {!wholeHostSizes.length && <option>No qualified physical hosts available</option>}
+                      {wholeHostSizes.map((count) => <option key={count} value={count}>Entire host · {count} {count === 1 ? "GPU" : "GPUs"}</option>)}
+                    </Select>
+                    <p className="text-[11px] text-text-muted">All GPUs on one physical host are reserved for you. The total includes every GPU; another customer&apos;s workload cannot share that host.</p>
+                  </div>
+                ) : (
+                  <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-xs">
+                    <input type="checkbox" checked={gpuExclusive} disabled={!currentCatalog?.gpu_exclusive_addon} onChange={(event) => setGpuExclusive(event.target.checked)} />
+                    <span><span className="font-medium">Exclusive allocated GPUs</span><span className="ml-2 font-mono">{currentCatalog?.gpu_exclusive_addon ? `+${hourlyPrice(currentCatalog.gpu_exclusive_addon.rate_per_gpu_cad * Number(numGpus))}` : "Loading price…"}</span><span className="mt-1 block text-text-muted">Keep the allocated GPUs free of other GPU processes while allowing other GPUs on the host to serve other customers.</span></span>
+                  </label>
+                )}
 
                 {effectivePricingMode === "spot" && (
                   <SpotInterruptWarning>
@@ -849,59 +947,6 @@ export function LaunchInstanceModal({
                     </p>
                   </SpotInterruptWarning>
                 )}
-
-                {/* Service Tier */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Service Tier</Label>
-                  <div className="space-y-2">
-                    {TIERS.map((t) => {
-                      const spotLocked = effectivePricingMode === "spot" && t.value !== "standard";
-                      return (
-                        <button
-                          key={t.value}
-                          type="button"
-                          disabled={spotLocked}
-                          onClick={() => setTier(t.value)}
-                          className={cn(
-                            "w-full text-left rounded-lg border p-3 transition-colors",
-                            tier === t.value
-                              ? "border-ice-blue/40 bg-ice-blue/5"
-                              : "border-border hover:border-text-muted",
-                            spotLocked && "opacity-40 cursor-not-allowed hover:border-border",
-                          )}
-                        >
-                          <p className="text-sm font-medium">{t.label}</p>
-                          <p className="text-xs text-text-muted">
-                            {spotLocked ? "Spot instances use Standard tier only" : t.desc}
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Priority */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Priority</Label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {PRIORITIES.map((p) => (
-                      <button
-                        key={p.value}
-                        type="button"
-                        onClick={() => setPriority(p.value)}
-                        className={cn(
-                          "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                          priority === p.value
-                            ? "border-ice-blue/40 bg-ice-blue/5 text-text-primary"
-                            : "border-border text-text-secondary hover:border-text-muted",
-                        )}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
 
                 {/* Attached Volumes */}
                 <div className="space-y-2">
@@ -967,6 +1012,9 @@ export function LaunchInstanceModal({
                               </div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-[10px] text-text-muted font-mono">{vol.size_gb} GB</span>
+                                {vol.monthly_cost_cad != null && (
+                                  <span className="text-[10px] text-text-muted font-mono">${vol.monthly_cost_cad.toFixed(2)}/month</span>
+                                )}
                                 {vol.region && (
                                   <span className="text-[10px] text-text-muted/60">{vol.region}</span>
                                 )}
@@ -1034,37 +1082,12 @@ export function LaunchInstanceModal({
                   </div>
                 </button>
 
-                {/* Hourly Rate summary */}
-                <div className="rounded-lg border border-border p-3 bg-surface">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-secondary">Hourly Rate</span>
-                    {effectiveRate != null ? (
-                      <span className="text-lg font-bold font-mono">
-                        {isEstimatedRate && "~"}${effectiveRate.toFixed(2)}
-                        <span className="text-xs text-text-muted ml-1">/hr{isEstimatedRate && " est."}</span>
-                      </span>
-                    ) : (
-                      <span className="text-sm text-text-muted italic">No pricing data</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-text-muted mt-1">
-                    {isEstimatedRate
-                      ? `Best available GPU · exact rate depends on assigned host`
-                      : effectivePricingMode === "spot"
-                        ? "Spot pricing · Billed per second of actual usage"
-                        : "On-demand · Billed per second of actual usage"}
-                    {tier !== "standard" && ` · tier ${tier} applies`}
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-2 text-xs text-ice-blue">
-                    <DollarSign className="h-3 w-3" />
-                    <span>Real-time metered, you only pay for what you use</span>
-                  </div>
-                </div>
+                {priceSummary}
 
                 <Button
                   className="w-full"
                   onClick={() => setStep("confirm")}
-                  disabled={launchBlocked || !instanceName.trim() || !resolvedImage || gpuLoading}
+                  disabled={launchBlocked || !instanceName.trim() || !resolvedImage || gpuLoading || !selectedTierPrice || !wholeHostReady || !addonReady || !volumePricingKnown || !bidReady}
                 >
                   {gpuLoading ? <>Loading GPU inventory…</> : "Continue"}
                 </Button>
@@ -1105,8 +1128,8 @@ export function LaunchInstanceModal({
                     <div className="flex justify-between"><span className="text-text-muted">Instance</span><span>{instanceName}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Image</span><span className="text-right" title={resolvedImage}>{resolvedImage}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Pricing</span><span className="capitalize">{effectivePricingMode === "on_demand" ? "On-Demand" : "Spot"}</span></div>
-                    <div className="flex justify-between"><span className="text-text-muted">Tier</span><span className="capitalize">{tier}</span></div>
-                    <div className="flex justify-between"><span className="text-text-muted">Priority</span><span>{PRIORITIES.find((p) => p.value === priority)?.label ?? "Normal"}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">Service tier</span><span>{selectedTierPrice?.label}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">Queue priority</span><span>{priorityLabel}</span></div>
                     {selectedVolumeIds.length > 0 && (
                       <div className="flex justify-between">
                         <span className="text-text-muted">Volumes</span>
@@ -1125,28 +1148,9 @@ export function LaunchInstanceModal({
                       <span>Rate</span>
                       <span>{effectiveRate != null ? `${isEstimatedRate ? "~" : ""}$${effectiveRate.toFixed(2)}/hr${isEstimatedRate ? " est." : ""}` : "-"}</span>
                     </div>
-                    {totalPerHour != null && (
-                      <>
-                        <div className="flex justify-between text-sm">
-                          <span>Per hour ({Number(numGpus) > 1 ? `${numGpus} GPUs` : "1 GPU"})</span>
-                          <span>{isEstimatedRate && "~"}${totalPerHour.toFixed(2)}/hr</span>
-                        </div>
-                        {taxRate > 0 && (
-                          <div className="flex justify-between text-sm">
-                            <span>Tax ({(taxRate * 100).toFixed(1)}%)</span>
-                            <span>+${(totalPerHour * taxRate).toFixed(2)}/hr</span>
-                          </div>
-                        )}
-                        {taxRate > 0 && totalWithTax != null && (
-                          <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
-                            <span>Total</span>
-                            <span>{isEstimatedRate && "~"}${totalWithTax.toFixed(2)}/hr</span>
-                          </div>
-                        )}
-                      </>
-                    )}
                   </div>
                 </div>
+                {priceSummary}
                 <p className="text-xs text-text-muted">
                   Your wallet will be charged based on actual usage. You can stop the instance at any time.
                 </p>

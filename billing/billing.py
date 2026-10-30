@@ -2,7 +2,6 @@
 # Implements REPORT_FEATURE_FINAL.md + REPORT_MARKETING_FINAL.md:
 #   - CAD pricing (competitors price in USD = procurement friction for CA buyers)
 #   - Per-job metering
-#   - Trust tier pricing multipliers
 #   - Stripe Connect–ready payout structure
 #   - Provider attestation bundle for compliance
 
@@ -19,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional, cast
+from psycopg.types.json import Jsonb
 
 log = logging.getLogger("xcelsior")
 
@@ -134,6 +134,10 @@ def resolve_compute_rate_cad(job: dict, host: dict | None = None) -> tuple[float
     On-demand keeps the host ``cost_per_hour`` path unchanged.
     """
     pricing_mode = resolve_job_pricing_mode(job)
+    if job.get("service_tier_quote"):
+        from service_tier_pricing import validate_tier_snapshot
+
+        return micros_to_cad(validate_tier_snapshot(job["service_tier_quote"])), pricing_mode
     num_gpus = max(1, int(job.get("num_gpus", 1) or 1))
 
     if pricing_mode == "spot":
@@ -195,10 +199,10 @@ class UsageMeter:
 
     # Cost breakdown
     base_rate_per_hour: float = 0.0
-    tier_multiplier: float = 1.0
     spot_discount: float = 0.0
     pricing_mode: str = "on_demand"
     total_cost_cad: float = 0.0
+    pricing_snapshot: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -279,7 +283,6 @@ def _usage_meter_from_row(row: Any) -> UsageMeter:
             "province",
             "trust_tier",
             "base_rate_per_hour",
-            "tier_multiplier",
             "spot_discount",
             "total_cost_cad",
             "created_at",
@@ -309,9 +312,9 @@ def _usage_meter_from_row(row: Any) -> UsageMeter:
         province=str(row.get("province") or ""),
         trust_tier=str(row.get("trust_tier") or "community"),
         base_rate_per_hour=float(row.get("base_rate_per_hour") or 0),
-        tier_multiplier=float(row.get("tier_multiplier") or 1.0),
         spot_discount=float(row.get("spot_discount") or 0),
         pricing_mode=str(row.get("pricing_mode") or "on_demand"),
+        pricing_snapshot=dict(row.get("pricing_snapshot") or {}),
         # Derived from the integer column; the float twin was dropped in 087.
         total_cost_cad=micros_to_cad(row.get("total_cost_micros") or 0),
     )
@@ -359,28 +362,39 @@ def settle_attempt_meter(conn, attempt_id: str, meter_id: str) -> UsageMeter | N
                 "started_at",
                 "attempt_ended",
                 "base_rate_per_hour",
-                "tier_multiplier",
                 "spot_discount",
             )
         ]
         if any(v is None or not math.isfinite(float(v)) for v in values):
             return None
-        started, ended, rate, multiplier, discount = map(float, values)
+        started, ended, rate, discount = map(float, values)
         if (
             started <= 0
             or not started <= ended <= row["checked_at"]
             or rate < 0
-            or multiplier < 0
             or not 0 <= discount <= 1
         ):
             return None
         duration = ended - started
-        cost = round(duration / 3600 * rate * multiplier * (1 - discount), 4)
+        gpu_count = int((row.get("pricing_snapshot") or {}).get("num_gpus") or 1)
+        cost = round(duration / 3600 * rate * (1 - discount), 4)
+        if row.get("pricing_snapshot"):
+            from service_tier_pricing import validate_tier_snapshot, usage_charge_micros
+
+            cost = micros_to_cad(
+                usage_charge_micros(validate_tier_snapshot(row["pricing_snapshot"]), duration)
+            )
         updated = cur.execute(
             """UPDATE usage_meters SET completed_at=%s, duration_sec=%s,
                       gpu_seconds=%s, total_cost_micros=%s
                  WHERE meter_id=%s RETURNING *""",
-            (ended, round(duration, 2), round(duration, 2), cad_to_micros(cost), meter_id),
+            (
+                ended,
+                round(duration, 2),
+                round(duration * gpu_count, 2),
+                cad_to_micros(cost),
+                meter_id,
+            ),
         ).fetchone()
         return _usage_meter_from_row(updated)
 
@@ -406,6 +420,11 @@ class InvoiceLineItem:
     pricing_mode: str = ""
     gpu_model: str = ""
     stripe_product_id: str = ""
+    service_tier: str = ""
+    stripe_price_id: str = ""
+    gpu_exclusive_price_id: str = ""
+    queue_bid_price_id: str = ""
+    queue_bid_units: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -491,7 +510,6 @@ class BillingEngine:
 
     Features:
     - Per-job metering
-    - Trust tier pricing multipliers
     - Canadian / non-Canadian compute split on every invoice
     - Invoice generation with auditable line items
     - Stripe Connect–ready payout structure
@@ -569,13 +587,18 @@ class BillingEngine:
 
         pricing_mode = resolve_job_pricing_mode(job)
         base_rate, _ = resolve_compute_rate_cad(job, host)
-        # Price is the host's rate. Capacity is priced on what it is, never on
-        # where it sits or what tier label it carries.
-        multiplier = 1.0
+        # Paid attempts use their Stripe snapshot; historical rows keep their
+        # captured rate. Host location never changes the compute amount.
         spot_discount = 0.0
 
         duration_hr = duration / 3600
-        cost = round(duration_hr * base_rate * multiplier, 4)
+        cost = round(duration_hr * base_rate, 4)
+        if job.get("service_tier_quote"):
+            from service_tier_pricing import validate_tier_snapshot, usage_charge_micros
+
+            cost = micros_to_cad(
+                usage_charge_micros(validate_tier_snapshot(job["service_tier_quote"]), duration)
+            )
 
         attempt_id = resolve_meter_attempt_id(job)
 
@@ -587,7 +610,9 @@ class BillingEngine:
             started_at=started,
             completed_at=completed,
             duration_sec=round(duration, 2),
-            gpu_seconds=round(duration, 2),  # 1:1 for single GPU
+            gpu_seconds=round(
+                duration * int((job.get("service_tier_quote") or {}).get("num_gpus") or 1), 2
+            ),
             gpu_model=host.get("gpu_model", ""),
             vram_gb=float(job.get("vram_needed_gb", 0)),
             xcu_score=float(host.get("compute_score", 0)),
@@ -595,10 +620,10 @@ class BillingEngine:
             province=province,
             trust_tier=trust_tier,
             base_rate_per_hour=base_rate,
-            tier_multiplier=multiplier,
             spot_discount=spot_discount,
             pricing_mode=pricing_mode,
             total_cost_cad=cost,
+            pricing_snapshot=dict(job.get("service_tier_quote") or {}),
         )
 
         # One INSERT authority for legacy, terminal and active usage. ON
@@ -606,6 +631,7 @@ class BillingEngine:
         # transaction or discarding unrelated work/evidence.
         with nullcontext(conn) if conn is not None else self._conn() as meter_conn:
             from psycopg.rows import dict_row
+            from psycopg.types.json import Jsonb
 
             with meter_conn.cursor(row_factory=dict_row) as cur:
                 conflict = (
@@ -616,9 +642,8 @@ class BillingEngine:
                        (meter_id, job_id, host_id, owner, started_at, completed_at,
                         duration_sec, gpu_seconds, gpu_model, vram_gb,
                         gpu_utilization_pct, xcu_score, country, province,
-                        trust_tier, base_rate_per_hour,
-                        tier_multiplier, spot_discount, pricing_mode,
-                        total_cost_micros, created_at, attempt_id)
+                        trust_tier, base_rate_per_hour, spot_discount, pricing_mode,
+                        total_cost_micros, created_at, attempt_id, pricing_snapshot)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT {conflict} DO NOTHING RETURNING *""",
@@ -639,12 +664,12 @@ class BillingEngine:
                         meter.province,
                         meter.trust_tier,
                         meter.base_rate_per_hour,
-                        meter.tier_multiplier,
                         meter.spot_discount,
                         meter.pricing_mode,
                         cad_to_micros(meter.total_cost_cad),
                         time.time(),
                         attempt_id,
+                        Jsonb(meter.pricing_snapshot),
                     ),
                 ).fetchone()
                 if inserted is None:
@@ -727,7 +752,13 @@ class BillingEngine:
                     gpu_model,
                     trust_tier,
                     COALESCE(pricing_mode, 'on_demand') AS pricing_mode,
-                    SUM(duration_sec) / 3600.0 AS gpu_hours,
+                    COALESCE(pricing_snapshot->>'tier','') AS service_tier,
+                    COALESCE(pricing_snapshot->>'stripe_price_id','') AS stripe_price_id,
+                    COALESCE(pricing_snapshot->>'gpu_exclusive_price_id','') AS gpu_exclusive_price_id,
+                    COALESCE(pricing_snapshot->>'queue_bid_price_id','') AS queue_bid_price_id,
+                    COALESCE((pricing_snapshot->>'queue_bid_units')::bigint,0) AS queue_bid_units,
+                    SUM(CASE WHEN pricing_snapshot ? 'stripe_price_id'
+                             THEN gpu_seconds ELSE duration_sec END) / 3600.0 AS gpu_hours,
                     SUM(total_cost_micros) AS subtotal_micros,
                     MAX(province) AS province
                 FROM usage_meters
@@ -737,7 +768,10 @@ class BillingEngine:
                   AND completed_at >= %s
                   AND completed_at < %s
                   AND total_cost_micros > 0
-                GROUP BY gpu_model, trust_tier, COALESCE(pricing_mode, 'on_demand')
+                GROUP BY gpu_model, trust_tier, COALESCE(pricing_mode, 'on_demand'),
+                         pricing_snapshot->>'tier', pricing_snapshot->>'stripe_price_id',
+                         pricing_snapshot->>'gpu_exclusive_price_id',
+                         pricing_snapshot->>'queue_bid_price_id',pricing_snapshot->>'queue_bid_units'
                 HAVING SUM(total_cost_micros) / 1000000.0 > 0
                 ORDER BY subtotal_micros DESC, gpu_model, trust_tier, pricing_mode""",
                 (customer_id, period_start, period_end),
@@ -750,7 +784,10 @@ class BillingEngine:
                 mode = str(row["pricing_mode"])
                 li = InvoiceLineItem(
                     description=(
-                        f"{row['gpu_model']} — {_mode_label(mode)} " f"({row['trust_tier']} tier)"
+                        f"{row['gpu_model']} — {_mode_label(mode)} "
+                        f"({row['service_tier'] or row['trust_tier']} tier)"
+                        + (" + GPU exclusivity" if row["gpu_exclusive_price_id"] else "")
+                        + (" + queue bid" if row["queue_bid_price_id"] else "")
                     ),
                     category="compute",
                     quantity=hours,
@@ -762,6 +799,11 @@ class BillingEngine:
                     line_type="compute",
                     pricing_mode=mode,
                     gpu_model=row["gpu_model"],
+                    service_tier=row["service_tier"],
+                    stripe_price_id=row["stripe_price_id"],
+                    gpu_exclusive_price_id=row["gpu_exclusive_price_id"],
+                    queue_bid_price_id=row["queue_bid_price_id"],
+                    queue_bid_units=int(row["queue_bid_units"]),
                 )
                 line_items.append(li.to_dict())
                 subtotal_micros += cost_micros
@@ -1232,7 +1274,9 @@ class BillingEngine:
             balance = float(row.get("balance_cad") or 0)
             held = self._active_holds_total(conn, customer_id)
             row["held_cad"] = held
-            row["available_cad"] = round(max(0.0, balance - held), 4)
+            row["available_cad"] = micros_to_cad(
+                max(0, cad_to_micros(balance) - cad_to_micros(held))
+            )
             # Low-balance UX signals (warning before hard stop at zero).
             warn_at = micros_to_cad(row.get("auto_topup_threshold_micros") or 0) or float(
                 os.environ.get("XCELSIOR_LOW_BALANCE_WARN_CAD", "5.0")
@@ -1362,10 +1406,32 @@ class BillingEngine:
         gpu_model: str | None = None,
         num_gpus: int = 1,
         host: dict | None = None,
+        tier: str = "standard",
+        service_tier_price_id: str | None = None,
+        gpu_exclusive_price_id: str | None = None,
+        queue_bid_units: int = 0,
+        queue_bid_price_id: str | None = None,
+        gpu_exclusive: bool = False,
     ) -> float:
         """CAD amount to reserve for one launch (≈ one hour of compute)."""
         n = max(1, int(num_gpus or 1))
         mode = (pricing_mode or "on_demand").strip().lower()
+        if gpu_model:
+            from service_tier_pricing import quote_tier
+
+            return quote_tier(
+                gpu_model,
+                mode,
+                tier=tier,
+                num_gpus=n,
+                price_id=service_tier_price_id,
+                gpu_exclusive=gpu_exclusive,
+                gpu_exclusive_price_id=gpu_exclusive_price_id,
+                queue_bid_units=queue_bid_units,
+                queue_bid_price_id=queue_bid_price_id,
+            )["total_per_hour_cad"]
+        if tier != "standard" or service_tier_price_id or gpu_exclusive or queue_bid_units:
+            raise ValueError("A priced service tier requires a GPU model")
         if mode == "spot":
             model = (gpu_model or "").strip() or "RTX 4090"
             try:
@@ -1394,7 +1460,7 @@ class BillingEngine:
         Locks the wallet row so concurrent creates see each other's holds.
         Returns ``{held, hold_id, amount_cad, available_cad, reason?}``.
         """
-        amount = round(float(amount_cad), 4)
+        amount = micros_to_cad(cad_to_micros(amount_cad))
         if amount <= 0:
             return {
                 "held": False,
@@ -1424,7 +1490,10 @@ class BillingEngine:
                 if prior is not None:
                     st = prior["status"] if isinstance(prior, dict) else prior[1]
                     hid = str(prior["hold_id"] if isinstance(prior, dict) else prior[0])
-                    if st == "held":
+                    prior_expiry = float(
+                        prior["expires_at"] if isinstance(prior, dict) else prior[3]
+                    )
+                    if st == "held" and prior_expiry > now:
                         return {
                             "held": True,
                             "hold_id": hid,
@@ -1440,11 +1509,12 @@ class BillingEngine:
                         """
                         UPDATE wallet_holds
                            SET idempotency_key = NULL,
+                               status = CASE WHEN status='held' THEN 'expired' ELSE status END,
                                updated_at = %s
                          WHERE hold_id = %s::uuid
-                           AND status <> 'held'
+                           AND (status <> 'held' OR expires_at <= %s)
                         """,
-                        (now, hid),
+                        (now, hid, now),
                     )
 
             wallet = conn.execute(
@@ -1522,7 +1592,7 @@ class BillingEngine:
                                 "idempotent_replay": True,
                             }
                 raise
-            remaining = round(available - amount, 4)
+            remaining = micros_to_cad(cad_to_micros(available) - cad_to_micros(amount))
 
         log.info(
             "WALLET HOLD %s hold=%s amount=$%.4f reason=%s available_after=$%.4f",
@@ -1547,7 +1617,7 @@ class BillingEngine:
         ).fetchone()
         balance = float((row["balance_cad"] if isinstance(row, dict) else row[0]) if row else 0)
         held = self._active_holds_total(conn, customer_id, now=now)
-        return round(max(0.0, balance - held), 4)
+        return micros_to_cad(max(0, cad_to_micros(balance) - cad_to_micros(held)))
 
     def link_wallet_hold_to_job(self, hold_id: str, job_id: str) -> bool:
         """Stamp job.wallet_hold_id and hold.job_id (best-effort durable link)."""
@@ -1878,6 +1948,7 @@ class BillingEngine:
         description: str = "Compute charge",
         *,
         conn=None,
+        gpu_hours: float | None = None,
     ) -> dict:
         """Charge a customer wallet from prepaid credits.
 
@@ -1886,13 +1957,18 @@ class BillingEngine:
         """
         if conn is not None:
             return self._charge_on_connection(
-                conn, customer_id, amount_cad, job_id=job_id, description=description
+                conn,
+                customer_id,
+                amount_cad,
+                job_id=job_id,
+                description=description,
+                gpu_hours=gpu_hours,
             )
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
         balance = float(wallet["balance_cad"] or 0)
         status = wallet.get("status") or "active"
-        amount_cad = round(float(amount_cad), 4)
+        amount_cad = micros_to_cad(cad_to_micros(amount_cad))
 
         if status == "suspended":
             return {
@@ -2079,7 +2155,9 @@ class BillingEngine:
             "low_balance": new_balance <= self.low_balance_threshold_cad(customer_id),
         }
 
-    def _charge_on_connection(self, conn, customer_id, amount_cad, *, job_id, description):
+    def _charge_on_connection(
+        self, conn, customer_id, amount_cad, *, job_id, description, gpu_hours=None
+    ):
         """Debit and journal inside the caller's billing-cycle transaction.
 
         Notices commit with the debit and cycle; push delivery follows commit.
@@ -2088,7 +2166,7 @@ class BillingEngine:
         if not customer_id:
             return {"charged": False, "reason": "missing_customer"}
         self.get_wallet(customer_id)  # Ensure the ordinary zero-funded row exists.
-        amount_micros = cad_to_micros(round(float(amount_cad), 4))
+        amount_micros = cad_to_micros(amount_cad)
         wallet = conn.execute(
             "SELECT balance_micros,status,auto_topup_threshold_micros,low_balance_warned_at "
             "FROM wallets WHERE customer_id=%s FOR UPDATE",
@@ -2139,6 +2217,7 @@ class BillingEngine:
         )
         return {
             "charged": True,
+            "gpu_hours": gpu_hours,
             "balance_cad": micros_to_cad(remaining),
             "amount_cad": micros_to_cad(amount_micros),
             "tx_id": tx_id,
@@ -2166,6 +2245,7 @@ class BillingEngine:
                     amount_cad=result.get("amount_cad", 0),
                     tx_id=result["tx_id"],
                     description="Native periodic billing",
+                    gpu_hours=result.get("gpu_hours"),
                 )
             except Exception as exc:
                 log.warning("committed billing meter projection pending (%s)", type(exc).__name__)
@@ -2468,9 +2548,8 @@ class BillingEngine:
                         """INSERT INTO billing_cycles
                            (cycle_id, job_id, customer_id, host_id, resource_type,
                             period_start, period_end, duration_seconds, rate_per_hour,
-                            gpu_model, tier, tier_multiplier, amount_micros, status,
-                            created_at)
-                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
+                            gpu_model, tier, amount_micros, status, created_at)
+                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '',
                                    0, 'stopped', %s)""",
                         (cycle_id, job_id, owner, host_id, now, now, now),
                     )
@@ -2758,9 +2837,8 @@ class BillingEngine:
                         """INSERT INTO billing_cycles
                            (cycle_id, job_id, customer_id, host_id, resource_type,
                             period_start, period_end, duration_seconds, rate_per_hour,
-                            gpu_model, tier, tier_multiplier, amount_micros, status,
-                            created_at)
-                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0,
+                            gpu_model, tier, amount_micros, status, created_at)
+                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '',
                                    0, 'terminated', %s)
                            ON CONFLICT (cycle_id) DO NOTHING""",
                         (cycle_id, job_id, owner, host_id, now, now, now),
@@ -3251,9 +3329,22 @@ class BillingEngine:
         if duration_sec <= 0 or duration_sec < min_seconds:
             return None
 
-        tier_multiplier = 1.0
+        amount_cad = round((duration_sec / 3600) * rate_per_hour, 4)
+        pricing_snapshot = {}
+        snapshot_row = conn.execute(
+            """SELECT a.placement_explanation->'billing_snapshot'->'service_tier_quote' AS pricing_snapshot
+                 FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
+                   AND a.attempt_id=COALESCE(%s::uuid,j.active_attempt_id)
+                WHERE j.job_id=%s AND a.host_id=%s""",
+            (job_row.get("_terminal_attempt_id"), job_id, host_id),
+        ).fetchone()
+        pricing_snapshot = (snapshot_row or {}).get("pricing_snapshot") or {}
+        if pricing_snapshot:
+            from service_tier_pricing import validate_tier_snapshot, usage_charge_micros
 
-        amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
+            amount_cad = micros_to_cad(
+                usage_charge_micros(validate_tier_snapshot(pricing_snapshot), duration_sec)
+            )
         if amount_cad <= 0:
             if not job_row.get("_terminal_attempt_id"):
                 return None
@@ -3267,6 +3358,9 @@ class BillingEngine:
                 job_id=job_id,
                 description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
                 conn=conn,
+                gpu_hours=duration_sec
+                / 3600
+                * int(pricing_snapshot.get("num_gpus") or job_row.get("num_gpus") or 1),
             )
 
         now = time.time()
@@ -3276,8 +3370,8 @@ class BillingEngine:
         conn.execute(
             """INSERT INTO billing_cycles
                (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                amount_micros, status, pricing_mode, created_at)
+                duration_seconds, rate_per_hour, gpu_model, tier,
+                amount_micros, status, pricing_mode, created_at, pricing_snapshot)
                VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 cycle_id,
@@ -3290,11 +3384,11 @@ class BillingEngine:
                 rate_per_hour,
                 gpu_model,
                 tier,
-                tier_multiplier,
                 cad_to_micros(amount_cad),
                 status,
                 pricing_mode,
                 now,
+                Jsonb(pricing_snapshot),
             ),
         )
         return {
@@ -3459,6 +3553,11 @@ class BillingEngine:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
         from control_plane.billing_effects import lock_period, queue_failed_cycle_stop
+        from service_tier_pricing import refresh_pending_tier_funding
+
+        # Billing owns wallet mutation. Renew queued holds here, outside any
+        # placement transaction, retaining the accepted Price and FIFO time.
+        refresh_pending_tier_funding()
 
         now = time.time()
         billed = 0
@@ -3644,9 +3743,9 @@ class BillingEngine:
                         conn.execute(
                             """INSERT INTO billing_cycles
                                (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                                duration_seconds, rate_per_hour, gpu_model, tier,
                                 amount_micros, status, created_at)
-                               VALUES (%s, %s, %s, %s, 'volume', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               VALUES (%s, %s, %s, %s, 'volume', %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (
                                 vcycle_id,
                                 vid,
@@ -3658,7 +3757,6 @@ class BillingEngine:
                                 round(VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb / HOURS_PER_MONTH, 6),
                                 "storage",
                                 "volume",
-                                1.0,
                                 round(vamount * 1_000_000),
                                 vstatus,
                                 now,

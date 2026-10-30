@@ -15,6 +15,7 @@ from tests.test_control_plane_reservation import fleet, _mkhost, _pool, _reserve
 from tests.test_durable_fairness import policies  # noqa: F401
 from tests.test_durable_preemption import setup, plan, settle
 from tests.test_serverless_native_lifecycle import native  # noqa: F401
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 
 
 def test_native_submission_cannot_commit_without_its_durable_event(native, monkeypatch):
@@ -26,7 +27,13 @@ def test_native_submission_cannot_commit_without_its_durable_event(native, monke
     monkeypatch.setattr(scheduler, "emit_event", emit)
     with mock.patch("control_plane.outbox.append_event", side_effect=RuntimeError("outbox down")):
         with pytest.raises(RuntimeError, match="outbox"):
-            scheduler.submit_job("atomic", 0, owner=native.owner, job_id=native.jid)
+            scheduler.submit_job(
+                "atomic",
+                0,
+                gpu_model=PRICED_GPU,
+                owner=fund_test_owner(native.owner),
+                job_id=native.jid,
+            )
     with native.pool.connection() as conn:
         assert conn.execute("SELECT 1 FROM jobs WHERE job_id=%s", (native.jid,)).fetchone() is None
     emit.assert_not_called()
@@ -37,7 +44,13 @@ def test_exact_submission_retry_repairs_event_from_admission_not_observations(na
 
     with native.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
-    args = dict(name="original", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    args = dict(
+        name="original",
+        vram_needed_gb=0,
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner(native.owner),
+        job_id=native.jid,
+    )
     scheduler.submit_job(**args)
     with native.pool.connection() as conn:
         original = conn.execute(

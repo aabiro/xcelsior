@@ -1640,7 +1640,7 @@ export interface components {
             free_vram_gb: number;
             /**
              * Cost Per Hour
-             * @default 0.2
+             * @default 0
              */
             cost_per_hour: number;
             /**
@@ -1834,6 +1834,17 @@ export interface components {
             priority: number;
             /** Tier */
             tier?: string | null;
+            /** Service Tier Price Id */
+            service_tier_price_id?: string | null;
+            /** Gpu Exclusive Price Id */
+            gpu_exclusive_price_id?: string | null;
+            /**
+             * Queue Bid Units
+             * @default 0
+             */
+            queue_bid_units: number;
+            /** Queue Bid Price Id */
+            queue_bid_price_id?: string | null;
             /**
              * Num Gpus
              * @default 1
@@ -2609,11 +2620,8 @@ export interface components {
             gpu_model: string;
             /** Vram Gb */
             vram_gb: number;
-            /**
-             * Cost Per Hour
-             * @default 0.2
-             */
-            cost_per_hour: number;
+            /** Cost Per Hour */
+            cost_per_hour?: number | null;
             /**
              * Country
              * @default CA

@@ -42,7 +42,7 @@ def instance_ctx():
     _fund_wallet(customer_id, headers)
     job = client.post(
         "/instance",
-        json={"name": f"cov-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 1},
+        json={"name": f"cov-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=headers,
     ).json()["instance"]
     job_id = job["job_id"]
@@ -68,7 +68,7 @@ def test_image_templates():
 def test_exclusive_gpu_launch_is_preserved_for_worker(instance_ctx):
     response = client.post(
         "/instance",
-        json={"name": "exclusive-contract", "vram_needed_gb": 1, "exclusive_gpu": True},
+        json={"name": "exclusive-contract", "vram_needed_gb": 1, "exclusive_gpu": True, "gpu_model": "RTX 4090"},
         headers=instance_ctx["headers"],
     )
     assert response.status_code == 200, response.text[:200]
