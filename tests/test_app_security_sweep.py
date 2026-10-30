@@ -51,7 +51,7 @@ def two_users():
 def _create_job(headers: dict, name: str) -> str:
     r = client.post(
         "/instance",
-        json={"name": name, "vram_needed_gb": 1},
+        json={"name": name, "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=headers,
     )
     assert r.status_code == 200, r.text[:200]

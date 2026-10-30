@@ -42,9 +42,9 @@ def before(empty_db):
         )
         conn.execute(
             """INSERT INTO billing_cycles(cycle_id,job_id,customer_id,host_id,resource_type,
-            period_start,period_end,duration_seconds,rate_per_hour,gpu_model,tier,tier_multiplier,
+            period_start,period_end,duration_seconds,rate_per_hour,gpu_model,tier,
             amount_micros,status,created_at)
-            VALUES('linked-cycle','recorded','owner','host','gpu',100,200,100,1,'RTX 4090','free',1,2500000,'billed',200)"""
+            VALUES('linked-cycle','recorded','owner','host','gpu',100,200,100,1,'RTX 4090','standard',2500000,'billed',200)"""
         )
     return empty_db
 

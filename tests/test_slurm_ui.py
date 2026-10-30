@@ -266,9 +266,10 @@ class TestSpotInstance:
         assert "instance" in d
         assert d["instance"]["name"] == "spot-inference"
 
+        # Every launch quotes a Stripe-priced GPU, spot included.
         unpriced = client.post("/instance", json=launch)
-        assert unpriced.status_code == 409
-        assert "explicit GPU model" in unpriced.text
+        assert unpriced.status_code == 422
+        assert "Select a GPU model" in unpriced.text
 
     def test_spot_instance_missing_name(self):
         """Name is required."""
@@ -291,6 +292,7 @@ class TestSpotInstance:
                 "vram_needed_gb": 8.0,
                 "pricing_mode": "spot",
                 "tier": "premium",
+                "gpu_model": "RTX 4090",
             },
         )
         assert r.status_code == 400

@@ -120,6 +120,9 @@ if os.environ.get("XCELSIOR_POSTGRES_DSN"):
 # to a tracked repository fixture.
 _TEST_STATE_DIR = tempfile.mkdtemp(prefix="xcelsior_pytest_state_")
 os.environ["XCELSIOR_COMPUTE_SCORES_FILE"] = os.path.join(_TEST_STATE_DIR, "compute_scores.json")
+# Nor write uploaded artifacts into the source tree: unset, the local backend
+# stores them beside core/artifacts.py.
+os.environ["XCELSIOR_STORAGE_LOCAL_DIR"] = os.path.join(_TEST_STATE_DIR, "artifacts")
 
 # Tests must not depend on a local Redis service for OAuth/device auth cache.
 os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
@@ -415,3 +418,33 @@ def _clear_module_test_client_cookies():
                 client.cookies.clear()
         except Exception:
             pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def stripe_compute_catalog():
+    """Import the versioned Price snapshot for launch integration tests.
+
+    Offline, exactly as deployment imports it after Alembic
+    (`run_db_migrations.py --import-compute-catalog`): every customer launch
+    quotes a Stripe Price, so a database without the catalog refuses them all.
+    Tests never derive prices from a multiplier or contact Stripe to establish
+    fixtures. Skipped when there is no database, like the other DB fixtures.
+    """
+    import importlib.util
+    import json
+
+    from tests._db_helpers import postgres_is_reachable
+
+    if (os.environ.get("XCELSIOR_DB_BACKEND") or "").lower() not in ("postgres", "dual"):
+        return
+    if not postgres_is_reachable():
+        return
+    from db import _get_pg_pool
+
+    script = Path(PROJECT_ROOT) / "api/scripts/sync_stripe_service_tiers.py"
+    spec = importlib.util.spec_from_file_location("stripe_tier_test_import", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    manifest = json.loads((Path(PROJECT_ROOT) / "billing/stripe_catalog.json").read_text())
+    with _get_pg_pool().connection() as conn:
+        module.import_catalog(conn, manifest["service_tier_catalog"])

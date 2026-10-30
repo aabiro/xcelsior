@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v6"
+FILTER_POLICY_VERSION = "filters/v7"
 
 # Only these device rows can carry placement: a physical NVML identity (the
 # same shape the lease claim requires before it grants a device) in a
@@ -183,6 +183,44 @@ def gpu_count(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     return None
 
 
+def paid_isolation(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
+    """A purchased tier runs only where the worker qualified that isolation.
+
+    Dedicated is the whole physical host: every GPU, none already in use.
+    Reservation repeats these checks under the host lock.
+    """
+    caps = host.get("capabilities") or {}
+    paid = job.get("service_tier_quote") or job.get("service_tier_price_id")
+    if paid and caps.get("gpu_uuid_binding") is not True:
+        return FilterReason(
+            "gpu_binding_unqualified", "Worker must enforce the allocated GPU UUIDs", {}
+        )
+    if job.get("host_exclusive"):
+        if caps.get("dedicated_host") is not True:
+            return FilterReason(
+                "dedicated_host_unqualified", "Host has not qualified physical-host isolation", {}
+            )
+        devices = _devices(host)
+        if devices is not None:
+            total = len(devices)
+            free = sum(1 for d in devices if d.get("free"))
+        else:
+            total = int(_f(host.get("gpu_count"), 0))
+            free = int(_f(host.get("free_gpu_count", total), 0))
+        needed = int(_f(job.get("num_gpus"), 1) or 1)
+        if needed != total or free != total:
+            return FilterReason(
+                "whole_host_unavailable",
+                "Dedicated requires every GPU on an unoccupied physical host",
+                {"requested": needed, "total": total, "free": free},
+            )
+    elif job.get("exclusive_gpu") and caps.get("gpu_exclusivity") is not True:
+        return FilterReason(
+            "gpu_exclusivity_unqualified", "Host has not qualified GPU-only isolation", {}
+        )
+    return None
+
+
 def vram(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     needed_gb = _f(job.get("vram_needed_gb"))
     if needed_gb <= 0:
@@ -286,6 +324,7 @@ HARD_FILTERS: Sequence[Callable[[dict, dict, FilterContext], FilterReason | None
     host_ready,
     gpu_model,
     gpu_count,
+    paid_isolation,
     vram,
     region,
     egress_isolation,

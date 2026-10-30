@@ -967,10 +967,6 @@
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
   },
-  "GET /billing": {
-    "class": "internal",
-    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
-  },
   "GET /builds": {
     "class": "internal",
     "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
@@ -2079,14 +2075,6 @@
     "class": "internal",
     "notes": "scheduler-driven capacity control, no caller outside the platform"
   },
-  "POST /billing/bill-all": {
-    "class": "internal",
-    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
-  },
-  "POST /billing/bill/{job_id}": {
-    "class": "internal",
-    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
-  },
   "POST /build": {
     "class": "internal",
     "notes": "admin image building; P7 covers snapshots of a configured instance, which is a different mechanism from building an image from a model name"
@@ -2290,5 +2278,9 @@
   "PUT /host": {
     "class": "gap",
     "notes": "Provider axis. Registering or updating a rig is how supply reaches the marketplace, and docs/mcp-provider-axis-plan.md records that the provider class has zero tools today."
+  },
+  "GET /api/pricing/service-tiers": {
+    "class": "covered",
+    "notes": "list_tiers(gpu_model, pricing_mode) returns exact Stripe Prices, the optional GPU exclusivity add-on, policy and qualified whole-host GPU counts. create_instance carries the selected tier and both Price IDs into a bound launch plan."
   }
 }

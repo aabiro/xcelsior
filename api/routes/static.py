@@ -50,6 +50,7 @@ _ALLOWED: dict[str, Path] = {
     "egress_isolation.py": _locate("hosts", "egress_isolation.py"),
     # Root helper (client for the worker; also installed root-owned as xcelsior-privd).
     "worker_privileged.py": _locate("workers", "worker_privileged.py"),
+    "hardware_isolation.py": _locate("workers", "hardware_isolation.py"),
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
@@ -66,6 +67,7 @@ _SIGNABLE = frozenset(
         "criu_hosts.py",
         "egress_isolation.py",
         "worker_privileged.py",
+        "hardware_isolation.py",
         "worker-requirements.txt",
     }
 )
