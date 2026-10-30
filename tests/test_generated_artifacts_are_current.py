@@ -137,7 +137,7 @@ def test_the_checked_in_inventory_matches_a_fresh_generation():
     ][:8]
     raise AssertionError(
         "docs/generated/endpoint-inventory.md differs from a fresh generation. "
-        "Run `python scripts/generate_endpoint_inventory.py` and commit the "
+        "Run `python api/scripts/generate_endpoint_inventory.py` and commit the "
         "result in the same commit as the route change.\n"
         f"lines: checked-in {len(checked_lines)}, generated {len(fresh_lines)}\n" + "\n".join(diffs)
     )
