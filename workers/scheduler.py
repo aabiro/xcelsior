@@ -4949,11 +4949,15 @@ def _process_crypto_confirmations():
         try:
             updated = btc.check_and_update_deposit(dep)
             if updated["status"] == "confirmed":
-                # Credit the CAD wallet
+                # Credit the CAD wallet. The key makes the credit once per
+                # deposit: two watchers reading the same pending row, or a
+                # retry after mark_credited failed, would otherwise each post
+                # the full amount for one payment.
                 be.deposit(
                     updated["customer_id"],
                     updated["amount_cad"],
                     f"Bitcoin deposit {updated['deposit_id']} ({updated['amount_btc']:.8f} BTC)",
+                    idempotency_key=f"btc-deposit:{updated['deposit_id']}",
                 )
                 btc.mark_credited(updated["deposit_id"])
                 credited.append(updated)
