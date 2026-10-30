@@ -144,9 +144,21 @@ def test_launch_plan_preview_stores_the_canonical_spec():
     from control_plane.launch.service import Principal, preview
     from routes.instances import JobIn
 
-    payload = {"name": "equiv", "interactive": False, "vram_needed_gb": 12, "num_gpus": 1}
+    from service_tier_pricing import quote_tier
+
+    payload = {
+        "name": "equiv",
+        "interactive": False,
+        "vram_needed_gb": 12,
+        "num_gpus": 1,
+        "gpu_model": "RTX 4090",
+    }
     jobin = JobIn(**payload)
-    expected = canonicalize(jobin.model_dump())
+    # Preview binds the Standard tier's exact Stripe Price into the spec.
+    bound = quote_tier("RTX 4090", "on_demand", min_vram_gb=12)
+    expected = canonicalize(
+        {**jobin.model_dump(), "tier": "standard", "service_tier_price_id": bound["stripe_price_id"]}
+    )
 
     principal = Principal(principal_id="u-equiv", tenant_id="t-equiv")
     result = preview(jobin.model_dump(), principal=principal)

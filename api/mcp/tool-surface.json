@@ -326,6 +326,35 @@
             "spot"
           ]
         },
+        "tier": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "dedicated",
+            "premium",
+            "standard"
+          ]
+        },
+        "service_tier_price_id": {
+          "type": "string",
+          "optional": true
+        },
+        "exclusive_gpu": {
+          "type": "boolean",
+          "optional": true
+        },
+        "gpu_exclusive_price_id": {
+          "type": "string",
+          "optional": true
+        },
+        "queue_bid_units": {
+          "type": "number",
+          "optional": true
+        },
+        "queue_bid_price_id": {
+          "type": "string",
+          "optional": true
+        },
         "interactive": {
           "type": "boolean",
           "optional": true
@@ -1685,7 +1714,20 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "input": {},
+      "input": {
+        "gpu_model": {
+          "type": "string",
+          "optional": true
+        },
+        "pricing_mode": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "on_demand",
+            "spot"
+          ]
+        }
+      },
       "hasOutputSchema": true
     },
     {

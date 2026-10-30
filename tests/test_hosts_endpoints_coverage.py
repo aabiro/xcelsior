@@ -288,7 +288,7 @@ def test_worker_oauth_status_patch_is_an_authenticated_tombstone(user_headers):
 
     resp = client.post(
         "/instance",
-        json={"name": "oauth-patch", "vram_needed_gb": 0, "interactive": True},
+        json={"name": "oauth-patch", "vram_needed_gb": 0, "interactive": True, "gpu_model": "RTX 4090"},
         headers=user_headers["headers"],
     )
     assert resp.status_code == 200, resp.text

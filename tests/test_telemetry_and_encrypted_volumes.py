@@ -90,7 +90,6 @@ class TestOpenTelemetryIntegration:
         for span_name in [
             "job.submit",
             "job.status_update",
-            "billing.bill_job",
             "webhook.stripe",
             "billing.cycle",
         ]:

@@ -457,9 +457,21 @@ class TestConnectContracts:
 
 class TestPricingSanity:
     def test_key_gpu_rates_competitive_cad(self):
-        from db import _GPU_PRICING_BASE
+        from decimal import Decimal
 
-        by_key = {(m, v, ff, hf): rate for m, v, ff, hf, rate in _GPU_PRICING_BASE}
+        from stripe_catalog import load_manifest
+
+        # Standard on-demand Stripe Prices, the only source of compute rates.
+        by_key = {
+            (
+                row["variant"]["gpu_model"],
+                row["variant"]["vram_gb"],
+                row["variant"]["form_factor"],
+                row["variant"]["high_frequency"],
+            ): float(Decimal(row["price"]["unit_amount_decimal"]) / 100)
+            for row in load_manifest()["service_tier_catalog"]["prices"]
+            if row["tier"] == "standard" and row["mode"] == "on_demand"
+        }
         assert by_key[("RTX 2060", 6, "PCIe", False)] == pytest.approx(0.08, abs=0.001)
         assert by_key[("RTX 3060", 12, "PCIe", False)] == pytest.approx(0.12, abs=0.001)
         assert by_key[("RTX 4090", 24, "PCIe", False)] == pytest.approx(0.49, abs=0.001)

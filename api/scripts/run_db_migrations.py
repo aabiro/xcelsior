@@ -12,9 +12,11 @@ MAINTENANCE_ENV = Path("/etc/xcelsior/db-maintenance.env")
 MIGRATOR_KEY = "XCELSIOR_POSTGRES_DSN_MIGRATOR"
 
 
-def run(project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head") -> int:
+def run(project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head", import_compute_catalog=False) -> int:
     if target != "head" and not re.fullmatch(r"[0-9]{3}", target):
         raise RuntimeError("migration target must be head or an absolute three-digit revision")
+    if import_compute_catalog and target != "head":
+        raise RuntimeError("compute catalog import requires migration head")
     env = os.environ.copy()
     if credential_file.exists():
         if credential_file.stat().st_mode & 0o077:
@@ -52,8 +54,15 @@ def run(project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head") -> int:
     if credential:
         # Key-only argv: the value stays in the child's one-shot environment.
         command.extend(["-e", MIGRATOR_KEY, "-e", "XCELSIOR_DB_ROLES_REQUIRED=1"])
-    command.extend(["api", "python", "-m", "alembic", "upgrade", target])
-    return subprocess.run(command, cwd=project, env=env, check=False).returncode
+    migration = [*command, "api", "python", "-m", "alembic", "upgrade", target]
+    result = subprocess.run(migration, cwd=project, env=env, check=False).returncode
+    if result or not import_compute_catalog:
+        return result
+    print("Importing verified Stripe compute Price identities...", flush=True)
+    catalog = [*command, "api", "python", "api/scripts/sync_stripe_service_tiers.py",
+               "--output", "billing/stripe_catalog.json", "--import-dsn-env",
+               MIGRATOR_KEY if credential else "XCELSIOR_POSTGRES_DSN"]
+    return subprocess.run(catalog, cwd=project, env=env, check=False).returncode
 
 
 if __name__ == "__main__":
@@ -63,8 +72,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target", default="head", help="absolute revision for staged writer handoffs"
     )
+    parser.add_argument("--import-compute-catalog", action="store_true")
     args = parser.parse_args()
     try:
-        raise SystemExit(run(target=args.target))
+        raise SystemExit(run(target=args.target, import_compute_catalog=args.import_compute_catalog))
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from None

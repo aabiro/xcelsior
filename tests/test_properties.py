@@ -181,7 +181,7 @@ def _make_job(
     name="test-job",
     vram_needed_gb=8.0,
     num_gpus=1,
-    tier="free",
+    tier="standard",
     gpu_model=None,
     volume_ids=None,
     priority=0,

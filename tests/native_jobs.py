@@ -43,7 +43,8 @@ def insert_schedulable_host(
     """An admitted, freshly observed host with physical (``GPU-``) devices.
 
     This is the minimum the native scheduler will place on: operator
-    admission, ready availability, verified egress isolation, a current
+    admission, ready availability, verified egress isolation and GPU UUID
+    binding (which every paid placement requires), a current
     DB-clock observation and concrete NVML-shaped device identities.
     ``observed=False`` leaves ``last_observed_at`` empty (a host that never
     reported through the v2 observation channel).
@@ -56,12 +57,12 @@ def insert_schedulable_host(
                               administrative_state, availability_state, admission_state,
                               inventory_generation, capabilities, last_observed_at)
            VALUES (%s, 'active', %s, %s, 'admitted', 'ready', 'admitted', %s,
-                   '{"egress_isolation":true}',
+                   '{"egress_isolation":true,"gpu_uuid_binding":true}',
                    CASE WHEN %s THEN clock_timestamp() ELSE NULL END)""",
         (
             host_id,
             _time.time(),
-            _json.dumps({"admitted": True, "cost_per_hour": 0, **(payload or {})}),
+            _json.dumps({"admitted": True, "cost_per_hour": 0, "gpu_model": model, **(payload or {})}),
             inventory_generation,
             observed,
         ),

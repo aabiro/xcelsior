@@ -42,7 +42,7 @@ def job_ctx():
     _fund_wallet(customer_id, headers)
     job = client.post(
         "/instance",
-        json={"name": f"evt-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 1},
+        json={"name": f"evt-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=headers,
     ).json()["instance"]
     job_id = job["job_id"]

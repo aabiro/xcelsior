@@ -32,6 +32,14 @@ def bound_billing_inputs(spec, spec_hash, attempt_hash, quote, host_id):
     host = quote.get("host")
     if not isinstance(host, dict) or host.get("host_id") != host_id:
         raise ValueError("billing quote does not match the attempt host")
+    if spec.get("service_tier_quote") != quote.get("service_tier_quote"):
+        raise ValueError("attempt pricing differs from its immutable admission")
+    if spec.get("service_tier_quote"):
+        from service_tier_pricing import validate_tier_snapshot
+
+        if spec["service_tier_quote"].get("num_gpus") != count:
+            raise ValueError("paid quote differs from admitted GPU count")
+        validate_tier_snapshot(spec["service_tier_quote"])
     rate = quote.get("spot_rate_cad") if mode == "spot" else host.get("cost_per_hour")
     if rate is None or isinstance(rate, bool) or not math.isfinite(float(rate)) or float(rate) < 0:
         raise ValueError("billing quote has no explicit valid price")
@@ -75,7 +83,23 @@ def capture_billing_snapshot(payload: dict, owner_id: str | None, host: dict) ->
     if type(count) is not int or count < 1:
         raise ValueError("billable placement requires a positive GPU count")
     ceiling = payload.get("max_price_per_hour")
-    effective = rate * count if mode == "spot" else rate
+    tier_quote = payload.get("service_tier_quote")
+    if tier_quote:
+        from service_tier_pricing import validate_tier_snapshot
+        from money import micros_to_cad
+
+        effective = micros_to_cad(validate_tier_snapshot(tier_quote))
+        if tier_quote["num_gpus"] != count:
+            raise ValueError("GPU count differs from the funded service-tier quote")
+        if tier_quote.get("gpu_model") != host.get("gpu_model"):
+            from host_metadata import normalize_gpu_model
+
+            if normalize_gpu_model(tier_quote.get("gpu_model")) != normalize_gpu_model(
+                host.get("gpu_model", "")
+            ):
+                raise ValueError("Host GPU differs from the approved Stripe Price")
+    else:
+        effective = rate * count if mode == "spot" else rate
     if ceiling is not None and float(ceiling) > 0 and effective > float(ceiling):
         raise ValueError("captured rate exceeds the approved ceiling")
     return {
@@ -83,6 +107,7 @@ def capture_billing_snapshot(payload: dict, owner_id: str | None, host: dict) ->
         "pricing_mode": mode,
         "num_gpus": count,
         "spot_rate_cad": rate if mode == "spot" else None,
+        "service_tier_quote": dict(tier_quote) if tier_quote else None,
         "host": {
             key: value
             for key, value in host.items()
@@ -205,6 +230,7 @@ def sync_attempt_billing(
                 "pricing_mode": quote["pricing_mode"],
                 "num_gpus": quote["num_gpus"],
                 "spot_rate_cad": quote["spot_rate_cad"],
+                "service_tier_quote": quote.get("service_tier_quote"),
             }
             meter = get_billing_engine().meter_job(job, frozen_host, conn=conn, active=True)
             meter_id = meter.meter_id

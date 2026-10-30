@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 from api import app
+from tests._db_helpers import fund_test_owner
 
 client = TestClient(app)
 
@@ -144,7 +145,8 @@ def test_terminating_another_tenants_instance_is_not_found(funded) -> None:
         name=f"terminate-probe-{uuid.uuid4().hex[:8]}",
         vram_needed_gb=1,
         image="xcelsior/probe:latest",
-        owner="someone-else-entirely",
+        gpu_model="RTX 4090",
+        owner=fund_test_owner("someone-else-entirely"),
     )
     job_id = job.get("job_id") or job.get("id")
     try:

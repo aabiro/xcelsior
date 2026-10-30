@@ -354,6 +354,9 @@ def test_worker_reports_measured_inventory_and_capabilities(monkeypatch):
     monkeypatch.setattr(worker_agent, "is_nvml_available", lambda: True)
     monkeypatch.setattr(nvml_telemetry, "collect_gpu_inventory", lambda: [device()])
     monkeypatch.setattr(egress_isolation, "isolation_ready", lambda: True)
+    # An unmanaged host: GPU UUID binding only, no paid isolation scopes.
+    monkeypatch.delenv("XCELSIOR_MANAGED_HARDWARE_ONLY", raising=False)
+    monkeypatch.delenv("XCELSIOR_DEDICATED_HOST_ENABLED", raising=False)
     monkeypatch.setattr(worker_agent, "_collect_local_workloads", lambda: [])
     monkeypatch.setattr(worker_agent, "_resume_pending_log_delivery", lambda: None)
     monkeypatch.setattr(worker_agent, "_v2_retry_resource_cleanup", lambda **_: None)
@@ -362,7 +365,12 @@ def test_worker_reports_measured_inventory_and_capabilities(monkeypatch):
     )
     assert worker_agent.report_observations_v2(force=True)
     assert posted[0]["gpu_inventory"] == [device()]
-    assert posted[0]["capabilities"] == {"egress_isolation": True}
+    assert posted[0]["capabilities"] == {
+        "egress_isolation": True,
+        "gpu_uuid_binding": True,
+        "gpu_exclusivity": False,
+        "dedicated_host": False,
+    }
     assert posted[0]["conditions"] == {"gpu_inventory": "reported"}
 
 
