@@ -1592,7 +1592,7 @@ docker compose build $build_args frontend
     # migration. That is how the 2026-10-05 redeploy stopped; it also left the
     # container crash-looping, ready to take the port the next time the
     # host's redis restarted.
-    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
+    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py --import-compute-catalog" || error "Migration or Stripe catalog import failed — aborting before API activation."
     success "Migrations applied"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────

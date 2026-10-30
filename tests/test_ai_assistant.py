@@ -4,7 +4,7 @@ system prompt, suggestions, database CRUD, confirmation state machine, and ALL t
 Coverage targets:
 - Every tool handler (20 tools)
 - Edge cases: empty input, missing args, budget filtering, unknown models
-- Real data verification: pricing from PRIORITY_TIERS, GPU_REFERENCE_PRICING_CAD
+- Real data verification: pricing from the imported Stripe catalog (billing/stripe_catalog.json)
 - New tools: gpu_availability, volumes, checkpoints, list_api_keys, revoke_api_key
 
 MOCKING STRATEGY:
@@ -89,7 +89,7 @@ def _mock_reputation_score(**kwargs):
 
 @pytest.fixture(autouse=True)
 def _fast_spot_price_reads(monkeypatch):
-    """estimate_cost/get_pricing call load_spot_prices -> PG; keep unit tests off the pool."""
+    """get_pricing reports the live spot market; keep that read off the pool."""
     monkeypatch.setattr(
         "scheduler.get_current_spot_prices",
         lambda: {"RTX 4090": 0.45, "A100": 2.0, "H100": 4.0, "L40": 1.5, "RTX 3090": 0.3},
@@ -508,8 +508,28 @@ class TestRecommendGpu:
         assert "recommendations" in result
 
 
+def _catalog_standard(model, mode="on_demand", *, vram_gb=None):
+    """(CAD rate, Stripe Price id) of the Standard Price a quote picks, from the catalog."""
+    from decimal import Decimal
+    from stripe_catalog import load_manifest
+
+    rows = [
+        r
+        for r in load_manifest()["service_tier_catalog"]["prices"]
+        if r["variant"]["gpu_model"] == model
+        and r["tier"] == "standard"
+        and r["mode"] == mode
+        and (vram_gb is None or r["variant"]["vram_gb"] == vram_gb)
+    ]
+    row = min(
+        rows,
+        key=lambda r: (r["variant"]["vram_gb"], r["variant"]["high_frequency"], r["variant"]["form_factor"]),
+    )
+    return float(Decimal(row["price"]["unit_amount_decimal"]) / 100), row["price"]["id"]
+
+
 class TestEstimateCost:
-    """Tests for _tool_estimate_cost — uses real PRIORITY_TIERS and GPU_REFERENCE_PRICING_CAD."""
+    """Tests for _tool_estimate_cost — Stripe quotes per pricing mode from the imported catalog."""
 
     def test_rtx4090(self):
         result = _TOOL_HANDLERS["estimate_cost"](
@@ -517,7 +537,7 @@ class TestEstimateCost:
         )
         assert "on_demand_cad" in result
         assert "spot_cad" in result
-        assert "reserved_cad" in result
+        assert "reserved_1mo_cad" in result
         assert result["on_demand_cad"] > 0
         assert result["spot_cad"] < result["on_demand_cad"]
         assert result["gpu_count"] == 2
@@ -543,25 +563,48 @@ class TestEstimateCost:
         assert "error" in result
         assert "Unknown GPU" in result["error"]
 
-    def test_uses_real_multipliers(self):
-        from scheduler import PRIORITY_TIERS
-
+    def test_uses_stripe_price_per_mode(self):
         result = _TOOL_HANDLERS["estimate_cost"](
-            {"gpu_model": "RTX 4090", "gpu_count": 1, "hours": 1}, _user()
+            {"gpu_model": "RTX 4090", "gpu_count": 2, "hours": 3}, _user()
         )
-        assert "tier_multipliers" in result
-        assert result["tier_multipliers"]["spot"] == PRIORITY_TIERS["spot"]["multiplier"]
-        assert result["tier_multipliers"]["on_demand"] == PRIORITY_TIERS["on-demand"]["multiplier"]
-        assert result["tier_multipliers"]["reserved"] == PRIORITY_TIERS["reserved"]["multiplier"]
+        assert "tier_multipliers" not in result
+        for mode in ("on_demand", "spot", "reserved_1mo", "reserved_3mo", "reserved_1yr"):
+            rate, price_id = _catalog_standard("RTX 4090", mode)
+            assert result["rates_cad_per_gpu_hr"][mode] == pytest.approx(rate), mode
+            assert result["stripe_price_ids"][mode] == price_id, mode
+            assert result[f"{mode}_cad"] == pytest.approx(rate * 2 * 3), mode
 
     def test_uses_real_base_rate(self):
-        from reputation import GPU_REFERENCE_PRICING_CAD
-
         result = _TOOL_HANDLERS["estimate_cost"](
             {"gpu_model": "RTX 4090", "gpu_count": 1, "hours": 1}, _user()
         )
-        expected = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
-        assert result["base_rate_cad_per_gpu_hr"] == expected
+        expected, _ = _catalog_standard("RTX 4090")
+        assert result["base_rate_cad_per_gpu_hr"] == pytest.approx(expected)
+
+    def test_vram_in_name_selects_the_variant(self):
+        r80 = _TOOL_HANDLERS["estimate_cost"](
+            {"gpu_model": "A100 80GB", "gpu_count": 1, "hours": 1}, _user()
+        )
+        r40 = _TOOL_HANDLERS["estimate_cost"](
+            {"gpu_model": "A100 40GB", "gpu_count": 1, "hours": 1}, _user()
+        )
+        assert (r80["gpu_model"], r80["vram_gb"]) == ("A100", 80)
+        assert r80["base_rate_cad_per_gpu_hr"] == pytest.approx(_catalog_standard("A100", vram_gb=80)[0])
+        assert r40["base_rate_cad_per_gpu_hr"] == pytest.approx(_catalog_standard("A100", vram_gb=40)[0])
+        assert r80["base_rate_cad_per_gpu_hr"] > r40["base_rate_cad_per_gpu_hr"]
+
+    def test_spot_selects_the_spot_estimate(self):
+        result = _TOOL_HANDLERS["estimate_cost"](
+            {"gpu_model": "RTX 4090", "gpu_count": 1, "hours": 2, "pricing_mode": "spot"}, _user()
+        )
+        assert result["pricing_mode"] == "spot"
+        assert result["estimate_cad"] == result["spot_cad"]
+
+    def test_fractional_gpu_count_rejected(self):
+        result = _TOOL_HANDLERS["estimate_cost"](
+            {"gpu_model": "RTX 4090", "gpu_count": 1.5, "hours": 1}, _user()
+        )
+        assert "error" in result
 
     def test_multi_gpu_scales(self):
         r1 = _TOOL_HANDLERS["estimate_cost"](
@@ -585,7 +628,8 @@ class TestEstimateCost:
         result = _TOOL_HANDLERS["estimate_cost"](
             {"gpu_model": "RTX 4090", "gpu_count": 1, "hours": 1}, _user()
         )
-        assert result["reserved_cad"] < result["on_demand_cad"]
+        for term in ("reserved_1mo_cad", "reserved_3mo_cad", "reserved_1yr_cad"):
+            assert result[term] < result["on_demand_cad"], term
 
     def test_rtx3090(self):
         result = _TOOL_HANDLERS["estimate_cost"](
@@ -669,25 +713,30 @@ class TestSlaTerms:
 
 
 class TestGetPricing:
-    """Tests for _tool_get_pricing — uses real data from scheduler+reputation."""
+    """Tests for _tool_get_pricing — imported Stripe catalog plus the live spot market."""
 
     def test_returns_pricing(self):
         result = _TOOL_HANDLERS["get_pricing"]({}, _user())
-        assert "reference_pricing_cad_per_hour" in result
+        assert "reference_pricing" in result
         assert "spot_prices" in result
-        assert "tiers" in result
-        ref = result["reference_pricing_cad_per_hour"]
+        assert set(result["service_tiers"]) == {"standard", "premium", "dedicated"}
+        assert "tiers" not in result  # the multiplier table is gone
+        ref = result["reference_pricing"]
         assert isinstance(ref, dict)
         assert any("4090" in k for k in ref)
 
     def test_has_real_rates(self):
-        from reputation import GPU_REFERENCE_PRICING_CAD
+        from stripe_catalog import load_manifest
 
         result = _TOOL_HANDLERS["get_pricing"]({}, _user())
-        for gpu, info in GPU_REFERENCE_PRICING_CAD.items():
-            if isinstance(info, dict):
-                assert gpu in result["reference_pricing_cad_per_hour"]
-                assert result["reference_pricing_cad_per_hour"][gpu] == info["base_rate_cad"]
+        models = {r["variant"]["gpu_model"] for r in load_manifest()["service_tier_catalog"]["prices"]}
+        for gpu in models:
+            entry = result["reference_pricing"][gpu]
+            assert entry["base_rate_cad"] == pytest.approx(_catalog_standard(gpu)[0]), gpu
+            assert entry["spot_cad"] == pytest.approx(_catalog_standard(gpu, "spot")[0]), gpu
+            assert entry["reserved_1yr_cad"] == pytest.approx(
+                _catalog_standard(gpu, "reserved_1yr")[0]
+            ), gpu
 
 
 class TestSearchMarketplace:
@@ -939,7 +988,7 @@ class TestGetJobDetails:
             "total_cost_cad": 1.5,
             "docker_image": "pytorch:2.1",
             "priority": 1,
-            "tier": "on-demand",
+            "tier": "standard",
             "owner": "u-123",
         },
     ]
@@ -1054,13 +1103,19 @@ class TestLaunchJob:
                 "vram_needed_gb": 24,
                 "gpu_count": 1,
                 "docker_image": "pytorch/pytorch:2.1-cuda12.1",
-                "tier": "on-demand",
+                "tier": "standard",
             },
             _user(),
         )
         self.mock_submit.assert_called_once()
         call_kwargs = self.mock_submit.call_args
         assert call_kwargs.kwargs.get("image") == "pytorch/pytorch:2.1-cuda12.1"
+
+    def test_forwards_gpu_model_for_the_stripe_quote(self):
+        _TOOL_HANDLERS["launch_job"](
+            {"name": "j", "gpu_model": "RTX 4090", "docker_image": "test:latest"}, _user()
+        )
+        assert self.mock_submit.call_args.kwargs.get("gpu_model") == "RTX 4090"
 
     def test_returns_job_id(self):
         result = _TOOL_HANDLERS["launch_job"](
@@ -1072,7 +1127,7 @@ class TestLaunchJob:
     def test_default_values(self):
         result = _TOOL_HANDLERS["launch_job"]({"docker_image": "test:latest"}, _user())
         call_kwargs = self.mock_submit.call_args
-        assert call_kwargs.kwargs.get("tier") == "on-demand"
+        assert call_kwargs.kwargs.get("tier") == "standard"
         assert call_kwargs.kwargs.get("num_gpus") == 1
 
     def test_missing_docker_image(self):
@@ -1735,13 +1790,18 @@ class TestToolHandlerIntegration:
 
     def test_pricing_matches_estimate_base_rate(self):
         """get_pricing and estimate_cost should use same base rates."""
+        from stripe_catalog import load_manifest
+
         pricing = _TOOL_HANDLERS["get_pricing"]({}, _user())
-        for gpu_name, rate in pricing["reference_pricing_cad_per_hour"].items():
+        catalog = {r["variant"]["gpu_model"] for r in load_manifest()["service_tier_catalog"]["prices"]}
+        for gpu_name in sorted(catalog):
+            entry = pricing["reference_pricing"][gpu_name]
             est = _TOOL_HANDLERS["estimate_cost"](
                 {"gpu_model": gpu_name, "gpu_count": 1, "hours": 1}, _user()
             )
-            if "error" not in est:
-                assert est["base_rate_cad_per_gpu_hr"] == rate
+            assert "error" not in est, gpu_name
+            assert est["base_rate_cad_per_gpu_hr"] == entry["base_rate_cad"], gpu_name
+            assert est["spot_cad"] == entry["spot_cad"], gpu_name
 
     def test_gpu_availability_matches_marketplace(self):
         """get_gpu_availability and search_marketplace should use same data source."""

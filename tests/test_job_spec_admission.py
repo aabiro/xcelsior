@@ -17,6 +17,7 @@ from control_plane.scheduler.reservation import CapacityConflict, JobNotSchedula
 from control_plane.scheduler.reservation import reserve_and_bind
 from control_plane.db import run_transaction
 from tests.test_serverless_native_lifecycle import native  # noqa: F401
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 from tests.test_worker_claim_handoff import agent, command, client_post  # noqa: F401
 
 
@@ -121,7 +122,13 @@ def test_submission_replay_does_not_recompute_changed_server_policy(native, monk
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
     policy = mock.Mock(return_value="restricted")
     monkeypatch.setattr(abuse_policy, "egress_for_owner", policy)
-    args = dict(name="request", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    args = dict(
+        name="request",
+        vram_needed_gb=0,
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner(native.owner),
+        job_id=native.jid,
+    )
     scheduler.submit_job(**args)
     original = row(native)
     assert original[0]["egress"] == "restricted"
@@ -147,7 +154,7 @@ def test_submission_replay_does_not_recompute_changed_server_policy(native, monk
         {"owner": "another-owner"},
         {"preferred_host_id": "other-host"},
         {"exclusive_gpu": True},
-        {"priority": 9},
+        {"tier": "premium"},
         {"placement_preference": {"require_verified": True}},
     ],
 )
@@ -156,7 +163,13 @@ def test_submission_replay_refuses_changed_request_context(native, change):
 
     with native.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
-    args = dict(name="request", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    args = dict(
+        name="request",
+        vram_needed_gb=0,
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner(native.owner),
+        job_id=native.jid,
+    )
     scheduler.submit_job(**args)
     original = row(native)
     with pytest.raises(ValueError, match="different execution spec or request"):
@@ -445,7 +458,13 @@ def test_submission_retry_preserves_running_state_and_rejects_changed_spec(nativ
 
     with native.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (native.jid,))
-    args = dict(name="admitted", vram_needed_gb=0, owner=native.owner, job_id=native.jid)
+    args = dict(
+        name="admitted",
+        vram_needed_gb=0,
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner(native.owner),
+        job_id=native.jid,
+    )
     scheduler.submit_job(**args)
     initial = row(native)
     with native.pool.connection() as conn:

@@ -13,6 +13,7 @@ import uuid
 import pytest
 
 import scheduler
+from tests._db_helpers import fund_test_owner, price_test_gpu
 from tests.native_jobs import insert_schedulable_host
 
 try:
@@ -64,7 +65,10 @@ def team():
 
 def _submit(state, model, owner):
     job = scheduler.submit_job(
-        name=f"quota-{uuid.uuid4().hex[:8]}", vram_needed_gb=1, gpu_model=model, owner=owner
+        name=f"quota-{uuid.uuid4().hex[:8]}",
+        vram_needed_gb=1,
+        gpu_model=price_test_gpu(model),
+        owner=fund_test_owner(owner),
     )
     state["jobs"].append(job["job_id"])
     return job["job_id"]

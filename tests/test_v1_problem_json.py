@@ -104,7 +104,7 @@ def test_execute_unapproved_plan_is_problem_json_409():
     created = client.post(
         "/api/v1/launch-plans",
         headers=headers,
-        json={"name": "b28", "interactive": True},
+        json={"name": "b28", "interactive": True, "gpu_model": "RTX 4090"},
     )
     assert created.status_code == 200, created.text
     plan_id = created.json()["plan_id"]

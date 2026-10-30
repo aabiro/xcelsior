@@ -59,7 +59,7 @@ def _fund_wallet(customer_id: str, headers: dict) -> None:
 def _create_job(headers: dict, name: str) -> str:
     r = client.post(
         "/instance",
-        json={"name": name, "vram_needed_gb": 1},
+        json={"name": name, "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=headers,
     )
     assert r.status_code == 200, r.text[:200]
@@ -208,7 +208,7 @@ def test_team_members_share_concurrency_pool(team_roles, monkeypatch):
 
     first = client.post(
         "/instance",
-        json={"name": "pool-a", "vram_needed_gb": 1},
+        json={"name": "pool-a", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=team_roles["member"]["headers"],
     )
     assert first.status_code == 200, first.text[:200]
@@ -216,7 +216,7 @@ def test_team_members_share_concurrency_pool(team_roles, monkeypatch):
     # Admin shares the same pool — second slot is now full.
     second = client.post(
         "/instance",
-        json={"name": "pool-b", "vram_needed_gb": 1},
+        json={"name": "pool-b", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=team_roles["admin"]["headers"],
     )
     assert second.status_code == 429, second.text[:200]
@@ -310,6 +310,7 @@ def test_member_can_launch_instance_with_team_volume(team_roles):
             "name": "team-vol-launch",
             "vram_needed_gb": 1,
             "volume_ids": [volume_id],
+            "gpu_model": "RTX 4090",
         },
         headers=team_roles["member"]["headers"],
     )
@@ -337,6 +338,7 @@ def test_outsider_cannot_launch_with_team_volume(team_roles):
             "name": "blocked-vol-launch",
             "vram_needed_gb": 1,
             "volume_ids": [volume_id],
+            "gpu_model": "RTX 4090",
         },
         headers=outsider["headers"],
     )
@@ -560,7 +562,7 @@ def test_viewer_cannot_create_oauth_client(team_roles):
 def test_viewer_cannot_launch_team_instance(team_roles):
     blocked = client.post(
         "/instance",
-        json={"name": "viewer-launch-blocked", "vram_needed_gb": 1},
+        json={"name": "viewer-launch-blocked", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=team_roles["viewer"]["headers"],
     )
     assert blocked.status_code == 403, blocked.text[:200]
@@ -645,7 +647,7 @@ def test_personal_user_concurrency_isolated_from_team(team_roles, monkeypatch):
     # Team already has one queued job from fixture setup.
     blocked = client.post(
         "/instance",
-        json={"name": "team-blocked", "vram_needed_gb": 1},
+        json={"name": "team-blocked", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=team_roles["member"]["headers"],
     )
     assert blocked.status_code == 429, blocked.text[:200]
@@ -655,7 +657,7 @@ def test_personal_user_concurrency_isolated_from_team(team_roles, monkeypatch):
     _fund_wallet(outsider["customer_id"], outsider["headers"])
     personal = client.post(
         "/instance",
-        json={"name": "personal-ok", "vram_needed_gb": 1},
+        json={"name": "personal-ok", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=outsider["headers"],
     )
     assert personal.status_code == 200, personal.text[:200]
