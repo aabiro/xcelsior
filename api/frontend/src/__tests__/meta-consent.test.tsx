@@ -139,14 +139,14 @@ describe("CookieBanner", () => {
     render(<CookieBanner />);
     fireEvent.click(await screen.findByRole("button", { name: "cookies.decline" }));
     expect(readConsent()).toMatchObject({ marketing: false, source: "banner" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
   });
 
   it("stays hidden after a choice and reopens from the footer", async () => {
     setMarketingConsent(false);
     render(<CookieBanner />);
     await act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
     act(() => openCookiePreferences());
     fireEvent.click(screen.getByRole("button", { name: "cookies.accept" }));
     expect(hasMarketingConsent()).toBe(true);

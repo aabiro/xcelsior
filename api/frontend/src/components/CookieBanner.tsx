@@ -10,9 +10,8 @@ import {
 } from "@/lib/cookie-consent";
 
 /**
- * Asks once for marketing cookies (Meta Pixel and Conversions API). Declining
- * is one click, the same as accepting. The footer's "Cookie preferences"
- * reopens it.
+ * Asks once for optional cookies (analytics and ads). Declining is one click,
+ * the same as accepting. The footer's "Cookie preferences" reopens it.
  */
 export function CookieBanner() {
   const { t } = useLocale();
@@ -39,33 +38,29 @@ export function CookieBanner() {
 
   return (
     <div
-      role="dialog"
-      aria-live="polite"
-      aria-labelledby="cookie-banner-title"
-      className="fixed bottom-4 left-4 right-4 z-[60] md:right-auto md:max-w-md"
+      role="region"
+      aria-label={t("cookies.label")}
+      className="fixed inset-x-0 bottom-0 z-[60] border-t border-border bg-surface-overlay/95 shadow-lg backdrop-blur-sm"
     >
-      <div className="rounded-xl border border-border bg-surface-overlay p-4 shadow-lg backdrop-blur-sm">
-        <p id="cookie-banner-title" className="text-sm font-medium text-text-primary">
-          {t("cookies.title")}
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-text-secondary">
           {t("cookies.body")}{" "}
           <Link href="/privacy" className="underline hover:text-text-primary">
-            {t("cookies.privacy_link")}
+            {t("cookies.learn_more")}
           </Link>
         </p>
-        <div className="mt-3 flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <button
             type="button"
             onClick={() => choose(false)}
-            className="flex-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors hover:bg-surface-hover"
+            className="rounded-lg border border-border px-4 py-1.5 text-sm font-semibold text-text-primary transition-colors hover:bg-surface-hover"
           >
             {t("cookies.decline")}
           </button>
           <button
             type="button"
             onClick={() => choose(true)}
-            className="flex-1 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors hover:bg-surface-hover"
+            className="rounded-lg border border-border px-4 py-1.5 text-sm font-semibold text-text-primary transition-colors hover:bg-surface-hover"
           >
             {t("cookies.accept")}
           </button>
