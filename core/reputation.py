@@ -194,8 +194,10 @@ TIER_SEARCH_BOOST = {
     ReputationTier.DIAMOND: 2.0,  # Maximum marketplace visibility
 }
 
-# From REPORT_MARKETING_1.md: Verified "Gold" hosts at $0.70/hr vs $0.50/hr
-# Diamond hosts get reduced platform commission instead of higher pricing
+# Advertised per-tier premium (score field, /api/reputation tiers, the trust
+# page and provider_expectations copy). No customer price reads it: compute
+# prices are Stripe Prices only (billing/pricing_reference.py), identical for
+# every host reputation tier.
 TIER_PRICING_PREMIUM = {
     ReputationTier.NEW_USER: 0.0,
     ReputationTier.BRONZE: 0.0,
@@ -948,166 +950,6 @@ class ReputationEngine:
             log.warning("FRAUD SCAN ALERT: %s — %s", entity_id, results)
 
         return results
-
-
-# ── GPU Reference Pricing ─────────────────────────────────────────────
-# From REPORT_MARKETING_2.md — recommended starter rates in CAD
-# These are *guidance* rates for providers; the marketplace allows
-# self-pricing within bounds.
-
-GPU_REFERENCE_PRICING_CAD = {
-    # model: {base_rate, subsidized_rate, premium_rate (Gold/Platinum)}
-    "RTX 3060": {
-        "base_rate_cad": 0.16,
-        "subsidized_starter_cad": 0.12,
-        "premium_rate_cad": 0.22,
-        "min_rate_cad": 0.08,
-        "max_rate_cad": 0.35,
-    },
-    "RTX 3090": {
-        "base_rate_cad": 0.35,
-        "subsidized_starter_cad": 0.30,
-        "premium_rate_cad": 0.45,
-        "min_rate_cad": 0.20,
-        "max_rate_cad": 0.80,
-    },
-    "RTX 4080": {
-        "base_rate_cad": 0.38,
-        "subsidized_starter_cad": 0.33,
-        "premium_rate_cad": 0.55,
-        "min_rate_cad": 0.25,
-        "max_rate_cad": 1.00,
-    },
-    "RTX 4090": {
-        "base_rate_cad": 0.45,
-        "subsidized_starter_cad": 0.40,
-        "premium_rate_cad": 0.70,
-        "min_rate_cad": 0.30,
-        "max_rate_cad": 1.20,
-    },
-    "RTX 5090": {
-        "base_rate_cad": 0.55,
-        "subsidized_starter_cad": 0.48,
-        "premium_rate_cad": 0.85,
-        "min_rate_cad": 0.35,
-        "max_rate_cad": 1.50,
-    },
-    "A100 40GB": {
-        "base_rate_cad": 1.30,
-        "subsidized_starter_cad": 1.05,
-        "premium_rate_cad": 1.75,
-        "min_rate_cad": 0.80,
-        "max_rate_cad": 3.00,
-    },
-    "A100 80GB": {
-        "base_rate_cad": 1.70,
-        "subsidized_starter_cad": 1.40,
-        "premium_rate_cad": 2.25,
-        "min_rate_cad": 1.00,
-        "max_rate_cad": 3.80,
-    },
-    "A100": {
-        "base_rate_cad": 1.50,
-        "subsidized_starter_cad": 1.20,
-        "premium_rate_cad": 2.00,
-        "min_rate_cad": 0.90,
-        "max_rate_cad": 3.50,
-    },
-    "L40S": {
-        "base_rate_cad": 1.25,
-        "subsidized_starter_cad": 1.05,
-        "premium_rate_cad": 1.70,
-        "min_rate_cad": 0.85,
-        "max_rate_cad": 2.60,
-    },
-    "L40": {
-        "base_rate_cad": 1.20,
-        "subsidized_starter_cad": 1.00,
-        "premium_rate_cad": 1.60,
-        "min_rate_cad": 0.80,
-        "max_rate_cad": 2.50,
-    },
-    "H100": {
-        "base_rate_cad": 3.50,
-        "subsidized_starter_cad": 3.00,
-        "premium_rate_cad": 4.50,
-        "min_rate_cad": 2.50,
-        "max_rate_cad": 6.00,
-    },
-    "H200": {
-        "base_rate_cad": 4.50,
-        "subsidized_starter_cad": 3.80,
-        "premium_rate_cad": 5.80,
-        "min_rate_cad": 3.20,
-        "max_rate_cad": 7.50,
-    },
-}
-
-# From REPORT_MARKETING_2.md: spot pricing at 70% of on-demand
-SPOT_DISCOUNT_FACTOR = 0.30  # 30% discount for spot/preemptible
-
-
-def get_reference_rate(
-    gpu_model: str,
-    tier: ReputationTier = ReputationTier.BRONZE,
-    spot: bool = False,
-) -> float:
-    """Get the reference rate in CAD/hr for a GPU model.
-
-    Adjusts for:
-    - Reputation tier (premium hosts can charge more)
-    - Spot pricing (30% discount)
-    """
-    # Match GPU model: exact first, then longest-key-first substring to avoid
-    # "A100" matching "A100 40GB" when only the generic entry is wanted.
-    ref = GPU_REFERENCE_PRICING_CAD.get(gpu_model)
-    if not ref:
-        gpu_lower = gpu_model.lower()
-        # Sort by key length descending so "A100 80GB" is tried before "A100"
-        for model, pricing in sorted(
-            GPU_REFERENCE_PRICING_CAD.items(), key=lambda x: len(x[0]), reverse=True
-        ):
-            if model.lower() in gpu_lower:
-                ref = pricing
-                break
-
-    if not ref:
-        # Default to RTX 4090 pricing as baseline
-        log.warning("PRICING: unknown GPU model %r, falling back to RTX 4090 rates", gpu_model)
-        ref = GPU_REFERENCE_PRICING_CAD["RTX 4090"]
-
-    # Base rate adjusted for tier
-    premium_pct = TIER_PRICING_PREMIUM.get(tier, 0.0)
-    rate = ref["base_rate_cad"] * (1 + premium_pct)
-
-    # Spot discount
-    if spot:
-        rate *= 1 - SPOT_DISCOUNT_FACTOR
-
-    return round(rate, 4)
-
-
-def estimate_job_cost(
-    gpu_model: str,
-    duration_hours: float,
-    tier: ReputationTier = ReputationTier.BRONZE,
-    spot: bool = False,
-) -> dict:
-    """Estimate job cost in CAD."""
-
-    rate = get_reference_rate(gpu_model, tier, spot)
-    gross_cost = round(rate * duration_hours, 4)
-
-    return {
-        "gpu_model": gpu_model,
-        "duration_hours": duration_hours,
-        "rate_cad_per_hour": rate,
-        "gross_cost_cad": gross_cost,
-        "currency": "CAD",
-        "spot": spot,
-        "host_tier": tier,
-        "effective_cost_cad": gross_cost,
-    }
 
 
 # ── Singletons ────────────────────────────────────────────────────────

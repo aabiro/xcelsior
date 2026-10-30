@@ -10,6 +10,7 @@ from fastapi import HTTPException
 import abuse_policy
 import oauth_service as oauth
 from db import get_engine
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 
 
 @pytest.fixture
@@ -144,14 +145,19 @@ def test_scheduler_rejects_suspended_account(suspended):
     from scheduler import submit_job
 
     with pytest.raises(ValueError, match="suspended by security policy"):
-        submit_job(name="test-hold", vram_needed_gb=1, owner=suspended)
+        submit_job(name="test-hold", vram_needed_gb=1, gpu_model=PRICED_GPU, owner=suspended)
 
 
 def test_requeue_rejects_suspended_account(suspended):
     from scheduler import requeue_job, submit_job, get_job
 
     # Normal user job can be submitted
-    job = submit_job(name="test-requeue", vram_needed_gb=1, owner="normal-user")
+    job = submit_job(
+        name="test-requeue",
+        vram_needed_gb=1,
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner("normal-user"),
+    )
     job_id = job["job_id"]
     try:
         # Status and owner are authority columns a payload patch may not set.

@@ -1546,42 +1546,14 @@ def start_health_monitor(interval=5, callback=None):
     return t
 
 
-# ── Phase 15: Priority Tiers ─────────────────────────────────────────
-
-PRIORITY_TIERS = {
-    # Pricing-model tiers (frontend-facing)
-    "on-demand": {"priority": 1, "multiplier": 1.0, "label": "On-Demand"},
-    "spot": {"priority": 0, "multiplier": 0.6, "label": "Spot", "spot": True},
-    "reserved": {"priority": 1, "multiplier": 0.8, "label": "Reserved"},
-    # Priority tiers (queue priority escalation)
-    "free": {"priority": 0, "multiplier": 1.0, "label": "Free"},
-    "standard": {"priority": 1, "multiplier": 1.0, "label": "Standard"},
-    "premium": {"priority": 2, "multiplier": 1.5, "label": "Premium"},
-    "urgent": {"priority": 3, "multiplier": 2.0, "label": "Urgent"},
-}
-
-
-def get_tier_info(tier_name):
-    """Look up a tier. Returns dict or None."""
-    return PRIORITY_TIERS.get(tier_name)
-
-
-def get_tier_by_priority(priority):
-    """Reverse lookup: priority int -> tier name. Prefers non-spot tiers."""
-    candidates = []
-    for name, info in PRIORITY_TIERS.items():
-        if info["priority"] == priority:
-            candidates.append(name)
-    # Prefer non-spot tier (avoid accidentally marking jobs as spot/preemptible)
-    for c in candidates:
-        if not PRIORITY_TIERS[c].get("spot"):
-            return c
-    return candidates[0] if candidates else "free"
+# ── Service tiers ────────────────────────────────────────────────────
 
 
 def list_tiers():
     """Return all tiers with their details."""
-    return {name: dict(info) for name, info in PRIORITY_TIERS.items()}
+    from service_tier_pricing import SERVICE_TIERS
+
+    return {name: dict(info) for name, info in SERVICE_TIERS.items()}
 
 
 # ── Phase 3: Job Queue ────────────────────────────────────────────────
@@ -1653,6 +1625,11 @@ def submit_job(
     serverless_config=None,
     conn=None,
     admitted_launch_spec=None,
+    service_tier_price_id=None,
+    gpu_exclusive_price_id=None,
+    queue_bid_price_id=None,
+    queue_bid_units=0,
+    wallet_hold_id=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1687,6 +1664,11 @@ def submit_job(
             "name": name,
             "vram_needed_gb": vram_needed_gb,
             "tier": tier,
+            "service_tier_price_id": service_tier_price_id,
+            "exclusive_gpu": exclusive_gpu,
+            "gpu_exclusive_price_id": gpu_exclusive_price_id,
+            "queue_bid_price_id": queue_bid_price_id,
+            "queue_bid_units": queue_bid_units,
             "num_gpus": num_gpus,
             "gpu_model": gpu_model,
             "nfs_server": nfs_server,
@@ -1719,7 +1701,7 @@ def submit_job(
                 "version": 1,
                 "launch_spec": launch_spec,
                 "owner": str(owner or ""),
-                "priority": None if tier else int(priority or 0),
+                "priority": None,
                 "exclusive_gpu": bool(exclusive_gpu),
                 "job_type": str(job_type or "").strip(),
                 "preferred_host_id": preferred_host_id or None,
@@ -1762,28 +1744,34 @@ def submit_job(
     if pricing_mode not in ("on_demand", "spot", "reserved"):
         pricing_mode = "on_demand"
 
-    if pricing_mode == "spot":
-        tier = "spot"
-    # Tier overrides raw priority
-    if tier and tier in PRIORITY_TIERS:
-        tier_info = PRIORITY_TIERS[tier]
-        priority = tier_info["priority"]
-    elif tier:
-        log.warning("UNKNOWN TIER '%s' — defaulting to on-demand", tier)
-        tier = "on-demand"
-        priority = 1
-    else:
-        tier = get_tier_by_priority(priority)
+    from service_tier_pricing import SERVICE_TIERS, SPOT_PRIORITY, normalize_tier, quote_tier
 
-    if pricing_mode == "spot":
-        tier = "spot"
-        tier_info = PRIORITY_TIERS["spot"]
-        priority = tier_info["priority"]
-
-    # Spot tier: mark job as interruptible
-    is_spot = pricing_mode == "spot" or PRIORITY_TIERS.get(tier, {}).get("spot", False)
+    tier = normalize_tier(tier)
+    service_tier_quote = None
+    # Serverless has its own admitted billing quote; its internal workers do
+    # not buy an instance queue class. New customer instances always do.
+    if serverless_config is None and (
+        owner or service_tier_price_id or tier != "standard" or exclusive_gpu or queue_bid_units
+    ):
+        if not gpu_model:
+            raise ValueError("Select a GPU model before requesting a priced service tier")
+        service_tier_quote = quote_tier(
+            gpu_model,
+            pricing_mode,
+            tier=tier,
+            num_gpus=max(1, int(num_gpus or 1)),
+            price_id=service_tier_price_id,
+            gpu_exclusive=bool(exclusive_gpu),
+            gpu_exclusive_price_id=gpu_exclusive_price_id,
+            queue_bid_units=queue_bid_units,
+            queue_bid_price_id=queue_bid_price_id,
+            min_vram_gb=vram_needed_gb or None,
+        )
+    is_spot = pricing_mode == "spot"
     if is_spot:
-        pricing_mode = "spot"
+        priority = SPOT_PRIORITY
+    else:
+        priority = SERVICE_TIERS[tier]["priority"] if service_tier_quote else 1
 
     normalized_region = ""
     if region:
@@ -1832,7 +1820,18 @@ def submit_job(
         "ssh_port": int(ssh_port or 22),
         "volume_ids": volume_ids or [],
         "encrypted_workspace": bool(encrypted_workspace),
-        "exclusive_gpu": bool(exclusive_gpu),
+        "exclusive_gpu": (
+            bool(service_tier_quote.get("gpu_exclusive"))
+            if service_tier_quote
+            else bool(exclusive_gpu)
+        ),
+        "host_exclusive": bool(service_tier_quote and service_tier_quote["host_exclusive"]),
+        "service_tier_quote": service_tier_quote,
+        "service_tier_price_id": (
+            service_tier_quote["stripe_price_id"] if service_tier_quote else None
+        ),
+        "queue_bid_price_id": queue_bid_price_id,
+        "queue_bid_units": queue_bid_units,
         # P2.1 — optional provisioning hooks (all bounded by the agent to 15 s).
         "init_script": init_script or "",
         "git_repo": git_repo or "",
@@ -1875,22 +1874,52 @@ def submit_job(
         job["pricing_mode"] = "spot"
         from control_plane.spot_admission import lock_admission_quote
 
-        lock_admission_quote(job)
+        if not service_tier_quote:
+            lock_admission_quote(job)
+        else:
+            job["spot_rate_cad"] = service_tier_quote["total_per_hour_cad"] / job["num_gpus"]
 
-    outbox_enqueued = False
-    with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
-        # Fairness and quota policy key on the admitted spec's team/tenant.
-        # Both are resolved here from the server-selected owner, never taken
-        # from the request, and frozen into the spec with the rest of it.
-        job.update(_admission_identity(write_conn, owner))
-        admitted = _upsert_job_row(
-            write_conn, job, admission_spec=launch_spec, admission_request=admission_request
+    if service_tier_quote:
+        from service_tier_pricing import fund_tier_submission, TierSchedulingUnavailable
+        from control_plane.scheduler.config import SchedulerConfig
+
+        if not owner or not SchedulerConfig.from_env().owns_job(job):
+            raise TierSchedulingUnavailable("Paid service tiers require a customer and native scheduler ownership")
+        job["wallet_hold_id"] = fund_tier_submission(
+            owner, job["job_id"], service_tier_quote, hold_id=wallet_hold_id
         )
-        if admitted is not None:
-            job = admitted
-        if _active_backend() == "postgres":
-            _append_submission_outbox(write_conn, str(job["job_id"]))
-            outbox_enqueued = True
+    outbox_enqueued = False
+    try:
+        with nullcontext(conn) if conn is not None else _atomic_mutation() as write_conn:
+            # Fairness and quota policy key on the admitted spec's team/tenant.
+            # Both are resolved here from the server-selected owner, never taken
+            # from the request, and frozen into the spec with the rest of it.
+            job.update(_admission_identity(write_conn, owner))
+            admitted = _upsert_job_row(
+                write_conn, job, admission_spec=launch_spec, admission_request=admission_request
+            )
+            if admitted is not None:
+                job = admitted
+            if _active_backend() == "postgres":
+                from control_plane.queue_bids import record_submission
+
+                record_submission(write_conn, job)
+                if service_tier_quote:
+                    write_conn.execute(
+                        "UPDATE jobs SET wallet_hold_id=%s::uuid WHERE job_id=%s",
+                        (job["wallet_hold_id"], job["job_id"]),
+                    )
+                _append_submission_outbox(write_conn, str(job["job_id"]))
+                outbox_enqueued = True
+
+    except Exception:
+        if service_tier_quote:
+            from billing import get_billing_engine
+
+            get_billing_engine().release_wallet_hold(
+                job["wallet_hold_id"], reason="submission_failed"
+            )
+        raise
 
     # Mirror to secondary DB
     if conn is None:
@@ -2750,141 +2779,6 @@ def kill_job_local(container_name):
     """Kill and remove a local container."""
     subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=10)
-
-
-# ── Phase 8: Billing ─────────────────────────────────────────────────
-
-BILLING_FILE = os.environ.get(
-    "XCELSIOR_BILLING_FILE", os.path.join(os.path.dirname(__file__), "billing.json")
-)
-DEFAULT_RATE = 0.20  # $/hr
-
-
-def load_billing():
-    """Load billing records."""
-    return _load_state_list(BILLING_FILE)
-
-
-def save_billing(records):
-    """Write billing records."""
-    _save_state_list(BILLING_FILE, records)
-
-
-def bill_job(job_id):
-    """
-    Bill a completed job. Multiply time by rate. Charge.
-    start_time, end_time, duration, cost. That's it.
-
-    Duplicate check + write are serialized through SQLite-backed state
-    persistence to prevent double billing across concurrent callers.
-    """
-    jobs = load_jobs()
-    job = None
-    for j in jobs:
-        if j["job_id"] == job_id:
-            job = j
-            break
-
-    if not job:
-        log.error("BILLING FAILED job=%s not found", job_id)
-        return None
-
-    if not job.get("started_at") or not job.get("completed_at"):
-        log.error("BILLING FAILED job=%s missing timestamps", job_id)
-        return None
-
-    # Get the host's rate
-    rate = DEFAULT_RATE
-    if job.get("host_id"):
-        hosts = load_hosts(active_only=False)
-        for h in hosts:
-            if h["host_id"] == job["host_id"]:
-                rate = h.get("cost_per_hour", DEFAULT_RATE)
-                break
-
-    # Tier multiplier — premium and urgent pay more
-    tier = job.get("tier", "free")
-    tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
-    multiplier = tier_info["multiplier"]
-
-    duration_sec = job["completed_at"] - job["started_at"]
-    duration_hr = duration_sec / 3600
-    base_cost = duration_hr * rate
-    cost = round(base_cost * multiplier, 4)
-
-    record = {
-        "job_id": job_id,
-        "job_name": job["name"],
-        "host_id": job.get("host_id"),
-        "tier": tier,
-        "tier_multiplier": multiplier,
-        "started_at": job["started_at"],
-        "completed_at": job["completed_at"],
-        "duration_sec": round(duration_sec, 2),
-        "rate_per_hour": rate,
-        "cost": cost,
-        "billed_at": time.time(),
-    }
-
-    records = load_billing()
-    # Atomic check-and-insert to prevent double-billing
-    backend = _active_backend()
-    billed_ns = f"billed:{job_id}"
-    with _atomic_mutation() as conn:
-        if backend == "sqlite":
-            cur = conn.execute(
-                "INSERT INTO state (namespace, payload) VALUES (?, ?) "
-                "ON CONFLICT (namespace) DO NOTHING",
-                (billed_ns, "1"),
-            )
-        else:
-            cur = conn.execute(
-                "INSERT INTO state (namespace, payload) VALUES (%s, %s) "
-                "ON CONFLICT (namespace) DO NOTHING",
-                (billed_ns, "1"),
-            )
-        if cur.rowcount == 0:
-            log.warning("BILLING SKIPPED job=%s already billed", job_id)
-            return None
-    if any(r["job_id"] == job_id for r in records):
-        log.warning("BILLING SKIPPED job=%s already billed", job_id)
-        return None
-    records.append(record)
-    save_billing(records)
-
-    log.info(
-        "BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr x%.1f (%s)",
-        job_id,
-        job["name"],
-        duration_sec,
-        cost,
-        rate,
-        multiplier,
-        tier,
-    )
-    return record
-
-
-def bill_all_completed():
-    """Bill every completed job that hasn't been billed yet."""
-    jobs = load_jobs()
-    records = load_billing()
-    billed_ids = {r["job_id"] for r in records}
-    new_bills = []
-
-    for j in jobs:
-        if j["status"] == "completed" and j["job_id"] not in billed_ids:
-            bill = bill_job(j["job_id"])
-            if bill:
-                new_bills.append(bill)
-
-    return new_bills
-
-
-def get_total_revenue():
-    """How much money did we make?"""
-    records = load_billing()
-    return round(sum(r["cost"] for r in records), 4)
 
 
 # ── Phase 12: Alerts ─────────────────────────────────────────────────
@@ -4063,11 +3957,6 @@ def marketplace_bill(job_id):
 
     total_cost = round(duration_hr * rate_per_hour, 6)
 
-    tier = job.get("tier", "free")
-    if allocation_type != "spot":
-        tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
-        total_cost = round(total_cost * tier_info["multiplier"], 6)
-
     platform_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
     platform_fee = round(total_cost * platform_cut, 6)
     host_payout = round(total_cost - platform_fee, 6)
@@ -4094,7 +3983,7 @@ def marketplace_bill(job_id):
         "host_payout": host_payout,
         "platform_cut_pct": platform_cut,
         "duration_sec": round(duration_sec, 2),
-        "tier": tier,
+        "tier": job.get("tier") or "standard",
     }
 
 
@@ -4464,15 +4353,11 @@ def get_metrics_snapshot():
     queued = [j for j in jobs if j.get("status") == "queued"]
     running = [j for j in jobs if j.get("status") == "running"]
     failed = [j for j in jobs if j.get("status") == "failed"]
-    snapshot = {
+    snapshot: dict[str, Any] = {
         "queue_depth": len(queued),
         "active_hosts": len([h for h in hosts if h.get("status") == "active"]),
         "failed_jobs": len(failed),
         "running_jobs": len(running),
-        "billing_totals": {
-            "total_revenue": get_total_revenue(),
-            "records": len(load_billing()),
-        },
     }
 
     try:
@@ -4911,15 +4796,8 @@ if __name__ == "__main__":
         host = j["host_id"] or "—"
         print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | host: {host}")
 
-    # Phase 8: Bill completed jobs
-    print("\n=== BILLING ===")
-    bills = bill_all_completed()
-    for b in bills:
-        print(f"  {b['job_name']} | {b['duration_sec']}s | ${b['cost']} @ ${b['rate_per_hour']}/hr")
-    print(f"\n  TOTAL REVENUE: ${get_total_revenue()}")
-
     # Cleanup
-    for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE, BILLING_FILE):
+    for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE):
         if os.path.exists(f):
             os.remove(f)
 

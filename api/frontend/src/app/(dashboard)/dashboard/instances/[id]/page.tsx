@@ -1061,7 +1061,7 @@ export default function InstanceDetailPage() {
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.pricing_tier")}</dt>
-            <dd className="capitalize">{instance.tier || "on-demand"}</dd>
+            <dd className="capitalize">{instance.tier || "standard"}</dd>
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.submitted")}</dt>

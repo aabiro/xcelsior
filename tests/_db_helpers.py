@@ -29,6 +29,67 @@ def postgres_is_reachable() -> bool:
     return True
 
 
+#: A GPU the imported Stripe catalog prices (conftest imports it once per
+#: session). Every customer submission quotes and funds a Stripe Price, so a
+#: test that submits for an owner names a priced GPU and funds that owner.
+PRICED_GPU = "RTX 4090"
+
+
+def fund_test_owner(owner: str, amount_cad: float = 50.0) -> str:
+    """Deposit enough for a service-tier hold; returns ``owner`` for inline use."""
+    from billing import get_billing_engine
+
+    get_billing_engine().deposit(owner, amount_cad, description="test funding for a priced launch")
+    return owner
+
+
+def price_test_gpu(
+    gpu_model: str, *, vram_gb: int = 24, modes: tuple[str, ...] = ("on_demand", "spot")
+) -> str:
+    """Import Standard Stripe Prices for a test-only GPU model; returns the model.
+
+    Tests that isolate their claims behind a unique model name still need a
+    priced variant, because every customer submission quotes one. Imported
+    through the deploy importer, exactly as ``paid_fleet`` does, never derived.
+    """
+    import importlib.util
+    import uuid
+    from pathlib import Path
+
+    from db import _get_pg_pool
+
+    marker = uuid.uuid4().hex[:12]
+    prices = [
+        {
+            "variant": {
+                "gpu_model": gpu_model,
+                "vram_gb": vram_gb,
+                "form_factor": "pcie",
+                "high_frequency": False,
+            },
+            "mode": mode,
+            "tier": "standard",
+            "price": {
+                "id": f"price_test_{marker}_{mode}",
+                "product": f"prod_test_{marker}",
+                "currency": "cad",
+                "billing_scheme": "per_unit",
+                "unit_amount_decimal": "49",
+                "livemode": False,
+                "lookup_key": f"test:{marker}:standard:{mode}",
+            },
+        }
+        for mode in modes
+    ]
+    script = Path(__file__).resolve().parents[1] / "api/scripts/sync_stripe_service_tiers.py"
+    spec = importlib.util.spec_from_file_location("test_gpu_price_import", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with _get_pg_pool().connection() as conn:
+        module.import_catalog(conn, {"catalog_version": f"test:{marker}", "prices": prices})
+    return gpu_model
+
+
 def admit_test_host(
     host_id: str,
     *,
@@ -128,7 +189,10 @@ def report_test_host_inventory(host_id: str, *, gpu_count: int | None = None, co
         session_id=f"fixture-{host_id}",
         observation_generation=time.monotonic_ns(),
         workloads=[],
-        capabilities=dict(capabilities or {}),
+        # A current worker that can read its inventory reports GPU UUID
+        # binding (hardware_isolation.qualified_capabilities); paid placement
+        # refuses a host that has not.
+        capabilities={**dict(capabilities or {}), "gpu_uuid_binding": True},
         conditions={"gpu_inventory": "reported", "workloads": "reported"},
         gpu_inventory=inventory,
     )

@@ -3,7 +3,8 @@
 #
 # Single ordered path to Alembic head without restoring a schema dump:
 #   1. alembic upgrade head  (schema authority; creates agent_commands etc.)
-#   2. optional runtime ensure + seed (gpu_pricing rows and other IF NOT EXISTS)
+#   2. import the versioned Stripe compute catalog (gpu_pricing and
+#      stripe_compute_prices), exactly as deploy does after Alembic
 #
 # Usage:
 #   XCELSIOR_POSTGRES_DSN=postgresql://user:pass@host:5432/empty_db \
@@ -28,28 +29,18 @@ else
   alembic upgrade head
 fi
 
-# Ensure is seed-only on migrated DBs (gpu_pricing reference rows;
-# schema authority is pure alembic including residual objects in 061).
-if [[ "${BOOTSTRAP_SKIP_ENSURE:-0}" != "1" ]]; then
-  echo "from-empty bootstrap: seed-only ensure (gpu_pricing)"
+# The Stripe catalog is the only writer of gpu_pricing; every customer launch
+# quotes it. Offline: this reads billing/stripe_catalog.json, never Stripe.
+if [[ "${BOOTSTRAP_SKIP_CATALOG:-0}" != "1" ]]; then
+  echo "from-empty bootstrap: import Stripe compute catalog"
+  DSN_ENV=XCELSIOR_POSTGRES_DSN
+  [[ -z "${XCELSIOR_POSTGRES_DSN:-}" && -n "${XCELSIOR_PG_DSN:-}" ]] && DSN_ENV=XCELSIOR_PG_DSN
+  [[ -z "${XCELSIOR_POSTGRES_DSN:-}" && -z "${XCELSIOR_PG_DSN:-}" ]] && DSN_ENV=DATABASE_URL
+  CATALOG=(api/scripts/sync_stripe_service_tiers.py --output billing/stripe_catalog.json --import-dsn-env "$DSN_ENV")
   if command -v uv >/dev/null 2>&1 && [[ -f "$ROOT/uv.lock" ]]; then
-    uv run python - <<'PY'
-from db import _ensure_pg_tables, _get_pg_pool
-
-with _get_pg_pool().connection() as conn:
-    _ensure_pg_tables(conn)
-    conn.commit()
-print("ensure complete")
-PY
+    uv run python "${CATALOG[@]}"
   else
-    python - <<'PY'
-from db import _ensure_pg_tables, _get_pg_pool
-
-with _get_pg_pool().connection() as conn:
-    _ensure_pg_tables(conn)
-    conn.commit()
-print("ensure complete")
-PY
+    python "${CATALOG[@]}"
   fi
 fi
 

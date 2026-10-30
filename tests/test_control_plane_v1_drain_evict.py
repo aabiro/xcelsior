@@ -122,7 +122,8 @@ def _running_job_on(host_id: str, headers: dict, *, native=True) -> str:
                 "host_id": host_id,
                 "gpu_model": "RTX 4090",
                 "image": "nvidia/cuda:12.6.3-runtime-ubuntu22.04",
-                "tier": "urgent",
+                # The highest shared tier ("urgent" was a raw priority tier).
+                "tier": "premium",
             },
             headers=headers,
         )
@@ -143,7 +144,8 @@ def _running_job_on(host_id: str, headers: dict, *, native=True) -> str:
             session_id="native-drain-" + host_id,
             observation_generation=1,
             workloads=[],
-            capabilities={"egress_isolation": True},
+            # What a current worker with readable NVML inventory reports.
+            capabilities={"egress_isolation": True, "gpu_uuid_binding": True},
             gpu_inventory=[
                 {
                     "gpu_uuid": "GPU-" + host_id,
@@ -377,7 +379,9 @@ def test_control_plane_queue_lists_queued_and_is_operator_gated():
     admin = _admin_headers(f"q-admin-{uuid.uuid4().hex[:6]}@xcelsior.ca")
     # Submit without any admitted host → the job stays queued.
     sub = client.post(
-        "/instance", json={"name": f"q-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8}, headers=admin
+        "/instance",
+        json={"name": f"q-{uuid.uuid4().hex[:6]}", "vram_needed_gb": 8, "gpu_model": "RTX 4090"},
+        headers=admin,
     )
     assert sub.status_code == 200, sub.text
     job_id = sub.json()["instance"]["job_id"]

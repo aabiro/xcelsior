@@ -97,7 +97,11 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `146_deletion_confirmations_tenant.py`.**
+**Repository head: `149_drop_tier_multiplier.py`.**
+
+147 imports immutable Stripe price identities (`stripe_compute_prices`) and freezes attempt billing pricing snapshots. 148 records typed paid queue bids (`queue_bid_events`) and database-owned queue-entry time. The paid service-tier runtime requires both (runtime floor 148).
+
+149 is a contract step: it drops `tier_multiplier` from `billing_cycles` and `usage_meters` once no release reads or writes it. Deploy it in the release after the code that stopped using the column is live (rule 5); it refuses to run while any row holds a multiplier other than 1. The runtime floor stays 148, so the same code runs before and after it.
 
 144 adds optional customer business-name and GST/HST columns on `users`, and the provider seller-identity columns used for annual reporting: mailing address, tax-identifier kind, encrypted tax identifier, last four characters, and the time the supplier accepted the tax terms. Profile and payout routes query those columns. Downgrade drops the new columns.
 

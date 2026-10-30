@@ -26,7 +26,7 @@ def qualify_cluster(conn, job_id, period_start):
     with conn.cursor(row_factory=dict_row) as cur:
         cycles = cur.execute(
             """SELECT cycle_id,job_id,customer_id,resource_type,period_start,period_end,
-                      duration_seconds,rate_per_hour,tier_multiplier,amount_micros,status,created_at
+                      duration_seconds,rate_per_hour,amount_micros,status,created_at
                  FROM billing_cycles WHERE job_id=%s AND resource_type='volume'
                   AND period_start=%s ORDER BY period_end,cycle_id""",
             (job_id, period_start),
@@ -63,7 +63,6 @@ def qualify_cluster(conn, job_id, period_start):
                 row["customer_id"] != owner
                 or row["amount_micros"] != amount
                 or row["rate_per_hour"] != rate
-                or row["tier_multiplier"] != 1
                 or row["status"] not in {"charged", "failed"}
                 or row["period_end"] <= period_start
                 or abs(row["duration_seconds"] - (row["period_end"] - period_start)) > 0.001

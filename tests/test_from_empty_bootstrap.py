@@ -43,7 +43,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "146"
+EXPECTED_HEAD = "149"
 
 
 def _admin_dsn() -> str | None:
@@ -172,8 +172,8 @@ def _run_bootstrap(db_dsn: str) -> subprocess.CompletedProcess[str]:
     env["XCELSIOR_POSTGRES_DSN"] = db_dsn
     env["XCELSIOR_PG_DSN"] = db_dsn
     env["DATABASE_URL"] = db_dsn
-    # Schema authority only; seed ensure is separate from the dump gap.
-    env["BOOTSTRAP_SKIP_ENSURE"] = "1"
+    # Schema authority only; the catalog import is separate from the dump gap.
+    env["BOOTSTRAP_SKIP_CATALOG"] = "1"
     parsed = urlparse(db_dsn.replace("postgresql+psycopg://", "postgresql://", 1))
     if parsed.password:
         env["PGPASSWORD"] = parsed.password

@@ -5,18 +5,18 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from db import _GPU_PRICING_BASE
+from stripe_catalog import load_manifest
 
-# Canonical GPU titles — must match frontend gpu-models.ts and db._GPU_PRICING_BASE.
-CANONICAL_GPU_MODELS: frozenset[str] = frozenset({row[0] for row in _GPU_PRICING_BASE})
-
+# Canonical GPU titles and their smallest VRAM, from the versioned Stripe
+# catalog (billing/stripe_catalog.json) that deploy imports into gpu_pricing.
+# A missing catalog fails here rather than leaving every name unrecognised.
 _DEFAULT_VRAM_BY_MODEL: dict[str, int] = {}
-_DEFAULT_RATE_BY_MODEL: dict[str, float] = {}
-for _model, _vram, _ff, _hf, _rate in _GPU_PRICING_BASE:
-    if _model not in _DEFAULT_VRAM_BY_MODEL or _vram < _DEFAULT_VRAM_BY_MODEL[_model]:
-        _DEFAULT_VRAM_BY_MODEL[_model] = int(_vram)
-    if _model not in _DEFAULT_RATE_BY_MODEL:
-        _DEFAULT_RATE_BY_MODEL[_model] = float(_rate)
+for _row in load_manifest()["service_tier_catalog"]["prices"]:
+    _model = str(_row["variant"]["gpu_model"])
+    _vram = int(_row["variant"]["vram_gb"])
+    if _vram < _DEFAULT_VRAM_BY_MODEL.get(_model, _vram + 1):
+        _DEFAULT_VRAM_BY_MODEL[_model] = _vram
+CANONICAL_GPU_MODELS: frozenset[str] = frozenset(_DEFAULT_VRAM_BY_MODEL)
 
 _NVIDIA_PREFIX_RE = re.compile(r"^NVIDIA\s+(GeForce\s+)?", re.IGNORECASE)
 _DEFAULT_REGION = "ca-east"
@@ -56,10 +56,15 @@ def normalize_gpu_model(raw: str) -> str:
         if dashed_as_spaced in CANONICAL_GPU_MODELS:
             return dashed_as_spaced
 
-    # Case-insensitive match against catalogue.
+    # Case-insensitive match against catalogue, then the same match with
+    # spacing removed (RTX4090, rtx_4090 → RTX 4090).
     lower = model.lower()
     for canonical in CANONICAL_GPU_MODELS:
         if canonical.lower() == lower:
+            return canonical
+    compact = re.sub(r"[\s\-_]+", "", lower)
+    for canonical in CANONICAL_GPU_MODELS:
+        if canonical.lower().replace(" ", "") == compact:
             return canonical
 
     return model
@@ -71,31 +76,13 @@ def default_vram_gb(gpu_model: str) -> float:
 
 
 def platform_rate_cad(gpu_model: str, *, pricing_mode: str = "on_demand") -> float:
-    """Resolve the platform list rate for a GPU model."""
+    """The Standard Stripe rate for a GPU model's default variant, 0.0 when unpriced."""
     model = normalize_gpu_model(gpu_model)
     if not model:
         return 0.0
+    from pricing_reference import get_rate
 
-    try:
-        from pricing_reference import get_on_demand_rate
-
-        if pricing_mode == "on_demand":
-            rate = float(get_on_demand_rate(model))
-            if rate > 0:
-                return rate
-    except Exception:
-        pass
-
-    try:
-        from spot_pricing import get_platform_rate
-
-        rate = get_platform_rate(model, pricing_mode=pricing_mode)
-        if rate and rate > 0:
-            return float(rate)
-    except Exception:
-        pass
-
-    return float(_DEFAULT_RATE_BY_MODEL.get(model, 0.0))
+    return get_rate(model, pricing_mode)
 
 
 def normalize_region(
@@ -259,13 +246,14 @@ def merge_host_update(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
 
     incoming_cost = float(merged.get("cost_per_hour") or 0)
     existing_cost = float(ex.get("cost_per_hour") or 0)
-    platform = platform_rate_cad(str(merged.get("gpu_model") or ""))
     if incoming_cost > 0:
         merged["cost_per_hour"] = incoming_cost
     elif existing_cost > 0:
         merged["cost_per_hour"] = existing_cost
-    elif platform > 0:
-        merged["cost_per_hour"] = platform
+    else:
+        platform = platform_rate_cad(str(merged.get("gpu_model") or ""))
+        if platform > 0:
+            merged["cost_per_hour"] = platform
 
     if not merged.get("hostname"):
         merged["hostname"] = _display_hostname(ex) or _display_hostname(merged)

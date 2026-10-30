@@ -78,6 +78,8 @@ _AUTH_CALLS = (
     "_require_inference_endpoint_access",
     "_resolve_serverless_endpoint_auth",
     "_resolve_artifact_job_id",
+    # Refuses with 403 an order created for another wallet before capturing it.
+    "_paypal_capture_order",
     "_prepare_authorization",
     "_refuse_undelegatable_scopes",
     "_authorize_instance_mutation",

@@ -89,7 +89,7 @@ def test_a_job_owner_cannot_refund_their_own_job(customer):
     get_billing_engine().deposit(cid, 10.0, "Test seed", idempotency_key=f"seed:{cid}")
     job = client.post(
         "/instance",
-        json={"name": "refund-me", "vram_needed_gb": 1},
+        json={"name": "refund-me", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=customer["headers"],
     )
     assert job.status_code == 200, job.text

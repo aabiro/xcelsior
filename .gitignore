@@ -49,13 +49,14 @@ marketplace.json
 autoscale_pool.json
 
 # ── Node / Frontend ───────────────────────────────────────────────────
-node_modules/
+node_modules
 .next/
 out/
 
 # ── Builds / artifacts ───────────────────────────────────────────────
 builds/
 /artifacts/
+/core/artifacts/
 uploads/
 
 # ── Docker ────────────────────────────────────────────────────────────

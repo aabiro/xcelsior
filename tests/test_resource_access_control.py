@@ -56,7 +56,7 @@ def test_instance_get_forbidden_cross_account(two_users):
     user_a, user_b = two_users
     job = client.post(
         "/instance",
-        json={"name": "owned-by-a", "vram_needed_gb": 1},
+        json={"name": "owned-by-a", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=user_a["headers"],
     ).json()["instance"]
     job_id = job["job_id"]
@@ -68,7 +68,7 @@ def test_instance_cancel_forbidden_cross_account(two_users):
     user_a, user_b = two_users
     job = client.post(
         "/instance",
-        json={"name": "cancel-a", "vram_needed_gb": 1},
+        json={"name": "cancel-a", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=user_a["headers"],
     ).json()["instance"]
     r = client.post(
@@ -82,7 +82,7 @@ def test_billing_refund_forbidden_cross_account(two_users):
     user_a, user_b = two_users
     job = client.post(
         "/instance",
-        json={"name": "refund-a", "vram_needed_gb": 1},
+        json={"name": "refund-a", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=user_a["headers"],
     ).json()["instance"]
     r = client.post(
@@ -90,12 +90,6 @@ def test_billing_refund_forbidden_cross_account(two_users):
         json={"job_id": job["job_id"], "exit_code": 1, "failure_reason": "hardware"},
         headers=user_b["headers"],
     )
-    assert r.status_code == 403
-
-
-def test_billing_dump_requires_admin_not_regular_user(two_users):
-    user_a, _user_b = two_users
-    r = client.get("/billing", headers=user_a["headers"])
     assert r.status_code == 403
 
 
@@ -245,7 +239,7 @@ def test_events_entity_forbidden_cross_account(two_users):
     user_a, user_b = two_users
     job = client.post(
         "/instance",
-        json={"name": "events-a", "vram_needed_gb": 1},
+        json={"name": "events-a", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=user_a["headers"],
     ).json()["instance"]
     r = client.get(

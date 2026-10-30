@@ -170,7 +170,7 @@ def test_sse_payload_for_queue_blocked_and_spot_prices():
 def test_persist_queue_reason_appends_queue_blocked_outbox(cleanup, monkeypatch):
     import scheduler as sched
 
-    job = sched.submit_job(f"qb-{uuid.uuid4().hex[:6]}", 8.0, tier="on-demand")
+    job = sched.submit_job(f"qb-{uuid.uuid4().hex[:6]}", 8.0, tier="standard")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 
@@ -231,7 +231,7 @@ def test_native_queue_release_uses_durable_outbox(cleanup, monkeypatch):
 def test_queue_blocked_outbox_dispatches_to_notify(cleanup):
     import scheduler as sched
 
-    job = sched.submit_job(f"qb-listen-{uuid.uuid4().hex[:6]}", 8.0, tier="on-demand")
+    job = sched.submit_job(f"qb-listen-{uuid.uuid4().hex[:6]}", 8.0, tier="standard")
     job_id = job["job_id"]
     cleanup["jobs"].append(job_id)
 

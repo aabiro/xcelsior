@@ -410,7 +410,7 @@ class ServerlessService:
                     },
                     vram_needed_gb=vram,
                     priority=5,
-                    tier="on-demand",
+                    tier="standard",
                     num_gpus=gpu_count,
                     gpu_model=gpu_model,
                     image=image,

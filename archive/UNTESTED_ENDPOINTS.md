@@ -2,7 +2,7 @@
 
 _Regenerated 2026-10-29 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**3 of 539 routes (0%)** and **0 of 48 CLI commands** (0%) have no test signal.
+**3 of 537 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -210,6 +210,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/pricing/reservations` — `api_list_reservations`  ✓ test_billing_endpoints_coverage.py
 - [x] `POST /api/pricing/reserve` — `api_reserve_commitment`
 - [x] `GET /api/pricing/reserved-plans` — `api_reserved_plans`
+- [x] `GET /api/pricing/service-tiers` — `api_service_tier_catalog`
 - [x] `GET /api/pricing/spot-quote` — `api_spot_quote`  ✓ test_untested_endpoints_coverage.py
 - [x] `POST /api/v2/billing/auto-topup` — `api_billing_configure_topup`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/v2/billing/auto-topup` — `api_billing_get_topup`  ✓ test_billing_endpoints_coverage.py
@@ -217,9 +218,6 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/v2/billing/auto-topup-plans/{plan_id}/execute` — `api_billing_execute_auto_topup_plan`
 - [x] `GET /api/v2/billing/pending-verification` — `api_billing_pending_verification`
 - [x] `POST /api/v2/billing/top-up` — `api_billing_manual_topup`
-- [x] `GET /billing` — `api_billing`  ✓ test_agent_endpoints_coverage.py
-- [x] `POST /billing/bill-all` — `api_bill_all`
-- [x] `POST /billing/bill/{job_id}` — `api_bill_instance`
 
 ### `routes/chat.py` (0 untested)
 - [x] `POST /api/ai/analytics` — `api_ai_analytics_chat`  ✓ test_chat_endpoints_coverage.py
@@ -630,7 +628,6 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ## CLI commands (0 untested)
 
 - [x] `autoscale` — `cmd_autoscale`
-- [x] `bill` — `cmd_bill`
 - [x] `build` — `cmd_build`
 - [x] `builds` — `cmd_builds`
 - [x] `cancel` — `cmd_cancel`
@@ -663,7 +660,6 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `provider-register` — `cmd_provider_register`
 - [x] `reputation` — `cmd_reputation`
 - [x] `requeue` — `cmd_requeue`
-- [x] `revenue` — `cmd_revenue`
 - [x] `run` — `cmd_run`
 - [x] `serve` — `cmd_serve`
 - [x] `sla` — `cmd_sla`

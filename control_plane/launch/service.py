@@ -121,6 +121,9 @@ def simulate_placement(spec: dict[str, Any]) -> dict[str, Any]:
         "num_gpus": spec.get("num_gpus"),
         "vram_needed_gb": spec.get("vram_needed_gb"),
         "region": spec.get("region"),
+        "service_tier_price_id": spec.get("service_tier_price_id"),
+        "exclusive_gpu": spec.get("exclusive_gpu"),
+        "host_exclusive": spec.get("host_exclusive"),
     }
     ctx = FilterContext(stale_host_ids=snapshot.stale_host_ids)
     eligible, rejections = filter_hosts(job, snapshot.hosts, ctx)
@@ -160,6 +163,45 @@ def preview(
             "plan_id": None,
         }
 
+    from service_tier_pricing import quote_tier, TierPricingUnavailable
+
+    if not spec.get("gpu_model"):
+        return {
+            "ok": False,
+            "problems": [
+                {
+                    "code": "gpu_model_required_for_pricing",
+                    "field": "gpu_model",
+                    "detail": "Select a GPU model so the launch can bind its Stripe Price",
+                }
+            ],
+            "plan_id": None,
+        }
+    try:
+        tier_quote = quote_tier(
+            spec["gpu_model"],
+            spec["pricing_mode"],
+            tier=spec.get("tier") or "standard",
+            num_gpus=spec["num_gpus"],
+            price_id=spec.get("service_tier_price_id") or None,
+            gpu_exclusive=bool(spec.get("exclusive_gpu")),
+            gpu_exclusive_price_id=spec.get("gpu_exclusive_price_id") or None,
+            queue_bid_units=int(spec.get("queue_bid_units") or 0),
+            queue_bid_price_id=spec.get("queue_bid_price_id") or None,
+            min_vram_gb=spec.get("vram_needed_gb") or None,
+        )
+    except (ValueError, TierPricingUnavailable) as exc:
+        return {
+            "ok": False,
+            "problems": [{"code": "tier_pricing_unavailable", "field": "tier", "detail": str(exc)}],
+            "plan_id": None,
+        }
+    spec["tier"] = tier_quote["tier"]
+    spec["service_tier_price_id"] = tier_quote["stripe_price_id"]
+    spec["gpu_exclusive_price_id"] = tier_quote["gpu_exclusive_price_id"] or ""
+    spec["queue_bid_price_id"] = tier_quote["queue_bid_price_id"] or ""
+    spec["host_exclusive"] = tier_quote["host_exclusive"]
+    spec["exclusive_gpu"] = tier_quote["gpu_exclusive"]
     spec_hash = _spec_hash(spec)
 
     # 4–5. versioned quote + expected burn / worst-case authorized amount.
@@ -410,6 +452,11 @@ def _submit_from_spec(
         float(spec.get("vram_needed_gb") or 0),
         int(spec.get("priority") or 0),
         tier=spec.get("tier") or None,
+        service_tier_price_id=spec.get("service_tier_price_id") or None,
+        gpu_exclusive_price_id=spec.get("gpu_exclusive_price_id") or None,
+        queue_bid_units=int(spec.get("queue_bid_units") or 0),
+        queue_bid_price_id=spec.get("queue_bid_price_id") or None,
+        exclusive_gpu=bool(spec.get("exclusive_gpu")),
         # Passed **beside** the spec, never folded into it: the spec feeds
         # `canonicalize`/`spec_hash`, and a preference inside it would make two
         # identical workloads asking for different reliability hash apart, so an
@@ -497,15 +544,27 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                 raise PlanConflict("spec_hash_mismatch", "plan arguments failed integrity check")
 
             # Re-quote and enforce tolerance (§15.4).
-            requote = quoting.quote_launch(spec)
-            if quoting.price_moved_beyond_tolerance(
+            from service_tier_pricing import TierPricingUnavailable
+
+            try:
+                requote = quoting.quote_launch(spec)
+            except TierPricingUnavailable:
+                # An immutable Price was superseded. Build a fresh preview
+                # after releasing this transaction; never silently substitute.
+                requote = None
+            if requote is None or quoting.price_moved_beyond_tolerance(
                 int(plan["estimate_micros"] or 0),
                 requote.estimate_micros,
                 int(plan["price_tolerance_bps"] or 0),
             ):
                 # Do not consume, do not charge; a replacement plan is built
                 # after this transaction releases the lock (avoids nesting txns).
-                replacement_spec = spec
+                replacement_spec = {
+                    **spec,
+                    "service_tier_price_id": "",
+                    "gpu_exclusive_price_id": "",
+                    "queue_bid_price_id": "",
+                }
             else:
                 tenant_id = str(plan["tenant_id"])
                 job_id = _deterministic_job_id(plan_id)
