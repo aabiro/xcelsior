@@ -221,7 +221,7 @@ class TestDeployMaintenance:
             vram_needed_gb=8,
             image="xcelsior/serverless-vllm:12.4",
             job_type="serverless_worker",
-            tier="on-demand",
+            tier="standard",
             pricing_mode="on_demand",
             serverless_config={
                 "serverless_worker_id": "maintenance-fixture-worker",

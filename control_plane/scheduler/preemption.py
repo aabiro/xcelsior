@@ -121,6 +121,10 @@ def create_plan(
             "administrative_state": host["administrative_state"],
         }
         host_view["availability_state"] = host["availability_state"]
+        # The observed capability column, as the snapshot and reservation read
+        # it: a purchased tier is only placed (or preempted for) where the
+        # worker qualified its isolation.
+        host_view["capabilities"] = host["capabilities"] or {}
         host_view.pop("lease_claim_backoff", None)
         devices = cur.execute(
             """SELECT * FROM host_gpu_devices WHERE host_id=%s
@@ -195,14 +199,18 @@ def create_plan(
         victims: dict[str, dict[str, Any]] = {}
         # The accounting clock lock also serializes operator policy publication.
         # Recheck current class/entitlement; a revision can protect a running team.
+        # The originally purchased service tier ranks first: queue bids and aging
+        # buy no eviction right, and team policy orders work only within a tier.
         from control_plane.scheduler.fairness import team_key_sql
 
         key = team_key_sql()
         ranks = {
-            r["job_id"]: (r["rank"], r["entitlement"])
+            r["job_id"]: (r["service_tier"], r["rank"], r["entitlement"])
             for r in cur.execute(
                 f"""
-            SELECT j.job_id,COALESCE(p.administrative_class,0)*1000
+            SELECT j.job_id,CASE j.spec->'service_tier_quote'->>'tier'
+                    WHEN 'dedicated' THEN 3 WHEN 'premium' THEN 2 ELSE 1 END AS service_tier,
+                COALESCE(p.administrative_class,0)*1000
                 +GREATEST(0,LEAST(COALESCE(j.priority,0),979)) AS rank,
                 COALESCE(p.reservation_entitlement,0) AS entitlement
             FROM jobs j LEFT JOIN LATERAL (SELECT * FROM scheduling_team_policies

@@ -102,13 +102,18 @@ export function registerDiscoveryTools(
   server.registerTool(
     "list_tiers",
     {
-      inputSchema: z.object({}),
+      inputSchema: z.object({
+        gpu_model: z.string().optional().describe("GPU model to include its live Stripe tier and exclusivity Prices"),
+        pricing_mode: z.enum(["on_demand", "spot"]).default("on_demand"),
+      }),
     },
-    async () => {
+    async ({ gpu_model, pricing_mode }) => {
       const denied = scopeDenied("list_tiers", user);
       if (denied) return denied;
       try {
-        const data = await client.get("/tiers");
+        const data = gpu_model
+          ? await client.get("/api/pricing/service-tiers", { gpu_model, mode: pricing_mode })
+          : await client.get("/tiers");
         return jsonText(data);
       } catch (e) {
         return jsonText({ error: formatApiError(e) });

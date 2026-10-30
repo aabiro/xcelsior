@@ -50,7 +50,12 @@ def test_fleet_projection_uses_canonical_geography_and_capabilities(native_capab
             report_test_host_inventory(host_id, conn=conn)
             host = next(h for h in read_fleet(conn).hosts if h["host_id"] == host_id)
             assert (host["region"], host["country"], host["province"]) == ("ca-on", "CA", "ON")
-            assert host["capabilities"] == {"egress_isolation": native_capability}
+            # The native column wins over the payload's capabilities; the fixture
+            # worker reports GPU UUID binding as a current agent does.
+            assert host["capabilities"] == {
+                "egress_isolation": native_capability,
+                "gpu_uuid_binding": True,
+            }
             eligible, rejected = filter_hosts(
                 {"num_gpus": 1, "region": "ca-on", "egress": "restricted"}, [host], FilterContext()
             )

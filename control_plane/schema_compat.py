@@ -67,7 +67,11 @@ from psycopg import Connection
 # 145 stores the Facebook user id on the account and the public deletion
 # receipt that /delete-data reads. A database at 144 is missing both.
 # 146 gives that receipt a tenant, which the receipt writer now stores.
-REQUIRED_MIN_REVISION = "146"
+# 147 imports immutable Stripe compute Prices and stores attempt, meter and
+# cycle pricing snapshots plus physical-host scope. Paid launches quote them.
+# 148 records queue bids and the database-owned queue-entry time that the
+# claim ranks on. A database at 147 cannot claim or audit a paid queue.
+REQUIRED_MIN_REVISION = "148"
 REQUIRED_MAX_REVISION: str | None = None
 
 

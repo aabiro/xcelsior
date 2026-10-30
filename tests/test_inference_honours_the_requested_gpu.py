@@ -88,21 +88,43 @@ def test_a_named_gpu_reaches_the_scheduler(auth_headers, captured_submit) -> Non
     )
 
 
+def _assert_resolved_to_a_priced_gpu(call: dict, value) -> None:
+    """No preference resolves to a real Stripe-priced variant, never "any".
+
+    Every customer launch binds a Stripe Price, and a Price belongs to one GPU
+    variant, so "I don't care" cannot reach the scheduler as an omitted model
+    any more. It must not reach it as a model literally named "any" either:
+    that would match no host and strand the job.
+    """
+    from db import pg_connection
+
+    model, price_id = call.get("gpu_model"), call.get("service_tier_price_id")
+    assert model and model.strip().lower() != "any", (
+        f"gpu_model={value!r} became {model!r}; an exact-match filter on that "
+        "name selects nothing"
+    )
+    with pg_connection() as conn:
+        row = conn.execute(
+            """SELECT 1 FROM gpu_pricing p
+                 JOIN stripe_compute_prices s ON s.stripe_price_id=p.stripe_price_id
+                WHERE p.gpu_model=%s AND p.stripe_price_id=%s AND p.active AND s.active
+                  AND p.tier='standard' AND p.pricing_mode='on_demand'""",
+            (model, price_id),
+        ).fetchone()
+    assert row, f"{model!r} with price {price_id!r} is not an active Standard Stripe Price"
+
+
 @pytest.mark.parametrize("value", ["any", "ANY", " any ", ""])
-def test_no_preference_is_passed_as_no_constraint(auth_headers, captured_submit, value) -> None:
-    """ "any" is the documented way to say "I don't care", and the scheduler
-    spells that as an omitted `gpu_model` — not as a model literally named
-    "any", which would match no host and strand the job."""
+def test_no_preference_resolves_to_a_priced_gpu(auth_headers, captured_submit, value) -> None:
+    """ "any" is the documented way to say "I don't care"; it is bound to the
+    cheapest active Standard Stripe Price instead of a model named "any"."""
     r = _submit(auth_headers, gpu_model=value)
     assert r.status_code == 200, r.text[:300]
-    assert captured_submit[-1].get("gpu_model") is None, (
-        f"gpu_model={value!r} became {captured_submit[-1].get('gpu_model')!r}; "
-        "an exact-match filter on that name selects nothing"
-    )
+    _assert_resolved_to_a_priced_gpu(captured_submit[-1], value)
 
 
-def test_the_default_is_no_constraint(auth_headers, captured_submit) -> None:
+def test_the_default_resolves_to_a_priced_gpu(auth_headers, captured_submit) -> None:
     """The field defaults to "any", so omitting it must behave the same way."""
     r = _submit(auth_headers)
     assert r.status_code == 200, r.text[:300]
-    assert captured_submit[-1].get("gpu_model") is None
+    _assert_resolved_to_a_priced_gpu(captured_submit[-1], None)

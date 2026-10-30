@@ -249,7 +249,8 @@ class HostIn(BaseModel):
     gpu_model: str = Field(min_length=1, max_length=64)
     total_vram_gb: float = Field(ge=0, le=1024)
     free_vram_gb: float = Field(ge=0, le=1024)
-    cost_per_hour: float = Field(default=0.20, ge=0, le=1000)
+    # 0 / omitted: the GPU's Standard Stripe rate (platform_rate_cad).
+    cost_per_hour: float = Field(default=0.0, ge=0, le=1000)
     country: str = Field(default="CA", min_length=2, max_length=2)  # ISO 3166-1 alpha-2
     province: str = Field(default="", max_length=10)  # CA province code (ON, QC, BC, etc.)
     region: str = Field(default="", max_length=32)
@@ -460,7 +461,7 @@ def api_register_host(h: HostIn, request: Request):
 
 # ── Model: RegisterHostRequest (web-facing registration form) ──
 
-# Must match frontend gpu-models.ts / db._GPU_PRICING_BASE.
+# The GPU models of the Stripe compute catalog (billing/stripe_catalog.json).
 _VALID_GPU_MODELS = CANONICAL_GPU_MODELS
 
 # ISO 3166-1 alpha-2 — every assigned country code
@@ -752,7 +753,8 @@ class RegisterHostRequest(BaseModel):
     hostname: str = Field(min_length=1, max_length=128, pattern=r"^[\w .\-]+$")
     gpu_model: str = Field(min_length=1, max_length=64)
     vram_gb: float = Field(gt=0, le=192)
-    cost_per_hour: float = Field(default=0.20, ge=0.01, le=100.0)
+    # Omitted: the GPU's Standard Stripe rate (platform_rate_cad).
+    cost_per_hour: float | None = Field(default=None, ge=0.01, le=100.0)
     country: str = Field(default="CA", min_length=2, max_length=2)
     province: str = Field(default="", max_length=4)
     region: str = Field(default="", max_length=32)
@@ -854,10 +856,10 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     spot_min = (
         h.spot_min_cents if h.spot_min_cents is not None else suggested_spot_min_cents(h.gpu_model)
     )
-    platform_rate = platform_rate_cad(h.gpu_model)
-    cost_per_hour = h.cost_per_hour if h.cost_per_hour > 0 else platform_rate
+    # No asked rate means the GPU's Standard Stripe rate; there is no stand-in.
+    cost_per_hour = h.cost_per_hour or platform_rate_cad(h.gpu_model)
     if cost_per_hour <= 0:
-        cost_per_hour = 0.20
+        raise HTTPException(503, detail=f"Stripe compute pricing is unavailable for {h.gpu_model}")
 
     entry = register_host(
         host_id,

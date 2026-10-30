@@ -282,168 +282,6 @@ def _get_pg_pool() -> Any:
     raise RuntimeError("PostgreSQL pool initialization exited retry loop unexpectedly")
 
 
-# ── GPU Pricing seed data ─────────────────────────────────────────────
-# Platform-controlled GPU rates in CAD. Volume costs are computed at
-# runtime in billing.py and are NOT stored here.
-#
-# Pricing is derived from a compact base table: one canonical short name
-# + variant tuple + standard on-demand rate per row. Tiers (standard /
-# premium / dedicated) and pricing modes (on_demand / spot / reserved)
-# are expanded at seed time via deterministic multipliers.
-#
-# Canonical names MUST match frontend/src/lib/gpu-models.ts exactly.
-# Worker agents translate nvidia-smi names to canonical short titles
-# via the lookup dict in worker_agent.py — NO normalizer here.
-
-# (gpu_model, vram_gb, form_factor, high_frequency, standard_on_demand_cad)
-_GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
-    # ── NVIDIA Data Center ──
-    # Competitive CAD list rates: below RunPod cloud, above rock-bottom Vast;
-    # platform cut separate. 2060 → 3060/4090 fleet path priced for global demand.
-    ("B200", 192, "OAM", False, 9.50),
-    ("H200", 141, "SXM", False, 4.20),
-    ("H100", 80, "SXM", False, 3.10),
-    ("H100", 80, "PCIe", False, 2.60),
-    ("H100 NVL", 94, "PCIe", False, 2.90),
-    ("A100", 80, "SXM", False, 1.85),
-    ("A100", 80, "PCIe", False, 1.55),
-    ("A100", 40, "SXM", False, 1.35),
-    ("A100", 40, "PCIe", False, 1.15),
-    ("A40", 48, "PCIe", False, 1.10),
-    ("A30", 24, "PCIe", False, 0.75),
-    ("A10", 24, "PCIe", False, 0.65),
-    ("A16", 16, "PCIe", False, 0.60),
-    ("L40S", 48, "PCIe", False, 1.55),
-    ("L40", 48, "PCIe", False, 1.45),
-    ("L4", 24, "PCIe", False, 0.60),
-    ("T4", 16, "PCIe", False, 0.32),
-    ("V100", 32, "PCIe", False, 0.90),
-    ("V100", 16, "PCIe", False, 0.70),
-    # ── NVIDIA RTX 50 Series ──
-    ("RTX 5090", 32, "PCIe", False, 0.85),
-    ("RTX 5080", 16, "PCIe", False, 0.52),
-    ("RTX 5070 Ti", 16, "PCIe", False, 0.42),
-    ("RTX 5070", 12, "PCIe", False, 0.36),
-    ("RTX 5060 Ti", 16, "PCIe", False, 0.28),
-    ("RTX 5060", 8, "PCIe", False, 0.20),
-    # ── NVIDIA RTX 40 Series ──
-    ("RTX 4090", 24, "PCIe", False, 0.49),
-    ("RTX 4090", 24, "PCIe", True, 0.55),  # high-frequency variant
-    ("RTX 4080 Super", 16, "PCIe", False, 0.40),
-    ("RTX 4080", 16, "PCIe", False, 0.38),
-    ("RTX 4070 Ti Super", 16, "PCIe", False, 0.32),
-    ("RTX 4070 Ti", 12, "PCIe", False, 0.28),
-    ("RTX 4070 Super", 12, "PCIe", False, 0.26),
-    ("RTX 4070", 12, "PCIe", False, 0.24),
-    ("RTX 4060 Ti", 16, "PCIe", False, 0.20),
-    ("RTX 4060 Ti", 8, "PCIe", False, 0.17),
-    ("RTX 4060", 8, "PCIe", False, 0.14),
-    # ── NVIDIA RTX 30 Series ──
-    ("RTX 3090 Ti", 24, "PCIe", False, 0.32),
-    ("RTX 3090", 24, "PCIe", False, 0.28),
-    ("RTX 3080 Ti", 12, "PCIe", False, 0.24),
-    ("RTX 3080", 12, "PCIe", False, 0.20),
-    ("RTX 3080", 10, "PCIe", False, 0.18),
-    ("RTX 3070 Ti", 8, "PCIe", False, 0.17),
-    ("RTX 3070", 8, "PCIe", False, 0.15),
-    ("RTX 3060 Ti", 8, "PCIe", False, 0.14),
-    ("RTX 3060", 12, "PCIe", False, 0.12),
-    # ── NVIDIA RTX 20 Series ──
-    ("RTX 2080 Ti", 11, "PCIe", False, 0.18),
-    ("RTX 2080 Super", 8, "PCIe", False, 0.15),
-    ("RTX 2080", 8, "PCIe", False, 0.14),
-    ("RTX 2070 Super", 8, "PCIe", False, 0.12),
-    ("RTX 2070", 8, "PCIe", False, 0.11),
-    ("RTX 2060 Super", 8, "PCIe", False, 0.10),
-    ("RTX 2060", 6, "PCIe", False, 0.08),
-    # ── NVIDIA Workstation (Ada & Ampere) ──
-    ("RTX 6000 Ada", 48, "PCIe", False, 1.85),
-    ("RTX 5000 Ada", 32, "PCIe", False, 1.30),
-    ("RTX 4000 Ada", 20, "PCIe", False, 0.80),
-    ("RTX A6000", 48, "PCIe", False, 1.05),
-    ("RTX A5000", 24, "PCIe", False, 0.90),
-    ("RTX A4000", 16, "PCIe", False, 0.55),
-    # ── AMD Data Center ──
-    ("MI300X", 192, "OAM", False, 4.20),
-    ("MI250X", 128, "OAM", False, 2.60),
-    ("MI210", 64, "PCIe", False, 1.30),
-    # ── AMD Consumer ──
-    ("RX 7900 XTX", 24, "PCIe", False, 0.26),
-    ("RX 7900 XT", 20, "PCIe", False, 0.22),
-]
-
-# Deterministic expansion of base rates into the full tier × mode matrix.
-# The dedicated tier carries no price premium: we compete on price and developer
-# experience. It is a support and SLA tier, not a location claim.
-_TIER_MULT = {"standard": 1.0, "premium": 1.30, "dedicated": 1.0}
-_MODE_MULT = {
-    "on_demand": 1.0,
-    "spot": 0.40,
-    "reserved_1mo": 0.80,
-    "reserved_3mo": 0.70,  # 30% off — matches billing API 3_month commitment
-    "reserved_1yr": 0.55,
-}
-
-
-def _generate_gpu_pricing_rows() -> list[tuple]:
-    """Expand ``_GPU_PRICING_BASE`` into the full pricing matrix."""
-    out: list[tuple] = []
-    for model, vram, form_factor, high_freq, base in _GPU_PRICING_BASE:
-        for tier, tmult in _TIER_MULT.items():
-            for mode, mmult in _MODE_MULT.items():
-                rate = round(base * tmult * mmult, 4)
-                out.append(
-                    (
-                        model,
-                        vram,
-                        form_factor,
-                        high_freq,
-                        tier,
-                        mode,
-                        round(rate * 1_000_000),
-                        1.0,  # priority_multiplier
-                        0.0,  # spot_discount (already in mode_mult)
-                        0.05,
-                        0.10,  # multi-GPU discounts
-                    )
-                )
-    return out
-
-
-_GPU_PRICING_SEED = _generate_gpu_pricing_rows()
-
-# Priority multipliers applied at query time, not stored per-row
-GPU_PRIORITY_MULTIPLIERS = {
-    "low": 0.8,
-    "normal": 1.0,
-    "high": 1.3,
-    "critical": 1.6,
-}
-
-
-def _seed_gpu_pricing(cur):
-    """Insert seed pricing rows if table is empty.
-
-    Idempotent: uses ON CONFLICT DO NOTHING against the variant-aware
-    unique constraint (gpu_model, vram_gb, form_factor, high_frequency,
-    tier, pricing_mode). Newly added base rows are picked up on the
-    next boot.
-    """
-    for row in _GPU_PRICING_SEED:
-        cur.execute(
-            """INSERT INTO gpu_pricing
-               (gpu_model, vram_gb, form_factor, high_frequency,
-                tier, pricing_mode, base_rate_micros,
-                priority_multiplier, spot_discount,
-                multi_gpu_discount_4, multi_gpu_discount_8)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (gpu_model, vram_gb, form_factor, high_frequency,
-                            tier, pricing_mode) DO NOTHING""",
-            row,
-        )
-    log.info("Seeded gpu_pricing table with %d rows", len(_GPU_PRICING_SEED))
-
-
 def _pg_schema_is_migrated(conn) -> bool:
     """True when Alembic has stamped a revision on this database.
 
@@ -472,14 +310,15 @@ def _pg_schema_is_migrated(conn) -> bool:
 
 
 def _ensure_pg_tables(conn):
-    """Seed-only ensure helper — no runtime CREATE/ALTER on migrated Postgres.
+    """Startup check: refuse an unmigrated database; never write schema or data.
 
     Schema evolution is owned by Alembic (residual ensure-only objects
-    live in migration 061). On a migrated database this only seeds
-    ``gpu_pricing`` reference rows (idempotent ON CONFLICT DO NOTHING).
-    On an unmigrated database it refuses to invent schema and logs —
-    operators must run ``alembic upgrade head`` or
-    ``scripts/bootstrap_pg_from_empty.sh``.
+    live in migration 061). Compute prices have one writer, the Stripe
+    catalog import (``api/scripts/sync_stripe_service_tiers.py::import_catalog``,
+    run by ``run_db_migrations.py --import-compute-catalog`` at deploy), so
+    startup writes no ``gpu_pricing`` rows. On an unmigrated database this
+    refuses to invent schema and logs — operators must run
+    ``alembic upgrade head`` or ``scripts/bootstrap_pg_from_empty.sh``.
     """
     from control_plane.db_roles import current_service, roles_required, service_dsn_env_var
 
@@ -491,23 +330,6 @@ def _ensure_pg_tables(conn):
             "PostgreSQL schema is not Alembic-managed (alembic_version "
             "missing/empty). Runtime CREATE/ALTER is disabled  — "
             "run scripts/bootstrap_pg_from_empty.sh or alembic upgrade head."
-        )
-        return
-
-    if dedicated:
-        # Reference-data writes belong to bootstrap/migrations. Even an
-        # idempotent INSERT aborts a read-only service's startup transaction.
-        return
-
-    cur = conn.cursor()
-    try:
-        _seed_gpu_pricing(cur)
-    except Exception as e:
-        # Migrated stamp without gpu_pricing means the expand chain is
-        # incomplete or a wrong database was pointed at the pool.
-        log.error(
-            "gpu_pricing seed failed on Alembic-managed DB (A1.6 seed-only " "path): %s",
-            e,
         )
 
 

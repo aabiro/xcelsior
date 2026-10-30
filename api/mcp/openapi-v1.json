@@ -3371,7 +3371,7 @@
             "maximum": 1000.0,
             "minimum": 0.0,
             "title": "Cost Per Hour",
-            "default": 0.2
+            "default": 0.0
           },
           "country": {
             "type": "string",
@@ -3819,6 +3819,49 @@
               }
             ],
             "title": "Tier"
+          },
+          "service_tier_price_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Tier Price Id"
+          },
+          "gpu_exclusive_price_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Exclusive Price Id"
+          },
+          "queue_bid_units": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Queue Bid Units",
+            "default": 0
+          },
+          "queue_bid_price_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Bid Price Id"
           },
           "num_gpus": {
             "type": "integer",
@@ -5571,11 +5614,17 @@
             "title": "Vram Gb"
           },
           "cost_per_hour": {
-            "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.01,
-            "title": "Cost Per Hour",
-            "default": 0.2
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.01
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Hour"
           },
           "country": {
             "type": "string",

@@ -89,7 +89,7 @@ def test_a_job_owner_cannot_refund_their_own_job(customer):
     get_billing_engine().deposit(cid, 10.0, "Test seed", idempotency_key=f"seed:{cid}")
     job = client.post(
         "/instance",
-        json={"name": "refund-me", "vram_needed_gb": 1},
+        json={"name": "refund-me", "vram_needed_gb": 1, "gpu_model": "RTX 4090"},
         headers=customer["headers"],
     )
     assert job.status_code == 200, job.text
@@ -340,3 +340,111 @@ def test_paypal_webhook_does_not_credit_another_currency(monkeypatch):
     )
     assert r.status_code == 200
     assert credited == []
+
+
+# ── Bitcoin and SLA credits ───────────────────────────────────────────
+
+
+def test_a_confirmed_bitcoin_deposit_credits_once_when_the_watcher_runs_again(
+    customer, monkeypatch
+):
+    """One on-chain payment is one credit, however many sweeps see it.
+
+    The watcher credited with no idempotency key. If ``mark_credited`` did not
+    land, or two watchers read the same pending row, each sweep posted the full
+    amount again for a single payment.
+    """
+    import bitcoin as btc
+    import scheduler
+
+    cid = customer["customer_id"]
+    deposit = {
+        "deposit_id": f"btc-{uuid.uuid4().hex[:10]}",
+        "customer_id": cid,
+        "amount_cad": 40.0,
+        "amount_btc": 0.0004,
+        "status": "confirming",
+    }
+    monkeypatch.setattr(btc, "BTC_ENABLED", True)
+    monkeypatch.setattr(btc, "get_pending_deposits", lambda: [dict(deposit)])
+    monkeypatch.setattr(btc, "check_and_update_deposit", lambda d: {**d, "status": "confirmed"})
+    # The mark never lands, so the row stays pending for the next sweep.
+    monkeypatch.setattr(btc, "mark_credited", lambda _id: None)
+    before = _balance(cid)
+
+    for _ in range(3):
+        scheduler._process_crypto_confirmations()
+
+    assert _balance(cid) == pytest.approx(before + 40.0)
+
+
+def test_a_bitcoin_deposit_that_has_not_confirmed_credits_nothing(customer, monkeypatch):
+    import bitcoin as btc
+    import scheduler
+
+    cid = customer["customer_id"]
+    deposit = {
+        "deposit_id": f"btc-{uuid.uuid4().hex[:10]}",
+        "customer_id": cid,
+        "amount_cad": 40.0,
+        "amount_btc": 0.0004,
+        "status": "pending",
+    }
+    monkeypatch.setattr(btc, "BTC_ENABLED", True)
+    monkeypatch.setattr(btc, "get_pending_deposits", lambda: [dict(deposit)])
+    monkeypatch.setattr(btc, "check_and_update_deposit", lambda d: {**d, "status": "confirming"})
+    before = _balance(cid)
+
+    scheduler._process_crypto_confirmations()
+
+    assert _balance(cid) == pytest.approx(before)
+
+
+class _FakeSlaConn:
+    def __init__(self, rows: list, owner: str):
+        self.rows = rows
+        self.owner = owner
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql: str, params=()):
+        rows, owner = self.rows, self.owner
+
+        class _Result:
+            def fetchall(self):
+                return rows
+
+            def fetchone(self):
+                return {"owner": owner}
+
+        return _Result()
+
+
+def test_an_sla_credit_is_recorded_as_a_credit_not_a_deposit(customer, monkeypatch):
+    """SLA credit is a service credit. Booking it as a deposit counted it as
+    cash received in revenue and toward the FINTRAC 24-hour aggregate."""
+    from sla import SLAEngine
+
+    cid = customer["customer_id"]
+    month = f"2099-{uuid.uuid4().hex[:6]}"
+    host_id = f"h-sla-{uuid.uuid4().hex[:8]}"
+    rows = [{"host_id": host_id, "credit_micros": 3_000_000, "uptime_pct": 98.5}]
+    engine = SLAEngine.__new__(SLAEngine)
+    monkeypatch.setattr(engine, "_conn", lambda: _FakeSlaConn(rows, cid), raising=False)
+    before = _balance(cid)
+
+    issued = engine.auto_issue_credits(month)
+
+    assert len(issued) == 1
+    assert _balance(cid) == pytest.approx(before + 3.0)
+    be = get_billing_engine()
+    with be._conn() as conn:
+        tx = conn.execute(
+            "SELECT tx_type FROM wallet_transactions WHERE idempotency_key = %s",
+            (f"sla:{host_id}:{month}",),
+        ).fetchone()
+    assert tx["tx_type"] == "credit"

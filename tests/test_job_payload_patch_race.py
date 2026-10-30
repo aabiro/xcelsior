@@ -16,6 +16,7 @@ import uuid
 import pytest
 
 import scheduler
+from tests._db_helpers import PRICED_GPU, fund_test_owner
 
 try:
     from db import _get_pg_pool
@@ -33,7 +34,10 @@ pytestmark = pytest.mark.skipif(not _native, reason="native job rows need Postgr
 @pytest.fixture
 def job_id():
     job = scheduler.submit_job(
-        name=f"patch-race-{uuid.uuid4().hex[:8]}", vram_needed_gb=1, owner="patch-race-owner"
+        name=f"patch-race-{uuid.uuid4().hex[:8]}",
+        vram_needed_gb=1,
+        gpu_model=PRICED_GPU,
+        owner=fund_test_owner("patch-race-owner"),
     )
     yield job["job_id"]
     with _pool.connection() as conn:

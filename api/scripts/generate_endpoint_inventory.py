@@ -87,6 +87,10 @@ _AUTH_CALLS = (
     "_require_human_to_weaken_mfa",
     "_require_reputation_entity_access",
     "_check_terminal_access",
+    # Refuses with 403 an order created for another wallet before capturing it.
+    # Named rather than `_paypal_capture_order`: the webhook calls that helper
+    # with no wallet to check, and naming it reported the webhook as guarded.
+    "_refuse_paypal_order_for_another_wallet",
     "_get_current_user",
     "_resolve_current_user",
     "validate_key",

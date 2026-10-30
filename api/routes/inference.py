@@ -53,6 +53,36 @@ class InferenceRequest(BaseModel):
     timeout_sec: int = Field(300, ge=10, le=3600)
 
 
+def _submit_priced_inference(*, model: str, owner: str, gpu_model: str = "any"):
+    """Resolve an automatic request to a real Stripe SKU before admission."""
+    from db import pg_connection
+    from service_tier_pricing import TierPricingUnavailable, TierFundingRequired, TierSchedulingUnavailable
+
+    price_id = None
+    if gpu_model.strip().lower() in ("", "any"):
+        with pg_connection() as conn:
+            row = conn.execute(
+                """SELECT p.gpu_model,p.stripe_price_id FROM gpu_pricing p
+                   JOIN stripe_compute_prices s ON s.stripe_price_id=p.stripe_price_id
+                   WHERE p.active AND s.active AND p.tier='standard'
+                     AND p.pricing_mode='on_demand' AND p.vram_gb>=2
+                   ORDER BY s.unit_amount_micros,p.vram_gb,p.gpu_model LIMIT 1"""
+            ).fetchone()
+        if row is None:
+            raise HTTPException(503, "No Stripe-priced inference GPU is available")
+        gpu_model, price_id = row[0], row[1]
+    try:
+        return submit_job(
+            name=f"inference:{model.replace('/', '--')}", vram_needed_gb=2,
+            gpu_model=gpu_model, service_tier_price_id=price_id,
+            image=f"xcelsior/inference:{model.replace('/', '--')}", owner=owner,
+        )
+    except TierFundingRequired as exc:
+        raise HTTPException(402, str(exc)) from exc
+    except (TierPricingUnavailable, TierSchedulingUnavailable) as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
 @router.post("/api/inference", tags=["Inference"])
 def api_inference_submit(req: InferenceRequest, request: Request):
     """Submit a serverless inference request.
@@ -75,22 +105,7 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     if wallet["balance_cad"] <= 0 and (wallet.get("grace_until") or 0) < time.time():
         raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
-    # `gpu_model` is advertised in the request model as "Preferred GPU model or
-    # 'any'" and was never passed to the scheduler, so every request ran on
-    # whatever host won the ordinary scoring. `_gpu_model_candidates` exists to
-    # make an explicit model request an exact match — its docstring says callers
-    # that will take any card "must omit `gpu_model` instead of silently
-    # substituting hardware" — and this route silently substituted hardware for
-    # every caller that named one. "any" is the documented way to express no
-    # preference and maps to omitting it.
-    requested_gpu = (req.gpu_model or "").strip()
-    job = submit_job(
-        name=f"inference:{req.model.replace('/', '--')}",
-        vram_needed_gb=2,
-        gpu_model=None if requested_gpu.lower() in ("", "any") else requested_gpu,
-        image=f"xcelsior/inference:{req.model.replace('/', '--')}",
-        owner=customer_id,
-    )
+    job = _submit_priced_inference(model=req.model, owner=customer_id, gpu_model=req.gpu_model)
     job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
     # Persist inference metadata to SQLite (survives API restarts)
     store_inference_job(
@@ -241,12 +256,7 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
         raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     with otel_span("inference.v1.sync", {"model": body.model, "stream": body.stream}):
-        job = submit_job(
-            name=f"inference:{body.model.replace('/', '--')}",
-            vram_needed_gb=2,
-            image=f"xcelsior/inference:{body.model.replace('/', '--')}",
-            owner=customer_id,
-        )
+        job = _submit_priced_inference(model=body.model, owner=customer_id)
         job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
         store_inference_job(
             job_id=job_id,
@@ -330,12 +340,7 @@ def api_v1_inference_async(body: V1InferenceRequest, request: Request):
         raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     with otel_span("inference.v1.async", {"model": body.model}):
-        job = submit_job(
-            name=f"inference:{body.model.replace('/', '--')}",
-            vram_needed_gb=2,
-            image=f"xcelsior/inference:{body.model.replace('/', '--')}",
-            owner=customer_id,
-        )
+        job = _submit_priced_inference(model=body.model, owner=customer_id)
         job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
         store_inference_job(
             job_id=job_id,

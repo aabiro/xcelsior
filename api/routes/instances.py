@@ -383,6 +383,10 @@ class JobIn(BaseModel):
     vram_needed_gb: float = Field(default=0, ge=0)
     priority: int = Field(default=0, ge=0, le=10)
     tier: str | None = None
+    service_tier_price_id: str | None = Field(default=None, max_length=128)
+    gpu_exclusive_price_id: str | None = Field(default=None, max_length=128)
+    queue_bid_units: int = Field(default=0, ge=0, le=1000000, strict=True)
+    queue_bid_price_id: str | None = Field(default=None, max_length=128)
     num_gpus: int = Field(default=1, ge=1, le=64)
     host_id: str | None = None
     gpu_model: str | None = None
@@ -545,6 +549,12 @@ def _wallet_preflight(
     num_gpus: int = 1,
     host: dict | None = None,
     idempotency_key: str | None = None,
+    tier: str = "standard",
+    service_tier_price_id: str | None = None,
+    gpu_exclusive_price_id: str | None = None,
+    queue_bid_units: int = 0,
+    queue_bid_price_id: str | None = None,
+    gpu_exclusive: bool = False,
 ) -> str | None:
     """Fund gate: durable wallet hold when available balance is sufficient.
 
@@ -576,6 +586,12 @@ def _wallet_preflight(
         gpu_model=gpu_model,
         num_gpus=num_gpus,
         host=host,
+        tier=tier,
+        service_tier_price_id=service_tier_price_id,
+        gpu_exclusive_price_id=gpu_exclusive_price_id,
+        queue_bid_units=queue_bid_units,
+        queue_bid_price_id=queue_bid_price_id,
+        gpu_exclusive=gpu_exclusive,
     )
     # On-demand historically required only positive balance; still reserve
     # a one-hour estimate so concurrent launches cannot oversubscribe funds.
@@ -777,6 +793,30 @@ def api_submit_instance(j: JobIn, request: Request):
                         "Choose another machine, or launch without one and we'll pick."
                     ),
                 )
+        from service_tier_pricing import normalize_tier, quote_tier, TierPricingUnavailable
+
+        try:
+            launch_tier = normalize_tier(j.tier)
+            selected_model = j.gpu_model or (target_host.get("gpu_model") if target_host else None)
+            if not selected_model:
+                raise ValueError("Select a GPU model before requesting a priced service tier")
+            tier_quote = quote_tier(
+                selected_model,
+                j.pricing_mode,
+                tier=launch_tier,
+                num_gpus=j.num_gpus,
+                price_id=j.service_tier_price_id,
+                gpu_exclusive=j.exclusive_gpu,
+                gpu_exclusive_price_id=j.gpu_exclusive_price_id,
+                queue_bid_units=j.queue_bid_units,
+                queue_bid_price_id=j.queue_bid_price_id,
+                min_vram_gb=j.vram_needed_gb or None,
+            )
+        except TierPricingUnavailable as exc:
+            raise HTTPException(409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
+
         hold_id = _wallet_preflight(
             customer_id,
             pricing_mode=j.pricing_mode,
@@ -785,6 +825,12 @@ def api_submit_instance(j: JobIn, request: Request):
             host=target_host,
             # Per-submit attempt key — concurrent same-name launches each hold.
             idempotency_key=f"launch:{customer_id}:{uuid.uuid4().hex}",
+            tier=launch_tier,
+            service_tier_price_id=tier_quote["stripe_price_id"],
+            gpu_exclusive_price_id=tier_quote["gpu_exclusive_price_id"],
+            queue_bid_units=tier_quote["queue_bid_units"],
+            queue_bid_price_id=tier_quote["queue_bid_price_id"],
+            gpu_exclusive=j.exclusive_gpu,
         )
 
         # ── Concurrent instance cap (personal or shared team pool) ──
@@ -826,7 +872,7 @@ def api_submit_instance(j: JobIn, request: Request):
                     detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
                 )
 
-        if j.pricing_mode == "spot" and j.tier in ("premium", "dedicated"):
+        if j.pricing_mode == "spot" and launch_tier != "standard":
             raise HTTPException(
                 status_code=400,
                 detail="Spot instances use the standard service tier only",
@@ -849,18 +895,19 @@ def api_submit_instance(j: JobIn, request: Request):
                     detail=f"Host {target_host_id} has no free spot GPU capacity",
                 )
 
-        launch_tier = j.tier
-        if j.pricing_mode == "spot":
-            launch_tier = "spot"
-
         try:
             job = submit_job(
                 j.name,
                 vram_needed,
                 j.priority,
                 tier=launch_tier,
+                service_tier_price_id=tier_quote["stripe_price_id"],
+                gpu_exclusive_price_id=tier_quote["gpu_exclusive_price_id"],
+                queue_bid_units=tier_quote["queue_bid_units"],
+                queue_bid_price_id=tier_quote["queue_bid_price_id"],
+                wallet_hold_id=hold_id,
                 num_gpus=j.num_gpus,
-                gpu_model=j.gpu_model,
+                gpu_model=selected_model,
                 nfs_server=j.nfs_server,
                 nfs_path=j.nfs_path,
                 nfs_mount_point=j.nfs_mount_point,
@@ -891,9 +938,14 @@ def api_submit_instance(j: JobIn, request: Request):
                     get_billing_engine().release_wallet_hold(hold_id, reason="launch_submit_failed")
                 except Exception:
                     pass
+            from service_tier_pricing import TierFundingRequired, TierSchedulingUnavailable
             from control_plane.spot_admission import SpotAdmissionRejected
 
-            if isinstance(exc, SpotAdmissionRejected):
+            if isinstance(exc, TierFundingRequired):
+                raise HTTPException(402, detail=str(exc)) from exc
+            if isinstance(exc, TierSchedulingUnavailable):
+                raise HTTPException(503, detail=str(exc)) from exc
+            if isinstance(exc, (TierPricingUnavailable, SpotAdmissionRejected)):
                 raise HTTPException(409, detail=str(exc)) from exc
             raise
 

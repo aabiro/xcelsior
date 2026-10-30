@@ -65,10 +65,13 @@ def enqueue_usage_from_charge(
     job_id: str = "",
     description: str = "",
     tx_id: str = "",
+    gpu_hours: float | None = None,
 ) -> dict[str, Any]:
     if not meters_enabled():
         return {"enqueued": False, "reason": "disabled"}
     event_name, value = _infer_event(description, job_id)
+    if gpu_hours is not None:
+        event_name, value = EVENT_GPU_HOUR, gpu_hours
     return enqueue_meter_event(
         customer_id=customer_id,
         event_name=event_name,

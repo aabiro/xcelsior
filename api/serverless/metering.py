@@ -482,9 +482,9 @@ def _charge_serverless_execution(
             INSERT INTO billing_cycles
                 (cycle_id, job_id, customer_id, host_id, resource_type,
                  period_start, period_end, duration_seconds, rate_per_hour,
-                 gpu_model, tier, tier_multiplier, amount_micros, status, created_at,
+                 gpu_model, tier, amount_micros, status, created_at,
                  token_cost_micros, model_ref)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 cycle_id,
@@ -497,8 +497,7 @@ def _charge_serverless_execution(
                 gpu_seconds,
                 rate,
                 str(endpoint.get("gpu_tier") or "serverless"),
-                "on-demand",
-                1.0,
+                "standard",
                 round(float(amount_cad) * 1_000_000),
                 status,
                 now,
@@ -600,8 +599,8 @@ def record_cold_start_line_item(
             INSERT INTO billing_cycles
                 (cycle_id, job_id, customer_id, host_id, resource_type,
                  period_start, period_end, duration_seconds, rate_per_hour,
-                 gpu_model, tier, tier_multiplier, amount_micros, status, created_at)
-            VALUES (%s, %s, %s, %s, 'serverless_gpu_cold_start', %s, %s, %s, %s, %s, %s, %s, 0, 'metadata', %s)
+                 gpu_model, tier, amount_micros, status, created_at)
+            VALUES (%s, %s, %s, %s, 'serverless_gpu_cold_start', %s, %s, %s, %s, %s, %s, 0, 'metadata', %s)
             """,
             (
                 cycle_id,
@@ -613,8 +612,7 @@ def record_cold_start_line_item(
                 cold_start_seconds,
                 rate,
                 str(endpoint.get("gpu_tier") or "serverless"),
-                "on-demand",
-                1.0,
+                "standard",
                 now,
             ),
         )

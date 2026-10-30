@@ -27,6 +27,7 @@ os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"
 os.environ.setdefault("XCELSIOR_BILLING_DB", os.path.join(_tmpdir, "billing.db"))
 
 import scheduler
+from tests._db_helpers import fund_test_owner
 
 scheduler.HOSTS_FILE = os.path.join(_tmpdir, "hosts.json")
 scheduler.JOBS_FILE = os.path.join(_tmpdir, "jobs.json")
@@ -204,7 +205,7 @@ def _preempting_owner() -> str:
             TeamPolicy(key="tenant:" + owner, preemption_enabled=True),
             created_by="spot-staging",
         )
-    return owner
+    return fund_test_owner(owner)
 
 
 def _preempt(spot_job_id: str, od: dict) -> None:

@@ -16,6 +16,45 @@ from psycopg.rows import dict_row
 POLICY_VERSION = "fairness/v1"
 AGE_STEP_SECONDS = 300
 MAX_AGE_BOOST = 20
+# A paid service tier ranks by its purchased class instead of raw priority or
+# time-based boost. Its bid ages in whole intervals (control_plane.queue_bids).
+BID_AGING_STEP_SECONDS = 900
+
+# The accepted quote is frozen into the admitted spec; nothing here reads a
+# live price, so retiring a Stripe Price cannot reorder queued work.
+_TIER = "j.spec->'service_tier_quote'"
+_TIER_SQL = f"""LEFT JOIN LATERAL (SELECT
+            COALESCE(jsonb_typeof({_TIER})='object',FALSE) AS paid,
+            CASE {_TIER}->>'tier' WHEN 'dedicated' THEN 3 WHEN 'premium' THEN 2 ELSE 1 END AS tier,
+            COALESCE(({_TIER}->>'queue_bid_micros')::bigint,0) AS bid,
+            ({_TIER}->>'next_tier_gap_micros')::bigint AS gap,
+            CASE {_TIER}->>'tier' WHEN 'standard' THEN 'premium'
+                WHEN 'premium' THEN 'dedicated' END AS next_tier,
+            COALESCE(j.queue_entered_at,j.queued_at) AS entered,
+            GREATEST(0,EXTRACT(EPOCH FROM statement_timestamp()
+                -COALESCE(j.queue_entered_at,j.queued_at))) AS seconds) t ON TRUE
+        CROSS JOIN LATERAL (SELECT FLOOR(t.seconds/{BID_AGING_STEP_SECONDS})::bigint AS steps) st
+        CROSS JOIN LATERAL (SELECT FLOOR(st.steps*t.bid::numeric/10)::bigint AS credit) cr
+        CROSS JOIN LATERAL (SELECT (t.paid AND t.tier<3 AND t.bid>0 AND t.gap IS NOT NULL
+            AND t.bid+cr.credit>=t.gap) IS TRUE AS promoted) pr"""
+# Funding is a placement precondition, checked against the database clock.
+_FUNDED_SQL = f"""EXISTS (SELECT 1 FROM wallet_holds h WHERE h.job_id=j.job_id
+            AND h.customer_id=COALESCE(j.owner_id,j.spec->>'owner') AND h.status='held'
+            AND h.expires_at>EXTRACT(EPOCH FROM statement_timestamp())
+            AND h.amount_micros>=({_TIER}->>'total_rate_micros')::bigint)"""
+# A promoted bid never passes a funded customer who bought the next tier for
+# the same capacity, even while that job is locked by another claimant. Only
+# a deferred (backed-off) paying job stops protecting its place.
+_PROTECTED_SQL = """NOT EXISTS (SELECT 1 FROM jobs paid JOIN wallet_holds ph ON ph.job_id=paid.job_id
+            WHERE paid.job_id<>j.job_id AND paid.phase='pending' AND paid.desired_state='running'
+              AND paid.spec->'service_tier_quote'->>'tier'=t.next_tier
+              AND lower(COALESCE(paid.spec->>'gpu_model',''))=lower(COALESCE(j.spec->>'gpu_model',''))
+              AND (COALESCE(paid.spec->>'region','')='' OR COALESCE(j.spec->>'region','')=''
+                   OR paid.spec->>'region'=j.spec->>'region')
+              AND (paid.next_schedule_at IS NULL OR paid.next_schedule_at<=statement_timestamp())
+              AND ph.customer_id=COALESCE(paid.owner_id,paid.spec->>'owner') AND ph.status='held'
+              AND ph.expires_at>EXTRACT(EPOCH FROM statement_timestamp())
+              AND ph.amount_micros>=(paid.spec->'service_tier_quote'->>'total_rate_micros')::bigint)"""
 
 
 def team_key_sql(alias="j"):
@@ -107,9 +146,15 @@ def claim_sql():
             COALESCE(p.administrative_class,0) AS admin_class,
             COALESCE(p.reservation_entitlement,0) AS entitlement,
             COALESCE(p.weight,1) AS weight,
-            GREATEST(0,LEAST(COALESCE(j.priority,0),979)) AS base_priority,
-            GREATEST(0,LEAST({MAX_AGE_BOOST},floor(EXTRACT(EPOCH FROM
-                (statement_timestamp()-j.queued_at))/{AGE_STEP_SECONDS})))::int AS age_boost,
+            CASE WHEN t.paid THEN t.tier+pr.promoted::int
+                ELSE GREATEST(0,LEAST(COALESCE(j.priority,0),979)) END AS base_priority,
+            CASE WHEN t.paid THEN 0 ELSE GREATEST(0,LEAST({MAX_AGE_BOOST},floor(EXTRACT(EPOCH FROM
+                (statement_timestamp()-j.queued_at))/{AGE_STEP_SECONDS})))::int END AS age_boost,
+            t.paid,t.tier AS service_tier_rank,pr.promoted,st.steps AS aging_steps,
+            cr.credit AS aging_credit,t.seconds AS queue_seconds,t.bid+cr.credit AS effective_bid,
+            CASE WHEN pr.promoted THEN t.entered+make_interval(secs=>(CEIL(
+                GREATEST(0,t.gap-t.bid)*10::numeric/t.bid)*{BID_AGING_STEP_SECONDS})::double precision)
+                END AS promoted_at,
             CASE WHEN j.spec->>'num_gpus' ~ '^[1-9][0-9]{{0,3}}$'
                 THEN LEAST((j.spec->>'num_gpus')::int,1024) ELSE 1 END AS gpu_cost,
             GREATEST(COALESCE(s.virtual_finish,0),clock.virtual_time) AS virtual_start,
@@ -120,8 +165,11 @@ def claim_sql():
         LEFT JOIN scheduling_team_state s ON s.team_key={key}
         LEFT JOIN LATERAL (SELECT * FROM scheduling_team_policies p
             WHERE p.team_key={key} ORDER BY p.version DESC LIMIT 1) p ON TRUE
+        {_TIER_SQL}
         WHERE j.phase='pending' AND j.desired_state='running'
           AND j.spec->>'execution_spec_version'='v1'
+          AND (NOT t.paid OR {_FUNDED_SQL})
+          AND (NOT pr.promoted OR {_PROTECTED_SQL})
           AND (j.next_schedule_at IS NULL OR j.next_schedule_at<=statement_timestamp())
           AND (j.schedule_claim_expires_at IS NULL OR j.schedule_claim_expires_at<statement_timestamp())
           AND (%(scope_all)s OR lower(COALESCE(j.spec->>'gpu_model',''))=ANY(%(scope_models)s)
@@ -129,7 +177,9 @@ def claim_sql():
     ), candidate AS (
         SELECT j.job_id FROM jobs j JOIN ranks r USING(job_id)
         ORDER BY r.admin_class*1000+r.base_priority+r.age_boost DESC,
-            r.entitlement DESC,r.virtual_start+r.gpu_cost/r.weight ASC,
+            r.entitlement DESC,r.promoted ASC,
+            CASE WHEN NOT r.promoted THEN r.effective_bid END DESC NULLS LAST,
+            r.promoted_at ASC NULLS LAST,r.virtual_start+r.gpu_cost/r.weight ASC,
             j.queued_at ASC NULLS LAST,j.job_id ASC
         LIMIT 1 FOR UPDATE OF j SKIP LOCKED
     )
@@ -150,11 +200,15 @@ def claim_sql():
             'team',r.team_key,'weight',r.weight,'gpu_cost',r.gpu_cost,
             'virtual_start',r.virtual_start,'virtual_finish',r.virtual_start+r.gpu_cost/r.weight,
             'preemptible',r.preemptible,'max_concurrent_jobs',r.max_concurrent_jobs,
-            'max_allocated_gpus',r.max_allocated_gpus)
+            'max_allocated_gpus',r.max_allocated_gpus,'paid_tier',r.paid,
+            'service_tier_rank',r.service_tier_rank,'promoted',r.promoted,
+            'aging_steps',r.aging_steps,'aging_credit_micros',r.aging_credit,
+            'effective_bid_micros',r.effective_bid)
     FROM candidate c JOIN ranks r USING(job_id) WHERE j.job_id=c.job_id
     RETURNING j.job_id,j.schedule_claim_token,j.schedule_claim_expires_at,
         j.schedule_attempt_count,j.version,j.generation,j.spec,j.spec_hash,j.payload,
-        j.priority,j.effective_priority"""
+        j.priority,j.effective_priority,j.owner_id,r.paid,r.promoted,r.aging_steps,
+        r.aging_credit,r.queue_seconds,r.effective_bid,r.promoted_at"""
 
 
 def lock_team_policy(
