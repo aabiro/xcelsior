@@ -269,9 +269,16 @@ def test_reaper_releases_old_missing_submissions_and_replenishes_capacity(
 
 
 @pytest.mark.parametrize("initial_balance", [0, 1])
-def test_insufficient_wallet_warns_without_debiting_and_suspends_only_when_empty(
+def test_insufficient_wallet_suspends_without_debiting_serverless_whatever_the_balance(
     native, monkeypatch, initial_balance
 ):
+    """A charge the wallet cannot cover suspends it, even with money left.
+
+    Policy since 2026-10-31: leaving a positive-but-insufficient wallet active
+    let a customer stop and start again for another unpaid slice. Serverless
+    cycles have no place to record a partial payment, so nothing is debited;
+    the suspension notice is queued once, on the transition.
+    """
     billing = get_billing_engine()
     billing.get_wallet(native.owner)
     if initial_balance:
@@ -290,8 +297,5 @@ def test_insufficient_wallet_warns_without_debiting_and_suspends_only_when_empty
         assert not result["charged"]
         wallet = billing.get_wallet(native.owner)
         assert wallet["balance_cad"] == initial_balance
-        assert (wallet["status"] == "suspended") == (initial_balance == 0)
-        expected = [("billing_low_balance",)]
-        if initial_balance == 0:
-            expected.append(("billing_suspended",))
-        assert notices(native) == expected
+        assert wallet["status"] == "suspended"
+        assert notices(native) == [("billing_low_balance",), ("billing_suspended",)]

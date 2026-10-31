@@ -359,13 +359,16 @@ def charge_serverless_execution(billing_engine, repo, worker, endpoint, **kwargs
     # This optional external dual-write cannot precede the authoritative commit.
     if result.get("charged") and result.get("tx_id"):
         try:
-            from stripe_meters import enqueue_usage_from_charge
+            from stripe_meters import enqueue_metered_usage
 
-            enqueue_usage_from_charge(
+            # Worker running seconds actually billed, not the 1 s a bare
+            # "Serverless worker" description used to be read as.
+            enqueue_metered_usage(
                 customer_id=str(endpoint.get("owner_id") or ""),
+                resource_type="serverless_gpu",
+                quantity=result["gpu_seconds"],
                 amount_cad=result["amount_cad"],
                 job_id=_billing_job_id(worker),
-                description="Serverless worker",
                 tx_id=result["tx_id"],
             )
         except Exception as exc:
@@ -631,6 +634,7 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
     """Periodic tick: bill incremental slices for all running serverless workers."""
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+    from control_plane.attempt_billing import billable_end_sql
     from serverless.billing_context import ENDPOINT_BILLING_SELECT_SQL, endpoint_from_worker_row
     from serverless.repo import ServerlessRepo
 
@@ -655,7 +659,7 @@ def bill_active_serverless_workers(billing_engine, *, now: float | None = None) 
                     AND NOT EXISTS (
                         SELECT 1 FROM billing_cycles b WHERE b.job_id=w.scheduler_job_id
                         AND b.resource_type='serverless_gpu' AND b.status='charged'
-                        AND b.period_end>=w.released_at
+                        AND b.period_end>=LEAST(w.released_at,{billable_end_sql("a")})
                     ))
             )
               AND COALESCE(w.billing_exempt, FALSE) = FALSE
