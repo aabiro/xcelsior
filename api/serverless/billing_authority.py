@@ -37,11 +37,19 @@ def capture_quote(endpoint: dict) -> dict:
 
 
 def require_execution_quote(conn, worker: dict, endpoint: dict) -> dict | None:
-    """No legacy worker, observed start, live catalog or caller dict grants billing."""
+    """No legacy worker, observed start, live catalog or caller dict grants billing.
+
+    A lost or fenced attempt executes only until its lease expired, not until
+    the later sweep that recorded ``ended_at``.
+    """
+    from control_plane.attempt_billing import billable_end_sql
+
     row = conn.execute(
-        """SELECT j.spec,j.spec_hash,a.spec_hash AS attempt_hash,
+        f"""SELECT j.spec,j.spec_hash,a.spec_hash AS attempt_hash,
                   a.job_generation,j.generation,w.allocated_at,
-                  EXTRACT(EPOCH FROM COALESCE(a.ended_at,LEAST(clock_timestamp(),l.expires_at)))::float8 AS execution_end
+                  COALESCE({billable_end_sql("a")},
+                           EXTRACT(EPOCH FROM LEAST(clock_timestamp(),l.expires_at))::float8)
+                      AS execution_end
              FROM serverless_workers w
              JOIN jobs j ON j.job_id=w.scheduler_job_id
              JOIN job_attempts a ON a.attempt_id=w.attempt_id AND a.job_id=j.job_id

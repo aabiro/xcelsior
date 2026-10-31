@@ -9,6 +9,28 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 
+def billable_end_sql(attempt: str = "a") -> str:
+    """Epoch seconds a terminal attempt bills to, as SQL over attempt alias ``attempt``.
+
+    A lost or fenced attempt's ``ended_at`` is when a sweep noticed, at least
+    the grace period after its lease expired. The host held authority only
+    until that expiry, so periodic billing, the final slice, the meter and
+    serverless execution all stop there. Every other status bills to
+    ``ended_at``. NULL while the attempt has not ended.
+    """
+    if not attempt.isidentifier():
+        raise ValueError("attempt alias must be an SQL identifier")
+    a = attempt
+    return f"""EXTRACT(EPOCH FROM CASE
+        WHEN {a}.ended_at IS NOT NULL AND {a}.status IN ('lost','fenced') THEN
+            GREATEST({a}.started_at, LEAST({a}.ended_at, COALESCE((
+                SELECT max(pl.expires_at) FROM placement_leases pl
+                 WHERE pl.attempt_id={a}.attempt_id AND pl.job_id={a}.job_id
+                   AND pl.host_id={a}.host_id AND pl.fencing_token={a}.fencing_token
+            ), {a}.ended_at)))
+        ELSE {a}.ended_at END)::float8"""
+
+
 def bound_billing_inputs(spec, spec_hash, attempt_hash, quote, host_id):
     """Recover only native admission and the quote captured with its attempt."""
     from control_plane.job_specs import validate_execution_spec
@@ -247,11 +269,11 @@ def pinned_period_rate(
 
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
-            """SELECT j.active_attempt_id,j.spec,j.spec_hash,j.generation,
+            f"""SELECT j.active_attempt_id,j.spec,j.spec_hash,j.generation,
                 a.attempt_id,a.spec_hash AS attempt_hash,a.job_generation,a.host_id,
                 a.placement_explanation,a.status,
                 EXTRACT(EPOCH FROM a.started_at)::float8 AS started_at,
-                EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended_at,
+                {billable_end_sql("a")} AS ended_at,
                 EXTRACT(EPOCH FROM l.expires_at)::float8 AS lease_end,
                 l.status AS lease_status,l.fencing_token AS lease_fence,a.fencing_token,
                 EXTRACT(EPOCH FROM clock_timestamp())::float8 AS checked_at

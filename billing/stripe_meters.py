@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -83,6 +84,58 @@ def enqueue_usage_from_charge(
             "description": (description or "")[:240],
         },
     )
+
+
+#: Native billing resource types and the meter each reports to, in its unit:
+#: GPU-hours (seconds / 3600 × GPUs), storage GB-months (GB × hours / 730,
+#: the catalog's $/GB-month unit) and serverless worker running seconds.
+RESOURCE_METER_EVENTS = {
+    "gpu": EVENT_GPU_HOUR,
+    "volume": EVENT_STORAGE_GB_MONTH,
+    "serverless_gpu": EVENT_SERVERLESS_SECOND,
+}
+
+
+def enqueue_metered_usage(
+    *,
+    customer_id: str,
+    resource_type: str,
+    quantity: float,
+    amount_cad: float,
+    job_id: str,
+    tx_id: str,
+) -> dict[str, Any]:
+    """Project one committed native charge with the quantity it actually billed.
+
+    The caller knows what it billed; nothing here is inferred from a
+    description. A charge for five minutes of one GPU is 1/12 GPU-hour.
+    """
+    if not meters_enabled():
+        return {"enqueued": False, "reason": "disabled"}
+    event_name = RESOURCE_METER_EVENTS.get(resource_type)
+    if event_name is None:
+        raise ValueError(f"no Stripe meter for resource type {resource_type!r}")
+    value = float(quantity)
+    if not math.isfinite(value) or value <= 0:
+        return {"enqueued": False, "reason": "no_quantity"}
+    return enqueue_meter_event(
+        customer_id=customer_id,
+        event_name=event_name,
+        value=value,
+        idempotency_key=tx_id,
+        payload={
+            "amount_cad": amount_cad,
+            "job_id": job_id,
+            "resource_type": resource_type,
+            "quantity": value,
+        },
+    )
+
+
+def meter_event_value(value: Any) -> str:
+    """The exact quantity as a decimal string, never rounded up to a whole unit."""
+    text = f"{float(value):.6f}".rstrip("0").rstrip(".")
+    return text if text not in ("", "-0") else "0"
 
 
 def enqueue_meter_event(
@@ -211,13 +264,24 @@ def drain_meter_outbox(*, limit: int = 100, stripe_mod=None) -> dict[str, int]:
             )
             continue
         try:
-            value_int = max(1, int(round(float(row["value"]))))
+            # The exact quantity. Rounding up to a whole unit reported every
+            # five-minute GPU slice to Stripe as a full GPU-hour.
+            value = meter_event_value(row["value"])
+            if value == "0":
+                skipped += 1
+                _mark(
+                    event_id,
+                    status="skipped",
+                    attempts=int(row["attempts"] or 0),
+                    err="zero_quantity",
+                )
+                continue
             # MeterEvent payload keys depend on meter config; use customer + value.
             client.billing.MeterEvent.create(
                 event_name=row["event_name"],
                 payload={
                     "stripe_customer_id": stripe_cust,
-                    "value": str(value_int),
+                    "value": value,
                 },
                 identifier=str(row["idempotency_key"])[:100],
             )

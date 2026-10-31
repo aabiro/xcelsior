@@ -333,7 +333,13 @@ def test_terminal_compute_slice_is_settled_once_without_a_user_stop_request(comp
     assert before - billing.get_wallet(owner)["balance_micros"] == expected
 
 
-def test_insufficient_native_slice_stops_work_without_advancing_the_paid_cursor(compute):
+def test_insufficient_native_slice_collects_the_balance_then_stops_and_suspends(compute):
+    """An unpayable GPU slice takes what the wallet holds, then stops the work.
+
+    Policy since 2026-10-31: the remaining balance is collected for the start
+    of the period and the rest is recorded as an unpaid shortfall, so the paid
+    cursor ends at the split. The wallet is suspended whatever was left.
+    """
     instance, owner, billing = compute
     with _get_pg_pool().connection() as conn:
         conn.execute("UPDATE wallets SET balance_micros=10000 WHERE customer_id=%s", (owner,))
@@ -342,11 +348,22 @@ def test_insufficient_native_slice_stops_work_without_advancing_the_paid_cursor(
         assert conn.execute(
             "SELECT status FROM jobs WHERE job_id=%s", (instance["job_id"],)
         ).fetchone() == ("stopping",)
-        assert conn.execute(
-            "SELECT count(*) FROM billing_cycles WHERE job_id=%s AND status='charged'",
+        charged = conn.execute(
+            "SELECT amount_micros,period_end FROM billing_cycles WHERE job_id=%s "
+            "AND status='charged'",
             (instance["job_id"],),
-        ).fetchone() == (0,)
-    assert billing.get_wallet(owner)["balance_micros"] == 10000
+        ).fetchall()
+        failed = conn.execute(
+            "SELECT amount_micros,period_start FROM billing_cycles WHERE job_id=%s "
+            "AND status='failed'",
+            (instance["job_id"],),
+        ).fetchall()
+    assert [row[0] for row in charged] == [10000], "only the balance that existed is collected"
+    assert len(failed) == 1 and failed[0][0] > 0, "the rest is an unpaid shortfall"
+    assert failed[0][1] == pytest.approx(charged[0][1]), "the paid cursor ends at the split"
+    wallet = billing.get_wallet(owner)
+    assert wallet["balance_micros"] == 0
+    assert wallet["status"] == "suspended"
 
 
 def finish_compute(instance):
@@ -380,9 +397,21 @@ def test_overlapping_terminal_billing_ticks_charge_one_native_slice(compute):
     assert before - billing.get_wallet(owner)["balance_micros"] == expected
 
 
-def test_failed_final_slice_retries_after_funding_without_repeating_failed_rows(compute):
+def test_failed_final_slice_collects_the_balance_and_retries_only_the_shortfall_after_top_up(
+    compute,
+):
+    """A final slice the wallet cannot cover is split, and a top-up pays only what is owed.
+
+    Policy since 2026-10-31: the balance pays for the start of the slice, the
+    rest is one failed row, and the wallet is suspended. Ticks while it stays
+    unfunded add no rows. A top-up (deposit, then the reactivation the payment
+    handler performs) lets the next tick collect exactly the shortfall, so the
+    total charged equals the meter.
+    """
     instance, owner, billing = compute
     billing.charge(owner, 99.99, description="fixture balance reduction")
+    remaining = billing.get_wallet(owner)["balance_micros"]
+    assert remaining > 0
     finish_compute(instance)
     billing.auto_billing_cycle()
     with _get_pg_pool().connection() as conn:
@@ -390,10 +419,14 @@ def test_failed_final_slice_retries_after_funding_without_repeating_failed_rows(
             "SELECT total_cost_micros FROM usage_meters WHERE job_id=%s", (instance["job_id"],)
         ).fetchone()[0]
         failed = conn.execute(
-            "SELECT count(*) FROM billing_cycles WHERE job_id=%s AND status='failed'",
+            "SELECT count(*),COALESCE(sum(amount_micros),0) FROM billing_cycles "
+            "WHERE job_id=%s AND status='failed'",
             (instance["job_id"],),
-        ).fetchone()[0]
-    assert failed == 1
+        ).fetchone()
+    assert expected > remaining
+    assert failed == (1, expected - remaining), "the shortfall is recorded once"
+    wallet = billing.get_wallet(owner)
+    assert wallet["balance_micros"] == 0 and wallet["status"] == "suspended"
     billing.auto_billing_cycle()
     with _get_pg_pool().connection() as conn:
         assert (
@@ -401,12 +434,20 @@ def test_failed_final_slice_retries_after_funding_without_repeating_failed_rows(
                 "SELECT count(*) FROM billing_cycles WHERE job_id=%s AND status='failed'",
                 (instance["job_id"],),
             ).fetchone()[0]
-            == failed
+            == failed[0]
         )
     billing.deposit(owner, 10)
+    billing.reactivate_wallet(owner)
     before = billing.get_wallet(owner)["balance_micros"]
     billing.auto_billing_cycle()
-    assert before - billing.get_wallet(owner)["balance_micros"] == expected
+    assert before - billing.get_wallet(owner)["balance_micros"] == expected - remaining
+    with _get_pg_pool().connection() as conn:
+        charged = conn.execute(
+            "SELECT COALESCE(sum(amount_micros),0) FROM billing_cycles "
+            "WHERE job_id=%s AND status='charged'",
+            (instance["job_id"],),
+        ).fetchone()[0]
+    assert charged == expected, "paid part plus the retried shortfall equals the meter"
 
 
 def test_future_period_cannot_bill_past_server_observed_execution(compute):
