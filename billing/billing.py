@@ -22,6 +22,10 @@ from psycopg.types.json import Jsonb
 
 log = logging.getLogger("xcelsior")
 
+#: How often the periodic biller charges running compute (the bg_worker
+#: ``billing_cycle`` task). One slice is this much time at the workload's rate.
+PERIODIC_BILLING_INTERVAL_SEC = 300
+
 
 # ── Currency ─────────────────────────────────────────────────────────
 
@@ -328,12 +332,13 @@ def settle_attempt_meter(conn, attempt_id: str, meter_id: str) -> UsageMeter | N
     Row locking serializes completion deliveries and controller repairs.
     """
     from psycopg.rows import dict_row
+    from control_plane.attempt_billing import billable_end_sql
 
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
-            """SELECT m.*, a.job_id AS attempt_job_id, a.host_id AS attempt_host_id,
+            f"""SELECT m.*, a.job_id AS attempt_job_id, a.host_id AS attempt_host_id,
                       a.status AS attempt_status,
-                      EXTRACT(EPOCH FROM a.ended_at)::float8 AS attempt_ended,
+                      {billable_end_sql("a")} AS attempt_ended,
                       EXTRACT(EPOCH FROM clock_timestamp())::float8 AS checked_at
                  FROM usage_meters m
                  JOIN job_attempts a ON a.attempt_id::text = m.attempt_id
@@ -1363,8 +1368,12 @@ class BillingEngine:
             log.debug("expire_stale_wallet_holds skipped: %s", exc)
             return 0
 
-    def wallet_has_available_funds(self, customer_id: str) -> dict:
-        """Fund gate for start/restart: available_cad > 0 and not suspended.
+    def wallet_has_available_funds(self, customer_id: str, *, required_cad: float = 0.0) -> dict:
+        """Fund gate for start/restart: not suspended, and available covers ``required_cad``.
+
+        Available must always be positive. Start and restart pass one billing
+        slice of the workload, so a resumed attempt can pay for its first
+        slice instead of running it unpaid and being stopped afterwards.
 
         Returns ``{ok, reason?, available_cad, balance_cad, held_cad, status}``.
         """
@@ -1382,13 +1391,14 @@ class BillingEngine:
                 "held_cad": held,
                 "status": status,
             }
-        if available <= 0:
+        if available <= 0 or cad_to_micros(available) < cad_to_micros(max(0.0, required_cad)):
             return {
                 "ok": False,
                 "reason": "insufficient_available",
                 "available_cad": available,
                 "balance_cad": balance,
                 "held_cad": held,
+                "required_cad": required_cad,
                 "status": status,
             }
         return {
@@ -1398,6 +1408,53 @@ class BillingEngine:
             "held_cad": held,
             "status": status,
         }
+
+    def resume_slice_cad(self, conn: Any, job: dict) -> float:
+        """One periodic billing slice of an admitted workload, for the start gate.
+
+        Priced at the rate its latest attempt was captured at. A workload that
+        never ran uses its approved ceiling, else the launch estimate.
+        """
+        from control_plane.attempt_billing import bound_billing_inputs
+
+        spec = job.get("spec") if isinstance(job.get("spec"), dict) else {}
+        rate: float | None = None
+        latest = conn.execute(
+            """SELECT a.host_id,a.spec_hash AS attempt_hash,
+                      a.placement_explanation->'billing_snapshot' AS quote
+                 FROM job_attempts a
+                WHERE a.job_id=%s AND a.placement_explanation->'billing_snapshot' IS NOT NULL
+                ORDER BY a.attempt_number DESC LIMIT 1""",
+            (job["job_id"],),
+        ).fetchone()
+        if latest is not None:
+            try:
+                inputs, host = bound_billing_inputs(
+                    spec,
+                    job.get("spec_hash"),
+                    latest["attempt_hash"],
+                    latest["quote"],
+                    latest["host_id"],
+                )
+                rate = resolve_compute_rate_cad(inputs, host)[0]
+            except (TypeError, ValueError, KeyError, OverflowError):
+                rate = None
+        if rate is None:
+            ceiling = spec.get("max_price_per_hour")
+            if (
+                isinstance(ceiling, (int, float))
+                and not isinstance(ceiling, bool)
+                and math.isfinite(float(ceiling))
+                and float(ceiling) > 0
+            ):
+                rate = float(ceiling)
+            else:
+                rate = self.estimate_launch_hold_cad(
+                    pricing_mode=resolve_job_pricing_mode(spec),
+                    gpu_model=spec.get("gpu_model") or None,
+                    num_gpus=int(spec.get("num_gpus") or 1),
+                )
+        return round(max(0.0, rate) * PERIODIC_BILLING_INTERVAL_SEC / 3600, 6)
 
     def estimate_launch_hold_cad(
         self,
@@ -1948,12 +2005,14 @@ class BillingEngine:
         description: str = "Compute charge",
         *,
         conn=None,
-        gpu_hours: float | None = None,
+        collect_partial: bool = False,
     ) -> dict:
         """Charge a customer wallet from prepaid credits.
 
         Hard stop: never debit more than available balance (no free-ride grace).
         Low-balance warnings fire before zero so customers can top up.
+        ``collect_partial`` applies only to a caller-owned ``conn`` (see
+        :meth:`_charge_on_connection`).
         """
         if conn is not None:
             return self._charge_on_connection(
@@ -1962,7 +2021,7 @@ class BillingEngine:
                 amount_cad,
                 job_id=job_id,
                 description=description,
-                gpu_hours=gpu_hours,
+                collect_partial=collect_partial,
             )
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
@@ -2156,16 +2215,30 @@ class BillingEngine:
         }
 
     def _charge_on_connection(
-        self, conn, customer_id, amount_cad, *, job_id, description, gpu_hours=None
+        self, conn, customer_id, amount_cad, *, job_id, description, collect_partial=False
     ):
         """Debit and journal inside the caller's billing-cycle transaction.
 
         Notices commit with the debit and cycle; push delivery follows commit.
         A failed cycle insert must roll the wallet debit and notices back too.
+
+        A charge the wallet cannot cover suspends it, whatever balance remains.
+        That is the hard stop: the stop paths fence its running work and the
+        start/resume gates refuse until a top-up reactivates it. Leaving a
+        positive-but-insufficient wallet active let a customer stop and start
+        again for another unpaid slice indefinitely.
+
+        With ``collect_partial`` the remaining balance is collected before the
+        suspension and reported as ``collected_micros`` with its ``tx_id``. The
+        caller must record the paid part and the unpaid shortfall separately,
+        so a retry collects only the shortfall. Callers whose cycle record has
+        no place for a partial payment leave it off and nothing is debited.
         """
         if not customer_id:
             return {"charged": False, "reason": "missing_customer"}
         self.get_wallet(customer_id)  # Ensure the ordinary zero-funded row exists.
+        # Exact to the ledger micro. Callers round their own prices; GPU slices
+        # pass an exact remainder that a second 4-decimal rounding would skew.
         amount_micros = cad_to_micros(amount_cad)
         wallet = conn.execute(
             "SELECT balance_micros,status,auto_topup_threshold_micros,low_balance_warned_at "
@@ -2173,33 +2246,72 @@ class BillingEngine:
             (customer_id,),
         ).fetchone()
         balance = int(wallet["balance_micros"] or 0)
-        if wallet["status"] == "suspended" or amount_micros <= 0 or balance < amount_micros:
+        was_suspended = wallet["status"] == "suspended"
+        if was_suspended or amount_micros <= 0 or balance < amount_micros:
             notification_ids = []
-            if balance <= 0 and amount_micros > 0:
-                conn.execute(
-                    "UPDATE wallets SET status='suspended',updated_at=%s WHERE customer_id=%s",
-                    (time.time(), customer_id),
-                )
+            collected, tx_id = 0, None
+            if amount_micros > 0 and not was_suspended:
+                now = time.time()
+                if collect_partial and balance > 0:
+                    collected = balance
+                    tx_id = f"TX-{int(now)}-{os.urandom(6).hex()}"
+                    conn.execute(
+                        "UPDATE wallets SET balance_micros=0,"
+                        "total_spent_micros=total_spent_micros+%s,grace_until=0,"
+                        "updated_at=%s,status='suspended' WHERE customer_id=%s",
+                        (collected, now, customer_id),
+                    )
+                    conn.execute(
+                        "INSERT INTO wallet_transactions(tx_id,customer_id,tx_type,amount_micros,"
+                        "balance_after_micros,description,job_id,created_at) "
+                        "VALUES(%s,%s,'charge',%s,0,%s,%s,%s)",
+                        (
+                            tx_id,
+                            customer_id,
+                            -collected,
+                            f"{description} (partial: balance exhausted)",
+                            job_id,
+                            now,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE wallets SET status='suspended',updated_at=%s WHERE customer_id=%s",
+                        (now, customer_id),
+                    )
             if amount_micros > 0:
                 notification_ids = self._record_wallet_alerts(
-                    conn, customer_id, wallet, balance, job_id=job_id
+                    conn,
+                    customer_id,
+                    wallet,
+                    balance - collected,
+                    job_id=job_id,
+                    suspending=not was_suspended,
                 )
-            return {
+            result = {
                 "charged": False,
-                "balance_cad": micros_to_cad(balance),
+                "balance_cad": micros_to_cad(balance - collected),
                 "action": (
                     "account_suspended"
-                    if balance <= 0 or wallet["status"] == "suspended"
+                    if amount_micros > 0 or was_suspended or balance <= 0
                     else "hard_stop"
                 ),
                 "hard_stop": amount_micros > 0,
                 "notification_ids": notification_ids,
                 "reason": (
                     "wallet_suspended"
-                    if wallet["status"] == "suspended"
+                    if was_suspended
                     else "invalid_amount" if amount_micros <= 0 else "insufficient_balance"
                 ),
             }
+            if collected:
+                result.update(
+                    collected_micros=collected,
+                    shortfall_micros=amount_micros - collected,
+                    amount_cad=micros_to_cad(collected),
+                    tx_id=tx_id,
+                )
+            return result
         now = time.time()
         remaining = balance - amount_micros
         conn.execute(
@@ -2217,7 +2329,6 @@ class BillingEngine:
         )
         return {
             "charged": True,
-            "gpu_hours": gpu_hours,
             "balance_cad": micros_to_cad(remaining),
             "amount_cad": micros_to_cad(amount_micros),
             "tx_id": tx_id,
@@ -2235,17 +2346,21 @@ class BillingEngine:
             notice_ids=result.pop("notification_ids", []),
             stop_event_ids=result.pop("stop_event_ids", []),
         )
-        if result.get("charged") and result.get("tx_id"):
+        # Every committed debit, including a partial one, is projected with the
+        # resource and quantity its billing path recorded. GPU and storage once
+        # shared a hardcoded description that mapped both to one GPU-hour.
+        usage = result.get("meter_usage")
+        if result.get("tx_id") and usage:
             try:
-                from stripe_meters import enqueue_usage_from_charge
+                from stripe_meters import enqueue_metered_usage
 
-                enqueue_usage_from_charge(
+                enqueue_metered_usage(
                     customer_id=customer_id,
                     job_id=job_id,
+                    resource_type=usage["resource_type"],
+                    quantity=usage["quantity"],
                     amount_cad=result.get("amount_cad", 0),
                     tx_id=result["tx_id"],
-                    description="Native periodic billing",
-                    gpu_hours=result.get("gpu_hours"),
                 )
             except Exception as exc:
                 log.warning("committed billing meter projection pending (%s)", type(exc).__name__)
@@ -2280,8 +2395,15 @@ class BillingEngine:
             {"balance_cad": balance_cad, "threshold_cad": threshold},
         )
 
-    def _record_wallet_alerts(self, conn, customer_id, wallet, remaining, *, job_id):
-        """Persist rate-limited notices while the billing transaction owns the wallet lock."""
+    def _record_wallet_alerts(
+        self, conn, customer_id, wallet, remaining, *, job_id, suspending=None
+    ):
+        """Persist rate-limited notices while the billing transaction owns the wallet lock.
+
+        ``wallet`` is the row as locked before this charge. The suspension
+        notice is queued once, on the transition: by default when the balance
+        reaches zero, or when the caller says it is suspending the wallet.
+        """
         from control_plane.billing_effects import queue_wallet_notice
 
         balance_cad = micros_to_cad(remaining)
@@ -2289,14 +2411,21 @@ class BillingEngine:
         low = self._record_low_balance_notice(conn, customer_id, wallet, remaining)
         if low is not None:
             notices.append(low)
-        if remaining <= 0 and wallet["status"] != "suspended":
+        if suspending is None:
+            suspending = remaining <= 0
+        if suspending and wallet["status"] != "suspended":
             notices.append(
                 queue_wallet_notice(
                     conn,
                     customer_id,
                     "billing_suspended",
                     "Wallet suspended",
-                    "Your wallet is empty. Top up to resume compute.",
+                    (
+                        "Your wallet is empty. Top up to resume compute."
+                        if remaining <= 0
+                        else f"Your balance of ${balance_cad:.2f} CAD cannot cover running "
+                        "compute. Top up to resume compute."
+                    ),
                     {"balance_cad": balance_cad, "job_id": job_id},
                 )
             )
@@ -2620,7 +2749,9 @@ class BillingEngine:
                 return {"started": False, "reason": admission_problem, "job_id": job_id}
 
             owner = job.get("owner") or ""
-            fund = self.wallet_has_available_funds(owner)
+            fund = self.wallet_has_available_funds(
+                owner, required_cad=self.resume_slice_cad(conn, job)
+            )
             if not fund.get("ok"):
                 return {
                     "started": False,
@@ -2631,6 +2762,7 @@ class BillingEngine:
                     ),
                     "available_cad": fund.get("available_cad"),
                     "held_cad": fund.get("held_cad"),
+                    "required_cad": fund.get("required_cad"),
                 }
 
             # Fenced history: fresh-attempt resume (requeue), not container revive.
@@ -2694,7 +2826,9 @@ class BillingEngine:
                 return {"restarted": False, "reason": admission_problem, "job_id": job_id}
 
             owner = job.get("owner") or ""
-            fund = self.wallet_has_available_funds(owner)
+            fund = self.wallet_has_available_funds(
+                owner, required_cad=self.resume_slice_cad(conn, job)
+            )
             if not fund.get("ok"):
                 return {
                     "restarted": False,
@@ -2705,6 +2839,7 @@ class BillingEngine:
                     ),
                     "available_cad": fund.get("available_cad"),
                     "held_cad": fund.get("held_cad"),
+                    "required_cad": fund.get("required_cad"),
                 }
 
             has_fenced = bool(job.get("has_fenced_history") or job.get("active_attempt_id"))
@@ -3329,7 +3464,6 @@ class BillingEngine:
         if duration_sec <= 0 or duration_sec < min_seconds:
             return None
 
-        amount_cad = round((duration_sec / 3600) * rate_per_hour, 4)
         pricing_snapshot = {}
         snapshot_row = conn.execute(
             """SELECT a.placement_explanation->'billing_snapshot'->'service_tier_quote' AS pricing_snapshot
@@ -3342,10 +3476,31 @@ class BillingEngine:
         if pricing_snapshot:
             from service_tier_pricing import validate_tier_snapshot, usage_charge_micros
 
-            amount_cad = micros_to_cad(
-                usage_charge_micros(validate_tier_snapshot(pricing_snapshot), duration_sec)
-            )
-        if amount_cad <= 0:
+            hourly_micros = validate_tier_snapshot(pricing_snapshot)
+        else:
+            hourly_micros = None
+        # Bill the attempt cumulatively: a slice is what the attempt owes from
+        # its start through period_end, rounded once, less what it has already
+        # paid. Rounding every slice separately drifted from the meter, which
+        # rounds the whole duration once, and provider settlement refuses any
+        # job whose charges differ from its meter by a single micro. It also
+        # means an earlier unpaid shortfall is owed again by the next slice.
+        billed_seconds = period_end - attempt_started
+        if hourly_micros is not None:
+            owed_micros = usage_charge_micros(hourly_micros, billed_seconds)
+        else:
+            owed_micros = cad_to_micros(round((billed_seconds / 3600) * rate_per_hour, 4))
+        paid_micros = int(
+            conn.execute(
+                """SELECT COALESCE(SUM(amount_micros),0)::bigint AS paid FROM billing_cycles
+                    WHERE job_id=%s AND resource_type='gpu' AND status='charged'
+                      AND period_end>%s AND period_start<%s""",
+                (job_id, attempt_started, period_end),
+            ).fetchone()["paid"]
+        )
+        amount_micros = max(0, owed_micros - paid_micros)
+        amount_cad = micros_to_cad(amount_micros)
+        if amount_micros <= 0:
             if not job_row.get("_terminal_attempt_id"):
                 return None
             # The remaining confirmed interval is below monetary precision.
@@ -3358,39 +3513,61 @@ class BillingEngine:
                 job_id=job_id,
                 description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
                 conn=conn,
-                gpu_hours=duration_sec
-                / 3600
-                * int(pricing_snapshot.get("num_gpus") or job_row.get("num_gpus") or 1),
+                collect_partial=True,
             )
 
         now = time.time()
-        cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
-        status = "charged" if charge_result.get("charged") else "failed"
+        collected = int(charge_result.get("collected_micros") or 0)
+        if charge_result.get("charged"):
+            rows = [("charged", period_start, period_end, amount_micros)]
+            paid_seconds = duration_sec
+        elif 0 < collected < amount_micros:
+            # The balance paid for the start of the period. The rest is an
+            # unpaid shortfall: the stop keys on it, and because the paid
+            # cursor ends at the split, a retry bills only what is still owed.
+            split = period_start + duration_sec * collected / amount_micros
+            rows = [
+                ("charged", period_start, split, collected),
+                ("failed", split, period_end, amount_micros - collected),
+            ]
+            paid_seconds = split - period_start
+        else:
+            rows = [("failed", period_start, period_end, amount_micros)]
+            paid_seconds = 0.0
 
-        conn.execute(
-            """INSERT INTO billing_cycles
-               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                duration_seconds, rate_per_hour, gpu_model, tier,
-                amount_micros, status, pricing_mode, created_at, pricing_snapshot)
-               VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (
-                cycle_id,
-                job_id,
-                customer_id,
-                host_id,
-                period_start,
-                period_end,
-                duration_sec,
-                rate_per_hour,
-                gpu_model,
-                tier,
-                cad_to_micros(amount_cad),
-                status,
-                pricing_mode,
-                now,
-                Jsonb(pricing_snapshot),
-            ),
-        )
+        cycle_id = ""
+        for status, row_start, row_end, row_micros in rows:
+            cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
+            conn.execute(
+                """INSERT INTO billing_cycles
+                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start,
+                    period_end, duration_seconds, rate_per_hour, gpu_model, tier,
+                    amount_micros, status, pricing_mode, created_at, pricing_snapshot)
+                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    cycle_id,
+                    job_id,
+                    customer_id,
+                    host_id,
+                    row_start,
+                    row_end,
+                    row_end - row_start,
+                    rate_per_hour,
+                    gpu_model,
+                    tier,
+                    row_micros,
+                    status,
+                    pricing_mode,
+                    now,
+                    Jsonb(pricing_snapshot),
+                ),
+            )
+        if charge_result.get("tx_id") and paid_seconds > 0:
+            gpus = max(1, int(pricing_snapshot.get("num_gpus") or job_row.get("num_gpus") or 1))
+            charge_result["meter_usage"] = {
+                "resource_type": "gpu",
+                "quantity": paid_seconds / 3600 * gpus,
+            }
         return {
             "job_id": job_id,
             "amount_cad": amount_cad,
@@ -3474,27 +3651,45 @@ class BillingEngine:
         of an ordinary native admission, including completion without an API stop.
         """
         from psycopg.rows import dict_row
+        from control_plane.attempt_billing import billable_end_sql
 
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            pending = conn.execute("""SELECT a.job_id,a.attempt_id FROM job_attempts a
+        # A final slice that already failed is retried only once the wallet can
+        # cover the amount that failed. Retrying on any wallet change let one
+        # unpayable customer re-fail (and re-record) every tick, and ordering by
+        # age with a fixed LIMIT let 200 such rows starve every newer final
+        # slice platform-wide. Keyset pages cover the whole pending set.
+        pending_sql = f"""SELECT a.job_id,a.attempt_id,a.ended_at AS page_ended
+                  FROM job_attempts a
                   JOIN jobs j ON j.job_id=a.job_id
                   JOIN usage_meters m ON m.attempt_id=a.attempt_id::text
                   JOIN wallets w ON w.customer_id=COALESCE(j.spec->>'owner_id',j.spec->>'owner')
+                  CROSS JOIN LATERAL (SELECT {billable_end_sql("a")} AS ended) e
                  WHERE a.started_at IS NOT NULL AND a.ended_at IS NOT NULL
                    AND j.spec->>'execution_spec_version'='v1'
                    AND COALESCE(j.spec->>'job_type','')<>'serverless_worker'
                    AND m.total_cost_micros>0 AND w.status<>'suspended' AND w.balance_micros>0
                    AND NOT EXISTS (SELECT 1 FROM billing_cycles b WHERE b.job_id=a.job_id
                        AND b.resource_type='gpu' AND b.status='charged'
-                       AND b.period_start<EXTRACT(EPOCH FROM a.ended_at)
-                       AND b.period_end>=EXTRACT(EPOCH FROM a.ended_at))
-                   AND NOT EXISTS (SELECT 1 FROM billing_cycles b WHERE b.job_id=a.job_id
-                       AND b.resource_type='gpu' AND b.status='failed'
-                       AND b.period_start<EXTRACT(EPOCH FROM a.ended_at)
-                       AND b.period_end>=EXTRACT(EPOCH FROM a.ended_at)
-                       AND b.created_at>=w.updated_at)
-                 ORDER BY a.ended_at,a.attempt_id LIMIT 200""").fetchall()
+                       AND b.period_start<e.ended AND b.period_end>=e.ended)
+                   AND COALESCE((SELECT b.amount_micros FROM billing_cycles b
+                        WHERE b.job_id=a.job_id AND b.resource_type='gpu' AND b.status='failed'
+                          AND b.period_start<e.ended AND b.period_end>=e.ended
+                        ORDER BY b.created_at DESC,b.cycle_id DESC LIMIT 1),0)<=w.balance_micros
+                   AND (%(after_ended)s::timestamptz IS NULL
+                        OR (a.ended_at,a.attempt_id)>(%(after_ended)s,%(after_attempt)s::uuid))
+                 ORDER BY a.ended_at,a.attempt_id LIMIT %(page)s"""
+        page_size, max_pages = 200, 50
+        pending: list[dict] = []
+        cursor: dict[str, Any] = {"after_ended": None, "after_attempt": None, "page": page_size}
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            for _ in range(max_pages):
+                page = conn.execute(pending_sql, cursor).fetchall()
+                pending.extend(page)
+                if len(page) < page_size:
+                    break
+                cursor["after_ended"] = page[-1]["page_ended"]
+                cursor["after_attempt"] = str(page[-1]["attempt_id"])
         settled, errors = 0, 0
         for item in pending:
             try:
@@ -3505,11 +3700,12 @@ class BillingEngine:
                     if not lock_period(conn, "gpu", item["job_id"]):
                         continue
                     row = conn.execute(
-                        """SELECT j.job_id,a.host_id,a.attempt_id AS _terminal_attempt_id,
+                        f"""SELECT j.job_id,a.host_id,a.attempt_id AS _terminal_attempt_id,
                             COALESCE(j.spec->>'owner_id',j.spec->>'owner') AS owner,
                             j.spec->>'gpu_model' AS gpu_model,j.spec->>'tier' AS tier,
+                            COALESCE((j.spec->>'num_gpus')::int,1) AS num_gpus,
                             EXTRACT(EPOCH FROM a.started_at)::float8 AS started,
-                            EXTRACT(EPOCH FROM a.ended_at)::float8 AS ended
+                            {billable_end_sql("a")} AS ended
                           FROM jobs j JOIN job_attempts a ON a.job_id=j.job_id
                          WHERE j.job_id=%s AND a.attempt_id=%s""",
                         (item["job_id"], item["attempt_id"]),
@@ -3738,6 +3934,12 @@ class BillingEngine:
 
                         vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
                         vstatus = "charged" if vcharge.get("charged") else "failed"
+                        if vcharge.get("charged"):
+                            # GB-months, the storage meter's unit ($/GB-month).
+                            vcharge["meter_usage"] = {
+                                "resource_type": "volume",
+                                "quantity": size_gb * vduration_sec / (HOURS_PER_MONTH * 3600),
+                            }
 
                         # Record the billing cycle (inside same locked transaction)
                         conn.execute(
@@ -4333,32 +4535,31 @@ class BillingEngine:
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
-            suspended = conn.execute(
-                "SELECT customer_id FROM wallets WHERE status = 'suspended' OR balance_micros<=0",
+            # One join, not one jobs scan per empty wallet: most wallets at
+            # zero have nothing running, and this runs every 30 seconds.
+            running = conn.execute(
+                """SELECT j.job_id,j.active_attempt_id,j.generation,w.customer_id
+                     FROM jobs j
+                     JOIN wallets w
+                       ON w.customer_id=COALESCE(j.spec->>'owner_id',j.spec->>'owner')
+                    WHERE (w.status='suspended' OR w.balance_micros<=0)
+                      AND j.spec->>'execution_spec_version'='v1'
+                      AND j.history_disposition IS NULL AND j.status='running'
+                      AND j.active_attempt_id IS NOT NULL
+                    ORDER BY w.customer_id,j.job_id""",
             ).fetchall()
-            running_job_ids: list[tuple[str, str, dict]] = []
-            for w in suspended:
-                cid = w["customer_id"]
-                running = conn.execute(
-                    """SELECT job_id,active_attempt_id,generation
-                       FROM jobs WHERE COALESCE(spec->>'owner_id',spec->>'owner') = %s
-                                 AND spec->>'execution_spec_version'='v1'
-                                 AND history_disposition IS NULL AND status = 'running'
-                                 AND active_attempt_id IS NOT NULL""",
-                    (cid,),
-                ).fetchall()
-                for job in running:
-                    running_job_ids.append(
-                        (
-                            str(job["job_id"]),
-                            str(cid),
-                            {
-                                "attempt_id": str(job["active_attempt_id"]),
-                                "generation": job["generation"],
-                                "owner": str(cid),
-                            },
-                        )
-                    )
+            running_job_ids: list[tuple[str, str, dict]] = [
+                (
+                    str(job["job_id"]),
+                    str(job["customer_id"]),
+                    {
+                        "attempt_id": str(job["active_attempt_id"]),
+                        "generation": job["generation"],
+                        "owner": str(job["customer_id"]),
+                    },
+                )
+                for job in running
+            ]
 
         # The shared service revalidates native admission and fences delivery.
         for job_id, cid, authority in running_job_ids:
