@@ -3,7 +3,8 @@ import json
 import os
 
 MODELS_TO_ADD = [
-    {"model": "models/gemini-3.6-flash", "displayName": "Gemini 3.6 Flash"},
+    {"model": "models/gemini-4-argon", "displayName": "Gemini 4 Argon"},
+    {"model": "models/gemini-3.8-flash", "displayName": "Gemini 3.8 Flash"},
     {"model": "models/gemini-3.5-flash", "displayName": "Gemini 3.5 Flash"},
     {"model": "models/gemini-3.5-flash-lite", "displayName": "Gemini 3.5 Flash Lite"},
     {"model": "models/gemini-omni-flash-preview", "displayName": "Gemini Omni Flash (Preview)"},
@@ -71,9 +72,9 @@ def update_file(filepath):
                 "extends": m["model"]
             }
 
-    # 3. Set default model to Gemini 3.6 Flash (unless it's workspace-specific where we don't have model at root)
+    # 3. Set default model to Gemini 3.8 Flash (unless it's workspace-specific where we don't have model at root)
     if "antigravity-cli" in filepath or "settings.json" == os.path.basename(filepath) and "/.gemini/" not in filepath:
-         data["model"] = "Gemini 3.6 Flash"
+         data["model"] = "Gemini 3.8 Flash"
     elif "settings.json" == os.path.basename(filepath) and "/.gemini/" in filepath and ".gemini/settings.json" not in filepath:
          # Under ~/.gemini/settings.json
          pass
