@@ -1,0 +1,12 @@
+secret:
+  ignored_matches:
+  - match: 3263305dd365e8d07a7ee6a59f5511dd318b804d23bda1152b2f9b2dbcb7dad3
+    name: Shell required-variable diagnostic text in setup_pytest_db.sh; already on
+      main; no password value
+  - match: c8e8c87d578518d5ccfffe408e49272e3df9d583530ecf94f72b505da1b5d496
+    name: Literal Bearer ... documentation example in volumes_e2e_smoke.py; already
+      on main; no token
+  - match: b00079e94330b23ad61d1f8b8eb037a52c98b6664e9085f266e23545088b3b63
+    name: Public xcelsior development default in compose variable interpolation; already
+      on main; no private password
+version: 2
