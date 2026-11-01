@@ -108,8 +108,8 @@ def _trigger_reinject_for_user(user: dict) -> int:
                   FROM jobs j
                  WHERE j.status = 'running'
                    AND j.host_id IS NOT NULL
-                   AND j.payload->>'owner' = ANY(%s)
-                   AND (j.payload->>'interactive')::boolean = true
+                   AND j.owner_id = ANY(%s)
+                   AND j.spec->>'interactive' = 'true'
                 """,
                 (candidates,),
             )

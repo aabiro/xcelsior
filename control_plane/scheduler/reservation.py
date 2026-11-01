@@ -505,6 +505,11 @@ def reserve_and_bind(
         ),
     ).fetchone()
     command_id = str(_require(command_id_row)[0])
+    conn.execute(
+        "UPDATE job_attempts SET command_created_at=to_timestamp(c.created_at) "
+        "FROM agent_commands c WHERE job_attempts.attempt_id=%s AND c.command_id=%s",
+        (attempt_id, command_id),
+    )
 
     # ── Step 13: job projection update + claim consumption ───────────
     updated = conn.execute(
