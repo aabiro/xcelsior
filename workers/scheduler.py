@@ -1565,6 +1565,7 @@ def submit_job(
     serverless_config=None,
     conn=None,
     admitted_launch_spec=None,
+    max_price_per_hour=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1760,6 +1761,10 @@ def submit_job(
         "trace_id": trace_id,
         "preferred_host_id": preferred_host_id,
     }
+    if max_price_per_hour is not None:
+        # The approved hourly ceiling (launch plans). Placement, the captured
+        # billing snapshot and every billed slice refuse a host above it.
+        job["max_price_per_hour"] = float(max_price_per_hour)
 
     if job["job_type"] == "serverless_worker" or serverless_config is not None:
         allowed = {

@@ -388,6 +388,26 @@ def _deterministic_job_id(plan_id: str) -> str:
     return "job-" + hashlib.sha256(plan_id.encode()).hexdigest()[:12]
 
 
+def approved_price_ceiling(plan: dict[str, Any]) -> float | None:
+    """The hourly ceiling a plan's approval binds onto its admitted job.
+
+    On-demand and reserved work bills the placed host's own rate, which the
+    quote never saw (it is computed before any host is chosen). Without the
+    approved rate in the admitted spec, placement, the captured billing
+    snapshot and every billed slice accepted any host price. Spot locks its
+    per-GPU rate at admission instead, so it carries no separate ceiling.
+    """
+    spec = dict(plan.get("canonical_args") or {})
+    if str(spec.get("pricing_mode") or "on_demand") == "spot":
+        return None
+    hourly = quoting.approved_hourly_micros(str(plan.get("pricing_version") or ""))
+    if hourly is None:
+        raise PlanConflict(
+            "plan_price_unbound", "the plan does not bind an approved hourly price; re-preview"
+        )
+    return hourly / 1_000_000
+
+
 def _submit_from_spec(
     spec: dict[str, Any],
     *,
@@ -395,13 +415,16 @@ def _submit_from_spec(
     owner: str,
     trace_id: str | None = None,
     placement_preference: dict[str, Any] | None = None,
+    max_price_per_hour: float | None = None,
 ):
     """Create the job through the one job-creation authority (B0.2 rule 11).
 
     Maps the canonical spec onto ``submit_job`` — the same call the REST
     ``/instance`` path makes — passing a deterministic ``job_id`` so a retry
     upserts rather than duplicates. Does *not* call ``process_queue``: §10.1
-    enqueues durably and lets the scheduler claim it.
+    enqueues durably and lets the scheduler claim it. ``max_price_per_hour``
+    is the approved ceiling; it enters the admitted spec beside the launch
+    spec, never into it, so the plan's spec hash is unchanged.
     """
     from scheduler import submit_job
 
@@ -437,6 +460,7 @@ def _submit_from_spec(
         trace_id=trace_id,
         job_id=job_id,
         admitted_launch_spec=spec,
+        max_price_per_hour=max_price_per_hour,
     )
 
 
@@ -509,6 +533,7 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
             else:
                 tenant_id = str(plan["tenant_id"])
                 job_id = _deterministic_job_id(plan_id)
+                ceiling = approved_price_ceiling(plan)
                 policy = plans_repo.load_client_policy(
                     conn,
                     client_id=plan.get("client_id"),
@@ -555,6 +580,7 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                         job_id=job_id,
                         owner=tenant_id,
                         trace_id=plan.get("trace_id"),
+                        max_price_per_hour=ceiling,
                     )
                 except Exception:
                     # Match /instance: a failed submit releases the hold rather
