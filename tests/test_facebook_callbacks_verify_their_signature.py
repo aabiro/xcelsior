@@ -75,10 +75,62 @@ def test_a_forged_signature_is_refused(production, path) -> None:
 
 
 @pytest.mark.parametrize("path", PATHS)
-def test_a_valid_signature_is_accepted(production, path) -> None:
+def test_a_valid_signature_is_accepted(production, path, monkeypatch) -> None:
     """The other half: a refusal that refuses everything is not a fix."""
+    monkeypatch.setattr(auth_mod, "_unlink_facebook_user", lambda fb_user_id: None)
+    monkeypatch.setattr(
+        auth_mod,
+        "_perform_facebook_deletion",
+        lambda fb_user_id: {"code": "confirm-code", "request_id": ""},
+    )
     r = client.post(path, data={"signed_request": _signed(SECRET, _payload())})
     assert r.status_code == 200, f"{path} rejected a correctly signed request: {r.text[:200]}"
+
+
+def test_deletion_callback_points_at_the_public_page(production, monkeypatch) -> None:
+    monkeypatch.setattr(
+        auth_mod,
+        "_perform_facebook_deletion",
+        lambda fb_user_id: {"code": "confirm-code", "request_id": "req-1"},
+    )
+    r = client.post(
+        "/api/auth/oauth/facebook/delete-data",
+        data={"signed_request": _signed(SECRET, _payload())},
+    )
+    body = r.json()
+    assert r.status_code == 200
+    assert body["confirmation_code"] == "confirm-code"
+    assert "/delete-data?" in body["url"]
+    assert "code=confirm-code" in body["url"]
+    assert "request=req-1" in body["url"]
+
+
+def test_deauthorize_detaches_the_facebook_subject(production, monkeypatch) -> None:
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(auth_mod, "_unlink_facebook_user", lambda fb_user_id: seen.update(id=fb_user_id))
+    r = client.post(
+        "/api/auth/oauth/facebook/deauthorize",
+        data={"signed_request": _signed(SECRET, _payload("fb-user-123"))},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"status": "success", "action": "deauthorized"}
+    assert seen["id"] == "fb-user-123"
+
+
+def test_unknown_facebook_id_is_a_real_receipt(production, monkeypatch) -> None:
+    monkeypatch.setattr(auth_mod, "_user_for_facebook", lambda fb_user_id: None)
+    monkeypatch.setattr(auth_mod, "_remember_confirmation", lambda code, request_id, outcome: None)
+    monkeypatch.setattr(auth_mod, "_confirmation_for_code", lambda code: None)
+    r = client.post(
+        "/api/auth/oauth/facebook/delete-data",
+        data={"signed_request": _signed(SECRET, _payload("fb-nobody"))},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confirmation_code"]
+    assert body["url"].endswith(body["confirmation_code"]) or "code=" in body["url"]
+    status = client.get("/api/privacy/deletion-status", params={"code": "missing-code"})
+    assert status.status_code == 404
 
 
 @pytest.mark.parametrize("path", PATHS)
@@ -114,8 +166,37 @@ def test_development_stays_permissive(monkeypatch, path) -> None:
     """Local development has no app secret and must still be able to call these."""
     monkeypatch.setenv("XCELSIOR_ENV", "dev")
     monkeypatch.setitem(auth_mod._OAUTH_PROVIDERS["facebook"], "client_secret", "")
+    monkeypatch.setattr(auth_mod, "_remember_quietly", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_mod, "_unlink_facebook_user", lambda fb_user_id: None)
     r = client.post(path, data={"signed_request": _forged(_payload())})
     assert r.status_code == 200, f"{path} broke local development: {r.text[:200]}"
+
+
+def test_deletion_status_is_reachable_without_a_token() -> None:
+    """Production auth middleware answers 401 before the handler otherwise.
+
+    The in-process client runs with AUTH_REQUIRED off, so the status checks
+    above stay green even when an anonymous visitor cannot open the page.
+    """
+    from routes._deps import PUBLIC_PATHS, PUBLIC_PATH_PREFIXES
+
+    path = "/api/privacy/deletion-status"
+    assert path in PUBLIC_PATHS or path.startswith(PUBLIC_PATH_PREFIXES)
+
+
+def test_unknown_facebook_id_status_says_there_is_no_account(production, monkeypatch) -> None:
+    """A signed callback for an unknown id is a receipt, and the page can open it."""
+    assert auth_mod._USE_PERSISTENT_AUTH is False
+    monkeypatch.setattr(auth_mod, "_user_for_facebook", lambda fb_user_id: None)
+    r = client.post(
+        "/api/auth/oauth/facebook/delete-data",
+        data={"signed_request": _signed(SECRET, _payload("fb-nobody"))},
+    )
+    assert r.status_code == 200
+    code = r.json()["confirmation_code"]
+    status = client.get("/api/privacy/deletion-status", params={"code": code})
+    assert status.status_code == 200
+    assert status.json()["outcome"] == "no_account"
 
 
 def test_the_refusal_is_not_reachable_through_a_bare_except() -> None:
