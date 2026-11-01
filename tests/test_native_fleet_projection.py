@@ -63,7 +63,7 @@ def test_blank_canonical_facts_cannot_fall_back_to_payload_claims():
     with _get_pg_pool().connection() as conn:
         try:
             conn.execute(
-                "INSERT INTO hosts(host_id,status,registered_at,payload,admission_state,administrative_state,availability_state) VALUES(%s,'active',0,%s,'admitted','admitted','ready')",
+                "INSERT INTO hosts(host_id,status,registered_at,payload,admission_state,administrative_state,availability_state, last_observed_at) VALUES(%s,'active',0,%s,'admitted','admitted','ready', clock_timestamp())",
                 (
                     host_id,
                     Jsonb(
