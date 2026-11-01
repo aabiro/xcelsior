@@ -76,3 +76,24 @@ def spec_acceptance_from_metrics(base_url: str = DEFAULT_BASE_URL) -> dict[str, 
         "accepted_tokens": accepted,
         "acceptance_rate": round(accepted / draft, 4),
     }
+
+
+def prefix_cache_from_metrics(base_url: str = DEFAULT_BASE_URL) -> dict[str, float]:
+    metrics_url = base_url.removesuffix("/v1") + "/metrics"
+    try:
+        with urllib.request.urlopen(metrics_url, timeout=5) as resp:
+            text = resp.read().decode()
+    except (urllib.error.URLError, TimeoutError):
+        return {}
+    queries = hits = 0.0
+    for line in text.splitlines():
+        if line.startswith("#"):
+            continue
+        if "prefix_cache_queries_total{" in line and "external_" not in line:
+            queries = float(line.rsplit(" ", 1)[-1])
+        if "prefix_cache_hits_total{" in line and "external_" not in line:
+            hits = float(line.rsplit(" ", 1)[-1])
+    return {
+        "queries_tokens": queries,
+        "hits_tokens": hits,
+    }
