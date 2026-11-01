@@ -1524,6 +1524,7 @@ class UserStore:
             "pending_email",
             "email_change_token",
             "email_change_expires",
+            "oauth_subject",
         }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
@@ -1540,6 +1541,75 @@ class UserStore:
         values = list(fields.values()) + [email]
         with auth_connection() as conn:
             conn.execute(cast(Any, f"UPDATE users SET {set_clause} WHERE email = %s"), values)
+
+    @staticmethod
+    def find_by_oauth_subject(subject: str) -> dict | None:
+        """The account that signed in with this provider subject, if any."""
+        subject = str(subject or "").strip()
+        if not subject:
+            return None
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, email, customer_id, oauth_provider
+                  FROM users
+                 WHERE oauth_subject = %s
+                """,
+                (subject,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def clear_oauth_subject(subject: str) -> None:
+        """Forget a provider subject. A Facebook deauthorize calls this."""
+        subject = str(subject or "").strip()
+        if not subject:
+            return
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                   SET oauth_subject = '',
+                       oauth_provider = CASE
+                           WHEN oauth_provider = 'facebook' THEN ''
+                           ELSE oauth_provider
+                       END
+                 WHERE oauth_subject = %s
+                """,
+                (subject,),
+            )
+
+    @staticmethod
+    def save_facebook_deletion_confirmation(
+        code_hash: str, request_id: str | None, outcome: str
+    ) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO facebook_deletion_confirmations (code_hash, request_id, outcome)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (code_hash) DO UPDATE
+                    SET request_id = EXCLUDED.request_id,
+                        outcome = EXCLUDED.outcome
+                """,
+                (code_hash, request_id, outcome),
+            )
+
+    @staticmethod
+    def get_facebook_deletion_confirmation(code_hash: str) -> dict | None:
+        code_hash = str(code_hash or "").strip()
+        if not code_hash:
+            return None
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT code_hash, request_id, outcome, created_at
+                  FROM facebook_deletion_confirmations
+                 WHERE code_hash = %s
+                """,
+                (code_hash,),
+            ).fetchone()
+        return dict(row) if row else None
 
     @staticmethod
     def set_admin(email: str, is_admin: int) -> None:

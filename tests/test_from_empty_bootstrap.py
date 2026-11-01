@@ -43,7 +43,7 @@ REQUIRED_AT_HEAD = (
     # 091: recorded connector consent, the durable half of the OAuth front door.
     "oauth_consent_grants",
 )
-EXPECTED_HEAD = "144"
+EXPECTED_HEAD = "145"
 
 
 def _admin_dsn() -> str | None:
