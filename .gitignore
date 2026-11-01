@@ -322,3 +322,6 @@ api/frontend/tsconfig.tsbuildinfo
 .env.local
 stripe_embed.md
 private_handoff.md
+
+# Added by ggshield
+.cache_ggshield
