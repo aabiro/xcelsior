@@ -26,7 +26,11 @@ editing, the mechanism does not cover what the stopgap did.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import runpy
+import sys
 import uuid
+from unittest.mock import MagicMock
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
@@ -158,3 +162,76 @@ def test_a_benign_update_still_succeeds(headers):
         200,
         204,
     ), f"renaming an owned client was refused ({r.status_code}): {r.text[:200]}"
+
+
+@pytest.mark.parametrize(
+    ("failure", "found", "expected"),
+    [
+        (None, False, 0),
+        (None, True, 1),
+        ("dependency", False, 2),
+        ("dsn", False, 2),
+        ("connect", False, 2),
+        ("columns", False, 2),
+        ("scopes", False, 2),
+        ("count", False, 2),
+        ("query", False, 2),
+    ],
+)
+def test_operator_audit_distinguishes_findings_from_failed_execution(
+    monkeypatch, capsys, failure, found, expected
+):
+    import psycopg
+
+    script = Path(__file__).resolve().parents[1] / "api/scripts/incident/audit_operator_clients.py"
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("XCELSIOR_POSTGRES_DSN", "postgresql://audit@localhost/test")
+    connection = MagicMock()
+
+    def execute(query, params=None):
+        result = MagicMock()
+        if "SELECT column_name FROM information_schema.columns" in query:
+            if failure == "columns":
+                raise RuntimeError("catalog unavailable")
+            columns = ["client_id"] if failure == "scopes" else ["client_id", "scopes"]
+            result.fetchall.return_value = [{"column_name": name} for name in columns]
+        elif "SELECT data_type" in query:
+            result.fetchone.return_value = {"data_type": "jsonb"}
+        elif "SELECT count(*)" in query:
+            if failure == "count":
+                raise psycopg.ProgrammingError("count unavailable")
+            result.fetchone.return_value = {"c": int(found)}
+        else:
+            assert "jsonb_array_elements_text(scopes)" in query
+            assert "ORDER BY client_id" in query
+            assert "registration_source" not in query
+            assert params and "hosts:operate" in params[0]
+            if failure == "query":
+                raise psycopg.ProgrammingError("query unavailable")
+            result.fetchall.return_value = (
+                [{"client_id": "audit-client", "scopes": ["hosts:operate"]}] if found else []
+            )
+        return result
+
+    connection.execute.side_effect = execute
+    context = MagicMock()
+    context.__enter__.return_value = connection
+    connect = MagicMock(return_value=context)
+    if failure == "connect":
+        connect.side_effect = psycopg.OperationalError("database unavailable")
+    monkeypatch.setattr(psycopg, "connect", connect)
+    if failure == "dependency":
+        monkeypatch.setitem(sys.modules, "psycopg", None)
+    elif failure == "dsn":
+        monkeypatch.delenv("XCELSIOR_POSTGRES_DSN")
+
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_path(str(script), run_name="__main__")
+    assert exited.value.code == expected
+    output = capsys.readouterr()
+    if expected == 2:
+        assert "Clean." not in output.out
+        assert "At least one client" not in output.out
+    else:
+        assert "columns absent" in output.out
