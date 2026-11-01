@@ -48,7 +48,11 @@ def main() -> int:
         headers=headers,
     )
 
-    from scripts.live_vllm_common import resolve_hf_model_name, resolve_live_model_id
+    from scripts.live_vllm_common import (
+        prefix_cache_from_metrics,
+        resolve_hf_model_name,
+        resolve_live_model_id,
+    )
 
     request_model = resolve_live_model_id()
     hf_model = resolve_hf_model_name(request_model)
@@ -72,7 +76,8 @@ def main() -> int:
     errors: list[str] = []
     # Short prompts for live vLLM (max_model_len may be 512); warm + repeat for prefix hits.
     shared_system = (
-        "You are the Xcelsior fleet status assistant. Reply in one short sentence."
+        "You are the Xcelsior fleet status assistant. Answer briefly about GPU queue depth, "
+        "worker health, and token SKU launch readiness. Reply in one short sentence."
     )
     base_prompts = [
         {
@@ -94,6 +99,7 @@ def main() -> int:
         seq.append((f"live-kv-warm-{idx}", payload))
         seq.append((f"live-kv-hit-{idx}", payload))
     for key, payload in seq:
+        before_pc = prefix_cache_from_metrics()
         payload = dict(payload)
         payload["model"] = request_model
         resp = client.post(
@@ -104,6 +110,7 @@ def main() -> int:
         if resp.status_code != 200:
             errors.append(f"{key}:{resp.status_code}:{resp.text[:120]}")
             continue
+        after_pc = prefix_cache_from_metrics()
         body = resp.json()
         usage = body.get("usage") or {}
         inp = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
@@ -114,6 +121,8 @@ def main() -> int:
             or body.get("x_semantic_cache_hit")
         ):
             cached = inp
+        if cached == 0 and after_pc and before_pc:
+            cached = int(max(0.0, after_pc.get("hits_tokens", 0.0) - before_pc.get("hits_tokens", 0.0)))
         total_in += inp
         total_cached += cached
         time.sleep(0.05)
