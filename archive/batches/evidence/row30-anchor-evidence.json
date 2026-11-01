@@ -1,0 +1,112 @@
+{
+  "mac_reachable": true,
+  "mac_ssh_builders": [
+    {
+      "workload": "pt-signal",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "user",
+            "content": "You are a professional trading coach analyzing a trader's journal. Identify patterns in their wins/losses, psychological weaknesses, regime-specific performance, and give actionable recommendations.\n\nTRADING STATS (last 1 trades):\n  Win Rate: 55.0%\n  Profit Factor: 1.30\n  Avg Win: +1.10%\n  Avg Loss: -0.70%\n  Expectancy: 0.15%\n  Avg R-Multiple: 0.40R\n\nRECENT TRADES:\n  #1: PnL=+1.20% | R=0.80 | Regime=trend | Strategy=vwap | Emotion=calm | Conviction=high\n\nProvide your analysis:"
+          }
+        ],
+        "max_tokens": 512
+      },
+      "executed": true
+    },
+    {
+      "workload": "ara-agent",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are Ara."
+          },
+          {
+            "role": "user",
+            "content": "refactor safely?"
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
+      "executed": true
+    },
+    {
+      "workload": "pel-chat",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the PixelEnhance Labs command uplink operating inside a terminal interface. Respond concisely with operational guidance, prefer short paragraphs or bulleted playbooks, and stay grounded in video enhancement, GPU orchestration, and model serving topics."
+          },
+          {
+            "role": "system",
+            "content": "Adopt the tone of the GPU Strategist. Prioritise actionable fleet manoeuvres, cost signals, and scheduler optimisations. Surface risks or missing telemetry explicitly."
+          },
+          {
+            "role": "system",
+            "content": "Operational context:\nFleet warm."
+          },
+          {
+            "role": "user",
+            "content": "status?"
+          }
+        ],
+        "temperature": 0.35
+      },
+      "executed": true
+    }
+  ],
+  "mac_ssh_inference": [
+    {
+      "workload": "pel-chat",
+      "host": "aaryn@100.64.0.3",
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    },
+    {
+      "workload": "pt-signal",
+      "host": "aaryn@100.64.0.3",
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    },
+    {
+      "workload": "ara-agent",
+      "host": "aaryn@100.64.0.3",
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    },
+    {
+      "workload": "pt-signal",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "usage": {
+        "prompt_tokens": 842,
+        "completion_tokens": 156,
+        "prompt_tokens_details": {
+          "cached_tokens": 320
+        },
+        "completion_tokens_details": {
+          "accepted_tokens": 118,
+          "rejected_tokens": 38
+        }
+      },
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    }
+  ],
+  "mac_driven_workloads": 3,
+  "mac_driven_inference": 4,
+  "total_workloads": 4,
+  "anchor_http_test": "pytest passed (row30-anchor-http.log)"
+}

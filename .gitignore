@@ -327,3 +327,13 @@ private_handoff.md
 
 # GitGuardian's local scan cache
 .cache_ggshield
+
+# Local, generated or machine-specific artifacts: never commit (see archive/batches/README.md)
+/backups/
+/models/
+/logs/
+/shared/
+/.playwright-mcp/
+# Batch-run evidence belongs in archive/batches/evidence/, not the repo root
+/*.json
+!/pyrightconfig.json

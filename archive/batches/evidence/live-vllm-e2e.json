@@ -1,0 +1,31 @@
+{
+  "base_url": "http://127.0.0.1:8199/v1",
+  "model": "Qwen/Qwen3-8B",
+  "model_launch": "Qwen/Qwen3-8B",
+  "draft_launch": "/home/aaryn/.cache/huggingface/hub/models--RedHatAI--Qwen3-8B-speculator.eagle3/snapshots/08610ffa01dd9f16731fe8f627b85905b6aa51c4",
+  "started_container": false,
+  "container_id": "",
+  "usage": {
+    "prompt_tokens": 17,
+    "total_tokens": 49,
+    "completion_tokens": 32,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": null
+  },
+  "error": null,
+  "harness": "live_vllm_openai_server",
+  "mesh_host_count": 3,
+  "preexisting_server": true,
+  "note": "reused existing vLLM server at BASE_URL",
+  "proxy_requests": 9,
+  "spec_metrics": {
+    "draft_tokens": 486.0,
+    "accepted_tokens": 253.0,
+    "acceptance_rate": 0.5206
+  },
+  "acceptance_rate": 0.5206,
+  "eagle3_enabled": true,
+  "upstream_mode": "live_vllm",
+  "choices_preview": "<think>\nOkay, the user wants me to say \"fleet ready\" in two words. Let me think. First, I need to understand what \"fleet ready",
+  "ok": true
+}

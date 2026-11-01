@@ -1,0 +1,26 @@
+[
+  {
+    "case": "preset_llm_tick",
+    "endpoint": {
+      "endpoint_id": "sep-cc195000df29",
+      "owner_id": "cust-402533088172",
+      "name": "tick-llm",
+      "mode": "preset",
+      "model_ref": "Qwen/Qwen3-8B",
+      "gpu_tier": "RTX 4090",
+      "region": "ca-east",
+      "gpu_count": 1
+    },
+    "token_cost_cad": 2.5,
+    "gpu_amount_cad": 0.017694,
+    "debited_cad": 2.5,
+    "billed_workers": 1,
+    "accrual_after": 0.0
+  },
+  {
+    "case": "custom_gpu_only_tick",
+    "debited_cad": 0.017799999999994043,
+    "gpu_amount_cad": 0.017694,
+    "accrual_preserved": 1.75
+  }
+]

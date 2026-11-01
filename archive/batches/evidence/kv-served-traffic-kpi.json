@@ -1,0 +1,14 @@
+{
+  "source": "openai_proxy_served_traffic",
+  "upstream_mode": "live_vllm",
+  "evidence_tier": "live_proxy_served_traffic",
+  "kv_cache_hit_rate": 0.4267,
+  "target": 0.3,
+  "kpi_met": true,
+  "total_input_tokens": 300,
+  "total_cached_tokens": 128,
+  "proxy_ledger_rows": 6,
+  "endpoint_id": "sep-664877460e4f",
+  "live_port": "8199",
+  "errors": []
+}

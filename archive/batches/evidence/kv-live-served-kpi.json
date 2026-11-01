@@ -1,0 +1,87 @@
+{
+  "source": "live_vllm_served_traffic",
+  "upstream_mode": "live_vllm",
+  "base_url": "http://127.0.0.1:8199/v1",
+  "model": "Qwen/Qwen3-8B",
+  "model_id": "Qwen/Qwen3-8B",
+  "target": 0.3,
+  "kpi_met": true,
+  "requests": [
+    {
+      "index": 0,
+      "prompt_tokens": 51,
+      "cached_tokens": 32,
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 75,
+        "completion_tokens": 24,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null
+      }
+    },
+    {
+      "index": 1,
+      "prompt_tokens": 51,
+      "cached_tokens": 32,
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 75,
+        "completion_tokens": 24,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null
+      }
+    },
+    {
+      "index": 2,
+      "prompt_tokens": 51,
+      "cached_tokens": 32,
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 75,
+        "completion_tokens": 24,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null
+      }
+    },
+    {
+      "index": 3,
+      "prompt_tokens": 51,
+      "cached_tokens": 32,
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 75,
+        "completion_tokens": 24,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null
+      }
+    },
+    {
+      "index": 4,
+      "prompt_tokens": 51,
+      "cached_tokens": 32,
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 75,
+        "completion_tokens": 24,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null
+      }
+    },
+    {
+      "index": 5,
+      "prompt_tokens": 51,
+      "cached_tokens": 32,
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 75,
+        "completion_tokens": 24,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null
+      }
+    }
+  ],
+  "kv_cache_hit_rate": 0.6275,
+  "total_input_tokens": 306,
+  "total_cached_tokens": 192,
+  "request_count": 6
+}
