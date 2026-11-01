@@ -1,0 +1,129 @@
+{
+  "harness": "OpenAI proxy \u2192 live vLLM (:8199) + prometheus acceptance deltas",
+  "upstream_mode": "live_vllm",
+  "upstream_simulator": false,
+  "model": "Qwen/Qwen3-8B",
+  "request_model": "Qwen/Qwen3-8B",
+  "proxy_requests": 20,
+  "per_request_samples": [
+    {
+      "index": 0,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 1,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 2,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 3,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 4,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 5,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 6,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 7,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 8,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 9,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 10,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 11,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 12,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 13,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 14,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 15,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 16,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 17,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 18,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    },
+    {
+      "index": 19,
+      "acceptance_rate": 0.3333,
+      "status": 200
+    }
+  ],
+  "prometheus_cumulative": {
+    "draft_tokens": 7306.0,
+    "accepted_tokens": 5448.0,
+    "acceptance_rate": 0.7457
+  },
+  "validation": {
+    "model_ref": "Qwen/Qwen3-8B",
+    "sample_count": 20,
+    "mean_acceptance_rate": 0.3333,
+    "mean_tokens_per_sec": 120.0,
+    "baseline_tokens_per_sec": 80.0,
+    "throughput_improved": true,
+    "min_acceptance_rate": 0.75,
+    "min_samples": 5,
+    "validated": false
+  },
+  "startup_flags": [],
+  "preset_startup_command": "--model Qwen/Qwen3-8B --max-model-len 4096 --chat-template-content-format openai --enable-prefix-caching --host 0.0.0.0 --port 8080",
+  "note": "Real HTTP via proxy; acceptance from vLLM /metrics deltas per request"
+}

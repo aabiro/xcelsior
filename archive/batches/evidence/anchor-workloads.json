@@ -1,0 +1,587 @@
+{
+  "configured_roots": [
+    {
+      "path": "/mnt/storage/projects",
+      "exists": true,
+      "reachable": "local",
+      "repo_count": 27
+    },
+    {
+      "path": "/Users/aaryn/Projects",
+      "exists": true,
+      "reachable": "ssh",
+      "repo_count": 3
+    },
+    {
+      "path": "/home/aaryn/Projects",
+      "exists": true,
+      "reachable": "local",
+      "repo_count": 1
+    }
+  ],
+  "discovered_repos": [
+    {
+      "repo": "pixelenhance-labs",
+      "root": "/mnt/storage/projects",
+      "path": "/mnt/storage/projects/pixelenhance-labs",
+      "marker": "cli/llm_bridge.py",
+      "dynamic": "false"
+    },
+    {
+      "repo": "phantom-trades-mvp",
+      "root": "/mnt/storage/projects",
+      "path": "/mnt/storage/projects/phantom-trades-mvp",
+      "marker": "financial_beast.py",
+      "dynamic": "false"
+    },
+    {
+      "repo": "ara-code",
+      "root": "/mnt/storage/projects",
+      "path": "/mnt/storage/projects/ara-code",
+      "marker": "llm_client.py",
+      "dynamic": "false"
+    },
+    {
+      "repo": "pixelenhance-labs",
+      "root": "mac",
+      "path": "/Users/aaryn/Projects/pixelenhance-labs",
+      "marker": "cli/llm_bridge.py",
+      "dynamic": "false",
+      "reachable": "ssh_only"
+    },
+    {
+      "repo": "phantom-trades-mvp",
+      "root": "mac",
+      "path": "/Users/aaryn/Projects/phantom-trades-mvp",
+      "marker": "financial_beast.py",
+      "dynamic": "false",
+      "reachable": "ssh_only"
+    },
+    {
+      "repo": "ara-code",
+      "root": "mac",
+      "path": "/Users/aaryn/Projects/ara-code",
+      "marker": "llm_client.py",
+      "dynamic": "false",
+      "reachable": "ssh_only"
+    }
+  ],
+  "mac_ssh_repos": [
+    {
+      "repo": "pixelenhance-labs",
+      "root": "mac",
+      "path": "/Users/aaryn/Projects/pixelenhance-labs",
+      "marker": "cli/llm_bridge.py",
+      "dynamic": "false",
+      "reachable": "ssh_only"
+    },
+    {
+      "repo": "phantom-trades-mvp",
+      "root": "mac",
+      "path": "/Users/aaryn/Projects/phantom-trades-mvp",
+      "marker": "financial_beast.py",
+      "dynamic": "false",
+      "reachable": "ssh_only"
+    },
+    {
+      "repo": "ara-code",
+      "root": "mac",
+      "path": "/Users/aaryn/Projects/ara-code",
+      "marker": "llm_client.py",
+      "dynamic": "false",
+      "reachable": "ssh_only"
+    }
+  ],
+  "workloads": [
+    {
+      "workload": "pel-embed",
+      "source_repo": "pixelenhance-labs",
+      "payload_source": "local_import",
+      "builder": {
+        "builder": "pixelenhance_embed_payload",
+        "module": "serverless.anchor_workloads",
+        "host": null
+      },
+      "request": {
+        "model": "BAAI/bge-m3",
+        "input": [
+          "Professional video enhancement preset: film grain preservation.",
+          "GPU queue depth elevated on ca-east region."
+        ],
+        "encoding_format": "float"
+      },
+      "response_usage": {
+        "prompt_tokens": 12000,
+        "total_tokens": 12000,
+        "prompt_tokens_details": {
+          "cached_tokens": 4000
+        }
+      },
+      "ledger_rows": [
+        {
+          "ledger_id": "stl-0a621c76d870",
+          "endpoint_id": "sep-fbf2d68537a4",
+          "idempotency_key": "pel-embed",
+          "input_tokens": 12000,
+          "output_tokens": 0,
+          "cached_tokens": 4000,
+          "ttft_ms": 30,
+          "latency_ms": 30,
+          "cost_cad": 0.0015,
+          "created_at": 1793161462.4000025
+        }
+      ]
+    },
+    {
+      "workload": "pel-chat",
+      "source_repo": "pixelenhance-labs",
+      "payload_source": "mac_ssh",
+      "builder": {
+        "builder": null,
+        "module": null,
+        "host": "aaryn@100.64.0.3"
+      },
+      "request": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the PixelEnhance Labs command uplink operating inside a terminal interface. Respond concisely with operational guidance, prefer short paragraphs or bulleted playbooks, and stay grounded in video enhancement, GPU orchestration, and model serving topics."
+          },
+          {
+            "role": "system",
+            "content": "Adopt the tone of the GPU Strategist. Prioritise actionable fleet manoeuvres, cost signals, and scheduler optimisations. Surface risks or missing telemetry explicitly."
+          },
+          {
+            "role": "system",
+            "content": "Operational context:\nFleet warm."
+          },
+          {
+            "role": "user",
+            "content": "status?"
+          }
+        ],
+        "temperature": 0.35
+      },
+      "response_usage": {
+        "prompt_tokens": 842,
+        "completion_tokens": 156,
+        "prompt_tokens_details": {
+          "cached_tokens": 320
+        },
+        "completion_tokens_details": {
+          "accepted_tokens": 118,
+          "rejected_tokens": 38
+        }
+      },
+      "ledger_rows": [
+        {
+          "ledger_id": "stl-1ed96d3e00d6",
+          "endpoint_id": "sep-9e4d6668287b",
+          "idempotency_key": "pel-chat",
+          "input_tokens": 842,
+          "output_tokens": 156,
+          "cached_tokens": 320,
+          "ttft_ms": 11,
+          "latency_ms": 11,
+          "cost_cad": 0.000172,
+          "created_at": 1793161462.5184379
+        }
+      ]
+    },
+    {
+      "workload": "pt-signal",
+      "source_repo": "phantom-trades-mvp",
+      "payload_source": "mac_ssh",
+      "builder": {
+        "builder": null,
+        "module": null,
+        "host": "aaryn@100.64.0.3"
+      },
+      "request": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "user",
+            "content": "You are a professional trading coach analyzing a trader's journal. Identify patterns in their wins/losses, psychological weaknesses, regime-specific performance, and give actionable recommendations.\n\nTRADING STATS (last 1 trades):\n  Win Rate: 55.0%\n  Profit Factor: 1.30\n  Avg Win: +1.10%\n  Avg Loss: -0.70%\n  Expectancy: 0.15%\n  Avg R-Multiple: 0.40R\n\nRECENT TRADES:\n  #1: PnL=+1.20% | R=0.80 | Regime=trend | Strategy=vwap | Emotion=calm | Conviction=high\n\nProvide your analysis:"
+          }
+        ],
+        "max_tokens": 512
+      },
+      "response_usage": {
+        "prompt_tokens": 842,
+        "completion_tokens": 156,
+        "prompt_tokens_details": {
+          "cached_tokens": 320
+        },
+        "completion_tokens_details": {
+          "accepted_tokens": 118,
+          "rejected_tokens": 38
+        }
+      },
+      "ledger_rows": [
+        {
+          "ledger_id": "stl-5188411e69dd",
+          "endpoint_id": "sep-4831f35d2156",
+          "idempotency_key": "pt-signal",
+          "input_tokens": 842,
+          "output_tokens": 156,
+          "cached_tokens": 320,
+          "ttft_ms": 14,
+          "latency_ms": 14,
+          "cost_cad": 0.000172,
+          "created_at": 1793161462.6335094
+        }
+      ]
+    },
+    {
+      "workload": "ara-agent",
+      "source_repo": "ara-code",
+      "payload_source": "mac_ssh",
+      "builder": {
+        "builder": null,
+        "module": null,
+        "host": "aaryn@100.64.0.3"
+      },
+      "request": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are Ara."
+          },
+          {
+            "role": "user",
+            "content": "refactor safely?"
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
+      "response_usage": {
+        "prompt_tokens": 842,
+        "completion_tokens": 156,
+        "prompt_tokens_details": {
+          "cached_tokens": 320
+        },
+        "completion_tokens_details": {
+          "accepted_tokens": 118,
+          "rejected_tokens": 38
+        }
+      },
+      "ledger_rows": [
+        {
+          "ledger_id": "stl-8cbe0b8ce586",
+          "endpoint_id": "sep-27e1f8ed11f4",
+          "idempotency_key": "ara-agent",
+          "input_tokens": 842,
+          "output_tokens": 156,
+          "cached_tokens": 320,
+          "ttft_ms": 13,
+          "latency_ms": 13,
+          "cost_cad": 0.000172,
+          "created_at": 1793161462.7417462
+        }
+      ]
+    }
+  ],
+  "executed_builders": [
+    {
+      "workload": "pel-embed",
+      "builder": "pixelenhance_embed_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "BAAI/bge-m3",
+        "input": [
+          "Professional video enhancement preset: film grain preservation.",
+          "GPU queue depth elevated on ca-east region."
+        ],
+        "encoding_format": "float"
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    },
+    {
+      "workload": "pel-chat",
+      "builder": "pixelenhance_chat_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the PixelEnhance Labs command uplink operating inside a terminal interface. Respond concisely with operational guidance, prefer short paragraphs or bulleted playbooks, and stay grounded in video enhancement, GPU orchestration, and model serving topics."
+          },
+          {
+            "role": "system",
+            "content": "Adopt the tone of the GPU Strategist. Prioritise actionable fleet manoeuvres, cost signals, and scheduler optimisations. Surface risks or missing telemetry explicitly."
+          },
+          {
+            "role": "system",
+            "content": "Operational context:\nFleet telemetry: 3 GPUs warm, queue depth 2."
+          },
+          {
+            "role": "user",
+            "content": "Status of the enhancement fleet?"
+          }
+        ],
+        "temperature": 0.35
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    },
+    {
+      "workload": "pt-signal",
+      "builder": "phantom_trades_chat_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "user",
+            "content": "You are a professional trading coach analyzing a trader's journal. Identify patterns in their wins/losses, psychological weaknesses, regime-specific performance, and give actionable recommendations.\n\nTRADING STATS (last 2 trades):\n  Win Rate: 55.0%\n  Profit Factor: 1.30\n  Avg Win: +1.10%\n  Avg Loss: -0.70%\n  Expectancy: 0.15%\n  Avg R-Multiple: 0.40R\n\nRECENT TRADES:\n  #1: PnL=+1.20% | R=0.80 | Regime=trend | Strategy=vwap | Emotion=calm | Conviction=high\n  #2: PnL=-0.60% | R=-0.40 | Regime=range | Strategy=breakout | Emotion=anxious | Conviction=low\n\nProvide your analysis:"
+          }
+        ],
+        "max_tokens": 512
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    },
+    {
+      "workload": "ara-agent",
+      "builder": "ara_code_chat_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are Ara, a helpful AI assistant. You provide clear, concise, and accurate responses.\nBe direct and helpful. If you don't know something, say so."
+          },
+          {
+            "role": "user",
+            "content": "What is the safest way to refactor this module without breaking tests?"
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    }
+  ],
+  "local_builders": [
+    {
+      "workload": "pel-embed",
+      "builder": "pixelenhance_embed_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "BAAI/bge-m3",
+        "input": [
+          "Professional video enhancement preset: film grain preservation.",
+          "GPU queue depth elevated on ca-east region."
+        ],
+        "encoding_format": "float"
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    },
+    {
+      "workload": "pel-chat",
+      "builder": "pixelenhance_chat_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the PixelEnhance Labs command uplink operating inside a terminal interface. Respond concisely with operational guidance, prefer short paragraphs or bulleted playbooks, and stay grounded in video enhancement, GPU orchestration, and model serving topics."
+          },
+          {
+            "role": "system",
+            "content": "Adopt the tone of the GPU Strategist. Prioritise actionable fleet manoeuvres, cost signals, and scheduler optimisations. Surface risks or missing telemetry explicitly."
+          },
+          {
+            "role": "system",
+            "content": "Operational context:\nFleet telemetry: 3 GPUs warm, queue depth 2."
+          },
+          {
+            "role": "user",
+            "content": "Status of the enhancement fleet?"
+          }
+        ],
+        "temperature": 0.35
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    },
+    {
+      "workload": "pt-signal",
+      "builder": "phantom_trades_chat_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "user",
+            "content": "You are a professional trading coach analyzing a trader's journal. Identify patterns in their wins/losses, psychological weaknesses, regime-specific performance, and give actionable recommendations.\n\nTRADING STATS (last 2 trades):\n  Win Rate: 55.0%\n  Profit Factor: 1.30\n  Avg Win: +1.10%\n  Avg Loss: -0.70%\n  Expectancy: 0.15%\n  Avg R-Multiple: 0.40R\n\nRECENT TRADES:\n  #1: PnL=+1.20% | R=0.80 | Regime=trend | Strategy=vwap | Emotion=calm | Conviction=high\n  #2: PnL=-0.60% | R=-0.40 | Regime=range | Strategy=breakout | Emotion=anxious | Conviction=low\n\nProvide your analysis:"
+          }
+        ],
+        "max_tokens": 512
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    },
+    {
+      "workload": "ara-agent",
+      "builder": "ara_code_chat_payload",
+      "module": "serverless.anchor_workloads",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are Ara, a helpful AI assistant. You provide clear, concise, and accurate responses.\nBe direct and helpful. If you don't know something, say so."
+          },
+          {
+            "role": "user",
+            "content": "What is the safest way to refactor this module without breaking tests?"
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
+      "executed": true,
+      "executed_on": "local_import"
+    }
+  ],
+  "mac_ssh_builders": [
+    {
+      "workload": "pt-signal",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "user",
+            "content": "You are a professional trading coach analyzing a trader's journal. Identify patterns in their wins/losses, psychological weaknesses, regime-specific performance, and give actionable recommendations.\n\nTRADING STATS (last 1 trades):\n  Win Rate: 55.0%\n  Profit Factor: 1.30\n  Avg Win: +1.10%\n  Avg Loss: -0.70%\n  Expectancy: 0.15%\n  Avg R-Multiple: 0.40R\n\nRECENT TRADES:\n  #1: PnL=+1.20% | R=0.80 | Regime=trend | Strategy=vwap | Emotion=calm | Conviction=high\n\nProvide your analysis:"
+          }
+        ],
+        "max_tokens": 512
+      },
+      "executed": true
+    },
+    {
+      "workload": "ara-agent",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are Ara."
+          },
+          {
+            "role": "user",
+            "content": "refactor safely?"
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
+      "executed": true
+    },
+    {
+      "workload": "pel-chat",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "payload": {
+        "model": "Qwen/Qwen3-8B",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the PixelEnhance Labs command uplink operating inside a terminal interface. Respond concisely with operational guidance, prefer short paragraphs or bulleted playbooks, and stay grounded in video enhancement, GPU orchestration, and model serving topics."
+          },
+          {
+            "role": "system",
+            "content": "Adopt the tone of the GPU Strategist. Prioritise actionable fleet manoeuvres, cost signals, and scheduler optimisations. Surface risks or missing telemetry explicitly."
+          },
+          {
+            "role": "system",
+            "content": "Operational context:\nFleet warm."
+          },
+          {
+            "role": "user",
+            "content": "status?"
+          }
+        ],
+        "temperature": 0.35
+      },
+      "executed": true
+    }
+  ],
+  "mac_remote_inference_probe": {
+    "ok": true,
+    "status": 200,
+    "usage": {
+      "prompt_tokens": 842,
+      "completion_tokens": 156,
+      "prompt_tokens_details": {
+        "cached_tokens": 320
+      },
+      "completion_tokens_details": {
+        "accepted_tokens": 118,
+        "rejected_tokens": 38
+      }
+    },
+    "model": null,
+    "executed_on": "mac_ssh",
+    "host": "aaryn@100.64.0.3",
+    "workload": "pt-signal",
+    "url": "http://100.64.0.6:38097/v1/serverless/sep-49b88a15a695/openai/v1/chat/completions"
+  },
+  "mac_ssh_inference": [
+    {
+      "workload": "pel-chat",
+      "host": "aaryn@100.64.0.3",
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    },
+    {
+      "workload": "pt-signal",
+      "host": "aaryn@100.64.0.3",
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    },
+    {
+      "workload": "ara-agent",
+      "host": "aaryn@100.64.0.3",
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    },
+    {
+      "workload": "pt-signal",
+      "executed_on": "mac_ssh",
+      "host": "aaryn@100.64.0.3",
+      "usage": {
+        "prompt_tokens": 842,
+        "completion_tokens": 156,
+        "prompt_tokens_details": {
+          "cached_tokens": 320
+        },
+        "completion_tokens_details": {
+          "accepted_tokens": 118,
+          "rejected_tokens": 38
+        }
+      },
+      "ledger_cost_cad": 0.000172,
+      "input_tokens": 842
+    }
+  ],
+  "mac_reachable": true,
+  "mac_driven_workloads": 3,
+  "mac_driven_inference": 4,
+  "local_real_builders": 1
+}

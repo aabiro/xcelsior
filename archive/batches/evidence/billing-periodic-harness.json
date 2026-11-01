@@ -1,0 +1,29 @@
+[
+  {
+    "case": "auto_billing_cycle_max_gpu",
+    "path": "proxy \u2192 accrual \u2192 auto_billing_cycle \u2192 bill_active_serverless_workers",
+    "usage": {
+      "prompt_tokens": 842,
+      "completion_tokens": 156,
+      "prompt_tokens_details": {
+        "cached_tokens": 320
+      },
+      "completion_tokens_details": {
+        "accepted_tokens": 118,
+        "rejected_tokens": 38
+      }
+    },
+    "token_cost_cad": 0.000172,
+    "gpu_amount_cad": 0.017694,
+    "expected_blended_cad": 0.017694,
+    "debited_cad": 0.017799999999994043,
+    "inference_billed": 1,
+    "gpu_tier": "RTX 4090"
+  },
+  {
+    "case": "auto_billing_cycle_max_token",
+    "token_cost_cad": 2.5,
+    "gpu_amount_cad": 0.017694,
+    "debited_cad": 2.5
+  }
+]

@@ -1,0 +1,93 @@
+{
+  "host_id": "xcelsior-burst-l4",
+  "gpu_arch": "sm89",
+  "telemetry": {
+    "host_id": "xcelsior-burst-l4",
+    "claimed_gpu_model": "L4",
+    "gpu_model": "NVIDIA L4",
+    "claimed_vram_gb": 22.5,
+    "total_vram_gb": 22.49,
+    "serial": "GPU-f5f7eb8a-2301-894f-3be4-e7c9f2e7296d",
+    "claimed_serial": "GPU-f5f7eb8a-2301-894f-3be4-e7c9f2e7296d",
+    "pci_info": {
+      "bus_id": "00000000:00:03.0"
+    },
+    "cuda_version": "13.0",
+    "driver_version": "580.178.04",
+    "compute_capability": 8.9,
+    "pcie_bandwidth_gbps": 11.59,
+    "gpu_temp_celsius": 42.0,
+    "packet_loss_pct": 0.0,
+    "jitter_ms": 1.2,
+    "throughput_mbps": 9600.0,
+    "torch_memory_allocated_bytes": 268435456,
+    "torch_memory_reserved_bytes": 268435456,
+    "memory_fragmentation_pct": 0.0,
+    "versions": {
+      "runc": "1.2.5",
+      "nvidia_container_toolkit": "1.17.8",
+      "driver": "580.178.04",
+      "docker": "28.2.2"
+    }
+  },
+  "gpu_fingerprint": "27f106e70052ca79",
+  "checks": [
+    {
+      "check_name": "gpu_identity",
+      "passed": true,
+      "expected": "L4 / 22.5GB",
+      "actual": "NVIDIA L4 / 22.49GB",
+      "details": "Model match: True, VRAM: 100.0%, Serial match: True, PCI: 00000000:00:03.0",
+      "timestamp": 1793159647.895668
+    },
+    {
+      "check_name": "cuda_readiness",
+      "passed": true,
+      "expected": "CUDA present, compute capability >= 7.0",
+      "actual": "CUDA 13.0, driver 580.178.04, CC 8.9",
+      "details": "",
+      "timestamp": 1793159647.8959477
+    },
+    {
+      "check_name": "pcie_bandwidth",
+      "passed": true,
+      "expected": ">= 8.0 GB/s",
+      "actual": "11.59 GB/s",
+      "details": "",
+      "timestamp": 1793159647.8959599
+    },
+    {
+      "check_name": "thermal_stability",
+      "passed": true,
+      "expected": "<= 90\u00b0C",
+      "actual": "42.0\u00b0C",
+      "details": "",
+      "timestamp": 1793159647.8959682
+    },
+    {
+      "check_name": "network_quality",
+      "passed": true,
+      "expected": "loss <= 2.0%, jitter <= 50.0ms, throughput >= 100.0 Mbps",
+      "actual": "loss=0.0%, jitter=1.2ms, throughput=9600.0 Mbps",
+      "details": "",
+      "timestamp": 1793159647.8959782
+    },
+    {
+      "check_name": "memory_fragmentation",
+      "passed": true,
+      "expected": "fragmentation < 50.0%",
+      "actual": "0.0% (allocated=256.0MB, reserved=256.0MB)",
+      "details": "",
+      "timestamp": 1793159647.8959925
+    },
+    {
+      "check_name": "security_posture",
+      "passed": true,
+      "expected": "All component versions meet minimums",
+      "actual": "All checks passed",
+      "details": "",
+      "timestamp": 1793159647.9421737
+    }
+  ],
+  "all_passed": true
+}
