@@ -13,11 +13,23 @@ an operator can tell which rule set produced a historical explanation.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v5"
+FILTER_POLICY_VERSION = "filters/v6"
+
+# Only these device rows can carry placement: a physical NVML identity (the
+# same shape the lease claim requires before it grants a device) in a
+# schedulable health state. Synthetic ``slot:N`` compatibility rows never can.
+PHYSICAL_GPU_UUID_PATTERN = r"^GPU-[A-Za-z0-9-]{1,100}$"
+SCHEDULABLE_DEVICE_HEALTH = ("healthy", "unknown")
+_PHYSICAL_GPU_UUID = re.compile(r"GPU-[A-Za-z0-9-]{1,100}")
+
+
+def is_physical_gpu_uuid(value: Any) -> bool:
+    return isinstance(value, str) and _PHYSICAL_GPU_UUID.fullmatch(value) is not None
 
 
 @dataclass(frozen=True)
@@ -47,6 +59,26 @@ def _f(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def gpu_model_matches(wanted: Any, model: Any) -> bool:
+    """The one model rule: a requested model is contained in the device's name."""
+    requested = _norm(wanted)
+    return not requested or requested in _norm(model)
+
+
+def device_fits(job: dict, device: dict) -> bool:
+    """Does one physical device satisfy the job's per-GPU model and VRAM needs?"""
+    needed_mb = int(_f(job.get("vram_needed_gb")) * 1024)
+    return gpu_model_matches(job.get("gpu_model"), device.get("model")) and (
+        needed_mb <= 0 or int(_f(device.get("allocatable_vram_mb"))) >= needed_mb
+    )
+
+
+def _devices(host: dict) -> list[dict] | None:
+    """The snapshot's physical device view, or None for a legacy host dict."""
+    devices = host.get("gpu_devices")
+    return devices if isinstance(devices, list) else None
 
 
 # ── Individual hard filters ──────────────────────────────────────────
@@ -81,19 +113,48 @@ def host_ready(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None
             f"host status is {_norm(host.get('status')) or 'unknown'}",
             {"status": host.get("status")},
         )
+    if "availability_state" in host and _norm(host.get("availability_state")) != "ready":
+        return FilterReason(
+            "host_not_available",
+            f"host availability is {_norm(host.get('availability_state')) or 'unknown'}",
+            {"availability_state": host.get("availability_state")},
+        )
     if str(host.get("host_id")) in ctx.stale_host_ids:
         return FilterReason(
             "host_observation_stale",
-            "host heartbeat/inventory is stale",
+            "host has not reported a current observation",
             {"host_id": host.get("host_id")},
+        )
+    backoff = host.get("lease_claim_backoff")
+    if isinstance(backoff, dict):
+        return FilterReason(
+            "host_claim_backoff",
+            "host repeatedly failed to claim offered leases",
+            dict(backoff),
         )
     return None
 
 
 def gpu_model(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     wanted = _norm(job.get("gpu_model"))
+    devices = _devices(host)
+    if devices is not None and not devices:
+        return FilterReason(
+            "host_inventory_unavailable",
+            "host has no schedulable physical GPU",
+            {"host_id": host.get("host_id")},
+        )
     if not wanted:
         return None
+    if devices is not None:
+        if any(gpu_model_matches(wanted, d.get("model")) for d in devices):
+            return None
+        models = sorted({str(d.get("model")) for d in devices})
+        return FilterReason(
+            "gpu_model_mismatch",
+            f"requires {job.get('gpu_model')}, host has {', '.join(models)}",
+            {"requested": job.get("gpu_model"), "available": models},
+        )
     have = _norm(host.get("gpu_model"))
     if wanted not in have:
         return FilterReason(
@@ -106,7 +167,13 @@ def gpu_model(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
 
 def gpu_count(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     needed = int(_f(job.get("num_gpus"), 1) or 1)
-    free = int(_f(host.get("free_gpu_count", host.get("gpu_count")), 0))
+    devices = _devices(host)
+    if devices is not None:
+        # Count only free devices that can actually carry this job; a host's
+        # other free models or smaller cards cannot be bound by reservation.
+        free = sum(1 for d in devices if d.get("free") and device_fits(job, d))
+    else:
+        free = int(_f(host.get("free_gpu_count", host.get("gpu_count")), 0))
     if free < needed:
         return FilterReason(
             "insufficient_gpus",
@@ -120,7 +187,13 @@ def vram(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
     needed_gb = _f(job.get("vram_needed_gb"))
     if needed_gb <= 0:
         return None
-    free_gb = _f(host.get("free_vram_gb"))
+    devices = _devices(host)
+    if devices is not None:
+        # VRAM is per device: the largest matching card bounds any request.
+        matching = [d for d in devices if gpu_model_matches(job.get("gpu_model"), d.get("model"))]
+        free_gb = max((_f(d.get("allocatable_vram_mb")) / 1024 for d in matching), default=0.0)
+    else:
+        free_gb = _f(host.get("free_vram_gb"))
     if free_gb < needed_gb:
         return FilterReason(
             "insufficient_vram",

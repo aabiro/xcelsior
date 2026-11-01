@@ -7,7 +7,7 @@ outbox + job projection, all present) or a clean conflict with zero
 residue — never anything in between.
 """
 
-from tests.native_jobs import admit_fixture_job
+from tests.native_jobs import admit_fixture_job, fixture_devices_serve
 
 import json
 import time
@@ -81,8 +81,9 @@ def _mkjob(fleet, *, num_gpus=1, preferred_host_id=None, owner=None, admission_f
             (job_id, time.time(), json.dumps(payload)),
         )
         admit_fixture_job(conn, job_id)
+        fleet["jobs"].append(job_id)
+        fixture_devices_serve(conn, fleet["jobs"], fleet["hosts"])
         conn.commit()
-    fleet["jobs"].append(job_id)
     return job_id
 
 
@@ -92,8 +93,8 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
                                   administrative_state, availability_state,
-                                  inventory_generation, admission_state, capabilities)
-               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted', '{"egress_isolation":true}')""",
+                                  inventory_generation, admission_state, capabilities, last_observed_at)
+               VALUES (%s, 'active', %s, %s, 'admitted', 'ready', %s, 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
             (
                 host_id,
                 time.time(),
@@ -109,8 +110,9 @@ def _mkhost(fleet, *, gpus=2, inventory_generation=1):
                    VALUES (%s, %s, %s, 'RTX 4090', 24576, 24576, 'healthy')""",
                 (host_id, f"GPU-{host_id}-{i}", i),
             )
+        fleet["hosts"].append(host_id)
+        fixture_devices_serve(conn, fleet["jobs"], fleet["hosts"])
         conn.commit()
-    fleet["hosts"].append(host_id)
     return host_id
 
 

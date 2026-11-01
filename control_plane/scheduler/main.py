@@ -25,9 +25,7 @@ log = logging.getLogger("xcelsior.control_plane.scheduler.main")
 def shadow_schema_ready() -> bool:
     """True when migration 058's decision table exists."""
     row = run_transaction(
-        lambda conn: conn.execute(
-            "SELECT to_regclass('scheduler_shadow_decisions')"
-        ).fetchone(),
+        lambda conn: conn.execute("SELECT to_regclass('scheduler_shadow_decisions')").fetchone(),
         what="shadow_schema_check",
     )
     if row is None:
@@ -40,9 +38,7 @@ def run_shadow_loop(config: SchedulerConfig | None = None) -> None:
     """Blocking shadow loop; one cycle per interval, failures isolated."""
     cfg = config or SchedulerConfig.from_env()
     if cfg.mode is not SchedulerMode.SHADOW:
-        log.info(
-            "scheduler mode is %s — shadow runner not starting", cfg.mode.value
-        )
+        log.info("scheduler mode is %s — shadow runner not starting", cfg.mode.value)
         return
     if not shadow_schema_ready():
         raise RuntimeError(

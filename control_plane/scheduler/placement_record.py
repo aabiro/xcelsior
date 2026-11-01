@@ -224,13 +224,18 @@ def record_placement(
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING decision_id""",
             (
-                row["tenant_id"], row["job_id"], row["host_id"], row["outcome"],
-                row["refusal_code"], row["refusal_detail"],
+                row["tenant_id"],
+                row["job_id"],
+                row["host_id"],
+                row["outcome"],
+                row["refusal_code"],
+                row["refusal_detail"],
                 json.dumps(row["asked"], default=str),
                 json.dumps(row["evidence"], default=str),
                 row["candidate_count"],
                 json.dumps(row["candidates"], default=str),
-                row["baseline_price_micros"], row["chosen_price_micros"],
+                row["baseline_price_micros"],
+                row["chosen_price_micros"],
             ),
         ).fetchone()[0]
     )
@@ -281,15 +286,24 @@ def read_placement(conn, decision_id: str, *, tenant_id: str) -> dict | None:
     if record is None:
         return None
     keys = (
-        "decision_id", "tenant_id", "job_id", "host_id", "outcome", "refusal_code",
-        "refusal_detail", "asked", "evidence", "candidate_count", "candidates",
-        "baseline_price_micros", "chosen_price_micros", "decided_at",
+        "decision_id",
+        "tenant_id",
+        "job_id",
+        "host_id",
+        "outcome",
+        "refusal_code",
+        "refusal_detail",
+        "asked",
+        "evidence",
+        "candidate_count",
+        "candidates",
+        "baseline_price_micros",
+        "chosen_price_micros",
+        "decided_at",
     )
     out = {k: record[i] for i, k in enumerate(keys)}
     out["decision_id"] = str(out["decision_id"])
-    out["premium_pct"] = premium_pct(
-        out["baseline_price_micros"], out["chosen_price_micros"]
-    )
+    out["premium_pct"] = premium_pct(out["baseline_price_micros"], out["chosen_price_micros"])
     return out
 
 
@@ -316,8 +330,15 @@ def list_placements(conn, *, tenant_id: str, limit: int = 50) -> list[dict]:
         (tenant_id, int(limit)),
     ).fetchall()
     keys = (
-        "decision_id", "job_id", "host_id", "outcome", "refusal_code",
-        "candidate_count", "baseline_price_micros", "chosen_price_micros", "decided_at",
+        "decision_id",
+        "job_id",
+        "host_id",
+        "outcome",
+        "refusal_code",
+        "candidate_count",
+        "baseline_price_micros",
+        "chosen_price_micros",
+        "decided_at",
     )
     out = []
     for record in rows:

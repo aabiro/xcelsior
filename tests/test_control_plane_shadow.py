@@ -100,8 +100,8 @@ def _mk_host(
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO hosts (host_id, status, registered_at, payload,
-                                  administrative_state, availability_state, admission_state, capabilities)
-               VALUES (%s, %s, %s, %s, %s, 'ready', 'admitted', '{"egress_isolation":true}')""",
+                                  administrative_state, availability_state, admission_state, capabilities, last_observed_at)
+               VALUES (%s, %s, %s, %s, %s, 'ready', 'admitted', '{"egress_isolation":true}', clock_timestamp())""",
             (
                 host_id,
                 status,

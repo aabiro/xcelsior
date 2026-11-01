@@ -55,8 +55,8 @@ def _insert_host(
     # Explicit trusted fixture authority; no projection trigger supplies it.
     conn.execute(
         """INSERT INTO hosts (host_id, status, registered_at, payload,
-                              admission_state, admitted_at, administrative_state, availability_state, capabilities)
-           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s, '{"egress_isolation":true}')""",
+                              admission_state, admitted_at, administrative_state, availability_state, capabilities, last_observed_at)
+           VALUES (%s, %s, %s, %s, %s, clock_timestamp(), %s, %s, '{"egress_isolation":true}', clock_timestamp())""",
         (
             host_id,
             status,

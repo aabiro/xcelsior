@@ -138,9 +138,7 @@ def evaluate_migration_target(
         # No stated preference: passing the same hard filter a launch passes is
         # the whole requirement, and `choose_host` over one host would only
         # restate it.
-        decision, _candidates = evaluate_preference(
-            conn, eligible, PlacementPreference(), now=now
-        )
+        decision, _candidates = evaluate_preference(conn, eligible, PlacementPreference(), now=now)
         return decision
 
     # The preference is re-evaluated on the target because a constraint the
@@ -182,9 +180,7 @@ def assert_target_admissible(
     The typed refusal is still carried on the exception so the caller can render
     it rather than reformat a string.
     """
-    decision = evaluate_migration_target(
-        conn, job, target_host_id, preference=preference, now=now
-    )
+    decision = evaluate_migration_target(conn, job, target_host_id, preference=preference, now=now)
     if isinstance(decision, PlacementRefused):
         raise MigrationRefused(decision)
     return decision
