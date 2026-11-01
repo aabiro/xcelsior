@@ -497,6 +497,7 @@ def test_dcr_rejects_an_off_allowlist_redirect():
 
 
 def test_dcr_client_cannot_obtain_operator_scopes():
+    """Operator scopes are dropped from the grant, and the response says so."""
     response = client.post(
         "/oauth/register",
         json={
@@ -505,8 +506,53 @@ def test_dcr_client_cannot_obtain_operator_scopes():
             "scope": "instances:read hosts:evict control_plane:operate",
         },
     )
+    assert response.status_code == 201
+    granted = set(response.json()["scope"].split())
+    assert "instances:read" in granted
+    assert not granted & {"hosts:evict", "control_plane:operate"}
+
+
+def test_dcr_refuses_a_request_with_nothing_grantable():
+    response = client.post(
+        "/oauth/register",
+        json={
+            "client_name": "Only an operator",
+            "redirect_uris": [CLAUDE_CALLBACK],
+            "scope": "hosts:evict control_plane:operate offline_access",
+        },
+    )
     assert response.status_code == 400
     assert response.json()["error"] == "invalid_scope"
+
+
+def test_dcr_accepts_a_client_asking_for_withheld_scopes():
+    """The exact request mcp-remote sent prod's stale resource metadata.
+
+    Prod advertised `billing:write`, `providers:write` and `reputation:write`,
+    which connectors may not hold, and refused the registration outright, so
+    Claude Desktop could never connect (2026-11-01).
+    """
+    requested = (
+        "artifacts:read billing:read billing:write events:read gpu:read inference:read "
+        "inference:write instances:connect instances:operate instances:read instances:write "
+        "marketplace:read providers:read providers:write reputation:read reputation:write "
+        "ssh:read ssh:write volumes:read volumes:write"
+    )
+    response = client.post(
+        "/oauth/register",
+        json={
+            "client_name": "MCP CLI Proxy",
+            "redirect_uris": ["http://localhost:42418/oauth/callback"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "scope": requested,
+        },
+    )
+    assert response.status_code == 201, response.text
+    granted = set(response.json()["scope"].split())
+    assert not granted & {"billing:write", "providers:write", "reputation:write"}
+    assert {"instances:read", "ssh:read", "ssh:write", "offline_access"} <= granted
 
 
 def test_dcr_client_cannot_request_client_credentials():
@@ -544,6 +590,27 @@ def test_dcr_is_rate_limited_per_source():
             json={"client_name": f"Flood {index}", "redirect_uris": [CLAUDE_CALLBACK]},
         )
     assert last is not None and last.status_code == 429
+
+
+def test_refused_registrations_do_not_spend_the_quota():
+    """A client stuck retrying an error must not lock out its whole address."""
+    from oauth_registration import DCR_MAX_PER_IP_PER_HOUR
+
+    for index in range(DCR_MAX_PER_IP_PER_HOUR + 2):
+        refused = client.post(
+            "/oauth/register",
+            json={
+                "client_name": f"Retry {index}",
+                "redirect_uris": [CLAUDE_CALLBACK],
+                "scope": "hosts:evict",
+            },
+        )
+        assert refused.status_code == 400, refused.text
+    accepted = client.post(
+        "/oauth/register",
+        json={"client_name": "Finally valid", "redirect_uris": [CLAUDE_CALLBACK]},
+    )
+    assert accepted.status_code == 201, accepted.text
 
 
 def test_authorize_rejects_an_unresolvable_metadata_document_client():

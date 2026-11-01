@@ -174,9 +174,17 @@ CIMD_CACHE_MAX_ENTRIES = 512
 def normalize_requested_scopes(requested: str | list[str] | None) -> list[str]:
     """Intersect a client's request with what connectors may hold.
 
-    Unknown or forbidden scopes are rejected rather than silently dropped: a
-    client that thinks it holds `hosts:evict` and is quietly given a read token
-    produces a confusing runtime failure much later, at the tool call.
+    Scopes a connector can never hold are dropped, not fatal. The registration
+    response's `scope` names what was granted (RFC 7591 §3.2.1 lets the server
+    replace requested metadata), and `/oauth/authorize` already trims a
+    connector's request the same way. Refusing the whole registration bricked
+    every generic client whenever discovery advertised a scope this ceiling
+    lacks: mcp-remote asks for the resource's entire `scopes_supported`, so a
+    stale list on prod (`billing:write`, `providers:write`, `reputation:write`)
+    failed every sign-in, and each retry spent the per-address quota.
+
+    A request with nothing grantable left is still refused, since there is no
+    sensible token for a client that only wants `hosts:evict`.
     """
     if isinstance(requested, list):
         items = [str(scope).strip() for scope in requested if str(scope).strip()]
@@ -184,17 +192,18 @@ def normalize_requested_scopes(requested: str | list[str] | None) -> list[str]:
         items = [scope for scope in str(requested or "").split() if scope]
     if not items:
         return list(CONNECTOR_DEFAULT_SCOPES)
-    forbidden = [scope for scope in items if scope not in CONNECTOR_ALLOWED_SCOPES]
-    if forbidden:
+    granted = [scope for scope in items if scope in CONNECTOR_ALLOWED_SCOPES]
+    if not [scope for scope in granted if scope != "offline_access"]:
+        forbidden = [scope for scope in items if scope not in CONNECTOR_ALLOWED_SCOPES]
         raise OAuthGrantError(
             "invalid_scope",
             "Connector clients may not request: " + ", ".join(sorted(set(forbidden))),
         )
     # `offline_access` is what makes the refresh grant reachable; a connector
     # that omits it would be forced back through the browser every hour.
-    if "offline_access" not in items:
-        items.append("offline_access")
-    return sorted(set(items))
+    if "offline_access" not in granted:
+        granted.append("offline_access")
+    return sorted(set(granted))
 
 
 def _host_allowed(host: str) -> bool:
@@ -449,24 +458,6 @@ def register_dynamic_client(body: dict[str, Any], *, client_ip: str) -> dict[str
             "invalid_request", "Dynamic client registration is disabled", status_code=403
         )
 
-    # Two ceilings: one so a single source cannot flood the table, one so the
-    # table cannot be flooded from many sources either.
-    per_ip = _cache_incr("dcr_register_ip", client_ip or "unknown", 3600)
-    if per_ip > DCR_MAX_PER_IP_PER_HOUR:
-        raise OAuthGrantError(
-            "invalid_request",
-            "Too many client registrations from this address; try again later",
-            status_code=429,
-            headers={"Retry-After": "3600"},
-        )
-    if OAuthStore.count_registrations_since(time.time() - 3600) >= DCR_MAX_PER_HOUR:
-        raise OAuthGrantError(
-            "invalid_request",
-            "Client registration is temporarily rate limited",
-            status_code=429,
-            headers={"Retry-After": "3600"},
-        )
-
     redirect_uris = body.get("redirect_uris")
     if not isinstance(redirect_uris, list):
         raise OAuthGrantError(
@@ -499,6 +490,27 @@ def register_dynamic_client(body: dict[str, Any], *, client_ip: str) -> dict[str
     scopes = normalize_requested_scopes(body.get("scope"))
     client_name = str(body.get("client_name") or "Dynamically registered connector").strip()[:128]
     contacts = [str(item)[:128] for item in (body.get("contacts") or [])][:5]
+
+    # Two ceilings: one so a single source cannot flood the table, one so the
+    # table cannot be flooded from many sources either. Checked only once the
+    # request is valid, because a refused registration writes nothing. Counting
+    # refusals meant a client retrying an error locked out its whole address,
+    # which is what Claude Desktop did against the stale scope list.
+    per_ip = _cache_incr("dcr_register_ip", client_ip or "unknown", 3600)
+    if per_ip > DCR_MAX_PER_IP_PER_HOUR:
+        raise OAuthGrantError(
+            "invalid_request",
+            "Too many client registrations from this address; try again later",
+            status_code=429,
+            headers={"Retry-After": "3600"},
+        )
+    if OAuthStore.count_registrations_since(time.time() - 3600) >= DCR_MAX_PER_HOUR:
+        raise OAuthGrantError(
+            "invalid_request",
+            "Client registration is temporarily rate limited",
+            status_code=429,
+            headers={"Retry-After": "3600"},
+        )
 
     expires_at = registration_expiry()
     created = create_oauth_client(
