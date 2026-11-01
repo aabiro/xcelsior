@@ -1965,13 +1965,16 @@ deploy_test_local() {
     # wins over --env-file during compose interpolation, pinning every
     # component-built XCELSIOR_POSTGRES_DSN in docker-compose.yml to the
     # stack's own database, and the redis port and URL (which MCP inherits)
-    # to the stack's own redis.
+    # to the stack's own redis. Auth is persistent, as on prod: .env.test turns
+    # it off for pytest, and gunicorn.conf.py refuses per-process auth with more
+    # than one worker, so following .env.test left the test API crash-looping.
     log "Starting test containers (redis on ${stack_redis_port})..."
     cd "$PROJECT_DIR"
     XCELSIOR_POSTGRES_DB="$stack_db" \
     XCELSIOR_POSTGRES_DSN="$stack_dsn" \
     XCELSIOR_REDIS_PORT="$stack_redis_port" \
     XCELSIOR_AUTH_REDIS_URL="$stack_redis_url" \
+    XCELSIOR_PERSISTENT_AUTH=true \
         docker compose --env-file .env.test -p xcelsior-test up -d --build
 
     # Wait for health
