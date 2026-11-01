@@ -324,3 +324,6 @@ api/frontend/tsconfig.tsbuildinfo
 .env.local
 stripe_embed.md
 private_handoff.md
+
+# GitGuardian's local scan cache
+.cache_ggshield
