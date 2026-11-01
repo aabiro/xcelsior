@@ -98,6 +98,20 @@ def quote_launch(
     )
 
 
+def approved_hourly_micros(pricing_version: str) -> int | None:
+    """The hourly rate a ``pricing_version`` binds, or None if it binds none.
+
+    The version is ``<catalog>:<hourly_micros>:<currency>`` (see
+    :func:`quote_launch`), so the rate a customer approved is recoverable
+    from the plan itself rather than from a later re-quote.
+    """
+    parts = str(pricing_version or "").split(":")
+    if len(parts) != 3 or parts[0] != PRICING_CATALOG_VERSION or not parts[1].isdigit():
+        return None
+    hourly = int(parts[1])
+    return hourly if hourly > 0 else None
+
+
 def price_moved_beyond_tolerance(
     old_estimate_micros: int,
     new_estimate_micros: int,
