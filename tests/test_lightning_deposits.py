@@ -45,8 +45,8 @@ def _insert_deposit(
             """INSERT INTO ln_deposits
                (deposit_id, customer_id, label, bolt11, payment_hash,
                 amount_msat, amount_sats, amount_btc, amount_micros,
-                btc_cad_rate, status, created_at, expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                btc_cad_rate, status, created_at, expires_at, amount_cad_minor, btc_cad_rate_exact, created_at_ts, expires_at_ts)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), to_timestamp(%s))""",
             (
                 deposit_id,
                 customer_id,
@@ -59,6 +59,10 @@ def _insert_deposit(
                 round(amount_cad * 1_000_000),
                 100_000.0,
                 status,
+                time.time(),
+                time.time() + 86_400,
+                round(amount_cad * 100),
+                100_000,
                 time.time(),
                 time.time() + 86_400,
             ),
@@ -396,10 +400,9 @@ def test_new_deposits_store_exact_minor_units(deposits):
 
     assert row is not None
     amount_cad, amount_minor, rate_exact = row
-    assert amount_minor == 1999, (
-        f"expected 1999 cents, got {amount_minor}; the migration-066 trigger "
-        f"should project amount_cad={amount_cad} even for a legacy-shaped write"
-    )
+    assert (
+        amount_minor == 1999
+    ), f"expected native 1999 cents, got {amount_minor} for CAD {amount_cad}"
     assert rate_exact is not None
     from decimal import Decimal as _D
 
@@ -408,54 +411,18 @@ def test_new_deposits_store_exact_minor_units(deposits):
     ), f"btc_cad_rate_exact must come back as Decimal, got {type(rate_exact)}"
 
 
-def test_writer_that_omits_typed_columns_still_gets_them(deposits):
-    """A writer that sets only the amount gets cents and timestamps projected.
+def test_writer_that_omits_typed_columns_is_refused_after_contract():
+    """No projection silently supplies authority to an obsolete writer."""
+    from psycopg.errors import NotNullViolation
 
-    This is what makes a rolling deploy safe: a replica that has not learned to
-    populate `amount_cad_minor` or the `_ts` columns cannot leave a money row
-    without its exact representation. 097 rewrote the projection to derive
-    cents from `amount_micros` — it used to read the float `amount_cad`, which
-    that migration dropped, and every insert failed with
-    `record "new" has no field "amount_cad"` until the function was replaced.
-    """
-    deposit_id = f"lntest-legacy-{uuid.uuid4().hex[:8]}"
-    with pg_transaction() as conn:
-        conn.execute(
-            """INSERT INTO ln_deposits
-               (deposit_id, customer_id, label, bolt11, payment_hash,
-                amount_msat, amount_sats, amount_btc, amount_micros,
-                btc_cad_rate, status, created_at, expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (
-                deposit_id,
-                "cust-legacy",
-                f"lbl-{deposit_id}",
-                "bolt",
-                "hash",
-                1_000_000,
-                1000,
-                0.00001,
-                3_330_000,
-                99_999.99,
-                "pending",
-                time.time(),
-                time.time() + 3600,
-            ),
-        )
-    try:
+    marker = "lntest-legacy-" + uuid.uuid4().hex
+    with pytest.raises(NotNullViolation):
         with pg_transaction() as conn:
-            row = conn.execute(
-                "SELECT amount_cad_minor, created_at_ts, expires_at_ts "
-                "FROM ln_deposits WHERE deposit_id = %s",
-                (deposit_id,),
-            ).fetchone()
-        assert row is not None
-        assert row[0] == 333, f"trigger did not project cents, got {row[0]}"
-        assert row[1] is not None, "trigger did not project created_at_ts"
-        assert row[2] is not None, "trigger did not project expires_at_ts"
-    finally:
-        with pg_transaction() as conn:
-            conn.execute("DELETE FROM ln_deposits WHERE deposit_id = %s", (deposit_id,))
+            conn.execute(
+                "INSERT INTO ln_deposits(deposit_id,customer_id,label,bolt11,payment_hash,amount_msat,amount_sats,amount_micros,status,created_at,expires_at) "
+                "VALUES(%s,'customer',%s,'bolt',%s,1000000,1000,3330000,'pending',1,2)",
+                (marker, marker, marker),
+            )
 
 
 def test_zero_epoch_sentinels_project_to_null(deposits):
@@ -542,8 +509,8 @@ def test_amount_check_constraint_rejects_non_positive():
                    (deposit_id, customer_id, label, bolt11, payment_hash,
                     amount_msat, amount_sats, amount_btc, amount_micros,
                     amount_cad_minor, btc_cad_rate, status, created_at,
-                    expires_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    expires_at, btc_cad_rate_exact, created_at_ts, expires_at_ts)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 100000,clock_timestamp(),clock_timestamp())""",
                 (
                     deposit_id,
                     "c",

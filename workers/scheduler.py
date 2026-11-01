@@ -233,7 +233,7 @@ def _load_jobs_from_conn(conn, status=None):
     if status:
         rows = conn.execute(
             """
-            SELECT status, payload, spec
+            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code
             FROM jobs
             WHERE status = %s
             ORDER BY submitted_at ASC, job_id ASC
@@ -242,7 +242,7 @@ def _load_jobs_from_conn(conn, status=None):
         ).fetchall()
     else:
         rows = conn.execute("""
-            SELECT status, payload, spec
+            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code
             FROM jobs
             ORDER BY submitted_at ASC, job_id ASC
             """).fetchall()
@@ -268,6 +268,16 @@ def _load_jobs_from_conn(conn, status=None):
             col_status = row["status"] if isinstance(row, dict) else row[0]
             if col_status and item.get("status") != col_status:
                 item["status"] = col_status
+            item.update(
+                job_id=row["job_id"],
+                host_id=row["host_id"],
+                owner=row["owner_id"],
+                owner_id=row["owner_id"],
+                tenant_id=row["tenant_id"],
+                team_id=row["team_id"],
+                error_message=row["error_message"],
+                exit_code=row["exit_code"],
+            )
             jobs.append(item)
     return jobs
 

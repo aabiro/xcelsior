@@ -97,7 +97,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `139_connect_mapping_authority.py`.**
+**Repository head: `140_contract_recorded_runtime_metadata.py`.**
 
 138 adds immutable operator disposition receipts for qualified duplicate
 historical volume intervals. It changes no balances or source history. The
@@ -585,3 +585,9 @@ personal owner recovered from a contact email. Downgrade retains
 these financial/provider mappings. API imports no longer attempt DDL, and the
 runtime floor is 139. Apply this additive migration with the direct migrator
 credential before replacing the schema-138-compatible runtime.
+
+140 restores command creation timestamps only from exact retained start-command
+authority. It removes the Lightning float projection trigger after verifying
+canonical payment terms, and makes those exact fields required. Runtime API
+startup no longer backfills JSONB identity or location. The runtime floor stays
+139 because these columns already exist; apply 140 only after native writers.

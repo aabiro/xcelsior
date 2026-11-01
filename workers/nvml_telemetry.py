@@ -138,6 +138,35 @@ def get_gpu_pci_info(handle) -> dict:
         return {"bus_id": "", "device_id": "", "subsystem_id": ""}
 
 
+def collect_gpu_inventory() -> Optional[list[dict]]:
+    """Complete physical identity without importing torch or starting CUDA."""
+    if not _nvml_initialized:
+        return None
+    try:
+        inventory = []
+        for index in range(pynvml.nvmlDeviceGetCount()):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+            gpu_uuid = pynvml.nvmlDeviceGetUUID(handle)
+            model = pynvml.nvmlDeviceGetName(handle)
+            memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            pci = get_gpu_pci_info(handle)
+            inventory.append(
+                {
+                    "gpu_uuid": gpu_uuid.decode() if isinstance(gpu_uuid, bytes) else str(gpu_uuid),
+                    "device_index": index,
+                    "model": model.decode() if isinstance(model, bytes) else str(model),
+                    "total_vram_mb": memory.total // (1024 * 1024),
+                    "pci_bus_id": pci["bus_id"] or None,
+                }
+            )
+        return inventory
+    except Exception as exc:
+        # A failed member makes the entire probe incomplete. Never retire
+        # devices because only some of the handles could be queried.
+        log.warning("NVML physical inventory unavailable (%s)", type(exc).__name__)
+        return None
+
+
 def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
     """Collect comprehensive telemetry for a single GPU via NVML.
 
@@ -172,6 +201,11 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         result["gpu_model"] = ""
 
     result["serial"] = get_gpu_serial(handle)
+    try:
+        gpu_uuid = pynvml.nvmlDeviceGetUUID(handle)
+        result["gpu_uuid"] = gpu_uuid.decode() if isinstance(gpu_uuid, bytes) else str(gpu_uuid)
+    except Exception as exc:
+        log.debug("NVML UUID unavailable: %s", exc)
     result["pci_info"] = get_gpu_pci_info(handle)
 
     # ── GPU Utilization (REPORT_FEATURE_1 §SM active %) ───────────────

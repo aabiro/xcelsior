@@ -3890,6 +3890,42 @@ def _collect_local_workloads() -> list[dict]:
     return workloads
 
 
+def _observation_inventory() -> tuple[list[dict] | None, dict]:
+    """Report actual per-device identities, never environment-declared slots."""
+    if not is_nvml_available():
+        return None, {"gpu_inventory": "unavailable"}
+    try:
+        from nvml_telemetry import collect_gpu_inventory
+
+        raw = collect_gpu_inventory()
+        if raw is None:
+            raise ValueError("physical inventory unavailable")
+        inventory = []
+        for gpu in raw:
+            gpu_uuid = str(gpu.get("gpu_uuid") or "")
+            if (
+                not gpu_uuid.startswith("GPU-")
+                or not gpu.get("total_vram_mb")
+                or not gpu.get("model")
+            ):
+                raise ValueError("incomplete physical GPU identity")
+            inventory.append(
+                {
+                    "gpu_uuid": gpu_uuid,
+                    "device_index": gpu["device_index"],
+                    "pci_bus_id": gpu.get("pci_bus_id"),
+                    "model": _canonicalize_gpu_model(gpu["model"]),
+                    "total_vram_mb": gpu["total_vram_mb"],
+                }
+            )
+        if not inventory:
+            raise ValueError("physical inventory unavailable")
+        return inventory, {"gpu_inventory": "reported"}
+    except Exception as exc:
+        log.warning("Physical inventory unavailable (%s)", type(exc).__name__)
+        return None, {"gpu_inventory": "unavailable"}
+
+
 def report_observations_v2(force: bool = False) -> bool:
     """§12.2 full-state report, throttled to the observation interval."""
     global _last_observation_at
@@ -3901,6 +3937,9 @@ def report_observations_v2(force: bool = False) -> bool:
     if not force and now - _last_observation_at < _OBSERVATION_INTERVAL_SEC:
         return False
     _last_observation_at = now
+    inventory, conditions = _observation_inventory()
+    from egress_isolation import isolation_ready
+
     code, _body = _v2_post(
         "/agent/v2/observations",
         {
@@ -3912,6 +3951,9 @@ def report_observations_v2(force: bool = False) -> bool:
             "workloads": _collect_local_workloads(),
             "agent_version": VERSION,
             "worker_reported_at": now,
+            "capabilities": {"egress_isolation": isolation_ready()},
+            "conditions": conditions,
+            "gpu_inventory": inventory,
         },
         timeout=15,
     )
