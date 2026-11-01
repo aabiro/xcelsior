@@ -143,6 +143,21 @@ def test_dynamic_clients_can_never_request_the_blanket_api_scope():
         oauth_registration.normalize_requested_scopes("api")
 
 
+def test_scopes_a_connector_cannot_hold_are_dropped_not_fatal():
+    """Generic clients request every advertised scope; one stale entry must not brick them."""
+    granted = oauth_registration.normalize_requested_scopes(
+        "instances:read ssh:read billing:write providers:write reputation:write hosts:evict"
+    )
+    assert {"instances:read", "ssh:read", "offline_access"} <= set(granted)
+    assert not set(granted) & {"billing:write", "providers:write", "reputation:write", "hosts:evict"}
+
+
+def test_offline_access_alone_does_not_count_as_grantable():
+    with pytest.raises(OAuthGrantError) as excinfo:
+        oauth_registration.normalize_requested_scopes("offline_access hosts:evict")
+    assert excinfo.value.error == "invalid_scope"
+
+
 def test_default_scopes_are_read_biased():
     defaults = set(oauth_registration.CONNECTOR_DEFAULT_SCOPES)
     assert "instances:write" not in defaults
@@ -265,11 +280,22 @@ def test_cimd_rejects_a_confidential_client(monkeypatch):
         oauth_registration.resolve_cimd_client("https://ai.example.test/mcp/client.json")
 
 
-def test_cimd_rejects_operator_scopes_in_the_document(monkeypatch):
+def test_cimd_never_grants_operator_scopes_in_the_document(monkeypatch):
     monkeypatch.setattr(
         oauth_registration,
         "_fetch_cimd_document",
         lambda _: _document(scope="instances:read hosts:evict"),
+    )
+    client = oauth_registration.resolve_cimd_client("https://ai.example.test/mcp/client.json")
+    assert "instances:read" in client["scopes"]
+    assert "hosts:evict" not in client["scopes"]
+
+
+def test_cimd_rejects_a_document_asking_only_for_operator_scopes(monkeypatch):
+    monkeypatch.setattr(
+        oauth_registration,
+        "_fetch_cimd_document",
+        lambda _: _document(scope="hosts:evict control_plane:operate"),
     )
     with pytest.raises(OAuthGrantError) as excinfo:
         oauth_registration.resolve_cimd_client("https://ai.example.test/mcp/client.json")
