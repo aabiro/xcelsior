@@ -1937,6 +1937,17 @@ deploy_test_local() {
     pg_password=$(grep '^XCELSIOR_POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
     local stack_dsn="postgresql://xcelsior:${pg_password}@localhost:5432/${stack_db}"
 
+    # It owns its redis too. That service runs with host networking, so where
+    # the default compose project (or any redis) already holds 6379 the stack's
+    # redis cannot bind, never turns healthy, and `depends_on: service_healthy`
+    # holds the test API down. .env.test keeps 6379 for pytest, so only the
+    # port is swapped here, keeping any password in the URL.
+    local stack_redis_port="${XCELSIOR_STACK_REDIS_PORT:-6380}"
+    local base_redis_url stack_redis_url
+    base_redis_url=$(grep '^XCELSIOR_AUTH_REDIS_URL=' "$ENV_FILE" | cut -d= -f2-)
+    stack_redis_url=$(printf '%s' "${base_redis_url:-redis://localhost:6379/0}" |
+        sed -E "s#^(redis://([^@/]*@)?[^:/]+):[0-9]+#\1:${stack_redis_port}#")
+
     # Run Alembic migrations on the STACK database (not the pytest one)
     log "Running test database migrations (${stack_db})..."
     (
@@ -1953,11 +1964,14 @@ deploy_test_local() {
     # Start with docker compose using the test env file. Exported process env
     # wins over --env-file during compose interpolation, pinning every
     # component-built XCELSIOR_POSTGRES_DSN in docker-compose.yml to the
-    # stack's own database.
-    log "Starting test containers..."
+    # stack's own database, and the redis port and URL (which MCP inherits)
+    # to the stack's own redis.
+    log "Starting test containers (redis on ${stack_redis_port})..."
     cd "$PROJECT_DIR"
     XCELSIOR_POSTGRES_DB="$stack_db" \
     XCELSIOR_POSTGRES_DSN="$stack_dsn" \
+    XCELSIOR_REDIS_PORT="$stack_redis_port" \
+    XCELSIOR_AUTH_REDIS_URL="$stack_redis_url" \
         docker compose --env-file .env.test -p xcelsior-test up -d --build
 
     # Wait for health
