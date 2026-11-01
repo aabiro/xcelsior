@@ -837,6 +837,18 @@ class DatabaseOps:
         diverge from the JSONB payload (legacy reaper SQL, partial migrations).
         """
         ph = "%s" if backend == "postgres" else "?"
+        if backend == "postgres":
+            row = conn.execute(
+                "SELECT payload || jsonb_build_object("
+                "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
+                "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
+                "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
+                "'exit_code',exit_code) AS payload FROM jobs WHERE job_id=%s",
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
         row = conn.execute(
             f"SELECT status, host_id, payload FROM jobs WHERE job_id = {ph}",
             (job_id,),
@@ -878,6 +890,22 @@ class DatabaseOps:
     def load_jobs(conn, status=None, backend="sqlite"):
         """Load jobs from DB, optionally filtered by status."""
         ph = "%s" if backend == "postgres" else "?"
+        if backend == "postgres":
+            query = (
+                "SELECT payload || jsonb_build_object("
+                "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
+                "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
+                "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
+                "'exit_code',exit_code) AS payload FROM jobs"
+            )
+            if status:
+                query += " WHERE status=%s"
+            query += " ORDER BY submitted_at ASC,job_id ASC"
+            rows = conn.execute(query, (status,) if status else ()).fetchall()
+            return [
+                DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
+                for row in rows
+            ]
         if status:
             rows = conn.execute(
                 f"SELECT payload FROM jobs WHERE status = {ph} "

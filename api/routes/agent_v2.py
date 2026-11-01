@@ -344,6 +344,9 @@ class ObservationReport(BaseModel):
     workloads: list[ObservedWorkload] = Field(default_factory=list, max_length=256)
     agent_version: str | None = Field(default=None, max_length=64)
     worker_reported_at: float | None = None
+    capabilities: dict[str, Any] | None = None
+    conditions: dict[str, Any] | None = None
+    gpu_inventory: list[dict[str, Any]] | None = Field(default=None, max_length=64)
 
 
 @router.post("/agent/v2/observations", tags=["AgentV2"])
@@ -351,6 +354,13 @@ def api_v2_observations(report: ObservationReport, request: Request):
     """Ingest one full-state worker observation (immutable snapshot);
     enqueues the host for desired-vs-observed reconciliation."""
     _require_agent_auth(request, host_id=report.host_id)
+    if report.gpu_inventory is not None:
+        from control_plane.physical_inventory import validate_inventory
+
+        try:
+            validate_inventory(report.gpu_inventory)
+        except ValueError as exc:
+            raise HTTPException(422, "Physical GPU inventory is incomplete or ambiguous") from exc
     result = run_transaction(
         lambda c: ingest_observation(
             c,
@@ -360,6 +370,9 @@ def api_v2_observations(report: ObservationReport, request: Request):
             workloads=[w.model_dump() for w in report.workloads],
             agent_version=report.agent_version,
             worker_reported_at=report.worker_reported_at,
+            capabilities=report.capabilities,
+            conditions=report.conditions,
+            gpu_inventory=report.gpu_inventory,
         ),
         what="v2_observation_ingest",
     )

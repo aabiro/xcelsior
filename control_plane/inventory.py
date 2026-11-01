@@ -78,6 +78,16 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
     host_id = str(host.get("host_id") or "").strip()
     if not host_id:
         raise ValueError("host dict has no host_id")
+    # Reservation and physical observation ingest lock the host before its
+    # devices. Declared compatibility inventory must use that same order and
+    # must never resurrect slots after a native inventory has taken over.
+    host_row = conn.execute(
+        "SELECT observation_session_id FROM hosts WHERE host_id=%s FOR UPDATE", (host_id,)
+    ).fetchone()
+    if host_row is None:
+        raise ValueError("inventory host is not registered")
+    if _row(host_row, "observation_session_id", 0) is not None:
+        return InventorySyncResult(host_id=host_id)
     count, model, per_gpu_vram_mb = _declared_inventory(host)
 
     rows = conn.execute(
@@ -92,7 +102,8 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
     ).fetchall()
 
     live_real = [
-        r for r in rows
+        r
+        for r in rows
         if not str(_row(r, "gpu_uuid", 1)).startswith(_SYNTHETIC_PREFIX)
         and _row(r, "retired_at", 4) is None
     ]
@@ -125,8 +136,7 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
                        total_vram_mb = %s, allocatable_vram_mb = %s
                  WHERE gpu_device_id = %s
                 """,
-                (model, per_gpu_vram_mb, per_gpu_vram_mb,
-                 _row(existing, "gpu_device_id", 0)),
+                (model, per_gpu_vram_mb, per_gpu_vram_mb, _row(existing, "gpu_device_id", 0)),
             )
             updated += 1
         elif (
@@ -139,8 +149,7 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
                    SET model = %s, total_vram_mb = %s, allocatable_vram_mb = %s
                  WHERE gpu_device_id = %s
                 """,
-                (model, per_gpu_vram_mb, per_gpu_vram_mb,
-                 _row(existing, "gpu_device_id", 0)),
+                (model, per_gpu_vram_mb, per_gpu_vram_mb, _row(existing, "gpu_device_id", 0)),
             )
             updated += 1
 
@@ -162,8 +171,9 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
             # Shrinking under an active allocation is a reconciler case
             # (§12) — never yank a device out from under a placement.
             log.warning(
-                "inventory shrink deferred: host=%s device=%s has an active "
-                "allocation", host_id, gpu_uuid,
+                "inventory shrink deferred: host=%s device=%s has an active " "allocation",
+                host_id,
+                gpu_uuid,
             )
             continue
         conn.execute(
@@ -173,9 +183,7 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
         )
         retired += 1
 
-    result = InventorySyncResult(
-        host_id=host_id, created=created, retired=retired, updated=updated
-    )
+    result = InventorySyncResult(host_id=host_id, created=created, retired=retired, updated=updated)
     if result.changed:
         conn.execute(
             """
@@ -187,6 +195,9 @@ def sync_host_gpu_inventory(conn: Connection, host: dict[str, Any]) -> Inventory
         )
         log.info(
             "inventory sync host=%s: +%d created, %d retired, %d updated",
-            host_id, created, retired, updated,
+            host_id,
+            created,
+            retired,
+            updated,
         )
     return result
