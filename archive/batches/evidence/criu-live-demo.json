@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "output_unchanged": true,
+  "checkpoint_class": "gpu-criu",
+  "criu_available": true,
+  "docker_experimental": true,
+  "nvidia_driver": "580.178.04",
+  "probe": {
+    "criu_available": true,
+    "criu_version": "Version: 4.2",
+    "docker_experimental": true,
+    "nvidia_driver": "580.178.04",
+    "nvidia_driver_version": 580.178,
+    "checkpoint_class": "gpu-criu",
+    "probe_source": "local",
+    "min_nvidia_driver": 570
+  },
+  "reason": "live CRIU preempt\u2192resume demonstrated (same-host + simulated migrate)",
+  "demo_type": "criu_process_preempt_migrate_resume",
+  "state_before": 2,
+  "state_same_host": 6,
+  "state_host_b": 9,
+  "output_lines_before": 3,
+  "output_lines_same_host": 7,
+  "output_lines_host_b": 10,
+  "migrate_ok": true,
+  "source_host": "xcelsior-asus",
+  "target_host": "xcelsior-asus-sim-b",
+  "criu_version": "Version: 4.2",
+  "demo_stdout": "{\n  \"ok\": true,\n  \"output_unchanged\": true,\n  \"checkpoint_class\": \"gpu-criu\",\n  \"demo_type\": \"criu_process_preempt_migrate_resume\",\n  \"state_before\": 2,\n  \"state_same_host\": 6,\n  \"state_host_b\": 9,\n  \"output_lines_before\": 3,\n  \"output_lines_same_host\": 7,\n  \"output_lines_host_b\": 10,\n  \"migrate_ok\": true,\n  \"source_host\": \"xcelsior-asus\",\n  \"target_host\": \"xcelsior-asus-sim-b\",\n  \"criu_version\": \"Version: 4.2\"\n}\n\n",
+  "demo_stderr": "/mnt/storage/projects/xcelsior/scripts/criu_process_demo.sh: line 42: 726716 Killed                     setsid python3 \"${WORKDIR}/worker.py\" < /dev/null > /dev/null 2>&1\n"
+}

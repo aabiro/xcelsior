@@ -1,0 +1,57 @@
+{
+  "closure_policy": "engineering_partial",
+  "verified_count": 27,
+  "verified_rows": [
+    3,
+    4,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    31
+  ],
+  "blocked_rows": [
+    1,
+    2,
+    5,
+    30
+  ],
+  "engineering_shipped_rows": [
+    1,
+    2,
+    5,
+    30
+  ],
+  "engineering_tiers": {
+    "1": "live_vllm_served_traffic",
+    "2": "live_eagle_validated_gated_off",
+    "5": "live_criu_process_demo",
+    "30": "anchor_workloads_proxy_ledger"
+  },
+  "blocked_reasons": {
+    "1": "engineering_partial: openai_proxy_served_traffic \u2014 proxy\u2192live vLLM KPI 62.75% in harness; 1-month production soak \u226530% pending",
+    "2": "engineering_partial: live_eagle_validated_gated_off \u2014 Qwen3-8B+EAGLE accept ~0.52 on live HTTP; kept off (<0.75); Qwen3-8B 2-host mesh pending (RTX 2060 6GB)",
+    "5": "engineering_partial: live_criu_process_demo \u2014 same-host process CRIU ok; cross-host docker serverless migrate pending",
+    "30": "engineering_partial: anchor_workloads_proxy_ledger \u2014 1 local + 3 Mac-SSH builders with ledger rows; sustained production anchor traffic pending"
+  }
+}

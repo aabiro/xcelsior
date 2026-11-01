@@ -1,0 +1,131 @@
+{
+  "models": {
+    "Qwen/Qwen3-8B": {
+      "samples": [
+        {
+          "ts": 1793161359.4014723,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161360.086337,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161360.7758725,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161361.4416206,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161362.1209385,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161362.8086004,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161363.4847484,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161364.166723,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161364.82943,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161365.509102,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161366.1775844,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161367.0161693,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161368.0978804,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161368.998215,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161369.9170308,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161370.7917569,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161371.474004,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161372.1490245,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161372.8161678,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        },
+        {
+          "ts": 1793161373.4805555,
+          "acceptance_rate": 0.3333,
+          "tokens_per_sec": 120.0,
+          "source": "live_vllm_prometheus"
+        }
+      ],
+      "baseline_tokens_per_sec": 80.0,
+      "validated": false
+    }
+  },
+  "updated_at": 1793161373.4806552
+}
