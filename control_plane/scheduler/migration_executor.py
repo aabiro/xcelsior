@@ -161,9 +161,7 @@ def migrate_job(
             conn, job, target_host_id, preference=preference, now=now
         )
     if isinstance(decision, PlacementRefused):
-        log.info(
-            "MIGRATE REFUSED job=%s target=%s code=%s", job_id, target_host_id, decision.code
-        )
+        log.info("MIGRATE REFUSED job=%s target=%s code=%s", job_id, target_host_id, decision.code)
         return _refused(job_id, source_host_id, target_host_id, decision)
 
     # ── 2. Read the state we will compare against ────────────────────
@@ -245,9 +243,11 @@ def migrate_job(
         detail=(
             "resumed and verified"
             if resumed
-            else "resumed; **not verified** — no state probe was supplied"
-            if resumed is None
-            else "resumed but the state did not match"
+            else (
+                "resumed; **not verified** — no state probe was supplied"
+                if resumed is None
+                else "resumed but the state did not match"
+            )
         ),
     )
 
@@ -275,8 +275,12 @@ def migrate_to_cheapest(
     job = get_job(job_id)
     if not job:
         return MigrationOutcome(
-            ok=False, job_id=job_id, source_host_id=None, target_host_id=None,
-            failure_code="job_not_found", detail=f"no job {job_id!r}",
+            ok=False,
+            job_id=job_id,
+            source_host_id=None,
+            target_host_id=None,
+            failure_code="job_not_found",
+            detail=f"no job {job_id!r}",
         )
     source = str(job.get("host_id") or "")
     excluded = tuple(exclude_host_ids) + ((source,) if source else ())
@@ -285,7 +289,10 @@ def migrate_to_cheapest(
         candidates = migration_candidates(conn, job, exclude_host_ids=excluded, now=now)
         if not candidates:
             return MigrationOutcome(
-                ok=False, job_id=job_id, source_host_id=source, target_host_id=None,
+                ok=False,
+                job_id=job_id,
+                source_host_id=source,
+                target_host_id=None,
                 failure_code="no_migration_target",
                 detail="no other host would pass admission for this job",
             )

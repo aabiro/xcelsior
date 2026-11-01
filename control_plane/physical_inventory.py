@@ -1,8 +1,10 @@
 """Promote complete authenticated physical inventories without losing allocations.
 
-Only an idle host changes device membership. Its old synthetic rows remain as
-retired historical identities, while fresh observations supply real GPU UUIDs.
-An unavailable probe is distinct from an explicit complete empty inventory.
+A complete report changes device membership on a busy host too: only devices
+that hold an allocation are deferred (marked unhealthy when missing). Old
+synthetic rows remain as retired historical identities, while fresh
+observations supply real GPU UUIDs. An unavailable probe is distinct from an
+explicit complete empty inventory.
 """
 
 from __future__ import annotations
@@ -36,31 +38,50 @@ def validate_inventory(inventory: list[dict[str, Any]]) -> None:
 
 
 def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> bool:
-    """Caller holds the host row; use the reservation's host/device lock order."""
+    """Caller holds the host row; use the reservation's host/device lock order.
+
+    A complete inventory is authoritative for every device it can safely
+    change. Devices that still hold an active allocation keep their row (the
+    attempt's authority points at it) but a device missing from the report is
+    marked ``unhealthy`` so it is never offered again; it is retired by the
+    first complete report after its allocation is released. Every other
+    device missing from the report is retired immediately, and new devices
+    are added, whether or not some other GPU on the host is busy.
+    """
     validate_inventory(inventory)
-    # Never exchange capacity while any attempt still owns a device. The full
-    # immutable snapshot remains available and the next idle report retries.
-    if conn.execute(
-        "SELECT 1 FROM gpu_device_allocations WHERE host_id=%s AND released_at IS NULL LIMIT 1",
-        (host_id,),
-    ).fetchone():
-        return False
     from psycopg.rows import dict_row
 
     with conn.cursor(row_factory=dict_row) as cursor:
         rows = cursor.execute(
-            "SELECT gpu_device_id,gpu_uuid,device_index,pci_bus_id,model,total_vram_mb,retired_at "
-            "FROM host_gpu_devices WHERE host_id=%s ORDER BY gpu_uuid FOR UPDATE",
+            "SELECT gpu_device_id,gpu_uuid,device_index,pci_bus_id,model,total_vram_mb,retired_at,"
+            "health FROM host_gpu_devices WHERE host_id=%s ORDER BY gpu_uuid FOR UPDATE",
             (host_id,),
         ).fetchall()
+        busy = {
+            str(row["gpu_device_id"])
+            for row in cursor.execute(
+                "SELECT DISTINCT gpu_device_id FROM gpu_device_allocations "
+                "WHERE host_id=%s AND released_at IS NULL",
+                (host_id,),
+            ).fetchall()
+        }
     by_uuid = {row["gpu_uuid"]: row for row in rows}
     wanted = {item["gpu_uuid"] for item in inventory}
-    changed = any(row["retired_at"] is None and row["gpu_uuid"] not in wanted for row in rows)
+    missing = [row for row in rows if row["retired_at"] is None and row["gpu_uuid"] not in wanted]
+    retire = [row["gpu_device_id"] for row in missing if str(row["gpu_device_id"]) not in busy]
+    # A busy device that vanished is deferred, never yanked from its attempt.
+    quarantine = [
+        row["gpu_device_id"]
+        for row in missing
+        if str(row["gpu_device_id"]) in busy and row["health"] != "unhealthy"
+    ]
+    changed = bool(retire or quarantine)
     for item in inventory:
         old = by_uuid.get(item["gpu_uuid"])
         if (
             old is None
             or old["retired_at"] is not None
+            or old["health"] == "unhealthy"
             or any(
                 old[key] != item.get(key)
                 for key in ("device_index", "pci_bus_id", "model", "total_vram_mb")
@@ -72,12 +93,20 @@ def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> boo
             "UPDATE hosts SET inventory_generation=inventory_generation+1 WHERE host_id=%s",
             (host_id,),
         )
-    conn.execute(
-        "UPDATE host_gpu_devices SET retired_at=clock_timestamp() "
-        "WHERE host_id=%s AND retired_at IS NULL AND NOT(gpu_uuid=ANY(%s))",
-        (host_id, sorted(wanted)),
-    )
+    if retire:
+        conn.execute(
+            "UPDATE host_gpu_devices SET retired_at=clock_timestamp() "
+            "WHERE gpu_device_id=ANY(%s) AND retired_at IS NULL",
+            (retire,),
+        )
+    if quarantine:
+        conn.execute(
+            "UPDATE host_gpu_devices SET health='unhealthy' WHERE gpu_device_id=ANY(%s)",
+            (quarantine,),
+        )
     for item in sorted(inventory, key=lambda record: record["gpu_uuid"]):
+        # Reappearing in a complete report clears the missing-device mark;
+        # nothing else writes device health.
         conn.execute(
             """INSERT INTO host_gpu_devices
                 (host_id,gpu_uuid,device_index,pci_bus_id,model,total_vram_mb,allocatable_vram_mb,
@@ -89,6 +118,8 @@ def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> boo
                 model=EXCLUDED.model,total_vram_mb=EXCLUDED.total_vram_mb,
                 allocatable_vram_mb=EXCLUDED.allocatable_vram_mb,
                 last_observed_at=EXCLUDED.last_observed_at,retired_at=NULL,
+                health=CASE WHEN host_gpu_devices.health='unhealthy' THEN 'unknown'
+                            ELSE host_gpu_devices.health END,
                 inventory_generation=EXCLUDED.inventory_generation""",
             (
                 host_id,

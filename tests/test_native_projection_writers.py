@@ -449,8 +449,8 @@ def test_provider_deletion_drains_hosts_without_projection(
             ):
                 conn.execute(
                     """INSERT INTO hosts(host_id,status,registered_at,payload,provider_id,
-                    admission_state,administrative_state,availability_state)
-                    VALUES(%s,%s,100,'{}',%s,%s,%s,'unknown')""",
+                    admission_state,administrative_state,availability_state, last_observed_at)
+                    VALUES(%s,%s,100,'{}',%s,%s,%s,'unknown', clock_timestamp())""",
                     (hid, status, pid, admitted, admin),
                 )
         outcome = delete_authoritative_subject(privacy_subject["request"], {})
