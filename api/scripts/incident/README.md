@@ -16,12 +16,17 @@ scope alone, so any client holding one can act as an operator with no role
 check, and every write to `oauth_clients.scopes` is an authorization decision.
 
 ```
-XCELSIOR_POSTGRES_DSN='postgresql://…' python3 scripts/incident/audit_operator_clients.py
+XCELSIOR_POSTGRES_DSN='postgresql://…' python3 api/scripts/incident/audit_operator_clients.py
 ```
 
 Needs only `psycopg` — no repo import, so it runs on a production host without
 dragging the application in. Exit 0 clean, 1 if any client holds one, 2 if it
 could not run.
+
+Optional provenance columns are discovered from the target schema, so an older
+database can still be audited. Missing dependencies, connection failures, schema
+errors and unexpected failures all exit 2; exit 1 is reserved for an audit that
+completed and found an operator-scoped client.
 
 **Run it before applying a fix.** Patching changes what is observable: a row
 created earlier still exists afterwards, but you lose the ability to distinguish
