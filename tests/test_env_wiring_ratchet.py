@@ -61,7 +61,7 @@ WORKER_ONLY_MODULES = {"worker_agent.py", "cli.py", "agent.py"}
 #: The count on 2026-08-04, after wiring the ten with observable consequences.
 #: **This may only decrease.** Raising it is not a fix; it is a record that the
 #: problem grew.
-MAX_CONFIGURED_BUT_INEFFECTIVE = 82
+MAX_CONFIGURED_BUT_INEFFECTIVE = 75
 
 _READ = re.compile(r'environ(?:\.get)?\(?\[?["\'](XCELSIOR_[A-Z0-9_]+)["\']')
 _SET = re.compile(r"^(XCELSIOR_[A-Z0-9_]+)=(.+)$")

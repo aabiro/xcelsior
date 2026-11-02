@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-10-29 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-01 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**3 of 537 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**3 of 538 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -143,6 +143,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/keys/generate` — `api_generate_api_key`
 - [x] `DELETE /api/keys/{key_preview}` — `api_revoke_key`
 - [x] `GET /api/mcp/quick-connect` — `api_mcp_quick_connect`
+- [x] `PUT /api/meta/consent` — `api_set_ad_consent`
 - [x] `POST /api/oauth/clients` — `api_create_oauth_client`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/oauth/clients` — `api_list_oauth_clients`  ✓ test_auth_endpoints_coverage.py
 - [x] `DELETE /api/oauth/clients/{client_id}` — `api_delete_oauth_client`  ✓ test_auth_endpoints_coverage.py

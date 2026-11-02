@@ -319,13 +319,22 @@ def test_reconcile_expiry_fails_fast_on_a_worker_callback_lock(native):
 
 @pytest.mark.parametrize("native", [{"billable": True}], indirect=True)
 def test_expiry_settles_the_bound_usage_meter_at_the_native_authority_end(native):
+    from control_plane.attempt_billing import billable_end_sql
+
     start(native)
     expire(native)
     with native.pool.connection() as conn:
         row = conn.execute(
             "SELECT completed_at FROM usage_meters WHERE attempt_id=%s", (native.r.attempt_id,)
         ).fetchone()
-    assert row and row[0] == native.repo.get_worker(native.wid)["released_at"]
+        billable_end = conn.execute(
+            f"SELECT {billable_end_sql('a')} FROM job_attempts a WHERE a.attempt_id=%s",
+            (native.r.attempt_id,),
+        ).fetchone()[0]
+    # A lost attempt bills to its lease expiry, not to when the sweep noticed;
+    # released_at records the later capacity release.
+    assert row and row[0] == billable_end
+    assert billable_end <= native.repo.get_worker(native.wid)["released_at"]
 
 
 def test_concurrent_worker_events_have_distinct_sequences(native):
