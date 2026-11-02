@@ -88,15 +88,21 @@ _stop_local_job_containers() {
   fi
 }
 
+# Snapshot the live prod env on every switch to test, never a test env. Keeping
+# only the first backup restored a June config after the 2026-08-28 gateway
+# move: the return to prod dropped XCELSIOR_AGENT_V2_PATHS and the client
+# certificate, and the host went dark on 410s from the legacy paths.
 _backup_prod_env() {
-  if [[ ! -f "$PROD_BACKUP" ]]; then
-    if [[ ! -f "$WORKER_ENV" ]]; then
-      echo "Missing $WORKER_ENV — cannot switch worker" >&2
-      exit 1
-    fi
-    cp "$WORKER_ENV" "$PROD_BACKUP"
-    ok "Backed up prod worker env to $PROD_BACKUP"
+  if [[ "$(cat "$WORKER_MODE_FILE" 2>/dev/null || echo prod)" == "test" ]]; then
+    [[ -f "$PROD_BACKUP" ]] || { echo "Worker is on test with no prod backup — refusing" >&2; exit 1; }
+    return 0
   fi
+  if [[ ! -f "$WORKER_ENV" ]]; then
+    echo "Missing $WORKER_ENV — cannot switch worker" >&2
+    exit 1
+  fi
+  cp -p "$WORKER_ENV" "$PROD_BACKUP"
+  ok "Backed up prod worker env to $PROD_BACKUP"
 }
 
 _strip_worker_keys() {
