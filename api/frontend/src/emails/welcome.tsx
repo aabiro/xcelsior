@@ -14,8 +14,8 @@ export default function WelcomeEmail({
     <EmailLayout preview={`Welcome to Xcelsior, ${name}!`}>
       <Heading style={baseStyles.heading}>Welcome to Xcelsior</Heading>
       <Text style={baseStyles.text}>
-        Hi {name}, thanks for signing up. You now have access to Canada&apos;s
-        Canadian GPU compute marketplace.
+        Hi {name}, thanks for signing up. You now have access to the Xcelsior
+        GPU compute marketplace.
       </Text>
 
       <Section style={baseStyles.card}>
@@ -24,7 +24,7 @@ export default function WelcomeEmail({
           compliance
         </Text>
         <Text style={{ ...baseStyles.text, margin: "0 0 8px" }}>
-          <span style={baseStyles.gold}>✓</span> Data under Canadian law only
+          <span style={baseStyles.gold}>✓</span> Hourly CAD billing with no egress fees
         </Text>
         <Text style={{ ...baseStyles.text, margin: 0 }}>
           <span style={baseStyles.gold}>✓</span> Drive it from any AI agent, or just ask Xcel

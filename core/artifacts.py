@@ -6,7 +6,7 @@
 #   - Workers never get long-lived storage credentials
 #
 # Storage backends:
-#   - Backblaze B2 (CA East / Toronto): Canada-resident, compliance-ready
+#   - Backblaze B2: S3-compatible primary object storage
 #   - Cloudflare R2: Zero egress, ideal for public/cached artifacts
 #   - Local/MinIO: Self-hosted fallback for development
 #
@@ -34,7 +34,7 @@ log = logging.getLogger("xcelsior")
 
 
 class StorageBackend(str, Enum):
-    B2 = "b2"  # Backblaze B2 — Canada East (Toronto)
+    B2 = "b2"  # Backblaze B2
     R2 = "r2"  # Cloudflare R2 — zero egress
     LOCAL = "local"  # Local filesystem / MinIO
     S3 = "s3"  # Generic S3-compatible

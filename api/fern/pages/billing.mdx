@@ -48,16 +48,6 @@ GET /api/billing/invoice/{customer_id}
 | SK | GST + PST | 5% + 6% |
 | MB | GST + PST | 5% + 7% |
 
-## CAF Export
-
-Export billing data in CRA Charities and Finance format:
-
-```bash
-GET /api/billing/export/caf/{customer_id}
-```
-
-Returns a CSV file suitable for Canadian tax filing.
-
 ## Refunds
 
 Process refunds for failed jobs or disputes:

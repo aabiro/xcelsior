@@ -355,10 +355,6 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
-  "GET /api/billing/attestation": {
-    "class": "internal",
-    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
-  },
   "GET /api/billing/crypto/deposit/{deposit_id}": {
     "class": "covered",
     "notes": "get_crypto_deposit. Confirmations and credit state — an unconfirmed deposit is not a balance."
@@ -1593,7 +1589,7 @@
   },
   "POST /api/billing/refund": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset; not a tenant capability"
   },
   "POST /api/billing/setup-intent": {
     "class": "internal",
@@ -1609,7 +1605,7 @@
   },
   "POST /api/billing/wallet/{customer_id}/reset-testing": {
     "class": "internal",
-    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset, the attestation document; not a tenant capability"
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset; not a tenant capability"
   },
   "POST /api/chat": {
     "class": "internal",

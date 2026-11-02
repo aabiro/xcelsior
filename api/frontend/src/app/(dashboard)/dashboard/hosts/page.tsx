@@ -649,25 +649,12 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               className="h-10"
             >
               <option value="">Select region (optional)...</option>
-              <optgroup label="Canada">
-                <option value="ca-AB">Alberta</option>
-                <option value="ca-BC">British Columbia</option>
-                <option value="ca-MB">Manitoba</option>
-                <option value="ca-NB">New Brunswick</option>
-                <option value="ca-NL">Newfoundland and Labrador</option>
-                <option value="ca-NS">Nova Scotia</option>
-                <option value="ca-NT">Northwest Territories</option>
-                <option value="ca-NU">Nunavut</option>
-                <option value="ca-ON">Ontario</option>
-                <option value="ca-PE">Prince Edward Island</option>
-                <option value="ca-QC">Quebec</option>
-                <option value="ca-SK">Saskatchewan</option>
-                <option value="ca-YT">Yukon</option>
-              </optgroup>
-              <optgroup label="United States">
+              <optgroup label="North America">
                 <option value="us-east">US East</option>
                 <option value="us-west">US West</option>
                 <option value="us-central">US Central</option>
+                <option value="ca-east">North America (CA East)</option>
+                <option value="ca-west">North America (CA West)</option>
               </optgroup>
               <optgroup label="Europe">
                 <option value="eu-west">EU West</option>

@@ -61,11 +61,9 @@ Xcelsior is not only about renting a GPU. It is about making the whole experienc
 
 ## Global by default
 
-We are proudly Canadian in where we build: the company is Canadian, billing is CAD-native, and privacy and platform controls are taken seriously. The marketplace itself has no home country. Capacity is selected on price, availability, hardware, and host reputation — wherever it happens to be.
+The marketplace has no home country. Capacity is selected on price, availability, hardware, and host reputation — wherever it happens to be — with CAD-native billing and strong platform controls.
 
 Xcelsior is for teams everywhere who want a better way to access AI compute, and for providers everywhere who want to contribute infrastructure to a platform built with more transparency, stronger governance, and a more human operating model.
-
-If Canada is a hard requirement for your workload, Xcelsior is designed to take that seriously. If you simply want a sharper, more accountable GPU platform, that matters here too.
 
 ## Our Direction
 

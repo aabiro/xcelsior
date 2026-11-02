@@ -688,8 +688,6 @@ export interface HostRegistration {
     total_vram_gb: number;
     free_vram_gb: number;
     cost_per_hour: number;
-    country?: string;
-    province?: string;
     region?: string;
     versions?: Record<string, string>;
     spot_enabled?: boolean;

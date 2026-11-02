@@ -1,7 +1,7 @@
 """Property-based tests for ``scheduler.allocate_binpack``.
 
-Target: ``scheduler.allocate_binpack(job, hosts, user_province, volume_host_ids)``
-at scheduler.py L592.
+Target: ``scheduler.allocate_binpack(job, hosts, volume_host_ids)``
+at scheduler.py L831.
 
 Invariants asserted (from the code):
   1. Empty hosts → None.
@@ -131,16 +131,16 @@ def test_determinism(job, hosts):
 @given(
     job=job_strategy,
     hosts=st.lists(host_strategy, max_size=8),
-    province=st.sampled_from(["ON", "QC", "BC", None]),
 )
 @settings(
     deadline=None,
     max_examples=100,
     suppress_health_check=[HealthCheck.filter_too_much],
 )
-def test_locality_hint_does_not_break_feasibility(job, hosts, province):
-    """Passing a locality hint must never violate VRAM or admission."""
-    result = scheduler.allocate_binpack(job, hosts, user_province=province)
+def test_locality_hint_does_not_break_feasibility(job, hosts):
+    """Passing a volume locality hint must never violate VRAM or admission."""
+    vol_ids = {hosts[0]["host_id"]} if hosts else set()
+    result = scheduler.allocate_binpack(job, hosts, volume_host_ids=vol_ids)
     if result is not None:
         assert bool(result.get("admitted", False))
         assert scheduler._vram_fits(result, job["vram_needed_gb"])

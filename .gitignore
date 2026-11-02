@@ -222,8 +222,6 @@ id_rsa*
 # SVG generation scripts
 scripts/calc_cities.py
 api/scripts/calc_cities.py
-scripts/canada_svg_generator.py
-api/scripts/canada_svg_generator.py
 scripts/gen_alaska_path.py
 api/scripts/gen_alaska_path.py
 scripts/globe_transform.py

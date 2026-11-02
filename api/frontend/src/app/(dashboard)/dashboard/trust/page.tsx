@@ -73,7 +73,6 @@ export default function TrustPage() {
       challenged: number;
       pending: number;
     };
-    cloud_act_note: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -222,14 +221,6 @@ export default function TrustPage() {
               <p className="text-xs text-text-muted">Pending</p>
             </div>
           </div>
-          {report.cloud_act_note && (
-            <div className="mt-4 rounded-lg bg-accent-red/5 border border-accent-red/20 p-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-accent-red mt-0.5 shrink-0" />
-                <p className="text-xs text-text-secondary">{report.cloud_act_note}</p>
-              </div>
-            </div>
-          )}
         </Card>
       )}
 

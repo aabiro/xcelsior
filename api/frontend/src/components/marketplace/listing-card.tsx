@@ -18,7 +18,7 @@ export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps)
     spot != null && spot > 0 && price > spot
       ? Math.round((1 - spot / price) * 100)
       : null;
-  const region = listing.region || "Canada";
+  const region = listing.region || "Global";
   const model = listing.gpu_model || "GPU";
   const vram = listing.vram_gb ? `${listing.vram_gb}GB` : null;
 

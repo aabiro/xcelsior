@@ -25,11 +25,14 @@ justified, so adding one is a change a reviewer can see.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import tempfile
 
 import pytest
+
+from tests._source_tree import iter_source_files
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -48,7 +51,11 @@ FORBIDDEN = re.compile(
     r"|require_residency"
     r"|is_canadian"
     r"|canada.only|canada_only"
-    r"|x-data-residency",
+    r"|x-data-residency"
+    r"|cloud.act"
+    r"|canadian.compute|canadian.gpu|canadian.host|canadian.infrastructure|canadian.node"
+    r"|compute.access.fund|caf_export|caf.eligible"
+    r"|canada-map|canada-flag|canada-hero",
     re.I,
 )
 
@@ -67,11 +74,11 @@ EXCLUDED_DIRS = (
     ".ruff_cache",
     "htmlcov",
     "target",  # Rust/Tauri build output, incl. vendored licence files
-    "site-assets",  # vendored third-party marketing bundle
     "coverage",
     ".hypothesis",  # property-test corpus: machine-generated string soup
     "worktrees",
     "artifacts",  # release-evidence manifests and test run artifacts
+    "checkpoints",  # local runtime container/job checkpoints
     "xcelsior.egg-info",  # setuptools editable-install metadata (SOURCES.txt)
     # Applied migration history. A migration that removed a column must name it;
     # rewriting one would falsify the record of what the schema used to be.
@@ -179,29 +186,41 @@ def scan(root: pathlib.Path | None = None) -> dict[str, list[str]]:
     """
     base = root or ROOT
     hits: dict[str, list[str]] = {}
-    for path in base.rglob("*"):
-        if not path.is_file() or path.is_symlink():
-            continue
-        if path.suffix.lower() in SKIP_SUFFIXES:
-            continue
-        rel = path.relative_to(base).as_posix()
-        if root is None and _is_excluded(rel):
-            continue
-        try:
-            body = path.read_text(encoding="utf-8", errors="strict")
-        except (OSError, UnicodeDecodeError):
-            continue  # binary or unreadable: nothing a human wrote as prose
-        if DOCUMENTS_REMOVAL in body:
-            continue
-        offending = [
-            f"{n}: {line.strip()[:120]}"
-            for n, line in enumerate(body.splitlines(), 1)
-            if FORBIDDEN.search(line)
-            and not ABSENCE_ASSERTION.search(line)
-            and not LEGAL_VENUE.search(line)
-        ]
-        if offending:
-            hits[rel] = offending
+    excluded_dir_names = set(EXCLUDED_DIRS)
+    for dirpath, dirnames, filenames in os.walk(base):
+        if root is None:
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in excluded_dir_names and not d.startswith("link-checker-results")
+            ]
+        dir_p = pathlib.Path(dirpath)
+        for fname in filenames:
+            if fname.startswith("._"):
+                continue
+            path = dir_p / fname
+            if path.is_symlink() or not path.is_file():
+                continue
+            if path.suffix.lower() in SKIP_SUFFIXES:
+                continue
+            rel = path.relative_to(base).as_posix()
+            if root is None and _is_excluded(rel):
+                continue
+            try:
+                body = path.read_text(encoding="utf-8", errors="strict")
+            except (OSError, UnicodeDecodeError):
+                continue  # binary or unreadable: nothing a human wrote as prose
+            if DOCUMENTS_REMOVAL in body:
+                continue
+            offending = [
+                f"{n}: {line.strip()[:120]}"
+                for n, line in enumerate(body.splitlines(), 1)
+                if FORBIDDEN.search(line)
+                and not ABSENCE_ASSERTION.search(line)
+                and not LEGAL_VENUE.search(line)
+            ]
+            if offending:
+                hits[rel] = offending
     return hits
 
 
@@ -295,10 +314,17 @@ def test_deleted_modules_stay_deleted():
         "jurisdiction.py",
         "routes/jurisdiction.py",
         "frontend/sdk/api/resources/jurisdiction",
+        "api/frontend/sdk/api/resources/jurisdiction",
         "frontend/content/blog/pipeda-compliant-gpu-cloud.mdx",
         "frontend/content/blog/law-25-gpu-compute.mdx",
         "frontend/content/blog/rent-gpu-canada.mdx",
         "frontend/content/blog/canadian-ai-compute.mdx",
+        "api/frontend/content/blog/cheap-h100-rental-canada.mdx",
+        "api/frontend/src/components/ui/canada-flag.tsx",
+        "api/frontend/src/components/ui/canada-hero.tsx",
+        "api/frontend/public/canada-map-arc.svg",
+        "api/frontend/public/canada-map-arc-light.svg",
+        "api/frontend/scripts/canada-svg-generator.py",
     ):
         assert not (ROOT / path).exists(), f"{path} came back"
 
@@ -315,14 +341,39 @@ def test_no_placement_gating_symbols_survive():
         "requires_quebec_pia",
         "generate_residency_trace",
         "SOVEREIGNTY_PREMIUM_PCT",
+        "is_canadian_compute",
+        "canadian_compute_cad",
+        "non_canadian_compute_cad",
+        "export_caf_csv",
+        "export_caf_json",
     )
     offenders: dict[str, list[str]] = {}
-    for path in ROOT.rglob("*.py"):
-        rel = path.relative_to(ROOT).as_posix()
-        if _is_excluded(rel) or rel == "tests/test_no_residency_gating.py":
-            continue
-        body = path.read_text(encoding="utf-8", errors="ignore")
-        found = [s for s in banned if s in body]
-        if found:
-            offenders[rel] = found
+    excluded_dir_names = set(EXCLUDED_DIRS)
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in excluded_dir_names and not d.startswith("link-checker-results")
+        ]
+        dir_p = pathlib.Path(dirpath)
+        for fname in filenames:
+            if not fname.endswith(".py") or fname.startswith("._"):
+                continue
+            path = dir_p / fname
+            rel = path.relative_to(ROOT).as_posix()
+            if _is_excluded(rel) or rel == "tests/test_no_residency_gating.py":
+                continue
+            body = path.read_text(encoding="utf-8", errors="ignore")
+            if DOCUMENTS_REMOVAL in body:
+                continue
+            found = [
+                s
+                for s in banned
+                if any(
+                    s in line and not ABSENCE_ASSERTION.search(line)
+                    for line in body.splitlines()
+                )
+            ]
+            if found:
+                offenders[rel] = found
     assert not offenders, f"placement-gating symbols are back: {offenders}"

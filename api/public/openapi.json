@@ -2718,38 +2718,6 @@
             }
           },
           {
-            "name": "province",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Province"
-            }
-          },
-          {
-            "name": "country",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Country"
-            }
-          },
-          {
             "name": "min_reputation",
             "in": "query",
             "required": false,

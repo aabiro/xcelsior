@@ -1,13 +1,9 @@
 """Every static asset path the frontend names must exist under `public/`.
 
 Commit 034a4f1 ("archive old assets") moved files from `frontend/public/` into
-`frontend/public/_archive/`. Four of them were still in use:
-
-* `canada-map-arc.svg` and `canada-map-arc-light.svg`, the map in the hero on
-  `/dashboard`, the first page every signed-in user sees. Production served a
-  404 for both, and the hero rendered as an empty box.
-* `desktop-dashboard-screenshot.svg` and `desktop-control-center-screenshot.svg`,
-  the PWA manifest's screenshots, which install prompts then failed to load.
+`frontend/public/_archive/`. Several of them were still in use, such as
+`desktop-dashboard-screenshot.svg` and `desktop-control-center-screenshot.svg`,
+the PWA manifest's screenshots, which install prompts then failed to load.
 
 Nothing failed at build time. `<img src>` and manifest entries are strings, so
 the only signal was a browser's network log, which is how the signed-in
@@ -69,7 +65,7 @@ def _references() -> dict[str, list[str]]:
 def test_the_scan_sees_the_assets_it_is_meant_to_check():
     """A pattern that matched nothing would pass every tree."""
     refs = _references()
-    assert "/canada-map-arc.svg" in refs, "the dashboard hero's map is no longer seen by the scan"
+    assert "/gpu.svg" in refs, "the marketplace hero's illustration is no longer seen by the scan"
     assert len(refs) >= 10, f"only {len(refs)} asset paths found; the pattern has gone blind"
 
 

@@ -34,7 +34,6 @@
   .btn:hover { background: #cc2222; }
   .btn-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
   .refresh-note { color: #444; font-size: 11px; margin-top: 8px; }
-  .canada-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; background: #1a0a0a; color: #ff3333; }
   .tier-community { background: #1a1a1a; color: #888; }
   .tier-regulated { background: #2e1a0a; color: #ffb74d; }
   .rep-new_user { color: #888; }
@@ -429,7 +428,7 @@
 <div id="login-page" class="login-page">
   <div class="login-card">
     <h2>XCELSIOR</h2>
-    <p class="login-subtitle">Distributed Canadian GPU Compute — Ever Upward</p>
+    <p class="login-subtitle">Distributed GPU Compute — Ever Upward</p>
     <button class="oauth-btn" onclick="oauthLogin('google')">
       <svg viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
       Sign in with Google
@@ -503,7 +502,7 @@
   <button class="tab-btn active" onclick="showTab('overview', this)">Overview</button>
   <button class="tab-btn" onclick="showTab('telemetry', this)">GPU Telemetry</button>
   <button class="tab-btn" onclick="showTab('trust', this)">Trust & Verification</button>
-  <button class="tab-btn" onclick="showTab('billing-tab', this)">Billing & Fund</button>
+  <button class="tab-btn" onclick="showTab('billing-tab', this)">Billing</button>
   <button class="tab-btn" onclick="showTab('earnings', this)">My Earnings</button>
   <button class="tab-btn" onclick="showTab('reputation-tab', this)">Reputation</button>
   <button class="tab-btn" onclick="showTab('job-logs', this)">Job Logs</button>
@@ -527,7 +526,6 @@
   <button class="btn" onclick="showAddHostForm()" style="background:#4caf50">+ Add Host</button>
   <button class="btn" onclick="showSubmitJobForm()" style="background:#2196f3">+ Submit Job</button>
   <button class="btn" onclick="showProviderRegForm()" style="background:#ff9800">🏢 Register Provider</button>
-  <button class="btn btn-secondary" onclick="exportRebateDocs()">📄 Export Rebate Docs</button>
 </div>
 
 <div id="tab-overview">
@@ -569,11 +567,6 @@
       <input id="mkt-search-gpu" placeholder="GPU model" style="width:100px">
       <input id="mkt-search-vram" type="number" placeholder="Min VRAM" style="width:80px" min="0">
       <input id="mkt-search-price" type="number" placeholder="Max $/hr" style="width:80px" min="0" step="0.01">
-      <select id="mkt-search-prov" style="width:80px">
-        <option value="">Province</option>
-        <option value="ON">ON</option><option value="QC">QC</option><option value="BC">BC</option>
-        <option value="AB">AB</option><option value="SK">SK</option><option value="MB">MB</option>
-      </select>
       <select id="mkt-search-sort" style="width:100px">
         <option value="price">Sort: Price</option>
         <option value="vram">Sort: VRAM</option>
@@ -654,7 +647,6 @@
 <div class="stat-row">
   <div class="stat"><div class="num" id="stat-verified">-</div><div class="label">Verified Hosts</div></div>
   <div class="stat"><div class="num" id="stat-reputation-avg">-</div><div class="label">Avg Reputation</div></div>
-  <div class="stat"><div class="num" id="stat-ca-hosts">-</div><div class="label">🍁 Canadian Hosts</div></div>
 </div>
 
 <div class="grid">
@@ -738,10 +730,6 @@
         <button class="btn btn-secondary" onclick="fetchComplianceData()" style="font-size:11px">↻ Refresh Compliance</button>
       </div>
       <div style="margin-bottom:16px">
-        <h3 style="font-size:12px;color:#ff3333;margin-bottom:8px;text-transform:uppercase">Province Compliance Matrix</h3>
-        <div id="compliance-provinces" class="compliance-grid" style="min-height:40px;font-size:12px;color:#666">Click refresh to load compliance data.</div>
-      </div>
-      <div style="margin-bottom:16px">
         <h3 style="font-size:12px;color:#ff3333;margin-bottom:8px;text-transform:uppercase">Tax Rates by Province</h3>
         <table>
           <thead><tr><th>Province</th><th>GST</th><th>PST/HST</th><th>Total</th><th>Type</th></tr></thead>
@@ -764,12 +752,10 @@
 </div>
 </div>
 
-<!-- ═══ Billing & Fund Tab ═══ -->
+<!-- ═══ Billing Tab ═══ -->
 <div id="tab-billing-tab" style="display:none">
 <div class="stat-row">
-  <div class="stat"><div class="num fund-highlight" id="stat-fund-eligible">-</div><div class="label">Fund Eligible (CAD)</div></div>
-  <div class="stat"><div class="num" id="stat-ca-compute">-</div><div class="label">🍁 CA Compute (CAD)</div></div>
-  <div class="stat"><div class="num" id="stat-effective-cost">-</div><div class="label">Effective Cost (CAD)</div></div>
+  <div class="stat"><div class="num" id="stat-effective-cost">-</div><div class="label">Total Compute (CAD)</div></div>
 </div>
 
 <div class="grid">
@@ -791,10 +777,6 @@
       <button class="btn" onclick="estimateCost()" style="margin-left:8px">Estimate</button>
       <div id="est-result" style="margin-top:8px;font-size:13px;color:#aaa;"></div>
     </div>
-  </div>
-  <div class="card">
-    <h2>Provider Attestation</h2>
-    <div id="attestation-info" style="font-size:13px;color:#aaa;"></div>
   </div>
   <div class="card">
     <h2>Cost Comparison: On-Demand vs Reserved</h2>
@@ -877,8 +859,8 @@
   <div class="card full">
     <h2>📄 Invoices</h2>
     <table>
-      <thead><tr><th>Invoice #</th><th>Period</th><th>Subtotal</th><th>Tax</th><th>Total (CAD)</th><th>CAF Eligible</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody id="invoice-table"><tr><td colspan="8" style="text-align:center;color:#555">Loading...</td></tr></tbody>
+      <thead><tr><th>Invoice #</th><th>Period</th><th>Subtotal</th><th>Tax</th><th>Total (CAD)</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="invoice-table"><tr><td colspan="7" style="text-align:center;color:#555">Loading...</td></tr></tbody>
     </table>
     <div style="text-align:center;margin-top:8px">
       <button class="btn btn-secondary" onclick="fetchInvoices()" style="font-size:11px">↻ Refresh Invoices</button>
@@ -941,7 +923,7 @@
   <div class="card">
     <h2>Earnings by Period</h2>
     <table>
-      <thead><tr><th>Period</th><th>Revenue</th><th>Fund Rebate</th><th>Net</th></tr></thead>
+      <thead><tr><th>Period</th><th>Revenue</th><th>Platform Fee</th><th>Net</th></tr></thead>
       <tbody id="earnings-by-period-table"></tbody>
     </table>
   </div>
@@ -1254,7 +1236,6 @@
         <option value="day" selected>By Day</option>
         <option value="week">By Week</option>
         <option value="gpu_model">By GPU Model</option>
-        <option value="province">By Province</option>
       </select>
       <select id="analytics-days" style="background:#1a1a1a;color:#e0e0e0;border:1px solid #333;padding:4px 8px;border-radius:4px;font-size:11px">
         <option value="7">7 days</option>
@@ -1266,24 +1247,12 @@
     <div id="analytics-chart" class="chart-bar" style="padding:8px 12px;min-height:140px"></div>
     <div id="analytics-chart-labels" style="display:flex;justify-content:space-around;font-size:9px;color:#555;padding:0 12px;margin-top:4px"></div>
   </div>
-  <div class="card">
+  <div class="card full">
     <h2>Usage Breakdown</h2>
     <table>
-      <thead><tr><th>Period</th><th>Jobs</th><th>GPU Hours</th><th>Spend (CAD)</th><th>🍁 Canadian</th></tr></thead>
-      <tbody id="analytics-table"><tr><td colspan="5" style="text-align:center;color:#555">Loading...</td></tr></tbody>
+      <thead><tr><th>Period</th><th>Jobs</th><th>GPU Hours</th><th>Spend (CAD)</th></tr></thead>
+      <tbody id="analytics-table"><tr><td colspan="4" style="text-align:center;color:#555">Loading...</td></tr></tbody>
     </table>
-  </div>
-  <div class="card">
-    <h2>Canada vs International</h2>
-    <div id="analytics-can-ratio" style="padding:12px;text-align:center">
-      <div style="display:flex;gap:4px;height:24px;border-radius:4px;overflow:hidden;margin-bottom:8px">
-        <div id="can-bar" style="background:#4caf50;transition:width 0.4s;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff">—</div>
-        <div id="intl-bar" style="background:#2196f3;transition:width 0.4s;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff">—</div>
-      </div>
-      <div style="font-size:11px;color:#666">
-        <span style="color:#4caf50">● Canadian</span> &nbsp; <span style="color:#2196f3">● International</span>
-      </div>
-    </div>
   </div>
 </div>
 </div>
@@ -1332,7 +1301,7 @@
   <div class="card">
     <h2>Storage Regions</h2>
     <div style="padding:8px;font-size:12px;color:#aaa">
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:16px">🍁</span><span><strong>Primary bucket</strong><br><span style="color:#666">Durable object storage</span></span></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:16px">🗄️</span><span><strong>Primary bucket</strong><br><span style="color:#666">Durable object storage</span></span></div>
       <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:16px">🌐</span><span><strong>R2 Global</strong> — Cloudflare edge<br><span style="color:#666">Zero-egress global distribution</span></span></div>
       <div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:16px">📋</span><span><strong>Policy Routing</strong><br><span style="color:#666">Artifacts routed by durability and cost</span></span></div>
     </div>
@@ -1560,7 +1529,7 @@
 <div id="onboarding-modal" class="modal-overlay">
   <div class="modal" style="max-width:480px">
     <h2>Welcome to Xcelsior</h2>
-    <p style="color:#888;margin-bottom:16px">Distributed Canadian GPU compute — ever upward.<br>Choose your role to get started:</p>
+    <p style="color:#888;margin-bottom:16px">Distributed GPU compute — ever upward.<br>Choose your role to get started:</p>
     <div style="display:flex;flex-direction:column;gap:8px">
       <button class="btn" onclick="setRole('provider')" style="background:#4caf50;padding:12px;font-size:13px">🖥️ GPU Provider — Share your GPU for compute jobs</button>
       <button class="btn" onclick="setRole('submitter')" style="background:#2196f3;padding:12px;font-size:13px">📦 Job Submitter — Run training & inference workloads</button>
@@ -1950,11 +1919,9 @@ async function fetchHosts() {
   const r = await fetch(`${API}/hosts?active_only=false`);
   const d = await r.json();
   const active = d.hosts.filter(h => h.status === 'active').length;
-  const ca = d.hosts.filter(h => (h.country || '').toUpperCase() === 'CA').length;
   document.getElementById('stat-hosts').textContent = active;
-  document.getElementById('stat-ca-hosts').textContent = ca;
   document.getElementById('hosts-table').innerHTML = d.hosts.map(h => {
-    const loc = (h.country === 'CA' ? '🍁 CA' : (h.country || '—')) + (h.province ? ` <span class="prov-badge">${h.province}</span>` : '');
+    const loc = h.country || '—';
     const admitted = h.admitted ? '<span class="badge badge-admitted">✓</span>' : '<span class="badge badge-not-admitted">✗</span>';
     return `<tr><td style="cursor:pointer;color:#90caf9" onclick="showHostDetail('${h.host_id}')">${h.host_id}</td><td>${h.ip}</td><td>${h.gpu_model}</td><td>${h.free_vram_gb}GB</td><td>$${h.cost_per_hour}</td><td>${loc}</td><td>${admitted}</td><td>${s(h.status)}</td><td><button class="btn btn-secondary" style="padding:1px 6px;font-size:10px" onclick="removeHost('${h.host_id}')">✕</button></td></tr>`;
   }).join('');
@@ -2035,7 +2002,7 @@ async function fetchVerification() {
     const hosts = d.hosts || [];
     document.getElementById('stat-verified').textContent = hosts.filter(h => h.status === 'verified').length;
     document.getElementById('verification-table').innerHTML = hosts.map(h => {
-      const loc = h.country === 'CA' ? `🍁 ${h.province || 'CA'}` : (h.country || '—');
+      const loc = h.country || '—';
       const score = h.overall_score != null ? h.overall_score.toFixed(0) + '%' : '—';
       const lastCheck = h.last_check ? new Date(h.last_check * 1000).toLocaleString() : '—';
       const actions = h.status === 'verified'
@@ -2089,7 +2056,6 @@ async function fetchTransparency() {
     document.getElementById('transparency-report').innerHTML = `
       <div style="margin-bottom:8px">
         <strong style="color:#e0e0e0">12-Month Summary</strong>
-        <span style="font-size:10px;color:#444;margin-left:8px">${d.cloud_act_note ? '🛡️ CLOUD Act diligence' : ''}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
         <div>📨 Requests received: <strong style="color:#e0e0e0">${s.requests_received || 0}</strong></div>
@@ -2139,7 +2105,7 @@ async function fetchTrustTiers() {
   }
 }
 
-// ── Billing & Fund fetchers ──────────────────────────────────────────
+// ── Billing fetchers ─────────────────────────────────────────────────
 async function fetchPricing() {
   try {
     const r = await fetch(`${API}/api/pricing/reference`);
@@ -2150,26 +2116,6 @@ async function fetchPricing() {
     ).join('') || '<tr><td colspan="6" style="color:#555">No pricing data</td></tr>';
   } catch(e) {
     document.getElementById('pricing-table').innerHTML = '<tr><td colspan="6" style="color:#555">Pricing unavailable</td></tr>';
-  }
-}
-
-async function fetchFundStats() {
-  try {
-    const r = await fetch(`${API}/api/billing/attestation`);
-    const d = await r.json();
-    document.getElementById('stat-fund-eligible').textContent = '$' + (d.total_eligible_cad || 0).toFixed(2);
-    document.getElementById('stat-ca-compute').textContent = '$' + (d.canadian_compute_cad || 0).toFixed(2);
-    document.getElementById('stat-effective-cost').textContent = '$' + (d.effective_cost_cad || 0).toFixed(2);
-    document.getElementById('attestation-info').innerHTML = `
-      <p><strong>Supplier:</strong> ${d.supplier || 'Xcelsior Compute Inc.'}</p>
-      <p><strong>Period:</strong> ${d.period || 'Current billing cycle'}</p>
-      <p><strong>Canadian Provider Rate:</strong> ${d.ca_reimbursement_rate || '67%'}</p>
-      <p><strong>Non-Canadian Rate:</strong> ${d.intl_reimbursement_rate || '50%'}</p>
-      <p style="margin-top:8px"><strong>Total Compute (CAD):</strong> $${(d.total_compute_cad || 0).toFixed(2)}</p>
-      <p><strong>Fund Eligible:</strong> $${(d.total_eligible_cad || 0).toFixed(2)}</p>
-    `;
-  } catch(e) {
-    document.getElementById('attestation-info').innerHTML = '<p style="color:#555">Attestation unavailable</p>';
   }
 }
 
@@ -2189,8 +2135,6 @@ async function estimateCost() {
     resultEl.innerHTML = `
       <strong>Estimated Cost: $${(d.total_cad || d.estimated_cost || 0).toFixed(2)} CAD</strong><br>
       Rate: $${(d.rate_per_hour || 0).toFixed(2)}/hr
-      ${d.fund_rebate ? `<br><span class="fund-highlight">Fund Rebate: -$${d.fund_rebate.toFixed(2)}</span>` : ''}
-      ${d.effective_cost ? `<br>Effective: $${d.effective_cost.toFixed(2)} CAD` : ''}
       ${spot ? '<br><span style="color:#ff9800">⚡ Spot pricing applied</span>' : ''}
     `;
   } catch(e) {
@@ -2356,7 +2300,7 @@ async function fetchEarnings() {
       : '<tr><td colspan="5" style="color:#555">No payouts yet</td></tr>';
 
     document.getElementById('earnings-by-period-table').innerHTML =
-      `<tr><td>Current cycle</td><td>$${totalEarned.toFixed(2)}</td><td>$${(totalEarned * 0.67).toFixed(2)}</td><td>$${(totalEarned * 0.33).toFixed(2)}</td></tr>`;
+      `<tr><td>Current cycle</td><td>$${totalEarned.toFixed(2)}</td><td>$${(totalEarned * 0.15).toFixed(2)}</td><td>$${(totalEarned * 0.85).toFixed(2)}</td></tr>`;
 
   } catch(e) {
     document.getElementById('earnings-by-host-table').innerHTML = '<tr><td colspan="5" style="color:#555">Earnings unavailable</td></tr>';
@@ -2540,22 +2484,6 @@ async function submitJob() {
   }
 }
 
-// ── Export Rebate Docs ───────────────────────────────────────────────
-async function exportRebateDocs() {
-  try {
-    const r = await fetch(`${API}/api/billing/export/caf/default`);
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'xcelsior_caf_export.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch(e) {
-    alert('Export failed. Ensure billing records exist.');
-  }
-}
-
 // ── Event log fetcher ────────────────────────────────────────────────
 async function fetchEventLog() {
   try {
@@ -2580,7 +2508,7 @@ async function refresh() {
   await Promise.all([
     fetchHosts(), fetchJobs(), fetchBilling(), fetchMarketplace(), fetchPool(), fetchSpotPrices(), fetchComputeScores(),
     fetchVerification(), fetchReputation(), fetchTrustTiers(), fetchTransparency(),
-    fetchPricing(), fetchFundStats(), fetchEventLog(), fetchEarnings(),
+    fetchPricing(), fetchEventLog(), fetchEarnings(),
     fetchTransactionHistoryFiltered(), fetchAnalytics(), fetchMarketplaceStats(), fetchInvoices(),
     fetchSlurmProfiles(), fetchSpotPriceHistory(), fetchActiveCommitments(),
     fetchApiKeys()
@@ -3392,8 +3320,8 @@ async function fetchAnalytics() {
     // Table
     const rows = d.analytics || [];
     const tbody = document.getElementById('analytics-table');
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#555">No data for this period</td></tr>'; }
-    else { tbody.innerHTML = rows.map(r => `<tr><td>${r.period}</td><td>${r.job_count}</td><td>${(r.total_gpu_hours||0).toFixed(1)}</td><td>$${(r.total_cost_cad||0).toFixed(2)}</td><td>${r.canadian_jobs||0}</td></tr>`).join(''); }
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#555">No data for this period</td></tr>'; }
+    else { tbody.innerHTML = rows.map(r => `<tr><td>${r.period}</td><td>${r.job_count}</td><td>${(r.total_gpu_hours||0).toFixed(1)}</td><td>$${(r.total_cost_cad||0).toFixed(2)}</td></tr>`).join(''); }
     // Chart
     const chart = document.getElementById('analytics-chart');
     if (rows.length) {
@@ -3403,14 +3331,6 @@ async function fetchAnalytics() {
         return `<div class="chart-col" style="height:${Math.max(pct, 2)}%;min-height:4px" title="${r.period}: $${(r.total_cost_cad||0).toFixed(2)}"><span class="chart-val">$${(r.total_cost_cad||0).toFixed(0)}</span><span class="chart-label">${String(r.period).slice(-5)}</span></div>`;
       }).join('');
     } else { chart.innerHTML = '<div style="color:#555;text-align:center;width:100%;padding:40px">No data</div>'; }
-    // Canada ratio
-    const canJobs = rows.reduce((a, r) => a + (r.canadian_jobs || 0), 0);
-    const intlJobs = rows.reduce((a, r) => a + (r.international_jobs || 0), 0);
-    const total = canJobs + intlJobs || 1;
-    document.getElementById('can-bar').style.width = `${(canJobs / total * 100).toFixed(0)}%`;
-    document.getElementById('can-bar').textContent = `${canJobs} 🍁`;
-    document.getElementById('intl-bar').style.width = `${(intlJobs / total * 100).toFixed(0)}%`;
-    document.getElementById('intl-bar').textContent = `${intlJobs} 🌐`;
   } catch(e) { console.error('Analytics:', e); }
 }
 
@@ -3622,8 +3542,7 @@ async function fetchBuilds() {
 
 async function loadAdminPanel() {
   try {
-    const r = await fetch(`${API}/canada`);
-    const d = await r.json();
+    await fetchAdminMetrics();
   } catch(e) {}
 }
 
@@ -3645,7 +3564,7 @@ async function showHostDetail(hostId) {
     const sla = slaR.status === 'fulfilled' && slaR.value.ok ? await slaR.value.json() : null;
     const score = scoreR.status === 'fulfilled' && scoreR.value.ok ? await scoreR.value.json() : null;
     if (!h) { content.innerHTML = '<p style="color:#f44336">Host not found.</p>'; return; }
-    const loc = (h.country === 'CA' ? '🍁 CA' : (h.country || '—')) + (h.province ? ` — ${h.province}` : '');
+    const loc = h.country || '—';
     const uptime = sla ? `${(sla.uptime_pct || sla.uptime || 0).toFixed(2)}%` : '—';
     const xcu = score ? (score.xcu || score.score || 0).toFixed(1) : '—';
     let html = `<div class="host-detail-grid">
@@ -3803,12 +3722,10 @@ async function searchMarketplace() {
   const gpu = document.getElementById('mkt-search-gpu').value.trim();
   const vram = document.getElementById('mkt-search-vram').value;
   const price = document.getElementById('mkt-search-price').value;
-  const prov = document.getElementById('mkt-search-prov').value;
   const sort = document.getElementById('mkt-search-sort').value;
   if (gpu) params.set('gpu_model', gpu);
   if (vram) params.set('min_vram', vram);
   if (price) params.set('max_price', price);
-  if (prov) params.set('province', prov);
   if (sort) params.set('sort_by', sort);
   try {
     const r = await fetch(`${API}/marketplace/search?${params}`);
@@ -3877,20 +3794,6 @@ function toggleAdvancedJob() {
 
 // ── Compliance Dashboard ─────────────────────────────────────────────
 async function fetchComplianceData() {
-  // Fetch province compliance matrix
-  try {
-    const r = await fetch(`${API}/api/compliance/provinces`);
-    if (r.ok) {
-      const d = await r.json();
-      const provinces = d.provinces || d;
-      const el = document.getElementById('compliance-provinces');
-      if (Array.isArray(provinces)) {
-        el.innerHTML = provinces.map(p => `<div class="compliance-cell"><div class="prov-name">${p.code || p.province}</div><div class="prov-status">${p.compliant ? '✅ Compliant' : '⚠️ Review'}</div><div style="font-size:9px;color:#555">${p.notes || ''}</div></div>`).join('');
-      } else if (typeof provinces === 'object') {
-        el.innerHTML = Object.entries(provinces).map(([k, v]) => `<div class="compliance-cell"><div class="prov-name">${k}</div><div class="prov-status">${typeof v === 'object' ? (v.compliant ? '✅' : '⚠️') : v}</div></div>`).join('');
-      }
-    }
-  } catch(e) { /* compliance endpoint may not exist */ }
   // Fetch tax rates
   try {
     const r = await fetch(`${API}/api/compliance/tax-rates`);
@@ -4081,7 +3984,7 @@ async function fetchInvoices() {
     const invoices = d.invoices || [];
     const tbody = document.getElementById('invoice-table');
     if (!invoices.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#555">No invoices found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#555">No invoices found</td></tr>';
       return;
     }
     tbody.innerHTML = invoices.map(inv => {
@@ -4093,7 +3996,6 @@ async function fetchInvoices() {
         <td>$${(inv.subtotal_cad || 0).toFixed(2)}</td>
         <td>$${(inv.tax_cad || 0).toFixed(2)}</td>
         <td style="font-weight:bold">$${(inv.total_cad || 0).toFixed(2)}</td>
-        <td style="color:#4caf50">$${(inv.caf_eligible_cad || 0).toFixed(2)}</td>
         <td><span class="inv-status inv-paid">${inv.status}</span></td>
         <td><button class="btn btn-secondary" style="padding:1px 6px;font-size:10px" onclick="downloadInvoice('${inv.invoice_id}')">📥</button></td>
       </tr>`;

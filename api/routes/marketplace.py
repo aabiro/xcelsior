@@ -29,8 +29,6 @@ def api_marketplace_search(
     gpu_model: str | None = None,
     min_vram: float | None = None,
     max_price: float | None = None,
-    province: str | None = None,
-    country: str | None = None,
     min_reputation: int | None = None,
     sort_by: str = "price",
     limit: int = Query(50, ge=1, le=1000),
@@ -44,10 +42,6 @@ def api_marketplace_search(
         listings = [l for l in listings if (l.get("vram_gb", 0) or 0) >= min_vram]
     if max_price is not None:
         listings = [l for l in listings if (l.get("price_per_hour", 999) or 999) <= max_price]
-    if province:
-        listings = [l for l in listings if l.get("province", "").upper() == province.upper()]
-    if country:
-        listings = [l for l in listings if (l.get("country", "").upper()) == country.upper()]
     if min_reputation is not None:
         listings = [l for l in listings if (l.get("reputation_score", 0) or 0) >= min_reputation]
 
@@ -69,8 +63,6 @@ def api_marketplace_search(
             "gpu_model": gpu_model,
             "min_vram": min_vram,
             "max_price": max_price,
-            "province": province,
-            "country": country,
             "min_reputation": min_reputation,
             "sort_by": sort_by,
         },

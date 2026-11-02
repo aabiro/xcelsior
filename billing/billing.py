@@ -464,10 +464,6 @@ class Invoice:
     tax_amount_cad: float = 0.0
     total_cad: float = 0.0
 
-    # The two fund_* columns exist so archived invoices raised
-    # while the AI Compute Access Fund was running still round-trip; the program
-    # has ended, so both are 0.0 on anything issued now.
-
     # Metadata
     created_at: float = field(default_factory=time.time)
     status: str = "draft"  # draft, issued, paid, void
@@ -492,9 +488,6 @@ class ProviderAttestation:
     provider_name: str = "Xcelsior"
     incorporated_in: str = "Canada"
     registration_number: str = ""
-    data_centers_in_canada: bool = True
-    physical_infrastructure_canada: bool = True
-    data_stays_in_canada: bool = True
     attested_at: float = field(default_factory=time.time)
     valid_until: float = 0.0
 
@@ -515,7 +508,6 @@ class BillingEngine:
 
     Features:
     - Per-job metering
-    - Canadian / non-Canadian compute split on every invoice
     - Invoice generation with auditable line items
     - Stripe Connect–ready payout structure
     """
@@ -1133,11 +1125,7 @@ class BillingEngine:
             return out
 
     def generate_attestation(self) -> ProviderAttestation:
-        """Generate a provider attestation bundle.
-
-        This is the document customers attach to Fund claims
-        to prove they used a Canadian compute provider.
-        """
+        """Generate a provider attestation bundle for procurement and compliance review."""
         return ProviderAttestation(
             valid_until=time.time() + 365 * 86400,  # 1 year validity
         )

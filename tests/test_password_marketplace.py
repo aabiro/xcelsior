@@ -249,8 +249,6 @@ class TestMarketplaceSearch:
                 "total_vram_gb": 24,
                 "free_vram_gb": 24,
                 "cost_per_hour": 0.50,
-                "country": "CA",
-                "province": "ON",
             },
             {
                 "host_id": "mkt-h2",
@@ -259,8 +257,6 @@ class TestMarketplaceSearch:
                 "total_vram_gb": 80,
                 "free_vram_gb": 80,
                 "cost_per_hour": 2.00,
-                "country": "CA",
-                "province": "QC",
             },
             {
                 "host_id": "mkt-h3",
@@ -269,7 +265,6 @@ class TestMarketplaceSearch:
                 "total_vram_gb": 24,
                 "free_vram_gb": 24,
                 "cost_per_hour": 0.35,
-                "country": "US",
             },
         ]
         client.cookies.clear()
@@ -286,8 +281,6 @@ class TestMarketplaceSearch:
                     "gpu_model": h["gpu_model"],
                     "vram_gb": h["total_vram_gb"],
                     "price_per_hour": h["cost_per_hour"],
-                    "country": h.get("country", ""),
-                    "province": h.get("province", ""),
                 },
             )
 
@@ -328,13 +321,13 @@ class TestMarketplaceSearch:
             price = listing.get("cost_per_hour", listing.get("price_per_hour", 0))
             assert price <= 1.0
 
-    def test_marketplace_search_by_province(self):
-        """GET /marketplace/search?province=ON filters by province."""
-        r = client.get("/marketplace/search?province=ON")
+    def test_marketplace_search_by_reputation(self):
+        """GET /marketplace/search?min_reputation=50 filters by minimum reputation."""
+        r = client.get("/marketplace/search?min_reputation=50")
         assert r.status_code == 200
         d = r.json()
         for listing in d["listings"]:
-            assert listing.get("province", "") == "ON"
+            assert (listing.get("reputation_score", 0) or 0) >= 50
 
     def test_marketplace_search_sort_price(self):
         """GET /marketplace/search?sort_by=price sorts ascending by price."""

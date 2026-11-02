@@ -103,7 +103,7 @@ FAKE_OFFERS = [
         "gpu_model": "RTX 4090",
         "total_vram_gb": 24,
         "ask_cents_per_hour": 45,
-        "province": "ON",
+        "region": "us-east",
         "reputation_tier": "bronze",
     },
     {
@@ -111,7 +111,7 @@ FAKE_OFFERS = [
         "gpu_model": "A100",
         "total_vram_gb": 80,
         "ask_cents_per_hour": 200,
-        "province": "BC",
+        "region": "us-west",
         "reputation_tier": "silver",
     },
     {
@@ -119,7 +119,7 @@ FAKE_OFFERS = [
         "gpu_model": "RTX 4090",
         "total_vram_gb": 24,
         "ask_cents_per_hour": 50,
-        "province": "QC",
+        "region": "eu-west",
         "reputation_tier": "bronze",
     },
 ]
@@ -749,21 +749,21 @@ class TestSearchMarketplace:
             "gpu_model": "RTX 4090",
             "vram_gb": 24,
             "price_per_hour": 0.45,
-            "province": "ON",
+            "region": "us-east",
         },
         {
             "host_id": "h-2",
             "gpu_model": "A100",
             "vram_gb": 80,
             "price_per_hour": 2.00,
-            "province": "BC",
+            "region": "us-west",
         },
         {
             "host_id": "h-3",
             "gpu_model": "RTX 4090",
             "vram_gb": 24,
             "price_per_hour": 0.50,
-            "province": "QC",
+            "region": "eu-west",
         },
     ]
 
@@ -782,8 +782,8 @@ class TestSearchMarketplace:
         result = _TOOL_HANDLERS["search_marketplace"]({"gpu_model": "RTX 4090"}, _user())
         assert "offers" in result
 
-    def test_with_province(self):
-        result = _TOOL_HANDLERS["search_marketplace"]({"province": "ON"}, _user())
+    def test_with_min_vram(self):
+        result = _TOOL_HANDLERS["search_marketplace"]({"min_vram_gb": 48}, _user())
         assert "offers" in result
 
     def test_with_price_filter(self):
@@ -1027,7 +1027,7 @@ class TestGetHostStatus:
                 "gpu_model": "RTX 4090",
                 "total_vram_gb": 24,
                 "status": "active",
-                "province": "ON",
+                "region": "us-east",
                 "registered_at": time.time(),
                 "owner": "u-123",
             },
@@ -1036,7 +1036,7 @@ class TestGetHostStatus:
                 "gpu_model": "A100",
                 "total_vram_gb": 80,
                 "status": "active",
-                "province": "BC",
+                "region": "us-west",
                 "registered_at": time.time(),
                 "owner": "u-other",
             },
@@ -1055,7 +1055,7 @@ class TestGetHostStatus:
             assert "host_id" in h
             assert "gpu_model" in h
             assert "status" in h
-            assert "province" in h
+            assert "region" in h
 
 
 class TestGetReputation:
@@ -1238,21 +1238,21 @@ class TestGetGpuAvailability:
             "gpu_model": "RTX 4090",
             "vram_gb": 24,
             "price_per_hour": 0.45,
-            "province": "ON",
+            "region": "us-east",
         },
         {
             "host_id": "h-2",
             "gpu_model": "A100",
             "vram_gb": 80,
             "price_per_hour": 2.00,
-            "province": "BC",
+            "region": "us-west",
         },
         {
             "host_id": "h-3",
             "gpu_model": "RTX 4090",
             "vram_gb": 24,
             "price_per_hour": 0.50,
-            "province": "QC",
+            "region": "eu-west",
         },
     ]
 
@@ -1274,10 +1274,10 @@ class TestGetGpuAvailability:
         assert "filters_applied" in result
         assert result["filters_applied"].get("gpu_model") == "RTX 4090"
 
-    def test_with_province_filter(self):
-        result = _TOOL_HANDLERS["get_gpu_availability"]({"province": "ON"}, _user())
+    def test_with_region_filter(self):
+        result = _TOOL_HANDLERS["get_gpu_availability"]({"region": "us-east"}, _user())
         assert "gpu_availability" in result
-        assert result["filters_applied"].get("province") == "ON"
+        assert result["filters_applied"].get("region") == "us-east"
 
     def test_summary_structure(self):
         result = _TOOL_HANDLERS["get_gpu_availability"]({}, _user())
@@ -1285,9 +1285,9 @@ class TestGetGpuAvailability:
             assert "total_available" in summary
             assert "min_price_cad_per_hour" in summary
             assert "max_price_cad_per_hour" in summary
-            assert "provinces" in summary
+            assert "regions" in summary
             assert "avg_vram_gb" in summary
-            assert isinstance(summary["provinces"], dict)
+            assert isinstance(summary["regions"], dict)
 
     def test_total_counts(self):
         result = _TOOL_HANDLERS["get_gpu_availability"]({}, _user())
@@ -1327,7 +1327,7 @@ class TestListVolumes:
                 "status": "available",
                 "storage_type": "nfs",
                 "encrypted": True,
-                "province": "ON",
+                "region": "us-east",
                 "created_at": 1234567890,
             }
         ]
@@ -1347,7 +1347,7 @@ class TestListVolumes:
         assert vol["name"] == "data-vol"
         assert vol["size_gb"] == 100
         assert vol["encrypted"] is True
-        assert vol["province"] == "ON"
+        assert vol["region"] == "us-east"
 
     def test_empty_volumes(self):
         mock_engine = MagicMock()
@@ -2750,16 +2750,16 @@ class TestAggregateOffers:
         from ai_assistant import _aggregate_offers
 
         offers = [
-            {"gpu_model": "A100", "price_per_hour": 1.00, "vram_gb": 80, "province": "ON"},
-            {"gpu_model": "A100", "price_per_hour": 0.90, "vram_gb": 80, "province": "QC"},
-            {"gpu_model": "H100", "price_per_hour": 2.00, "vram_gb": 80, "province": "ON"},
+            {"gpu_model": "A100", "price_per_hour": 1.00, "vram_gb": 80, "region": "us-east"},
+            {"gpu_model": "A100", "price_per_hour": 0.90, "vram_gb": 80, "region": "eu-west"},
+            {"gpu_model": "H100", "price_per_hour": 2.00, "vram_gb": 80, "region": "us-east"},
         ]
         result = _aggregate_offers(offers)
         assert result["A100"]["count"] == 2
         assert result["A100"]["min_price"] == 0.90
         assert result["H100"]["count"] == 1
-        assert "ON" in result["A100"]["provinces"]
-        assert "QC" in result["A100"]["provinces"]
+        assert "us-east" in result["A100"]["regions"]
+        assert "eu-west" in result["A100"]["regions"]
 
     def test_empty_offers(self):
         from ai_assistant import _aggregate_offers

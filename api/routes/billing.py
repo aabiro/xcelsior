@@ -1164,7 +1164,7 @@ def api_download_invoice(
         f"TOTAL (CAD): ${inv.total_cad:.2f}",
         "",
         "=" * 60,
-        "Xcelsior Inc. | xcelsior.ca | Built in Canada 🍁",
+        "Xcelsior Inc. | xcelsior.ca",
     ]
     from fastapi.responses import PlainTextResponse
 

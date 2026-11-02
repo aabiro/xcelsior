@@ -115,7 +115,7 @@ def api_respond_legal_request(
 
 @router.get("/api/transparency/report", tags=["Transparency"])
 def api_transparency_report(request: Request, months: int = 12):
-    """Generate transparency report — CLOUD Act diligence artifact.
+    """Generate transparency report.
 
     Returns summary of all legal requests and data disclosures.
     Monthly JSON per REPORT_FEATURE_2.md Phase B §3.
@@ -167,11 +167,6 @@ def api_transparency_report(request: Request, months: int = 12):
             "by_requesting_country": by_requesting_country,
             "data_disclosures": len(disclosures_list),
         },
-        "cloud_act_note": (
-            "Xcelsior is a Canadian-controlled entity. All data resides in Canadian "
-            "requesting_country. Foreign legal process requires MLAT through Canadian courts. "
-            "No US CLOUD Act compelled disclosure has been made."
-        ),
         "requests": requests_list,
         "disclosures": disclosures_list,
     }
