@@ -11,6 +11,11 @@ from pathlib import Path
 GIB = 1024**3
 MINIMUM_RESERVE = 5 * GIB
 DEFAULT_RELEASE_BUDGET = 8 * GIB
+# Where a release writes its bulk: the synced tree and its backups, and image
+# builds. Not /tmp: it gets only small staging files, and since the 26.04
+# upgrade it is its own 7.7 GB tmpfs, which can never hold a 5 GiB reserve plus
+# an 8 GiB budget, so including it refused every production deploy.
+DEFAULT_PATHS = (Path("/opt/xcelsior"), Path("/var/lib/docker"))
 
 
 def existing_parent(path: Path) -> Path:
@@ -63,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = check_headroom(
-            args.path or [Path("/opt/xcelsior"), Path("/var/lib/docker"), Path("/tmp")],
+            args.path or list(DEFAULT_PATHS),
             args.required_bytes,
         )
     except (OSError, ValueError) as exc:
