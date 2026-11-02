@@ -247,9 +247,12 @@ def ingest_observation(
     )
     # received_at (DB clock) is the freshness signal §12.2. Capability and
     # condition observations confer no operator admission or execution intent.
+    # Capabilities merge: the heartbeat reports other keys, and replacing the
+    # whole object let each writer erase the other's (gpu_uuid_binding flapped).
     conn.execute(
         "UPDATE hosts SET last_observed_at=clock_timestamp(),observation_session_id=%s, "
-        "capabilities=COALESCE(%s::jsonb,capabilities),conditions=COALESCE(%s::jsonb,conditions), "
+        "capabilities=capabilities||COALESCE(%s::jsonb,'{}'::jsonb),"
+        "conditions=COALESCE(%s::jsonb,conditions), "
         "availability_state=CASE WHEN %s THEN 'not_ready' "
         "WHEN %s AND status='active' THEN 'ready' ELSE availability_state END "
         "WHERE host_id=%s",
