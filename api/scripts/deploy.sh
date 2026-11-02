@@ -613,12 +613,69 @@ install_nginx_configs() {
     success "Nginx configs installed"
 }
 
-# A production deploy copies the local env file over /opt/xcelsior/.env.
+# ── Production env is authoritative ──────────────────────────────────
+# A production deploy used to copy the deploying machine's `.env` over
+# `/opt/xcelsior/.env`. That file is also the developer's local config, so the
+# deploy shipped whatever the laptop held. 67a16fa stopped it on 2026-10-05
+# (Stripe sandbox over live, SPIFFE_STRICT and the alert routing were the
+# drift then); b8c6d21f restored the copy on 2026-10-18. By 2026-11-02 the local
+# file lacked 49 production keys (Redis password, audit signing keys, agent
+# gateway secret, SPIRE) and pointed the database DSNs at the local database,
+# so the next deploy would have taken production down.
+#
+# So a prod deploy keeps production's `.env`, and changing it is an explicit
+# act on the host. Drift is reported by key name only, and the comparison runs
+# *on the host*: the local side sends SHA-256 digests of its values, never the
+# values, and production's file never leaves the box.
+#
+# The frontend is built from the local file's `NEXT_PUBLIC_*` values, so a
+# public key that differs from production, or that only the local file has, is
+# refused rather than reported: every browser would get it. A public key only
+# production has is fine when the frontend build takes it, because compose
+# fills unpassed build args from production's `.env` on the host.
+#
+# XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 restores the copy, for when replacing
+# production's config from the local file really is the intent.
 guard_prod_env() {
     [[ "${TARGET_ENV:-}" == "prod" && -n "${ENV_FILE:-}" ]] || return 0
     [[ -z "${PROD_ENV_GUARDED:-}" ]] || return 0
     PROD_ENV_GUARDED=1
-    log "$ENV_FILE will replace the production .env"
+
+    if [[ "${XCELSIOR_DEPLOY_PUSH_LOCAL_ENV:-0}" == "1" ]]; then
+        warn "XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1 — $ENV_FILE will REPLACE the production .env"
+        return 0
+    fi
+
+    SKIP_PROD_ENV_PUSH=1
+    local report prod_only built key
+    report=$(env_digests "$ENV_FILE" | ssh_cmd "python3 -c '$(env_drift_remote_py)' /opt/xcelsior/.env") \
+        || error "Could not compare the local .env with production's"
+    printf '%s\n' "$report" | sed -n 's/^REPORT //p'
+    if printf '%s\n' "$report" | grep -q '^PUBLIC_DRIFT '; then
+        error "NEXT_PUBLIC_* values differ from production; the frontend would ship them. Reconcile the local .env first."
+    fi
+    prod_only=$(printf '%s\n' "$report" | sed -n 's/^PUBLIC_PROD_ONLY //p')
+    if [[ -n "$prod_only" ]]; then
+        built=$(frontend_build_arg_names) || error "Could not read the frontend build args from docker-compose.yml"
+        while read -r key; do
+            grep -qxF "$key" <<<"$built" \
+                || error "$key is only in production's .env and the frontend build does not take it, so the bundle would ship without it."
+        done <<<"$prod_only"
+    fi
+    success "Production .env kept as-is (local .env not pushed)"
+}
+
+# Build args of the frontend image; compose fills the ones not passed from the
+# host's `.env`.
+frontend_build_arg_names() {
+    python3 - "$PROJECT_DIR/docker-compose.yml" <<'PY'
+import sys
+
+import yaml
+
+args = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["services"]["frontend"]["build"].get("args") or {}
+print("\n".join(args if isinstance(args, dict) else (a.split("=", 1)[0] for a in args)))
+PY
 }
 
 # `key<TAB>sha256(value)` per line. Values never leave this function's pipe.
@@ -672,8 +729,10 @@ else:
     for label, keys in (("differ", differ), ("only in local", only_local), ("only in production", only_prod)):
         for k in keys:
             print(f"REPORT     {label:<19} {k}")
-if any(k.startswith("NEXT_PUBLIC_") for k in differ + only_local + only_prod):
-    print("PUBLIC_DRIFT")
+for k in sorted(k for k in differ + only_local if k.startswith("NEXT_PUBLIC_")):
+    print("PUBLIC_DRIFT " + k)
+for k in (k for k in only_prod if k.startswith("NEXT_PUBLIC_")):
+    print("PUBLIC_PROD_ONLY " + k)
 PY
 }
 
@@ -1925,7 +1984,7 @@ rollback() {
     echo "    git -C \"$PROJECT_DIR\" worktree add /tmp/xcelsior-rollback ${previous}"
     echo "    (cd /tmp/xcelsior-rollback && cp \"$PROJECT_DIR/.env\" . && ./scripts/deploy.sh)"
     echo
-    echo "  Production's .env is replaced by the .env in that worktree."
+    echo "  Production's .env is kept by the deploy regardless of the copied one."
     exit 1
 }
 

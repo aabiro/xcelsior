@@ -312,3 +312,97 @@ def test_rollback_cannot_take_production_down() -> None:
     code = "\n".join(l for l in body.splitlines() if not l.lstrip().startswith("#"))
     assert "compose" not in code or "down" not in code, "rollback still stops every service"
     assert not re.search(r"docker compose[^\n\"]*up -d\"", code), "rollback still runs a bare up"
+
+
+# ── Production's env is kept unless pushing it is asked for ───────────────
+#
+# b8c6d21f went back to copying the local `.env` over production's. On
+# 2026-11-02 that file lacked 49 production keys and pointed the database at
+# the developer's own, so the next deploy would have taken production down.
+
+GUARD = ("guard_prod_env", "env_digests", "env_drift_remote_py", "frontend_build_arg_names")
+BUILD_ARGS = (
+    "services:\n  frontend:\n    build:\n      args:\n"
+    "        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}\n"
+    "        NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}\n"
+)
+
+
+def _guard(tmp_path: Path, local: str, prod: str, **env: str) -> subprocess.CompletedProcess:
+    (tmp_path / "local.env").write_text(local)
+    (tmp_path / "prod.env").write_text(prod)
+    (tmp_path / "docker-compose.yml").write_text(BUILD_ARGS)
+    stubs = (
+        'log() { echo "LOG $*"; }; warn() { echo "WARN $*"; }; success() { echo "OK $*"; }\n'
+        'error() { echo "ERROR $*"; exit 1; }\n'
+        # The comparison runs on the host; here, against a stand-in for its file.
+        f'ssh_cmd() {{ eval "${{1//\\/opt\\/xcelsior\\/.env/{tmp_path}/prod.env}}"; }}\n'
+    )
+    script = stubs + "".join(_function(name) for name in GUARD)
+    script += 'guard_prod_env\necho "SKIP=${SKIP_PROD_ENV_PUSH:-}"\n'
+    base = {k: v for k, v in os.environ.items() if k != "PROD_ENV_GUARDED"}
+    return _bash(
+        script,
+        env={
+            **base,
+            "TARGET_ENV": "prod",
+            "ENV_FILE": str(tmp_path / "local.env"),
+            "PROJECT_DIR": str(tmp_path),
+            **env,
+        },
+    )
+
+
+def test_a_prod_deploy_keeps_production_env_and_reports_names_only(tmp_path: Path) -> None:
+    result = _guard(
+        tmp_path,
+        "XCELSIOR_STRIPE_MODE=sandbox\n",
+        "XCELSIOR_STRIPE_MODE=live\nXCELSIOR_REDIS_REQUIREPASS=not-a-real-password\n",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-1] == "SKIP=1"
+    assert "differ              XCELSIOR_STRIPE_MODE" in result.stdout
+    assert "only in production  XCELSIOR_REDIS_REQUIREPASS" in result.stdout
+    assert "not-a-real-password" not in result.stdout + result.stderr
+
+
+def test_replacing_production_env_is_an_explicit_choice(tmp_path: Path) -> None:
+    result = _guard(tmp_path, "A=1\n", "A=2\n", XCELSIOR_DEPLOY_PUSH_LOCAL_ENV="1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-1] == "SKIP="
+    assert "WARN XCELSIOR_DEPLOY_PUSH_LOCAL_ENV=1" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "local,prod",
+    [
+        (
+            "NEXT_PUBLIC_API_URL=http://localhost:9500\n",
+            "NEXT_PUBLIC_API_URL=https://xcelsior.ca\n",
+        ),
+        ("NEXT_PUBLIC_ONLY_HERE=1\n", ""),
+    ],
+)
+def test_public_values_the_bundle_would_ship_are_refused(
+    tmp_path: Path, local: str, prod: str
+) -> None:
+    result = _guard(tmp_path, local, prod)
+    assert result.returncode == 1
+    assert "ERROR NEXT_PUBLIC_* values differ from production" in result.stdout
+
+
+def test_a_public_key_only_production_has_is_built_from_production(tmp_path: Path) -> None:
+    built = _guard(tmp_path, "", "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=phc_x\n")
+    assert built.returncode == 0, built.stdout + built.stderr
+    unbuilt = _guard(tmp_path, "", "NEXT_PUBLIC_NOT_A_BUILD_ARG=1\n")
+    assert unbuilt.returncode == 1
+    assert "NEXT_PUBLIC_NOT_A_BUILD_ARG is only in production" in unbuilt.stdout
+
+
+def test_the_real_frontend_build_takes_productions_posthog_keys() -> None:
+    script = _function("frontend_build_arg_names") + "frontend_build_arg_names\n"
+    result = _bash(script, env={**os.environ, "PROJECT_DIR": str(ROOT)})
+    assert result.returncode == 0, result.stderr
+    assert {"NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "NEXT_PUBLIC_POSTHOG_HOST"} <= set(
+        result.stdout.split()
+    )
