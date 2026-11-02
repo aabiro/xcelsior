@@ -127,11 +127,11 @@ def scip_loi_submitted() -> bool:
 
 
 def scip_alignment_one_pager() -> dict[str, Any]:
-    """SCIP alignment scan for Canadian operator + 18-month ops plan (row 9)."""
+    """SCIP alignment scan + 18-month ops plan (row 9)."""
     plan = platform_ops_plan()
     loi = scip_partner_loi()
     return {
-        "canadian_ownership": plan["ownership"],
+        "ownership": plan["ownership"],
         "operational_horizon_months": plan["horizon_months"],
         "infrastructure_plan": plan["infrastructure"],
         "milestones": plan["milestones"],

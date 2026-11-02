@@ -314,7 +314,6 @@ class DataLifecycleManager:
 
     "Organizations must protect personal information with appropriate
      safeguards and destroy it when no longer needed."
-     — Office of the Privacy Commissioner of Canada
     """
 
     def __init__(self, db_path: Optional[str] = None):

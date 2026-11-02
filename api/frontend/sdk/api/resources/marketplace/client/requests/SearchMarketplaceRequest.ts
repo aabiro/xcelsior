@@ -8,8 +8,6 @@ export interface SearchMarketplaceRequest {
     gpu_model?: string | null;
     min_vram?: number | null;
     max_price?: number | null;
-    province?: string | null;
-    country?: string | null;
     min_reputation?: number | null;
     sort_by?: string;
     limit?: number;

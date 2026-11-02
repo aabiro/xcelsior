@@ -6,7 +6,7 @@
       <stop offset="100%" stop-color="#160C1D"/>
     </linearGradient>
 
-    <!-- Color washes — matching dark canada map: #00d4ff, #7c3aed, #dc2626 -->
+    <!-- Color washes: #00d4ff, #7c3aed, #dc2626 -->
     <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(320 160) rotate(90) scale(420 540)">
       <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.14"/>
       <stop offset="100%" stop-color="#00D4FF" stop-opacity="0"/>

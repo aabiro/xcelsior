@@ -255,8 +255,8 @@ class TestBinPackScheduler:
             },
         ]
         job = {"name": "data-job", "vram_needed_gb": 14, "num_gpus": 1}
-        best = allocate_binpack(job, hosts, user_province="ON", volume_host_ids={"local"})
-        # Should prefer "local" due to same province + volume attachment
+        best = allocate_binpack(job, hosts, volume_host_ids={"local"})
+        # Should prefer "local" due to volume attachment
         assert best["host_id"] == "local"
 
 

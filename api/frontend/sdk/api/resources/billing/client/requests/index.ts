@@ -5,7 +5,6 @@ export type { CryptoRefreshBillingRequest } from "./CryptoRefreshBillingRequest.
 export type { DepositRequest } from "./DepositRequest.js";
 export type { DownloadInvoiceBillingRequest } from "./DownloadInvoiceBillingRequest.js";
 export type { EstimateRequest } from "./EstimateRequest.js";
-export type { ExportCafBillingRequest } from "./ExportCafBillingRequest.js";
 export type { GetFreeCreditsStatusBillingRequest } from "./GetFreeCreditsStatusBillingRequest.js";
 export type { GetInvoiceBillingRequest } from "./GetInvoiceBillingRequest.js";
 export type { GetProviderGstThresholdBillingRequest } from "./GetProviderGstThresholdBillingRequest.js";

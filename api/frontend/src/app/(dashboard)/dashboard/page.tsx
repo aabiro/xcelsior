@@ -11,7 +11,6 @@ import { useAuth } from "@/lib/auth";
 import { FirstRunCard } from "@/components/onboarding/first-run-card";
 import type { Host, Instance, ReputationEntry } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
-import { CanadaMapHero } from "@/components/ui/canada-hero";
 import { openLaunchModal } from "@/lib/launch-modal";
 import { cn } from "@/lib/utils";
 import { ThemeAssetIcon } from "@/components/ui/theme-asset-icon";
@@ -221,7 +220,6 @@ export default function DashboardOverview() {
               </div>
             ))}
           </div>
-          <CanadaMapHero hostCount={admittedHosts.length} className="dashboard-overview-map" />
         </div>
       </FadeIn>
 

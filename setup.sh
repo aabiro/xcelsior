@@ -22,7 +22,7 @@ print_header() {
     echo -e "${CYAN}${BOLD}"
     echo "╔═══════════════════════════════════════════════════════════════╗"
     echo "║                    XCELSIOR SETUP v1.0.0                      ║"
-    echo "║          Distributed GPU Scheduler for Canadians              ║"
+    echo "║              Distributed GPU Cloud Scheduler                  ║"
     echo "║                     Ever Upward.                              ║"
     echo "╚═══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"

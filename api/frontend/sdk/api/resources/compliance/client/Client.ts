@@ -25,51 +25,6 @@ export class ComplianceClient {
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.compliance.getProvinces()
-     */
-    public getProvinces(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<void> {
-        return core.HttpResponsePromise.fromPromise(this.__getProvinces(requestOptions));
-    }
-
-    private async __getProvinces(
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<void>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/compliance/provinces",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: undefined, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/compliance/provinces");
-    }
-
-    /**
-     * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
      *     await client.compliance.getStatus()
      */
     public getStatus(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<void> {

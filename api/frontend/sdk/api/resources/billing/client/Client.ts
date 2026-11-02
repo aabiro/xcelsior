@@ -16,7 +16,7 @@ export declare namespace BillingClient {
 }
 
 /**
- * Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing.
+ * Wallet management, invoicing, refunds. Credit-first CAD billing.
  */
 export class BillingClient {
     protected readonly _options: NormalizedClientOptions<BillingClient.Options>;
@@ -657,7 +657,7 @@ export class BillingClient {
     }
 
     /**
-     * Generate an AI Compute Access Fund–aligned invoice.
+     * Generate a customer invoice for a billing period.
      *
      * @param {XcelsiorApi.GetInvoiceBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
@@ -901,9 +901,7 @@ export class BillingClient {
     }
 
     /**
-     * Estimate job cost with AI Compute Access Fund rebate preview.
-     *
-     * From REPORT_FEATURE_2.md: --estimate-rebate / simulate=true
+     * Estimate job cost for a GPU model and duration.
      *
      * @param {XcelsiorApi.EstimateRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
@@ -1170,49 +1168,6 @@ export class BillingClient {
     }
 
     /**
-     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.billing.getAttestation()
-     */
-    public getAttestation(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<void> {
-        return core.HttpResponsePromise.fromPromise(this.__getAttestation(requestOptions));
-    }
-
-    private async __getAttestation(requestOptions?: BillingClient.RequestOptions): Promise<core.WithRawResponse<void>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/billing/attestation",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: undefined, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/billing/attestation");
-    }
-
-    /**
      * @param {XcelsiorApi.ClaimFreeCreditsBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
@@ -1325,64 +1280,6 @@ export class BillingClient {
             _response.rawResponse,
             "GET",
             "/api/billing/free-credits/{customer_id}/status",
-        );
-    }
-
-    /**
-     * @param {XcelsiorApi.ExportCafBillingRequest} request
-     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.billing.exportCaf({
-     *         customer_id: "customer_id"
-     *     })
-     */
-    public exportCaf(
-        request: XcelsiorApi.ExportCafBillingRequest,
-        requestOptions?: BillingClient.RequestOptions,
-    ): core.HttpResponsePromise<void> {
-        return core.HttpResponsePromise.fromPromise(this.__exportCaf(request, requestOptions));
-    }
-
-    private async __exportCaf(
-        request: XcelsiorApi.ExportCafBillingRequest,
-        requestOptions?: BillingClient.RequestOptions,
-    ): Promise<core.WithRawResponse<void>> {
-        const { customer_id: customerId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/billing/export/caf/${core.url.encodePathParam(customerId)}`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: undefined, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "GET",
-            "/api/billing/export/caf/{customer_id}",
         );
     }
 

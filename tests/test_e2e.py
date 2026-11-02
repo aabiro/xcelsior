@@ -156,7 +156,7 @@ class TestAddHostViaAPI:
         host_ids = [h["host_id"] for h in hosts]
         assert "e2e-host-1" in host_ids
 
-    def test_register_canadian_host_with_province(self):
+    def test_register_host_with_location_metadata(self):
         _reset_state()
         resp = client.put(
             "/host",

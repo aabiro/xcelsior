@@ -77,7 +77,7 @@ class TestRow8ScipLoi:
 class TestRow9Alignment:
     def test_scip_alignment_one_pager(self):
         doc = scip_alignment_one_pager()
-        assert doc["canadian_ownership"]["operator"] == "Xcelsior Inc."
+        assert doc["ownership"]["operator"] == "Xcelsior Inc."
         assert len(doc["milestones"]) >= 5
         resp = client.get("/api/v2/platform/scip-alignment")
         assert resp.status_code == 200

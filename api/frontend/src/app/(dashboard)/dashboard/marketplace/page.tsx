@@ -142,7 +142,7 @@ export default function MarketplacePage() {
               {t("dash.market.title")}
             </h1>
             <p className="max-w-xl text-sm text-text-secondary">
-              GPU compute on Canadian-owned hardware. Transparent prices, hourly
+              GPU compute on verified hardware. Transparent prices, hourly
               billing, no commitment.
             </p>
             <div className="flex items-center gap-2 pt-2">
@@ -196,7 +196,7 @@ export default function MarketplacePage() {
           <StatChip
             label="Regions"
             value={stats.regions.toString()}
-            sub="Canada-wide"
+            sub="globally"
           />
         </div>
       </section>

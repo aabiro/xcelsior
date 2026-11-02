@@ -145,7 +145,6 @@ describe("BillingPage free credits flow", () => {
       job_count: 0,
       total_gpu_hours: 0,
       total_cost_cad: 0,
-      canadian_compute_cad: 0,
       hosts_used: 0,
     });
     apiMocks.fetchReservedPlans.mockResolvedValue({});

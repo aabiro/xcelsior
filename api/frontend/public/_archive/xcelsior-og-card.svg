@@ -36,5 +36,5 @@
     <tspan fill="url(#textAccent)">X</tspan><tspan fill="#f0f4ff">celsior</tspan>
   </text>
   <!-- Tagline -->
-  <text x="600" y="430" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="#f0f4ff" opacity="0.5" letter-spacing="4">SOVEREIGN GPU COMPUTE</text>
+  <text x="600" y="430" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="#f0f4ff" opacity="0.5" letter-spacing="4">DISTRIBUTED GPU COMPUTE</text>
 </svg>

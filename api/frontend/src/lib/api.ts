@@ -1123,7 +1123,6 @@ export async function fetchUsageSummary(customerId: string) {
   return apiFetch<{
     ok: boolean; customer_id: string;
     job_count: number; total_gpu_hours: number; total_cost_cad: number;
-    canadian_compute_cad: number; non_canadian_compute_cad: number;
     hosts_used: number; currency: string;
   }>(`/api/billing/usage/${encodeURIComponent(customerId)}`);
 }
@@ -1160,15 +1159,12 @@ export async function downloadInvoice(
 export async function estimatePrice(data: {
   gpu_model: string; duration_hours: number; spot?: boolean;
 }) {
-  // Mirrors reputation.estimate_job_cost(). The AI Compute Access Fund has
-  // ended, so fund_rate / fund_reimbursable_cad / savings_pct are always 0 and
-  // effective_cost_cad always equals gross_cost_cad — read gross_cost_cad.
+  // Mirrors reputation.estimate_job_cost().
   return apiFetch<{
     ok: boolean; gpu_model: string; duration_hours: number;
     rate_cad_per_hour: number; gross_cost_cad: number; currency: string;
     spot: boolean;
-    host_tier: string; fund_eligible: boolean; fund_rate: number;
-    fund_label: string; fund_reimbursable_cad: number;
+    host_tier: string;
     effective_cost_cad: number; savings_pct: number;
   }>("/api/pricing/estimate", { method: "POST", body: JSON.stringify(data) });
 }
@@ -1176,7 +1172,7 @@ export async function estimatePrice(data: {
 export async function createReservation(data: {
   customer_id: string; gpu_model: string;
   commitment_type: "1_month" | "3_month" | "1_year";
-  quantity?: number; province?: string;
+  quantity?: number;
 }) {
   return apiFetch<{
     ok: boolean; commitment_id: string;
@@ -1887,9 +1883,8 @@ export async function fetchTransparencyReport(months = 12) {
       challenged: number;
       pending: number;
       by_type: Record<string, number>;
-  by_requesting_country: Record<string, number>;
+      by_requesting_country: Record<string, number>;
     };
-    cloud_act_note: string;
   }>(`/api/transparency/report?months=${months}`);
 }
 
