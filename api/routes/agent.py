@@ -1130,10 +1130,12 @@ async def api_agent_logs(job_id: str, request: Request):
     # terminal state for >1h. Prevents zombie log-line floods from a
     # forgotten/rogue worker agent and keeps the job_logs table bounded.
     try:
-        from scheduler import load_jobs
+        from scheduler import get_job
 
-        snap = {j["job_id"]: j for j in load_jobs()}
-        job = snap.get(job_id)
+        # One indexed read, off the loop. Every agent posts a batch about once
+        # a second per running job, and loading the whole jobs table here held
+        # the loop for 0.2 s per batch on prod and 9 s on a 137k-job database.
+        job = await asyncio.to_thread(get_job, job_id)
         if not job:
             return {"ok": True, "accepted": 0, "dropped": "unknown_job"}
         if job.get("status") in {"completed", "failed", "cancelled", "terminated", "preempted"}:

@@ -19,6 +19,7 @@ import worker_agent as worker
 @pytest.fixture
 def log_state(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "_V2_JOURNAL_PATH", str(tmp_path / "attempts.json"))
+    monkeypatch.setattr(worker, "_live_log_spools", set())
     monkeypatch.setattr(worker.LogForwarder, "_backoff_wait", lambda _: None)
     request = mock.Mock(return_value=SimpleNamespace(status_code=200))
     monkeypatch.setattr(worker, "_api_request", request)
@@ -223,3 +224,47 @@ def test_only_confirmed_adoption_starts_and_stops_one_forwarder(monkeypatch):
     forwarder.start.assert_called_once()
     worker._v2_forget_attempt("job", auth)
     forwarder.stop.assert_called_once()
+
+
+def test_replay_leaves_a_live_forwarders_spool_alone(log_state, monkeypatch):
+    # The attempt is forgotten before its forwarder stops, and a batch sits on
+    # disk while its POST is in flight. Replaying it then stored every line twice.
+    forwarder, entry, request = log_state
+    request.return_value = SimpleNamespace(status_code=503)
+    assert not forwarder._flush_batch()
+    request.return_value = SimpleNamespace(status_code=200)
+    monkeypatch.setattr(worker, "_shutdown", threading.Event())
+    monkeypatch.setattr(worker, "_v2_attempts", {})
+    monkeypatch.setattr(worker, "_log_replay_running", threading.Lock())
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        forwarder.start()
+        worker._resume_pending_log_delivery()
+    thread.call_args.kwargs["target"]()
+    assert request.call_count == 1
+    forwarder.stop()
+    assert request.call_count == 2
+    with mock.patch.object(worker.threading, "Thread") as thread:
+        worker._resume_pending_log_delivery()
+    thread.call_args.kwargs["target"]()
+    assert request.call_count == 2
+    assert not Path(forwarder._spool_path).exists()
+
+
+def test_drain_delivers_an_exited_containers_last_lines(log_state, monkeypatch):
+    forwarder, _, request = log_state
+    forwarder._buffer = []
+    process = mock.Mock(stdout=["2026-11-01T23:33:40.834754Z XCL_JOURNEY_CUDA_RESULT=32768\n"])
+    monkeypatch.setattr(worker.subprocess, "Popen", mock.Mock(return_value=process))
+    forwarder._tail_thread = threading.Thread(target=forwarder._tail_loop)
+    forwarder._tail_thread.start()
+    assert forwarder.drain() is True
+    sent = json.loads(request.call_args.kwargs["data"])["lines"]
+    assert [line["message"] for line in sent] == ["XCL_JOURNEY_CUDA_RESULT=32768"]
+
+
+def test_a_refused_drain_returns_and_keeps_the_output(log_state):
+    forwarder, entry, request = log_state
+    request.return_value = SimpleNamespace(status_code=503)
+    assert forwarder.drain() is False
+    assert request.call_count == 1
+    assert worker.LogForwarder(forwarder.job_id, forwarder.container_name)._buffer == [entry]
