@@ -6195,6 +6195,13 @@ _LOG_FLUSH_INTERVAL = 1.0  # or every N seconds
 _LOG_BACKOFF_MAX = 60  # max retry delay (seconds)
 _LOG_SPOOL_MAX = 50_000  # max lines in disk spool before dropping oldest
 _LOG_SPOOL_MAX_BYTES = 10_000_000
+_LOG_DRAIN_TIMEOUT = 10.0  # bound on delivering an exited container's output
+
+# Spools a running forwarder is delivering. The orphan replay must not send them
+# too: a batch is written to disk before its POST, so a second deliverer re-sends
+# whatever the first still has in flight, and every line lands twice.
+_live_log_spools: set[str] = set()
+_live_log_spools_lock = threading.Lock()
 
 
 class LogForwarder:
@@ -6247,6 +6254,8 @@ class LogForwarder:
 
     def start(self):
         """Start tailing container logs and flushing to the API."""
+        with _live_log_spools_lock:
+            _live_log_spools.add(self._spool_path)
         self._tail_thread = threading.Thread(
             target=self._tail_loop, daemon=True, name=f"log-tail-{self.job_id[:8]}"
         )
@@ -6269,8 +6278,27 @@ class LogForwarder:
         if self._flush_thread:
             self._flush_thread.join(timeout=5)
         # Final flush of remaining lines after threads have stopped
-        self._flush_batch()
+        try:
+            self._flush_batch()
+        finally:
+            with _live_log_spools_lock:
+                _live_log_spools.discard(self._spool_path)
         log.debug("LogForwarder stopped for %s", self.job_id)
+
+    def drain(self, timeout: float = _LOG_DRAIN_TIMEOUT) -> bool:
+        """Deliver an exited container's output before its terminal report.
+
+        `docker logs --follow` ends by itself once the container has exited, so
+        the tail is joined rather than killed. Delivery stops at the first
+        refusal; the spool keeps the rest for the replay.
+        """
+        deadline = time.monotonic() + timeout
+        if self._tail_thread:
+            self._tail_thread.join(timeout=timeout)
+        while self._buffer and time.monotonic() < deadline:
+            if not self._flush_batch():
+                return False
+        return not self._buffer
 
     def _tail_loop(self):
         """Run `docker logs --follow --timestamps` and buffer lines."""
@@ -6448,6 +6476,9 @@ def _resume_pending_log_delivery() -> None:
             for path in selected:
                 if _shutdown.is_set():
                     return
+                with _live_log_spools_lock:
+                    if os.path.abspath(path) in _live_log_spools:
+                        continue
                 try:
                     with path.open() as source:
                         record = json.load(source)
@@ -6501,6 +6532,20 @@ def _v2_exit_status(auth: dict, exit_code: int) -> str:
     return "completed" if exit_code == 0 else "failed"
 
 
+def _v2_drain_logs(auth: dict) -> None:
+    """A terminal status reads as "the output is in", so deliver it first.
+
+    Once per attempt: while the API refuses, the terminal report's retries must
+    not wait out the log backoff as well.
+    """
+    forwarder = auth.get("_log_forwarder")
+    if forwarder is None or auth.get("_logs_drained"):
+        return
+    auth["_logs_drained"] = True
+    with suppress(Exception):
+        forwarder.drain()
+
+
 def _v2_monitor_container(auth: dict) -> None:
     """Retain exited-container evidence until a fenced report resolves.
 
@@ -6543,6 +6588,7 @@ def _v2_monitor_container(auth: dict) -> None:
             )
         if terminal and (state == "missing" or (state == "exited" and label == auth["attempt_id"])):
             auth["stop"].set()
+            _v2_drain_logs(auth)
             recorded_exit = terminal.get("exit_code", exit_code)
             outcome = v2_report_attempt_status(
                 auth,
@@ -6577,6 +6623,7 @@ def _v2_monitor_container(auth: dict) -> None:
             # Do not let a renewal's post-completion 409 erase the journal
             # while an uncertain terminal report is still being retried.
             auth["stop"].set()
+            _v2_drain_logs(auth)
             pending = auth.get("pending_command")
             if isinstance(pending, dict) and pending.get("terminal_status"):
                 outcome = v2_report_attempt_status(auth, str(pending["terminal_status"]))
