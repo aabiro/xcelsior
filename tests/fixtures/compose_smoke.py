@@ -52,6 +52,9 @@ def run_compose_smoke(root: Path, scratch: Path, dsn: str) -> None:
         "XCELSIOR_AUTH_CACHE_BACKEND": "memory",
         "XCELSIOR_NFS_REQUIRED": "false",
         "XCELSIOR_ALLOW_UNAUTH_AGENT": "0",
+        # As in production: paid launches need the native scheduler to own the
+        # queue, and the unset default is `paused`.
+        "XCELSIOR_SCHEDULER_MODE": "active",
     }
     manifest = {
         "services": {
@@ -121,6 +124,21 @@ def run_compose_smoke(root: Path, scratch: Path, dsn: str) -> None:
         else:
             raise AssertionError(command(*base, "logs", check=False).stdout[-6000:])
         assert json.loads(result.stdout)["ok"]
+        # Every customer launch quotes a Stripe Price. A deploy imports the
+        # versioned snapshot right after Alembic; this image does the same,
+        # offline, from the manifest it ships.
+        command(
+            *base,
+            "exec",
+            "-T",
+            "api",
+            "python",
+            "api/scripts/sync_stripe_service_tiers.py",
+            "--output",
+            "billing/stripe_catalog.json",
+            "--import-dsn-env",
+            "XCELSIOR_POSTGRES_DSN",
+        )
         command(
             *base,
             "exec",
@@ -137,16 +155,20 @@ def run_compose_smoke(root: Path, scratch: Path, dsn: str) -> None:
             "-T",
             "api",
             "curl",
-            "-sf",
+            "-s",
             "--max-time",
             "15",
+            "-w",
+            "\n%{http_code}",
             "-H",
             "Content-Type: application/json",
             "-d",
             json.dumps({"name": project, "vram_needed_gb": 4, "gpu_model": "RTX 4090"}),
             "http://127.0.0.1:9500/instance",
         )
-        job_id = json.loads(response.stdout)["instance"]["job_id"]
+        body, _, status = response.stdout.rpartition("\n")
+        assert status == "200", f"POST /instance answered {status}: {body[-2000:]}"
+        job_id = json.loads(body)["instance"]["job_id"]
         import psycopg
         from control_plane.job_specs import validate_execution_spec
 

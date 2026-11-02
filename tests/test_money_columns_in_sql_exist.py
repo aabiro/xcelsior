@@ -81,8 +81,19 @@ def _sql_literals():
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
+        # ast.walk also yields each literal fragment of an f-string on its own.
+        # A fragment after an interpolation can hold only a subquery's FROM, so
+        # read as a statement it pins outer aliases (m., w.) to the wrong table.
+        fragments = {
+            id(v)
+            for joined in ast.walk(tree)
+            if isinstance(joined, ast.JoinedStr)
+            for v in joined.values
+        }
         for node in ast.walk(tree):
             text = None
+            if id(node) in fragments:
+                continue
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 text = node.value
             elif isinstance(node, ast.JoinedStr):
