@@ -71,6 +71,19 @@ def test_actual_cli_refuses_an_unfunded_budget_without_creating_files(tmp_path):
     assert list(tmp_path.iterdir()) == before
 
 
+def test_default_probe_is_where_a_release_writes(monkeypatch, capsys):
+    # A tmpfs /tmp (7.7 GB on prod since the 26.04 upgrade) cannot hold the
+    # 5 GiB reserve plus the 8 GiB budget, so probing it refused every deploy.
+    probed = []
+    monkeypatch.setattr(
+        disk,
+        "check_headroom",
+        lambda paths, budget: probed.extend(paths) or {"passed": True, "filesystems": []},
+    )
+    assert disk.main([]) == 0
+    assert probed == [Path("/opt/xcelsior"), Path("/var/lib/docker")]
+
+
 def test_deploy_guards_backup_sync_mirrors_and_build_before_release_writes():
     from tests.test_deploy_runtime_readiness import _function
 
