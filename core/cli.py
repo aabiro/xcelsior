@@ -920,6 +920,8 @@ def cmd_login(args):
         resp.raise_for_status()
     except req.exceptions.HTTPError as e:
         refusal = e.response
+        if refusal is None:  # raise_for_status always attaches the response
+            raise
         try:
             detail = f" — {refusal.json()}"
         except Exception:
