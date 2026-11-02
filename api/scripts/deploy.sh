@@ -2322,7 +2322,14 @@ main() {
 
             wait_mirror_syncs
             persist_deploy_inputs
-            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
+            # A release stopped at a staged migration target is not complete:
+            # record the target so the next deploy of this commit is not
+            # skipped as "nothing to deploy" and finishes the migration.
+            local deployed_marker="$local_hash"
+            if [[ -n "${XCELSIOR_DEPLOY_MIGRATION_TARGET:-}" && "${XCELSIOR_DEPLOY_MIGRATION_TARGET}" != head ]]; then
+                deployed_marker="${local_hash}@${XCELSIOR_DEPLOY_MIGRATION_TARGET}"
+            fi
+            ssh_cmd "echo '$deployed_marker' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
             health_check
             success "Deployment complete! Visit https://$DOMAIN"
             ;;
