@@ -101,7 +101,7 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [usage, setUsage] = useState<{
     job_count: number; total_gpu_hours: number; total_cost_cad: number;
-    canadian_compute_cad: number; hosts_used: number;
+    hosts_used: number;
   } | null>(null);
   const [reservedTiers, setReservedTiers] = useState<Record<string, {
     commitment: string; discount_pct: number; description: string;
@@ -206,7 +206,7 @@ export default function BillingPage() {
       if (invoiceRes.status === "fulfilled") setInvoices(invoiceRes.value.invoices || []);
       if (usageRes.status === "fulfilled") {
         const u = usageRes.value;
-        setUsage({ job_count: u.job_count, total_gpu_hours: u.total_gpu_hours, total_cost_cad: u.total_cost_cad, canadian_compute_cad: u.canadian_compute_cad, hosts_used: u.hosts_used });
+        setUsage({ job_count: u.job_count, total_gpu_hours: u.total_gpu_hours, total_cost_cad: u.total_cost_cad, hosts_used: u.hosts_used });
       }
       if (plansRes.status === "fulfilled" && (plansRes.value as Record<string, unknown>).reserved_tiers) {
         setReservedTiers((plansRes.value as Record<string, unknown>).reserved_tiers as typeof reservedTiers);

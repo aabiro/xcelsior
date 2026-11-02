@@ -25,8 +25,8 @@ What that reaches:
   disclosure in the window.
 
 So an unauthenticated caller could fabricate subpoena records, mark a real one
-as complied-with, or read the lot. This is a compliance artifact — CLOUD Act
-diligence — and its integrity is the whole point of it existing.
+as complied-with, or read the lot. This is a transparency audit artifact, and
+its integrity is the whole point of it existing.
 
 The fix is `_require_auth` *before* the scope check, unconditionally. The scope
 check then narrows further, but is no longer the only thing standing there.

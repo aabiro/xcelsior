@@ -149,11 +149,6 @@ paths:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: capturePayPalOrder
-  /api/billing/attestation:
-    get:
-      x-fern-sdk-group-name: billing
-      x-fern-sdk-method-name: getAttestation
-      x-fern-ignore: true
   /api/billing/free-credits/{customer_id}:
     post:
       x-fern-sdk-group-name: billing
@@ -163,11 +158,6 @@ paths:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getFreeCreditsStatus
-      x-fern-ignore: true
-  /api/billing/export/caf/{customer_id}:
-    get:
-      x-fern-sdk-group-name: billing
-      x-fern-sdk-method-name: exportCaf
       x-fern-ignore: true
   /api/billing/crypto/enabled:
     get:

@@ -1209,8 +1209,7 @@ class TestTransparency:
         assert r.status_code == 200
         report = r.json()
         assert "summary" in report
-        assert "cloud_act_note" in report
-        assert "Canadian" in report["cloud_act_note"]
+        assert "cloud_act_note" not in report
 
     def test_transparency_report_months_param(self):
         """Months parameter filters timeframe."""

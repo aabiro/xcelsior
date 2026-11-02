@@ -739,7 +739,7 @@ const fr_dashboard: Record<string, string> = {
   "gear.step_profile": "Configurer votre profil",
   "gear.step_profile_desc": "Ajoutez votre nom et configurez vos préférences de notification.",
   "gear.step_mcp_connect": "Connecter votre agent IA",
-  "gear.step_mcp_connect_desc": "Activez le routage Canada uniquement pour garder vos données au Canada.",
+  "gear.step_mcp_connect_desc": "Connectez Claude, Cursor ou tout client MCP à vos GPU.",
   "gear.step_api_key": "Générer une clé API",
   "gear.step_api_key_desc": "Créez une clé pour accéder à l'API Xcelsior par programme.",
   "gear.step_browse": "Parcourir la place de marché",

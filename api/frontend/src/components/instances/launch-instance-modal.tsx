@@ -626,7 +626,7 @@ export function LaunchInstanceModal({
               <CardTitle>Launch Instance</CardTitle>
               <CardDescription>
                 {listing
-                  ? `${listing.gpu_model} · ${listing.region || "Canada"}`
+                  ? `${listing.gpu_model} · ${listing.region || "Global"}`
                   : "Configure and launch a new GPU instance"}
               </CardDescription>
             </div>
@@ -653,7 +653,7 @@ export function LaunchInstanceModal({
                     <div className="flex-1">
                       <p className="text-sm font-medium">{listing.gpu_model}</p>
                       <div className="flex gap-3 text-xs text-text-muted">
-                        <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {listing.region || "Canada"}</span>
+                        <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {listing.region || "Global"}</span>
                         <span className="flex items-center gap-1"><Zap className="h-3 w-3" /> {listing.vram_gb || "-"}GB VRAM</span>
                       </div>
                     </div>

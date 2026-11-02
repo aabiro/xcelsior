@@ -25,8 +25,7 @@ million tokens with no idle cost.
 **Regions**: Xcelsior is a global marketplace. Capacity comes from independent
 hosts worldwide and is selected on price, availability, GPU model, and host
 reputation. Filter by region when a workload needs low latency to a specific
-place; otherwise the whole marketplace is available. The platform does not
-guarantee that a workload stays in any particular country.
+place; otherwise the whole marketplace is available.
 
 ## Three ways to drive the platform
 
@@ -262,8 +261,6 @@ TypeScript SDK: `client.serverless.createEndpoint()`, `.runJob()`, `.chatComplet
   "total_vram_gb": 24.0,
   "free_vram_gb": 24.0,
   "cost_per_hour": 0.45,
-  "country": "CA",
-  "province": "ON",
   "versions": {"runc": "1.2.4", "nvidia_ctk": "1.17.8", "nvidia_driver": "570.0", "docker": "27.0.0"}
 }
 ```

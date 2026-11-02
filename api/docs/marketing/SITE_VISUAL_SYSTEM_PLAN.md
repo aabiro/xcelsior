@@ -175,7 +175,7 @@ Rules:
 - Keep the 1240px max width, 28px outer padding, 66px nav height, and bordered vertical content rails.
 - Preserve the hero grid: `grid-template-columns:minmax(0,1fr) 300px`, `gap:32px`, `padding:56px 48px 52px`.
 - Preserve the KPI strip and section borders.
-- Keep the comparison table, fleet table, AI Compute Access Fund callout, and CTA in the source order.
+- Keep the comparison table, fleet table, and CTA in the source order.
 - Use custom site assets for brand and icons.
 
 ## Implementation Order

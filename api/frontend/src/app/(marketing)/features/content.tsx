@@ -18,7 +18,7 @@ const products = [
 
 const foundations = [
   { icon: "bot", title: "features.mcp_connect_title", desc: "features.mcp_connect_desc", cat: "features.cat_agents" },
-  { icon: "terminal", title: "features.cloud_act_title", desc: "features.cloud_act_desc", cat: "features.cat_agents" },
+  { icon: "terminal", title: "features.agent_skill_title", desc: "features.agent_skill_desc", cat: "features.cat_agents" },
   { icon: "gpu", title: "features.marketplace_title", desc: "features.marketplace_desc", cat: "features.cat_compute" },
   { icon: "bolt", title: "features.spot_title", desc: "features.spot_desc", cat: "features.cat_compute" },
   { icon: "activity", title: "features.telemetry_title", desc: "features.telemetry_desc", cat: "features.cat_compute" },

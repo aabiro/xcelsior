@@ -1,4 +1,4 @@
-# Xcelsior v2.0.0 — distributed GPU scheduler for Canadians who refuse to wait.
+# Xcelsior v2.0.0 — distributed GPU scheduler.
 # Pull-based architecture. PostgreSQL + JSONB. Defense in depth. SSE dashboards.
 # 20 phases + production hardening. No shortcuts. Ever upward.
 
@@ -828,7 +828,7 @@ def identify_drain_preemption_candidates(
 # minimize fragmentation. Scoring: waste ratio, locality, reputation.
 
 
-def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
+def allocate_binpack(job, hosts, volume_host_ids=None):
     """Best-fit-decreasing bin packer with locality + reputation scoring.
 
     Score = (1 - waste_ratio) * locality_bonus * reputation_bonus
@@ -836,7 +836,6 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
     Args:
         job: dict with vram_needed_gb, num_gpus, tier, etc.
         hosts: list of host dicts
-        user_province: user's province for locality scoring
         volume_host_ids: set of host_ids where user has attached volumes
 
     Returns:
@@ -885,17 +884,7 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
         waste_ratio = (free_vram - vram_needed) / total_vram
         fit_score = 1.0 - waste_ratio  # Tighter fit = higher score
 
-        # Locality bonus
-        host_province = h.get("province", "")
         locality = 1.0
-        if user_province and host_province:
-            if host_province == user_province:
-                locality = 1.2  # Same province
-            elif h.get("country", "CA") == "CA":
-                locality = 1.0  # Same country
-            else:
-                locality = 0.5  # Cross-border
-
         # Data gravity: prefer hosts with user's volumes attached
         if h.get("host_id") in volume_host_ids:
             locality *= 1.3

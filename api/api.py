@@ -113,7 +113,7 @@ OPENAPI_TAGS = [
     },
     {
         "name": "Transparency",
-        "description": "Legal request handling, CLOUD Act canary, transparency reports.",
+        "description": "Legal request handling, warrant canary, transparency reports.",
     },
     {
         "name": "Telemetry",

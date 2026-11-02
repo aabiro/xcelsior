@@ -608,10 +608,6 @@ def _build_tools() -> list[dict]:
                         "type": "number",
                         "description": "Max price in CAD per hour",
                     },
-                    "province": {
-                        "type": "string",
-                        "description": "Canadian province code (e.g., 'ON', 'BC')",
-                    },
                 },
                 "required": [],
             },
@@ -738,7 +734,7 @@ def _build_tools() -> list[dict]:
         },
         {
             "name": "get_gpu_availability",
-            "description": "Check real-time GPU availability across all regions. Shows which GPU types are available, how many, and in which provinces.",
+            "description": "Check real-time GPU availability across all regions. Shows which GPU types are available, how many, and in which regions.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -746,9 +742,9 @@ def _build_tools() -> list[dict]:
                         "type": "string",
                         "description": "Filter by GPU model (optional)",
                     },
-                    "province": {
+                    "region": {
                         "type": "string",
-                        "description": "Filter by Canadian province code (optional)",
+                        "description": "Filter by region (optional)",
                     },
                 },
                 "required": [],
@@ -1130,7 +1126,6 @@ def _tool_search_marketplace(args: dict, _user: dict) -> dict:
     gpu_model = (args.get("gpu_model") or "").strip()
     min_vram_gb = args.get("min_vram_gb")
     max_price = args.get("max_price_per_hour")
-    province = (args.get("province") or "").strip().upper()
 
     if gpu_model:
         listings = [l for l in listings if gpu_model.lower() in (l.get("gpu_model") or "").lower()]
@@ -1138,8 +1133,6 @@ def _tool_search_marketplace(args: dict, _user: dict) -> dict:
         listings = [l for l in listings if (l.get("vram_gb") or 0) >= float(min_vram_gb)]
     if max_price is not None:
         listings = [l for l in listings if (l.get("price_per_hour") or 999) <= float(max_price)]
-    if province:
-        listings = [l for l in listings if (l.get("province") or "").upper() == province]
 
     listings.sort(key=lambda l: l.get("price_per_hour") or 999)
 
@@ -1150,7 +1143,6 @@ def _tool_search_marketplace(args: dict, _user: dict) -> dict:
                 "gpu_model": o.get("gpu_model", ""),
                 "vram_gb": o.get("vram_gb", 0),
                 "price_cad_per_hour": o.get("price_per_hour", 0),
-                "province": o.get("province", ""),
                 "description": o.get("description", ""),
                 "owner": o.get("owner", ""),
                 "total_jobs": o.get("total_jobs", 0),
@@ -1194,7 +1186,7 @@ def _tool_get_host_status(_args: dict, user: dict) -> dict:
                 "gpu_model": h.get("gpu_model", ""),
                 "total_vram_gb": h.get("total_vram_gb", 0),
                 "status": h.get("status", ""),
-                "province": h.get("province", ""),
+                "region": h.get("region", ""),
                 "registered_at": h.get("registered_at", 0),
             }
             for h in user_hosts
@@ -1298,14 +1290,14 @@ def _aggregate_offers(live_offers: list) -> dict:
                 "min_price": o.get("price_per_hour", 0),
                 "max_vram": o.get("vram_gb", 0),
                 "count": 0,
-                "provinces": set(),
+                "regions": set(),
             }
         agg[model]["count"] += 1
         agg[model]["min_price"] = min(agg[model]["min_price"], o.get("price_per_hour", 0))
         agg[model]["max_vram"] = max(agg[model]["max_vram"], o.get("vram_gb", 0))
-        prov = o.get("province", "")
-        if prov:
-            agg[model]["provinces"].add(prov)
+        reg = o.get("region") or o.get("country") or ""
+        if reg:
+            agg[model]["regions"].add(reg)
     return agg
 
 
@@ -1339,7 +1331,7 @@ def _build_gpu_recommendations(
             "reason": profile["reason"],
             "reference_cad_per_hour": hourly,
             "available_now": avail.get("count", 0),
-            "provinces": sorted(avail.get("provinces", set())) if avail else [],
+            "regions": sorted(avail.get("regions", set())) if avail else [],
         }
         if live_price and live_price > 0:
             rec["live_market_price_cad_per_hour"] = round(live_price * gpus_needed, 2)
@@ -1566,14 +1558,18 @@ def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
         return {"error": "Marketplace unavailable. Please try again later."}
 
     gpu_model_filter = (args.get("gpu_model") or "").strip().lower()
-    province_filter = (args.get("province") or "").strip().upper()
+    region_filter = (args.get("region") or "").strip().lower()
 
     if gpu_model_filter:
         listings = [l for l in listings if gpu_model_filter in (l.get("gpu_model") or "").lower()]
-    if province_filter:
-        listings = [l for l in listings if (l.get("province") or "").upper() == province_filter]
+    if region_filter:
+        listings = [
+            l
+            for l in listings
+            if region_filter in ((l.get("region") or l.get("country") or "").lower())
+        ]
 
-    # Aggregate by GPU model + province
+    # Aggregate by GPU model + region
     summary: dict[str, dict] = {}
     for o in listings:
         model = o.get("gpu_model", "Unknown")
@@ -1582,7 +1578,7 @@ def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
                 "total_available": 0,
                 "min_price_cad_per_hour": float("inf"),
                 "max_price_cad_per_hour": 0,
-                "provinces": {},
+                "regions": {},
                 "avg_vram_gb": 0,
                 "total_vram_gb": 0,
             }
@@ -1594,8 +1590,8 @@ def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
         vram = o.get("vram_gb", 0)
         s["total_vram_gb"] += vram
 
-        prov = o.get("province") or "Unknown"
-        s["provinces"][prov] = s["provinces"].get(prov, 0) + 1
+        reg = o.get("region") or o.get("country") or "Unknown"
+        s["regions"][reg] = s["regions"].get(reg, 0) + 1
 
     # Finalize averages
     for model, s in summary.items():
@@ -1637,7 +1633,7 @@ def _tool_list_volumes(_args: dict, user: dict) -> dict:
                 "status": v.get("status", ""),
                 "storage_type": v.get("storage_type", ""),
                 "encrypted": v.get("encrypted", False),
-                "province": v.get("province", ""),
+                "region": v.get("region", ""),
                 "created_at": v.get("created_at", 0),
             }
             for v in vols
@@ -2859,7 +2855,7 @@ journalctl -u xcelsior-worker -f   # live worker logs
 ```
 
 WHEN REGISTRATION SUCCEEDED:
-- Congratulate them warmly — their GPU is now on the Canadian compute marketplace.
+- Congratulate them warmly — their GPU is now on the Xcelsior compute marketplace.
 - Host ID is `{host_id or "now assigned"}` — they'll see it in {_BASE_DOMAIN}/dashboard → My GPU.
 - Tell them: first bookings may take minutes to hours depending on marketplace demand.
 - Summarise: rate set, worker running, host online.
@@ -3093,7 +3089,7 @@ HOW TO READ A GPU LISTING:
 - `rate_cad`: $/hr on-demand price
 - `spot_rate_cad`: $/hr interruptible spot price (if available)
 - `tier`: Community / Secure / Dedicated — security level
-- `location`: datacenter or residential, city/province
+- `location`: datacenter or residential, region
 - `uptime_pct`: host's historical uptime — aim for >99% for reliable workloads
 
 WHEN BROWSE SUCCEEDED:
@@ -3558,7 +3554,7 @@ You are Hexara. The wizard has finished successfully. Mode: {mode}.
 YOUR ROLE: Warm, brief, confident closing message. Tailor it exactly to their mode. Do NOT dump every link and command — pick the 1–2 most important things and offer to answer questions.
 
 IF MODE == "provide":
-- They just put their GPU on the Canadian compute marketplace. That's genuinely exciting.
+- They just put their GPU on the Xcelsior compute marketplace. That's genuinely exciting.
 - Key message: worker is running, first booking is coming.
 - Most useful command: `journalctl -u xcelsior-worker -f` to watch jobs arrive live.
 - Earnings monitor: {_BASE_DOMAIN}/dashboard → Revenue.
@@ -3910,7 +3906,7 @@ You have access to ALL of the following data from their live dashboard:
 9. **Hourly Heatmap** — job activity by day-of-week × hour-of-day
 11. **GPU Performance** — per-model breakdown: jobs, utilisation, cost/hr, duration, hours, efficiency score
 12. **Top GPU Spend** — bar chart of spend by GPU model
-13. **Province Distribution** — donut chart of spend by province
+13. **Region Distribution** — donut chart of spend by region
 14. **Top Entities** — highest-spend entities table
 15. **Wallet Activity** — deposit/charge history with net flow
 16. **Peak Days** — busiest days by jobs, hours, and spend
