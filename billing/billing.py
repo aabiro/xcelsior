@@ -1417,7 +1417,8 @@ class BillingEngine:
         """
         from control_plane.attempt_billing import bound_billing_inputs
 
-        spec = job.get("spec") if isinstance(job.get("spec"), dict) else {}
+        raw_spec = job.get("spec")
+        spec: dict = raw_spec if isinstance(raw_spec, dict) else {}
         rate: float | None = None
         latest = conn.execute(
             """SELECT a.host_id,a.spec_hash AS attempt_hash,
