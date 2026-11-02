@@ -88,6 +88,7 @@ printf 'valid fixture dump\\n' >"$output"
     env.update(
         {
             "PATH": f"{fake_bin}:{env['PATH']}",
+            "XCELSIOR_PG_BINDIR": str(fake_bin),
             "XCELSIOR_BACKUP_DIR": str(backup_dir),
             "XCELSIOR_BACKUP_RETAIN_DAYS": "14",
             "XCELSIOR_NODE_EXPORTER_TEXTFILE_DIR": str(metrics_dir),
