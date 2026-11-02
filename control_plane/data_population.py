@@ -45,7 +45,7 @@ def audit_population(conn, *, expected_database: str, expected_port: int) -> dic
                     (schema, table),
                 ).fetchall()
                 fields = []
-                expressions = [sql.SQL("count(*)")]
+                expressions: list[sql.Composable] = [sql.SQL("count(*)")]
                 for name, dtype, nullable, has_default in columns:
                     column = sql.Identifier(name)
                     metrics = ["nulls"]

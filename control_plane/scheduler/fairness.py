@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import LiteralString
 
 from psycopg import sql
 from psycopg.rows import dict_row
@@ -57,7 +58,7 @@ _PROTECTED_SQL = """NOT EXISTS (SELECT 1 FROM jobs paid JOIN wallet_holds ph ON 
               AND ph.amount_micros>=(paid.spec->'service_tier_quote'->>'total_rate_micros')::bigint)"""
 
 
-def team_key_sql(alias="j"):
+def team_key_sql(alias: LiteralString = "j") -> LiteralString:
     # The alias is a source-code constant, never a caller value.
     if alias not in {"j", "other"}:
         raise ValueError("unsupported team-key alias")

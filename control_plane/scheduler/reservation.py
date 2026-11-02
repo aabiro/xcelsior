@@ -416,12 +416,12 @@ def reserve_and_bind(
 
         policy = _one(host, "payload", 3)
         policy = policy if isinstance(policy, dict) else json.loads(policy or "{}")
-        spot_used = conn.execute(
+        (spot_used,) = conn.execute(
             """SELECT count(DISTINCT a.gpu_device_id) FROM gpu_device_allocations a
             JOIN job_attempts t ON t.attempt_id=a.attempt_id JOIN jobs j ON j.job_id=t.job_id
             WHERE a.host_id=%s AND a.released_at IS NULL AND j.spec->>'pricing_mode'='spot'""",
             (host_id,),
-        ).fetchone()[0]
+        ).fetchone() or (0,)
         reason = spot_capacity(
             spec,
             {**policy, "gpu_count": len(physical), "active_spot_gpu_count": spot_used},
