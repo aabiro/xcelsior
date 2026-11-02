@@ -1592,8 +1592,15 @@ docker compose build $build_args frontend
     # migration. That is how the 2026-10-05 redeploy stopped; it also left the
     # container crash-looping, ready to take the port the next time the
     # host's redis restarted.
-    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py --import-compute-catalog" || error "Migration or Stripe catalog import failed — aborting before API activation."
-    success "Migrations applied"
+    # A contract migration ships in the release after the code that stopped
+    # writing what it drops is live (blue-green runs migrations while the old
+    # release still serves). XCELSIOR_DEPLOY_MIGRATION_TARGET=<rev> stops this
+    # release there; the next deploy, with it unset, finishes at head.
+    local migration_target="${XCELSIOR_DEPLOY_MIGRATION_TARGET:-head}"
+    [[ "$migration_target" == "head" || "$migration_target" =~ ^[0-9]{3}$ ]] \
+        || error "XCELSIOR_DEPLOY_MIGRATION_TARGET must be head or a three-digit revision"
+    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py --import-compute-catalog --target ${migration_target}" || error "Migration or Stripe catalog import failed — aborting before API activation."
+    success "Migrations applied (target ${migration_target})"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────
     # Only roll the API when the image or runtime (.env) changed. Frontend-only
