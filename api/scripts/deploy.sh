@@ -1975,6 +1975,8 @@ deploy_test_local() {
     # to the stack's own redis. Auth is persistent, as on prod: .env.test turns
     # it off for pytest, and gunicorn.conf.py refuses per-process auth with more
     # than one worker, so following .env.test left the test API crash-looping.
+    # The scheduler is `active`, as on prod: paid launches need the native
+    # scheduler to own the queue, and the compose default is `paused`.
     log "Starting test containers (redis on ${stack_redis_port})..."
     cd "$PROJECT_DIR"
     XCELSIOR_POSTGRES_DB="$stack_db" \
@@ -1982,6 +1984,7 @@ deploy_test_local() {
     XCELSIOR_REDIS_PORT="$stack_redis_port" \
     XCELSIOR_AUTH_REDIS_URL="$stack_redis_url" \
     XCELSIOR_PERSISTENT_AUTH=true \
+    XCELSIOR_SCHEDULER_MODE="${XCELSIOR_STACK_SCHEDULER_MODE:-active}" \
         docker compose --env-file .env.test -p xcelsior-test up -d --build
 
     # Wait for health
@@ -2000,6 +2003,15 @@ deploy_test_local() {
     done
 
     docker compose -p xcelsior-test ps
+
+    # Every customer launch quotes a Stripe Price. Production imports the
+    # versioned snapshot after Alembic (run_db_migrations.py
+    # --import-compute-catalog); without it every test-stack launch is refused.
+    log "Importing the Stripe compute Price snapshot into ${stack_db}..."
+    docker compose -p xcelsior-test exec -T api python api/scripts/sync_stripe_service_tiers.py \
+        --output billing/stripe_catalog.json --import-dsn-env XCELSIOR_POSTGRES_DSN \
+        || error "Test stack catalog import failed — launches would be refused."
+    success "Test stack Price snapshot imported"
 
     log "Spot test smoke (infra)..."
     if python3 "$SCRIPT_DIR/spot_staging_smoke.py" --base-url "http://localhost:$api_port"; then
