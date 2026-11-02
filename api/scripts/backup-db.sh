@@ -134,7 +134,17 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_${TIMESTAMP}.dump"
 
 # ── Pre-flight checks ────────────────────────────────────────────────
-if ! command -v pg_dump &>/dev/null; then
+# Dump with the cluster's own major. Given -h, pg_wrapper runs the newest
+# installed client (18 on prod since the 26.04 upgrade, beside 16 clusters), and
+# pg_restore, the restore drill's included, reads older archives, not newer.
+XCELSIOR_PG_MAJOR="$(pg_lsclusters -h 2>/dev/null | awk '{print $1}' | sort -V | tail -1)"
+PG_BINDIR="${XCELSIOR_PG_BINDIR:-/usr/lib/postgresql/${XCELSIOR_PG_MAJOR}/bin}"
+PG_DUMP="${PG_BINDIR}/pg_dump"
+PG_RESTORE="${PG_BINDIR}/pg_restore"
+[[ -x "$PG_DUMP" ]] || PG_DUMP=pg_dump
+[[ -x "$PG_RESTORE" ]] || PG_RESTORE=pg_restore
+
+if ! command -v "$PG_DUMP" &>/dev/null; then
     err "pg_dump not found. Install postgresql-client."
     send_tg_alert "pg_dump not found"
     exit 1
@@ -154,7 +164,7 @@ IN_PROGRESS="${BACKUP_FILE}.partial-$$"
 # ── Run backup ───────────────────────────────────────────────────────
 log "Starting backup of database '${DB_NAME}' → ${BACKUP_FILE}"
 
-if PGPASSWORD="$DB_PASSWORD" pg_dump \
+if PGPASSWORD="$DB_PASSWORD" "$PG_DUMP" \
     -h "$DB_HOST" \
     -p "$DB_PORT" \
     -U "$DB_USER" \
@@ -180,7 +190,7 @@ if [[ ! -s "$IN_PROGRESS" ]]; then
     exit 1
 fi
 
-if ! pg_restore --list "$IN_PROGRESS" >/dev/null; then
+if ! "$PG_RESTORE" --list "$IN_PROGRESS" >/dev/null; then
     err "pg_restore could not read the backup catalog. Removing invalid backup."
     send_tg_alert "pg_restore could not read the backup catalog"
     rm -f "$IN_PROGRESS"
