@@ -628,7 +628,12 @@ class DatabaseOps:
                     region = COALESCE(EXCLUDED.region, hosts.region),
                     country = COALESCE(EXCLUDED.country, hosts.country),
                     province = COALESCE(EXCLUDED.province, hosts.province),
-                    capabilities = CASE WHEN %s THEN EXCLUDED.capabilities ELSE hosts.capabilities END
+                    -- Merge, never replace: the heartbeat and the native
+                    -- observation each report their own keys, explicitly true
+                    -- or false. Replacing let each erase the other's, so
+                    -- gpu_uuid_binding flapped and paid work was refused.
+                    capabilities = CASE WHEN %s THEN hosts.capabilities || EXCLUDED.capabilities
+                        ELSE hosts.capabilities END
                 """,
                 (
                     host_id,
