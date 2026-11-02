@@ -31,6 +31,7 @@
     "workers/checkpoints",
     "artifacts",
     "archive/artifacts",
+    "archive/batches",
     "data",
     "core/data",
     "scripts",
