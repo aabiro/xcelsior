@@ -12,7 +12,7 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger("xcelsior.spot_pricing")
 
@@ -280,12 +280,28 @@ def _job_demand_by_gpu() -> dict[str, int]:
 
 def get_supply_demand(gpu_model: str) -> tuple[int, int]:
     """Merged supply and demand for a GPU model."""
-    gpu_model = _canonical_gpu_model(gpu_model)
+    return supply_demand_snapshot()(gpu_model)
+
+
+def supply_demand_snapshot() -> Callable[[str], tuple[int, int]]:
+    """One read of fleet supply and job demand, answered per GPU model.
+
+    Each read loads every host, offer and job. Quoting the whole catalogue
+    with a fresh read per model made `/spot-prices` scale as models × jobs:
+    with no cached quotes, 55 models took minutes and the request timed out.
+    """
     host_supply = _host_supply_by_gpu()
     offer_supply = _marketplace_supply_by_gpu()
-    supply = host_supply.get(gpu_model, 0) + offer_supply.get(gpu_model, 0)
-    demand = _job_demand_by_gpu().get(gpu_model, 0)
-    return supply, demand
+    demand = _job_demand_by_gpu()
+
+    def lookup(gpu_model: str) -> tuple[int, int]:
+        gpu_model = _canonical_gpu_model(gpu_model)
+        return (
+            host_supply.get(gpu_model, 0) + offer_supply.get(gpu_model, 0),
+            demand.get(gpu_model, 0),
+        )
+
+    return lookup
 
 
 def _is_priceable_gpu_model(gpu_model: str | None) -> bool:
@@ -415,8 +431,10 @@ def update_all_spot_prices() -> dict[str, float]:
     """Recalculate all spot prices and record history. Returns {gpu_model: rate_cad}."""
     global _latest_quotes
     out: dict[str, float] = {}
+    snapshot = supply_demand_snapshot()
     for gpu_model in sorted(_catalog_gpu_models()):
-        quote = compute_live_spot_quote(gpu_model)
+        supply, demand = snapshot(gpu_model)
+        quote = compute_live_spot_quote(gpu_model, supply=supply, demand=demand)
         record_spot_history(quote)
         _latest_quotes[gpu_model] = quote
         out[gpu_model] = quote.rate_cad
@@ -471,7 +489,12 @@ def get_current_spot_prices_list() -> list[dict[str, Any]]:
     prices = get_current_spot_prices()
     if _latest_quotes:
         return [_latest_quotes[gpu].to_api_dict() for gpu in sorted(_latest_quotes)]
-    return [compute_live_spot_quote(gpu).to_api_dict() for gpu in sorted(prices)]
+    snapshot = supply_demand_snapshot()
+    quotes = []
+    for gpu in sorted(prices):
+        supply, demand = snapshot(gpu)
+        quotes.append(compute_live_spot_quote(gpu, supply=supply, demand=demand).to_api_dict())
+    return quotes
 
 
 def get_spot_price_history(
