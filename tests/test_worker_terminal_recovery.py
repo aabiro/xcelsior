@@ -457,3 +457,21 @@ def test_shutdown_cannot_decommission_a_host_with_unsettled_work(execution, monk
     docker.assert_not_called()
     mounts.assert_not_called()
     assert auth["job_id"] in json.loads(journal.read_text())
+
+
+def test_output_is_delivered_before_the_terminal_report(execution, monkeypatch):
+    # A client that reads the logs as soon as the job reads `succeeded` must
+    # find the container's output there.
+    auth, _, _ = execution
+    events = []
+    forwarder = mock.Mock()
+    forwarder.drain.side_effect = lambda: events.append("drain")
+    auth["_log_forwarder"] = forwarder
+
+    def post(path, body):
+        events.append(path)
+        return (503 if events.count(path) == 1 else 200), {}
+
+    monkeypatch.setattr(worker, "_v2_post", post)
+    worker._monitor_container(auth["job_id"], auth["container_name"])
+    assert events == ["drain", "/agent/v2/attempts/status", "/agent/v2/attempts/status"]

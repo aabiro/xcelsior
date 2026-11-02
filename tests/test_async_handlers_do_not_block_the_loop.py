@@ -28,8 +28,10 @@ import ast
 
 from tests._source_tree import iter_source_files
 
-#: Entry points to synchronous database work.
-BLOCKING_CALLS = {"_get_pg_pool", "pg_transaction", "_atomic_mutation"}
+#: Entry points to synchronous database work. The scheduler's whole-table
+#: readers open their own connection, so naming only the pool missed them: the
+#: log endpoint loaded every job to look one up, once per batch, on the loop.
+BLOCKING_CALLS = {"_get_pg_pool", "pg_transaction", "_atomic_mutation", "load_jobs", "list_jobs"}
 
 HTTP_DECORATORS = {"get", "post", "put", "delete", "patch", "websocket"}
 
