@@ -10,13 +10,21 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 MAINTENANCE_ENV = Path("/etc/xcelsior/db-maintenance.env")
 MIGRATOR_KEY = "XCELSIOR_POSTGRES_DSN_MIGRATOR"
+# 147 creates stripe_compute_prices and gpu_pricing.stripe_price_id, the only
+# relations the catalog import writes. A staged release may stop at or after it
+# (a contract migration ships in the release after its writers retire).
+CATALOG_MIN_REVISION = 147
 
 
-def run(project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head", import_compute_catalog=False) -> int:
+def run(
+    project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head", import_compute_catalog=False
+) -> int:
     if target != "head" and not re.fullmatch(r"[0-9]{3}", target):
         raise RuntimeError("migration target must be head or an absolute three-digit revision")
-    if import_compute_catalog and target != "head":
-        raise RuntimeError("compute catalog import requires migration head")
+    if import_compute_catalog and target != "head" and int(target) < CATALOG_MIN_REVISION:
+        raise RuntimeError(
+            f"compute catalog import requires migration {CATALOG_MIN_REVISION} or later"
+        )
     env = os.environ.copy()
     if credential_file.exists():
         if credential_file.stat().st_mode & 0o077:
@@ -59,9 +67,16 @@ def run(project=ROOT, credential_file=MAINTENANCE_ENV, *, target="head", import_
     if result or not import_compute_catalog:
         return result
     print("Importing verified Stripe compute Price identities...", flush=True)
-    catalog = [*command, "api", "python", "api/scripts/sync_stripe_service_tiers.py",
-               "--output", "billing/stripe_catalog.json", "--import-dsn-env",
-               MIGRATOR_KEY if credential else "XCELSIOR_POSTGRES_DSN"]
+    catalog = [
+        *command,
+        "api",
+        "python",
+        "api/scripts/sync_stripe_service_tiers.py",
+        "--output",
+        "billing/stripe_catalog.json",
+        "--import-dsn-env",
+        MIGRATOR_KEY if credential else "XCELSIOR_POSTGRES_DSN",
+    ]
     return subprocess.run(catalog, cwd=project, env=env, check=False).returncode
 
 
@@ -75,6 +90,8 @@ if __name__ == "__main__":
     parser.add_argument("--import-compute-catalog", action="store_true")
     args = parser.parse_args()
     try:
-        raise SystemExit(run(target=args.target, import_compute_catalog=args.import_compute_catalog))
+        raise SystemExit(
+            run(target=args.target, import_compute_catalog=args.import_compute_catalog)
+        )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from None
