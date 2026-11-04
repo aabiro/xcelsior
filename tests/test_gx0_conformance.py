@@ -112,9 +112,9 @@ class OAuthServer:
             if token != self.broken_logout:
                 self.revoked.add(token)
             return httpx.Response(200, json={"ok": True})
-        assert (
-            "cookie" not in request.headers
-        ), "probe must authenticate with the tested bearer only"
+        assert "cookie" not in request.headers, (
+            "probe must authenticate with the tested bearer only"
+        )
         client, token = self.tokens.get(bearer, ("unknown", "unknown"))
         if token in self.revoked:
             return httpx.Response(401)
@@ -291,3 +291,35 @@ def test_sse_parses_multiple_events_and_ignores_notifications():
         text=': heartbeat\n\nevent: message\ndata: {"jsonrpc":"2.0","method":"notification"}\n\nevent: message\ndata: {"jsonrpc":"2.0","id":1,\ndata: "result":{"tools":[]}}\n\n',
     )
     assert gx0.rpc_result(response, 1) == {"tools": []}
+
+
+@pytest.mark.parametrize(
+    "status,body,expected",
+    [
+        (201, {"client_id": "trimmed", "scope": "instances:read offline_access"}, gx0.PASS),
+        (400, {"error": "invalid_scope"}, gx0.PASS),
+        (201, {"client_id": "unsafe", "scope": "instances:read hosts:evict"}, gx0.FAIL),
+        (201, {"client_id": "unsafe", "scope": "instances:read api"}, gx0.FAIL),
+        (201, {"client_id": "unknown"}, gx0.FAIL),
+        (500, {"error": "invalid_scope"}, gx0.FAIL),
+        (429, {"error": "rate_limited"}, gx0.BLOCKED),
+    ],
+)
+def test_dcr_checks_granted_scope_ceiling_when_registration_trims_metadata(status, body, expected):
+    def respond(request):
+        name = json.loads(request.content)["client_name"]
+        if name == "gx0-hostile":
+            return httpx.Response(400, json={"error": "invalid_redirect_uri"})
+        if name == "gx0-operator-attempt":
+            return httpx.Response(status, json=body)
+        return httpx.Response(201, json={"client_id": "ordinary", "resource": RESOURCE})
+
+    results = gx0.Results()
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        gx0.check_dcr(
+            results, http, {"registration_endpoint": ISSUER + "/oauth/register"}, RESOURCE
+        )
+    row = next(
+        row for row in results.rows if row[1] == "a DCR client cannot obtain operator scopes"
+    )
+    assert row[0] == expected

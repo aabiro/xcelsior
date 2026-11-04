@@ -450,9 +450,28 @@ def check_dcr(
             "scope": "instances:read hosts:evict",
         },
     )
-    if _record_dcr_rejection(
-        results, operator, "a DCR client cannot obtain operator scopes", "invalid_scope"
-    ):
+    # RFC 7591 permits the server to replace requested metadata. The live
+    # connector policy trims ungrantable scopes rather than rejecting an
+    # otherwise usable client. Check the granted scopes, not just HTTP status.
+    if operator.status_code in {200, 201}:
+        try:
+            registered = operator.json()
+            granted = registered.get("scope", "").split()
+        except (ValueError, AttributeError):
+            registered, granted = {}, []
+        results.check(
+            bool(registered.get("client_id"))
+            and bool(granted)
+            and set(granted) <= {"instances:read", "offline_access"},
+            "a DCR client cannot obtain operator scopes",
+            "registration may succeed only with the requested tenant scope and offline_access",
+        )
+        throttled = False
+    else:
+        throttled = _record_dcr_rejection(
+            results, operator, "a DCR client cannot obtain operator scopes", "invalid_scope"
+        )
+    if throttled:
         results.blocked(
             "DCR registers a well-formed connector", "skipped because DCR is rate-limited"
         )
