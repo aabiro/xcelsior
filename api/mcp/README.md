@@ -17,6 +17,18 @@ Liveness: `GET http://localhost:8770/health`
 Readiness: `GET http://localhost:8770/readyz`
 MCP endpoint: `http://localhost:8770/mcp`
 
+### Compare source declarations with production
+
+```bash
+npx tsx scripts/check-live-surface.ts /path/to/private/token-file
+```
+
+The file contains a bearer token or an agent-key JSON response. The checker
+authenticates, lists tools, and compares names, annotations and output-schema
+presence with the customer registry in this checkout. It never invokes a tool
+handler or prints the token. This gives monorepo-aware coverage when a source
+scanner cannot discover the registrations; it does not prove handler behavior.
+
 ## Connecting
 
 The canonical connector URL is **`https://mcp.xcelsior.ca/mcp`**.
