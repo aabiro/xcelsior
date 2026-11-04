@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.aabiro/xcelsior",
+  "title": "Xcelsior Compute",
+  "description": "Discover GPU availability and prices, manage instances, and run serverless inference on Xcelsior.",
+  "version": "2.0.0",
+  "websiteUrl": "https://xcelsior.ca",
+  "repository": {
+    "url": "https://github.com/aabiro/xcelsior",
+    "source": "github",
+    "subfolder": "api/mcp"
+  },
+  "remotes": [
+    {"type": "streamable-http", "url": "https://mcp.xcelsior.ca/mcp"}
+  ]
+}
