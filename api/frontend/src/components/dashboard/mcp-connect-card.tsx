@@ -5,7 +5,7 @@ import { Check, Copy, KeyRound, Loader2, Lock, RefreshCw, Terminal } from "lucid
 import { PillToggle } from "@/components/dashboard/pill-toggle";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
-import { MCP_CONNECTOR_URL } from "@/lib/mcp";
+import { MCP_CONNECTOR_URL, oneClickInstalls } from "@/lib/mcp";
 import * as api from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -282,6 +282,18 @@ function WorkspaceConnectCard() {
           {pending[tab] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           {masked ? t("dash.mcp.create_new_key") : t("dash.mcp.regenerate")}
         </button>
+        {tab === "mcp" &&
+          oneClickInstalls()
+            .filter((item): item is typeof item & { href: string } => Boolean(item.href))
+            .map((item) => (
+              <a
+                key={item.id}
+                href={item.href}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-4 py-2.5 text-xs font-medium text-text-muted transition-colors hover:text-text-primary"
+              >
+                Install in {item.label}
+              </a>
+            ))}
       </div>
     </div>
   );
