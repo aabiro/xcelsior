@@ -18,6 +18,7 @@ RUN addgroup -S xcelsior && adduser -S -G xcelsior xcelsior
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && chown -R xcelsior:xcelsior /app
 COPY --from=build --chown=xcelsior:xcelsior /app/dist ./dist
+COPY --chown=xcelsior:xcelsior assets ./assets
 USER xcelsior
 EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
