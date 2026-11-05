@@ -24,7 +24,7 @@ NGINX_DIR="${NGINX_DIR:-/etc/nginx}"
 SRC_DIR="${SRC_DIR:-/tmp/xcelsior-nginx}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups}"
 HEALTH_HOST="${HEALTH_HOST:-xcelsior.ca}"
-VHOSTS="xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior otel-xcelsior"
+VHOSTS="xcelsior mcp-xcelsior headscale headscale-http docs-xcelsior downloads-xcelsior otel-xcelsior"
 
 # A vhost whose certificate has not been issued yet fails `nginx -t`, and that
 # would roll back every other vhost with it, on every deploy, until someone ran

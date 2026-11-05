@@ -100,6 +100,20 @@ def test_the_live_colours_are_the_primaries(api, mcp):
     assert [s for s, backup in _upstream(out, "xcelsior_mcp").items() if not backup] == [live_mcp]
 
 
+@pytest.mark.parametrize("mcp", ["green", "blue"])
+def test_the_canonical_mcp_host_follows_the_mcp_colour(mcp):
+    """mcp.xcelsior.ca has its own pool; installing it must not reset it to green.
+
+    deploy.sh's blue/green swap edits this pool in place, so a render that left
+    it at the repository default would silently undo the last swap and send the
+    canonical host to the standby replica.
+    """
+    out = rnv.render(_source("mcp-xcelsior"), topology="direct", api_live="green", mcp_live=mcp)
+    live_mcp = "127.0.0.1:8770" if mcp == "green" else "127.0.0.1:8771"
+    pool = _upstream(out, "xcelsior_mcp_canonical")
+    assert [s for s, backup in pool.items() if not backup] == [live_mcp]
+
+
 def test_an_upstream_missing_a_colour_is_refused():
     broken = _source("xcelsior").replace("server 127.0.0.1:9501 backup;", "")
     with pytest.raises(ValueError):

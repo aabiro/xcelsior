@@ -1,16 +1,52 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.aabiro/xcelsior",
-  "title": "Xcelsior Compute",
-  "description": "Discover GPU availability and prices, manage instances, and run serverless inference on Xcelsior.",
+  "title": "Xcelsior GPU Cloud",
+  "description": "Rent GPUs, launch spot instances and run serverless inference on the Xcelsior marketplace.",
   "version": "2.0.0",
-  "websiteUrl": "https://xcelsior.ca",
+  "websiteUrl": "https://xcelsior.ca/mcp",
   "repository": {
     "url": "https://github.com/aabiro/xcelsior",
     "source": "github",
     "subfolder": "api/mcp"
   },
+  "icons": [
+    {
+      "src": "https://xcelsior.ca/brand-system/pngs/icon-512.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
   "remotes": [
-    {"type": "streamable-http", "url": "https://mcp.xcelsior.ca/mcp"}
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.xcelsior.ca/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@xcelsior-gpu/mcp",
+      "version": "0.1.1",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "XCELSIOR_ACCESS_TOKEN",
+          "description": "OAuth access token from https://xcelsior.ca/dashboard/mcp",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "XCELSIOR_API_URL",
+          "description": "Xcelsior API base URL",
+          "default": "https://xcelsior.ca"
+        }
+      ]
+    }
   ]
 }
