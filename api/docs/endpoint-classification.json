@@ -355,6 +355,10 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "GET /api/billing/attestation": {
+    "class": "internal",
+    "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset; not a tenant capability"
+  },
   "GET /api/billing/crypto/deposit/{deposit_id}": {
     "class": "covered",
     "notes": "get_crypto_deposit. Confirmations and credit state — an unconfirmed deposit is not a balance."

@@ -67,6 +67,14 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **A server icon.** `serverInfo.icons` now carries the transparent gradient X,
+  so clients that render MCP icons (VS Code's tool picker) show the Xcelsior
+  mark instead of a generic plug. Clients only accept an HTTP server's icon
+  from the server's own origin, so the hosted server serves it at
+  `https://mcp.xcelsior.ca/icon.png`; the stdio CLI points at the file it
+  ships. `server.json` describes the hosted endpoint for the official MCP
+  registry, with the dark-tile icon as its listing image.
+
 - **`list_volume_snapshots` and `restore_volume_snapshot`** — a backup you can
   now put back.
 

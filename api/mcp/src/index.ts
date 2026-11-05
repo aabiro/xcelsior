@@ -14,8 +14,10 @@ import { TOOL_SCOPES } from "./auth/scopes.js";
 import { scopesForProfile, toolsInProfile } from "./tools/profiles.js";
 import { instrumentMcpAnalytics, shutdownMcpAnalytics } from "./analytics.js";
 import { shutdownObservability } from "./observability/setup.js";
+import { ICON_PATH, httpIcons, readIcon } from "./icon.js";
 
 const config = loadConfig();
+const SERVER_ICONS = httpIcons(config.resourceAudience);
 const PROFILE_OPTIONS = { companyKnowledge: config.companyKnowledge };
 const PROFILE_SCOPES = scopesForProfile(config.toolProfile, PROFILE_OPTIONS);
 const PROFILE_TOOLS = toolsInProfile(config.toolProfile, PROFILE_OPTIONS);
@@ -125,7 +127,7 @@ async function handleMcp(
     companyKnowledge: config.companyKnowledge
       ? { siteUrl: config.siteUrl, docsUrl: config.docsUrl }
       : false,
-  });
+  }, SERVER_ICONS);
   instrumentMcpAnalytics(mcp, config.posthogAnalytics, {
     user,
     transport: "streamable_http",
@@ -199,6 +201,24 @@ const httpServer = http.createServer(async (req, res) => {
       "Cache-Control": "no-store",
     });
     res.end(config.openaiAppsChallenge);
+    return;
+  }
+
+  if (path === ICON_PATH) {
+    // Advertised in serverInfo.icons. Served here, not from xcelsior.ca,
+    // because clients only accept an HTTP server's icon from its own origin.
+    const icon = readIcon();
+    if (!icon) {
+      json(res, 404, { error: "not_found" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": icon.length,
+      "Cache-Control": "public, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
+    });
+    res.end(icon);
     return;
   }
 
