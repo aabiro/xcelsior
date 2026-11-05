@@ -22,5 +22,8 @@ const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, env, stdio: "inhe
 run(npm, ["ci"], server);
 run(npm, ["run", "build"], server);
 rmSync(resolve(root, "dist"), { recursive: true, force: true });
+rmSync(resolve(root, "assets"), { recursive: true, force: true });
 cpSync(resolve(server, "dist"), resolve(root, "dist"), { recursive: true });
+// dist/icon.js reads ../assets, so the icon travels with it.
+cpSync(resolve(server, "assets"), resolve(root, "assets"), { recursive: true });
 run(process.execPath, [resolve(root, "scripts/check-runtime-deps.mjs")], root);
