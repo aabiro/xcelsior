@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MCP_CONNECTOR_URL,
+  MCP_REGISTRY_NAME,
   MCP_RESOURCE,
   configJson,
   configPath,
@@ -75,7 +76,7 @@ describe("one-click installs", () => {
     const vscode = installs.find((i) => i.id === "vscode")!;
     const raw = decodeURIComponent(vscode.href!.split("?")[1]);
     expect(JSON.parse(raw)).toEqual({
-      name: "xcelsior", type: "http", url: MCP_CONNECTOR_URL,
+      name: MCP_REGISTRY_NAME, type: "http", url: MCP_CONNECTOR_URL, gallery: true,
     });
   });
 });

@@ -9,6 +9,7 @@
 // different identifier and gets rejected.
 export const MCP_CONNECTOR_URL = "https://mcp.xcelsior.ca/mcp";
 export const MCP_RESOURCE = MCP_CONNECTOR_URL;
+export const MCP_REGISTRY_NAME = "io.github.aabiro/xcelsior";
 
 export function mcpUrl(): string {
   if (typeof window !== "undefined" && window.location.hostname === "localhost") {
@@ -88,7 +89,7 @@ export function configPath(agentId: string): string {
 function deepLinkConfig(kind: "cursor" | "vscode"): string {
   const url = MCP_CONNECTOR_URL;
   return kind === "vscode"
-    ? JSON.stringify({ name: "xcelsior", type: "http", url })
+    ? JSON.stringify({ name: MCP_REGISTRY_NAME, type: "http", url, gallery: true })
     : JSON.stringify({ url });
 }
 
