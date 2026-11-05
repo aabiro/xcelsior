@@ -12,7 +12,7 @@ import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
 import { CodeBlock } from "@/components/ui/code-block";
-import { MCP_CONNECTOR_URL, MCP_RESOURCE, mcpHealthUrl, configJson, configPath } from "@/lib/mcp";
+import { MCP_CONNECTOR_URL, MCP_RESOURCE, mcpHealthUrl, configJson, configPath, oneClickInstalls } from "@/lib/mcp";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
@@ -242,6 +242,19 @@ export function McpAgentSetup({
           </Button>
         </div>
         <p className="mt-2 text-xs text-text-muted">{t("dash.settings.mcp.oauth_hint")}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {oneClickInstalls()
+            .filter((item): item is typeof item & { href: string } => Boolean(item.href))
+            .map((item) => (
+              <a
+                key={item.id}
+                href={item.href}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-surface/50 px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-surface-hover"
+              >
+                Install in {item.label} <ExternalLink className="h-3 w-3" />
+              </a>
+            ))}
+        </div>
       </div>
 
       <p className="mb-3 text-xs font-medium uppercase tracking-wider text-text-muted">

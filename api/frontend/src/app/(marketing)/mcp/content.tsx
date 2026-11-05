@@ -9,6 +9,7 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { PixelField } from "@/components/ui/pixel-field";
 import { m } from "@/components/marketing/motion";
 import { siteIcon } from "@/lib/brand-assets";
+import { MCP_CONNECTOR_URL, oneClickInstalls } from "@/lib/mcp";
 import { useLocale } from "@/lib/locale";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -83,7 +84,7 @@ function SectionMarker({ code, label }: { code: string; label: string }) {
 // MCP client config formats differ by agent: Cursor uses `mcpServers`+`url`,
 // Claude Code adds `type: "http"`, and VS Code uses `servers`+`type: "http"`.
 function mcpConfigSnippet(agentId: string): string {
-  const url = "https://xcelsior.ca/mcp";
+  const url = MCP_CONNECTOR_URL;
   const headers = { Authorization: "******" };
   if (agentId === "vscode") {
     return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
@@ -315,6 +316,13 @@ export function McpLandingContent() {
               <AuthAwareLink intent="mcp" className="site-button site-button-primary">
                 {t("mcp.landing.setup_cta")}
               </AuthAwareLink>
+              {oneClickInstalls()
+                .filter((item): item is typeof item & { href: string } => Boolean(item.href))
+                .map((item) => (
+                  <a key={item.id} href={item.href} className="site-button site-button-ghost">
+                    Install in {item.label}
+                  </a>
+                ))}
             </div>
           </div>
 

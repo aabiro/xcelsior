@@ -37,4 +37,4 @@ Create a token: **Dashboard → Settings → Connect AI Agents** (or visit [xcel
 
 ## Hosted alternative
 
-No local install required — use the hosted server at `https://xcelsior.ca/mcp` (Streamable HTTP). See `mcp/README.md` in the monorepo.
+No local install required — use the hosted server at `https://mcp.xcelsior.ca/mcp` (Streamable HTTP). See `mcp/README.md` in the monorepo.
