@@ -14,13 +14,39 @@
     {
       "src": "https://xcelsior.ca/brand-system/pngs/icon-512.png",
       "mimeType": "image/png",
-      "sizes": ["512x512"]
+      "sizes": [
+        "512x512"
+      ]
     }
   ],
   "remotes": [
     {
       "type": "streamable-http",
       "url": "https://mcp.xcelsior.ca/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@xcelsior-gpu/mcp",
+      "version": "0.1.1",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "XCELSIOR_ACCESS_TOKEN",
+          "description": "OAuth access token from https://xcelsior.ca/dashboard/mcp",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "XCELSIOR_API_URL",
+          "description": "Xcelsior API base URL",
+          "default": "https://xcelsior.ca"
+        }
+      ]
     }
   ]
 }
