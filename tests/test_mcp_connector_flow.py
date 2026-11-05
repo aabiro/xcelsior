@@ -133,8 +133,7 @@ def _authorize_through_consent(*, challenge: str, redirect_uri: str, resource: s
     }
     if resource:
         params["resource"] = resource
-    # Never follow: an already-consented authorize redirects straight to the
-    # client's callback, and following that into the test app would 404.
+    # Never follow the client's external callback into the test app.
     page = client.get(
         "/oauth/authorize", params=params, headers={"Accept": "text/html"}, follow_redirects=False
     )
@@ -350,13 +349,28 @@ def test_consent_key_cannot_be_replayed():
     assert second.status_code == 400
 
 
-def test_second_authorization_reuses_the_recorded_grant():
-    """A returning user reconnects without seeing the screen again."""
+@pytest.mark.parametrize("registration_source", ["connector", "dcr", "cimd", "manual"])
+def test_returning_connector_reviews_permissions_before_a_new_authorization(registration_source):
+    """An existing account/grant must not hide a fresh connector permission decision."""
+    from oauth_delegation import SYSTEM_PRINCIPAL
+    from oauth_service import create_oauth_client
+
     _register_user("connector-remember@xcelsior.ca")
+    registered = create_oauth_client(
+        actor=SYSTEM_PRINCIPAL,
+        client_name="Returning connector",
+        redirect_uris=[CLAUDE_CALLBACK],
+        grant_types=["authorization_code", "refresh_token"],
+        scopes=["instances:read", "offline_access"],
+        created_by_email=None,
+        client_type="public",
+        registration_source=registration_source,
+        resource_audience=MCP_RESOURCE_AUDIENCE,
+    )
     _, challenge = _pkce()
     params = {
         "response_type": "code",
-        "client_id": "xcelsior-connector",
+        "client_id": registered["client_id"],
         "redirect_uri": CLAUDE_CALLBACK,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
@@ -372,8 +386,61 @@ def test_second_authorization_reuses_the_recorded_grant():
     again = client.get(
         "/oauth/authorize", params=params, headers={"Accept": "text/html"}, follow_redirects=False
     )
-    assert again.status_code == 302, "an existing grant should skip the prompt"
-    assert "code=" in again.headers["location"]
+    if registration_source == "manual":
+        assert again.status_code == 302, "manually provisioned clients retain grant reuse"
+        assert "code=" in again.headers["location"]
+        return
+    assert again.status_code == 200, "a new connector authorization must show permissions"
+    assert "location" not in again.headers
+    assert "connector-remember@xcelsior.ca" in again.text
+    assert 'name="scope:offline_access"' in again.text
+    assert _consent_key(again.text) != _consent_key(page.text)
+    denied = client.post(
+        "/oauth/authorize",
+        data={"consent_key": _consent_key(again.text), "decision": "deny"},
+        follow_redirects=False,
+    )
+    callback = parse_qs(urlsplit(denied.headers["location"]).query)
+    assert denied.status_code == 302
+    assert callback["error"] == ["access_denied"]
+    assert "code" not in callback
+
+
+def test_signed_out_connector_returns_from_login_to_its_permission_screen():
+    _, challenge = _pkce()
+    params = {
+        "response_type": "code",
+        "client_id": "xcelsior-connector",
+        "redirect_uri": "http://127.0.0.1:33418/",
+        "state": "retained-browser-state",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "scope": "instances:read offline_access",
+        "resource": MCP_RESOURCE_AUDIENCE,
+    }
+    signed_out = client.get(
+        "/oauth/authorize", params=params, headers={"Accept": "text/html"}, follow_redirects=False
+    )
+    assert signed_out.status_code == 302
+    login_url = urlsplit(signed_out.headers["location"])
+    assert login_url.path == "/login"
+    return_to = parse_qs(login_url.query)["redirect"][0]
+    assert urlsplit(return_to).path == "/oauth/authorize"
+    assert parse_qs(urlsplit(return_to).query) == {key: [value] for key, value in params.items()}
+
+    _register_user("connector-login-return@xcelsior.ca")
+    permission_page = client.get(return_to, headers={"Accept": "text/html"}, follow_redirects=False)
+    assert permission_page.status_code == 200
+    assert "connector-login-return@xcelsior.ca" in permission_page.text
+    approved = client.post(
+        "/oauth/authorize",
+        data={"consent_key": _consent_key(permission_page.text), "decision": "approve"},
+        follow_redirects=False,
+    )
+    callback = urlsplit(approved.headers["location"])
+    assert callback.netloc == "127.0.0.1:33418"
+    assert parse_qs(callback.query)["state"] == [params["state"]]
+    assert "code" in parse_qs(callback.query)
 
 
 def test_widening_scopes_asks_again():
@@ -740,8 +807,15 @@ def test_browser_loopback_decision_delivers_actual_callback_directly(decision, l
         headers=browser_headers,
         follow_redirects=False,
     )
-    assert again.status_code == 302, "remembered browser consent must also deliver the callback"
-    assert parse_qs(urlsplit(again.headers["location"]).query)["state"] == [params["state"]]
+    assert again.status_code == 200, "a new browser authorization must show permissions again"
+    repeated = client.post(
+        "/oauth/authorize",
+        data={"consent_key": _consent_key(again.text), "decision": "approve", "ui": "1"},
+        headers=browser_headers,
+        follow_redirects=False,
+    )
+    assert repeated.status_code == 302
+    assert parse_qs(urlsplit(repeated.headers["location"]).query)["state"] == [params["state"]]
 
 
 @pytest.mark.parametrize("approved", [True, False])
