@@ -42,10 +42,9 @@ from oauth_service import (  # noqa: E402
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SURFACE = ROOT / "api" / "mcp" / "tool-surface.json"
 
-#: In the ceiling, and rightly absent from the resource metadata, which lists
-#: what the MCP tools require. The first three are OpenID Connect scopes that
-#: belong to the authorization server; no tool requires `mcp_actions:approve`.
-NOT_RESOURCE_SCOPES = {"profile", "email", "offline_access", "mcp_actions:approve"}
+#: Offline access is added by OAuth clients; no tool requires action approval.
+#: Profile and email are advertised as optional account-label permissions.
+NOT_RESOURCE_SCOPES = {"offline_access", "mcp_actions:approve"}
 
 #: On the authorization server's metadata for the clients it serves besides
 #: connectors: the first-party apps and providers' worker agents. A connector

@@ -43,7 +43,7 @@ def test_new_login_and_agent_key_cannot_bypass_hold(suspended, monkeypatch):
     for mint in (
         lambda: oauth.issue_user_tokens({"user_id": suspended}, Mock()),
         lambda: oauth.issue_agent_api_key(user={"user_id": suspended}, client_id="test", scopes=[]),
-        lambda: oauth._issue_opaque_access_token(
+        lambda: oauth._issue_cached_access_token(
             {"user_id": suspended},
             client_id="test",
             scopes=[],

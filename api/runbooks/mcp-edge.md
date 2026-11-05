@@ -220,18 +220,26 @@ the browser or repeat consent. First-party login and manually provisioned OAuth
 clients retain their existing grant policy.
 
 VS Code owns its "MCP Server Definition ... wants to authenticate" dialog,
-existing-account picker, and external-website confirmation. They are separate
-from Xcelsior's browser consent. Renaming a local MCP definition changes the
+existing-account picker, and external-website confirmation. The initial Allow
+decision lets that MCP definition use an OAuth account; it does not grant
+Xcelsior resource permissions. These editor steps are separate from Xcelsior's
+browser consent. Renaming a local MCP definition changes the
 identity for which VS Code remembers account access, so it can ask again while
 still holding an OAuth session for the same authorization server. Choose the
 existing account to reuse that connection; choose "Sign in to another account"
-to start a new browser authorization. The external-link confirmation can be
-managed through VS Code's trusted domains for `https://xcelsior.ca`.
+to start a new browser authorization. Xcelsior cannot suppress the initial
+Allow decision or force VS Code to open a browser instead of offering saved
+sessions.
 
-VS Code currently labels opaque OAuth-token accounts "MCP" when neither an ID
-token nor a JWT access token supplies identity claims. This is the editor's
-account label, not a choice between two Xcelsior authentication methods. Do not
-clear tokens or alter the local credential store just to hide that picker.
+New MCP user access tokens are signed JWTs (`typ: at+jwt`) carrying a stable
+subject and only the name/email identity claims the user approved. Optional
+`profile` and `email` permissions are advertised in resource discovery so the
+client can request them. VS Code uses those claims for a recognizable account
+label. Tokens retain exact cache-backed validation, expiry, and revocation;
+having a JWT signature does not grant machine-client authority. Existing opaque
+tokens remain valid until refresh or expiry, and an existing VS Code session
+can retain its old label until it receives a new token. Do not clear credentials
+just to hide the picker.
 
 The registry identity is `io.github.aabiro/xcelsior`. It is separate from the
 runtime server title and from an installed gallery card's display name. Check

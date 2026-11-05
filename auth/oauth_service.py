@@ -774,7 +774,16 @@ def build_deprecation_headers(surface: str) -> dict[str, str]:
 
 
 def is_oauth_access_token(token: str) -> bool:
-    return str(token or "").startswith(ACCESS_TOKEN_PREFIX)
+    """Select the cache-backed user bearer path; this does not authenticate it."""
+    token = str(token or "")
+    if token.startswith(ACCESS_TOKEN_PREFIX):
+        return True
+    try:
+        header, _, _ = token.split(".")
+        decoded = json.loads(_base64url_decode(header))
+        return isinstance(decoded, dict) and decoded.get("typ") == "at+jwt"
+    except (ValueError, TypeError, UnicodeError):
+        return False
 
 
 # ── Agent API keys (MCP + Agent Skill) ────────────────────────────────
@@ -1086,34 +1095,15 @@ def oauth_jwks() -> dict[str, Any]:
     return {"keys": result}
 
 
-def issue_client_credentials_jwt(
-    client: dict, scopes: list[str], *, audience: str | None = None
-) -> dict[str, Any]:
-    _require_unsuspended(client)
+def _sign_oauth_jwt(payload: dict[str, Any], *, token_type: str = "JWT") -> str:
     active_kid, keys = _get_jwt_signing_keys()
-    now = int(time.time())
-    secret_fingerprint = hashlib.sha256(
-        f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
-    ).hexdigest()
     key = keys[active_kid]
     asymmetric = bool(key.get("private_key_pem"))
     if not asymmetric and not env_config.is_relaxed_env():
         raise OAuthGrantError(
             "server_error", "Production OAuth signing must use an asymmetric key", status_code=500
         )
-    header = {"alg": "RS256" if asymmetric else "HS256", "typ": "JWT", "kid": active_kid}
-    payload = {
-        "iss": OAUTH_ISSUER,
-        "sub": client["client_id"],
-        "aud": audience or OAUTH_AUDIENCE,
-        "iat": now,
-        "exp": now + CLIENT_CREDENTIALS_TTL_SEC,
-        "scope": " ".join(scopes),
-        "client_id": client["client_id"],
-        "auth_type": "client_credentials",
-        "jti": f"jwt-{uuid.uuid4().hex}",
-        "secret_fingerprint": secret_fingerprint,
-    }
+    header = {"alg": "RS256" if asymmetric else "HS256", "typ": token_type, "kid": active_kid}
     signing_input = ".".join(
         [
             _base64url_encode(_json_dumps(header).encode()),
@@ -1133,7 +1123,30 @@ def issue_client_credentials_jwt(
         signature = hmac.new(
             key["secret"].encode(), signing_input.encode(), hashlib.sha256
         ).digest()
-    access_token = f"{signing_input}.{_base64url_encode(signature)}"
+    return f"{signing_input}.{_base64url_encode(signature)}"
+
+
+def issue_client_credentials_jwt(
+    client: dict, scopes: list[str], *, audience: str | None = None
+) -> dict[str, Any]:
+    _require_unsuspended(client)
+    now = int(time.time())
+    secret_fingerprint = hashlib.sha256(
+        f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
+    ).hexdigest()
+    payload = {
+        "iss": OAUTH_ISSUER,
+        "sub": client["client_id"],
+        "aud": audience or OAUTH_AUDIENCE,
+        "iat": now,
+        "exp": now + CLIENT_CREDENTIALS_TTL_SEC,
+        "scope": " ".join(scopes),
+        "client_id": client["client_id"],
+        "auth_type": "client_credentials",
+        "jti": f"jwt-{uuid.uuid4().hex}",
+        "secret_fingerprint": secret_fingerprint,
+    }
+    access_token = _sign_oauth_jwt(payload)
     _oauth_tokens_issued.labels("client_credentials").inc()
     return {
         "access_token": access_token,
@@ -1151,6 +1164,10 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
+    # User access JWTs are authorized only through their exact cached bearer.
+    # They must never enter the independent machine-credential validation path.
+    if header.get("typ") == "at+jwt":
+        return None
     kid = str(header.get("kid", ""))
     alg = str(header.get("alg", ""))
     if alg not in {"RS256", "HS256"} or not kid:
@@ -2033,7 +2050,7 @@ def _build_session_record(
     }
 
 
-def _issue_opaque_access_token(
+def _issue_cached_access_token(
     user: dict,
     *,
     client_id: str,
@@ -2042,8 +2059,8 @@ def _issue_opaque_access_token(
     session_type: str,
     audience: str = OAUTH_AUDIENCE,
 ) -> dict[str, Any]:
+    """Issue a revocable cached bearer, with signed identity claims for MCP clients."""
     _require_unsuspended(user)
-    token = f"{ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
     now = time.time()
     # Only the first-party web app gets the long browser-session TTL. OAuth
     # authorization-code grants for third-party agents (different client_id) keep
@@ -2072,6 +2089,35 @@ def _issue_opaque_access_token(
         "issued_at": now,
         "expires_at": now + ttl,
     }
+    if audience in accepted_mcp_audiences():
+        # RFC 9068 access-token claims give native clients an account identity
+        # without inventing an ID token or exposing an internal session token.
+        # The exact signed bearer remains cache-backed for immediate revocation.
+        subject = str(user.get("user_id") or "").strip()
+        if not subject:
+            raise OAuthGrantError("server_error", "User identity is missing", status_code=500)
+        issued_at = int(now)
+        claims = {
+            "iss": OAUTH_ISSUER,
+            "sub": subject,
+            "aud": audience,
+            "iat": issued_at,
+            "exp": issued_at + ttl,
+            "jti": f"user-{uuid.uuid4().hex}",
+            "client_id": client_id,
+            "scope": " ".join(scopes),
+        }
+        # These are optional, explicitly consented identity permissions. The
+        # remaining internal principal fields stay exclusively in the cache.
+        if "profile" in scopes and user.get("name"):
+            claims["name"] = str(user["name"])
+        if "email" in scopes and user.get("email"):
+            claims["email"] = str(user["email"])
+            claims["preferred_username"] = str(user["email"])
+        token = _sign_oauth_jwt(claims, token_type="at+jwt")
+        payload.update(issued_at=issued_at, expires_at=issued_at + ttl, jti=claims["jti"])
+    else:
+        token = f"{ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
     if not _cache_set_json("access_token", token, payload, ttl):
         raise OAuthGrantError(
             "server_error",
@@ -2158,7 +2204,7 @@ def issue_user_tokens(
     )
     UserStore.create_session(session)
     OAuthStore.create_refresh_token(refresh_record)
-    access = _issue_opaque_access_token(
+    access = _issue_cached_access_token(
         user,
         client_id=client_id,
         scopes=scopes,
@@ -2445,6 +2491,7 @@ def revoke_session(session_token: str) -> None:
 
 
 def resolve_opaque_access_token(token: str) -> dict[str, Any] | None:
+    """Resolve the exact cached bearer, including signed MCP user access tokens."""
     payload = _cache_get_json("access_token", token)
     if not payload:
         return None
@@ -2538,7 +2585,7 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
         OAuthStore.create_refresh_token(new_record)
         UserStore.rotate_session_token(refresh_token, new_session)
 
-        access = _issue_opaque_access_token(
+        access = _issue_cached_access_token(
             user,
             client_id=client_id,
             scopes=scopes,
