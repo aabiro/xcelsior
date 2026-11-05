@@ -31,12 +31,24 @@ import re
 import shutil
 import sys
 
-VHOSTS = ("xcelsior", "headscale", "headscale-http", "docs-xcelsior", "downloads-xcelsior", "otel-xcelsior")
+VHOSTS = (
+    "xcelsior",
+    "mcp-xcelsior",
+    "headscale",
+    "headscale-http",
+    "docs-xcelsior",
+    "downloads-xcelsior",
+    "otel-xcelsior",
+)
 
 #: upstream name -> (port when green is live, port when blue is live)
 UPSTREAMS = {
     "xcelsior_api": (9500, 9501),
     "xcelsior_mcp": (8770, 8771),
+    # mcp-xcelsior.conf's pool for mcp.xcelsior.ca: the same two replicas, so it
+    # follows the MCP colour. deploy.sh's swap edits it already (its sed range
+    # matches by prefix); without this entry a render would put it back on green.
+    "xcelsior_mcp_canonical": (8770, 8771),
 }
 
 _ROUTER_LISTEN = re.compile(r"^(\s*listen\s+[^;]*?)\b8444\b([^;]*?)\s+proxy_protocol\b([^;]*;.*)$")
@@ -83,7 +95,11 @@ def set_live(text: str, upstream: str, live: int, standby: int) -> str:
 def render(text: str, *, topology: str, api_live: str, mcp_live: str) -> str:
     if topology == "direct":
         text = to_direct(text)
-    for upstream, colour in (("xcelsior_api", api_live), ("xcelsior_mcp", mcp_live)):
+    for upstream, colour in (
+        ("xcelsior_api", api_live),
+        ("xcelsior_mcp", mcp_live),
+        ("xcelsior_mcp_canonical", mcp_live),
+    ):
         green, blue = UPSTREAMS[upstream]
         live, standby = (green, blue) if colour == "green" else (blue, green)
         text = set_live(text, upstream, live, standby)
