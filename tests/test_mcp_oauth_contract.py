@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
+import pytest
+
 import oauth_service
 
 
@@ -254,3 +256,84 @@ def test_authorization_code_rejects_resource_substitution(monkeypatch):
         assert exc.error == "invalid_target"
     else:  # pragma: no cover
         raise AssertionError("authorization code accepted a substituted resource")
+
+
+@pytest.mark.parametrize("identity_scopes", [[], ["profile"], ["email"], ["profile", "email"]])
+def test_mcp_user_jwt_has_signed_consent_scoped_identity_and_cached_revocation(
+    monkeypatch, identity_scopes
+):
+    monkeypatch.setenv("XCELSIOR_ENV", "production")
+    key_config = _rsa_key_config()
+    monkeypatch.setenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", key_config)
+    oauth_service.reset_auth_cache_for_tests()
+    user = {"user_id": "identity-user", "email": "identity@example.test", "name": "Identity User"}
+    scopes = ["instances:read", *identity_scopes]
+    bundle = oauth_service._issue_cached_access_token(
+        user,
+        client_id="identity-connector",
+        scopes=scopes,
+        session_token="identity-session",
+        session_type="browser",
+        audience=oauth_service.MCP_RESOURCE_AUDIENCE,
+    )
+    token = bundle["access_token"]
+    header_b64, payload_b64, signature_b64 = token.split(".")
+    header = json.loads(oauth_service._base64url_decode(header_b64))
+    claims = json.loads(oauth_service._base64url_decode(payload_b64))
+    public = serialization.load_pem_public_key(
+        json.loads(key_config)["keys"][0]["public_key_pem"].encode()
+    )
+    public.verify(
+        oauth_service._base64url_decode(signature_b64),
+        f"{header_b64}.{payload_b64}".encode(),
+        padding.PKCS1v15(),
+        hashes.SHA256(),
+    )
+    assert header == {"alg": "RS256", "typ": "at+jwt", "kid": "mcp-test-1"}
+    assert claims["sub"] == user["user_id"]
+    assert claims["aud"] == oauth_service.MCP_RESOURCE_AUDIENCE
+    assert claims["iss"] == oauth_service.OAUTH_ISSUER
+    assert claims["client_id"] == "identity-connector"
+    assert claims["exp"] - claims["iat"] == bundle["expires_in"]
+    assert set(claims["scope"].split()) == set(scopes)
+    assert ("name" in claims) == ("profile" in identity_scopes)
+    assert ("email" in claims) == ("email" in identity_scopes)
+    assert ("preferred_username" in claims) == ("email" in identity_scopes)
+    assert not {"session_token", "is_admin", "role", "customer_id"} & claims.keys()
+    assert oauth_service.is_oauth_access_token(token)
+    assert oauth_service.validate_client_credentials_jwt(token) is None
+    assert oauth_service.resolve_opaque_access_token(token)["user_id"] == user["user_id"]
+
+    # A valid signature alone is insufficient; the exact issued bearer must
+    # still exist in the auth cache. Neither forged nor re-signed claims work.
+    unissued = oauth_service._sign_oauth_jwt({**claims, "jti": "not-issued"}, token_type="at+jwt")
+    assert oauth_service.is_oauth_access_token(unissued)
+    assert oauth_service.resolve_opaque_access_token(unissued) is None
+    oauth_service.revoke_access_token(token)
+    assert oauth_service.resolve_opaque_access_token(token) is None
+
+    replacement = oauth_service._issue_cached_access_token(
+        user,
+        client_id="identity-connector",
+        scopes=scopes,
+        session_token="identity-session",
+        session_type="browser",
+        audience=oauth_service.MCP_RESOURCE_AUDIENCE,
+    )["access_token"]
+    oauth_service.revoke_session("identity-session")
+    assert oauth_service.resolve_opaque_access_token(replacement) is None
+
+
+def test_mcp_user_jwt_requires_production_asymmetric_signing(monkeypatch):
+    monkeypatch.setenv("XCELSIOR_ENV", "production")
+    monkeypatch.delenv("XCELSIOR_OAUTH_JWT_KEYS_JSON", raising=False)
+    monkeypatch.setenv("XCELSIOR_OAUTH_JWT_SECRET", "development-only-secret")
+    with pytest.raises(oauth_service.OAuthGrantError, match="asymmetric"):
+        oauth_service._issue_cached_access_token(
+            {"user_id": "u1", "email": "identity@example.test"},
+            client_id="identity-connector",
+            scopes=["email"],
+            session_token="identity-session",
+            session_type="browser",
+            audience=oauth_service.MCP_RESOURCE_AUDIENCE,
+        )

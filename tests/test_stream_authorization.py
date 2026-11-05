@@ -44,7 +44,7 @@ def principals():
             "role": "submitter",
         }
         UserStore.create_user(user)
-        token = oauth._issue_opaque_access_token(
+        token = oauth._issue_cached_access_token(
             user,
             client_id="xcelsior-web",
             scopes=["instances:read", "instances:connect", "events:read"],
