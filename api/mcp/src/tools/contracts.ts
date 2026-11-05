@@ -96,7 +96,7 @@ interface ToolPolicyBase {
  *    meaning anything.
  *
  * `"keyed"` means **repeat-safe**, whether because the client sends an
- * idempotency key (`create_instance`, `top_up_wallet`) or because repeating
+ * stable idempotency key (`create_instance`) or because repeating
  * genuinely has no further effect (`terminate_instance`; `register_ssh_key`,
  * which 409s on a duplicate fingerprint; `promote_artifact_to_volume`, whose
  * route carries its own key and `ON CONFLICT`). The name is kept because it is
@@ -220,7 +220,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   register_provider: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   // `keyed` and genuinely so: `settlement_key` is `provider-job:{job_id}` with
   // ON CONFLICT DO NOTHING, and the rail gets `provider-settlement:{job_id}`.
-  request_provider_payout: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  // Settlement is repeat-safe per job, but an external transfer cannot be
+  // undone by this tool. Idempotency does not make moving money reversible.
+  request_provider_payout: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_active_lease: { readOnly: true, destructive: false, audience: "customer" },
   get_scheduler_health: { readOnly: true, destructive: false, audience: "operator" },
   get_host_capacity: { readOnly: true, destructive: false, audience: "operator" },
@@ -262,8 +264,13 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   list_payment_methods: { readOnly: true, destructive: false, audience: "customer" },
   get_auto_topup: { readOnly: true, destructive: false, audience: "customer" },
   list_pending_verifications: { readOnly: true, destructive: false, audience: "customer" },
-  top_up_wallet: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
-  configure_auto_topup: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  // A missing key generates a fresh key per invocation. HTTP retries within
+  // one invocation remain safe, but repeating the same tool arguments can
+  // create a second real charge. Advertise the least-safe supported form.
+  top_up_wallet: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
+  // An approved widening can enable unattended charges. Without plan_id,
+  // repeated widening calls may create separate approval plans.
+  configure_auto_topup: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
   // Company knowledge, off by default. Both index the published documentation
   // site and the live marketplace, which change without a deploy on our side.
   // Repeat-safe by nature rather than by key: a second snapshot of the same
