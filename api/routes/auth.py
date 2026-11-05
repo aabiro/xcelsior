@@ -1126,7 +1126,7 @@ def _issue_code_and_redirect(
 @router.get("/oauth/authorize", tags=["Auth"])
 def oauth_authorize(request: Request):
     from fastapi.responses import HTMLResponse
-    from oauth_service import consent_covers, stash_consent_request
+    from oauth_service import consent_covers, is_connector_client, stash_consent_request
 
     params = request.query_params
     try:
@@ -1141,12 +1141,17 @@ def oauth_authorize(request: Request):
     user_id = str(user.get("user_id") or user.get("email") or "")
     prompt_tokens = set(str(params.get("prompt", "")).lower().split())
 
-    # First-party apps are us; a consent screen between our own login page and
-    # our own dashboard would be theatre. Everything else — including the
-    # pre-provisioned connector client and anything CIMD or DCR produced — asks.
+    # A new connector authorization is an explicit opportunity to review its
+    # permissions, even when this account approved the same scopes before.
+    # Browser sign-in and token refresh still reuse their existing sessions;
+    # neither is a reason to skip this new browser consent decision.
+    # First-party and manually provisioned clients keep their existing policy.
     already_consented = "consent" not in prompt_tokens and (
         bool(client.get("is_first_party"))
-        or consent_covers(user_id, str(client["client_id"]), resource, scopes)
+        or (
+            not is_connector_client(client)
+            and consent_covers(user_id, str(client["client_id"]), resource, scopes)
+        )
     )
     if already_consented:
         return _issue_code_and_redirect(

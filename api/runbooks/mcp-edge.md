@@ -207,3 +207,34 @@ Pass condition (gate GX6): at 2× the published limit, excess calls are refused
 with 429 and a `Retry-After`, latency for accepted calls stays within the p95
 targets above, and no request returns 5xx. A 5xx under load is collapse, not
 degradation.
+
+---
+
+## 9. VS Code authentication and permission review
+
+On a new connector authorization, Xcelsior uses the browser's signed-in account
+or sends it through `/login?redirect=...`, then shows the requested permissions.
+An existing grant for a DCR, CIMD, or shared connector does not skip this new
+decision. Token refresh and an editor reusing an authorized token do not open
+the browser or repeat consent. First-party login and manually provisioned OAuth
+clients retain their existing grant policy.
+
+VS Code owns its "MCP Server Definition ... wants to authenticate" dialog,
+existing-account picker, and external-website confirmation. They are separate
+from Xcelsior's browser consent. Renaming a local MCP definition changes the
+identity for which VS Code remembers account access, so it can ask again while
+still holding an OAuth session for the same authorization server. Choose the
+existing account to reuse that connection; choose "Sign in to another account"
+to start a new browser authorization. The external-link confirmation can be
+managed through VS Code's trusted domains for `https://xcelsior.ca`.
+
+VS Code currently labels opaque OAuth-token accounts "MCP" when neither an ID
+token nor a JWT access token supplies identity claims. This is the editor's
+account label, not a choice between two Xcelsior authentication methods. Do not
+clear tokens or alter the local credential store just to hide that picker.
+
+The registry identity is `io.github.aabiro/xcelsior`. It is separate from the
+runtime server title and from an installed gallery card's display name. Check
+GitHub's gallery endpoint directly before claiming catalog branding is live;
+publication in the official MCP Registry alone does not prove downstream
+availability, and there is no verified synchronization deadline.
