@@ -6,6 +6,7 @@ import { registerResources } from "./resources/index.js";
 import { registerPlaybooks } from "./prompts/playbooks.js";
 import { installToolAudit } from "./audit/context.js";
 import type { ToolProfile } from "./tools/profiles.js";
+import type { Icon } from "@modelcontextprotocol/sdk/types.js";
 
 const SERVER_INFO = {
   name: "xcelsior-mcp",
@@ -18,8 +19,9 @@ export function createMcpServer(
   transport: "streamable_http" | "stdio" = "streamable_http",
   profile: ToolProfile = "customer",
   options: ToolRegistrationOptions = {},
+  icons: Icon[] = [],
 ): McpServer {
-  const server = new McpServer(SERVER_INFO, {
+  const server = new McpServer({ ...SERVER_INFO, ...(icons.length ? { icons } : {}) }, {
     capabilities: {
       tools: {},
       resources: {},
