@@ -1933,9 +1933,7 @@ def summarize_consent_scopes(scopes: list[str]) -> list[str]:
     identity_scopes = {"openid", "profile", "email"}
     read_scopes = {s for s in scope_set if s.endswith(":read")}
     manage_scopes = {
-        s
-        for s in scope_set
-        if s.endswith((":write", ":operate", ":approve")) and s != "ssh:write"
+        s for s in scope_set if s.endswith((":write", ":operate", ":approve")) and s != "ssh:write"
     } | ({"api"} & scope_set)
     connect_scopes = {"instances:connect", "ssh:write"} & scope_set
     has_offline = "offline_access" in scope_set
@@ -2169,20 +2167,27 @@ def issue_user_tokens(
         audience=audience,
     )
     _oauth_tokens_issued.labels(session_type).inc()
-    return {
+    bundle = {
         "access_token": access["access_token"],
-        "refresh_token": refresh_token,
         "token_type": "Bearer",
         # The real TTL, not the global default: MCP-audience and first-party
         # browser tokens both diverge from it, and a client that trusts a wrong
         # expires_in schedules its refresh at the wrong time.
         "expires_in": access["expires_in"],
-        "refresh_expires_in": REFRESH_TOKEN_TTL_SEC,
         "scope": " ".join(scopes),
-        "session_token": refresh_token,
         "session_type": session_type,
         "resource": audience,
     }
+    # The internal session backs revocation even for short-lived access. A
+    # third-party client only receives its durable credential when the user
+    # granted the optional permission to stay connected.
+    if client.get("is_first_party") or "offline_access" in scopes:
+        bundle.update(
+            refresh_token=refresh_token,
+            session_token=refresh_token,
+            refresh_expires_in=REFRESH_TOKEN_TTL_SEC,
+        )
+    return bundle
 
 
 def exchange_authorization_code(
@@ -2506,6 +2511,15 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
         family_id = str(current["family_id"])
         session_type = str(current.get("session_type") or "browser")
         client_id = str(current.get("client_id") or "xcelsior-web")
+        if "offline_access" not in scopes:
+            client = get_client(client_id) or {}
+            if not client.get("is_first_party"):
+                _oauth_refresh_events.labels("invalid").inc()
+                raise OAuthGrantError(
+                    "invalid_grant",
+                    "This connection was not granted offline access. Sign in again to continue.",
+                    status_code=400,
+                )
         created_at = float(current.get("created_at", now) or now)
 
         new_refresh_token, new_session, new_record = _create_refresh_token_record(
