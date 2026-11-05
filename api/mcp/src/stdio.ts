@@ -2,6 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
+import { stdioIcons } from "./icon.js";
 import { createApiClient, validateBearer } from "./auth/bearer.js";
 import { instrumentMcpAnalytics, shutdownMcpAnalytics } from "./analytics.js";
 
@@ -54,7 +55,7 @@ async function main(): Promise<void> {
   }
 
   const client = createApiClient(config.apiUrl, token);
-  const server = createMcpServer(client, user, "stdio");
+  const server = createMcpServer(client, user, "stdio", undefined, undefined, stdioIcons());
   instrumentMcpAnalytics(server, config.posthogAnalytics, {
     user,
     transport: "stdio",
