@@ -93,6 +93,12 @@ describe("trust-surface profiles", () => {
     expect(scopesForProfile("operator")).toContain("billing:write");
   });
 
+  it("advertises optional account identity without changing tool visibility", () => {
+    expect(scopesForProfile("customer")).toContain("profile");
+    expect(scopesForProfile("customer")).toContain("email");
+    expect(toolIsVisible("list_available_gpus", "customer", [])).toBe(true);
+  });
+
   it("refuses to expose a tool with no contract", () => {
     expect(toolIsVisible("not_a_real_tool", "operator", OPERATOR_SCOPES)).toBe(false);
   });
@@ -141,13 +147,15 @@ describe("annotation accuracy", () => {
     // produces a *new* image from whatever the instance holds now, which is not
     // the same bytes.
     expect(destructive).toEqual([
-      "cancel_instance", "cancel_serverless_job", "delete_serverless_endpoint",
-      "delete_user_image", "delete_volume", "evict_host_workloads",
+      "cancel_instance", "cancel_serverless_job",
+      // Funding, payouts and unattended spending carry irreversible money effects.
+      "configure_auto_topup", "delete_serverless_endpoint",
+      "delete_user_image", "delete_volume", "evict_host_workloads", "request_provider_payout",
       // `restore_volume_snapshot` joins them: it replaces the volume with an
       // older capture, so anything written since is gone. Sorted, so it lands
       // after `evict_host_workloads` — the list is `.sort()`ed above.
       "restore_volume_snapshot",
-      "terminate_instance",
+      "terminate_instance", "top_up_wallet",
     ]);
   });
 

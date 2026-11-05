@@ -1088,6 +1088,17 @@ def test_connector_identity_fields_follow_each_identity_scope(identity_scopes):
         scopes=["instances:read", *sorted(identity_scopes)],
         audience=MCP_RESOURCE_AUDIENCE,
     )
+    import json
+    from oauth_service import _base64url_decode
+
+    claims = json.loads(_base64url_decode(bundle["access_token"].split(".")[1]))
+    assert claims["sub"] == user["user_id"]
+    assert ("name" in claims) == ("profile" in identity_scopes and bool(user.get("name")))
+    assert ("email" in claims) == ("email" in identity_scopes)
+    assert ("preferred_username" in claims) == ("email" in identity_scopes)
+    if "email" in identity_scopes:
+        assert claims["preferred_username"] == email
+    assert not {"session_token", "role", "is_admin", "customer_id"} & claims.keys()
     headers = {"Authorization": f"Bearer {bundle['access_token']}"}
     profile = client.get("/api/auth/me", headers=headers)
     introspection = client.get("/api/auth/introspect", headers=headers)

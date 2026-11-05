@@ -4,6 +4,7 @@
   "scopesSupported": [
     "artifacts:read",
     "billing:read",
+    "email",
     "events:read",
     "gpu:read",
     "inference:read",
@@ -13,6 +14,7 @@
     "instances:read",
     "instances:write",
     "marketplace:read",
+    "profile",
     "providers:read",
     "reputation:read",
     "ssh:read",

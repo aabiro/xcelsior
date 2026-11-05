@@ -149,7 +149,12 @@ def test_scopes_a_connector_cannot_hold_are_dropped_not_fatal():
         "instances:read ssh:read billing:write providers:write reputation:write hosts:evict"
     )
     assert {"instances:read", "ssh:read", "offline_access"} <= set(granted)
-    assert not set(granted) & {"billing:write", "providers:write", "reputation:write", "hosts:evict"}
+    assert not set(granted) & {
+        "billing:write",
+        "providers:write",
+        "reputation:write",
+        "hosts:evict",
+    }
 
 
 def test_offline_access_alone_does_not_count_as_grantable():
@@ -341,7 +346,7 @@ def test_mcp_audience_selects_the_connector_ttl(monkeypatch):
         "_cache_set_json",
         lambda namespace, key, value, ttl, **_: issued.__setitem__(key, dict(value)) is None,
     )
-    bundle = oauth_service._issue_opaque_access_token(
+    bundle = oauth_service._issue_cached_access_token(
         {"email": "u@example.test", "user_id": "u1"},
         client_id="some-connector",
         scopes=["instances:read"],
@@ -358,7 +363,7 @@ def test_mcp_audience_selects_the_connector_ttl(monkeypatch):
 
 def test_non_mcp_agent_tokens_keep_the_short_ttl(monkeypatch):
     monkeypatch.setattr(oauth_service, "_cache_set_json", lambda *a, **k: True)
-    bundle = oauth_service._issue_opaque_access_token(
+    bundle = oauth_service._issue_cached_access_token(
         {"email": "u@example.test", "user_id": "u1"},
         client_id="some-agent",
         scopes=["api"],

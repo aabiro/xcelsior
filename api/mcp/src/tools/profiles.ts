@@ -97,9 +97,11 @@ export function toolsInProfile(
     .sort();
 }
 
-/** Scopes the profile's tools actually require, for resource metadata. */
+/** Tool scopes and optional account identity permissions, for resource metadata. */
 export function scopesForProfile(profile: ToolProfile, options: ProfileOptions = {}): string[] {
-  const scopes = new Set<string>();
+  // Native OAuth clients use approved identity claims to label the account.
+  // Neither permission adds tools or becomes a prerequisite for tool access.
+  const scopes = new Set<string>(["profile", "email"]);
   for (const name of toolsInProfile(profile, options)) {
     for (const scope of TOOL_CONTRACTS[name].requiredScopes) {
       // `api` is the blanket automation scope, not something a connector should
