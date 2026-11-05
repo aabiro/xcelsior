@@ -1,6 +1,7 @@
 {
   "name": "@xcelsior-gpu/mcp",
   "version": "0.1.1",
+  "mcpName": "io.github.aabiro/xcelsior",
   "description": "Stdio MCP client for the Xcelsior GPU platform — use with npx @xcelsior-gpu/mcp",
   "type": "module",
   "bin": {
@@ -42,6 +43,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/aabiro/xcelsior.git",
-    "directory": "mcp-cli"
+    "directory": "api/mcp-cli"
   }
 }
