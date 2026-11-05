@@ -3,7 +3,7 @@
   "name": "io.github.aabiro/xcelsior",
   "title": "Xcelsior GPU Cloud",
   "description": "Rent GPUs, launch spot instances and run serverless inference on the Xcelsior marketplace.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "websiteUrl": "https://xcelsior.ca/mcp",
   "repository": {
     "url": "https://github.com/aabiro/xcelsior",
