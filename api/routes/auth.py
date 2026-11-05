@@ -595,69 +595,156 @@ def oauth_jwks_document():
     return oauth_jwks()
 
 
-def _oauth_error_page(title: str, detail: str, status: int) -> str:
-    """Branded, self-contained HTML error page for browser-facing OAuth failures."""
+def _oauth_page(*, title: str, content: str, wide: bool = False, script: str = "") -> str:
+    """Use the site's canonical assets and auth theme without its application bundle."""
     import html as _html
 
-    safe_title = _html.escape(title)
-    safe_detail = _html.escape(detail)
+    styles = """
+  @font-face { font-family: Geist; font-style: normal; font-weight: 400 500;
+    font-display: swap; src: url('/brand-system/Geist-Medium.ttf') format('truetype'); }
+  @font-face { font-family: Geist; font-style: normal; font-weight: 600 800;
+    font-display: swap; src: url('/brand-system/Geist-SemiBold.ttf') format('truetype'); }
+  :root { color-scheme: dark; --bg: #05070e; --panel: #0d1320; --text: #f0f4fa;
+    --muted: #9aa7bd; --edge: rgba(255,255,255,.12); --line: rgba(255,255,255,.07);
+    --surface: rgba(255,255,255,.025); --cyan: #38dbff; --violet: #9b6dff;
+    --mesh-a: rgba(56,219,255,.1); --mesh-b: rgba(155,109,255,.13);
+    --button-bg: #f0f4fa; --button-text: #0b0f19; --shadow: rgba(0,0,0,.45); }
+  :root[data-theme=light] { color-scheme: light; --bg: #e7ebf5; --panel: #fff;
+    --text: #0f1830; --muted: #4d5975; --edge: rgba(16,26,48,.15);
+    --line: rgba(16,26,48,.1); --surface: rgba(16,26,48,.025);
+    --cyan: #0e7d95; --violet: #6d28d9; --mesh-a: rgba(34,197,235,.15);
+    --mesh-b: rgba(139,80,245,.15); --button-bg: #0f1830; --button-text: #fff;
+    --shadow: rgba(23,37,84,.14); }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; padding: 44px 20px;
+    display: grid; place-items: center; color: var(--text);
+    font-family: Geist, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: radial-gradient(ellipse at 12% 0%, var(--mesh-a), transparent 52%),
+      radial-gradient(ellipse at 95% 85%, var(--mesh-b), transparent 55%), var(--bg); }
+  body::before { content: ''; position: fixed; inset: 0; pointer-events: none;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 72px 72px; opacity: .25;
+    mask-image: radial-gradient(ellipse at center, #000, transparent 72%); }
+  main { position: relative; width: min(100%, 520px); padding: 38px;
+    border: 1px solid var(--edge); border-radius: 24px;
+    background: linear-gradient(145deg, var(--surface), transparent 60%), var(--panel);
+    box-shadow: 0 28px 80px -28px var(--shadow), inset 0 1px 0 var(--line); }
+  main.wide { width: min(100%, 640px); }
+  main::before { content: ''; position: absolute; top: -1px; left: 40px; right: 40px;
+    height: 1px; background: linear-gradient(90deg, transparent, var(--cyan), var(--violet), transparent);
+    opacity: .7; }
+  .brand { display: flex; align-items: center; justify-content: center; gap: 14px;
+    margin: 0 0 34px; }
+  .brand-mark { width: 44px; height: 44px; filter: drop-shadow(0 7px 18px var(--mesh-a)); }
+  .brand-wordmark { display: block; width: auto; height: 24px; }
+  .brand-dark { display: none; }
+  :root[data-theme=light] .brand-light { display: none; }
+  :root[data-theme=light] .brand-dark { display: block; }
+  .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+    color: var(--cyan); font-size: 11px; font-weight: 600; letter-spacing: .13em;
+    line-height: 1.4; text-transform: uppercase; }
+  .eyebrow::before { content: ''; display: block; width: 5px; height: 5px;
+    border-radius: 50%; background: currentColor; }
+  h1 { margin: 0; font-size: clamp(27px, 4vw, 34px); line-height: 1.12;
+    font-weight: 600; letter-spacing: -.035em; overflow-wrap: anywhere; }
+  p { color: var(--muted); font-size: 14px; line-height: 1.65; }
+  .intro { margin: 14px 0 24px; }
+  .account { display: flex; align-items: center; gap: 11px; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .account-icon { display: grid; place-items: center; width: 32px; height: 32px;
+    border: 1px solid var(--edge); border-radius: 50%; color: var(--cyan); flex: none; }
+  .account-icon svg { width: 17px; height: 17px; }
+  .account-label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .account-email { font-size: 13px; overflow-wrap: anywhere; }
+  .clienturi { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .permission-heading { display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; margin: 25px 0 8px; }
+  .permission-heading h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .permission-heading span { color: var(--muted); font-size: 11px; }
+  .permissions { max-height: 360px; overflow-y: auto; scrollbar-width: thin;
+    scrollbar-color: var(--edge) transparent; border: 1px solid var(--line);
+    border-radius: 14px; background: var(--surface); padding: 0 16px; }
+  fieldset { min-width: 0; margin: 0; padding: 15px 0; border: 0; }
+  fieldset + fieldset { border-top: 1px solid var(--line); }
+  legend { float: left; width: 100%; padding: 0; margin-bottom: 9px;
+    color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; }
+  .permission { clear: both; display: flex; gap: 11px; align-items: flex-start;
+    padding: 8px 0; cursor: pointer; }
+  .permission input { width: 17px; height: 17px; flex: none; margin: 2px 0 0;
+    accent-color: var(--cyan); cursor: pointer; }
+  .permission-required, .permission-required input { cursor: default; }
+  .permission input:disabled { opacity: .6; }
+  .permission-copy { display: block; font-size: 13px; line-height: 1.5; }
+  .permission code { display: block; margin-top: 3px; color: var(--muted);
+    font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .resource { font-size: 11px; margin: 13px 0 0; overflow-wrap: anywhere; }
+  .resource code { color: var(--muted); font: inherit; }
+  .actions { display: flex; gap: 10px; margin-top: 25px; }
+  button, .button { display: inline-flex; align-items: center; justify-content: center;
+    min-height: 46px; padding: 11px 20px; border: 1px solid var(--edge);
+    border-radius: 11px; font: inherit; font-size: 13px; font-weight: 600;
+    text-decoration: none; cursor: pointer; transition: background .15s, opacity .15s; }
+  .actions button { flex: 1; }
+  .approve { background: var(--button-bg); color: var(--button-text); border-color: transparent; }
+  .approve:hover { opacity: .86; text-decoration: none; }
+  .deny { background: transparent; color: var(--muted); }
+  .deny:hover { background: var(--surface); color: var(--text); }
+  :focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
+  .foot { margin: 23px 0 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+  .foot a { color: var(--muted); text-underline-offset: 3px; }
+  .result { text-align: center; }
+  .result .eyebrow { justify-content: center; }
+  .result .intro { margin-bottom: 0; }
+  .result > h1 + .returning { border: 0; padding: 0; margin: 14px 0 0;
+    color: var(--muted); font-size: 14px; }
+  .returning { padding-top: 24px; margin: 25px 0 0; border-top: 1px solid var(--line);
+    color: var(--text); font-size: 13px; }
+  .returning span { color: var(--muted); }
+  .handoff { height: 2px; width: 96px; margin: 28px auto 0; border-radius: 3px;
+    background: linear-gradient(90deg, var(--cyan), var(--violet)); }
+  .result .foot { margin-top: 19px; }
+  @media (max-width: 540px) { body { padding: 20px 14px; }
+    main { padding: 28px 22px; border-radius: 20px; }
+    .brand { margin-bottom: 27px; } .brand-mark { width: 38px; height: 38px; }
+    .brand-wordmark { height: 21px; } .permissions { max-height: 42vh; }
+    .permission-heading { align-items: flex-start; flex-direction: column; gap: 4px; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+"""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{safe_title} — Xcelsior</title>
-<style>
-  :root {{ color-scheme: dark; }}
-  * {{ box-sizing: border-box; }}
-  body {{
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
-    color: #e6edf3; padding: 24px;
-    background: radial-gradient(1200px 600px at 50% -10%, rgba(124,58,237,0.18), transparent 60%),
-                radial-gradient(900px 500px at 80% 110%, rgba(34,211,238,0.12), transparent 55%),
-                #070b12;
-  }}
-  .card {{
-    width: 100%; max-width: 460px; padding: 40px 36px; text-align: center;
-    background: rgba(14,20,31,0.85); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7);
-    backdrop-filter: blur(12px);
-  }}
-  .glyph {{
-    width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 16px;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(124,58,237,0.18));
-    border: 1px solid rgba(255,255,255,0.1);
-  }}
-  .glyph svg {{ width: 28px; height: 28px; stroke: #38bdf8; }}
-  .code {{ font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #6b7689; font-weight: 600; }}
-  h1 {{ margin: 8px 0 12px; font-size: 22px; font-weight: 700;
-        background: linear-gradient(120deg, #e6edf3, #9bd2ff 60%, #c4b5fd);
-        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }}
-  p {{ margin: 0 0 28px; font-size: 15px; line-height: 1.6; color: #9aa6b8; }}
-  .actions {{ display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }}
-  a.btn {{
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;
-    text-decoration: none; transition: transform .12s ease, filter .12s ease;
-  }}
-  a.btn:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
-  a.primary {{ color: #06121a; background: linear-gradient(120deg, #38bdf8, #818cf8); }}
-  a.ghost {{ color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); }}
-  .brand {{ margin-top: 28px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #4a5568; }}
-</style></head>
-<body><main class="card">
-  <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-  <div class="code">Error {status}</div>
-  <h1>{safe_title}</h1>
-  <p>{safe_detail}</p>
-  <div class="actions">
-    <a class="btn primary" href="/login">Sign in</a>
-    <a class="btn ghost" href="/dashboard">Go to dashboard</a>
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>{_html.escape(title)} — Xcelsior</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>(function(){{try{{var t=localStorage.getItem('xcelsior-theme');
+document.documentElement.dataset.theme=t==='light'?'light':'dark';}}catch(e){{}}}})();</script>
+<style>{styles}</style></head>
+<body><main class="{'wide' if wide else ''}">
+  <div class="brand" aria-label="Xcelsior">
+    <img class="brand-mark" src="/site-assets/assets/icon-gradient.svg" alt="" width="44" height="44">
+    <img class="brand-wordmark brand-light" src="/site-assets/assets/wordmark-light.svg" alt="Xcelsior" width="114" height="24">
+    <img class="brand-wordmark brand-dark" src="/site-assets/assets/wordmark-dark.svg" alt="Xcelsior" width="114" height="24">
   </div>
-  <div class="brand">Xcelsior</div>
-</main></body></html>"""
+  {content}
+</main>{script}</body></html>"""
+
+
+def _oauth_error_page(title: str, detail: str, status: int) -> str:
+    """Keep a failed authorization in the same branded flow as consent."""
+    import html as _html
+
+    return _oauth_page(
+        title=title,
+        content=f"""<section class="result">
+  <div class="eyebrow">Authorization interrupted · {_html.escape(str(status))}</div>
+  <h1>{_html.escape(title)}</h1>
+  <p class="intro">{_html.escape(detail)}</p>
+</section>""",
+    )
 
 
 def _oauth_browser_error(request: Request, status: int, title: str, detail: str):
@@ -670,110 +757,112 @@ def _oauth_browser_error(request: Request, status: int, title: str, detail: str)
     return HTMLResponse(content=_oauth_error_page(title, detail, status), status_code=status)
 
 
+def _required_consent_scopes(scopes: list[str], resource: str) -> set[str]:
+    """Keep the requested MCP tool baseline selected without widening a request."""
+    from oauth_service import MCP_QUICK_CONNECT_SCOPES
+
+    if canonical_mcp_resource(resource) != MCP_RESOURCE_AUDIENCE:
+        return set()
+    return set(scopes) & set(MCP_QUICK_CONNECT_SCOPES)
+
+
 def _oauth_consent_page(
     *, client: dict, user: dict, scopes: list[str], resource: str, consent_key: str
 ) -> str:
-    """The approve step of "paste URL → Connect → sign in → approve".
-
-    Rendered server-side and self-contained so it works before any frontend
-    asset loads and cannot be broken by a CDN or a client-side bundle — this
-    page sits in the middle of every provider's connector onboarding, so it has
-    to be the least fragile thing we serve.
-    """
+    """Present every requested capability as an explicit, selectable permission."""
     import html as _html
 
-    from oauth_service import summarize_consent_scopes
+    from oauth_service import describe_scope
 
     def esc(value: object) -> str:
         return _html.escape(str(value or ""))
 
     client_name = esc(client.get("client_name") or client.get("client_id"))
     client_uri = str(client.get("client_uri") or "").strip()
-    # Only ever link out to https; a javascript: or data: client_uri from a
-    # metadata document must not become a clickable link on our origin.
+    try:
+        parsed_client_uri = _urllib_parse.urlsplit(client_uri)
+        client_hostname = parsed_client_uri.hostname
+    except ValueError:
+        client_hostname = None
     client_link = (
-        f'<a class="clienturi" href="{esc(client_uri)}" rel="noopener noreferrer nofollow" '
-        f'target="_blank">{esc(_urllib_parse.urlsplit(client_uri).hostname or client_uri)}</a>'
-        if client_uri.lower().startswith("https://")
+        f' <a class="clienturi" href="{esc(client_uri)}" rel="noopener noreferrer nofollow" '
+        f'target="_blank">{esc(client_hostname)}</a>'
+        if client_hostname and parsed_client_uri.scheme.lower() == "https"
         else ""
     )
-    summary_items = summarize_consent_scopes(scopes)
-    rows = (
-        "".join(
-            f'<li><span class="dot"></span><span>{esc(item)}</span></li>'
-            for item in summary_items
-        )
-        or '<li><span class="dot"></span><span>Sign you in only</span></li>'
+    required_scopes = _required_consent_scopes(scopes, resource)
+    grouped: dict[tuple[bool, str], list[str]] = {}
+    for scope in dict.fromkeys(scopes):
+        if scope in {"instances:connect", "ssh:write"}:
+            group = "Terminal and SSH access"
+        elif scope.endswith(":read"):
+            group = "Read access"
+        elif scope.endswith((":write", ":operate", ":approve")) or scope in {"api", "admin"}:
+            group = "Manage resources"
+        else:
+            group = "Account and connection"
+        grouped.setdefault((scope in required_scopes, group), []).append(scope)
+
+    permission_groups = []
+    for required in (True, False):
+        for group in (
+            "Account and connection",
+            "Read access",
+            "Manage resources",
+            "Terminal and SSH access",
+        ):
+            if (required, group) not in grouped:
+                continue
+            rows = []
+            for scope in grouped[required, group]:
+                required_input = (
+                    f'<input type="hidden" name="scope:{esc(scope)}" value="1">' if required else ""
+                )
+                rows.append(
+                    f'{required_input}<label class="permission{" permission-required" if required else ""}">'
+                    f'<input type="checkbox" name="scope:{esc(scope)}" value="1" checked'
+                    f'{" disabled" if required else ""}><span class="permission-copy">'
+                    f"{esc(describe_scope(scope))}<code>{esc(scope)}</code></span></label>"
+                )
+            group_title = f'{group} · {"Required for MCP tools" if required else "Optional"}'
+            permission_groups.append(
+                f'<fieldset><legend>{esc(group_title)}</legend>{"".join(rows)}</fieldset>'
+            )
+    permission_html = "".join(permission_groups)
+    if not permission_html:
+        permission_html = '<p class="intro">This application only needs to sign you in.</p>'
+    resource_line = f'<p class="resource">For <code>{esc(resource)}</code></p>' if resource else ""
+    permission_hint = (
+        "Required permissions keep MCP tools working. You can choose optional access below."
+        if required_scopes
+        else "Uncheck any permissions you do not want to allow."
     )
-    resource_line = (
-        f'<p class="resource">Access is limited to <code>{esc(resource)}</code>.</p>'
-        if resource
-        else ""
-    )
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
-<title>Authorize {client_name} — Xcelsior</title>
-<style>
-  :root {{ color-scheme: dark; }}
-  * {{ box-sizing: border-box; }}
-  body {{
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
-    color: #e6edf3; padding: 24px;
-    background: radial-gradient(1200px 600px at 50% -10%, rgba(124,58,237,0.18), transparent 60%),
-                radial-gradient(900px 500px at 80% 110%, rgba(34,211,238,0.12), transparent 55%),
-                #070b12;
-  }}
-  .card {{
-    width: 100%; max-width: 520px; padding: 36px 34px;
-    background: rgba(14,20,31,0.85); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7);
-    backdrop-filter: blur(12px);
-  }}
-  .eyebrow {{ font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
-              color: #6b7689; font-weight: 600; }}
-  h1 {{ margin: 10px 0 6px; font-size: 22px; font-weight: 700; line-height: 1.3; }}
-  .who {{ margin: 0 0 22px; font-size: 14px; color: #9aa6b8; }}
-  .clienturi {{ color: #7dd3fc; text-decoration: none; }}
-  ul {{ list-style: none; margin: 0 0 18px; padding: 16px 18px; border-radius: 14px;
-        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); }}
-  li {{ display: flex; gap: 10px; align-items: flex-start; font-size: 14px;
-        line-height: 1.5; color: #cbd5e1; padding: 5px 0; }}
-  .dot {{ width: 6px; height: 6px; border-radius: 999px; margin-top: 8px; flex: none;
-          background: linear-gradient(120deg, #38bdf8, #818cf8); }}
-  code {{ display: block; font-size: 11px; color: #6b7689; margin-top: 2px; }}
-  .resource {{ font-size: 13px; color: #9aa6b8; margin: 0 0 18px; }}
-  .resource code {{ display: inline; color: #7dd3fc; font-size: 12px; }}
-  form {{ display: flex; gap: 10px; }}
-  button {{
-    flex: 1; padding: 12px 18px; border-radius: 10px; font-size: 14px; font-weight: 600;
-    border: 0; cursor: pointer; font-family: inherit;
-    transition: transform .12s ease, filter .12s ease;
-  }}
-  button:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
-  .approve {{ color: #06121a; background: linear-gradient(120deg, #38bdf8, #818cf8); }}
-  .deny {{ color: #cbd5e1; background: transparent; border: 1px solid rgba(255,255,255,0.12); }}
-  .foot {{ margin-top: 22px; font-size: 12px; color: #4a5568; line-height: 1.6; }}
-  .foot a {{ color: #6b7689; }}
-</style></head>
-<body><main class="card">
-  <div class="eyebrow">Authorize application</div>
-  <h1>{client_name} wants to use your Xcelsior account</h1>
-  <p class="who">Signed in as {esc(user.get("email"))}{" · " + client_link if client_link else ""}</p>
-  <ul>{rows}</ul>
-  {resource_line}
+    return _oauth_page(
+        title=f"Authorize {client.get('client_name') or client.get('client_id')}",
+        wide=True,
+        content=f"""<div class="eyebrow">Connect an application</div>
+  <h1>Allow {client_name}<br>to access your account?</h1>
+  <p class="intro">Choose the permissions you want to share with {client_name}.{client_link}</p>
+  <div class="account">
+    <span class="account-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg></span>
+    <span><span class="account-label">Signed in as</span><span class="account-email">{esc(user.get('email'))}</span></span>
+  </div>
   <form method="post" action="/oauth/authorize">
     <input type="hidden" name="consent_key" value="{esc(consent_key)}">
     <input type="hidden" name="ui" value="1">
-    <button class="deny" type="submit" name="decision" value="deny">Cancel</button>
-    <button class="approve" type="submit" name="decision" value="approve">Approve</button>
+    <input type="hidden" name="scope_selection" value="1">
+    <div class="permission-heading"><h2>Requested permissions</h2></div>
+    <p class="resource" style="margin:0 0 12px">{permission_hint}</p>
+    <div class="permissions" tabindex="0" role="region" aria-label="Requested permissions">{permission_html}</div>
+    {resource_line}
+    <div class="actions">
+      <button class="deny" type="submit" name="decision" value="deny">Cancel</button>
+      <button class="approve" type="submit" name="decision" value="approve">Allow access</button>
+    </div>
   </form>
-  <p class="foot">Destructive operations still require a separate, explicit approval at the
-  time they run — approving here does not pre-authorize them. You can revoke this connection
-  at any time in <a href="/dashboard/settings">Settings → AI Agents</a>.</p>
-</main></body></html>"""
+  <p class="foot">You can revoke access in <a href="/dashboard/settings">Settings → AI Agents</a>.
+  Actions that need your approval will still ask before they run.</p>""",
+    )
 
 
 def _build_callback_url(redirect_uri: str, state: str, **params: str) -> str:
@@ -788,214 +877,34 @@ def _redirect_with(redirect_uri: str, state: str, **params: str):
     return RedirectResponse(_build_callback_url(redirect_uri, state, **params), status_code=302)
 
 
-def _resolve_desktop_app_links(client: dict) -> list[tuple[str, str]]:
-    """Return `[(scheme_url, label), ...]` for focusing the originating IDE or desktop app.
-
-    For VS Code and its forks (`vscode`, `vscode-insiders`, `cursor`, `windsurf`,
-    `antigravity`), a bare scheme like `vscode://` has an empty authority —
-    Electron's `--open-url` dispatcher either falls through to `startOpenWindow`
-    (spawning a brand-new empty window) or `URLService.handleURL` returns
-    unhandled without calling `focusWindow`. Addressing the built-in trusted
-    `vscode.git` protocol handler with an empty path (`vscode://vscode.git`)
-    routes via `URLHandlerRouter.getActiveClientId()` to the exact most-recently
-    focused window, skips any trust prompt, performs a no-op in `GitProtocolHandler`,
-    and triggers `nativeHostService.focusWindow` on that existing window.
-
-    For Codex (`client_name="Codex"`, `client_uri="https://chatgpt.com/codex"`),
-    the Codex VS Code extension shares the same client metadata as the standalone
-    app, while `codex://` launches a separate ChatGPT desktop binary. We therefore
-    default to focusing the existing VS Code window first and offer `codex://`
-    as a secondary action.
-    """
-    haystack = " ".join(
-        str(client.get(key) or "")
-        for key in ("client_name", "client_uri", "software_id", "client_id")
-    ).lower()
-
-    vscode_focus_uri = "vscode://vscode.git"
-    if "insiders" in haystack and any(
-        token in haystack for token in ("vscode", "visual studio code", "vs code", "visualstudio")
-    ):
-        return [("vscode-insiders://vscode.git", "Open VS Code Insiders")]
-    if any(
-        token in haystack
-        for token in ("vscode", "visual studio code", "vs code", "code.visualstudio.com")
-    ):
-        return [(vscode_focus_uri, "Open VS Code")]
-    if "cursor" in haystack:
-        return [("cursor://vscode.git", "Open Cursor"), (vscode_focus_uri, "Open VS Code")]
-    if "windsurf" in haystack:
-        return [("windsurf://vscode.git", "Open Windsurf"), (vscode_focus_uri, "Open VS Code")]
-    if "antigravity" in haystack:
-        return [("antigravity://vscode.git", "Open Antigravity"), (vscode_focus_uri, "Open VS Code")]
-    if any(token in haystack for token in ("codex", "chatgpt", "openai")):
-        return [(vscode_focus_uri, "Open VS Code"), ("codex://", "Open Codex app")]
-    if any(token in haystack for token in ("claude", "anthropic")):
-        return [("claude://", "Open Claude"), (vscode_focus_uri, "Open VS Code")]
-    return [(vscode_focus_uri, "Open VS Code")]
-
-
 def _oauth_decision_page(
     *, approved: bool, client: dict, callback_url: str, is_loopback: bool
 ) -> str:
-    """Render a branded Xcelsior result screen for Approved / Denied OAuth decisions.
-
-    For loopback CLI callbacks (`127.0.0.1` / `localhost`), local HTTP listeners
-    like Codex CLI respond to both success and `error=access_denied` with a bare
-    plain-text `"Authentication complete. You may close this window."` page on a
-    white background. Delivering the callback via a hidden iframe notifies the
-    local CLI immediately while keeping the user's browser tab on a proper
-    Xcelsior dark-themed confirmation or cancellation screen with deep links
-    back to VS Code or the originating desktop application.
-    """
+    """Return to the registered callback in the top-level browser context."""
     import html as _html
     import json as _json
 
-    def esc(value: object) -> str:
-        return _html.escape(str(value or ""))
-
-    raw_name = str(client.get("client_name") or client.get("client_id") or "Application")
-    client_name = esc(raw_name)
-    safe_callback = esc(callback_url)
-
-    if approved:
-        page_title = f"Authorized {client_name} — Xcelsior"
-        eyebrow = "Authorization complete"
-        heading = f"{client_name} is connected"
-        detail = "Authentication complete. You can return to your application or close this window."
-        glyph_bg = "rgba(16,185,129,0.12)"
-        glyph_border = "rgba(16,185,129,0.32)"
-        glyph_stroke = "#34d399"
-        glyph_svg = '<polyline points="20 6 9 17 4 12"/>'
-    else:
-        page_title = "Access denied — Xcelsior"
-        eyebrow = "Authorization cancelled"
-        heading = "Access denied"
-        detail = (
-            f"You cancelled the authorization request. {client_name} was not granted "
-            "access to your Xcelsior account. You may close this window."
-        )
-        glyph_bg = "rgba(244,63,94,0.12)"
-        glyph_border = "rgba(244,63,94,0.3)"
-        glyph_stroke = "#fb7185"
-        glyph_svg = (
-            '<circle cx="12" cy="12" r="10"/>'
-            '<line x1="15" y1="9" x2="9" y2="15"/>'
-            '<line x1="9" y1="9" x2="15" y2="15"/>'
-        )
-
-    def _close_btn(btn_class: str = "primary") -> str:
-        return (
-            f'<button type="button" class="btn {btn_class}" id="close-btn" '
-            "onclick=\"window.close(); setTimeout(function(){ var b = document.getElementById('close-btn'); "
-            "if (b) b.textContent = 'You may close this tab'; }, 150);\">Close window</button>"
-        )
-
-    if is_loopback:
-        app_links = _resolve_desktop_app_links(client)
-        primary_href, primary_label = app_links[0]
-        app_buttons = [
-            f'<a class="btn primary" id="open-app-btn" href="{esc(primary_href)}">{esc(primary_label)}</a>'
-        ]
-        for extra_href, extra_label in app_links[1:]:
-            app_buttons.append(f'<a class="btn ghost" href="{esc(extra_href)}">{esc(extra_label)}</a>')
-        actions_html = (
-            "".join(app_buttons)
-            + _close_btn("ghost")
-            + '<a class="btn ghost" href="/dashboard">Go to dashboard</a>'
-        )
-        # Show the Accepted / Denied screen first, notify the local loopback
-        # listener via the hidden iframe, then link back to the desktop app / IDE.
-        auto_open_script = (
-            "<script>(function(){"
-            "var launched=false,cbDone=false,delayDone=false;"
-            "function tryOpen(){if(launched||!cbDone||!delayDone)return;launched=true;"
-            f"try{{window.location.href={_json.dumps(primary_href)};}}catch(e){{}}}}"
-            "var f=document.getElementById('oauth-cb');"
-            "if(f){f.addEventListener('load',function(){cbDone=true;tryOpen();});}"
-            "else{cbDone=true;}"
-            "setTimeout(function(){delayDone=true;tryOpen();},1500);"
-            "setTimeout(function(){cbDone=true;delayDone=true;tryOpen();},2200);"
-            "})();</script>"
-        )
-        callback_delivery = (
-            f'<iframe id="oauth-cb" src="{safe_callback}" style="display:none" '
-            'aria-hidden="true" tabindex="-1" title="OAuth callback"></iframe>'
-            f"{auto_open_script}"
-        )
-    elif approved:
-        actions_html = (
-            f'<a class="btn primary" id="open-app-btn" href="{safe_callback}">Continue to {client_name}</a>'
-            '<a class="btn ghost" href="/dashboard">Go to dashboard</a>'
-        )
-        callback_delivery = (
-            f"<script>setTimeout(function(){{window.location.replace({_json.dumps(callback_url)});}},1500);</script>"
-        )
-    else:
-        actions_html = (
-            f'<a class="btn primary" id="open-app-btn" href="{safe_callback}">Return to {client_name}</a>'
-            f"{_close_btn('ghost')}"
-            '<a class="btn ghost" href="/dashboard">Go to dashboard</a>'
-        )
-        callback_delivery = (
-            f"<script>setTimeout(function(){{window.location.replace({_json.dumps(callback_url)});}},1500);</script>"
-        )
-
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
-<title>{page_title}</title>
-<style>
-  :root {{ color-scheme: dark; }}
-  * {{ box-sizing: border-box; }}
-  body {{
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
-    color: #e6edf3; padding: 24px;
-    background: radial-gradient(1200px 600px at 50% -10%, rgba(124,58,237,0.18), transparent 60%),
-                radial-gradient(900px 500px at 80% 110%, rgba(34,211,238,0.12), transparent 55%),
-                #070b12;
-  }}
-  .card {{
-    width: 100%; max-width: 460px; padding: 36px 32px;
-    background: rgba(14,20,31,0.85); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7);
-    backdrop-filter: blur(12px);
-  }}
-  .glyph {{
-    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
-    background: {glyph_bg}; border: 1px solid {glyph_border};
-    margin-bottom: 20px;
-  }}
-  .glyph svg {{ width: 22px; height: 22px; stroke: {glyph_stroke}; }}
-  .eyebrow {{ font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
-              color: #6b7689; font-weight: 600; }}
-  h1 {{ margin: 8px 0 10px; font-size: 22px; font-weight: 700; line-height: 1.3; }}
-  p {{ margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: #9aa6b8; }}
-  .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
-  .btn {{
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
-    text-decoration: none; border: 0; cursor: pointer; font-family: inherit;
-    transition: transform .12s ease, filter .12s ease;
-  }}
-  .btn:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
-  .primary {{ color: #06121a; background: linear-gradient(120deg, #38bdf8, #818cf8); }}
-  .ghost {{ color: #cbd5e1; background: transparent; border: 1px solid rgba(255,255,255,0.12); }}
-  .brand {{ margin-top: 28px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #4a5568; }}
-</style></head>
-<body><main class="card">
-  <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    {glyph_svg}</svg></div>
-  <div class="eyebrow">{eyebrow}</div>
+    raw_name = str(client.get("client_name") or "").strip()
+    client_name = _html.escape(
+        "your application"
+        if not raw_name or raw_name.casefold() == "your application"
+        else raw_name
+    )
+    heading = "Authentication complete" if approved else "Authorization cancelled"
+    # The callback was validated against the client's registered redirect URIs.
+    # Escape '<' as well as JSON syntax so an unexpected metadata value cannot
+    # close the inline script element while preserving the exact callback URL.
+    callback_json = _json.dumps(callback_url).replace("<", "\\u003c")
+    return _oauth_page(
+        title=heading,
+        content=f"""<section class="result">
   <h1>{heading}</h1>
-  <p>{detail}</p>
-  <div class="actions">
-    {actions_html}
-  </div>
-  <div class="brand">Xcelsior</div>
-</main>{callback_delivery}</body></html>"""
+  <p class="returning" role="status">Returning you to {client_name}…</p>
+  <div class="handoff" aria-hidden="true"></div>
+  <noscript><p class="foot"><a href="{_html.escape(callback_url, quote=True)}">Continue to {client_name}</a></p></noscript>
+</section>""",
+        script=f"<script>window.setTimeout(function(){{window.location.replace({callback_json});}},1200);</script>",
+    )
 
 
 def _prepare_authorization(request: Request, params) -> tuple[dict, dict, list[str], str]:
@@ -1198,7 +1107,10 @@ def _issue_code_and_redirect(
             OAuthStore.touch_registration(str(client["client_id"]), registration_expiry())
         except Exception as exc:  # pragma: no cover - bookkeeping, never fatal
             log.warning("registration renewal failed (non-fatal): %s", exc)
-    if render_ui:
+    # Desktop clients must receive the real callback as a top-level navigation.
+    # Loading localhost in an iframe triggers Local Network Access permission
+    # and can leave the client waiting forever for its authorization code.
+    if render_ui and not is_loopback_redirect(redirect_uri):
         callback_url = _build_callback_url(redirect_uri, state, code=code)
         return HTMLResponse(
             content=_oauth_decision_page(
@@ -1214,7 +1126,7 @@ def _issue_code_and_redirect(
 @router.get("/oauth/authorize", tags=["Auth"])
 def oauth_authorize(request: Request):
     from fastapi.responses import HTMLResponse
-    from oauth_service import consent_covers, is_loopback_redirect, stash_consent_request
+    from oauth_service import consent_covers, stash_consent_request
 
     params = request.query_params
     try:
@@ -1237,11 +1149,6 @@ def oauth_authorize(request: Request):
         or consent_covers(user_id, str(client["client_id"]), resource, scopes)
     )
     if already_consented:
-        is_browser_loopback = (
-            not client.get("is_first_party")
-            and is_loopback_redirect(redirect_uri)
-            and request.headers.get("sec-fetch-mode", "").lower() == "navigate"
-        )
         return _issue_code_and_redirect(
             request=request,
             user=user,
@@ -1252,7 +1159,6 @@ def oauth_authorize(request: Request):
             code_challenge_method=code_challenge_method,
             scopes=scopes,
             resource=resource,
-            render_ui=is_browser_loopback,
         )
 
     consent_key = stash_consent_request(
@@ -1324,7 +1230,7 @@ async def oauth_authorize_decision(request: Request):
         or request.headers.get("sec-fetch-mode", "").lower() == "navigate"
     )
     if str(body.get("decision", "")).strip().lower() != "approve":
-        if wants_ui:
+        if wants_ui and not is_loopback_redirect(redirect_uri):
             denied_client = get_client(str(staged.get("client_id") or "")) or {
                 "client_name": staged.get("client_id") or "Application"
             }
@@ -1358,6 +1264,37 @@ async def oauth_authorize_decision(request: Request):
             "That application is no longer registered. Start the connection again from your app.",
         )
     scopes = [str(scope) for scope in (staged.get("scopes") or [])]
+    if str(body.get("scope_selection", "")).strip() == "1":
+        selected = {key[len("scope:") :] for key in body if key.startswith("scope:")}
+        if not selected.issubset(set(scopes)):
+            return _oauth_browser_error(
+                request,
+                400,
+                "Invalid permissions",
+                "The selected permissions were not requested by this application. "
+                "Start the connection again from your app.",
+            )
+        missing_required = (
+            _required_consent_scopes(scopes, str(staged.get("resource") or "")) - selected
+        )
+        if missing_required:
+            return _oauth_browser_error(
+                request,
+                400,
+                "Required permissions missing",
+                "These permissions are needed for the requested MCP tools: "
+                + ", ".join(sorted(missing_required))
+                + ". Start the connection again from your app.",
+            )
+        if not selected:
+            return _oauth_browser_error(
+                request,
+                400,
+                "No permissions selected",
+                "Choose at least one permission, or cancel the connection. "
+                "Start the connection again from your app.",
+            )
+        scopes = [scope for scope in scopes if scope in selected]
     resource = str(staged.get("resource") or "")
     ConsentStore.record(
         grant_id=new_grant_id(),
@@ -2835,6 +2772,19 @@ def api_privacy_deletion_status(
     }
 
 
+def _filter_auth_identity(user: dict, identity: dict) -> dict:
+    """Filter public identity output without changing the authorization principal."""
+    from routes._deps import _is_delegated_connector_token
+
+    scopes = set(user.get("scopes") or [])
+    if not _is_delegated_connector_token(user) or "api" in scopes:
+        return identity
+    filtered = dict(identity)
+    if "email" not in scopes:
+        filtered.pop("email", None)
+    return filtered
+
+
 @router.get("/api/auth/me", tags=["Auth"])
 def api_auth_me(request: Request):
     """Get the currently authenticated user's profile.
@@ -2843,7 +2793,7 @@ def api_auth_me(request: Request):
     marketing pages can probe session state without console 401 noise.
     Invalid or machine credentials still return 401/403.
     """
-    from routes._deps import _AUTH_COOKIE_NAME, _get_current_user
+    from routes._deps import _AUTH_COOKIE_NAME, _get_current_user, _is_delegated_connector_token
 
     auth = request.headers.get("authorization", "")
     bearer = auth[7:].strip() if auth.startswith("Bearer ") else ""
@@ -2856,6 +2806,10 @@ def api_auth_me(request: Request):
         raise HTTPException(401, "Not authenticated")
     if user.get("auth_type") == "client_credentials":
         raise HTTPException(403, "Interactive user authentication required")
+    if _is_delegated_connector_token(user) and not {"profile", "api"} & set(
+        user.get("scopes") or []
+    ):
+        raise HTTPException(403, "Profile access requires the profile permission")
 
     email = user["email"]
     if _USE_PERSISTENT_AUTH:
@@ -2892,7 +2846,7 @@ def api_auth_me(request: Request):
         pass
     if avatar_url:
         merged_user["avatar_url"] = avatar_url
-    return {"ok": True, "user": merged_user}
+    return {"ok": True, "user": _filter_auth_identity(user, merged_user)}
 
 
 @router.get("/api/auth/introspect", tags=["Auth"], include_in_schema=False)
@@ -2905,7 +2859,7 @@ def api_auth_introspect(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Invalid or expired token")
-    return {
+    identity = {
         "ok": True,
         "auth_type": user.get("auth_type"),
         "client_id": user.get("client_id"),
@@ -2922,6 +2876,7 @@ def api_auth_introspect(request: Request):
         "jti": user.get("jti"),
         "grant_type": user.get("grant_type"),
     }
+    return _filter_auth_identity(user, identity)
 
 
 @router.patch("/api/auth/me", tags=["Auth"])

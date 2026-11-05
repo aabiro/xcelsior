@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import secrets
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -632,11 +633,13 @@ def test_authorize_rejects_an_unresolvable_metadata_document_client():
     assert "Untrusted application" in response.text
 
 
-def test_consent_page_generalizes_permissions_to_at_most_three_items():
-    """Full advertised scope list renders as at most 3 high-level bullets."""
-    _register_user("connector-generalized@xcelsior.ca")
+def test_consent_page_lists_each_requested_permission_as_a_choice():
+    """The MCP baseline stays selected; additional requested scopes remain optional."""
+    from routes.auth import _required_consent_scopes
+
+    _register_user("connector-granular@xcelsior.ca")
     _, challenge = _pkce()
-    advertised = client.get("/.well-known/oauth-authorization-server").json()["scopes_supported"]
+    scopes = {"profile", "instances:read", "instances:write", "ssh:read", "offline_access"}
     page = client.get(
         "/oauth/authorize",
         params={
@@ -645,90 +648,393 @@ def test_consent_page_generalizes_permissions_to_at_most_three_items():
             "redirect_uri": "http://127.0.0.1:54321/callback",
             "code_challenge": challenge,
             "code_challenge_method": "S256",
-            "scope": " ".join(advertised),
+            "scope": " ".join(sorted(scopes)),
             "resource": MCP_RESOURCE_AUDIENCE,
         },
         headers={"Accept": "text/html"},
     )
     assert page.status_code == 200
-    items = re.findall(r"<li>.*?</li>", page.text, flags=re.DOTALL)
-    assert 1 <= len(items) <= 3
-    for item in items:
-        assert "<code>" not in item
+    assert 'name="scope_selection" value="1"' in page.text
+    choices = re.findall(r'<input\b[^>]*type="checkbox"[^>]*>', page.text)
+    names = [re.search(r'name="scope:([^"]+)"', choice).group(1) for choice in choices]
+    assert len(names) == len(scopes)
+    assert set(names) == scopes
+    assert all("checked" in choice for choice in choices)
+    required = _required_consent_scopes(sorted(scopes), MCP_RESOURCE_AUDIENCE)
+    assert required == {"instances:read", "instances:write"}
+    for choice, scope in zip(choices, names):
+        assert ("disabled" in choice) == (scope in required)
+        if scope in required:
+            assert f'type="hidden" name="scope:{scope}" value="1"' in page.text
+    assert "See your GPU instances, their status, and their logs" in page.text
+    assert "Launch, cancel, and terminate GPU instances" in page.text
+    assert "public keys" in page.text
 
 
-def test_browser_approve_and_deny_render_branded_decision_screens():
-    """Browser submissions (ui=1) render dark Xcelsior Approved and Access denied screens."""
+@pytest.mark.parametrize("decision", ["approve", "deny"])
+@pytest.mark.parametrize(
+    "loopback_uri",
+    ["http://127.0.0.1:33418/", "http://127.0.0.1:54322/callback?client_nonce=retained"],
+)
+def test_browser_loopback_decision_delivers_actual_callback_directly(decision, loopback_uri):
+    """The browser reaches the IDE listener without iframe or app-launch permission."""
     _register_user("connector-ui-decision@xcelsior.ca")
-    _, challenge = _pkce()
-    loopback_uri = "http://127.0.0.1:54322/callback"
+    verifier, challenge = _pkce()
     params = {
         "response_type": "code",
         "client_id": "xcelsior-connector",
         "redirect_uri": loopback_uri,
-        "state": "ui-state",
+        "state": "ui state + & = opaque",
         "code_challenge": challenge,
         "code_challenge_method": "S256",
         "scope": "instances:read offline_access",
         "resource": MCP_RESOURCE_AUDIENCE,
     }
 
-    # 1. Cancel / Deny renders the branded Access denied card + loopback error iframe + deep link
-    page = client.get("/oauth/authorize", params=params, headers={"Accept": "text/html"})
-    denied = client.post(
+    browser_headers = {"Accept": "text/html", "Sec-Fetch-Mode": "navigate"}
+    page = client.get("/oauth/authorize", params=params, headers=browser_headers)
+    response = client.post(
         "/oauth/authorize",
-        data={"consent_key": _consent_key(page.text), "decision": "deny", "ui": "1"},
+        data={"consent_key": _consent_key(page.text), "decision": decision, "ui": "1"},
+        headers=browser_headers,
         follow_redirects=False,
     )
-    assert denied.status_code == 200
-    assert "#070b12" in denied.text
-    assert "Authorization cancelled" in denied.text
-    assert "Access denied" in denied.text
-    assert 'href="vscode://vscode.git"' in denied.text
-    assert 'src="http://127.0.0.1:54322/callback?error=access_denied' in denied.text
+    assert response.status_code == 302, response.text
+    assert "<iframe" not in response.text
+    assert "vscode://" not in response.text
+    location = urlsplit(response.headers["location"])
+    registered = urlsplit(loopback_uri)
+    assert (location.scheme, location.netloc, location.path) == (
+        registered.scheme,
+        registered.netloc,
+        registered.path,
+    )
+    callback = parse_qs(location.query)
+    assert callback["state"] == [params["state"]]
+    if registered.query:
+        assert callback["client_nonce"] == ["retained"]
+    if decision == "deny":
+        assert callback["error"] == ["access_denied"]
+        assert "error_description" in callback
+        assert "code" not in callback
+        return
 
-    # 2. Approve renders the branded Authorization complete card + loopback code iframe + deep link
-    page2 = client.get("/oauth/authorize", params=params, headers={"Accept": "text/html"})
-    approved = client.post(
+    assert "error" not in callback
+    token = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": "xcelsior-connector",
+            "code": callback["code"][0],
+            "redirect_uri": loopback_uri,
+            "code_verifier": verifier,
+            "resource": MCP_RESOURCE_AUDIENCE,
+        },
+    )
+    assert token.status_code == 200, token.text
+    assert set(token.json()["scope"].split()) == {"instances:read", "offline_access"}
+
+    again = client.get(
         "/oauth/authorize",
-        data={"consent_key": _consent_key(page2.text), "decision": "approve", "ui": "1"},
+        params=params,
+        headers=browser_headers,
         follow_redirects=False,
     )
-    assert approved.status_code == 200
-    assert "#070b12" in approved.text
-    assert "Authorization complete" in approved.text
-    assert "Authentication complete." in approved.text
-    assert 'href="vscode://vscode.git"' in approved.text
-    assert "Open VS Code" in approved.text
-    assert 'src="http://127.0.0.1:54322/callback?code=' in approved.text
+    assert again.status_code == 302, "remembered browser consent must also deliver the callback"
+    assert parse_qs(urlsplit(again.headers["location"]).query)["state"] == [params["state"]]
 
 
-def test_decision_page_links_back_to_detected_desktop_app_and_vscode():
-    """Desktop clients focus the active IDE window (via //vscode.git) without spawning a new window."""
+@pytest.mark.parametrize("approved", [True, False])
+def test_decision_page_returns_to_registered_application_without_guessing_ide(approved):
     from routes.auth import _oauth_decision_page
 
-    for approved, expected_heading in ((True, "Codex is connected"), (False, "Access denied")):
-        codex_html = _oauth_decision_page(
-            approved=approved,
-            client={"client_name": "Codex", "client_uri": "https://chatgpt.com/codex"},
-            callback_url="http://127.0.0.1:1455/auth/callback?code=abc",
-            is_loopback=True,
-        )
-        assert expected_heading in codex_html
-        assert 'id="open-app-btn" href="vscode://vscode.git"' in codex_html
-        assert "Open VS Code" in codex_html
-        assert 'href="codex://"' in codex_html
-        assert "Open Codex app" in codex_html
-        assert '"vscode://vscode.git"' in codex_html
-        assert "1500" in codex_html
-
-    cursor_html = _oauth_decision_page(
-        approved=True,
-        client={"client_name": "Cursor"},
-        callback_url="http://127.0.0.1:1455/auth/callback?code=abc",
-        is_loopback=True,
+    page = _oauth_decision_page(
+        approved=approved,
+        client={"client_name": "Codex", "client_uri": "https://chatgpt.com/codex"},
+        callback_url=f"{CLAUDE_CALLBACK}?state=opaque&code=abc",
+        is_loopback=False,
     )
-    assert "Cursor is connected" in cursor_html
-    assert 'id="open-app-btn" href="cursor://vscode.git"' in cursor_html
-    assert "Open Cursor" in cursor_html
-    assert 'href="vscode://vscode.git"' in cursor_html
+    assert "Authentication complete" in page if approved else "cancelled" in page.lower()
+    assert CLAUDE_CALLBACK in page
+    assert "location.replace" in page
+    assert "<iframe" not in page
+    for invented_scheme in ("vscode://", "cursor://", "codex://"):
+        assert invented_scheme not in page
+    assert "Go to dashboard" not in page
+    assert "Close window" not in page
+
+
+def test_selected_permissions_are_the_only_grant_and_survive_token_refresh():
+    from db import ConsentStore
+
+    email = "connector-selected@xcelsior.ca"
+    login_token = _register_user(email)
+    login_principal = client.get(
+        "/api/auth/introspect", headers={"Authorization": f"Bearer {login_token}"}
+    )
+    assert login_principal.status_code == 200, login_principal.text
+    user_id = login_principal.json()["user_id"]
+    verifier, challenge = _pkce()
+    requested = {"instances:read", "instances:write", "billing:read", "email", "offline_access"}
+    selected = {"instances:read", "instances:write", "billing:read", "offline_access"}
+    params = {
+        "response_type": "code",
+        "client_id": "xcelsior-connector",
+        "redirect_uri": "http://127.0.0.1:54323/callback",
+        "state": "selected-state",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "scope": " ".join(sorted(requested)),
+        "resource": MCP_RESOURCE_AUDIENCE,
+    }
+    page = client.get("/oauth/authorize", params=params, headers={"Accept": "text/html"})
+    approved = client.post(
+        "/oauth/authorize",
+        data={
+            "consent_key": _consent_key(page.text),
+            "decision": "approve",
+            "ui": "1",
+            "scope_selection": "1",
+            **{f"scope:{scope}": "1" for scope in selected},
+        },
+        follow_redirects=False,
+    )
+    assert approved.status_code == 302, approved.text
+    callback = parse_qs(urlsplit(approved.headers["location"]).query)
+    token = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": "xcelsior-connector",
+            "code": callback["code"][0],
+            "redirect_uri": params["redirect_uri"],
+            "code_verifier": verifier,
+            "resource": MCP_RESOURCE_AUDIENCE,
+        },
+    )
+    assert token.status_code == 200, token.text
+    bundle = token.json()
+    assert set(bundle["scope"].split()) == selected
+    grant = ConsentStore.get(user_id, "xcelsior-connector", MCP_RESOURCE_AUDIENCE)
+    assert set(grant["scopes"]) == selected
+    principal = client.get(
+        "/api/auth/introspect", headers={"Authorization": f"Bearer {bundle['access_token']}"}
+    )
+    assert principal.status_code == 200, principal.text
+    assert set(principal.json()["scopes"]) == selected
+    assert "email" not in principal.json()
+    assert principal.json()["subject"] == user_id
+    assert principal.json()["user_id"] == user_id
+    profile = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {bundle['access_token']}"}
+    )
+    assert profile.status_code == 403, profile.text
+    assert "profile" in profile.text.lower()
+
+    refreshed = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": "xcelsior-connector",
+            "refresh_token": bundle["refresh_token"],
+        },
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    assert set(refreshed.json()["scope"].split()) == selected
+
+    again = client.get(
+        "/oauth/authorize", params=params, headers={"Accept": "text/html"}, follow_redirects=False
+    )
+    assert again.status_code == 200, "unchecked permissions must require consent if requested again"
+    assert 'name="consent_key"' in again.text
+
+
+@pytest.mark.parametrize("selected", [set(), {"instances:write"}, {"offline_access"}])
+def test_scope_selection_rejects_empty_or_unrequested_permissions_without_a_grant(selected):
+    from db import ConsentStore
+
+    email = "connector-invalid-selection@xcelsior.ca"
+    login_token = _register_user(email)
+    login_principal = client.get(
+        "/api/auth/introspect", headers={"Authorization": f"Bearer {login_token}"}
+    )
+    assert login_principal.status_code == 200, login_principal.text
+    user_id = login_principal.json()["user_id"]
+    _, challenge = _pkce()
+    page = client.get(
+        "/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": "xcelsior-connector",
+            "redirect_uri": "http://127.0.0.1:54323/callback",
+            "code_challenge": challenge,
+            "scope": "instances:read offline_access",
+            "resource": MCP_RESOURCE_AUDIENCE,
+        },
+        headers={"Accept": "text/html"},
+    )
+    response = client.post(
+        "/oauth/authorize",
+        data={
+            "consent_key": _consent_key(page.text),
+            "decision": "approve",
+            "scope_selection": "1",
+            **{f"scope:{scope}": "1" for scope in selected},
+        },
+        headers={"Accept": "text/html"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400, response.text
+    assert "location" not in response.headers
+    assert ConsentStore.get(user_id, "xcelsior-connector", MCP_RESOURCE_AUDIENCE) is None
+
+
+def test_required_mcp_permissions_never_add_to_the_clients_request():
+    from routes.auth import _required_consent_scopes
+
+    assert _required_consent_scopes(["instances:read"], MCP_RESOURCE_AUDIENCE) == {"instances:read"}
+    assert _required_consent_scopes(["profile", "email"], MCP_RESOURCE_AUDIENCE) == set()
+    assert _required_consent_scopes(["instances:read", "instances:write"], "xcelsior-api") == set()
+
+
+def test_deselecting_offline_access_keeps_mcp_access_without_refresh_credentials():
+    from oauth_service import resolve_opaque_access_token
+
+    _register_user("connector-no-offline@xcelsior.ca")
+    verifier, challenge = _pkce()
+    redirect_uri = "http://127.0.0.1:33418/"
+    selected = {"instances:read", "instances:write"}
+    page = client.get(
+        "/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": "xcelsior-connector",
+            "redirect_uri": redirect_uri,
+            "code_challenge": challenge,
+            "scope": "instances:read instances:write offline_access",
+            "resource": MCP_RESOURCE_AUDIENCE,
+        },
+        headers={"Accept": "text/html"},
+    )
+    approved = client.post(
+        "/oauth/authorize",
+        data={
+            "consent_key": _consent_key(page.text),
+            "decision": "approve",
+            "scope_selection": "1",
+            **{f"scope:{scope}": "1" for scope in selected},
+        },
+        follow_redirects=False,
+    )
+    assert approved.status_code == 302, approved.text
+    callback = parse_qs(urlsplit(approved.headers["location"]).query)
+    token = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": "xcelsior-connector",
+            "code": callback["code"][0],
+            "redirect_uri": redirect_uri,
+            "code_verifier": verifier,
+            "resource": MCP_RESOURCE_AUDIENCE,
+        },
+    )
+    assert token.status_code == 200, token.text
+    bundle = token.json()
+    assert set(bundle["scope"].split()) == selected
+    assert not {"refresh_token", "session_token", "refresh_expires_in"} & bundle.keys()
+    assert "set-cookie" not in token.headers
+    access = resolve_opaque_access_token(bundle["access_token"])
+    assert access and set(access["scopes"]) == selected
+
+    # Even possession of the internal backing token cannot create offline
+    # authority through the OAuth or legacy refresh entrypoints.
+    refreshed = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": "xcelsior-connector",
+            "refresh_token": access["session_token"],
+        },
+    )
+    assert refreshed.status_code == 400, refreshed.text
+    assert refreshed.json()["error"] == "invalid_grant"
+    client.cookies.clear()
+    legacy_refresh = client.post(
+        "/api/auth/refresh", headers={"Authorization": f"Bearer {bundle['access_token']}"}
+    )
+    assert legacy_refresh.status_code == 400, legacy_refresh.text
+    assert legacy_refresh.json()["error"] == "invalid_grant"
+    principal = client.get(
+        "/api/auth/introspect", headers={"Authorization": f"Bearer {bundle['access_token']}"}
+    )
+    assert principal.status_code == 200, principal.text
+    assert set(principal.json()["scopes"]) == selected
+
+
+def test_first_party_refresh_does_not_require_the_optional_connector_permission():
+    from oauth_service import issue_user_tokens, rotate_refresh_token
+
+    login_token = _register_user("first-party-no-offline@xcelsior.ca")
+    principal = client.get(
+        "/api/auth/introspect", headers={"Authorization": f"Bearer {login_token}"}
+    )
+    assert principal.status_code == 200, principal.text
+    bundle = issue_user_tokens(principal.json(), None, client_id="xcelsior-web", scopes=["profile"])
+    assert {"refresh_token", "session_token", "refresh_expires_in"} <= bundle.keys()
+    first_party_profile = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {bundle['access_token']}"}
+    )
+    assert first_party_profile.status_code == 200, first_party_profile.text
+    assert first_party_profile.json()["user"]["email"] == "first-party-no-offline@xcelsior.ca"
+    assert {"name", "role", "country", "province"} <= first_party_profile.json()["user"].keys()
+    first_party_identity = client.get(
+        "/api/auth/introspect", headers={"Authorization": f"Bearer {bundle['access_token']}"}
+    )
+    assert first_party_identity.json()["email"] == "first-party-no-offline@xcelsior.ca"
+    refreshed = rotate_refresh_token(bundle["refresh_token"], None)
+    assert refreshed["refresh_token"] != bundle["refresh_token"]
+    assert refreshed["scope"] == "profile"
+
+
+@pytest.mark.parametrize("identity_scopes", [{"profile"}, {"email"}, {"profile", "email"}])
+def test_connector_identity_fields_follow_each_identity_scope(identity_scopes):
+    from oauth_service import issue_user_tokens, resolve_opaque_access_token
+
+    email = "connector-identity-scope@xcelsior.ca"
+    login_token = _register_user(email)
+    user = resolve_opaque_access_token(login_token)
+    assert user
+    original_email = user["email"]
+    original_scopes = list(user["scopes"])
+    bundle = issue_user_tokens(
+        user,
+        None,
+        client_id="xcelsior-connector",
+        scopes=["instances:read", *sorted(identity_scopes)],
+        audience=MCP_RESOURCE_AUDIENCE,
+    )
+    headers = {"Authorization": f"Bearer {bundle['access_token']}"}
+    profile = client.get("/api/auth/me", headers=headers)
+    introspection = client.get("/api/auth/introspect", headers=headers)
+    assert introspection.status_code == 200, introspection.text
+    assert introspection.json()["user_id"] == user["user_id"]
+    assert ("email" in introspection.json()) == ("email" in identity_scopes)
+    if "profile" in identity_scopes:
+        assert profile.status_code == 200, profile.text
+        visible = profile.json()["user"]
+        assert visible["user_id"] == user["user_id"]
+        assert ("email" in visible) == ("email" in identity_scopes)
+        assert {"name", "role"} <= visible.keys()
+    else:
+        assert profile.status_code == 403, profile.text
+    if "email" in identity_scopes:
+        assert introspection.json()["email"] == email
+        if "profile" in identity_scopes:
+            assert visible["email"] == email
+    # Redacting serialized output must not change internal authorization data.
+    internal = resolve_opaque_access_token(bundle["access_token"])
+    assert internal["email"] == email
+    assert set(internal["scopes"]) == {"instances:read", *identity_scopes}
+    assert user["email"] == original_email
+    assert user["scopes"] == original_scopes
