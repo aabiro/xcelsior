@@ -38,6 +38,19 @@ describe("server icon", () => {
     await client.close();
   });
 
+  it("describes itself fully, with a title short enough for VS Code's tool prefix", async () => {
+    const server = createMcpServer({} as XcelsiorApiClient);
+    const client = new Client({ name: "icon-test", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const info = client.getServerVersion()!;
+    expect(info).toMatchObject({ name: "xcelsior-mcp", title: "Xcelsior", websiteUrl: "https://xcelsior.ca/mcp" });
+    expect(info.description).toBeTruthy();
+    // VS Code: "mcp_" + title lowercased, cut to 13 chars, + "_" (MaxPrefixLen 18).
+    expect(info.title!.toLowerCase().replace(/[^a-z0-9_.-]+/g, "_").length).toBeLessThanOrEqual(13);
+    await client.close();
+  });
+
   it("omits icons rather than advertising an empty list", async () => {
     const server = createMcpServer({} as XcelsiorApiClient);
     const client = new Client({ name: "icon-test", version: "1" });

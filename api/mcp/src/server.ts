@@ -8,9 +8,16 @@ import { installToolAudit } from "./audit/context.js";
 import type { ToolProfile } from "./tools/profiles.js";
 import type { Icon } from "@modelcontextprotocol/sdk/types.js";
 
+// Everything a client can show about the server before a tool is called.
+// VS Code builds its tool prefix from `title` (else `name`), lowercased and cut
+// to 13 characters — so the title stays one short word ("mcp_xcelsior_…");
+// the longer display name lives in server.json for the registry listing.
 const SERVER_INFO = {
   name: "xcelsior-mcp",
+  title: "Xcelsior",
+  description: "Rent GPUs, launch spot instances and run serverless inference on the Xcelsior marketplace.",
   version: "2.0.0",
+  websiteUrl: "https://xcelsior.ca/mcp",
 };
 
 export function createMcpServer(
