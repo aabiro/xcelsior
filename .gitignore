@@ -21,6 +21,8 @@ htmlcov/
 *.egg-info/
 dist/
 build/
+# Copied from api/mcp/assets by the CLI build, like its dist/.
+api/mcp-cli/assets/
 
 # ── Virtual environments ─────────────────────────────────────────────
 venv/
