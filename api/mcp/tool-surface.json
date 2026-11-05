@@ -143,17 +143,17 @@
     },
     {
       "name": "configure_auto_topup",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "billing:write"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
+        "destructiveHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {
@@ -1983,7 +1983,7 @@
     },
     {
       "name": "request_provider_payout",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "providers:write"
@@ -1992,7 +1992,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -2494,17 +2494,17 @@
     },
     {
       "name": "top_up_wallet",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "billing:write"
       ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
+      "idempotency": "none",
+      "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
+        "destructiveHint": true,
+        "idempotentHint": false,
         "openWorldHint": false
       },
       "input": {

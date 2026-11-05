@@ -5,6 +5,7 @@ import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from 
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem } from "../client/errors.js";
 import { structuredResult } from "../lib/format.js";
+import { TOOL_CONTRACTS } from "./contracts.js";
 
 const output = z.object({ ok: z.boolean().optional() }).passthrough();
 const id = z.string().min(1).max(160);
@@ -50,7 +51,7 @@ function registerWrite(
   server.registerTool(name, {
     inputSchema,
     outputSchema: output,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { ...TOOL_CONTRACTS[name].annotations },
   }, async (args) => {
     const required = TOOL_SCOPES[name];
     if (!userHasScope(user?.scopes, required)) {

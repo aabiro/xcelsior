@@ -61,6 +61,26 @@ function registerAsProductionDoes(): Map<string, Record<string, unknown>> {
 }
 
 describe("tool annotations reach the wire", () => {
+  it("requires confirmation for charges and payouts without claiming every repeated charge is safe", () => {
+    const recorded = registerAsProductionDoes();
+    for (const name of ["top_up_wallet", "configure_auto_topup", "request_provider_payout"]) {
+      expect(recorded.get(name)?.annotations, name).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+      });
+    }
+    for (const name of ["top_up_wallet", "configure_auto_topup"]) {
+      expect(recorded.get(name)?.annotations, name).toMatchObject({ idempotentHint: false });
+    }
+    // Payout retries use the completed job as a stable settlement identity.
+    expect(recorded.get("request_provider_payout")?.annotations).toMatchObject({ idempotentHint: true });
+    // Preparing a deposit/invoice moves no money; its separate payment is
+    // outside the tool. Preserve this meaningful distinction.
+    for (const name of ["create_crypto_deposit", "create_lightning_deposit"]) {
+      expect(recorded.get(name)?.annotations, name).toMatchObject({ destructiveHint: false, idempotentHint: true });
+    }
+  });
+
   it("registers every tool in the contract registry", () => {
     // Calibration. An empty recording agrees with everything, and the first
     // version of this file drew a conclusion from a recording that was real
