@@ -81,26 +81,68 @@ def set_location(conn, *, host_id, country, province, expected_version, confirme
         if host is None:
             return None
         if host["version"] != expected_version:
-            raise PlanConflict("version_conflict", "Host changed. Reload its details before saving the location.")
-        changed = any(str(host.get(field) or "") != value for field,value in location.items())
-        if changed and cur.execute(
-            """SELECT 1 FROM (
+            raise PlanConflict(
+                "version_conflict", "Host changed. Reload its details before saving the location."
+            )
+        changed = any(str(host.get(field) or "") != value for field, value in location.items())
+        if (
+            changed
+            and cur.execute(
+                """SELECT 1 FROM (
                 SELECT job_id FROM gpu_device_allocations WHERE host_id=%s AND released_at IS NULL
                 UNION SELECT job_id FROM jobs WHERE host_id=%s AND phase IN ('scheduled','starting','running')
-            ) AS active_workloads LIMIT 1""", (host_id, host_id),
-        ).fetchone():
-            raise PlanConflict("host_has_workloads", "This host has active workloads. Save its new location after they finish.")
+            ) AS active_workloads LIMIT 1""",
+                (host_id, host_id),
+            ).fetchone()
+        ):
+            raise PlanConflict(
+                "host_has_workloads",
+                "This host has active workloads. Save its new location after they finish.",
+            )
         host = cur.execute(
             """UPDATE hosts SET country=%s,province=%s,region=%s,version=version+1,
                 payload=COALESCE(payload,'{}'::jsonb) || %s::jsonb || jsonb_build_object(
                     'location_confirmed_at',EXTRACT(EPOCH FROM clock_timestamp()),
                     'location_confirmed_by',%s::text)
                 WHERE host_id=%s RETURNING *""",
-            (location["country"],location["province"],location["region"],Jsonb(location),confirmed_by,host_id),
+            (
+                location["country"],
+                location["province"],
+                location["region"],
+                Jsonb(location),
+                confirmed_by,
+                host_id,
+            ),
         ).fetchone()
-        cur.execute("UPDATE gpu_offers SET region=%s,province=%s WHERE host_id=%s", (location["region"],location["province"],host_id))
-    append_event(conn,aggregate_type="host",aggregate_id=host_id,event_type="host.v1.location_changed",
-                 payload=location,idempotency_key=f'host_location:{host_id}:{host["version"]}')
-    return {**dict(host["payload"] or {}), **{field:host[field] for field in
-        ("host_id","status","version","country","province","region","administrative_state","availability_state",
-         "admission_state","admission_version","admission_decision_id")}, "admitted":host["admission_state"] == "admitted"}
+        cur.execute(
+            "UPDATE gpu_offers SET region=%s,province=%s WHERE host_id=%s",
+            (location["region"], location["province"], host_id),
+        )
+    append_event(
+        conn,
+        aggregate_type="host",
+        aggregate_id=host_id,
+        event_type="host.v1.location_changed",
+        payload=location,
+        idempotency_key=f'host_location:{host_id}:{host["version"]}',
+    )
+    return {
+        **dict(host["payload"] or {}),
+        **{
+            field: host[field]
+            for field in (
+                "host_id",
+                "status",
+                "version",
+                "country",
+                "province",
+                "region",
+                "administrative_state",
+                "availability_state",
+                "admission_state",
+                "admission_version",
+                "admission_decision_id",
+            )
+        },
+        "admitted": host["admission_state"] == "admitted",
+    }
