@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import re
 import secrets
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -101,6 +103,14 @@ def _consent_key(html: str) -> str:
     match = re.search(r'name="consent_key"\s+value="([^"]+)"', html)
     assert match, f"no consent form in response: {html[:400]}"
     return match.group(1)
+
+
+def _decision_callback(response) -> str:
+    """The client callback a browser decision page hands off to."""
+    assert response.status_code == 200, response.text
+    match = re.search(r'location\.replace\(("(?:[^"\\]|\\.)*")\)', response.text)
+    assert match, f"no callback hand-off in response: {response.text[:400]}"
+    return json.loads(match.group(1))
 
 
 # ── Discovery ─────────────────────────────────────────────────────────────
@@ -743,8 +753,14 @@ def test_consent_page_lists_each_requested_permission_as_a_choice():
     "loopback_uri",
     ["http://127.0.0.1:33418/", "http://127.0.0.1:54322/callback?client_nonce=retained"],
 )
-def test_browser_loopback_decision_delivers_actual_callback_directly(decision, loopback_uri):
-    """The browser reaches the IDE listener without iframe or app-launch permission."""
+def test_browser_loopback_decision_shows_result_then_delivers_actual_callback(
+    decision, loopback_uri
+):
+    """The branded result shows, then the browser navigates to the IDE listener.
+
+    No iframe (Local Network Access prompt) and no app-launch scheme: the
+    loopback listener's own page takes over from there.
+    """
     _register_user("connector-ui-decision@xcelsior.ca")
     verifier, challenge = _pkce()
     params = {
@@ -766,10 +782,11 @@ def test_browser_loopback_decision_delivers_actual_callback_directly(decision, l
         headers=browser_headers,
         follow_redirects=False,
     )
-    assert response.status_code == 302, response.text
+    heading = "Authentication complete" if decision == "approve" else "Authorization cancelled"
+    assert heading in response.text
     assert "<iframe" not in response.text
     assert "vscode://" not in response.text
-    location = urlsplit(response.headers["location"])
+    location = urlsplit(_decision_callback(response))
     registered = urlsplit(loopback_uri)
     assert (location.scheme, location.netloc, location.path) == (
         registered.scheme,
@@ -814,8 +831,7 @@ def test_browser_loopback_decision_delivers_actual_callback_directly(decision, l
         headers=browser_headers,
         follow_redirects=False,
     )
-    assert repeated.status_code == 302
-    assert parse_qs(urlsplit(repeated.headers["location"]).query)["state"] == [params["state"]]
+    assert parse_qs(urlsplit(_decision_callback(repeated)).query)["state"] == [params["state"]]
 
 
 @pytest.mark.parametrize("approved", [True, False])
@@ -836,6 +852,34 @@ def test_decision_page_returns_to_registered_application_without_guessing_ide(ap
         assert invented_scheme not in page
     assert "Go to dashboard" not in page
     assert "Close window" not in page
+
+
+_REPO = Path(__file__).resolve().parent.parent
+_FRONTEND_BRAND = {
+    "favicon.svg": _REPO / "api/frontend/public/favicon.svg",
+    "icon-gradient.svg": _REPO / "api/frontend/public/site-assets/assets/icon-gradient.svg",
+    "wordmark-light.svg": _REPO / "api/frontend/public/site-assets/assets/wordmark-light.svg",
+    "wordmark-dark.svg": _REPO / "api/frontend/public/site-assets/assets/wordmark-dark.svg",
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FRONTEND_BRAND))
+def test_oauth_brand_copy_matches_frontend_asset(name):
+    """The API image ships without the frontend, so it keeps its own copies."""
+    copy = _REPO / "api/templates/brand" / name
+    assert copy.read_bytes() == _FRONTEND_BRAND[name].read_bytes()
+
+
+def test_oauth_pages_carry_their_own_brand_marks():
+    """Consent and result pages must not depend on a frontend serving /site-assets."""
+    from routes.auth import _oauth_page
+
+    page = _oauth_page(title="Brand check", content="")
+    assert "/site-assets/" not in page
+    assert 'href="/favicon.svg"' not in page
+    for name in _FRONTEND_BRAND:
+        svg = (_REPO / "api/templates/brand" / name).read_bytes()
+        assert f"data:image/svg+xml;base64,{base64.b64encode(svg).decode()}" in page
 
 
 def test_selected_permissions_are_the_only_grant_and_survive_token_refresh():
@@ -873,8 +917,7 @@ def test_selected_permissions_are_the_only_grant_and_survive_token_refresh():
         },
         follow_redirects=False,
     )
-    assert approved.status_code == 302, approved.text
-    callback = parse_qs(urlsplit(approved.headers["location"]).query)
+    callback = parse_qs(urlsplit(_decision_callback(approved)).query)
     token = client.post(
         "/oauth/token",
         data={
