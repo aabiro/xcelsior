@@ -189,7 +189,7 @@ def enrich_host_for_api(host: dict[str, Any]) -> dict[str, Any]:
             str(out.get("region") or ""),
         )
         country = pycountry.countries.get(alpha_2=location["country"])
-        subdivision = pycountry.subdivisions.get(code=location["region"].upper())
+        subdivision = _subdivision(code=location["region"].upper())
         out["location_complete"] = True
         out["location_label"] = ", ".join(
             item.name for item in (subdivision, country) if item is not None
@@ -321,6 +321,13 @@ def location_catalog(country: str = "") -> dict:
     }
 
 
+def _subdivision(code: str) -> Any:
+    """One ISO 3166-2 subdivision by code, or None. pycountry types `get` loosely."""
+    import pycountry
+
+    return pycountry.subdivisions.get(code=code)
+
+
 def require_location(country: str, province: str = "", region: str = "") -> dict[str, str]:
     """Resolve one exact registered location. Missing/ambiguous data is an error.
 
@@ -336,13 +343,13 @@ def require_location(country: str, province: str = "", region: str = "") -> dict
     value = str(province or "").strip().upper()
     region_code = str(region or "").strip().replace("_", "-").upper()
     if not value and region_code:
-        sub = pycountry.subdivisions.get(code=region_code)
+        sub = _subdivision(code=region_code)
         if sub is not None and sub.country_code == country_code:
             value = sub.code.split("-", 1)[1]
     subdivisions = pycountry.subdivisions.get(country_code=country_code) or []
     if subdivisions:
         code = value if value.startswith(country_code + "-") else country_code + "-" + value
-        sub = pycountry.subdivisions.get(code=code)
+        sub = _subdivision(code=code)
         if sub is None or sub.country_code != country_code:
             raise ValueError("Select a valid state, province, or territory for the country")
         canonical_region = sub.code.lower()

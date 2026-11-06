@@ -70,8 +70,9 @@ def set_location(conn, *, host_id, country, province, expected_version, confirme
     """Update declared geography without changing observations or admission.
 
     Placement takes this same host-row lock and rechecks geography under it.
-    Existing allocations prevent a location change; telemetry cannot overwrite
-    the subsequently confirmed location.
+    Existing allocations prevent moving a located host. A host with no complete
+    location yet only records where it already is, so running work does not
+    block that. Telemetry cannot overwrite the subsequently confirmed location.
     """
     from host_metadata import require_location
 
@@ -84,9 +85,20 @@ def set_location(conn, *, host_id, country, province, expected_version, confirme
             raise PlanConflict(
                 "version_conflict", "Host changed. Reload its details before saving the location."
             )
+        try:
+            # The same test the API uses for location_complete.
+            require_location(
+                str(host.get("country") or ""),
+                str(host.get("province") or ""),
+                str(host.get("region") or ""),
+            )
+            previously_located = True
+        except ValueError:
+            previously_located = False
         changed = any(str(host.get(field) or "") != value for field, value in location.items())
         if (
             changed
+            and previously_located
             and cur.execute(
                 """SELECT 1 FROM (
                 SELECT job_id FROM gpu_device_allocations WHERE host_id=%s AND released_at IS NULL
