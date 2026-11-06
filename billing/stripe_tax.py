@@ -57,22 +57,30 @@ def normalize_customer_address(address: dict | None) -> dict[str, str] | None:
 
     raw = address
     profile = {
-        "country": raw.get("country"), "province": raw.get("state") or raw.get("province"),
-        "address_line1": raw.get("line1"), "address_line2": raw.get("line2"),
-        "city": raw.get("city"), "postal_code": raw.get("postal_code"),
+        "country": raw.get("country"),
+        "province": raw.get("state") or raw.get("province"),
+        "address_line1": raw.get("line1"),
+        "address_line2": raw.get("line2"),
+        "city": raw.get("city"),
+        "postal_code": raw.get("postal_code"),
     }
     cleaned, errors = profile_address_values(profile)
     if errors:
         raise ValueError("Complete your billing address before calculating tax.")
     return {
-        "country": cleaned["country"], "state": cleaned["province"],
-        "line1": cleaned["address_line1"], "line2": cleaned["address_line2"],
-        "city": cleaned["city"], "postal_code": cleaned["postal_code"],
+        "country": cleaned["country"],
+        "state": cleaned["province"],
+        "line1": cleaned["address_line1"],
+        "line2": cleaned["address_line2"],
+        "city": cleaned["city"],
+        "postal_code": cleaned["postal_code"],
     }
 
 
 def resolve_tax_customer_details(
-    *, address: dict | None = None, ip_address: str = "",
+    *,
+    address: dict | None = None,
+    ip_address: str = "",
 ) -> tuple[dict[str, Any], str]:
     """Tax uses the validated saved address; IP cannot fill a missing profile."""
     addr = normalize_customer_address(address)

@@ -172,7 +172,9 @@ def _billing_account_profile(user: dict, customer_id: str = "") -> dict:
         return (UserStore.get_user(email) or {}) if email else {}
     except Exception:
         log.exception("Could not load the account billing profile")
-        raise HTTPException(503, "The billing profile could not be loaded. Try again shortly.") from None
+        raise HTTPException(
+            503, "The billing profile could not be loaded. Try again shortly."
+        ) from None
 
 
 def _profile_tax_address(profile: dict, *, required: bool = False) -> dict:
@@ -180,10 +182,17 @@ def _profile_tax_address(profile: dict, *, required: bool = False) -> dict:
 
     missing = profile_missing_fields(profile)
     if missing and required:
-        raise HTTPException(422, detail={"error": {
-            "code": "profile_incomplete", "message": "Complete your account profile before adding credit.",
-            "missing_fields": missing, "completion_url": "/onboarding/account",
-        }})
+        raise HTTPException(
+            422,
+            detail={
+                "error": {
+                    "code": "profile_incomplete",
+                    "message": "Complete your account profile before adding credit.",
+                    "missing_fields": missing,
+                    "completion_url": "/onboarding/account",
+                }
+            },
+        )
     try:
         address, errors = profile_address_values(profile)
     except ValueError:
@@ -191,15 +200,26 @@ def _profile_tax_address(profile: dict, *, required: bool = False) -> dict:
     missing = errors
     if missing:
         if required:
-            raise HTTPException(422, detail={"error": {
-                "code": "profile_incomplete", "message": "Complete your account profile before adding credit.",
-                "missing_fields": missing, "completion_url": "/onboarding/account",
-            }})
+            raise HTTPException(
+                422,
+                detail={
+                    "error": {
+                        "code": "profile_incomplete",
+                        "message": "Complete your account profile before adding credit.",
+                        "missing_fields": missing,
+                        "completion_url": "/onboarding/account",
+                    }
+                },
+            )
         return {}
     return {
-        "country": address["country"], "province": address["province"], "state": address["province"],
-        "line1": address["address_line1"], "line2": address["address_line2"],
-        "city": address["city"], "postal_code": address["postal_code"],
+        "country": address["country"],
+        "province": address["province"],
+        "state": address["province"],
+        "line1": address["address_line1"],
+        "line2": address["address_line2"],
+        "city": address["city"],
+        "postal_code": address["postal_code"],
     }
 
 

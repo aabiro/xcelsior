@@ -642,18 +642,24 @@ class TestJobEndpoints:
 
     def test_submit_job_validation_empty_name(self):
         """Empty name should fail validation."""
-        r = client.post("/instance", json={"name": "", "vram_needed_gb": 8, "gpu_model": "RTX 4090"})
+        r = client.post(
+            "/instance", json={"name": "", "vram_needed_gb": 8, "gpu_model": "RTX 4090"}
+        )
         assert r.status_code == 422
 
     def test_submit_job_validation_zero_vram(self):
         """Zero VRAM is accepted for interactive launches."""
-        r = client.post("/instance", json={"name": "test", "vram_needed_gb": 0, "gpu_model": "RTX 4090"})
+        r = client.post(
+            "/instance", json={"name": "test", "vram_needed_gb": 0, "gpu_model": "RTX 4090"}
+        )
         assert r.status_code == 200
         assert r.json()["instance"]["vram_needed_gb"] >= 0
 
     def test_submit_job_validation_negative_vram(self):
         """Negative VRAM should fail validation."""
-        r = client.post("/instance", json={"name": "test", "vram_needed_gb": -1, "gpu_model": "RTX 4090"})
+        r = client.post(
+            "/instance", json={"name": "test", "vram_needed_gb": -1, "gpu_model": "RTX 4090"}
+        )
         assert r.status_code == 422
 
     def test_list_jobs(self):
@@ -2409,37 +2415,72 @@ class TestUserAuth:
         assert d["user"]["is_admin"] is False
 
     def test_new_account_has_no_invented_location_and_requires_completion(self):
-        registered = client.post("/api/auth/register", json={
-            "email":"incomplete-profile@example.test", "password":"testpass123",
-        }).json()
-        headers={"Authorization":f"Bearer {registered['access_token']}"}
-        profile=client.get("/api/auth/me",headers=headers).json()["user"]
+        registered = client.post(
+            "/api/auth/register",
+            json={
+                "email": "incomplete-profile@example.test",
+                "password": "testpass123",
+            },
+        ).json()
+        headers = {"Authorization": f"Bearer {registered['access_token']}"}
+        profile = client.get("/api/auth/me", headers=headers).json()["user"]
         assert profile["country"] == ""
         assert profile["province"] == ""
         assert profile["profile_complete"] is False
-        assert set(profile["missing_profile_fields"]) == {"name","country","account_type","onboarding_intent","address_line1"}
-        saved=client.patch("/api/auth/me",headers=headers,json={
-            "name":"Account Owner", "country":"ca", "province":"on",
-            "account_type":"individual", "onboarding_intent":"rent",
-            "address_line1":"1 Test Street", "city":"London", "postal_code":"N6A 1A1",
-        })
+        assert set(profile["missing_profile_fields"]) == {
+            "name",
+            "country",
+            "account_type",
+            "onboarding_intent",
+            "address_line1",
+        }
+        saved = client.patch(
+            "/api/auth/me",
+            headers=headers,
+            json={
+                "name": "Account Owner",
+                "country": "ca",
+                "province": "on",
+                "account_type": "individual",
+                "onboarding_intent": "rent",
+                "address_line1": "1 Test Street",
+                "city": "London",
+                "postal_code": "N6A 1A1",
+            },
+        )
         assert saved.status_code == 200, saved.text
-        profile=client.get("/api/auth/me",headers=headers).json()["user"]
+        profile = client.get("/api/auth/me", headers=headers).json()["user"]
         assert profile["profile_complete"] is True
-        assert (profile["country"],profile["province"]) == ("CA","ON")
+        assert (profile["country"], profile["province"]) == ("CA", "ON")
 
-    @pytest.mark.parametrize("method,path",[("PATCH","/api/auth/me"),("PUT","/api/auth/me/profile")])
-    @pytest.mark.parametrize("field,value",[("name","  "),("country",""),("country","XX"),("province",""),("province","XX")])
-    def test_profile_routes_refuse_invalid_required_values(self,method,path,field,value):
-        registered=client.post("/api/auth/register",json={
-            "email":"profile-required@example.test","password":"testpass123",
-        }).json()
-        headers={"Authorization":f"Bearer {registered['access_token']}"}
-        response=client.request(method,path,headers=headers,json={
-            "name":"Account Owner","country":"CA","province":"ON",field:value,
-        })
+    @pytest.mark.parametrize(
+        "method,path", [("PATCH", "/api/auth/me"), ("PUT", "/api/auth/me/profile")]
+    )
+    @pytest.mark.parametrize(
+        "field,value",
+        [("name", "  "), ("country", ""), ("country", "XX"), ("province", ""), ("province", "XX")],
+    )
+    def test_profile_routes_refuse_invalid_required_values(self, method, path, field, value):
+        registered = client.post(
+            "/api/auth/register",
+            json={
+                "email": "profile-required@example.test",
+                "password": "testpass123",
+            },
+        ).json()
+        headers = {"Authorization": f"Bearer {registered['access_token']}"}
+        response = client.request(
+            method,
+            path,
+            headers=headers,
+            json={
+                "name": "Account Owner",
+                "country": "CA",
+                "province": "ON",
+                field: value,
+            },
+        )
         assert response.status_code == 422, response.text
-
 
     def test_get_profile_unauthenticated(self):
         """GET /api/auth/me without token returns anonymous shape (no 401 noise)."""
@@ -2701,15 +2742,19 @@ class TestGpuAvailability:
         assert len(a100s) >= 1
         assert a100s[0]["count_available"] == 2
 
-
     def test_stale_offer_region_cannot_duplicate_or_relocate_a_device(self):
         from marketplace import get_marketplace_engine
 
         _register_host("region-drift", gpu="RTX 3060", vram=12, versions=GOOD_VERSIONS)
         _authoritatively_admit("region-drift")
         get_marketplace_engine().upsert_offer(
-            provider_id="inventory-regression", host_id="region-drift", gpu_model="RTX 3060",
-            vram_gb=12, ask_cents_per_hour=12, gpu_count_total=9, region="ca-east",
+            provider_id="inventory-regression",
+            host_id="region-drift",
+            gpu_model="RTX 3060",
+            vram_gb=12,
+            ask_cents_per_hour=12,
+            gpu_count_total=9,
+            region="ca-east",
         )
         data = client.get("/api/v2/gpu/available").json()
         assert [(g["gpu_model"], g["region"], g["count_available"]) for g in data["gpus"]] == [
@@ -2726,7 +2771,7 @@ class TestGpuAvailability:
         report_test_host_inventory("physical-count", gpu_count=2)
         with scheduler._atomic_mutation() as conn:
             conn.execute(
-                "UPDATE hosts SET payload=payload || '{\"gpu_model\":\"H100\",\"gpu_count\":99,"
+                'UPDATE hosts SET payload=payload || \'{"gpu_model":"H100","gpu_count":99,'
                 "\"total_vram_gb\":999}'::jsonb WHERE host_id='physical-count'"
             )
             conn.execute(
@@ -2735,7 +2780,8 @@ class TestGpuAvailability:
             )
         data = client.get("/api/v2/gpu/available").json()
         assert [(g["gpu_model"], g["vram_gb"], g["count_available"]) for g in data["gpus"]] == [
-            ("RTX 2060", 6, 1), ("RTX 4090", 24, 1)
+            ("RTX 2060", 6, 1),
+            ("RTX 4090", 24, 1),
         ]
 
     @pytest.mark.parametrize("state", ["unobserved", "stale", "pending", "draining", "not_ready"])
@@ -2765,15 +2811,23 @@ class TestGpuAvailability:
             "unhealthy": "health='unhealthy'",
         }
         with scheduler._atomic_mutation() as conn:
-            conn.execute("UPDATE host_gpu_devices SET " + updates[state] + " WHERE host_id='no-device'")
+            conn.execute(
+                "UPDATE host_gpu_devices SET " + updates[state] + " WHERE host_id='no-device'"
+            )
         assert client.get("/api/v2/gpu/available").json()["gpus"] == []
 
-    @pytest.mark.parametrize("country,province,region",[("CA","","ca-east"),("CA","","ca-central"),("CA","ON","ca-east"),("","","")])
-    def test_unresolved_host_location_is_never_advertised(self,country,province,region):
-        _register_host("unresolved-location",gpu="RTX 4090",vram=24,versions=GOOD_VERSIONS)
+    @pytest.mark.parametrize(
+        "country,province,region",
+        [("CA", "", "ca-east"), ("CA", "", "ca-central"), ("CA", "ON", "ca-east"), ("", "", "")],
+    )
+    def test_unresolved_host_location_is_never_advertised(self, country, province, region):
+        _register_host("unresolved-location", gpu="RTX 4090", vram=24, versions=GOOD_VERSIONS)
         _authoritatively_admit("unresolved-location")
         with scheduler._atomic_mutation() as conn:
-            conn.execute("UPDATE hosts SET country=%s,province=%s,region=%s WHERE host_id='unresolved-location'",(country,province,region))
+            conn.execute(
+                "UPDATE hosts SET country=%s,province=%s,region=%s WHERE host_id='unresolved-location'",
+                (country, province, region),
+            )
         assert client.get("/api/v2/gpu/available").json()["gpus"] == []
 
     def test_inventory_failure_returns_service_error(self, monkeypatch):
