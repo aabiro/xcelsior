@@ -892,10 +892,17 @@ def test_pending_internal_spec_with_json_null_does_not_create_an_instance_hold(p
     from service_tier_pricing import refresh_pending_tier_funding
 
     job_id = "internal-" + uuid.uuid4().hex
-    spec = make_execution_spec({"name": job_id, "gpu_model": paid_fleet["model"], "service_tier_quote": None})
+    spec = make_execution_spec(
+        {"name": job_id, "gpu_model": paid_fleet["model"], "service_tier_quote": None}
+    )
     with _get_pg_pool().connection() as conn:
-        conn.execute("INSERT INTO jobs(job_id,status,phase,desired_state,priority,submitted_at,payload,spec,spec_hash,queued_at) VALUES(%s,'queued','pending','running',0,0,'{}',%s,%s,clock_timestamp())", (job_id, Jsonb(spec), canonical_spec_hash(spec)))
+        conn.execute(
+            "INSERT INTO jobs(job_id,status,phase,desired_state,priority,submitted_at,payload,spec,spec_hash,queued_at) VALUES(%s,'queued','pending','running',0,0,'{}',%s,%s,clock_timestamp())",
+            (job_id, Jsonb(spec), canonical_spec_hash(spec)),
+        )
     paid_fleet["jobs"].append(job_id)
     refresh_pending_tier_funding(scope_gpu_models=[paid_fleet["model"]])
     with _get_pg_pool().connection() as conn:
-        assert conn.execute("SELECT count(*) FROM wallet_holds WHERE job_id=%s", (job_id,)).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT count(*) FROM wallet_holds WHERE job_id=%s", (job_id,)
+        ).fetchone() == (0,)
