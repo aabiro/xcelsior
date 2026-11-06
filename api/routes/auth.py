@@ -10,6 +10,8 @@ import env_config
 import secrets
 import time
 import uuid
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
@@ -595,8 +597,23 @@ def oauth_jwks_document():
     return oauth_jwks()
 
 
+_BRAND_DIR = Path(__file__).resolve().parent.parent / "templates" / "brand"
+
+
+@lru_cache(maxsize=None)
+def _brand_mark(name: str) -> str:
+    """Return a brand SVG as a data URI so OAuth pages carry their own logo.
+
+    The API renders these pages wherever it runs, including hosts with no
+    frontend to serve /site-assets. tests/test_mcp_connector_flow.py keeps the
+    copies in api/templates/brand identical to the frontend's public assets.
+    """
+    svg = (_BRAND_DIR / name).read_bytes()
+    return "data:image/svg+xml;base64," + base64.b64encode(svg).decode("ascii")
+
+
 def _oauth_page(*, title: str, content: str, wide: bool = False, script: str = "") -> str:
-    """Use the site's canonical assets and auth theme without its application bundle."""
+    """Use the site's canonical brand and auth theme without its application bundle."""
     import html as _html
 
     styles = """
@@ -719,15 +736,15 @@ def _oauth_page(*, title: str, content: str, wide: bool = False, script: str = "
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
 <title>{_html.escape(title)} — Xcelsior</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="{_brand_mark('favicon.svg')}" type="image/svg+xml">
 <script>(function(){{try{{var t=localStorage.getItem('xcelsior-theme');
 document.documentElement.dataset.theme=t==='light'?'light':'dark';}}catch(e){{}}}})();</script>
 <style>{styles}</style></head>
 <body><main class="{'wide' if wide else ''}">
   <div class="brand" aria-label="Xcelsior">
-    <img class="brand-mark" src="/site-assets/assets/icon-gradient.svg" alt="" width="44" height="44">
-    <img class="brand-wordmark brand-light" src="/site-assets/assets/wordmark-light.svg" alt="Xcelsior" width="114" height="24">
-    <img class="brand-wordmark brand-dark" src="/site-assets/assets/wordmark-dark.svg" alt="Xcelsior" width="114" height="24">
+    <img class="brand-mark" src="{_brand_mark('icon-gradient.svg')}" alt="" width="44" height="44">
+    <img class="brand-wordmark brand-light" src="{_brand_mark('wordmark-light.svg')}" alt="Xcelsior" width="114" height="24">
+    <img class="brand-wordmark brand-dark" src="{_brand_mark('wordmark-dark.svg')}" alt="Xcelsior" width="114" height="24">
   </div>
   {content}
 </main>{script}</body></html>"""
@@ -1107,10 +1124,12 @@ def _issue_code_and_redirect(
             OAuthStore.touch_registration(str(client["client_id"]), registration_expiry())
         except Exception as exc:  # pragma: no cover - bookkeeping, never fatal
             log.warning("registration renewal failed (non-fatal): %s", exc)
-    # Desktop clients must receive the real callback as a top-level navigation.
-    # Loading localhost in an iframe triggers Local Network Access permission
-    # and can leave the client waiting forever for its authorization code.
-    if render_ui and not is_loopback_redirect(redirect_uri):
+    # Show the branded result, then hand the real callback over as a top-level
+    # navigation. Chrome's Local Network Access prompt gates fetches and iframes
+    # aimed at localhost, not top-level navigations, so loopback listeners
+    # (VS Code, Claude Code) still get their code without a permission prompt.
+    # Never deliver it through an iframe: that prompt can strand the client.
+    if render_ui:
         callback_url = _build_callback_url(redirect_uri, state, code=code)
         return HTMLResponse(
             content=_oauth_decision_page(
@@ -1235,7 +1254,7 @@ async def oauth_authorize_decision(request: Request):
         or request.headers.get("sec-fetch-mode", "").lower() == "navigate"
     )
     if str(body.get("decision", "")).strip().lower() != "approve":
-        if wants_ui and not is_loopback_redirect(redirect_uri):
+        if wants_ui:
             denied_client = get_client(str(staged.get("client_id") or "")) or {
                 "client_name": staged.get("client_id") or "Application"
             }
