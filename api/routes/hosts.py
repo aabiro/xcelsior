@@ -55,7 +55,6 @@ def api_location_catalog(country: str = ""):
         raise HTTPException(422, str(exc)) from exc
 
 
-
 class AddressSearchRequest(BaseModel):
     country: str = Field(min_length=2, max_length=2)
     text: str = Field(min_length=3, max_length=200)
@@ -90,14 +89,40 @@ def _loqate_capture(operation: str, values: dict[str, str]) -> list[dict]:
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, ValueError):
-        raise HTTPException(502, "Address search is unavailable. Enter your address manually.") from None
+        raise HTTPException(
+            502, "Address search is unavailable. Enter your address manually."
+        ) from None
     items = payload.get("Items") if isinstance(payload, dict) else None
-    if not isinstance(items, list) or any(not isinstance(item, dict) or "Error" in item for item in items):
+    if not isinstance(items, list) or any(
+        not isinstance(item, dict) or "Error" in item for item in items
+    ):
         raise HTTPException(502, "Address search is unavailable. Enter your address manually.")
     for item in items:
         for field, value in item.items():
-            if field in {"Id", "Type", "Text", "Description", "CountryIso2", "ProvinceCode", "AdminAreaCode", "Line1", "Line2", "Line3", "Line4", "Line5", "City", "PostalCode"} and value is not None and not isinstance(value, str):
-                raise HTTPException(502, "Address search returned invalid data. Enter your address manually.")
+            if (
+                field
+                in {
+                    "Id",
+                    "Type",
+                    "Text",
+                    "Description",
+                    "CountryIso2",
+                    "ProvinceCode",
+                    "AdminAreaCode",
+                    "Line1",
+                    "Line2",
+                    "Line3",
+                    "Line4",
+                    "Line5",
+                    "City",
+                    "PostalCode",
+                }
+                and value is not None
+                and not isinstance(value, str)
+            ):
+                raise HTTPException(
+                    502, "Address search returned invalid data. Enter your address manually."
+                )
     return items
 
 
@@ -111,12 +136,22 @@ def api_address_search(body: AddressSearchRequest, request: Request):
     text = body.text.strip()
     if len(text) < 3:
         raise HTTPException(422, "Enter at least three address characters")
-    items = _loqate_capture("Find", {"Text": text, "Countries": country, "Container": body.container, "Limit": "8"})
-    return {"ok": True, "suggestions": [
-        {"id": str(item["Id"]), "text": str(item.get("Text") or ""),
-         "description": str(item.get("Description") or ""), "is_address": item.get("Type") == "Address"}
-        for item in items[:8] if item.get("Id") and item.get("Text")
-    ]}
+    items = _loqate_capture(
+        "Find", {"Text": text, "Countries": country, "Container": body.container, "Limit": "8"}
+    )
+    return {
+        "ok": True,
+        "suggestions": [
+            {
+                "id": str(item["Id"]),
+                "text": str(item.get("Text") or ""),
+                "description": str(item.get("Description") or ""),
+                "is_address": item.get("Type") == "Address",
+            }
+            for item in items[:8]
+            if item.get("Id") and item.get("Text")
+        ],
+    }
 
 
 @router.post("/api/locations/retrieve", tags=["Account"])
@@ -137,12 +172,19 @@ def api_address_retrieve(body: AddressRetrieveRequest, request: Request):
         province = require_location(country, province)["province"]
     except ValueError:
         province = ""
-    return {"ok": True, "address": {
-        "address_line1": str(item.get("Line1") or ""),
-        "address_line2": ", ".join(str(item[key]) for key in ("Line2", "Line3", "Line4", "Line5") if item.get(key)),
-        "city": str(item.get("City") or ""), "postal_code": str(item.get("PostalCode") or ""),
-        "country": country, "province": province,
-    }}
+    return {
+        "ok": True,
+        "address": {
+            "address_line1": str(item.get("Line1") or ""),
+            "address_line2": ", ".join(
+                str(item[key]) for key in ("Line2", "Line3", "Line4", "Line5") if item.get(key)
+            ),
+            "city": str(item.get("City") or ""),
+            "postal_code": str(item.get("PostalCode") or ""),
+            "country": country,
+            "province": province,
+        },
+    }
 
 
 def _host_owner_ids(host: dict | None) -> set[str]:
@@ -461,7 +503,8 @@ def api_register_host(h: HostIn, request: Request):
 
     try:
         location = require_location(
-            entry.get("country", ""), entry.get("province", ""),
+            entry.get("country", ""),
+            entry.get("province", ""),
             entry.get("region", "") if location_confirmed else h.region if h.region.strip() else "",
         )
     except ValueError:
@@ -1058,7 +1101,6 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     return {"ok": True, "host": enrich_host_for_api(entry)}
 
 
-
 def _require_location_owner(host_id: str, request: Request, scope: str):
     from routes._deps import _require_user_grant
 
@@ -1083,6 +1125,7 @@ class HostLocationUpdate(BaseModel):
     @model_validator(mode="after")
     def validate_location(self):
         from host_metadata import require_location
+
         location = require_location(self.country, self.province)
         self.country, self.province = location["country"], location["province"]
         return self
@@ -1099,14 +1142,20 @@ def api_update_host_location(host_id: str, body: HostLocationUpdate, request: Re
     user, resolved = _require_location_owner(host_id, request, "hosts:write")
     try:
         with _get_pg_pool().connection() as conn:
-            updated = set_location(conn,host_id=resolved,country=body.country,province=body.province,
-                expected_version=body.expected_version,confirmed_by=_canonical_owner_id(user))
+            updated = set_location(
+                conn,
+                host_id=resolved,
+                country=body.country,
+                province=body.province,
+                expected_version=body.expected_version,
+                confirmed_by=_canonical_owner_id(user),
+            )
     except PlanConflict as exc:
-        raise HTTPException(409,str(exc)) from exc
+        raise HTTPException(409, str(exc)) from exc
     if updated is None:
         raise HTTPException(404, "Host not found")
-    broadcast_sse("host_update", {"host_id":resolved,"region":updated["region"]})
-    return {"ok":True,"host":enrich_host_for_api(updated)}
+    broadcast_sse("host_update", {"host_id": resolved, "region": updated["region"]})
+    return {"ok": True, "host": enrich_host_for_api(updated)}
 
 
 class HostSpotSettingsUpdate(BaseModel):
