@@ -247,6 +247,22 @@ class VolumeEngine:
         except subprocess.TimeoutExpired:
             return 255, "", f"ssh timeout after {timeout}s"
 
+    def _export_exec(self, cmd: str, *, timeout: int = 30) -> tuple[int, str, str]:
+        """Run a command where the exports live, on the storage host.
+
+        Production API and bg-worker containers never mount ``/exports``
+        (Phase 10), so plain-directory volume work takes the same host-SSH path
+        as LUKS and the readiness probe. Running it in-process made every
+        unencrypted create, delete and snapshot fail against a missing path.
+        """
+        return self._ssh_exec_with_retry(
+            self._luks_ssh_host(),
+            cmd,
+            timeout=timeout,
+            user=self._luks_ssh_user(),
+            force_ssh=self._luks_force_ssh(),
+        )
+
     def _ssh_exec_with_retry(
         self,
         ip: str,
@@ -774,7 +790,7 @@ class VolumeEngine:
         if not encrypted:
             # Plain unencrypted NFS directory
             cmd = f"mkdir -p {safe_path} && chmod 1777 {safe_path}"
-            rc, _, stderr = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd)
+            rc, _, stderr = self._export_exec(cmd)
             if rc != 0:
                 log.error("NFS volume provision failed for %s: %s", volume_id, stderr)
                 return False
@@ -1129,8 +1145,7 @@ class VolumeEngine:
         if NFS_SERVER:
             snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
             try:
-                self._ssh_exec_with_retry(
-                    NFS_SSH_HOST,
+                self._export_exec(
                     f"case {shlex.quote(snap_dir)} in "
                     f"{shlex.quote(NFS_EXPORT_BASE)}/_snapshots/*) "
                     f"rm -rf --one-file-system {shlex.quote(snap_dir)};; "
@@ -1207,7 +1222,7 @@ class VolumeEngine:
             f'if rm --version >/dev/null 2>&1; then rm -rf --one-file-system "$real"; '
             f'else rm -rf "$real"; fi'
         )
-        rc, _, stderr = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd)
+        rc, _, stderr = self._export_exec(cmd)
         if rc != 0:
             log.error("NFS volume deletion failed for %s: %s", volume_id, stderr)
             return False
@@ -1309,7 +1324,7 @@ class VolumeEngine:
 
         if NFS_SERVER:
             snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
-            self._ssh_exec_with_retry(NFS_SSH_HOST, f"mkdir -p {shlex.quote(snap_dir)}")
+            self._export_exec(f"mkdir -p {shlex.quote(snap_dir)}")
             if vol["encrypted"]:
                 src = f"{NFS_EXPORT_BASE}/{volume_id}.img"
                 dst = f"{snap_dir}/{snap_id}.img"
@@ -1325,7 +1340,7 @@ class VolumeEngine:
                     f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)} && "
                     f"du -sb {shlex.quote(dst)} | cut -f1"
                 )
-            rc, out, err = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd, timeout=300)
+            rc, out, err = self._export_exec(cmd, timeout=300)
             if rc != 0:
                 raise RuntimeError(f"Snapshot failed: {err.strip()[:200]}")
             try:
@@ -1422,7 +1437,7 @@ class VolumeEngine:
                     f"mv -T {shlex.quote(dst)} {shlex.quote(backup)}; fi && "
                     f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)}"
                 )
-            rc, _, err = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd, timeout=600)
+            rc, _, err = self._export_exec(cmd, timeout=600)
             if rc != 0:
                 raise RuntimeError(f"Restore failed: {err.strip()[:200]}")
         self._emit_event(
@@ -1459,7 +1474,7 @@ class VolumeEngine:
                     f"rm -rf --one-file-system {shlex.quote(path)};; "
                     f"*) echo refuse; exit 1;; esac"
                 )
-            self._ssh_exec_with_retry(NFS_SSH_HOST, cmd)
+            self._export_exec(cmd)
 
         with self._conn() as conn:
             conn.execute(
