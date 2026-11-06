@@ -69,7 +69,7 @@ export const DEFAULT_FORM: DeployStudioForm = {
   cudaVersion: "12.4",
   gpuTier: "",
   gpuCount: 1,
-  region: "ca-east",
+  region: "",
   minWorkers: 1,
   maxWorkers: 3,
   maxConcurrency: 1,

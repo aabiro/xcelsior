@@ -145,7 +145,7 @@ def pricing_for_endpoint(ep: dict) -> dict[str, Any]:
     """Quote for UI/API — Novita-aligned ¢/s/worker plus per-million token rates."""
     rate_hr = get_gpu_rate_per_hour(
         str(ep.get("gpu_tier") or ""),
-        str(ep.get("region") or "ca-east"),
+        str(ep.get("region") or ""),
     )
     gpu_count = int(ep.get("gpu_count") or 1)
     rate_sec = worker_rate_cad_per_second(rate_hr, gpu_count)
@@ -254,9 +254,9 @@ def get_gpu_rate_per_hour(gpu_tier: str, region: str) -> float:
         row = conn.execute(
             """
             SELECT MIN(ask_cents_per_hour) AS price FROM gpu_offers
-            WHERE gpu_model = %s AND region = %s AND available = true
+            WHERE gpu_model = %s AND (%s = '' OR region = %s) AND available = true
             """,
-            (gpu_tier, region),
+            (gpu_tier, region, region),
         ).fetchone()
         if row and row.get("price"):
             return round(float(row["price"]) / 100.0, 4)
@@ -583,7 +583,7 @@ def record_cold_start_line_item(
     alloc = float(worker.get("allocated_at") or ready_at)
     rate = get_gpu_rate_per_hour(
         str(endpoint.get("gpu_tier") or ""),
-        str(endpoint.get("region") or "ca-east"),
+        str(endpoint.get("region") or ""),
     )
     gpu_count = int(endpoint.get("gpu_count") or 1)
     amount_cad = estimate_cost_cad(cold_start_seconds, rate, gpu_count)

@@ -174,7 +174,7 @@ class GPUOfferCreate(BaseModel):
     gpu_count_total: int = Field(default=1, ge=1, le=64)
     vram_gb: float = Field(default=0, ge=0, le=1024)
     ask_cents_per_hour: int = Field(default=20, ge=1, le=1_000_000)
-    region: str = Field(default="ca-east", max_length=32)
+    region: str = Field(default="", max_length=32)
     spot_enabled: bool = True
     spot_min_cents: int = Field(default=10, ge=0, le=1_000_000)
 

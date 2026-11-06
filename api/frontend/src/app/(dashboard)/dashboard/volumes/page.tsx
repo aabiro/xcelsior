@@ -74,7 +74,7 @@ export default function VolumesPage() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newSize, setNewSize] = useState(50);
-  const [newRegion, setNewRegion] = useState("ca-east");
+  const [newRegion, setNewRegion] = useState("");
   const [newEncrypted, setNewEncrypted] = useState(true);
   const [attachingId, setAttachingId] = useState<string | null>(null);
   const [selectedInstance, setSelectedInstance] = useState("");
@@ -323,7 +323,6 @@ export default function VolumesPage() {
     ...gpus.map((g) => g.region).filter(Boolean),
     ...volumes.map((v) => v.region).filter(Boolean),
   ])];
-  if (regions.length === 0) regions.push("ca-east");
   const totalMonthlyCost = volumes.reduce((sum, v) => sum + (v.monthly_cost_cad ?? v.size_gb * PRICE_PER_GB), 0);
 
   // Filter & sort
@@ -476,6 +475,7 @@ export default function VolumesPage() {
                   onChange={(e) => setNewRegion(e.target.value)}
                   className="h-9 w-full rounded-md border border-border bg-background px-3 pr-8 text-sm appearance-none"
                 >
+                  <option value="">Any region</option>
                   {regions.map((r) => (
                     <option key={r} value={r}>{r}</option>
                   ))}
