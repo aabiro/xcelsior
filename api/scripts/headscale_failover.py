@@ -42,7 +42,9 @@ def project_root() -> Path:
     checkout = here.parent.parent
     if checkout.name == "api" and (checkout / "infra" / "headscale").is_dir():
         return checkout.parent
-    if (checkout / "infra" / "headscale").is_dir() or (checkout / "api" / "infra" / "headscale").is_dir():
+    if (checkout / "infra" / "headscale").is_dir() or (
+        checkout / "api" / "infra" / "headscale"
+    ).is_dir():
         return checkout
     return Path("/mnt/storage/projects/xcelsior")
 
@@ -751,7 +753,9 @@ def replicate(
             part = settings.replica_dir / f".{local_name}.{token}.part"
             created.append(part)
             try:
-                run_cmd(scp_base + [f"{remote}:{remote_path}", str(part)], timeout=90, runner=runner)
+                run_cmd(
+                    scp_base + [f"{remote}:{remote_path}", str(part)], timeout=90, runner=runner
+                )
             except FailoverError:
                 if required:
                     raise
@@ -1287,16 +1291,16 @@ class PushVerdict:
 # Prints digests and public machine keys only — never the Noise private key.
 _PRIMARY_SUMMARY_PY = (
     "import hashlib, json, os, sqlite3\n"
-    "db = \"/var/lib/headscale/db.sqlite\"\n"
-    "noise = \"/var/lib/headscale/noise_private.key\"\n"
-    "out = {\"missing\": not os.path.isfile(db)}\n"
-    "if not out[\"missing\"]:\n"
-    "    c = sqlite3.connect(\"file:\" + db + \"?mode=ro\", uri=True)\n"
-    "    out[\"machine_keys\"] = sorted(r[0] for r in c.execute("
-    "\"SELECT machine_key FROM nodes WHERE deleted_at IS NULL\"))\n"
-    "    out[\"users\"] = c.execute(\"SELECT count(*) FROM users\").fetchone()[0]\n"
+    'db = "/var/lib/headscale/db.sqlite"\n'
+    'noise = "/var/lib/headscale/noise_private.key"\n'
+    'out = {"missing": not os.path.isfile(db)}\n'
+    'if not out["missing"]:\n'
+    '    c = sqlite3.connect("file:" + db + "?mode=ro", uri=True)\n'
+    '    out["machine_keys"] = sorted(r[0] for r in c.execute('
+    '"SELECT machine_key FROM nodes WHERE deleted_at IS NULL"))\n'
+    '    out["users"] = c.execute("SELECT count(*) FROM users").fetchone()[0]\n'
     "if os.path.isfile(noise):\n"
-    "    out[\"noise_sha256\"] = hashlib.sha256(open(noise, \"rb\").read()).hexdigest()\n"
+    '    out["noise_sha256"] = hashlib.sha256(open(noise, "rb").read()).hexdigest()\n'
     "print(json.dumps(out))\n"
 )
 
@@ -1405,9 +1409,7 @@ def push_verdict(
             f"{node_label(len(only_there))} only on the VPS. Pushing would delete the "
             "latter. Reconcile by hand, or pass --force if that loss is intended.",
         )
-    return PushVerdict(
-        "push", f"the standby holds {node_label(len(only_here))} the VPS lacks"
-    )
+    return PushVerdict("push", f"the standby holds {node_label(len(only_here))} the VPS lacks")
 
 
 def failback(
@@ -1436,9 +1438,7 @@ def failback(
     verdict: PushVerdict | None = None
     if state.role == "promoted" and health.primary_ip_ok:
         keys, noise = local_summary(candidate_sqlite, candidate_noise)
-        verdict = push_verdict(
-            primary_summary(settings, runner=runner), keys, noise, force=force
-        )
+        verdict = push_verdict(primary_summary(settings, runner=runner), keys, noise, force=force)
         # First, because it is the more specific diagnosis. With the VPS
         # unreadable, the node-count gate below would tell the operator to
         # reconcile databases, when the actual problem is that one of them
@@ -1462,7 +1462,10 @@ def failback(
         pushed = f"Nothing pushed — {verdict.reason}."
     else:
         pushed = _push_to_primary(
-            settings, replica=replica, live_sqlite=live_sqlite, live_noise=live_noise,
+            settings,
+            replica=replica,
+            live_sqlite=live_sqlite,
+            live_noise=live_noise,
             runner=runner,
         )
 
@@ -1622,9 +1625,11 @@ def status_payload(settings: Settings) -> dict:
         "headscale_build": {
             "standby": standby_build,
             "primary": replica.primary_headscale,
-            "match": (standby_build == replica.primary_headscale)
-            if standby_build and replica.primary_headscale
-            else None,
+            "match": (
+                (standby_build == replica.primary_headscale)
+                if standby_build and replica.primary_headscale
+                else None
+            ),
         },
         "state": asdict(state),
         "decision": {"action": decision.action, "reason": decision.reason},

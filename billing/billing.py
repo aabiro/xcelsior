@@ -3077,11 +3077,18 @@ class BillingEngine:
             raise ValueError("Complete your account address before setting up billing.")
         customer_fields = {
             "email": profile["email"],
-            "name": profile.get("business_name") if profile["account_type"] == "business" else profile["name"],
+            "name": (
+                profile.get("business_name")
+                if profile["account_type"] == "business"
+                else profile["name"]
+            ),
             "address": {
-                "country": address["country"], "state": address["province"],
-                "line1": address["address_line1"], "line2": address["address_line2"],
-                "city": address["city"], "postal_code": address["postal_code"],
+                "country": address["country"],
+                "state": address["province"],
+                "line1": address["address_line1"],
+                "line2": address["address_line2"],
+                "city": address["city"],
+                "postal_code": address["postal_code"],
             },
         }
         wallet = self.get_wallet(customer_id)

@@ -449,7 +449,9 @@ class StripeConnectManager:
                 )
                 if getattr(retrieve_err, "code", None) == "resource_missing":
                     raise RuntimeError("__STALE_ACCOUNT__") from retrieve_err
-                raise RuntimeError("Unable to check your Stripe account right now. Please retry.") from retrieve_err
+                raise RuntimeError(
+                    "Unable to check your Stripe account right now. Please retry."
+                ) from retrieve_err
 
             # Account exists on Stripe.  If it's already fully enabled, open the
             # Express dashboard instead of the onboarding flow.
@@ -547,11 +549,16 @@ class StripeConnectManager:
         from host_metadata import require_location
 
         seller = self.get_provider(provider_id) or {}
-        location = require_location(str(seller.get("country") or ""), str(seller.get("province") or ""))
+        location = require_location(
+            str(seller.get("country") or ""), str(seller.get("province") or "")
+        )
         country_code = location["country"]
         if country and country.strip().upper() != country_code:
             raise ValueError("Payout country must match your saved seller address")
-        if province and province.strip().upper() not in {location["province"], location["region"].upper()}:
+        if province and province.strip().upper() not in {
+            location["province"],
+            location["region"].upper(),
+        }:
             raise ValueError("Payout province must match your saved seller address")
         province = location["province"]
 
