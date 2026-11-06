@@ -573,6 +573,34 @@ class TestVolumeAPIEndpoints:
             "kwargs": {"timeout": 15, "user": "root", "force_ssh": True},
         }
 
+    @pytest.mark.parametrize("operation", ["provision", "destroy"])
+    def test_colocated_plain_volume_storage_crosses_host_boundary(self, monkeypatch, operation):
+        """The API container never mounts /exports, so plain directories go to the host too."""
+        import volumes
+
+        engine = volumes.VolumeEngine()
+        calls = []
+
+        monkeypatch.setattr(volumes, "NFS_SERVER", "127.0.0.1")
+        monkeypatch.setattr(volumes, "NFS_SSH_HOST", "127.0.0.1")
+        monkeypatch.setattr(volumes, "NFS_EXPORT_BASE", "/exports/volumes")
+        monkeypatch.delenv("XCELSIOR_VOLUME_PRIVILEGE", raising=False)
+        monkeypatch.setattr(engine, "_in_docker", lambda: True)
+        monkeypatch.setattr(engine, "_luks_ssh_host", lambda: "172.17.0.1")
+        monkeypatch.setattr(engine, "_luks_ssh_user", lambda: "root")
+
+        def _exec(host, command, **kwargs):
+            calls.append((host, kwargs.get("user"), kwargs.get("force_ssh")))
+            return 0, "", ""
+
+        monkeypatch.setattr(engine, "_ssh_exec_with_retry", _exec)
+
+        if operation == "provision":
+            assert engine._provision_volume_storage("vol-plain", 1, encrypted=False) is True
+        else:
+            assert engine._destroy_volume_storage("vol-plain", encrypted=False) is True
+        assert calls == [("172.17.0.1", "root", True)]
+
 
 # ── Name validation tests ────────────────────────────────────────────
 
