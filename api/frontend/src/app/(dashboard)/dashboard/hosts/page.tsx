@@ -116,6 +116,8 @@ export default function HostsPage() {
   const activeHosts = hosts.filter((h) => h.status === "active").length;
   const offlineHosts = hosts.filter((h) => h.status === "offline").length;
   const totalVram = hosts.reduce((sum, h) => sum + (h.vram_gb || 0), 0);
+  // Retired hosts never list, so only live ones need a location.
+  const unlocatedHosts = hosts.filter((h) => h.location_complete === false && h.status !== "dead");
 
   return (
     <div className="space-y-6">
@@ -191,6 +193,26 @@ export default function HostsPage() {
         <StatCard label="Offline" value={offlineHosts} icon={AlertCircle} glow="gold" />
         <StatCard label="Total VRAM" value={`${totalVram} GB`} icon={HardDrive} glow="violet" />
       </div>
+
+      {unlocatedHosts.length > 0 && (
+        <div role="status" className="rounded-lg border border-accent-gold/30 bg-accent-gold/10 p-4 text-sm">
+          <p className="flex items-center gap-2 font-medium text-text-primary">
+            <AlertCircle className="h-4 w-4 text-accent-gold" />
+            {unlocatedHosts.length === 1
+              ? "1 host needs its location before its GPUs are listed"
+              : `${unlocatedHosts.length} hosts need their location before their GPUs are listed`}
+          </p>
+          <ul className="mt-2 space-y-1 pl-6">
+            {unlocatedHosts.map((host) => (
+              <li key={host.host_id}>
+                <Link href={`/dashboard/hosts/${encodeURIComponent(host.host_id)}`} className="inline-flex items-center gap-1 text-accent-cyan hover:underline">
+                  {host.hostname || host.host_id}: add location <ChevronRight className="h-3.5 w-3.5" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <HostSetupGuideCard
         onRegister={() => setShowRegister(true)}
