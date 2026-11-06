@@ -65,7 +65,10 @@ export async function proxy(request: NextRequest) {
     if (!hasSession) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("redirect", pathname + request.nextUrl.search);
-      return NextResponse.redirect(loginUrl);
+      const response = NextResponse.redirect(loginUrl);
+      response.headers.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+      response.headers.set("Content-Security-Policy", CSP_HEADER);
+      return response;
     }
     const response = NextResponse.next();
     response.headers.set("Content-Security-Policy", CSP_HEADER);

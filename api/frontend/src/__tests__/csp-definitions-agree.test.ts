@@ -83,12 +83,13 @@ describe("onboarding response headers", () => {
     } finally { vi.unstubAllEnvs(); vi.resetModules(); }
   });
 
-  it("preserves the onboarding destination when requesting sign-in", async () => {
+  it.each(["/onboarding/address?redirect=%2Fdashboard%2Fhosts", "/dashboard/settings?tab=profile"])("keeps sign-in redirects private and preserves %s", async (target) => {
     const {proxy}=await import("../proxy");
     const {NextRequest}=await import("next/server");
-    const response=await proxy(new NextRequest("http://localhost/onboarding/address?redirect=%2Fdashboard%2Fhosts"));
+    const response=await proxy(new NextRequest("http://localhost"+target));
     const location=new URL(response.headers.get("Location")!);
     expect(location.pathname).toBe("/login");
-    expect(location.searchParams.get("redirect")).toBe("/onboarding/address?redirect=%2Fdashboard%2Fhosts");
+    expect(location.searchParams.get("redirect")).toBe(target);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
   });
 });
