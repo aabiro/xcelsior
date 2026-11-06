@@ -78,7 +78,7 @@ export function registerVolumeTools(
       inputSchema: z.object({
         name: z.string().min(1).max(128),
         size_gb: z.number().int().min(1).max(2000).default(50),
-        region: z.string().max(64).default("ca-east"),
+        region: z.string().max(64).default("").describe("Omit for any region"),
         encrypted: z.boolean().default(true),
       }),
     },

@@ -152,7 +152,7 @@ class ServerlessEndpointCreate(BaseModel):
     gpu_type: str = ""
     gpu_tier: str = ""
     gpu_count: int = Field(1, ge=1, le=8)
-    region: str = "ca-east"
+    region: str = ""
     min_workers: int = Field(1, ge=0, le=32)
     max_workers: int = Field(3, ge=1, le=32)
     max_concurrency: int = Field(1, ge=1, le=256)

@@ -30,7 +30,7 @@ router = APIRouter()
 class VolumeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     size_gb: int = Field(default=50, ge=1, le=2000)
-    region: str = "ca-east"
+    region: str = ""
     encrypted: bool = True
 
 

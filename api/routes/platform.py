@@ -87,7 +87,7 @@ def api_should_i_run_pel_job(body: ShouldIRunPelRequest, request: Request):
             "mode": "preset",
             "model_ref": body.model_ref,
             "gpu_tier": body.gpu_tier,
-            "region": "ca-east",
+            "region": "",
             "gpu_count": 1,
         }
 

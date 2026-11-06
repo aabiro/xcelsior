@@ -63,7 +63,7 @@ class EndpointCreate:
     max_queue_size: int = 100
     keep_warm: bool = False
     cache_volume_id: str | None = None
-    region: str = "ca-east"
+    region: str = ""
     source_type: str = ""
     source_ref: str = ""
     source_ref_branch: str = "main"

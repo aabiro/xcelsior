@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `150_account_profile_address.py`.**
+**Repository head: `151_clear_stamped_regions.py`.**
+
+151 clears region labels that defaults stamped rather than a person choosing them (`ca-east`, `ca-central` and the other retired picker values) from `serverless_endpoints`, `inference_endpoints`, `volumes` and `gpu_offers`, and drops the `ca-east` column default from the first two. An empty region means any region. ISO subdivision regions such as `ca-on` are kept, and hosts are untouched: their owners confirm their location. One table per transaction through `lock_safe`; every statement is idempotent. Downgrade restores the column defaults but not the cleared labels. The runtime floor stays 150.
 
 150 adds account address, account type and onboarding intent columns. Existing accounts retain empty values until they complete their profile. The onboarding runtime requires schema 150; migrate before deploying it. The migration adds no inferred addresses or regions.
 
