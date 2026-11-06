@@ -18,7 +18,8 @@ _CACHE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 def cache_volume_name(model_ref: str, revision: str, region: str) -> str:
     safe_model = _CACHE_NAME_RE.sub("--", model_ref.replace("/", "--"))[:80]
     safe_rev = _CACHE_NAME_RE.sub("-", revision)[:32]
-    return f"slvr-cache-{safe_model}-{safe_rev}-{region}"[:120]
+    suffix = f"-{region}" if region else ""
+    return f"slvr-cache-{safe_model}-{safe_rev}{suffix}"[:120]
 
 
 def resolve_cache_volume(
@@ -82,9 +83,7 @@ def replicate_cache_volumes(
 
     Returns {region: volume_id} for all regions touched (primary included).
     """
-    regions = [primary_region] + [
-        r for r in cache_replicate_regions() if r and r != primary_region
-    ]
+    regions = [primary_region] + [r for r in cache_replicate_regions() if r and r != primary_region]
     out: dict[str, str | None] = {}
     for region in regions:
         out[region] = resolve_cache_volume(

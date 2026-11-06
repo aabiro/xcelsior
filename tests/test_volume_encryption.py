@@ -883,11 +883,12 @@ class TestVolumeCreateModel:
         model = VolumeCreate(name="vol")
         assert model.size_gb == 50
 
-    def test_default_region(self):
+    def test_default_region_is_any(self):
+        """No region named means any region, not a stamped default."""
         from routes.volumes import VolumeCreate
 
         model = VolumeCreate(name="vol")
-        assert model.region == "ca-east"
+        assert model.region == ""
 
 
 # ── Reopen Failure Paths ───────────────────────────────────────────

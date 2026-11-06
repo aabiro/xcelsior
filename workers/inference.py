@@ -89,7 +89,7 @@ class InferenceEngine:
         owner_id: str,
         model_id: str,
         gpu_type: str = "",
-        region: str = "ca-east",
+        region: str = "",
         docker_image: str = "xcelsior/vllm:latest",
         min_workers: int = 0,
         max_workers: int = 4,
@@ -356,8 +356,8 @@ class InferenceEngine:
         with self._conn() as conn:
             row = conn.execute(
                 """SELECT MIN(ask_cents_per_hour) as price FROM gpu_offers
-                   WHERE gpu_model = %s AND region = %s AND available = true""",
-                (gpu_type, region),
+                   WHERE gpu_model = %s AND (%s = '' OR region = %s) AND available = true""",
+                (gpu_type, region, region),
             ).fetchone()
             if row and row.get("price"):
                 return round(float(row["price"]) / 100.0, 2)
@@ -494,7 +494,7 @@ class InferenceEngine:
             ).fetchone()
 
             cost_per_hour = self._get_gpu_cost_per_hour(
-                ep.get("gpu_type", ""), ep.get("region", "ca-east")
+                ep.get("gpu_type", ""), ep.get("region", "")
             )
 
             return {

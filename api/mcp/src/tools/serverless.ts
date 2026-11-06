@@ -48,7 +48,7 @@ export function registerServerlessTools(
         model_ref: z.string().describe("HuggingFace model id or image ref"),
         gpu_tier: z.string().default("RTX 4090"),
         gpu_count: z.number().int().min(1).max(8).default(1),
-        region: z.string().default("ca-east"),
+        region: z.string().default("").describe("Omit for any region"),
         min_workers: z.number().int().min(0).max(32).default(0),
         max_workers: z.number().int().min(1).max(32).default(2),
         confirm: z.boolean().default(false),

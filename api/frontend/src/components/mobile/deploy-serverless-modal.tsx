@@ -67,7 +67,7 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
       setForm((prev) => ({
         ...prev,
         gpuTier: prev.gpuTier || GPU_MODELS[0]?.value || "",
-        region: prev.region || "ca-east",
+        region: prev.region || "",
       }));
     } finally {
       if (generation === loadGenRef.current) setLoadingGpus(false);
