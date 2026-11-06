@@ -100,10 +100,13 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: SITE_ASSETS.favicon16, sizes: "16x16", type: "image/png" },
-      { url: SITE_ASSETS.favicon32, sizes: "32x32", type: "image/png" },
-      { url: SITE_ASSETS.favicon48, sizes: "48x48", type: "image/png" },
+      { url: `${SITE_ASSETS.favicon16}?v=fullsize-1`, sizes: "16x16", type: "image/png" },
+      { url: `${SITE_ASSETS.favicon32}?v=fullsize-1`, sizes: "32x32", type: "image/png" },
+      { url: `${SITE_ASSETS.favicon48}?v=fullsize-1`, sizes: "48x48", type: "image/png" },
+      { url: "/favicon-512.png?v=fullsize-1", sizes: "512x512", type: "image/png" },
+      { url: "/favicon.svg?v=fullsize-1", sizes: "any", type: "image/svg+xml" },
     ],
+    shortcut: "/favicon.ico?v=fullsize-1",
     apple: [
       { url: SITE_ASSETS.appleTouchIcon180, sizes: "180x180", type: "image/png" },
     ],
