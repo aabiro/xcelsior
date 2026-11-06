@@ -300,8 +300,13 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
 export function HostLocationForm({ host, onSaved }: {
   host: import("@/lib/api").Host; onSaved: (host: import("@/lib/api").Host) => void;
 }) {
-  const [country, setCountry] = useState(host.country || "");
-  const [province, setProvince] = useState(host.province || "");
+  const { user } = useAuth();
+  // A host without a confirmed site starts from the owner's address; the owner
+  // still saves it, because a machine can sit somewhere else.
+  const prefill = host.location_complete === false && !host.province && user?.country
+    ? { country: user.country, province: user.province || "" } : null;
+  const [country, setCountry] = useState(prefill?.country ?? host.country ?? "");
+  const [province, setProvince] = useState(prefill?.province ?? host.province ?? "");
   const [requirements, setRequirements] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -320,6 +325,7 @@ export function HostLocationForm({ host, onSaved }: {
     <div><h2 className="text-base font-semibold">Host location</h2>
       <p className="mt-1 text-sm text-text-secondary">Where this machine is located. Update it here if the host moves.</p>
       {host.location_complete === false && <p className="mt-2 text-sm text-accent-cyan">Complete this location before the host can appear in available GPU inventory.</p>}
+      {prefill && <p className="mt-1 text-sm text-text-secondary">Filled in from your account address. Change it if this machine is somewhere else.</p>}
     </div>
     <LocationFields country={country} province={province}
       onCountryChange={(value) => { setCountry(value); setSaved(false); }}

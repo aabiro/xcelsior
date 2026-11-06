@@ -509,11 +509,34 @@ def test_move_does_not_interrupt_existing_workloads(user_headers):
         host_id=instance["host_id"]
         from db import pg_connection
         with pg_connection() as conn:
-            conn.execute("UPDATE hosts SET owner_id=%s,tenant_id=%s WHERE host_id=%s", (user_headers["user_id"],user_headers["user_id"],host_id))
+            # A located host: recording a first location is not a move.
+            conn.execute("UPDATE hosts SET owner_id=%s,tenant_id=%s,country='CA',province='ON',region='ca-on' WHERE host_id=%s", (user_headers["user_id"],user_headers["user_id"],host_id))
             conn.commit()
         host=client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
         assert _save_location(host, user_headers).status_code == 409
         from db import pg_connection
+        with pg_connection() as conn:
+            row=conn.execute("SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)).fetchone()
+        assert row == ("running", "running")
+
+
+def test_unlocated_host_records_its_location_while_work_runs(user_headers):
+    """A host with no location yet is not moving, so running work cannot block it."""
+    from tests.fixtures.native_runtime import running_instance
+    with running_instance(owner=user_headers["user_id"]) as instance:
+        host_id=instance["host_id"]
+        from db import pg_connection
+        with pg_connection() as conn:
+            conn.execute("UPDATE hosts SET owner_id=%s,tenant_id=%s,country='CA',province='',region='ca-central' WHERE host_id=%s", (user_headers["user_id"],user_headers["user_id"],host_id))
+            conn.commit()
+        host=client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
+        assert host["location_complete"] is False
+        saved=_save_location(host, user_headers, "CA", "ON")
+        assert saved.status_code == 200, saved.text
+        located=saved.json()["host"]
+        assert (located["country"], located["province"], located["region"]) == ("CA", "ON", "ca-on")
+        # Once located, a different site is a move, and the running work blocks it.
+        assert _save_location(located, user_headers, "CA", "BC").status_code == 409
         with pg_connection() as conn:
             row=conn.execute("SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)).fetchone()
         assert row == ("running", "running")

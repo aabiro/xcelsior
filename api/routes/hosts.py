@@ -1110,7 +1110,7 @@ def _require_location_owner(host_id: str, request: Request, scope: str):
         user = _require_user_grant(request)
     resolved, hosts = _resolve_host_id(host_id)
     entry = next((host for host in hosts if host.get("host_id") == resolved), None)
-    if entry is None:
+    if entry is None or resolved is None:
         raise HTTPException(404, "Host not found")
     _require_host_visible(user, entry)
     _require_host_operator(user, resolved)
