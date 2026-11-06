@@ -436,7 +436,7 @@
           "Billing"
         ],
         "summary": "Create Payment Intent",
-        "description": "Create a Stripe PaymentIntent for depositing compute credits.\n\n``amount_cad`` is pretax wallet credit. Stripe Tax uses the **account**\ncountry/province (settings/profile) — no deposit province picker. IP is a\nfallback when the account has no location. Wallet is credited pretax only.",
+        "description": "Create a Stripe PaymentIntent for depositing compute credits.\n\n``amount_cad`` is pretax wallet credit. Stripe Tax uses the **account**\nsaved account address. Missing required profile fields return a completion\nerror before contacting Stripe. Wallet is credited pretax only.",
         "operationId": "api_create_payment_intent_api_billing_payment_intent_post",
         "requestBody": {
           "content": {

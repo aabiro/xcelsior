@@ -137,6 +137,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [isGateLoading, gateDelayElapsed]);
 
+  useEffect(() => {
+    if (user?.profile_complete === false) {
+      const target = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : pathname || "/dashboard";
+      router.replace(`/onboarding/account?redirect=${encodeURIComponent(target)}`);
+    }
+  }, [user?.profile_complete, pathname, router]);
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (authLoading || user) return;
@@ -228,6 +235,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+
+  if (user.profile_complete === false) return null;
 
   const canAccessRole = (requiredRole: string) => (
     requiredRole === "admin" ? (!!user.is_admin || user.role === "admin") : user.role === requiredRole

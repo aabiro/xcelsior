@@ -2001,6 +2001,56 @@
         ],
         "title": "AddTeamMemberRequest"
       },
+      "AddressRetrieveRequest": {
+        "properties": {
+          "country": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country"
+          },
+          "address_id": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Address Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "country",
+          "address_id"
+        ],
+        "title": "AddressRetrieveRequest"
+      },
+      "AddressSearchRequest": {
+        "properties": {
+          "country": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Text"
+          },
+          "container": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Container",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "country",
+          "text"
+        ],
+        "title": "AddressSearchRequest"
+      },
       "AdminCreditRequest": {
         "properties": {
           "amount_cad": {
@@ -3376,9 +3426,8 @@
           "country": {
             "type": "string",
             "maxLength": 2,
-            "minLength": 2,
             "title": "Country",
-            "default": "CA"
+            "default": ""
           },
           "province": {
             "type": "string",
@@ -3573,6 +3622,33 @@
           "free_vram_gb"
         ],
         "title": "HostIn"
+      },
+      "HostLocationUpdate": {
+        "properties": {
+          "country": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country"
+          },
+          "province": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Province",
+            "default": ""
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "country",
+          "expected_version"
+        ],
+        "title": "HostLocationUpdate"
       },
       "HostSpotSettingsUpdate": {
         "properties": {
@@ -5360,6 +5436,78 @@
               }
             ],
             "title": "Gst Hst Number"
+          },
+          "address_line1": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Line1"
+          },
+          "address_line2": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Line2"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "postal_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Postal Code"
+          },
+          "account_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Type"
+          },
+          "onboarding_intent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onboarding Intent"
           }
         },
         "type": "object",
@@ -5519,7 +5667,7 @@
           "country": {
             "type": "string",
             "title": "Country",
-            "default": "CA"
+            "default": ""
           },
           "address_line1": {
             "type": "string",
@@ -5630,8 +5778,7 @@
             "type": "string",
             "maxLength": 2,
             "minLength": 2,
-            "title": "Country",
-            "default": "CA"
+            "title": "Country"
           },
           "province": {
             "type": "string",
@@ -5687,7 +5834,8 @@
         "required": [
           "hostname",
           "gpu_model",
-          "vram_gb"
+          "vram_gb",
+          "country"
         ],
         "title": "RegisterHostRequest",
         "description": "Human-facing host registration from the dashboard UI.\n\nSeparate from HostIn which is the machine-to-machine agent schema.\nFields that the agent reports (host_id, ip, free_vram_gb) are\nauto-generated or derived here."
@@ -6019,8 +6167,7 @@
           },
           "country": {
             "type": "string",
-            "title": "Country",
-            "default": "CA"
+            "title": "Country"
           },
           "tax_id_kind": {
             "type": "string",
@@ -6049,6 +6196,7 @@
           "city",
           "province",
           "postal_code",
+          "country",
           "tax_id_kind"
         ],
         "title": "SellerProfileRequest"

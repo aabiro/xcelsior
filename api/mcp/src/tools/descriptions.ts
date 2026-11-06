@@ -509,7 +509,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "existing settlement rather than paying twice. **Amounts on the stripe rail are integer " +
     "micros — divide by 1,000,000 for CAD — while the paypal rail returns fields already named " +
     "_cad.** Reporting a micros figure as dollars overstates it a millionfold. Needs " +
-    "providers:write.",
+    "providers:write. Completed transfers are irreversible through this tool.",
 
   get_paypal_status:
     "Get a provider's PayPal payout onboarding state: whether PayPal is enabled on the platform, " +
@@ -681,7 +681,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "the response comes back with preview:true, a plan_id and an approval_url instead of a " +
     "change: send the user to that URL, then call this again passing plan_id and nothing else. " +
     "The settings are taken from the approved plan rather than the second call, so an approval " +
-    "cannot be spent on different numbers.",
+    "cannot be spent on different numbers. Charged funds cannot be recovered by changing " +
+    "this setting. Do not retry blindly after a timeout: inspect the returned plan or current " +
+    "settings before creating another change.",
 
   get_auto_topup:
     "Show the current automatic top-up settings: whether it is on, the balance that triggers a " +
@@ -698,6 +700,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Say the amount in CAD; identify the card the way the user did — 'the Visa', 'the one ending " +
     "4242' — using card_brand and/or card_last4, or omit both to use their default card. Call " +
     "list_payment_methods first if you are unsure what is on file. " +
+    "Not idempotent without a stable idempotency key: a repeat can charge twice. " +
     "MOVES REAL MONEY: confirm the amount with the user before calling, and never retry a call " +
     "that timed out without passing the same idempotency key — the charge may already have gone " +
     "through. If more than one saved card matches, this refuses and lists them rather than " +
@@ -705,7 +708,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "is returned for the user to confirm in a browser — list_pending_verifications shows later " +
     "whether that was ever done, which a balance check cannot tell you. " +
     "The wallet is credited when the payment processor confirms, moments later — not when this " +
-    "returns, so do not report a new balance you have not read.",
+    "returns, so do not report a new balance you have not read. A completed charge is " +
+    "irreversible through this tool; any refund is a separate authorized action.",
 
   list_payment_methods:
     "List the cards already saved on the account: brand, last four digits, expiry, and which one " +

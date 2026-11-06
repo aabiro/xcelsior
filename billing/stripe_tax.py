@@ -50,65 +50,35 @@ def tax_enabled() -> bool:
 
 
 def normalize_customer_address(address: dict | None) -> dict[str, str] | None:
-    """Normalize account/billing location for Stripe Tax.
-
-    Uses the same model as user profile / provider accounts: country + province
-    (state). No deposit UI province picker — callers pass account fields.
-    Returns None when we only have IP (caller should use ip_address instead).
-    """
-    raw = address or {}
-    country = str(raw.get("country") or "").strip().upper()[:2]
-    state = str(raw.get("state") or raw.get("province") or "").strip().upper()
-    if not country and not state:
+    """Validate the full saved billing address without inventing geography."""
+    if not address:
         return None
-    if not country:
-        country = "CA"
-    if country == "CA" and state and len(state) > 2:
-        # Allow full province names lightly if already 2-letter leave as-is.
-        pass
-    if country == "CA" and state and state not in CA_PROVINCES and len(state) == 2:
-        # Unknown 2-letter code — still pass through for Stripe.
-        pass
-    out: dict[str, str] = {"country": country}
-    if state:
-        out["state"] = state
-    for key in ("line1", "line2", "city", "postal_code"):
-        val = str(raw.get(key) or "").strip()
-        if val:
-            out[key] = val
-    return out
+    from host_metadata import profile_address_values
+
+    raw = address
+    profile = {
+        "country": raw.get("country"), "province": raw.get("state") or raw.get("province"),
+        "address_line1": raw.get("line1"), "address_line2": raw.get("line2"),
+        "city": raw.get("city"), "postal_code": raw.get("postal_code"),
+    }
+    cleaned, errors = profile_address_values(profile)
+    if errors:
+        raise ValueError("Complete your billing address before calculating tax.")
+    return {
+        "country": cleaned["country"], "state": cleaned["province"],
+        "line1": cleaned["address_line1"], "line2": cleaned["address_line2"],
+        "city": cleaned["city"], "postal_code": cleaned["postal_code"],
+    }
 
 
 def resolve_tax_customer_details(
-    *,
-    address: dict | None = None,
-    ip_address: str = "",
+    *, address: dict | None = None, ip_address: str = "",
 ) -> tuple[dict[str, Any], str]:
-    """Build Stripe customer_details and a short source label.
-
-    Priority:
-      1. Explicit/account address (country + province/state) — preferred
-      2. Client IP estimation via Stripe Tax
-    """
+    """Tax uses the validated saved address; IP cannot fill a missing profile."""
     addr = normalize_customer_address(address)
-    if addr and addr.get("country"):
-        return (
-            {"address": addr, "address_source": "billing"},
-            "account_address",
-        )
-    ip = (ip_address or "").strip()
-    # Strip port / proxy list — first hop
-    if "," in ip:
-        ip = ip.split(",")[0].strip()
-    if ip and ip.lower() not in ("unknown", "127.0.0.1", "::1"):
-        return {"ip_address": ip}, "ip_address"
-    # Last resort: platform home market (London ON) so CA registration applies
-    # rather than silent zero tax. Account profile should normally supply province.
-    fallback = {
-        "country": "CA",
-        "state": os.environ.get("XCELSIOR_TAX_DEFAULT_PROVINCE", "ON").strip().upper() or "ON",
-    }
-    return {"address": fallback, "address_source": "billing"}, "platform_default"
+    if addr is None:
+        raise ValueError("Complete your billing address before calculating tax.")
+    return {"address": addr, "address_source": "billing"}, "account_address"
 
 
 def calculate_wallet_deposit_tax(

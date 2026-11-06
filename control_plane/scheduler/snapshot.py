@@ -148,7 +148,7 @@ def read_fleet(
                              AND a.released_at IS NULL) AS allocated,
                   (SELECT n.plan_id FROM preemption_plan_devices n
                     WHERE n.gpu_device_id=d.gpu_device_id AND n.held
-                    ORDER BY n.plan_id LIMIT 1) AS held_by_plan
+                    ORDER BY n.plan_id LIMIT 1) AS held_by_plan, d.total_vram_mb
              FROM host_gpu_devices d
             WHERE d.retired_at IS NULL
               AND d.health = ANY(%s)
@@ -165,6 +165,7 @@ def read_fleet(
                 "gpu_device_id": str(_get(row, "gpu_device_id", 1)),
                 "model": str(_get(row, "model", 2) or ""),
                 "allocatable_vram_mb": int(_get(row, "allocatable_vram_mb", 3) or 0),
+                "total_vram_mb": int(_get(row, "total_vram_mb", 6) or 0),
                 "allocated": allocated,
                 "held_by_plan": str(held_by) if held_by is not None else None,
                 "free": not allocated and held_by is None,

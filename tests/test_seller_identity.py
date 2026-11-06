@@ -107,8 +107,36 @@ def test_a_provider_response_drops_the_encrypted_tax_identifier():
         "tax_id_kind": "sin",
         "tax_id_last4": sin[-4:],
         "tax_id_ciphertext": "ciphertext-must-not-leave",
+        "seller_terms_accepted_at": 1700000000.0,
     }
     presented = present_provider(row)
     assert "tax_id_ciphertext" not in presented
     assert presented["seller_profile_complete"] is True
     assert seller_profile_complete({"legal_name": "Test Supplier"}) is False
+
+
+
+@pytest.mark.parametrize("field,value",[("country",""),("country","XX"),("province",""),("legal_name",""),("address_line1",""),("city",""),("postal_code","")])
+def test_required_seller_fields_cannot_be_blank_or_invented(field,value):
+    with pytest.raises(ValueError):
+        normalize_seller_profile(_profile(**{field:value}), require_tax_id=True)
+
+
+def test_seller_address_uses_country_requirements_and_rejects_wrong_postal_region():
+    cleaned = normalize_seller_profile(_profile(country="HK", province="", postal_code="", city="Hong Kong", tax_id_kind="other", tax_id="TEST1234"), require_tax_id=True)
+    assert cleaned["country"] == "HK"
+    assert cleaned["province"] == cleaned["postal_code"] == ""
+    assert seller_profile_complete({**cleaned, "tax_id_last4":"1234", "seller_terms_accepted_at":1700000000.0})
+    with pytest.raises(ValueError, match="postal code"):
+        normalize_seller_profile(_profile(postal_code="V6B 1A1"), require_tax_id=True)
+    assert not seller_profile_complete({**_profile(postal_code="V6B 1A1"), "tax_id_last4":"1234"})
+
+
+@pytest.mark.parametrize("accepted_at", [None, 0, -1, True, "accepted", float("nan"), float("inf")])
+def test_seller_completion_requires_a_recorded_terms_acceptance(accepted_at):
+    row={**_profile(), "tax_id_last4":"1234", "seller_terms_accepted_at":accepted_at}
+    assert not seller_profile_complete(row)
+
+
+def test_seller_completion_rejects_non_numeric_sin_suffix():
+    assert not seller_profile_complete({**_profile(), "tax_id_last4":"ABCD", "seller_terms_accepted_at":1700000000.0})

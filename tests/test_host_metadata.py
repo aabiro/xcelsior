@@ -149,3 +149,69 @@ def test_region_normalization_from_province_and_legacy_values():
 def test_enrich_host_for_api_fills_region_from_province():
     out = enrich_host_for_api({"host_id": "h-region", "country": "CA", "province": "ON"})
     assert out["region"] == "ca-on"
+
+
+
+@pytest.mark.parametrize("country,province,region", [
+    ("ca", "on", "ca-on"), ("US", "NY", "us-ny"), ("GB", "ENG", "gb-eng"),
+    ("DE", "BE", "de-be"), ("AU", "NSW", "au-nsw"),
+])
+def test_exact_location_uses_the_shared_iso_catalog(country, province, region):
+    from host_metadata import require_location
+
+    assert require_location(country, province)["region"] == region
+
+
+@pytest.mark.parametrize("country,province,region", [
+    ("", "", ""), ("XX", "", ""), ("CA", "", "ca-central"),
+    ("CA", "", "ca-east"), ("CA", "Ontario", ""),
+    ("CA", "ON", "ca-east"), ("US", "ON", ""),
+])
+def test_missing_ambiguous_or_conflicting_location_is_an_error(country, province, region):
+    from host_metadata import require_location
+
+    with pytest.raises(ValueError):
+        require_location(country, province, region)
+
+
+def test_no_region_is_invented_for_an_incomplete_record():
+    assert normalize_region("") == ""
+    assert normalize_host_region({}) == ""
+
+
+def test_country_choices_are_complete_names_from_iso_data():
+    import pycountry
+    from host_metadata import location_catalog
+
+    catalog = location_catalog("CA")
+    assert {c["code"] for c in catalog["countries"]} == {c.alpha_2 for c in pycountry.countries}
+    assert next(c for c in catalog["countries"] if c["code"] == "CA")["name"] == "Canada"
+    assert next(s for s in catalog["subdivisions"] if s["code"] == "ON")["name"] == "Ontario"
+
+
+def test_profile_completion_requires_every_required_account_field():
+    from host_metadata import profile_missing_fields
+
+    valid = {"name":"Account Owner", "email":"owner@example.test", "country":"CA", "province":"ON",
+             "account_type":"individual", "onboarding_intent":"rent", "address_line1":"1 Test Street",
+             "city":"London", "postal_code":"N6A 1A1"}
+    assert profile_missing_fields(valid) == []
+    for field in valid:
+        assert profile_missing_fields({**valid, field:""})
+
+
+def test_address_requirements_follow_each_country_not_a_canadian_default():
+    from host_metadata import address_required_fields, profile_address_values
+
+    assert "postal_code" in address_required_fields("CA")
+    assert "postal_code" not in address_required_fields("HK")
+    _, errors = profile_address_values({"country":"CA", "province":"ON", "address_line1":"1 Test Street", "city":"London", "postal_code":"V6B 1A1"})
+    assert errors == ["postal_code"]  # A BC postal prefix cannot be saved as Ontario.
+
+
+def test_address_metadata_covers_every_country_we_offer():
+    import pycountry
+    from host_metadata import address_required_fields
+
+    for country in pycountry.countries:
+        assert isinstance(address_required_fields(country.alpha_2), list)

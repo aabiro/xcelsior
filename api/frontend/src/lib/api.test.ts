@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  apiFetch,
   buildBrowserOAuthAuthorizePath,
   completeBrowserOAuthLogin,
   normalizeAuthRedirectPath,
@@ -111,5 +112,24 @@ describe("browser OAuth helpers", () => {
         const wrongState = `${authorizeUrl.searchParams.get("state") || ""}-wrong`;
 
         await expect(completeBrowserOAuthLogin("code_456", wrongState)).rejects.toThrow("OAuth state mismatch");
+    });
+});
+
+
+describe("profile session recovery", () => {
+    it.each([["/api/auth/me", "GET"], ["/api/auth/me/profile", "PUT"], ["/api/auth/sessions", "GET"]])("refreshes an expired session for %s and retries the same request", async (path, method) => {
+        const fetchMock = vi.spyOn(globalThis,"fetch")
+            .mockResolvedValueOnce(new Response(JSON.stringify({error:{message:"Expired"}}),{status:401}))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ok:true}),{status:200}))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ok:true}),{status:200}));
+        const request={method, ...(method === "PUT" ? {body:JSON.stringify({address_line1:"1 Test Street"})} : {})};
+        await expect(apiFetch(path,request)).resolves.toEqual({ok:true});
+        expect(fetchMock.mock.calls.map(call=>call[0])).toEqual([path,"/api/auth/refresh",path]);
+        expect(fetchMock.mock.calls[2][1]).toMatchObject(request);
+    });
+    it("leaves invalid sign-in credentials as a single failed request", async () => {
+        const fetchMock=vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response(JSON.stringify({error:{message:"Invalid credentials"}}),{status:401}));
+        await expect(apiFetch("/api/auth/login",{method:"POST"})).rejects.toMatchObject({status:401,message:"Invalid credentials"});
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 });

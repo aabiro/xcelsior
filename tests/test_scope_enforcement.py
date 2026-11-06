@@ -116,3 +116,13 @@ def test_no_wildcard_scope_survives_in_either_layer():
     assert (
         'default_factory=lambda: ["api"]' not in auth
     ), "client registration defaults to a wildcard scope again"
+
+
+def test_legacy_api_scope_cannot_disclose_connector_email(monkeypatch):
+    import routes._deps as deps
+    from routes.auth import _filter_auth_identity
+
+    monkeypatch.setattr(deps, "_is_delegated_connector_token", lambda user: True)
+    identity = {"name": "Account Owner", "email": "owner@example.test"}
+    assert "email" not in _filter_auth_identity({"scopes": ["api"]}, identity)
+    assert _filter_auth_identity({"scopes": ["email"]}, identity)["email"] == identity["email"]

@@ -871,6 +871,18 @@ wheels = [
 ]
 
 [[package]]
+name = "google-i18n-address"
+version = "3.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fe/52/d00c490e19a727ee67e97ff04fd2ed7003088b0e28f40604784c97c4c946/google_i18n_address-3.1.1.tar.gz", hash = "sha256:c9ea70e35cb312948651fbbbe4ad4ba97781e129096502fab6ed4e94f629ab0e", size = 721615, upload-time = "2024-09-04T08:53:07.683Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/75/c4dadb4845c8c930b94c8ff9d2dfa9855c0a005366af539fee8095e30765/google_i18n_address-3.1.1-py2.py3-none-any.whl", hash = "sha256:f66f4fd2b75d1cd371fc0a7678a1d656da4aa3b32932279e78dd6cae776fc23d", size = 772645, upload-time = "2024-09-04T08:53:05.506Z" },
+]
+
+[[package]]
 name = "googleapis-common-protos"
 version = "1.75.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2090,6 +2102,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pycountry"
+version = "26.2.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/1d/061b9e7a48b85cfd69f33c33d2ef784a531c359399ad764243399673c8f5/pycountry-26.2.16.tar.gz", hash = "sha256:5b6027d453fcd6060112b951dd010f01f168b51b4bf8a1f1fc8c95c8d94a0801", size = 7711342, upload-time = "2026-02-17T03:42:52.367Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9c/42/7703bd45b62fecd44cd7d3495423097e2f7d28bc2e99e7c1af68892ab157/pycountry-26.2.16-py3-none-any.whl", hash = "sha256:115c4baf7cceaa30f59a4694d79483c9167dbce7a9de4d3d571c5f3ea77c305a", size = 8044600, upload-time = "2026-02-17T03:42:49.777Z" },
+]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3006,6 +3027,7 @@ dependencies = [
     { name = "docker" },
     { name = "fastapi" },
     { name = "fido2" },
+    { name = "google-i18n-address" },
     { name = "gunicorn" },
     { name = "httpx" },
     { name = "nvidia-ml-py" },
@@ -3021,6 +3043,7 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
+    { name = "pycountry" },
     { name = "pydantic" },
     { name = "pyotp" },
     { name = "python-dotenv" },
@@ -3067,6 +3090,7 @@ requires-dist = [
     { name = "docker", specifier = "~=7.1.0" },
     { name = "fastapi", specifier = "~=0.135.0" },
     { name = "fido2", specifier = "~=2.2.1" },
+    { name = "google-i18n-address", specifier = "==3.1.1" },
     { name = "gunicorn", specifier = "~=25.0.3" },
     { name = "httpx", specifier = "~=0.28.1" },
     { name = "nvidia-ml-py", specifier = "~=13.590.48" },
@@ -3083,6 +3107,7 @@ requires-dist = [
     { name = "prometheus-client", specifier = "~=0.22.1" },
     { name = "psycopg", extras = ["binary"], specifier = "~=3.3.2" },
     { name = "psycopg-pool", specifier = "~=3.3.0" },
+    { name = "pycountry", specifier = "==26.2.16" },
     { name = "pydantic", specifier = "~=2.12.5" },
     { name = "pyotp", specifier = "~=2.9.0" },
     { name = "python-dotenv", specifier = "~=1.2.1" },

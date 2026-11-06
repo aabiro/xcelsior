@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { XcelsiorApiClient } from "../../src/client/api.js";
 import { ApiError } from "../../src/client/errors.js";
+import { traced, currentToolTraceparent } from "../../src/observability/tracing.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -31,5 +32,36 @@ describe("typed API transport behavior", () => {
     fetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
     await expect(client.post("/api/v1/write", {})).rejects.toBeInstanceOf(ApiError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("tool trace propagation without an exporter", () => {
+  it("keeps concurrent requests correlated with their own tool audit", async () => {
+    const sent = new Map<string, string>();
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      sent.set(new URL(url).pathname, new Headers(init.headers).get("traceparent") || "");
+      return new Response(JSON.stringify({ok:true}));
+    }));
+    const client = new XcelsiorApiClient({baseUrl:"https://api.example",bearer:"redacted"});
+    const traces = await Promise.all(["first","second"].map(name => traced(name, async (parent, traceId) => {
+      await Promise.resolve();
+      await client.get(`/api/v1/${name}`);
+      expect(sent.get(`/api/v1/${name}`)).toBe(parent);
+      expect(parent?.split("-")[1]).toBe(traceId);
+      expect(parent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
+      return traceId;
+    })));
+    expect(traces[0]).not.toBe(traces[1]);
+    expect(currentToolTraceparent()).toBeUndefined();
+  });
+
+  it("honors an explicit request context", async () => {
+    const fetchMock=vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ok:true})));
+    vi.stubGlobal("fetch",fetchMock);
+    const explicit="00-11111111111111111111111111111111-2222222222222222-00";
+    const client=new XcelsiorApiClient({baseUrl:"https://api.example",bearer:"redacted"});
+    await traced("tool",async () => { await client.get("/api/v1/test",undefined,{traceparent:explicit}); });
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("traceparent")).toBe(explicit);
   });
 });

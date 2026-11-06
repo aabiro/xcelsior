@@ -284,7 +284,7 @@ class ProviderAccount:
     email: str = ""
     legal_name: str = ""
     # Location
-    country: str = "CA"
+    country: str = ""
     province: str = ""
     # Timestamps
     created_at: float = 0.0
@@ -358,7 +358,7 @@ class StripeConnectManager:
         gst_hst_number: str = "",
         province: str = "",
         legal_name: str = "",
-        country: str = "CA",
+        country: str = "",
     ) -> dict:
         """Create a Stripe Connect Express account for a provider.
 
@@ -374,7 +374,6 @@ class StripeConnectManager:
         now = time.time()
         stripe_account_id = ""
         onboarding_url = ""
-        country_code = (country or "CA").strip().upper()[:2] or "CA"
 
         # A brand-new payout account needs the identity the annual seller report
         # uses. An account that already has a Stripe id can still open its link;
@@ -448,7 +447,9 @@ class StripeConnectManager:
                     account_id,
                     retrieve_err,
                 )
-                raise RuntimeError("__STALE_ACCOUNT__") from retrieve_err
+                if getattr(retrieve_err, "code", None) == "resource_missing":
+                    raise RuntimeError("__STALE_ACCOUNT__") from retrieve_err
+                raise RuntimeError("Unable to check your Stripe account right now. Please retry.") from retrieve_err
 
             # Account exists on Stripe.  If it's already fully enabled, open the
             # Express dashboard instead of the onboarding flow.
@@ -540,6 +541,19 @@ class StripeConnectManager:
                 "onboarding_url": onboarding_url,
                 "status": status,
             }
+
+        # New payout accounts use the validated seller address. A client may
+        # omit location, but it cannot substitute another country for that record.
+        from host_metadata import require_location
+
+        seller = self.get_provider(provider_id) or {}
+        location = require_location(str(seller.get("country") or ""), str(seller.get("province") or ""))
+        country_code = location["country"]
+        if country and country.strip().upper() != country_code:
+            raise ValueError("Payout country must match your saved seller address")
+        if province and province.strip().upper() not in {location["province"], location["region"].upper()}:
+            raise ValueError("Payout province must match your saved seller address")
+        province = location["province"]
 
         try:
             # Express account: marketplace provider receives Transfers (not direct charges).
@@ -648,7 +662,7 @@ class StripeConnectManager:
         with self._conn() as conn:
             row = conn.execute(
                 """SELECT legal_name, address_line1, city, province, postal_code,
-                          country, tax_id_kind, tax_id_last4
+                          country, tax_id_kind, tax_id_last4, seller_terms_accepted_at
                    FROM provider_accounts WHERE provider_id=%s""",
                 (provider_id,),
             ).fetchone()

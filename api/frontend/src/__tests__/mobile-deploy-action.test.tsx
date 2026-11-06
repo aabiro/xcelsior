@@ -14,9 +14,11 @@ vi.mock("@/lib/locale", () => ({
   }),
 }));
 
+const navigation = vi.hoisted(() => ({ pathname: "/dashboard" }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => "/dashboard",
+  usePathname: () => navigation.pathname,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -42,6 +44,7 @@ vi.mock("@/components/instances/launch-instance-modal", () => ({
 describe("MobileDeployAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigation.pathname = "/dashboard";
   });
 
   it("renders track selector and hold CTA when serverless enabled", () => {
@@ -54,6 +57,12 @@ describe("MobileDeployAction", () => {
   it("renders instance-only CTA when serverless disabled", () => {
     render(<MobileDeployAction serverlessEnabled={false} canWrite />);
     expect(screen.getByText("dash.mobile.action_idle_instances")).toBeInTheDocument();
+  });
+
+  it.each(["/dashboard/hosts/host-id", "/dashboard/settings"])("keeps editable forms clear on %s", (pathname) => {
+    navigation.pathname = pathname;
+    const { container } = render(<MobileDeployAction serverlessEnabled canWrite />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("hides when user cannot write", () => {

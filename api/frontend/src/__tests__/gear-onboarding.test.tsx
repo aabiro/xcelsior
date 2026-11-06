@@ -52,7 +52,7 @@ describe("GearOnboarding", () => {
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
 
-    return { user: { name, email: "ada@example.com" } };
+    return { user: { name, email: "ada@example.com", profile_complete: true } };
   }
 
   it("shows loading then progress once an MCP client is connected", async () => {

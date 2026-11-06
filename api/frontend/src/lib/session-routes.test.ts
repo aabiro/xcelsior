@@ -13,6 +13,8 @@ describe("needsSessionOnMount", () => {
     expect(needsSessionOnMount("/dashboard/instances")).toBe(true);
     expect(needsSessionOnMount("/login")).toBe(true);
     expect(needsSessionOnMount("/register")).toBe(true);
+    expect(needsSessionOnMount("/onboarding/account")).toBe(true);
+    expect(needsSessionOnMount("/onboarding/address")).toBe(true);
     expect(needsSessionOnMount("/accept-invite")).toBe(true);
     expect(needsSessionOnMount("/setup-2fa")).toBe(true);
   });

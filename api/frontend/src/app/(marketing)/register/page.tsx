@@ -56,7 +56,7 @@ function RegisterPageContent() {
     if (inviteToken) {
       router.replace(`/accept-invite?token=${encodeURIComponent(inviteToken)}`);
     } else {
-      router.replace(redirectTarget);
+      router.replace(`/onboarding/account?redirect=${encodeURIComponent(redirectTarget)}`);
     }
   }
 
@@ -124,7 +124,7 @@ function RegisterPageContent() {
   }
 
   if (!authLoading && user) {
-    router.replace(redirectTarget);
+    router.replace(user.profile_complete === false ? `/onboarding/account?redirect=${encodeURIComponent(redirectTarget)}` : redirectTarget);
     return null;
   }
 

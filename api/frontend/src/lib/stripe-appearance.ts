@@ -92,6 +92,20 @@ export const STRIPE_CONNECT_APPEARANCE = {
   },
 };
 
+/** Connect supports live appearance updates without restarting authentication. */
+export function getStripeConnectAppearance(theme: "dark" | "light") {
+  if (theme === "dark") return STRIPE_CONNECT_APPEARANCE;
+  return {
+    ...STRIPE_CONNECT_APPEARANCE,
+    variables: {
+      ...STRIPE_CONNECT_APPEARANCE.variables,
+      colorPrimary: "#0e7d95", colorBackground: "#ffffff", colorText: "#0f1830",
+      colorSecondaryText: "#4d5975", colorBorder: "#d6dbea",
+      buttonPrimaryColorBackground: "#0e7d95", buttonPrimaryColorText: "#ffffff",
+    },
+  };
+}
+
 /**
  * Card + Link checkout UI. Stripe under the hood.
  * Hides Apple Pay / Google Pay / BNPL tabs — PayPal stays a separate app path.

@@ -390,3 +390,33 @@ def test_wallet_deposit_blocked_in_production(two_users, monkeypatch):
     body = r.json()
     message = body.get("detail") or body.get("error", {}).get("message", "")
     assert "disabled" in str(message).lower()
+
+
+def test_credit_purchase_requires_current_completed_profile_before_stripe():
+    from routes.billing import get_stripe_manager
+    email=f"missing-billing-{uuid.uuid4().hex[:10]}@example.test"
+    registered=client.post("/api/auth/register",json={"email":email,"password":"StrongPass123!","name":"Billing Test Account"})
+    assert registered.status_code == 200
+    user=registered.json()["user"]
+    headers={"Authorization":f"Bearer {registered.json()['access_token']}"}
+    result=client.post("/api/billing/payment-intent",json={"customer_id":user["customer_id"],"amount_cad":10},headers=headers)
+    assert result.status_code == 422,result.text
+    error=result.json()["error"]
+    assert error["code"] == "profile_incomplete"
+    assert "country" in error["missing_fields"]
+    assert error["completion_url"] == "/onboarding/account"
+    get_stripe_manager().create_credit_deposit.assert_not_called()
+
+
+def test_credit_purchase_sends_the_complete_saved_address_to_stripe(auth):
+    from db import UserStore
+    from routes.billing import get_stripe_manager
+    email,headers=auth
+    UserStore.update_user(email,{"account_type":"individual","onboarding_intent":"rent","country":"CA","province":"BC","address_line1":"1 Test Street","address_line2":"Unit Test","city":"Vancouver","postal_code":"V6B 1A1"})
+    user=UserStore.get_user(email)
+    result=client.post("/api/billing/payment-intent",json={"customer_id":user["customer_id"],"amount_cad":10},headers=headers)
+    assert result.status_code == 200,result.text
+    kwargs=get_stripe_manager().create_credit_deposit.call_args.kwargs
+    assert kwargs["email"] == email
+    assert kwargs["address"] == {"country":"CA","province":"BC","state":"BC","line1":"1 Test Street","line2":"Unit Test","city":"Vancouver","postal_code":"V6B 1A1"}
+    assert kwargs["ip_address"] == ""

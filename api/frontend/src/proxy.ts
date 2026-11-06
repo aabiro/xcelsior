@@ -18,7 +18,8 @@ const NO_STORE_PATHS = new Set([
 
 const CSP_HEADER =
   "default-src 'self'; " +
-  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'; " +
+  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'" +
+  (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : "") + "; " +
   "style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data: blob: https:; " +
   "font-src 'self' data:; " +
@@ -60,14 +61,15 @@ export async function proxy(request: NextRequest) {
   const hasSession = request.cookies.has(AUTH_COOKIE);
 
   // Protect dashboard routes, redirect to login if no session cookie
-  if (pathname.startsWith("/dashboard")) {
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/onboarding")) {
     if (!hasSession) {
       const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("redirect", pathname);
+      loginUrl.searchParams.set("redirect", pathname + request.nextUrl.search);
       return NextResponse.redirect(loginUrl);
     }
     const response = NextResponse.next();
     response.headers.set("Content-Security-Policy", CSP_HEADER);
+    response.headers.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
     return response;
   }
 
@@ -75,6 +77,7 @@ export async function proxy(request: NextRequest) {
   if (pathname === "/login" || pathname === "/register") {
     const response = NextResponse.next();
     response.headers.set("Content-Security-Policy", CSP_HEADER);
+    response.headers.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
     return response;
   }
 

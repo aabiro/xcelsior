@@ -94,6 +94,7 @@ export function PrivacyContent() {
               <li>{t("privacy.s9_p4")}</li>
               <li>{t("privacy.s9_p6")}</li>
               <li>{t("privacy.s9_p7")}</li>
+              <li>{t("privacy.s9_p8")}</li>
             </ul>
             <p className="site-legal-paragraph-gap">{t("privacy.s9_p5")}</p>
           </Section>

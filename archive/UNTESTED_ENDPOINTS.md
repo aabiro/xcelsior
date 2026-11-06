@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-11-01 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-06 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**3 of 538 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**3 of 542 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -329,8 +329,12 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ### `routes/hosts.py` (0 untested)
 - [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /api/hosts/{host_id}/enrollment` — `api_enroll_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `PATCH /api/hosts/{host_id}/location` — `api_update_host_location`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /api/hosts/{host_id}/spot-preview` — `api_host_spot_preview`  ✓ test_hosts_endpoints_coverage.py
 - [x] `PATCH /api/hosts/{host_id}/spot-settings` — `api_update_host_spot_settings`  ✓ test_hosts_endpoints_coverage.py
+- [x] `GET /api/locations` — `api_location_catalog`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /api/locations/retrieve` — `api_address_retrieve`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /api/locations/search` — `api_address_search`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /compute-score/{host_id}` — `api_get_compute_score`
 - [x] `GET /compute-scores` — `api_list_compute_scores`  ✓ test_hosts_endpoints_coverage.py
 - [x] `PUT /host` — `api_register_host`  ✓ test_hosts_endpoints_coverage.py

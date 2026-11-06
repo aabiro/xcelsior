@@ -10,7 +10,8 @@ const withBundleAnalyzer = bundleAnalyzer({
 const BACKEND = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'",
+  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'" +
+    (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""),
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",

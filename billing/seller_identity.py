@@ -8,11 +8,9 @@ The identifier is encrypted. API responses keep only the last four characters.
 from __future__ import annotations
 
 import re
-
-from stripe_tax import CA_PROVINCES
+import math
 
 _GST_HST = re.compile(r"^\d{9}RT\d{4}$")
-_CA_POSTAL = re.compile(r"^[A-Z]\d[A-Z]\d[A-Z]\d$")
 _TAX_KINDS = frozenset({"sin", "bn", "other"})
 
 # Columns a provider response must never carry, even to the account owner.
@@ -79,31 +77,27 @@ def _normalize_address(profile: dict) -> dict[str, str]:
     legal_name = " ".join(str(profile.get("legal_name") or "").split())
     if not 2 <= len(legal_name) <= 200:
         raise ValueError("Enter the legal name on the tax account")
+    from host_metadata import profile_address_values
+
+    address, errors = profile_address_values(profile)
+    if errors:
+        labels = {"address_line1": "street address", "city": "city", "postal_code": "postal code"}
+        raise ValueError("Enter a valid " + ", ".join(labels.get(field, field) for field in errors))
     line1 = " ".join(str(profile.get("address_line1") or "").split())
     line2 = " ".join(str(profile.get("address_line2") or "").split())
     city = " ".join(str(profile.get("city") or "").split())
-    if not 4 <= len(line1) <= 200:
-        raise ValueError("Enter the street address")
     if len(line2) > 200:
         raise ValueError("Address line 2 must be 200 characters or fewer")
-    if not 2 <= len(city) <= 80:
-        raise ValueError("Enter the city")
-    country = str(profile.get("country") or "CA").strip().upper()[:2]
+    country = address["country"]
     if len(country) != 2 or not country.isalpha():
         raise ValueError("Enter a two-letter country code")
-    province = str(profile.get("province") or "").strip().upper()
+    from host_metadata import require_location
+
+    location = require_location(country, str(profile.get("province") or ""))
+    country, province = location["country"], location["province"]
+    postal = address["postal_code"]
     if country == "CA":
-        if province not in CA_PROVINCES:
-            raise ValueError("Enter a Canadian province or territory code")
-        postal = re.sub(r"\s+", "", str(profile.get("postal_code") or "")).upper()
-        if not _CA_POSTAL.match(postal):
-            raise ValueError("Enter a Canadian postal code")
-    else:
-        if not 2 <= len(province) <= 32:
-            raise ValueError("Enter the state or region")
-        postal = re.sub(r"\s+", "", str(profile.get("postal_code") or "")).upper()
-        if not 3 <= len(postal) <= 12:
-            raise ValueError("Enter the postal code")
+        postal = re.sub(r"\s+", "", postal)
     kind = str(profile.get("tax_id_kind") or "").strip().lower()
     if kind not in _TAX_KINDS:
         raise ValueError("Tax identifier must be a SIN, a business number, or another tax id")
@@ -122,7 +116,7 @@ def _normalize_address(profile: dict) -> dict[str, str]:
 
 def normalize_seller_profile(profile: dict, *, require_tax_id: bool) -> dict[str, str]:
     """Validate a seller profile. The tax id is normalized, not encrypted."""
-    if not profile.get("accepted_terms"):
+    if profile.get("accepted_terms") is not True:
         raise ValueError(
             "Confirm that you are an independent supplier and responsible for your own taxes"
         )
@@ -140,17 +134,17 @@ def normalize_seller_profile(profile: dict, *, require_tax_id: bool) -> dict[str
 def seller_profile_complete(row: dict | None) -> bool:
     if not row:
         return False
-    required = (
-        "legal_name",
-        "address_line1",
-        "city",
-        "province",
-        "postal_code",
-        "country",
-        "tax_id_kind",
-        "tax_id_last4",
-    )
-    return all(str(row.get(key) or "").strip() for key in required)
+    try:
+        _normalize_address(row)
+    except ValueError:
+        return False
+    accepted_at = row.get("seller_terms_accepted_at")
+    if isinstance(accepted_at, bool) or not isinstance(accepted_at, (int, float)):
+        return False
+    if not math.isfinite(accepted_at) or accepted_at <= 0:
+        return False
+    pattern = r"[0-9]{4}" if row.get("tax_id_kind") in {"sin", "bn"} else r"[A-Z0-9]{4}"
+    return re.fullmatch(pattern, str(row.get("tax_id_last4") or "").strip()) is not None
 
 
 def present_provider(provider: dict) -> dict:

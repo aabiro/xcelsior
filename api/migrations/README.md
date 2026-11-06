@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `149_drop_tier_multiplier.py`.**
+**Repository head: `150_account_profile_address.py`.**
+
+150 adds account address, account type and onboarding intent columns. Existing accounts retain empty values until they complete their profile. The onboarding runtime requires schema 150; migrate before deploying it. The migration adds no inferred addresses or regions.
 
 147 imports immutable Stripe price identities (`stripe_compute_prices`) and freezes attempt billing pricing snapshots. 148 records typed paid queue bids (`queue_bid_events`) and database-owned queue-entry time. The paid service-tier runtime requires both (runtime floor 148).
 

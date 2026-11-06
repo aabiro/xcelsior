@@ -24,10 +24,10 @@ const SWIPE_THRESHOLD_PX = 48;
 /** How much of the viewport bottom the dock covers; the main column pads by it. */
 const DOCK_CLEARANCE_VAR = "--mobile-dock-clearance";
 /**
- * Full-height pages with their own input pinned to the bottom. The dock sat
- * over the Xcel AI composer and its suggestions; these pages get none.
+ * Pages with dedicated inputs or profile forms. The deployment dock must not
+ * cover their fields and Save buttons.
  */
-const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp"];
+const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp", "/dashboard/hosts", "/dashboard/settings"];
 const ARM_TAP_GRACE_MS = 400;
 const ARMED_IDLE_MS = 45_000;
 const TOAST_COOLDOWN_MS = 2_500;
