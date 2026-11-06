@@ -100,6 +100,7 @@ export function PrivacyContent() {
 
           <Section title={`10. ${t("privacy.s10_title")}`}>
             <p>{t("privacy.s10_p1")}</p>
+            <p className="site-legal-paragraph-gap">{t("privacy.s10_p2")}</p>
           </Section>
 
           <Section title={`11. ${t("privacy.s11_title")}`}>
@@ -113,6 +114,8 @@ export function PrivacyContent() {
           <Section title={`13. ${t("privacy.s13_title")}`}>
             <p>
               {t("privacy.s13_p1")}
+              <br />
+              {t("privacy.s13_security_lead")}
               <br />
               <ObfuscationSafeMailto href="mailto:privacy@xcelsior.ca" className="site-inline-link">
                 {t("privacy.s13_email")}
