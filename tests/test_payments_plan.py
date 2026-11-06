@@ -430,6 +430,7 @@ class TestConnectContracts:
             patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
             # A new payout account requires a complete seller profile first.
             patch.object(StripeConnectManager, "seller_is_complete", return_value=True),
+            patch.object(StripeConnectManager, "get_provider", return_value={"country":"US", "province":"CA"}),
         ):
             result = mgr.create_provider_account(
                 provider_id="prov-us-1",

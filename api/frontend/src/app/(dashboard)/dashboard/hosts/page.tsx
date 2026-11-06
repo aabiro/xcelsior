@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
 import { deleteHost } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { LocationFields } from "@/components/ui/province-selector";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host } from "@/lib/api";
@@ -482,7 +484,10 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
   const [hostname, setHostname] = useState("");
   const [gpuModel, setGpuModel] = useState("");
   const [vramGb, setVramGb] = useState("");
-  const [location, setLocation] = useState("");
+  const { user } = useAuth();
+  const [country, setCountry] = useState(user?.country || "");
+  const [province, setProvince] = useState(user?.province || "");
+  const location = country ? (province ? `${country}-${province}` : country).toLowerCase() : "";
   const [notes, setNotes] = useState("");
   const [spotEnabled, setSpotEnabled] = useState(true);
   const [spotMinCents, setSpotMinCents] = useState(0);
@@ -504,18 +509,10 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         return;
       }
 
-      // Parse location into country + province for the backend
-      let country = "CA";
-      let province = "";
-      if (location.startsWith("ca-")) {
-        country = "CA";
-        province = location.slice(3); // "ca-AB" → "AB"
-      } else if (location.startsWith("us-")) {
-        country = "US";
-      } else if (location.startsWith("eu-")) {
-        country = "EU";
-      } else if (location.startsWith("ap-")) {
-        country = "AP";
+      if (!country || !location) {
+        toast.error("Complete the host's physical location");
+        setLoading(false);
+        return;
       }
 
       const parsedVram = vramGb ? parseFloat(vramGb) : 0;
@@ -643,31 +640,9 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
           <div className="space-y-2">
             <Label className="text-sm font-medium">Location</Label>
-            <Select
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="h-10"
-            >
-              <option value="">Select region (optional)...</option>
-              <optgroup label="North America">
-                <option value="us-east">US East</option>
-                <option value="us-west">US West</option>
-                <option value="us-central">US Central</option>
-                <option value="ca-east">North America (CA East)</option>
-                <option value="ca-west">North America (CA West)</option>
-              </optgroup>
-              <optgroup label="Europe">
-                <option value="eu-west">EU West</option>
-                <option value="eu-central">EU Central</option>
-                <option value="eu-uk">United Kingdom</option>
-                <option value="eu-nordics">Nordics</option>
-              </optgroup>
-              <optgroup label="Asia Pacific">
-                <option value="ap-southeast">AP Southeast</option>
-                <option value="ap-northeast">AP Northeast</option>
-                <option value="ap-south">AP South</option>
-              </optgroup>
-            </Select>
+            <LocationFields country={country} province={province}
+              onCountryChange={setCountry} onProvinceChange={setProvince} />
+            <p className="text-xs text-text-muted">Physical location of this host. Update it if it differs from your profile.</p>
           </div>
 
           <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4 space-y-3">

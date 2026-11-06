@@ -117,7 +117,7 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
       provider_type: z.enum(["individual", "company"]).default("individual"),
       legal_name: z.string().max(200).default(""),
       province: z.string().max(40).default("").describe("ON, QC, BC … or a region code"),
-      country: z.string().max(2).default("CA").describe("ISO-3166 alpha-2"),
+      country: z.string().max(2).default("").describe("ISO-3166 alpha-2; omit to use the saved seller profile"),
       corporation_name: z.string().max(200).default("").describe("Required for provider_type=company"),
       business_number: z.string().max(40).default(""),
       gst_hst_number: z.string().max(40).default(""),
@@ -132,7 +132,7 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
         provider_type: String(a.provider_type ?? "individual"),
         legal_name: String(a.legal_name ?? ""),
         province: String(a.province ?? ""),
-        country: String(a.country ?? "CA"),
+        country: String(a.country ?? ""),
         corporation_name: String(a.corporation_name ?? ""),
         business_number: String(a.business_number ?? ""),
         gst_hst_number: String(a.gst_hst_number ?? ""),
@@ -144,7 +144,7 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
       // call as `list_pending_verifications` declining the `client_secret`.
       delete data.onboarding_url;
       delete data.stripe_account_id;
-      return { ...data, finish_onboarding_at: "the earnings page in the dashboard" };
+      return { ...data, finish_onboarding_at: "https://xcelsior.ca/onboarding/provider" };
     });
   registerRead(server, client, user, "get_paypal_status",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),

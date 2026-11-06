@@ -35,6 +35,14 @@ export interface User {
   is_admin?: boolean;
   country?: string;
   province?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  postal_code?: string;
+  account_type?: string;
+  onboarding_intent?: string;
+  profile_complete?: boolean;
+  missing_profile_fields?: string[];
   business_name?: string;
   gst_hst_number?: string;
   avatar_url?: string;
@@ -62,7 +70,7 @@ interface AuthState {
   /** Call after login/register, fetches user profile via cookie. Returns true when authenticated. */
   login: () => Promise<boolean>;
   /** Silently re-fetch /api/auth/me and update user in context. */
-  refreshUser: () => Promise<void>;
+  refreshUser: (options?: { throwOnError?: boolean }) => Promise<void>;
   /** POST /api/auth/logout, clear cookie + state. */
   logout: () => Promise<void>;
   /** Reset idle timer & refresh token, called from the "Continue Session" banner. */
@@ -157,12 +165,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (options?: { throwOnError?: boolean }) => {
     try {
       const res = await getMe();
       setUser(res.user);
-    } catch {
-      // Silently ignore, stale user stays in context
+    } catch (err) {
+      // Background refresh keeps the existing session. Profile saves must
+      // confirm the updated account before advancing to the next step.
+      if (options?.throwOnError) throw err;
     }
   }, []);
 

@@ -10,7 +10,8 @@ import { loadConnectAndInitialize } from "@stripe/connect-js/pure";
 import posthog from "posthog-js";
 import { ApiError, createProviderAccountSession } from "@/lib/api";
 import { getStripePublishableKey } from "@/lib/stripe-client";
-import { STRIPE_CONNECT_APPEARANCE } from "@/lib/stripe-appearance";
+import { getStripeConnectAppearance } from "@/lib/stripe-appearance";
+import { useTheme } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
@@ -48,6 +49,13 @@ export function StripeConnectEmbedded({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<ConnectInstance | null>(null);
+  const { theme } = useTheme();
+  const appearanceRef = useRef(getStripeConnectAppearance(theme));
+  useEffect(() => {
+    const appearance = getStripeConnectAppearance(theme);
+    appearanceRef.current = appearance;
+    instanceRef.current?.update({ appearance });
+  }, [theme]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
@@ -109,7 +117,7 @@ export function StripeConnectEmbedded({
         },
         // Shared brand palette so the payouts portal matches the rest of the
         // app's embedded Stripe surfaces (see lib/stripe-appearance.ts).
-        appearance: STRIPE_CONNECT_APPEARANCE,
+        appearance: appearanceRef.current,
       });
       instanceRef.current = instance;
 

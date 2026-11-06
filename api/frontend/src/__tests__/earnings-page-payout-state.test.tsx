@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 /**
  * The payout-state card belongs to a provider account.
@@ -20,6 +20,9 @@ const apiMocks = vi.hoisted(() => ({
   abandonOnboarding: vi.fn(),
   disconnectStripeProvider: vi.fn(),
   registerProvider: vi.fn(),
+  apiFetch: vi.fn(),
+  saveSellerProfile: vi.fn(),
+  updateProfile: vi.fn(),
 }));
 const authState = vi.hoisted(() => ({ user: {} as Record<string, string> }));
 
@@ -50,6 +53,7 @@ vi.mock("@/lib/recharts", () => {
   };
 });
 
+import { AccountProfileForm, AddressLookup, LocationFields } from "@/components/ui/province-selector";
 import EarningsPage from "@/app/(dashboard)/dashboard/earnings/page";
 
 const ZERO_EARNINGS = {
@@ -59,6 +63,12 @@ const ZERO_EARNINGS = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  apiMocks.apiFetch.mockImplementation(async (path: string) => ({
+    countries: [{code: "CA", name: "Canada"}, {code: "US", name: "United States"}],
+    subdivisions: path.includes("country=CA") ? [{code: "ON", name: "Ontario", region: "ca-on"}] : [],
+    requires_subdivision: path.includes("country=CA"),
+    required_address_fields: ["address_line1", "city", "postal_code"],
+  }));
   apiMocks.fetchProviderEarnings.mockResolvedValue(ZERO_EARNINGS);
   apiMocks.fetchGstThreshold.mockResolvedValue({
     total_revenue_cad: 0, threshold_cad: 30000, must_register: false,
@@ -76,6 +86,8 @@ describe("earnings payout state", () => {
     expect(await screen.findByText("Become a GPU Provider")).toBeInTheDocument();
     expect(screen.queryByTestId("payout-state-unknown")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/could not be checked/);
+    expect(screen.queryByLabelText("Search address")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Country")).not.toBeInTheDocument();
     // No provider id means no account; asking by customer id is a guaranteed 404.
     expect(apiMocks.fetchProvider).not.toHaveBeenCalled();
   });
@@ -106,4 +118,70 @@ describe("earnings payout state", () => {
     expect(apiMocks.fetchProvider).toHaveBeenCalledWith("cust-1");
     expect(screen.getByText("A bank account to receive payouts")).toBeInTheDocument();
   });
+});
+
+
+describe("required account location", () => {
+  it("recovers an invalid old country and displays names rather than codes", async () => {
+    const onCountryChange=vi.fn(); const onProvinceChange=vi.fn();
+    render(<LocationFields country="old-region" province="" onCountryChange={onCountryChange} onProvinceChange={onProvinceChange} />);
+    const country=await screen.findByRole("option", {name:"Canada"});
+    expect(country).toHaveValue("CA");
+    const select=screen.getByLabelText("Country");
+    expect(select).toBeRequired();
+    expect(select).not.toBeDisabled();
+    expect(select).toHaveValue("");
+    expect((select as HTMLSelectElement).checkValidity()).toBe(false);
+    fireEvent.change(select,{target:{value:"CA"}});
+    expect(onCountryChange).toHaveBeenCalledWith("CA");
+    expect(onProvinceChange).toHaveBeenCalledWith("");
+  });
+
+  it("requires the province while data loads and when the saved value is invalid", async () => {
+    render(<LocationFields country="CA" province="wrong" onCountryChange={vi.fn()} onProvinceChange={vi.fn()} />);
+    const province=screen.getByLabelText("State, province, or territory");
+    expect(province).toBeRequired();
+    expect(province).not.toBeDisabled();
+    await screen.findByRole("option", {name:"Ontario"});
+    expect(province).toHaveValue("");
+    expect((province as HTMLSelectElement).checkValidity()).toBe(false);
+  });
+});
+
+
+it("saving profile details preserves a separately edited name and clears hidden business data", async () => {
+  authState.user = { name:"Original Name", country:"CA", province:"ON", address_line1:"1 Test Street", address_line2:"", city:"London", postal_code:"N6A 1A1", account_type:"individual", onboarding_intent:"rent", business_name:"Old Company", gst_hst_number:"123456789RT0001" };
+  apiMocks.updateProfile.mockResolvedValue({ok:true});
+  const view=render(<AccountProfileForm settings />);
+  await waitFor(() => expect(screen.getByRole("button", {name:"Save profile"})).toBeEnabled());
+  authState.user = {...authState.user, name:"Updated Name"};
+  view.rerender(<AccountProfileForm settings />);
+  fireEvent.click(screen.getByRole("button", {name:"Save profile"}));
+  await screen.findByText("Profile saved.");
+  const saved=apiMocks.updateProfile.mock.calls[0][0];
+  expect(saved).not.toHaveProperty("name");
+  expect(saved).toMatchObject({country:"CA",province:"ON", business_name:"", gst_hst_number:""});
+});
+
+
+it.each([false,true])("address retrieval survives tabbing but respects manual edits: manual=%s", async (manualEdit) => {
+  vi.useFakeTimers();
+  try {
+    let deliver!: (value: unknown) => void;
+    const selected = {address_line1:"1 Test Street", address_line2:"", city:"London", postal_code:"N6A 1A1", country:"CA", province:"ON"};
+    apiMocks.apiFetch.mockImplementation((path: string) => path.endsWith("search")
+      ? Promise.resolve({suggestions:[{id:"address-one", text:"1 Test Street", description:"London", is_address:true}]})
+      : new Promise((resolve) => { deliver=resolve; }));
+    const onSelect=vi.fn();
+    const view=render(<AddressLookup country="CA" onSelect={onSelect} />);
+    const input=screen.getByRole("combobox",{name:"Search address"});
+    fireEvent.change(input,{target:{value:"Test Street"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(310); });
+    fireEvent.click(screen.getByRole("option",{name:/1 Test Street/}));
+    fireEvent.blur(input);
+    if(manualEdit) view.rerender(<AddressLookup country="CA" onSelect={onSelect} editRevision={1} />);
+    await act(async () => { deliver({address:selected}); });
+    if(manualEdit) expect(onSelect).not.toHaveBeenCalled();
+    else expect(onSelect).toHaveBeenCalledWith(selected);
+  } finally { vi.useRealTimers(); }
 });

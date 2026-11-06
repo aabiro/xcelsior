@@ -19,7 +19,7 @@ for _row in load_manifest()["service_tier_catalog"]["prices"]:
 CANONICAL_GPU_MODELS: frozenset[str] = frozenset(_DEFAULT_VRAM_BY_MODEL)
 
 _NVIDIA_PREFIX_RE = re.compile(r"^NVIDIA\s+(GeForce\s+)?", re.IGNORECASE)
-_DEFAULT_REGION = "ca-east"
+_DEFAULT_REGION = ""
 _CA_PROVINCES = frozenset(
     {
         "AB",
@@ -180,6 +180,19 @@ def enrich_host_for_api(host: dict[str, Any]) -> dict[str, Any]:
     if hostname:
         out["hostname"] = hostname
 
+    try:
+        import pycountry
+        location = require_location(str(out.get("country") or ""), str(out.get("province") or ""), str(out.get("region") or ""))
+        country = pycountry.countries.get(alpha_2=location["country"])
+        subdivision = pycountry.subdivisions.get(code=location["region"].upper())
+        out["location_complete"] = True
+        out["location_label"] = ", ".join(item.name for item in (subdivision,country) if item is not None)
+    except ValueError:
+        out["location_complete"] = False
+        out["location_label"] = ""
+
+    out.setdefault("country", "")
+    out.setdefault("province", "")
     out["region"] = normalize_host_region(out)
 
     return out
@@ -189,6 +202,16 @@ def merge_host_update(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
     """Merge a worker heartbeat into a stored host without clobbering dashboard metadata."""
     merged = dict(incoming)
     ex = existing or {}
+
+    # Location is an explicit owner declaration. An agent's old configuration
+    # cannot move it, or forge the server's confirmation metadata.
+    for field in ("location_confirmed_at", "location_confirmed_by"):
+        merged.pop(field, None)
+        if field in ex:
+            merged[field] = ex[field]
+    if ex.get("location_confirmed_at"):
+        for field in ("country", "province", "region"):
+            merged[field] = ex.get(field, "")
 
     for field in (
         "hostname",
@@ -259,3 +282,120 @@ def merge_host_update(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
         merged["hostname"] = _display_hostname(ex) or _display_hostname(merged)
 
     return merged
+
+
+def location_catalog(country: str = "") -> dict:
+    """ISO 3166 country/subdivision choices, shared by forms and API validation."""
+    import pycountry
+
+    countries = sorted(
+        ({"code": c.alpha_2, "name": c.name} for c in pycountry.countries),
+        key=lambda c: c["name"],
+    )
+    country_code = str(country or "").strip().upper()
+    if country_code and pycountry.countries.get(alpha_2=country_code) is None:
+        raise ValueError("Select a valid country")
+    subdivisions = sorted(
+        ({"code": s.code.split("-", 1)[1], "region": s.code.lower(), "name": s.name}
+         for s in pycountry.subdivisions.get(country_code=country_code) or []),
+        key=lambda s: (s["name"], s["code"]),
+    ) if country_code else []
+    return {"countries": countries, "subdivisions": subdivisions,
+            "requires_subdivision": bool(subdivisions),
+            "required_address_fields": address_required_fields(country_code) if country_code else []}
+
+
+
+def require_location(country: str, province: str = "", region: str = "") -> dict[str, str]:
+    """Resolve one exact registered location. Missing/ambiguous data is an error.
+
+    Country and subdivision identify geography; broad legacy labels such as
+    ca-east/ca-central are not evidence of a province. No fuzzy matching or
+    implicit location is permitted.
+    """
+    import pycountry
+
+    country_code = str(country or "").strip().upper()
+    if pycountry.countries.get(alpha_2=country_code) is None:
+        raise ValueError("Select a valid country")
+    value = str(province or "").strip().upper()
+    region_code = str(region or "").strip().replace("_", "-").upper()
+    if not value and region_code:
+        sub = pycountry.subdivisions.get(code=region_code)
+        if sub is not None and sub.country_code == country_code:
+            value = sub.code.split("-", 1)[1]
+    subdivisions = pycountry.subdivisions.get(country_code=country_code) or []
+    if subdivisions:
+        code = value if value.startswith(country_code + "-") else country_code + "-" + value
+        sub = pycountry.subdivisions.get(code=code)
+        if sub is None or sub.country_code != country_code:
+            raise ValueError("Select a valid state, province, or territory for the country")
+        canonical_region = sub.code.lower()
+        value = sub.code.split("-", 1)[1]
+    else:
+        if value:
+            raise ValueError("This country has no ISO state or province subdivision")
+        canonical_region = country_code.lower()
+    if region_code and region_code.lower() != canonical_region:
+        raise ValueError("Region must match the selected country and state or province")
+    return {"country": country_code, "province": value, "region": canonical_region}
+
+
+
+def address_required_fields(country: str) -> list[str]:
+    """Country-specific postal requirements from packaged address metadata."""
+    from i18naddress import get_validation_rules
+
+    mapping = {"street_address": "address_line1", "city": "city", "postal_code": "postal_code"}
+    rules = get_validation_rules({"country_code": country})
+    return sorted(mapping[field] for field in rules.required_fields if field in mapping)
+
+
+def profile_address_values(profile: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+    """Validate manual and captured addresses with the same country rules."""
+    from i18naddress import get_validation_rules
+
+    location = require_location(str(profile.get("country") or ""), str(profile.get("province") or ""))
+    cleaned = {key: " ".join(str(profile.get(key) or "").split())
+               for key in ("address_line1", "address_line2", "city", "postal_code")}
+    cleaned["postal_code"] = cleaned["postal_code"].upper()
+    rules = get_validation_rules({"country_code": location["country"], "country_area": location["province"]})
+    errors = [key for key in address_required_fields(location["country"]) if not cleaned[key]]
+    postal = cleaned["postal_code"]
+    if postal and any(not matcher.match(postal) for matcher in rules.postal_code_matchers):
+        errors.append("postal_code")
+    if len(cleaned["address_line1"]) > 200 or len(cleaned["address_line2"]) > 200:
+        errors.append("address_line1")
+    if len(cleaned["city"]) > 80:
+        errors.append("city")
+    if len(postal) > 32:
+        errors.append("postal_code")
+    return {**location, **cleaned}, list(dict.fromkeys(errors))
+
+def profile_missing_fields(profile: dict[str, Any]) -> list[str]:
+    """Required account data is checked from stored values, never UI preferences."""
+    missing = []
+    if not str(profile.get("name") or "").strip():
+        missing.append("name")
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", str(profile.get("email") or "")):
+        missing.append("email")
+    try:
+        require_location(str(profile.get("country") or ""), str(profile.get("province") or ""))
+    except ValueError:
+        import pycountry
+
+        country_code = str(profile.get("country") or "").strip().upper()
+        missing.append("country" if pycountry.countries.get(alpha_2=country_code) is None else "province")
+    if profile.get("account_type") not in {"individual", "business"}:
+        missing.append("account_type")
+    if profile.get("onboarding_intent") not in {"rent", "provide", "both"}:
+        missing.append("onboarding_intent")
+    if profile.get("account_type") == "business" and not str(profile.get("business_name") or "").strip():
+        missing.append("business_name")
+    try:
+        _, address_errors = profile_address_values(profile)
+        missing.extend(address_errors)
+    except ValueError:
+        if not str(profile.get("address_line1") or "").strip():
+            missing.append("address_line1")
+    return list(dict.fromkeys(missing))

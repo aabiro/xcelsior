@@ -44,6 +44,107 @@ from host_metadata import (
 router = APIRouter()
 
 
+@router.get("/api/locations", tags=["Hosts"])
+def api_location_catalog(country: str = ""):
+    """Return named ISO countries, subdivisions, and required address fields."""
+    from host_metadata import location_catalog
+
+    try:
+        return {"ok": True, **location_catalog(country)}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+
+class AddressSearchRequest(BaseModel):
+    country: str = Field(min_length=2, max_length=2)
+    text: str = Field(min_length=3, max_length=200)
+    container: str = Field(default="", max_length=1000)
+
+
+class AddressRetrieveRequest(BaseModel):
+    country: str = Field(min_length=2, max_length=2)
+    address_id: str = Field(min_length=1, max_length=1000)
+
+
+def _address_lookup_country(value: str) -> str:
+    import pycountry
+
+    country = value.strip().upper()
+    if pycountry.countries.get(alpha_2=country) is None:
+        raise HTTPException(422, "Select a valid country")
+    return country
+
+
+def _loqate_capture(operation: str, values: dict[str, str]) -> list[dict]:
+    """Keep credentials and addresses out of URLs, logs, and error messages."""
+    import httpx
+
+    key = os.environ.get("XCELSIOR_LOQATE_API_KEY", "").strip()
+    if not key:
+        raise HTTPException(503, "Address search is unavailable. Enter your address manually.")
+    versions = {"Find": "v1.20", "Retrieve": "v1.30"}
+    url = f"https://api.addressy.com/Capture/Interactive/{operation}/{versions[operation]}/json6.ws"
+    try:
+        response = httpx.post(url, data={"Key": key, **values}, timeout=8.0, follow_redirects=False)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(502, "Address search is unavailable. Enter your address manually.") from None
+    items = payload.get("Items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or any(not isinstance(item, dict) or "Error" in item for item in items):
+        raise HTTPException(502, "Address search is unavailable. Enter your address manually.")
+    for item in items:
+        for field, value in item.items():
+            if field in {"Id", "Type", "Text", "Description", "CountryIso2", "ProvinceCode", "AdminAreaCode", "Line1", "Line2", "Line3", "Line4", "Line5", "City", "PostalCode"} and value is not None and not isinstance(value, str):
+                raise HTTPException(502, "Address search returned invalid data. Enter your address manually.")
+    return items
+
+
+@router.post("/api/locations/search", tags=["Account"])
+def api_address_search(body: AddressSearchRequest, request: Request):
+    """Search addresses in the selected country for an authenticated profile form."""
+    from routes._deps import _require_user_grant
+
+    _require_user_grant(request)
+    country = _address_lookup_country(body.country)
+    text = body.text.strip()
+    if len(text) < 3:
+        raise HTTPException(422, "Enter at least three address characters")
+    items = _loqate_capture("Find", {"Text": text, "Countries": country, "Container": body.container, "Limit": "8"})
+    return {"ok": True, "suggestions": [
+        {"id": str(item["Id"]), "text": str(item.get("Text") or ""),
+         "description": str(item.get("Description") or ""), "is_address": item.get("Type") == "Address"}
+        for item in items[:8] if item.get("Id") and item.get("Text")
+    ]}
+
+
+@router.post("/api/locations/retrieve", tags=["Account"])
+def api_address_retrieve(body: AddressRetrieveRequest, request: Request):
+    """Retrieve the selected address; never invent a missing state or province."""
+    from routes._deps import _require_user_grant
+    from host_metadata import require_location
+
+    _require_user_grant(request)
+    country = _address_lookup_country(body.country)
+    items = _loqate_capture("Retrieve", {"Id": body.address_id})
+    matches = [item for item in items if str(item.get("CountryIso2") or "").upper() == country]
+    if not matches:
+        raise HTTPException(422, "No address was returned in the selected country")
+    item = matches[0]
+    province = str(item.get("ProvinceCode") or item.get("AdminAreaCode") or "").strip()
+    try:
+        province = require_location(country, province)["province"]
+    except ValueError:
+        province = ""
+    return {"ok": True, "address": {
+        "address_line1": str(item.get("Line1") or ""),
+        "address_line2": ", ".join(str(item[key]) for key in ("Line2", "Line3", "Line4", "Line5") if item.get(key)),
+        "city": str(item.get("City") or ""), "postal_code": str(item.get("PostalCode") or ""),
+        "country": country, "province": province,
+    }}
+
+
 def _host_owner_ids(host: dict | None) -> set[str]:
     """Identifiers on a registered host row that denote ownership."""
     if not host:
@@ -251,7 +352,7 @@ class HostIn(BaseModel):
     free_vram_gb: float = Field(ge=0, le=1024)
     # 0 / omitted: the GPU's Standard Stripe rate (platform_rate_cad).
     cost_per_hour: float = Field(default=0.0, ge=0, le=1000)
-    country: str = Field(default="CA", min_length=2, max_length=2)  # ISO 3166-1 alpha-2
+    country: str = Field(default="", max_length=2)  # Unresolved enrollment stays empty.
     province: str = Field(default="", max_length=10)  # CA province code (ON, QC, BC, etc.)
     region: str = Field(default="", max_length=32)
     # Optional: agent-reported versions for inline admission
@@ -351,12 +452,24 @@ def api_register_host(h: HostIn, request: Request):
         entry["owner"] = existing_owner
     elif owner_id:
         entry["owner"] = owner_id
-    entry["country"] = h.country.upper()
-    entry["province"] = h.province.upper() if h.province else ""
-    if h.region or h.province or not entry.get("region"):
-        entry["region"] = normalize_region(
-            h.region, country=entry["country"], province=entry["province"]
+    location_confirmed = bool(entry.get("location_confirmed_at"))
+    if not location_confirmed and "country" in h.model_fields_set:
+        entry["country"] = h.country.upper()
+    if not location_confirmed and "province" in h.model_fields_set and h.province.strip():
+        entry["province"] = h.province.upper()
+    from host_metadata import require_location
+
+    try:
+        location = require_location(
+            entry.get("country", ""), entry.get("province", ""),
+            entry.get("region", "") if location_confirmed else h.region if h.region.strip() else "",
         )
+    except ValueError:
+        # Telemetry remains acceptable for pending/incomplete enrollment. It
+        # cannot make unresolved geography visible in customer inventory.
+        pass
+    else:
+        entry.update(location)
     # P1.2: record what the agent says about itself so rolling-upgrade logic
     # can target only out-of-date hosts and detect hashes that don't match
     # anything the control plane has signed off on.
@@ -441,9 +554,10 @@ def api_register_host(h: HostIn, request: Request):
                 )
             )
             log.info("VERIFY RECORD created for new host %s", h.host_id)
-        # Bootstrap reputation — email verification is implicit for registered users
+        # Reputation must reflect an actually verified account email.
         re = get_reputation_engine()
-        re.add_verification(h.host_id, VerificationType.EMAIL)
+        if user.get("email_verified") is True:
+            re.add_verification(h.host_id, VerificationType.EMAIL)
     except Exception as e:
         log.exception("Non-fatal: could not bootstrap verification/reputation for %s", h.host_id)
 
@@ -755,7 +869,7 @@ class RegisterHostRequest(BaseModel):
     vram_gb: float = Field(gt=0, le=192)
     # Omitted: the GPU's Standard Stripe rate (platform_rate_cad).
     cost_per_hour: float | None = Field(default=None, ge=0.01, le=100.0)
-    country: str = Field(default="CA", min_length=2, max_length=2)
+    country: str = Field(min_length=2, max_length=2)
     province: str = Field(default="", max_length=4)
     region: str = Field(default="", max_length=32)
     notes: str = Field(default="", max_length=1000)
@@ -821,14 +935,12 @@ class RegisterHostRequest(BaseModel):
 
     @model_validator(mode="after")
     def province_matches_country(self) -> "RegisterHostRequest":
-        """If country is CA and a province is provided, verify it's a real
-        Canadian province/territory code."""
-        if self.country == "CA" and self.province:
-            if self.province not in _VALID_CA_PROVINCES:
-                raise ValueError(
-                    f"province '{self.province}' is not a valid Canadian province code; "
-                    f"valid codes: {', '.join(sorted(_VALID_CA_PROVINCES))}"
-                )
+        from host_metadata import require_location
+
+        location = require_location(self.country, self.province, self.region)
+        self.country = location["country"]
+        self.province = location["province"]
+        self.region = location["region"]
         return self
 
 
@@ -929,7 +1041,8 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
             )
             log.info("VERIFY RECORD created for new host %s", host_id)
         re = get_reputation_engine()
-        re.add_verification(host_id, VerificationType.EMAIL)
+        if user.get("email_verified") is True:
+            re.add_verification(host_id, VerificationType.EMAIL)
     except Exception as e:
         log.exception("Non-fatal: could not bootstrap verification/reputation for %s", host_id)
 
@@ -943,6 +1056,57 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         },
     )
     return {"ok": True, "host": enrich_host_for_api(entry)}
+
+
+
+def _require_location_owner(host_id: str, request: Request, scope: str):
+    from routes._deps import _require_user_grant
+
+    user = _require_auth(request)
+    _require_scope(user, scope)
+    if not _is_platform_admin(user):
+        user = _require_user_grant(request)
+    resolved, hosts = _resolve_host_id(host_id)
+    entry = next((host for host in hosts if host.get("host_id") == resolved), None)
+    if entry is None:
+        raise HTTPException(404, "Host not found")
+    _require_host_visible(user, entry)
+    _require_host_operator(user, resolved)
+    return user, resolved
+
+
+class HostLocationUpdate(BaseModel):
+    country: str = Field(min_length=2, max_length=2)
+    province: str = Field(default="", max_length=32)
+    expected_version: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_location(self):
+        from host_metadata import require_location
+        location = require_location(self.country, self.province)
+        self.country, self.province = location["country"], location["province"]
+        return self
+
+
+@router.patch("/api/hosts/{host_id}/location", tags=["Hosts"])
+def api_update_host_location(host_id: str, body: HostLocationUpdate, request: Request):
+    """Confirm a host's physical site with owner authorization and version fencing."""
+    from control_plane.host_lifecycle import set_location
+    from control_plane.launch.service import PlanConflict
+    from db import _get_pg_pool
+    from routes._deps import _canonical_owner_id
+
+    user, resolved = _require_location_owner(host_id, request, "hosts:write")
+    try:
+        with _get_pg_pool().connection() as conn:
+            updated = set_location(conn,host_id=resolved,country=body.country,province=body.province,
+                expected_version=body.expected_version,confirmed_by=_canonical_owner_id(user))
+    except PlanConflict as exc:
+        raise HTTPException(409,str(exc)) from exc
+    if updated is None:
+        raise HTTPException(404, "Host not found")
+    broadcast_sse("host_update", {"host_id":resolved,"region":updated["region"]})
+    return {"ok":True,"host":enrich_host_for_api(updated)}
 
 
 class HostSpotSettingsUpdate(BaseModel):

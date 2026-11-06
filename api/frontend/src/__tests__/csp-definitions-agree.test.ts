@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -60,5 +60,35 @@ describe("the two CSP definitions agree", () => {
           `the browser regardless of what next.config.ts allows`,
       ).toEqual(inConfig);
     }
+  });
+});
+
+
+describe("onboarding response headers", () => {
+  it("keeps profile pages private and permits the dev debugger only in development", async () => {
+    try {
+      for (const environment of ["development", "production"] as const) {
+        vi.stubEnv("NODE_ENV",environment);
+        vi.resetModules();
+        const {proxy}=await import("../proxy");
+        const {NextRequest}=await import("next/server");
+        const response=await proxy(new NextRequest("http://localhost/onboarding/address",{headers:{cookie:"xcelsior_session=local-test-session"}}));
+        expect(response.headers.get("Cache-Control")).toContain("no-store");
+        expect(response.headers.get("Content-Security-Policy")?.includes("'unsafe-eval'")).toBe(environment === "development");
+        const {default:config}=await import("../../next.config");
+        const headers=await config.headers?.();
+        const csp=headers?.flatMap((row)=>row.headers).find((row)=>row.key === "Content-Security-Policy")?.value;
+        expect(csp?.includes("'unsafe-eval'")).toBe(environment === "development");
+      }
+    } finally { vi.unstubAllEnvs(); vi.resetModules(); }
+  });
+
+  it("preserves the onboarding destination when requesting sign-in", async () => {
+    const {proxy}=await import("../proxy");
+    const {NextRequest}=await import("next/server");
+    const response=await proxy(new NextRequest("http://localhost/onboarding/address?redirect=%2Fdashboard%2Fhosts"));
+    const location=new URL(response.headers.get("Location")!);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("redirect")).toBe("/onboarding/address?redirect=%2Fdashboard%2Fhosts");
   });
 });

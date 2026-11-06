@@ -73,6 +73,8 @@ def test_hosts_register_web_requires_auth():
             "hostname": "no-auth",
             "gpu_model": "RTX 4090",
             "vram_gb": 24,
+            "country": "CA",
+            "province": "ON",
         },
     )
     assert r.status_code == 401
@@ -306,3 +308,212 @@ def test_worker_oauth_status_patch_is_an_authenticated_tombstone(user_headers):
 
     job = get_job(job_id)
     assert job["status"] == "queued" and not job.get("host_id")
+
+
+
+@pytest.mark.parametrize("location",[
+    {"country":"CA","province":""},
+    {"country":"CA","province":"ON","region":"ca-east"},
+    {"country":"XX","province":"ON"},
+    {"country":"US","province":"ON"},
+])
+def test_host_registration_refuses_missing_or_conflicting_location(user_headers,location):
+    response=client.post("/api/hosts/register",headers=user_headers["headers"],json={
+        "hostname":"location-validation", "gpu_model":"RTX 4090", "vram_gb":24, **location,
+    })
+    assert response.status_code == 422, response.text
+
+
+def test_location_catalog_uses_country_names_and_valid_subdivisions():
+    response=client.get("/api/locations?country=CA")
+    assert response.status_code == 200
+    data=response.json()
+    assert len(data["countries"]) >= 249
+    assert {item["code"]:item["name"] for item in data["countries"]}["CA"] == "Canada"
+    assert {item["code"]:item["name"] for item in data["subdivisions"]}["ON"] == "Ontario"
+    assert client.get("/api/locations?country=XX").status_code == 422
+
+
+def test_address_lookup_requires_an_interactive_account():
+    fresh = TestClient(app)
+    response = fresh.post("/api/locations/search", json={"country":"CA", "text":"Test Street"})
+    assert response.status_code == 401
+
+
+def test_unconfigured_address_search_is_explicit_and_manual_entry_remains_available(user_headers, monkeypatch):
+    monkeypatch.delenv("XCELSIOR_LOQATE_API_KEY", raising=False)
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"country":"CA", "text":"Test Street"})
+    assert response.status_code == 503
+    assert "manually" in response.json()["error"]["message"]
+
+
+def test_lookup_uses_post_body_keeps_key_private_and_handles_address_groups(user_headers, monkeypatch):
+    import httpx
+
+    calls=[]
+    def provider(url, **kwargs):
+        calls.append((url,kwargs))
+        return httpx.Response(200, json={"Items":[{"Id":"group-1", "Text":"Test Street", "Description":"2 addresses", "Type":"Street"}]}, request=httpx.Request("POST",url))
+    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
+    monkeypatch.setattr(httpx,"post",provider)
+    response=client.post("/api/locations/search",headers=user_headers["headers"],json={"country":"CA","text":"Test Street","container":"group-parent"})
+    assert response.status_code == 200, response.text
+    assert response.json()["suggestions"][0]["is_address"] is False
+    url,kwargs=calls[0]
+    assert "?" not in url
+    assert kwargs["data"]["Key"] == "unit-only-not-a-service-key"
+    assert kwargs["data"]["Container"] == "group-parent"
+    assert kwargs["data"]["Countries"] == "CA"
+    assert "unit-only" not in response.text
+
+
+@pytest.mark.parametrize("payload,status",[
+    ({"Items":[{"Error":"2","Description":"a secret provider error"}]},502),
+    ({"Items":[{"CountryIso2":"US","Line1":"foreign address"}]},422),
+    ({"Items":[{"CountryIso2":"CA","Line1":[],"ProvinceCode":"ON"}]},502),
+])
+def test_address_retrieval_refuses_provider_errors_wrong_countries_and_invalid_types(user_headers,monkeypatch,payload,status):
+    import httpx
+
+    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY","unit-only-not-a-service-key")
+    monkeypatch.setattr(httpx,"post",lambda url,**kwargs:httpx.Response(200,json=payload,request=httpx.Request("POST",url)))
+    response=client.post("/api/locations/retrieve",headers=user_headers["headers"],json={"country":"CA","address_id":"address-1"})
+    assert response.status_code == status, response.text
+    assert "secret provider" not in response.text
+
+
+def test_address_retrieval_returns_real_fields_and_never_invents_a_province(user_headers,monkeypatch):
+    import httpx
+
+    item={"CountryIso2":"CA","Line1":"1 Test Street","City":"London","PostalCode":"N6A 1A1"}
+    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY","unit-only-not-a-service-key")
+    monkeypatch.setattr(httpx,"post",lambda url,**kwargs:httpx.Response(200,json={"Items":[item]},request=httpx.Request("POST",url)))
+    response=client.post("/api/locations/retrieve",headers=user_headers["headers"],json={"country":"CA","address_id":"address-1"})
+    assert response.status_code == 200,response.text
+    assert response.json()["address"]["province"] == ""
+    item["ProvinceCode"]="ON"
+    response=client.post("/api/locations/retrieve",headers=user_headers["headers"],json={"country":"CA","address_id":"address-1"})
+    assert response.json()["address"]["province"] == "ON"
+
+
+# Physical relocation keeps the host identity and operator admission intact.
+def _location_host(user_headers):
+    response = client.post("/api/hosts/register", json={
+        "hostname": f"location-{uuid.uuid4().hex[:8]}", "gpu_model": "RTX 4090",
+        "vram_gb": 24, "country": "CA", "province": "ON",
+    }, headers=user_headers["headers"])
+    assert response.status_code == 200, response.text
+    host = response.json()["host"]
+    return client.get(f"/host/{host['host_id']}", headers=user_headers["headers"]).json()["host"]
+
+
+def _save_location(host, user_headers, country="US", province="NY"):
+    return client.patch(f"/api/hosts/{host['host_id']}/location", json={
+        "country": country, "province": province, "expected_version": host["version"],
+    }, headers=user_headers["headers"])
+
+
+def test_host_owner_can_change_physical_location_repeatedly(user_headers):
+    host = _location_host(user_headers)
+    first = _save_location(host, user_headers)
+    assert first.status_code == 200, first.text
+    moved = first.json()["host"]
+    assert (moved["country"], moved["province"], moved["region"]) == ("US", "NY", "us-ny")
+    assert moved["location_complete"] is True
+    assert "New York" in moved["location_label"]
+    assert moved["host_id"] == host["host_id"]
+    second = _save_location(moved, user_headers, "CA", "BC")
+    assert second.status_code == 200, second.text
+    assert second.json()["host"]["region"] == "ca-bc"
+    assert second.json()["host"]["version"] == moved["version"] + 1
+    from db import pg_connection
+    with pg_connection() as conn:
+        events = conn.execute("SELECT count(*) FROM outbox_events WHERE aggregate_id=%s AND event_type='host.v1.location_changed'", (host["host_id"],)).fetchone()[0]
+    assert events == 2
+
+
+def test_host_location_rejects_missing_subdivision_and_stale_version(user_headers):
+    host = _location_host(user_headers)
+    assert _save_location(host, user_headers, "US", "").status_code == 422
+    assert _save_location(host, user_headers, "ZZ", "").status_code == 422
+    assert _save_location(host, user_headers).status_code == 200
+    assert _save_location(host, user_headers, "CA", "QC").status_code == 409
+
+
+def test_location_edit_and_move_readiness_are_owner_only(user_headers):
+    host = _location_host(user_headers)
+    other = client.post("/api/auth/register", json={
+        "email": f"move-other-{uuid.uuid4().hex[:8]}@example.test", "password": "StrongPass123!", "name": "Other Account",
+    })
+    assert other.status_code == 200
+    headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    assert client.patch(f"/api/hosts/{host['host_id']}/location", json={"country":"US", "province":"NY", "expected_version":host["version"]}, headers=headers).status_code == 404
+    token = _machine_token_for_user(user_headers)
+    assert client.patch(f"/api/hosts/{host['host_id']}/location", json={"country":"US", "province":"NY", "expected_version":host["version"]}, headers={"Authorization":f"Bearer {token}"}).status_code == 403
+
+
+def test_stale_heartbeat_cannot_undo_confirmed_location(user_headers):
+    from db import DatabaseOps, pg_connection
+    host = _location_host(user_headers)
+    # This snapshot was read before the owner committed the move.
+    stale = dict(host)
+    saved = _save_location(host, user_headers)
+    assert saved.status_code == 200, saved.text
+    with pg_connection() as conn:
+        DatabaseOps.upsert_host(conn, stale, backend="postgres")
+        conn.commit()
+        row = conn.execute("SELECT country,province,region,payload->>'country',payload->>'location_confirmed_at' FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()
+    assert row[:4] == ("US", "NY", "us-ny", "US")
+    assert row[4]
+    machine = _machine_token_for_user(user_headers)
+    heartbeat = client.put("/host", json={
+        "host_id":host["host_id"], "ip":"10.0.0.9", "gpu_model":"RTX 4090",
+        "total_vram_gb":24, "free_vram_gb":24, "country":"CA", "province":"ON", "region":"ca-on",
+    }, headers={"Authorization":f"Bearer {machine}"})
+    assert heartbeat.status_code == 200, heartbeat.text
+    assert heartbeat.json()["host"]["region"] == "us-ny"
+
+
+def test_agent_cannot_forge_location_confirmation(user_headers):
+    from db import DatabaseOps, pg_connection
+    host = _location_host(user_headers)
+    forged = {**host, "location_confirmed_at":123, "location_confirmed_by":"forged"}
+    with pg_connection() as conn:
+        DatabaseOps.upsert_host(conn, forged, backend="postgres")
+        conn.commit()
+        payload = conn.execute("SELECT payload FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()[0]
+    assert "location_confirmed_at" not in payload
+
+
+def test_admitted_idle_host_location_is_editable_without_a_move_workflow(user_headers):
+    from db import pg_connection
+    host = _location_host(user_headers)
+    with pg_connection() as conn:
+        conn.execute("UPDATE hosts SET status='active',admission_state='admitted',administrative_state='admitted',availability_state='ready',last_observed_at=clock_timestamp(),admission_version=7 WHERE host_id=%s", (host["host_id"],))
+        before=conn.execute("SELECT last_observed_at,admission_version,administrative_state,availability_state FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()
+        conn.commit()
+    result=_save_location(host, user_headers)
+    assert result.status_code == 200,result.text
+    moved=result.json()["host"]
+    assert moved["status"] == "active"
+    assert moved["admission_version"] == 7
+    assert moved["region"] == "us-ny"
+    with pg_connection() as conn:
+        after=conn.execute("SELECT last_observed_at,admission_version,administrative_state,availability_state FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()
+    assert after == before
+
+
+def test_move_does_not_interrupt_existing_workloads(user_headers):
+    from tests.fixtures.native_runtime import running_instance
+    with running_instance(owner=user_headers["user_id"]) as instance:
+        host_id=instance["host_id"]
+        from db import pg_connection
+        with pg_connection() as conn:
+            conn.execute("UPDATE hosts SET owner_id=%s,tenant_id=%s WHERE host_id=%s", (user_headers["user_id"],user_headers["user_id"],host_id))
+            conn.commit()
+        host=client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
+        assert _save_location(host, user_headers).status_code == 409
+        from db import pg_connection
+        with pg_connection() as conn:
+            row=conn.execute("SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)).fetchone()
+        assert row == ("running", "running")

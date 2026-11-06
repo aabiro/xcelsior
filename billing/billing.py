@@ -3064,18 +3064,37 @@ class BillingEngine:
         if not STRIPE_ENABLED or not _stripe_mod:
             raise RuntimeError("Stripe is not configured")
 
+        from db import UserStore
+        from host_metadata import profile_address_values, profile_missing_fields
+
+        profile = UserStore.get_user_by_customer_id(customer_id)
+        if profile is None and "@" in customer_id:
+            profile = UserStore.get_user(customer_id)
+        if not profile or profile_missing_fields(profile):
+            raise ValueError("Complete your account profile before setting up billing.")
+        address, errors = profile_address_values(profile)
+        if errors:
+            raise ValueError("Complete your account address before setting up billing.")
+        customer_fields = {
+            "email": profile["email"],
+            "name": profile.get("business_name") if profile["account_type"] == "business" else profile["name"],
+            "address": {
+                "country": address["country"], "state": address["province"],
+                "line1": address["address_line1"], "line2": address["address_line2"],
+                "city": address["city"], "postal_code": address["postal_code"],
+            },
+        }
         wallet = self.get_wallet(customer_id)
         existing = (wallet.get("stripe_customer_id") or "").strip()
         if existing:
+            _stripe_mod.Customer.modify(existing, **customer_fields)
             return existing
 
         create_kwargs: dict = {
+            **customer_fields,
             "metadata": {"xcelsior_customer_id": customer_id},
             "preferred_locales": ["en-CA", "en"],
         }
-        if email:
-            create_kwargs["email"] = email
-
         # Invoice PDF/email/hosted page defaults from brand config (footer keeps
         # support phone + address; custom fields surface contact on the header).
         from pathlib import Path

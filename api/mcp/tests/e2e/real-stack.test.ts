@@ -319,16 +319,18 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
     const idempotency = randomUUID();
     const preview = await call(clientA, "create_instance", {
       name: `${marker}-instance`,
-      gpu_model: "MCP E2E GPU",
+      gpu_model: "RTX 4090",
       num_gpus: 1,
       confirm: false,
       idempotency_key: idempotency,
     });
+    expect(preview.ok, JSON.stringify(preview)).toBe(true);
+    expect(preview.plan_id, JSON.stringify(preview)).toBeTruthy();
     expect(preview.preview).toBe(true);
     await approve(preview.plan_id);
     const executed = await call(clientA, "create_instance", {
       name: `${marker}-instance`,
-      gpu_model: "MCP E2E GPU",
+      gpu_model: "RTX 4090",
       num_gpus: 1,
       confirm: true,
       plan_id: preview.plan_id,
@@ -337,7 +339,7 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
     expect(executed.ok).toBe(true);
     const replay = await call(clientA, "create_instance", {
       name: `${marker}-instance`,
-      gpu_model: "MCP E2E GPU",
+      gpu_model: "RTX 4090",
       num_gpus: 1,
       confirm: true,
       plan_id: preview.plan_id,
@@ -347,7 +349,7 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
     expect(replay.idempotent).toBe(true);
 
     // 7. Place through the real scheduler and drive the fenced worker API.
-    const worker = fixture("place", executed.job.job_id, "MCP E2E GPU");
+    const worker = fixture("place", executed.job.job_id, "RTX 4090");
     const workerHeaders = bearer(process.env.XCELSIOR_API_TOKEN || "test-token-not-for-production");
     const claimed = await jsonFetch("/agent/v2/commands/claim", {
       method: "POST",
@@ -458,7 +460,7 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
 
     // 11. Expired quote produces a typed conflict and no workload.
     const expiring = await call(clientA, "create_instance", {
-      name: `${marker}-expired`, gpu_model: "MCP E2E GPU", confirm: false,
+      name: `${marker}-expired`, gpu_model: "RTX 4090", confirm: false,
     });
     fixture("expire", expiring.plan_id);
     await expect(approve(expiring.plan_id)).rejects.toMatchObject({ status: 409 });
@@ -487,6 +489,9 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
 
     // 13. Drain leaves the running workload intact; eviction is separately
     // scoped, separately planned, human-approved, and then executed.
+    await expect(createMachineToken(tenantA.browser, `${marker}-unprivileged-operator`, ["hosts:operate"]))
+      .rejects.toMatchObject({ status: 403 });
+    fixture("authorize-operator", tenantA.customer);
     const operatorToken = await createMachineToken(tenantA.browser, `${marker}-operator`, [
       "instances:read", "hosts:read", "hosts:operate", "hosts:evict", "control_plane:read",
     ]);

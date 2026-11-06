@@ -18,6 +18,7 @@ import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
 import type { Host, TelemetryData, ReputationEntry } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
+import { HostLocationForm } from "@/components/ui/province-selector";
 import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
 
 export default function HostDetailPage() {
@@ -83,7 +84,7 @@ function HostDetailContent({ id }: { id: string }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-3">
           <Link href="/dashboard/hosts">
             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -95,7 +96,7 @@ function HostDetailContent({ id }: { id: string }) {
             <p className="text-sm font-mono text-text-muted">{host.host_id}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-end sm:self-auto">
           <Button
             type="button"
             variant="outline"
@@ -139,7 +140,7 @@ function HostDetailContent({ id }: { id: string }) {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.hosts.label_location")}</p>
-            <p className="font-medium">{host.province || "-"}, {host.country || "CA"}</p>
+            <p className="font-medium">{host.location_label || "Complete physical location"}</p>
           </div>
         </Card>
 
@@ -164,6 +165,7 @@ function HostDetailContent({ id }: { id: string }) {
         </Card>
       </div>
 
+      <HostLocationForm host={host} onSaved={setHost} />
       <HostSpotSettings host={host} onUpdated={setHost} />
 
       {/* Verification & Reputation */}

@@ -582,7 +582,10 @@ class DatabaseOps:
             payload = {
                 k: v
                 for k, v in host.items()
-                if k not in {"owner", "owner_id", "tenant_id", "provider_id", "user_id"}
+                if k not in {
+                    "owner", "owner_id", "tenant_id", "provider_id", "user_id",
+                    "location_confirmed_at", "location_confirmed_by",
+                }
             }
             payload.update(
                 admitted=False,
@@ -608,7 +611,17 @@ class DatabaseOps:
                         'admitted', hosts.admission_state='admitted',
                         'admission_state', hosts.admission_state,
                         'admission_version', hosts.admission_version,
-                        'admission_decision_id', hosts.admission_decision_id),
+                        'admission_decision_id', hosts.admission_decision_id)
+                        || CASE WHEN hosts.payload ? 'location_confirmed_at'
+                            THEN jsonb_build_object(
+                                'country', hosts.country, 'province', hosts.province,
+                                'region', hosts.region,
+                                'location_confirmed_at', hosts.payload->'location_confirmed_at',
+                                'location_confirmed_by', hosts.payload->'location_confirmed_by')
+                            ELSE '{}'::jsonb END
+                        || CASE WHEN hosts.payload ? 'draining_since'
+                            THEN jsonb_build_object('draining_since', hosts.payload->'draining_since')
+                            ELSE '{}'::jsonb END,
                     administrative_state = CASE
                         WHEN hosts.administrative_state IN ('draining','disabled')
                             THEN hosts.administrative_state
@@ -625,9 +638,9 @@ class DatabaseOps:
                     owner_id = COALESCE(hosts.owner_id, EXCLUDED.owner_id),
                     tenant_id = COALESCE(hosts.tenant_id, EXCLUDED.tenant_id),
                     provider_id = COALESCE(hosts.provider_id, EXCLUDED.provider_id),
-                    region = COALESCE(EXCLUDED.region, hosts.region),
-                    country = COALESCE(EXCLUDED.country, hosts.country),
-                    province = COALESCE(EXCLUDED.province, hosts.province),
+                    region = CASE WHEN hosts.payload ? 'location_confirmed_at' THEN hosts.region ELSE COALESCE(EXCLUDED.region, hosts.region) END,
+                    country = CASE WHEN hosts.payload ? 'location_confirmed_at' THEN hosts.country ELSE COALESCE(EXCLUDED.country, hosts.country) END,
+                    province = CASE WHEN hosts.payload ? 'location_confirmed_at' THEN hosts.province ELSE COALESCE(EXCLUDED.province, hosts.province) END,
                     -- Merge, never replace: the heartbeat and the native
                     -- observation each report their own keys, explicitly true
                     -- or false. Replacing let each erase the other's, so
@@ -723,7 +736,9 @@ class DatabaseOps:
             row = conn.execute(
                 "SELECT payload || jsonb_build_object('host_id',host_id,'status',status,"
                 "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id,"
-                "'region',region,'country',country,'province',province,'capabilities',capabilities,"
+                "'region',region,'country',country,'province',province,'capabilities',capabilities,'version',version,"
+                "'admitted',admission_state='admitted','admission_state',admission_state,"
+                "'admission_version',admission_version,'admission_decision_id',admission_decision_id,"
                 "'administrative_state',administrative_state,'availability_state',availability_state) AS payload "
                 "FROM hosts WHERE host_id=%s",
                 (host_id,),
@@ -806,7 +821,9 @@ class DatabaseOps:
             query = (
                 "SELECT payload || jsonb_build_object('host_id',host_id,'status',status,"
                 "'owner',owner_id,'owner_id',owner_id,'tenant_id',tenant_id,'provider_id',provider_id,"
-                "'region',region,'country',country,'province',province,'capabilities',capabilities,"
+                "'region',region,'country',country,'province',province,'capabilities',capabilities,'version',version,"
+                "'admitted',admission_state='admitted','admission_state',admission_state,"
+                "'admission_version',admission_version,'admission_decision_id',admission_decision_id,"
                 "'administrative_state',administrative_state,'availability_state',availability_state) AS payload FROM hosts"
             )
             if active_only:
@@ -1318,8 +1335,8 @@ class UserStore:
                     int(user.get("is_admin", 0)),
                     user.get("customer_id"),
                     user.get("provider_id"),
-                    user.get("country", "CA"),
-                    user.get("province", "ON"),
+                    user.get("country", ""),
+                    user.get("province", ""),
                     user.get("oauth_provider"),
                     user.get("team_id"),
                     user.get("created_at", time.time()),
@@ -1334,6 +1351,12 @@ class UserStore:
             "is_admin",
             "country",
             "province",
+            "address_line1",
+            "address_line2",
+            "city",
+            "postal_code",
+            "account_type",
+            "onboarding_intent",
             "business_name",
             "gst_hst_number",
             "provider_id",
