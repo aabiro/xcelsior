@@ -9,6 +9,9 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
  * tracking then records as an unhandled exception.
  */
 
+const themeState = vi.hoisted(() => ({ value: "dark" as "dark" | "light" }));
+vi.mock("@/lib/theme", () => ({ useTheme: () => ({ theme: themeState.value }) }));
+
 const mocks = vi.hoisted(() => ({
   createProviderAccountSession: vi.fn(),
   loadConnectAndInitialize: vi.fn(),
@@ -33,6 +36,7 @@ const STALE_MESSAGE =
 
 beforeEach(() => {
   vi.clearAllMocks();
+  themeState.value = "dark";
   mocks.loadConnectAndInitialize.mockImplementation(() => ({
     create: () => document.createElement("div"),
   }));
@@ -95,4 +99,19 @@ describe("StripeConnectEmbedded", () => {
     expect(create).not.toHaveBeenCalled();
     expect(screen.queryByText("Connect components ready")).not.toBeInTheDocument();
   });
+});
+
+
+it("updates Stripe's theme without requesting another account session", async () => {
+  const update=vi.fn();
+  mocks.createProviderAccountSession.mockResolvedValue({client_secret:"secret-theme-test"});
+  mocks.loadConnectAndInitialize.mockImplementation(() => ({create:()=>document.createElement("div"), update}));
+  const view=render(<StripeConnectEmbedded providerId="prov-1" />);
+  await screen.findByText("Connect components ready");
+  expect(mocks.loadConnectAndInitialize.mock.calls[0][0].appearance.variables.colorBackground).toBe("#0f172a");
+  themeState.value="light";
+  view.rerender(<StripeConnectEmbedded providerId="prov-1" />);
+  await waitFor(()=>expect(update).toHaveBeenCalledWith(expect.objectContaining({appearance:expect.objectContaining({variables:expect.objectContaining({colorBackground:"#ffffff"})})})));
+  expect(mocks.createProviderAccountSession).toHaveBeenCalledTimes(1);
+  expect(mocks.loadConnectAndInitialize).toHaveBeenCalledTimes(1);
 });

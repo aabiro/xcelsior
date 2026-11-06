@@ -165,13 +165,15 @@ export function installToolAudit(
     }, async (...args: unknown[]) => {
       const started = performance.now();
       let traceId = randomUUID().replaceAll("-", "");
+      let toolTraceparent: string | undefined;
       let outcome = "success";
       let result: unknown;
       const apiCalls: ApiCallRecord[] = [];
       try {
         result = await withApiCapture(
           apiCalls,
-          () => traced(`mcp.tool.${name}`, (_traceparent, spanTraceId) => {
+          () => traced(`mcp.tool.${name}`, (traceparent, spanTraceId) => {
+            toolTraceparent = traceparent;
             if (spanTraceId) traceId = spanTraceId;
             return callback(...args);
           }),
@@ -231,7 +233,7 @@ export function installToolAudit(
         // Audit failure must be visible but must not turn a completed read into
         // a duplicate-prone retry. The API/outbox remains the durable authority.
         try {
-          await client.post("/api/v1/mcp/tool-audit", record, { timeoutMs: 3_000, retry: "none" });
+          await client.post("/api/v1/mcp/tool-audit", record, { timeoutMs: 3_000, retry: "none", traceparent: toolTraceparent });
         } catch (error) {
           process.stderr.write(`[xcelsior-mcp] audit write failed tool=${name} trace=${traceId}: ${String(error)}\n`);
         }

@@ -3,6 +3,7 @@ import { context, propagation } from "@opentelemetry/api";
 import createClient, { type Client } from "openapi-fetch";
 import type { paths } from "./generated/api.js";
 import { captureApiCall } from "./request-context.js";
+import { currentToolTraceparent } from "../observability/tracing.js";
 
 export interface ApiClientOptions {
   baseUrl: string;
@@ -99,6 +100,7 @@ export class XcelsiorApiClient {
     let res: Response;
     const traceHeaders: Record<string, string> = {};
     propagation.inject(context.active(), traceHeaders);
+    const toolParent = currentToolTraceparent();
     try {
       res = await fetch(url, {
         ...init,
@@ -106,6 +108,7 @@ export class XcelsiorApiClient {
         headers: {
           Authorization: `Bearer ${this.opts.bearer}`,
           Accept: "application/json",
+          ...(toolParent ? { traceparent: toolParent } : {}),
           ...(options.traceparent ? { traceparent: options.traceparent } : {}),
           ...traceHeaders,
           ...(options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),

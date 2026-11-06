@@ -158,29 +158,54 @@ def _client_ip(request: Request) -> str:
     return "" if client_ip == "unknown" else client_ip
 
 
-def _account_tax_address(user: dict) -> dict:
-    """Tax location from the user account (country/province), like provider profiles."""
-    country = str(user.get("country") or "").strip()
-    province = str(user.get("province") or "").strip()
-    # Prefer full user row from DB when auth payload is thin.
-    if not country or not province:
-        try:
-            from db import UserStore
+def _billing_account_profile(user: dict, customer_id: str = "") -> dict:
+    """Read the requested account's current profile, including admin actions."""
+    from db import UserStore
 
-            email = str(user.get("email") or "").strip()
-            if email:
-                full = UserStore.get_user(email) or {}
-                country = country or str(full.get("country") or "").strip()
-                province = province or str(full.get("province") or "").strip()
-        except Exception:
-            pass
-    out: dict = {}
-    if country:
-        out["country"] = country
-    if province:
-        out["province"] = province
-        out["state"] = province
-    return out
+    try:
+        if customer_id:
+            profile = UserStore.get_user_by_customer_id(customer_id)
+            if profile is None and "@" in customer_id:
+                profile = UserStore.get_user(customer_id)
+            return profile or {}
+        email = str(user.get("email") or "").strip()
+        return (UserStore.get_user(email) or {}) if email else {}
+    except Exception:
+        log.exception("Could not load the account billing profile")
+        raise HTTPException(503, "The billing profile could not be loaded. Try again shortly.") from None
+
+
+def _profile_tax_address(profile: dict, *, required: bool = False) -> dict:
+    from host_metadata import profile_address_values, profile_missing_fields
+
+    missing = profile_missing_fields(profile)
+    if missing and required:
+        raise HTTPException(422, detail={"error": {
+            "code": "profile_incomplete", "message": "Complete your account profile before adding credit.",
+            "missing_fields": missing, "completion_url": "/onboarding/account",
+        }})
+    try:
+        address, errors = profile_address_values(profile)
+    except ValueError:
+        return {}
+    missing = errors
+    if missing:
+        if required:
+            raise HTTPException(422, detail={"error": {
+                "code": "profile_incomplete", "message": "Complete your account profile before adding credit.",
+                "missing_fields": missing, "completion_url": "/onboarding/account",
+            }})
+        return {}
+    return {
+        "country": address["country"], "province": address["province"], "state": address["province"],
+        "line1": address["address_line1"], "line2": address["address_line2"],
+        "city": address["city"], "postal_code": address["postal_code"],
+    }
+
+
+def _account_tax_address(user: dict) -> dict:
+    """Tax estimates use current saved data instead of stale token claims."""
+    return _profile_tax_address(_billing_account_profile(user))
 
 
 @router.post("/api/billing/payment-intent", tags=["Billing"])
@@ -188,16 +213,17 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     """Create a Stripe PaymentIntent for depositing compute credits.
 
     ``amount_cad`` is pretax wallet credit. Stripe Tax uses the **account**
-    country/province (settings/profile) — no deposit province picker. IP is a
-    fallback when the account has no location. Wallet is credited pretax only.
+    saved account address. Missing required profile fields return a completion
+    error before contacting Stripe. Wallet is credited pretax only.
     """
     user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "payment-intent")
     _validate_topup_amount(req.amount_cad, user)
     mgr = get_stripe_manager()
-    addr = _account_tax_address(user)
-    email = str(user.get("email") or "")
+    profile = _billing_account_profile(user, req.customer_id)
+    addr = _profile_tax_address(profile, required=True)
+    email = str(profile.get("email") or "")
     from meta_capi import ads_metadata, request_context, track_event
 
     ads = ads_metadata(request)
@@ -205,8 +231,8 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
         req.customer_id,
         req.amount_cad,
         req.description,
-        address=addr or None,
-        ip_address=_client_ip(request),
+        address=addr,
+        ip_address="",
         email=email,
         ads=ads,
     )

@@ -39,10 +39,9 @@ async function _tryRefresh(): Promise<boolean> {
 
 function _redirectToLogin() {
   if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-    // Only redirect to login from protected routes (dashboard)
-    // Marketing pages should silently handle unauthenticated state
-    if (window.location.pathname.startsWith("/dashboard")) {
-      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    const { pathname, search, hash } = window.location;
+    if (/^\/(dashboard|onboarding)(\/|$)/.test(pathname)) {
+      window.location.href = `/login?redirect=${encodeURIComponent(pathname + search + hash)}`;
     }
   }
 }
@@ -59,8 +58,10 @@ export async function apiFetch<T = unknown>(
   };
   const res = await fetch(path, { credentials: "include", headers, ...rest });
   if (res.status === 401) {
-    // Auth endpoints return 401 for invalid credentials, don't intercept
-    if (path.startsWith("/api/auth/")) {
+    // Credential submissions keep their own 401 errors. Account/profile and
+    // session requests use the same cookie refresh as other protected APIs.
+    const sessionAuthRequest = /^\/api\/auth\/(me|sessions)(\/|\?|$)/.test(path);
+    if (path.startsWith("/api/auth/") && !sessionAuthRequest) {
       const body = await res.json().catch(() => ({}));
       throw new ApiError(
         401,
@@ -460,6 +461,14 @@ export type AuthUser = {
   is_admin?: boolean;
   country?: string;
   province?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  postal_code?: string;
+  account_type?: string;
+  onboarding_intent?: string;
+  profile_complete?: boolean;
+  missing_profile_fields?: string[];
   avatar_url?: string;
   customer_id?: string;
   provider_id?: string;
@@ -1288,6 +1297,7 @@ export interface ProviderPayoutState {
 }
 
 export interface ProviderAccount {
+  stripe_connected?: boolean;
   provider_id: string;
   provider_type: string;
   status: string;
@@ -3097,6 +3107,9 @@ export async function unsubscribePushNotifications(endpoint: string) {
 // ── Types ─────────────────────────────────────────────────────────────
 export interface Host {
   host_id: string;
+  version?: number;
+  location_complete?: boolean;
+  location_label?: string;
   id?: string;
   hostname?: string;
   ip: string;
@@ -4223,6 +4236,12 @@ export async function resendVerification(email: string) {
 /** Update display name (and optionally country/province). Email is changed via
  *  the verified flow below, not here. */
 export async function updateProfile(updates: {
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  postal_code?: string;
+  account_type?: string;
+  onboarding_intent?: string;
   name?: string;
   country?: string;
   province?: string;

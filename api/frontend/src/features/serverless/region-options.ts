@@ -1,6 +1,6 @@
 import type { GpuAvailability } from "@/lib/api";
 
-export const DEFAULT_DEPLOY_REGION = "ca-east";
+export const DEFAULT_DEPLOY_REGION = "";
 
 const CA_PROVINCES = new Set([
   "AB",
@@ -46,7 +46,7 @@ export function regionOptionsForGpus(gpus: GpuAvailability[], gpuTier = ""): str
     const region = gpuDeployRegion(gpu);
     if (region) regions.add(region);
   }
-  return regions.size > 0 ? [...regions].sort() : [DEFAULT_DEPLOY_REGION];
+  return [...regions].sort();
 }
 
 export function findGpuInRegion(

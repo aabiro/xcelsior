@@ -447,6 +447,52 @@ class ProfileUpdateRequest(BaseModel):
     province: str | None = Field(None, max_length=32)
     business_name: str | None = Field(None, max_length=200)
     gst_hst_number: str | None = Field(None, max_length=20)
+    address_line1: str | None = Field(None, max_length=200)
+    address_line2: str | None = Field(None, max_length=200)
+    city: str | None = Field(None, max_length=80)
+    postal_code: str | None = Field(None, max_length=32)
+    account_type: str | None = Field(None, max_length=16)
+    onboarding_intent: str | None = Field(None, max_length=16)
+
+
+def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
+    from host_metadata import require_location, profile_address_values
+
+    if body.name is not None:
+        body.name = body.name.strip()
+        if not body.name:
+            raise HTTPException(422, "Name is required")
+    current = (UserStore.get_user(user["email"]) or {}) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
+    if body.account_type is not None and body.account_type not in {"individual", "business"}:
+        raise HTTPException(422, "Choose a personal or business account")
+    if body.onboarding_intent is not None and body.onboarding_intent not in {"rent", "provide", "both"}:
+        raise HTTPException(422, "Choose whether to rent GPUs, provide GPUs, or both")
+    candidate = {**current, **body.model_dump(exclude_none=True)}
+    if candidate.get("account_type") == "business" and not str(candidate.get("business_name") or "").strip():
+        raise HTTPException(422, "Business name is required for a business account")
+    if body.country is not None or body.province is not None:
+        try:
+            location = require_location(str(candidate.get("country") or ""), str(candidate.get("province") or ""))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        body.country, body.province = location["country"], location["province"]
+        candidate.update(location)
+    address_fields = {"address_line1", "address_line2", "city", "postal_code"}
+    if address_fields & body.model_fields_set or (current.get("address_line1") and {"country", "province"} & body.model_fields_set):
+        try:
+            cleaned, errors = profile_address_values(candidate)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if errors:
+            raise HTTPException(422, "Complete valid required address fields: " + ", ".join(errors))
+        for key in address_fields:
+            setattr(body, key, cleaned[key])
+
+
+def _account_profile_updates(body: ProfileUpdateRequest) -> dict:
+    return {key: getattr(body, key) for key in
+            ("address_line1", "address_line2", "city", "postal_code", "account_type", "onboarding_intent")
+            if getattr(body, key) is not None}
 
 
 def _business_profile_updates(body: ProfileUpdateRequest) -> dict:
@@ -1839,7 +1885,7 @@ def api_auth_register(body: RegisterRequest, request: Request):
     _check_auth_rate_limit(request)
     email = body.email.strip().lower()
     requested_role = (body.role or "submitter").strip().lower()
-    if not email or "@" not in email:
+    if not _EMAIL_RE.fullmatch(email):
         raise HTTPException(400, "Invalid email address")
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
@@ -1889,15 +1935,15 @@ def api_auth_register(body: RegisterRequest, request: Request):
     user = {
         "user_id": user_id,
         "email": email,
-        "name": body.name or email.split("@")[0],
+        "name": (body.name or "").strip(),
         "password_hash": password_hash,
         "salt": salt,
         "role": requested_role,
         "is_admin": False,
         "customer_id": customer_id,
         "provider_id": None,
-        "country": "CA",
-        "province": "ON",
+        "country": "",
+        "province": "",
         "created_at": time.time(),
     }
 
@@ -2355,15 +2401,15 @@ def api_auth_oauth_callback(provider: str, request: Request):
         user = {
             "user_id": user_id,
             "email": email,
-            "name": name or f"{provider.title()} User",
+            "name": (name or "").strip(),
             "password_hash": "",
             "salt": "",
             "role": "submitter",
             "is_admin": False,
             "customer_id": customer_id,
             "provider_id": None,
-            "country": "CA",
-            "province": "ON",
+            "country": "",
+            "province": "",
             "oauth_provider": provider,
             "oauth_subject": facebook_subject,
             "created_at": time.time(),
@@ -2448,6 +2494,10 @@ def api_auth_oauth_callback(provider: str, request: Request):
         except Exception as e:
             log.debug("welcome notification (OAuth) failed: %s", e)
 
+        from host_metadata import profile_missing_fields
+
+        if profile_missing_fields(user) and not redirect_path.startswith("/onboarding"):
+            redirect_path = "/onboarding/account?redirect=" + _urllib_parse.quote(redirect_path, safe="")
         resp = RedirectResponse(redirect_path, status_code=302)
         _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
@@ -2801,9 +2851,12 @@ def _filter_auth_identity(user: dict, identity: dict) -> dict:
     from routes._deps import _is_delegated_connector_token
 
     scopes = set(user.get("scopes") or [])
-    if not _is_delegated_connector_token(user) or "api" in scopes:
+    if not _is_delegated_connector_token(user):
         return identity
     filtered = dict(identity)
+    # The profile scope does not grant access to postal addresses or business identity.
+    for key in ("address_line1", "address_line2", "city", "postal_code", "business_name", "gst_hst_number"):
+        filtered.pop(key, None)
     if "email" not in scopes:
         filtered.pop("email", None)
     return filtered
@@ -2830,7 +2883,7 @@ def api_auth_me(request: Request):
         raise HTTPException(401, "Not authenticated")
     if user.get("auth_type") == "client_credentials":
         raise HTTPException(403, "Interactive user authentication required")
-    if _is_delegated_connector_token(user) and not {"profile", "api"} & set(
+    if _is_delegated_connector_token(user) and not {"profile"} & set(
         user.get("scopes") or []
     ):
         raise HTTPException(403, "Profile access requires the profile permission")
@@ -2850,8 +2903,10 @@ def api_auth_me(request: Request):
         "is_admin": True if _is_platform_admin(full_user or user) else False,
         "customer_id": full_user.get("customer_id", ""),
         "provider_id": full_user.get("provider_id"),
-        "country": full_user.get("country", "CA"),
-        "province": full_user.get("province", "ON"),
+        "country": full_user.get("country") or "",
+        "province": full_user.get("province") or "",
+        **{key: full_user.get(key) or "" for key in
+           ("address_line1", "address_line2", "city", "postal_code", "account_type", "onboarding_intent")},
         "business_name": full_user.get("business_name") or "",
         "gst_hst_number": full_user.get("gst_hst_number") or "",
         "team_id": full_user.get("team_id"),
@@ -2860,6 +2915,10 @@ def api_auth_me(request: Request):
         "auth_type": user.get("auth_type", "legacy_session"),
         "session_type": user.get("session_type", "browser"),
     }
+    from host_metadata import profile_missing_fields
+
+    merged_user["missing_profile_fields"] = profile_missing_fields(merged_user)
+    merged_user["profile_complete"] = not merged_user["missing_profile_fields"]
     merged_user.update(_deps_team_context_for_user(merged_user))
     avatar_url = None
     try:
@@ -2907,6 +2966,7 @@ def api_auth_introspect(request: Request):
 def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
     """Update the current user's profile fields."""
     user = _require_user_grant(request)
+    _validate_profile_values(body, user)
     requested_role = None
     if body.role is not None:
         requested_role = body.role.strip().lower()
@@ -2926,6 +2986,7 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
         if body.province is not None:
             updates["province"] = body.province
         updates.update(_business_profile_updates(body))
+        updates.update(_account_profile_updates(body))
         if not updates:
             return {"ok": True, "message": "No changes"}
         UserStore.update_user(user["email"], updates)
@@ -2943,6 +3004,7 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
             if body.province is not None:
                 full_user["province"] = body.province
             full_user.update(_business_profile_updates(body))
+            full_user.update(_account_profile_updates(body))
 
     return {"ok": True, "message": "Profile updated"}
 
@@ -3588,6 +3650,7 @@ def api_auth_put_profile(body: ProfileUpdateRequest, request: Request):
     whichever came last in the file, and the two behave differently on `role`.
     """
     user = _require_user_grant(request)
+    _validate_profile_values(body, user)
     email = str(user.get("email") or "")
     # `ProfileUpdateRequest` carries `role`, and this route quietly dropped it:
     # a client sending {"role": "provider"} got `{"ok": true}` and an unchanged
@@ -3607,6 +3670,7 @@ def api_auth_put_profile(body: ProfileUpdateRequest, request: Request):
     if body.province is not None:
         updates["province"] = body.province.strip()[:32]
     updates.update(_business_profile_updates(body))
+    updates.update(_account_profile_updates(body))
     if not updates:
         return {"ok": True}
     if _USE_PERSISTENT_AUTH:

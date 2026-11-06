@@ -63,6 +63,8 @@ dependencies = [
     "opentelemetry-instrumentation-requests>=0.61b0",
     "opentelemetry-instrumentation-logging>=0.61b0",
     "authlib>=1.8.0",
+    "pycountry==26.2.16",
+    "google-i18n-address==3.1.1",
 ]
 
 [project.optional-dependencies]

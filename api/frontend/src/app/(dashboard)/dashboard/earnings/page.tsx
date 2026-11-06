@@ -23,7 +23,6 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
 import { PayPalConnectCard, type PayPalProviderState } from "@/components/providers/paypal-connect-card";
-import { SellerProfileCard } from "@/components/providers/seller-profile-card";
 import { StripeConnectEmbedded } from "@/components/providers/stripe-connect-embedded";
 
 /**
@@ -72,8 +71,7 @@ export default function EarningsPage() {
   const [platformPayPal, setPlatformPayPal] = useState(false);
   const [confirmStripeDisconnect, setConfirmStripeDisconnect] = useState(false);
   const [stripeDisconnecting, setStripeDisconnecting] = useState(false);
-  const [sellerSaved, setSellerSaved] = useState(false);
-  const sellerReady = sellerSaved || Boolean(provider?.seller_profile_complete);
+  const sellerReady = Boolean(provider?.seller_profile_complete);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -218,6 +216,8 @@ export default function EarningsPage() {
       const res = await api.registerProvider({
         provider_id: pid,
         email: user.email,
+        country: provider?.country || user.country,
+        province: provider?.province || user.province,
       });
       if (res.onboarding_url) {
         // Redirect to Stripe onboarding/dashboard
@@ -352,13 +352,9 @@ export default function EarningsPage() {
             </Card>
           )}
 
-          <SellerProfileCard
-            provider={provider}
-            onSaved={() => {
-              setSellerSaved(true);
-              void refreshUser();
-            }}
-          />
+          {!sellerReady && <p className="text-sm text-text-secondary">
+            <a href="/onboarding/provider?redirect=%2Fdashboard%2Fearnings" className="text-accent-cyan underline">Complete your provider profile</a> to set up payouts.
+          </p>}
 
           {/* Payout methods + GST */}
           <div className="space-y-3">

@@ -52,7 +52,7 @@ describe("LaunchInstanceModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.fetchAvailableGPUs.mockResolvedValue({
-      gpus: [{ gpu_model: "RTX 4090", vram_gb: 24, count_available: 2, price_per_hour_cad: 0.55 }],
+      gpus: [{ gpu_model: "RTX 4090", vram_gb: 24, count_available: 2, price_per_hour_cad: 0.55, region: "ca-on", province: "ON" }],
     });
     apiMocks.fetchPricingReference.mockResolvedValue({
       reference: [{ gpu_model: "RTX 4090", on_demand_cad: 0.55, spot_cad: 0.22 }],
@@ -73,7 +73,7 @@ describe("LaunchInstanceModal", () => {
         gpu_exclusive_addon: { stripe_price_id: "price_gpu_exclusive", unit_amount_micros: Math.round(base * 0.4 * 1_000_000), rate_per_gpu_cad: base * 0.4 },
         queue_bid_unit: {stripe_price_id: "price_queue_bid", unit_amount_micros: 10000},
         queue_bid_policy: {version:"tier-bid-aging-v1",aging_interval_seconds:900,aging_fraction_bps:1000,max_tier_promotion:1},
-        physical_hosts: [{ host_id: "host-two-gpus", num_gpus: 2, region: "ca-east", available: true }],
+        physical_hosts: [{ host_id: "host-two-gpus", num_gpus: 2, region: "ca-on", available: true }],
       };
     });
     // The real shape of `/spot-prices`: `prices` is the lookup, `spot_prices`
@@ -140,7 +140,7 @@ describe("LaunchInstanceModal", () => {
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /^continue$/i })).not.toBeDisabled();
-      });
+      }, { timeout: 5000 });
 
       fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
 

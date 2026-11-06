@@ -413,6 +413,7 @@ const en: Record<string, string> = {
   "privacy.s9_p4": "Cloudflare Web Analytics and security services - performance and bot protection on xcelsior.ca.",
   "privacy.s9_p6": "Meta Platforms (Meta Pixel and Conversions API) - measures our ads, only if you accept cookies. The Pixel sets the _fbp and _fbc cookies, and we send Meta sign-up, checkout and purchase events with your email address, name and location hashed (SHA-256), plus your IP address and browser. Declining, or changing your choice later, stops this, including for automatic top-ups.",
   "privacy.s9_p7": "PostHog - product analytics. Until you accept cookies it counts visits without cookies or a stored identifier; once you accept, it uses cookies to recognise return visits.",
+  "privacy.s9_p8": "Loqate (GBG) - address suggestions. If you use address search during onboarding or in Settings, we send your search text, selected country and selected address reference to Loqate. You can enter your address manually instead.",
   "privacy.s9_p5": "We do not sell, rent, or trade your personal information to any third party for marketing purposes.",
   "privacy.s10_title": "Security",
   "privacy.s10_p1": "We employ industry-standard security measures including: TLS 1.3 for all connections, bcrypt password hashing, httpOnly session cookies, tamper-evident audit chains, and automated intrusion detection. In the event of a breach, we will notify affected users and the Office of the Privacy Commissioner of Canada within 72 hours.",

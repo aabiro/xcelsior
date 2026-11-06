@@ -7,7 +7,7 @@ import type { OnboardingStepKey } from "./onboarding-steps";
 
 export type OnboardingStatus = "idle" | "loading" | "ready" | "error";
 
-type OnboardingUser = { name?: string; email?: string } | null;
+type OnboardingUser = { name?: string; email?: string; profile_complete?: boolean } | null;
 
 const PERSIST_DEBOUNCE_MS = 500;
 
@@ -65,7 +65,7 @@ export function useOnboardingState(user: OnboardingUser, pathname: string) {
       const serverOnboarding = prefs?.preferences?.onboarding ?? {};
       const autoDetected: Record<string, boolean> = {};
 
-      autoDetected.profile = !!(user.name && user.name.trim().length > 0);
+      autoDetected.profile = user.profile_complete === true;
       autoDetected.mcp_connect = !!(
         serverOnboarding.mcp_connect
       );
@@ -103,7 +103,7 @@ export function useOnboardingState(user: OnboardingUser, pathname: string) {
     }
   }, [user, pathname, schedulePersist]);
 
-  const userSig = `${user?.email ?? ""}|${user?.name ?? ""}`;
+  const userSig = `${user?.email ?? ""}|${user?.name ?? ""}|${user?.profile_complete ?? ""}`;
 
   useEffect(() => {
     if (!user) {

@@ -1055,6 +1055,25 @@ export interface components {
              */
             role: string;
         };
+        /** AddressRetrieveRequest */
+        AddressRetrieveRequest: {
+            /** Country */
+            country: string;
+            /** Address Id */
+            address_id: string;
+        };
+        /** AddressSearchRequest */
+        AddressSearchRequest: {
+            /** Country */
+            country: string;
+            /** Text */
+            text: string;
+            /**
+             * Container
+             * @default
+             */
+            container: string;
+        };
         /** AdminCreditRequest */
         AdminCreditRequest: {
             /** Amount Cad */
@@ -1645,7 +1664,7 @@ export interface components {
             cost_per_hour: number;
             /**
              * Country
-             * @default CA
+             * @default
              */
             country: string;
             /**
@@ -1708,6 +1727,28 @@ export interface components {
             attestation?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** HostLocationUpdate */
+        HostLocationUpdate: {
+            /** Country */
+            country: string;
+            /**
+             * Province
+             * @default
+             */
+            province: string;
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** HostRelocationUpdate */
+        HostRelocationUpdate: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "pause" | "resume";
+            /** Expected Version */
+            expected_version: number;
         };
         /** HostSpotSettingsUpdate */
         HostSpotSettingsUpdate: {
@@ -2449,6 +2490,18 @@ export interface components {
             business_name?: string | null;
             /** Gst Hst Number */
             gst_hst_number?: string | null;
+            /** Address Line1 */
+            address_line1?: string | null;
+            /** Address Line2 */
+            address_line2?: string | null;
+            /** City */
+            city?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** Account Type */
+            account_type?: string | null;
+            /** Onboarding Intent */
+            onboarding_intent?: string | null;
         };
         /** PromotionCreate */
         PromotionCreate: {
@@ -2554,7 +2607,7 @@ export interface components {
             legal_name: string;
             /**
              * Country
-             * @default CA
+             * @default
              */
             country: string;
             /**
@@ -2622,10 +2675,7 @@ export interface components {
             vram_gb: number;
             /** Cost Per Hour */
             cost_per_hour?: number | null;
-            /**
-             * Country
-             * @default CA
-             */
+            /** Country */
             country: string;
             /**
              * Province
@@ -2807,10 +2857,7 @@ export interface components {
             province: string;
             /** Postal Code */
             postal_code: string;
-            /**
-             * Country
-             * @default CA
-             */
+            /** Country */
             country: string;
             /** Tax Id Kind */
             tax_id_kind: string;

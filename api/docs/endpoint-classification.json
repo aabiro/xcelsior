@@ -511,6 +511,10 @@
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
+  "GET /api/locations": {
+    "class": "internal",
+    "notes": "public location choices for first-party onboarding and Settings; complete ISO country/subdivision catalog and country-specific address requirements"
+  },
   "GET /api/mcp/quick-connect": {
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
@@ -554,6 +558,10 @@
   "GET /api/pricing/reserved-plans": {
     "class": "gap",
     "notes": "The reserved-tier catalogue and its discounts. Nothing on the surface can tell a user a commitment would be cheaper than what they are doing."
+  },
+  "GET /api/pricing/service-tiers": {
+    "class": "covered",
+    "notes": "list_tiers(gpu_model, pricing_mode) returns exact Stripe Prices, the optional GPU exclusivity add-on, policy and qualified whole-host GPU counts. create_instance carries the selected tier and both Price IDs into a bound launch plan."
   },
   "GET /api/pricing/spot-enabled": {
     "class": "gap",
@@ -1147,6 +1155,10 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "PATCH /api/hosts/{host_id}/location": {
+    "class": "internal",
+    "notes": "First-party host location editing; explicit owner action with validation and version fencing. Worker observations cannot overwrite a confirmed location."
+  },
   "PATCH /api/hosts/{host_id}/spot-settings": {
     "class": "gap",
     "notes": "P6 names setting a spot floor as a provider journey; no tool reaches it"
@@ -1670,6 +1682,14 @@
   "POST /api/keys/generate": {
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
+  },
+  "POST /api/locations/retrieve": {
+    "class": "internal",
+    "notes": "authenticated first-party address selection; retrieves editable profile fields with no inferred province or exposed service credential"
+  },
+  "POST /api/locations/search": {
+    "class": "internal",
+    "notes": "authenticated first-party profile address entry; sends typed address text to approved Loqate Capture, never a general agent lookup"
   },
   "POST /api/notifications/push/subscription": {
     "class": "internal",
@@ -2282,9 +2302,5 @@
   "PUT /host": {
     "class": "gap",
     "notes": "Provider axis. Registering or updating a rig is how supply reaches the marketplace, and docs/mcp-provider-axis-plan.md records that the provider class has zero tools today."
-  },
-  "GET /api/pricing/service-tiers": {
-    "class": "covered",
-    "notes": "list_tiers(gpu_model, pricing_mode) returns exact Stripe Prices, the optional GPU exclusivity add-on, policy and qualified whole-host GPU counts. create_instance carries the selected tier and both Price IDs into a bound launch plan."
   }
 }

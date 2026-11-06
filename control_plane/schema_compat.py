@@ -71,7 +71,8 @@ from psycopg import Connection
 # cycle pricing snapshots plus physical-host scope. Paid launches quote them.
 # 148 records queue bids and the database-owned queue-entry time that the
 # claim ranks on. A database at 147 cannot claim or audit a paid queue.
-REQUIRED_MIN_REVISION = "148"
+# 150 stores the account address and onboarding choices read by profile setup.
+REQUIRED_MIN_REVISION = "150"
 REQUIRED_MAX_REVISION: str | None = None
 
 

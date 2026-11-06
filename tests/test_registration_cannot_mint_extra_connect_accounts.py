@@ -226,3 +226,20 @@ def test_an_admin_who_names_nothing_resolves_to_their_own(recorded_registrations
     assert (
         recorded_registrations and recorded_registrations[0]
     ), "an admin registering without naming an id got no provider identity"
+
+
+def test_registering_a_provider_does_not_mark_an_unverified_email_as_verified(recorded_registrations, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    import routes.providers as routes
+
+    add_verification = Mock()
+    monkeypatch.setattr(routes,"get_reputation_engine",lambda:SimpleNamespace(_ensure_entity=Mock(),add_verification=add_verification))
+    headers,email = _account()
+    # Test-mode registration auto-verifies. Explicitly model the real
+    # unverified state rather than relying on environment defaults.
+    from db import UserStore
+    UserStore.update_user(email, {"email_verified": 0})
+    response = _register(headers,email,"unused-client-provider-id")
+    assert response.status_code == 200,response.text
+    add_verification.assert_not_called()

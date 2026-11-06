@@ -57,7 +57,7 @@ class ProviderRegisterRequest(BaseModel):
     gst_hst_number: str = ""  # GST/HST registration number
     province: str = ""  # ON, QC, BC, AB, etc. (or region code)
     legal_name: str = ""  # Legal name of individual or entity
-    country: str = "CA"  # ISO-3166 alpha-2; global cross-border providers supported
+    country: str = ""  # Omitted values use the saved seller profile, never an assumed country.
     address_line1: str = ""
     address_line2: str = ""
     city: str = ""
@@ -163,9 +163,9 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
             gst_hst_number=req.gst_hst_number,
             province=req.province,
             legal_name=req.legal_name,
-            country=(req.country or "CA").strip().upper()[:2] or "CA",
+            country=req.country.strip().upper(),
         )
-    except SellerProfileRequired as e:
+    except (SellerProfileRequired, ValueError) as e:
         raise HTTPException(400, str(e)) from e
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
@@ -181,7 +181,8 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     try:
         rep_engine = get_reputation_engine()
         rep_engine._ensure_entity(provider_id, entity_type="host")
-        rep_engine.add_verification(provider_id, VerificationType.EMAIL)
+        if user.get("email_verified") is True:
+            rep_engine.add_verification(provider_id, VerificationType.EMAIL)
         log.info("Initial reputation record created for provider %s", provider_id)
     except Exception as e:
         log.warning("Failed to create initial reputation for %s: %s", provider_id, e)
@@ -216,7 +217,7 @@ class SellerProfileRequest(BaseModel):
     city: str
     province: str
     postal_code: str
-    country: str = "CA"
+    country: str
     tax_id_kind: str
     tax_id: str = ""
     gst_hst_number: str = ""
@@ -362,6 +363,8 @@ def api_get_provider(provider_id: str, request: Request):
     provider = mgr.get_provider(provider_id)
     if not provider:
         raise HTTPException(404, f"Provider {provider_id} not found")
+    # Expose connection state without returning the processor account identifier.
+    provider["stripe_connected"] = bool(provider.get("stripe_account_id"))
     # Redact sensitive fields
     provider.pop("stripe_account_id", None)
     provider.pop("paypal_merchant_id", None)

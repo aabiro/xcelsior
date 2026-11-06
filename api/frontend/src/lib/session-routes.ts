@@ -3,6 +3,7 @@ const SESSION_ON_MOUNT = [
   /^\/dashboard(\/|$)/,
   /^\/login$/,
   /^\/register$/,
+  /^\/onboarding(\/|$)/,
   /^\/accept-invite$/,
   /^\/device$/,
   /^\/setup-2fa$/,

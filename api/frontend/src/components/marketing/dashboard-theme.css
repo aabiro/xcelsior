@@ -26,6 +26,14 @@
     var(--bg);
 }
 
+/* Standalone setup pages scroll as documents, outside the dashboard frame. */
+.dashboard-shell.onboarding-shell {
+  height: auto;
+  min-height: 100svh;
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
 .dashboard-shell *,
 .dashboard-shell *::before,
 .dashboard-shell *::after {

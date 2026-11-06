@@ -1,7 +1,11 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Select } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
+import { useEffect, useId, useRef, useState } from "react";
+import { apiFetch, updateProfile } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 
 export const PROVINCES = [
   { code: "all", name: "All Provinces" },
@@ -43,4 +47,286 @@ export function ProvinceSelector({ value, onChange, showAll = true, className }:
       ))}
     </Select>
   );
+}
+
+
+type LocationCatalog = {
+  countries: { code: string; name: string }[];
+  subdivisions: { code: string; name: string; region: string }[];
+  requires_subdivision: boolean;
+  required_address_fields: string[];
+};
+
+/** Choices come from the same ISO catalog the API uses to validate saves. */
+export function LocationFields({ country, province, onCountryChange, onProvinceChange, onRequirementsChange }: {
+  country: string; province: string;
+  onCountryChange: (value: string) => void;
+  onProvinceChange: (value: string) => void;
+  onRequirementsChange?: (value: string[] | null) => void;
+}) {
+  const id = useId();
+  const [countries, setCountries] = useState<LocationCatalog["countries"]>([]);
+  const [catalog, setCatalog] = useState<LocationCatalog | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const selectedCountry = countries.some((item) => item.code === country) ? country : "";
+  useEffect(() => {
+    let active = true;
+    setError("");
+    apiFetch<LocationCatalog>("/api/locations")
+      .then((result) => { if (active) setCountries(result.countries); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Unable to load countries"); });
+    return () => { active = false; };
+  }, [retry]);
+  useEffect(() => {
+    let active = true;
+    setCatalog(null);
+    onRequirementsChange?.(null);
+    if (!selectedCountry) return () => { active = false; };
+    setError("");
+    apiFetch<LocationCatalog>(`/api/locations?country=${encodeURIComponent(selectedCountry)}`)
+      .then((result) => { if (active) { setCatalog(result); onRequirementsChange?.(result.required_address_fields); } })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Unable to load states and provinces"); });
+    return () => { active = false; };
+  }, [selectedCountry, retry, onRequirementsChange]);
+  const selectedProvince = catalog?.subdivisions.some((item) => item.code === province) ? province : "";
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5">
+        <Label htmlFor={`${id}-country`}>Country</Label>
+        <Select id={`${id}-country`} autoComplete="country" required value={selectedCountry}
+          onChange={(event) => { onCountryChange(event.target.value); onProvinceChange(""); }}>
+          <option value="">{countries.length ? "Select country" : "Loading countries…"}</option>
+          {countries.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`${id}-province`}>State, province, or territory</Label>
+        <Select id={`${id}-province`} autoComplete="address-level1" required={catalog?.requires_subdivision ?? true}
+          value={selectedProvince} disabled={catalog?.requires_subdivision === false}
+          onChange={(event) => onProvinceChange(event.target.value)}>
+          <option value="">{catalog && !catalog.requires_subdivision ? "Not applicable" : "Select state or province"}</option>
+          {catalog?.subdivisions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+        </Select>
+      </div>
+      {error && <div role="alert" className="text-sm text-red-400 sm:col-span-2">
+        {error} <Button type="button" variant="outline" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button>
+      </div>}
+    </div>
+  );
+}
+
+
+type CapturedAddress = {
+  address_line1: string; address_line2: string; city: string;
+  postal_code: string; country: string; province: string;
+};
+type AddressSuggestion = { id: string; text: string; description: string; is_address: boolean };
+
+/** Search helps fill the form; its fields remain editable and independently validated. */
+export function AddressLookup({ country, onSelect, editRevision = 0 }: {
+  country: string; onSelect: (address: CapturedAddress) => void; editRevision?: number;
+}) {
+  const id = useId();
+  const [query, setQuery] = useState("");
+  const [container, setContainer] = useState("");
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const requestVersion = useRef(0);
+  const retrieving = useRef(false);
+  const [loadingLabel, setLoadingLabel] = useState("Searching…");
+  useEffect(() => () => { requestVersion.current++; }, []);
+  useEffect(() => {
+    requestVersion.current++; retrieving.current = false;
+    setQuery(""); setContainer(""); setSuggestions([]); setError(""); setDismissed(false);
+  }, [country, editRevision]);
+  useEffect(() => {
+    const version = ++requestVersion.current;
+    setSuggestions([]); setActiveIndex(-1); setError(""); setLoading(false);
+    if (!country || query.trim().length < 3 || dismissed) return;
+    const timer = setTimeout(async () => {
+      setLoadingLabel("Searching…"); setLoading(true);
+      try {
+        const result = await apiFetch<{ suggestions: AddressSuggestion[] }>("/api/locations/search", {
+          method: "POST", body: JSON.stringify({ country, text: query, container }),
+        });
+        if (requestVersion.current === version) setSuggestions(result.suggestions);
+      } catch (err) {
+        if (requestVersion.current === version) setError(err instanceof Error ? err.message : "Address search is unavailable. Enter your address manually.");
+      } finally { if (requestVersion.current === version) setLoading(false); }
+    }, 300);
+    return () => { clearTimeout(timer); if (requestVersion.current === version) requestVersion.current++; };
+  }, [country, query, container, dismissed]);
+  async function choose(item: AddressSuggestion) {
+    if (!item.is_address) { setContainer(item.id); setDismissed(false); return; }
+    const version = ++requestVersion.current;
+    retrieving.current = true;
+    setLoadingLabel("Filling address…"); setLoading(true); setError(""); setSuggestions([]);
+    try {
+      const result = await apiFetch<{ address: CapturedAddress }>("/api/locations/retrieve", {
+        method: "POST", body: JSON.stringify({ country, address_id: item.id }),
+      });
+      if (requestVersion.current !== version) return;
+      onSelect(result.address); setQuery(""); setContainer(""); setDismissed(true);
+    } catch (err) {
+      if (requestVersion.current === version) setError(err instanceof Error ? err.message : "Unable to retrieve address. Enter it manually.");
+    } finally { if (requestVersion.current === version) { retrieving.current = false; setLoading(false); } }
+  }
+  const open = suggestions.length > 0 && !dismissed;
+  return <div className="relative space-y-1.5">
+    <Label htmlFor={`${id}-search`}>Search address</Label>
+    <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open}
+      aria-controls={`${id}-results`} aria-activedescendant={activeIndex >= 0 ? `${id}-result-${activeIndex}` : undefined}
+      autoComplete="off" disabled={!country} value={query} placeholder="Start typing your address"
+      onChange={(event) => { requestVersion.current++; setQuery(event.target.value); setContainer(""); setDismissed(false); }}
+      onBlur={() => { if (!retrieving.current) { requestVersion.current++; setDismissed(true); setLoading(false); } }}
+      onFocus={() => { if (!retrieving.current) setDismissed(false); }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") { requestVersion.current++; setDismissed(true); setLoading(false); }
+        if (open && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+          event.preventDefault();
+          if (event.key === "Enter" && activeIndex >= 0) void choose(suggestions[activeIndex]);
+          else setActiveIndex((value) => (value + (event.key === "ArrowUp" ? -1 : 1) + suggestions.length) % suggestions.length);
+        }
+      }} />
+    {open && <ul id={`${id}-results`} role="listbox" aria-label="Address suggestions"
+      className="absolute z-30 max-h-64 w-full overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-lg">
+      {suggestions.map((item, index) => <li key={item.id} id={`${id}-result-${index}`} role="option"
+        aria-selected={activeIndex === index} className={cn("cursor-pointer rounded px-3 py-2 text-sm hover:bg-surface-hover", activeIndex === index && "bg-surface-hover")}
+        onMouseDown={(event) => event.preventDefault()} onClick={() => void choose(item)}>
+        <span className="block">{item.text}</span><span className="block text-xs text-text-secondary">{item.description}{item.is_address ? "" : " — select to see addresses"}</span>
+      </li>)}
+    </ul>}
+    {loading && <p role="status" className="text-xs text-text-secondary">{loadingLabel}</p>}
+    {error && <p role="status" className="text-xs text-text-secondary">{error}</p>}
+    <p className="text-xs text-text-muted">{country ? "Choose an address to fill the fields below, or enter it manually." : "Select your country first, or enter the address fields manually."}</p>
+    {query && <Button type="button" variant="outline" size="sm" onClick={() => {
+      requestVersion.current++; setDismissed(true); setSuggestions([]); setLoading(false); setError("");
+    }}>Enter manually</Button>}
+  </div>;
+}
+
+export function AccountProfileForm({ step = "address", onSaved, settings = false }: {
+  step?: "account" | "address"; onSaved?: () => void | Promise<void>; settings?: boolean;
+}) {
+  const { user, refreshUser } = useAuth();
+  const [name, setName] = useState(user?.name || "");
+  const [country, setCountry] = useState(user?.country || "");
+  const [province, setProvince] = useState(user?.province || "");
+  const [line1, setLine1] = useState(user?.address_line1 || "");
+  const [line2, setLine2] = useState(user?.address_line2 || "");
+  const [city, setCity] = useState(user?.city || "");
+  const [postal, setPostal] = useState(user?.postal_code || "");
+  const [accountType, setAccountType] = useState(user?.account_type || "");
+  const [intent, setIntent] = useState(user?.onboarding_intent || "");
+  const [businessName, setBusinessName] = useState(user?.business_name || "");
+  const [gst, setGst] = useState(user?.gst_hst_number || "");
+  const [requiredFields, setRequiredFields] = useState<string[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [editRevision, setEditRevision] = useState(0);
+  const manual = (set: (value: string) => void, value: string) => { setEditRevision((revision) => revision + 1); set(value); };
+  const id = useId();
+  const accountFields = step === "account" || settings;
+  const addressFields = step === "address" || settings;
+  return (
+    <form className="space-y-5" onSubmit={async (event) => {
+      event.preventDefault(); setSaving(true); setError(""); setSaved(false);
+      try {
+        await updateProfile({
+          ...(accountFields ? { ...(!user?.name?.trim() ? { name: name.trim() } : {}),
+            account_type: accountType, onboarding_intent: intent,
+            business_name: accountType === "business" ? businessName.trim() : "",
+            gst_hst_number: accountType === "business" ? gst.trim() : "" } : {}),
+          ...(addressFields ? {country, province, address_line1: line1, address_line2: line2, city, postal_code: postal} : {}),
+        });
+        await refreshUser({ throwOnError: true });
+        await onSaved?.();
+        if (settings) setSaved(true);
+      } catch (err) { setError(err instanceof Error ? err.message : "Unable to save your profile"); }
+      finally { setSaving(false); }
+    }}>
+      {accountFields && <>
+        {!user?.name?.trim() && <div className="space-y-1.5"><Label htmlFor={`${id}-name`}>Name</Label>
+          <Input id={`${id}-name`} autoComplete="name" value={name} required maxLength={64} onChange={(event) => setName(event.target.value)} /></div>}
+        <fieldset className="space-y-2"><legend className="text-sm font-medium">How will you use Xcelsior?</legend>
+          {[["rent", "Rent GPUs"], ["provide", "Provide GPUs"], ["both", "Rent and provide GPUs"]].map(([value, label]) =>
+            <label key={value} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-sm transition-colors hover:bg-surface-hover", intent === value ? "border-accent-cyan/40 bg-accent-cyan/5" : "border-border bg-navy/30")}>
+              <input type="radio" name={`${id}-intent`} value={value} checked={intent === value} required onChange={() => setIntent(value)} className="h-4 w-4 accent-sky-500" /><span className="font-medium">{label}</span>
+            </label>)}
+        </fieldset>
+        <div className="space-y-1.5"><Label htmlFor={`${id}-type`}>Account type</Label>
+          <Select id={`${id}-type`} required value={accountType} onChange={(event) => setAccountType(event.target.value)}>
+            <option value="">Select account type</option><option value="individual">Personal</option><option value="business">Business</option>
+          </Select></div>
+        {accountType === "business" && <>
+          <div className="space-y-1.5"><Label htmlFor={`${id}-business`}>Legal business name</Label>
+            <Input id={`${id}-business`} autoComplete="organization" required maxLength={200} value={businessName} onChange={(event) => setBusinessName(event.target.value)} /></div>
+          <div className="space-y-1.5"><Label htmlFor={`${id}-gst`}>GST/HST registration number (optional)</Label>
+            <Input id={`${id}-gst`} maxLength={20} value={gst} onChange={(event) => setGst(event.target.value)} /></div>
+        </>}
+      </>}
+      {addressFields && <>
+        <LocationFields country={country} province={province} onCountryChange={setCountry} onProvinceChange={(value) => manual(setProvince, value)} onRequirementsChange={setRequiredFields} />
+        <AddressLookup country={country} editRevision={editRevision} onSelect={(address) => {
+          setLine1(address.address_line1); setLine2(address.address_line2); setCity(address.city);
+          setPostal(address.postal_code); setCountry(address.country); setProvince(address.province);
+        }} />
+        <div className="space-y-1.5"><Label htmlFor={`${id}-line1`}>Street address</Label>
+          <Input id={`${id}-line1`} autoComplete="address-line1" required={requiredFields?.includes("address_line1") ?? true} maxLength={200} value={line1} onChange={(event) => manual(setLine1, event.target.value)} /></div>
+        <div className="space-y-1.5"><Label htmlFor={`${id}-line2`}>Apartment, suite, or unit (optional)</Label>
+          <Input id={`${id}-line2`} autoComplete="address-line2" maxLength={200} value={line2} onChange={(event) => manual(setLine2, event.target.value)} /></div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5"><Label htmlFor={`${id}-city`}>City or locality</Label>
+            <Input id={`${id}-city`} autoComplete="address-level2" required={requiredFields?.includes("city") ?? true} maxLength={80} value={city} onChange={(event) => manual(setCity, event.target.value)} /></div>
+          <div className="space-y-1.5"><Label htmlFor={`${id}-postal`}>Postal code</Label>
+            <Input id={`${id}-postal`} autoComplete="postal-code" required={requiredFields?.includes("postal_code") ?? true} maxLength={32} value={postal} onChange={(event) => manual(setPostal, event.target.value)} /></div>
+        </div>
+      </>}
+      {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 p-3 text-sm text-red-400">{error}</p>}
+      {saved && <p role="status" className="text-sm text-emerald">Profile saved.</p>}
+      <Button className={settings ? "" : "w-full"} type="submit" disabled={saving || (addressFields && (!country || requiredFields === null))}>
+        {saving ? "Saving…" : settings ? "Save profile" : "Continue"}
+      </Button>
+    </form>
+  );
+}
+
+
+export function HostLocationForm({ host, onSaved }: {
+  host: import("@/lib/api").Host; onSaved: (host: import("@/lib/api").Host) => void;
+}) {
+  const [country, setCountry] = useState(host.country || "");
+  const [province, setProvince] = useState(host.province || "");
+  const [requirements, setRequirements] = useState<string[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  return <form className="space-y-4 rounded-xl border border-border bg-surface p-5" onSubmit={async (event) => {
+    event.preventDefault(); setSaving(true); setError(""); setSaved(false);
+    try {
+      if (typeof host.version !== "number") throw new Error("Reload this host's details before editing its location.");
+      const result = await apiFetch<{ host: import("@/lib/api").Host }>(`/api/hosts/${encodeURIComponent(host.host_id)}/location`, {
+        method: "PATCH", body: JSON.stringify({ country, province, expected_version: host.version }),
+      });
+      onSaved({ ...host, ...result.host }); setSaved(true);
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to save the host location"); }
+    finally { setSaving(false); }
+  }}>
+    <div><h2 className="text-base font-semibold">Host location</h2>
+      <p className="mt-1 text-sm text-text-secondary">Where this machine is located. Update it here if the host moves.</p>
+      {host.location_complete === false && <p className="mt-2 text-sm text-accent-cyan">Complete this location before the host can appear in available GPU inventory.</p>}
+    </div>
+    <LocationFields country={country} province={province}
+      onCountryChange={(value) => { setCountry(value); setSaved(false); }}
+      onProvinceChange={(value) => { setProvince(value); setSaved(false); }}
+      onRequirementsChange={setRequirements} />
+    {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+    {saved && <p role="status" className="text-sm text-emerald">Host location saved.</p>}
+    <Button type="submit" disabled={saving || !country || requirements === null || typeof host.version !== "number"}>{saving ? "Saving…" : "Save location"}</Button>
+  </form>;
 }

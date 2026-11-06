@@ -10,12 +10,11 @@ router = APIRouter()
 
 
 @router.get("/api/v2/gpu/available", tags=["GPU"])
-def api_gpu_available(request: Request):
-    """List available GPU types with regions, VRAM, pricing, and counts.
+def api_gpu_available(request: Request, region: str | None = None):
+    """Free physical GPUs on admitted, ready hosts with fresh observations.
 
-    Used by both Serverless and Volumes to populate GPU/region pickers.
-    Queries gpu_offers first, then hosts table. If neither has data,
-    returns an empty list — no fake inventory.
+    Use the same device/allocation snapshot as placement. Provider offers are
+    pricing metadata; they never create devices or override host geography.
     """
     from routes._deps import _require_scope, _get_current_user
 
@@ -24,161 +23,72 @@ def api_gpu_available(request: Request):
         _require_scope(user, "gpu:read")
     try:
         from db import _get_pg_pool
-        from host_metadata import normalize_gpu_model, normalize_region
+        from host_metadata import normalize_gpu_model, normalize_region, require_location
         from psycopg.rows import dict_row
+        from control_plane.scheduler.config import SchedulerConfig
+        from control_plane.scheduler.filters import FilterContext, host_admitted, host_ready
+        from control_plane.scheduler.snapshot import read_fleet
 
-        pool = _get_pg_pool()
-        gpu_map = {}
-        offers_seen = False
-        hosts_seen = False
-
-        def add_gpu(
-            *,
-            gpu_model: str,
-            vram_gb: float,
-            region: str,
-            province: str = "",
-            count_available: int = 0,
-            price_per_hour_cad: float = 0,
-            host_id: str = "",
-        ) -> None:
-            model = normalize_gpu_model(gpu_model)
-            if not model:
-                return
-            province_code = (province or "").upper()
-            normalized_region = normalize_region(
-                region,
-                country="CA" if province_code else "",
-                province=province_code,
+        with _get_pg_pool().connection() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            fleet = read_fleet(
+                conn,
+                host_freshness_timeout_sec=SchedulerConfig.from_env().host_freshness_timeout_sec,
             )
-            key = (model, float(vram_gb or 0), normalized_region, province_code)
-            price = round(float(price_per_hour_cad or 0), 2)
-            existing = gpu_map.get(key)
-            normalized_host_id = str(host_id or "").strip()
-            if existing:
-                host_ids = existing.setdefault("_host_ids", set())
-                if normalized_host_id and normalized_host_id not in host_ids:
-                    existing["count_available"] = int(existing.get("count_available") or 0) + int(
-                        count_available or 0
-                    )
-                    host_ids.add(normalized_host_id)
-                elif not normalized_host_id:
-                    existing["count_available"] = max(
-                        int(existing.get("count_available") or 0),
-                        int(count_available or 0),
-                    )
-                if price > 0:
-                    existing_price = float(existing.get("price_per_hour_cad") or 0)
-                    existing["price_per_hour_cad"] = (
-                        min(existing_price, price) if existing_price > 0 else price
-                    )
-                return
-
-            gpu_map[key] = {
-                "gpu_model": model,
-                "vram_gb": vram_gb,
-                "region": normalized_region,
-                "province": province_code,
-                "count_available": int(count_available or 0),
-                "price_per_hour_cad": price,
-                "_host_ids": {normalized_host_id} if normalized_host_id else set(),
-            }
-
-        from scheduler import (
-            _gpus_active_on_host,
-            _host_gpu_count,
-            list_hosts,
-            list_jobs,
-        )
-
-        hosts_by_id = {h.get("host_id"): h for h in list_hosts(active_only=False)}
-        active_jobs = list_jobs()
-
-        def _host_admitted(host: dict) -> bool:
-            admitted = host.get("admitted", False)
-            if isinstance(admitted, str):
-                return admitted.strip().lower() in ("true", "1", "yes")
-            return bool(admitted)
-
-        def _host_free_slots(host: dict) -> int:
-            host_id = host.get("host_id", "")
-            return max(0, _host_gpu_count(host) - _gpus_active_on_host(active_jobs, host_id))
-
-        try:
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                rows = conn.execute(
-                    """SELECT host_id, gpu_model, vram_gb, region, province,
-                              COUNT(*) FILTER (WHERE available = true) AS count_available,
-                              MIN(ask_cents_per_hour) AS min_price_cents
-                       FROM gpu_offers
-                       GROUP BY host_id, gpu_model, vram_gb, region, province
-                       ORDER BY gpu_model, region""",
+            with conn.cursor(row_factory=dict_row) as cur:
+                offers = cur.execute(
+                    """SELECT host_id, gpu_model, MIN(ask_cents_per_hour) AS price_cents
+                         FROM gpu_offers
+                        WHERE available = true AND gpu_count_available > 0
+                        GROUP BY host_id, gpu_model"""
                 ).fetchall()
-            for r in rows:
-                host = hosts_by_id.get(r.get("host_id") or "")
-                if not host or not _host_admitted(host) or host.get("status") != "active":
-                    continue
-                free_slots = _host_free_slots(host)
-                if free_slots <= 0:
-                    continue
-                offers_seen = True
-                offer_count = int(r.get("count_available") or 0)
-                add_gpu(
-                    gpu_model=r.get("gpu_model", ""),
-                    vram_gb=r.get("vram_gb", 0),
-                    region=r.get("region", ""),
-                    province=r.get("province", ""),
-                    count_available=min(offer_count, free_slots) if offer_count else free_slots,
-                    price_per_hour_cad=(
-                        float(r["min_price_cents"]) / 100 if r.get("min_price_cents") else 0
-                    ),
-                    host_id=str(r.get("host_id") or ""),
-                )
-        except Exception as e:
-            log.debug("gpu_offers query failed (table may not exist): %s", e)
-        try:
-            # Always merge registered hosts. This fills gaps when gpu_offers is
-            # partial or stale, while max-count de-duping avoids double counting
-            # hosts already mirrored into offers.
-            #
-            # We read the enriched host records and filter in Python rather than
-            # doing JSONB casts + GROUP BY in SQL. That avoids three real bugs
-            # that silently dropped admitted hosts from the picker:
-            #   1. `admitted` stored as a JSON boolean (true) vs string ("true")
-            #   2. NULL province/country splitting an otherwise-identical GPU
-            #      into a separate group with a missing key
-            #   3. a missing `total_vram_gb` key making the ::float cast yield NULL
-            # add_gpu() already normalizes model/region and max-count de-dupes.
-            for host in list_hosts(active_only=True):
-                admitted = host.get("admitted", False)
-                if isinstance(admitted, str):
-                    admitted = admitted.strip().lower() in ("true", "1", "yes")
-                if not admitted:
-                    continue
-                hosts_seen = True
-                host_id = host.get("host_id", "")
-                free_slots = max(
-                    0,
-                    _host_gpu_count(host) - _gpus_active_on_host(active_jobs, host_id),
-                )
-                add_gpu(
-                    gpu_model=host.get("gpu_model", ""),
-                    vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
-                    region=host.get("region", ""),
-                    province=host.get("province", "") or "",
-                    count_available=free_slots,
-                    price_per_hour_cad=float(
-                        host.get("cost_per_hour") or host.get("price_per_hour") or 0
-                    ),
-                    host_id=host_id,
-                )
-        except Exception as e:
-            log.debug("hosts GPU availability query failed: %s", e)
 
+        prices = {
+            (str(offer["host_id"]), normalize_gpu_model(offer["gpu_model"])):
+            float(offer["price_cents"] or 0) / 100
+            for offer in offers
+        }
+        ctx = FilterContext(stale_host_ids=fleet.stale_host_ids)
+        requested_region = normalize_region(region, default="") if region else None
+        gpu_map = {}
+        for host in fleet.hosts:
+            if host_admitted({}, host, ctx) or host_ready({}, host, ctx):
+                continue
+            try:
+                location = require_location(
+                    host.get("country", ""), host.get("province", ""), host.get("region", ""),
+                )
+            except ValueError:
+                continue
+            host_region = location["region"]
+            if requested_region is not None and host_region != requested_region:
+                continue
+            province = str(host.get("province") or "").upper()
+            for device in host["gpu_devices"]:
+                if not device["free"]:
+                    continue
+                model = normalize_gpu_model(device["model"])
+                vram_gb = device["total_vram_mb"] / 1024
+                if not model or vram_gb <= 0:
+                    continue
+                key = (model, vram_gb, host_region, province)
+                observed_price = prices.get(
+                    (str(host["host_id"]), model), float(host.get("cost_per_hour") or 0)
+                )
+                gpu = gpu_map.setdefault(key, {
+                    "gpu_model": model, "vram_gb": vram_gb,
+                    "region": host_region, "province": province,
+                    "count_available": 0, "price_per_hour_cad": 0,
+                })
+                gpu["count_available"] += 1
+                current_price = gpu["price_per_hour_cad"]
+                if observed_price > 0:
+                    gpu["price_per_hour_cad"] = round(
+                        min(current_price, observed_price) if current_price > 0 else observed_price, 2
+                    )
         gpus = sorted(
-            [{k: v for k, v in gpu.items() if k != "_host_ids"} for gpu in gpu_map.values()],
-            key=lambda g: (str(g.get("gpu_model") or ""), str(g.get("region") or "")),
+            gpu_map.values(),
+            key=lambda g: (g["gpu_model"], g["region"], g["vram_gb"], g["province"]),
         )
         # A launch charges the imported Stripe Price, so show that starting
         # price where the variant has one. Inventory without a sellable SKU
@@ -194,15 +104,7 @@ def api_gpu_available(request: Request):
                 continue
             gpu["service_tiers_available"] = True
             gpu["price_per_hour_cad"] = micros_to_cad(catalog["base_rate_micros"])
-        if offers_seen and hosts_seen:
-            source = "gpu_offers+hosts"
-        elif offers_seen:
-            source = "gpu_offers"
-        elif hosts_seen:
-            source = "hosts"
-        else:
-            source = "none"
-            log.warning("GPU availability: no GPUs found in gpu_offers or hosts tables")
+        source = "host_gpu_devices" if gpus else "none"
         return {"ok": True, "gpus": gpus, "source": source}
     except Exception as e:
         log.error("GPU availability query failed: %s", e)

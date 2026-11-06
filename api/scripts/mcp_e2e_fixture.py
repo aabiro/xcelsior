@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 import time
@@ -38,15 +39,28 @@ def place(job_id: str, gpu_model: str) -> None:
     }
     pool = _get_pg_pool()
     with pool.connection() as conn:
-        # Explicit fixture authority: provider registration cannot admit a host.
+        owner = conn.execute("SELECT owner_id FROM jobs WHERE job_id=%s", (job_id,)).fetchone()
+        if not owner or not owner[0]:
+            raise RuntimeError("The fixture job must have an admitted owner")
+        # Explicit fixture authority and observed physical inventory. The
+        # production admission path never trusts worker-reported GPU counts.
         conn.execute(
             """
             INSERT INTO hosts (host_id, status, registered_at, payload, admission_state,
-                               administrative_state,availability_state)
-            VALUES (%s, 'active', %s, %s, 'admitted','admitted','ready')
+                               administrative_state,availability_state,owner_id,tenant_id,
+                               country,province,region,capabilities,last_observed_at)
+            VALUES (%s, 'active', %s, %s, 'admitted','admitted','ready',%s,%s,
+                    'CA','ON','ca-on','{"egress_isolation":true,"gpu_uuid_binding":true}',clock_timestamp())
             """,
-            (host_id, time.time(), json.dumps(host)),
+            (host_id, time.time(), json.dumps(host), owner[0], owner[0]),
         )
+        for index in range(2):
+            conn.execute(
+                """INSERT INTO host_gpu_devices(host_id,gpu_uuid,device_index,model,total_vram_mb,
+                    allocatable_vram_mb,health,last_observed_at)
+                    VALUES(%s,%s,%s,%s,24576,24576,'healthy',clock_timestamp())""",
+                (host_id, f"GPU-{host_id}-{index}", index, gpu_model),
+            )
         # The launch job already exists. Pin its requested model to the isolated
         # fixture host so no concurrent CI fleet row can steal this placement.
         conn.execute(
@@ -265,12 +279,29 @@ def cleanup(prefix: str) -> None:
     print(json.dumps({"ok": True, "jobs": len(job_ids)}))
 
 
+def authorize_operator(customer_id: str) -> None:
+    """Elevate only this isolated journey's synthetic operator account."""
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(
+            "UPDATE users SET is_admin=1,role='admin' WHERE customer_id=%s "
+            "AND email LIKE 'mcp-sdk-e2e-%%@example.test' RETURNING user_id",
+            (customer_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Operator fixture requires the synthetic MCP test account")
+    print(json.dumps({"ok": True}))
+
+
 def main() -> None:
+    if os.environ.get("XCELSIOR_ENV") != "test":
+        raise RuntimeError("MCP fixtures require an explicit test environment")
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     place_parser = sub.add_parser("place")
     place_parser.add_argument("job_id")
     place_parser.add_argument("gpu_model")
+    operator_parser = sub.add_parser("authorize-operator")
+    operator_parser.add_argument("customer_id")
     expire_parser = sub.add_parser("expire")
     expire_parser.add_argument("plan_id")
     host_version_parser = sub.add_parser("host-version")
@@ -281,7 +312,9 @@ def main() -> None:
     cleanup_parser = sub.add_parser("cleanup")
     cleanup_parser.add_argument("prefix")
     args = parser.parse_args()
-    if args.command == "place":
+    if args.command == "authorize-operator":
+        authorize_operator(args.customer_id)
+    elif args.command == "place":
         place(args.job_id, args.gpu_model)
     elif args.command == "expire":
         expire(args.plan_id)
@@ -296,4 +329,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        import db
+        if db._pg_pool is not None:
+            db._pg_pool.close()
