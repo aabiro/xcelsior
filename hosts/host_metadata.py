@@ -182,11 +182,18 @@ def enrich_host_for_api(host: dict[str, Any]) -> dict[str, Any]:
 
     try:
         import pycountry
-        location = require_location(str(out.get("country") or ""), str(out.get("province") or ""), str(out.get("region") or ""))
+
+        location = require_location(
+            str(out.get("country") or ""),
+            str(out.get("province") or ""),
+            str(out.get("region") or ""),
+        )
         country = pycountry.countries.get(alpha_2=location["country"])
         subdivision = pycountry.subdivisions.get(code=location["region"].upper())
         out["location_complete"] = True
-        out["location_label"] = ", ".join(item.name for item in (subdivision,country) if item is not None)
+        out["location_label"] = ", ".join(
+            item.name for item in (subdivision, country) if item is not None
+        )
     except ValueError:
         out["location_complete"] = False
         out["location_label"] = ""
@@ -295,15 +302,23 @@ def location_catalog(country: str = "") -> dict:
     country_code = str(country or "").strip().upper()
     if country_code and pycountry.countries.get(alpha_2=country_code) is None:
         raise ValueError("Select a valid country")
-    subdivisions = sorted(
-        ({"code": s.code.split("-", 1)[1], "region": s.code.lower(), "name": s.name}
-         for s in pycountry.subdivisions.get(country_code=country_code) or []),
-        key=lambda s: (s["name"], s["code"]),
-    ) if country_code else []
-    return {"countries": countries, "subdivisions": subdivisions,
-            "requires_subdivision": bool(subdivisions),
-            "required_address_fields": address_required_fields(country_code) if country_code else []}
-
+    subdivisions = (
+        sorted(
+            (
+                {"code": s.code.split("-", 1)[1], "region": s.code.lower(), "name": s.name}
+                for s in pycountry.subdivisions.get(country_code=country_code) or []
+            ),
+            key=lambda s: (s["name"], s["code"]),
+        )
+        if country_code
+        else []
+    )
+    return {
+        "countries": countries,
+        "subdivisions": subdivisions,
+        "requires_subdivision": bool(subdivisions),
+        "required_address_fields": address_required_fields(country_code) if country_code else [],
+    }
 
 
 def require_location(country: str, province: str = "", region: str = "") -> dict[str, str]:
@@ -341,7 +356,6 @@ def require_location(country: str, province: str = "", region: str = "") -> dict
     return {"country": country_code, "province": value, "region": canonical_region}
 
 
-
 def address_required_fields(country: str) -> list[str]:
     """Country-specific postal requirements from packaged address metadata."""
     from i18naddress import get_validation_rules
@@ -355,11 +369,17 @@ def profile_address_values(profile: dict[str, Any]) -> tuple[dict[str, str], lis
     """Validate manual and captured addresses with the same country rules."""
     from i18naddress import get_validation_rules
 
-    location = require_location(str(profile.get("country") or ""), str(profile.get("province") or ""))
-    cleaned = {key: " ".join(str(profile.get(key) or "").split())
-               for key in ("address_line1", "address_line2", "city", "postal_code")}
+    location = require_location(
+        str(profile.get("country") or ""), str(profile.get("province") or "")
+    )
+    cleaned = {
+        key: " ".join(str(profile.get(key) or "").split())
+        for key in ("address_line1", "address_line2", "city", "postal_code")
+    }
     cleaned["postal_code"] = cleaned["postal_code"].upper()
-    rules = get_validation_rules({"country_code": location["country"], "country_area": location["province"]})
+    rules = get_validation_rules(
+        {"country_code": location["country"], "country_area": location["province"]}
+    )
     errors = [key for key in address_required_fields(location["country"]) if not cleaned[key]]
     postal = cleaned["postal_code"]
     if postal and any(not matcher.match(postal) for matcher in rules.postal_code_matchers):
@@ -371,6 +391,7 @@ def profile_address_values(profile: dict[str, Any]) -> tuple[dict[str, str], lis
     if len(postal) > 32:
         errors.append("postal_code")
     return {**location, **cleaned}, list(dict.fromkeys(errors))
+
 
 def profile_missing_fields(profile: dict[str, Any]) -> list[str]:
     """Required account data is checked from stored values, never UI preferences."""
@@ -385,12 +406,17 @@ def profile_missing_fields(profile: dict[str, Any]) -> list[str]:
         import pycountry
 
         country_code = str(profile.get("country") or "").strip().upper()
-        missing.append("country" if pycountry.countries.get(alpha_2=country_code) is None else "province")
+        missing.append(
+            "country" if pycountry.countries.get(alpha_2=country_code) is None else "province"
+        )
     if profile.get("account_type") not in {"individual", "business"}:
         missing.append("account_type")
     if profile.get("onboarding_intent") not in {"rent", "provide", "both"}:
         missing.append("onboarding_intent")
-    if profile.get("account_type") == "business" and not str(profile.get("business_name") or "").strip():
+    if (
+        profile.get("account_type") == "business"
+        and not str(profile.get("business_name") or "").strip()
+    ):
         missing.append("business_name")
     try:
         _, address_errors = profile_address_values(profile)
