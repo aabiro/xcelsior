@@ -9,6 +9,8 @@ This kit builds a two-node Slurm cluster on hardware you already own. It then dr
 | `README.md` | This plan: steps, what changes on each machine, rollback, risks |
 | `CHECKLIST.md` | Pass/fail checklist for every check and test case |
 | `RESULTS_TEMPLATE.md` | Short results report to attach to the SHARCNET proposal |
+| `RESULTS_2026-11-07.md`, `CHECKLIST_RESULTS_2026-11-07.md` | The filled report and checklist from the real run |
+| `evidence/r1107050537/` | That run's results.json, pod listing and job outputs |
 | `conf/slurm.conf`, `gres.conf`, `cgroup.conf` | The cluster configuration |
 | `conf/slurmdbd.conf.template`, `mariadb-xcl-slurm.cnf` | Accounting (needed for metering) |
 | `conf/xcelsior-profiles.json` | The adapter profile `xcl-local` |
@@ -59,6 +61,7 @@ Every item below is written to `/var/lib/xcl-slurm-test/manifest` as it happens.
 - Files: `/etc/slurm/{slurm,gres,cgroup,slurmdbd}.conf`, `/etc/munge/munge.key`, `/etc/mysql/mariadb.conf.d/90-xcl-slurm.cnf` and `/usr/local/libexec/xcl-slurm-gate`.
 - Directories: `/var/spool/slurmctld`, `/var/spool/slurmd`, `/var/log/slurm`, `/var/lib/xcl-slurm-test/jobs` (job output) and MariaDB's `/var/lib/mariadb`.
 - One line in `~aaryn/.ssh/authorized_keys`, marked `xcl-slurm-adapter`. That key can only run the gate, and only from 100.64.0.6.
+- A copy of this kit at `~/xcl-slurm-kit`, because the tower has no repo checkout. It is not in the manifest; delete it after rollback.
 - Services: munge, mariadb, slurmdbd, slurmctld and slurmd. They are **disabled at boot** by default, so a reboot returns the tower to its pre-cluster state. `40-start.sh tower` brings them back.
 - Not changed: Docker and its containers, the GitHub Actions runners, the NVIDIA driver and ufw. MariaDB opens no TCP port; `skip-networking` is set because mempool-db already uses 3306 inside Docker. Preflight snapshots every container's ID, state, restart count and start time, plus the runner units. V-12 proves they are unchanged.
 
@@ -69,6 +72,7 @@ Every item below is written to `/var/lib/xcl-slurm-test/manifest` as it happens.
 - Directories: `/var/spool/slurmd`, `/var/log/slurm` and `/var/lib/xcl-slurm-test/jobs`.
 - One ufw rule: `allow in on tailscale0 from 100.64.0.4 to any port 6818 proto tcp`.
 - Services: munge and slurmd, disabled at boot.
+- The adapter's client side (`adapter-client` step): `~/.ssh/xcl_slurm_adapter` and its `.pub`, plus `~/.ssh/xcl_slurm_adapter.conf`, an ssh config used only by the adapter through `-F`. Your `~/.ssh/config` is never edited.
 
 ## Step 0: rehearse in containers (on the ASUS, ~6 minutes)
 
@@ -88,6 +92,13 @@ Deviations from the real cluster, and only these:
 - the GPU is the host's (RTX 2060 on the ASUS), so its type token replaces `rtx_3060`;
 - SSH arrives on 127.0.0.1:22022.
 
+**Real-hardware record, 2026-11-07 (run `r1107050537`):** V-1 to V-12 all passed, V-6 and V-12 included. All 24 suite cases passed, SYNC-1 included. Docker containers and runners were unchanged after install and again after the suite. The real run found three kit defects, all fixed:
+- `ldconfig -p | grep -q` failed under pipefail through SIGPIPE;
+- V-12's snapshot came out empty because of `fs.protected_regular`;
+- a `~/.ssh/config` alias let a `Host *` key bypass the restricted key.
+
+The cluster was left running, with services disabled at boot. Results are in `RESULTS_2026-11-07.md`.
+
 **Rehearsal record, 2026-11-07:** V-1 to V-11 passed. V-6 was skipped because it needs sudo inside the container. All 24 suite cases passed, including the optional SYNC-1 against the pytest database. Install followed by rollback left the package set identical to pre-install, with no users, files, directories or daemons left. The rehearsal found three real defects, all now fixed:
 - plain `scancel` exits 0 silently for unknown ids;
 - the munge key and MariaDB's `/var/lib/mariadb` and `mysql` user would have survived rollback;
@@ -96,10 +107,13 @@ Deviations from the real cluster, and only these:
 ## Step 1: install the tower
 
 ```bash
-# on the tower, from a checkout of this repo
-cd hpc/slurm-local/scripts
+# from the ASUS: the tower has no repo checkout, so copy the kit over
+rsync -a --exclude rehearsal/.work --exclude results hpc/slurm-local/ aaryn@100.64.0.4:~/xcl-slurm-kit/
+
+# on the tower
+cd ~/xcl-slurm-kit/scripts
 sudo ./10-install-tower.sh preflight      # read-only checks + Docker/runner snapshot; changes nothing
-sudo ./10-install-tower.sh all            # preflight users packages configure db services
+sudo ./10-install-tower.sh all > ~/xcl-install-tower.log 2>&1   # log to a file; never pipe apt into head
 ```
 
 Expect `tower services up; boot autostart: off`. If any step fails, fix the cause and re-run `all`. Every step is idempotent.
@@ -119,7 +133,7 @@ The munge key is fetched over SSH with your normal key, as `aaryn@100.64.0.4`, u
 
 ```bash
 # on the tower, as aaryn (not root)
-./30-verify-cluster.sh
+cd ~/xcl-slurm-kit/scripts && ./30-verify-cluster.sh
 ```
 
 All of V-1 to V-12 must pass. Together they show:
@@ -136,22 +150,18 @@ The adapter is not involved yet, so a later adapter failure is the adapter's.
 
 ```bash
 # on the ASUS
-ssh-keygen -t ed25519 -N '' -C xcl-slurm-adapter -f ~/.ssh/xcl_slurm_adapter
-scp ~/.ssh/xcl_slurm_adapter.pub aaryn@100.64.0.4:/tmp/
-ssh aaryn@100.64.0.4 'cd ~/path/to/xcelsior/hpc/slurm-local/scripts && sudo ./10-install-tower.sh authorize-adapter-key /tmp/xcl_slurm_adapter.pub'
-
-cat >> ~/.ssh/config <<'CFG'
-Host xcl-tower
-    HostName 100.64.0.4
-    User aaryn
-    IdentityFile ~/.ssh/xcl_slurm_adapter
-    IdentitiesOnly yes
-    RequestTTY no
-CFG
-
-ssh xcl-tower sinfo --version     # allowed: prints "slurm 25.11.2"
-ssh xcl-tower id                  # refused: "xcl-slurm-gate: refused: command 'id' not allowed"
+sudo ./20-install-asus.sh adapter-client
+ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower sinfo --version   # allowed: "slurm-wlm 25.11.2"
+ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower id                # refused: "xcl-slurm-gate: refused: command 'id' not allowed"
 ```
+
+The step does four things, all recorded:
+1. It creates a key used for nothing else.
+2. It writes a dedicated ssh config, used through `-F`.
+3. It authorises the key on the tower as `restrict,from="100.64.0.6",command="/usr/local/libexec/xcl-slurm-gate"`.
+4. It refuses to finish unless `sinfo` works and `id` is refused.
+
+The adapter profile passes the same `-F` file. **Do not add an alias to `~/.ssh/config` instead.** IdentityFile entries accumulate across every matching Host block, so a `Host *` key is offered first. On the real run, the tower accepted that unrestricted key and `id` ran.
 
 The gate allows only these command shapes:
 - `sinfo`, `squeue` and `sacct`;

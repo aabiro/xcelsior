@@ -17,12 +17,12 @@ step_preflight() {
     chk() { if eval "$2"; then xcl_log "ok   $1"; else xcl_log "FAIL $1"; fail=1; fi; }
     chk "hostname is tower" '[[ "$(hostname -s)" == tower ]] || [[ "$XCL_NO_SYSTEMD" == 1 ]]'
     chk "Ubuntu 26.04" 'grep -q "VERSION_ID=\"26.04\"" /etc/os-release'
-    chk "tailnet address $TOWER_ADDR present" 'ip -4 -o addr | grep -q " $TOWER_ADDR/"'
+    chk "tailnet address $TOWER_ADDR present" 'ip -4 -o addr | grep " $TOWER_ADDR/" >/dev/null'
     chk "cgroup v2" '[[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]]'
-    chk "nvidia-smi sees a GPU" 'nvidia-smi -L | grep -q "^GPU 0"'
-    chk "libnvidia-ml.so.1 present" 'ldconfig -p | grep -q libnvidia-ml.so.1'
-    chk "ports 6817-6819 free" '! ss -ltnH | awk "{print \$4}" | grep -Eq ":(6817|6818|6819)$"'
-    chk "clock NTP-synchronised (munge TTL)" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || timedatectl show -p NTPSynchronized --value | grep -qx yes'
+    chk "nvidia-smi sees a GPU" 'nvidia-smi -L | grep "^GPU 0" >/dev/null'
+    chk "libnvidia-ml.so.1 present" 'ldconfig -p | grep libnvidia-ml.so.1 >/dev/null'
+    chk "ports 6817-6819 free" '! ss -ltnH | awk "{print \$4}" | grep -E ":(6817|6818|6819)$" >/dev/null'
+    chk "clock NTP-synchronised (munge TTL)" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || timedatectl show -p NTPSynchronized --value | grep -x yes >/dev/null'
     chk ">= 3 GB free on /" '[[ $(df --output=avail -k / | tail -1) -gt 3000000 ]]'
     chk "uid/gid $SLURM_UID free or already slurm" '! getent passwd $SLURM_UID >/dev/null || [[ "$(getent passwd $SLURM_UID | cut -d: -f1)" == slurm ]]'
     chk "uid/gid $MUNGE_UID free or already munge" '! getent passwd $MUNGE_UID >/dev/null || [[ "$(getent passwd $MUNGE_UID | cut -d: -f1)" == munge ]]'
@@ -114,7 +114,7 @@ SQL
 
 # The cluster must exist in slurmdbd before slurmctld first registers.
 register_cluster() {
-    sacctmgr -n show cluster format=cluster | grep -qw xcl-local || sacctmgr -i add cluster xcl-local
+    sacctmgr -n show cluster format=cluster | grep -w xcl-local >/dev/null || sacctmgr -i add cluster xcl-local
 }
 
 step_services() {

@@ -46,22 +46,25 @@ check "V-5 scontrol: $CPU_NODE has no GPU" \
 check "V-6 slurmd -G: NVML detected type $EXPECT_TYPE + /dev/nvidia0" \
     "if ! sudo -n true 2>/dev/null; then echo 'needs passwordless sudo'; exit 3; fi; sudo -n slurmd -G 2>&1 | grep -E 'Name=gpu Type=$EXPECT_TYPE Count=1 .*File=/dev/nvidia0'"
 check "V-7 srun GPU step sees exactly 1 GPU ($EXPECT_GPU)" \
-    "srun -p xcl --gres=gpu:1 -t 1 nvidia-smi -L | tee /dev/stderr | grep -c '^GPU ' | grep -qx 1 && srun -p xcl --gres=gpu:1 -t 1 nvidia-smi -L | grep -q '$EXPECT_GPU'"
+    "srun --chdir=/tmp -p xcl --gres=gpu:1 -t 1 nvidia-smi -L | tee /dev/stderr | grep -c '^GPU ' | grep -qx 1 && srun --chdir=/tmp -p xcl --gres=gpu:1 -t 1 nvidia-smi -L | grep -q '$EXPECT_GPU'"
 check "V-8 srun without GRES on $GPU_NODE sees no GPU (ConstrainDevices)" \
-    "! srun -p xcl -w $GPU_NODE -t 1 nvidia-smi -L 2>&1 | grep -q '^GPU '"
+    "! srun --chdir=/tmp -p xcl -w $GPU_NODE -t 1 nvidia-smi -L 2>&1 | grep -q '^GPU '"
 check "V-9 srun on $CPU_NODE runs" \
-    "srun -p xcl -w $CPU_NODE -t 1 hostname"
+    "srun --chdir=/tmp -p xcl -w $CPU_NODE -t 1 hostname"
 check "V-10 sacctmgr: cluster xcl-local registered" \
     "sacctmgr -n show cluster format=cluster | grep -qw xcl-local"
 check "V-11 sacct records jobs with epoch times" \
     "SLURM_TIME_FORMAT=%s sacct -X -n -S now-1hour -o JobID,State,Start,End,AllocTRES --parsable2 | tail -3 | tee /dev/stderr | grep -Eq '\|[0-9]{10}\|[0-9]{10}\|'"
 
 if [[ -r "${XCL_STATE:-/var/lib/xcl-slurm-test}/untouchables.before" ]] && command -v docker >/dev/null; then
-    after="$(mktemp)"
-    sudo -n bash -c "source '$(dirname "${BASH_SOURCE[0]}")/lib.sh'; xcl_snapshot_untouchables '$after'"
+    # root creates the file it writes: with fs.protected_regular (Ubuntu's
+    # default) root may not write a file another user owns in /tmp, and the
+    # snapshot silently came out empty.
+    after="$(sudo -n mktemp)"
+    sudo -n bash -c "source '$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh'; xcl_snapshot_untouchables '$after'"
     check "V-12 Docker containers + runners unchanged since preflight" \
-        "diff <(sudo -n cat '${XCL_STATE:-/var/lib/xcl-slurm-test}/untouchables.before') '$after'"
-    rm -f "$after"
+        "sudo -n test -s '$after' && sudo -n diff '${XCL_STATE:-/var/lib/xcl-slurm-test}/untouchables.before' '$after'"
+    sudo -n rm -f "$after"
 fi
 
 echo

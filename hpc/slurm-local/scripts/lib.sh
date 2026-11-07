@@ -4,9 +4,12 @@
 # Every change to the machine is appended to $XCL_MANIFEST as one line,
 # "<kind> <value>", so 90-rollback.sh can undo exactly what was done and
 # nothing else. Kinds: user, pkg, file, dir, backup, ufw, authkey, service,
-# leftover (package-created paths removed after the purge).
+# leftover (package-created paths removed after the purge), sshconfig.
 
 set -euo pipefail
+# NB: never pipe a long output into "grep -q" here: grep exits at the first
+# match, the writer gets SIGPIPE, and pipefail turns a match into a failure
+# (found on the real tower: "ldconfig -p | grep -q" failed with the lib present).
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF_DIR="$KIT_DIR/conf"
