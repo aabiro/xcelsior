@@ -3088,8 +3088,13 @@ export interface components {
         SlurmSubmitIn: {
             /** Name */
             name: string;
-            /** Vram Needed Gb */
+            /**
+             * Vram Needed Gb
+             * @default 0
+             */
             vram_needed_gb: number;
+            /** Num Gpus */
+            num_gpus?: number | null;
             /**
              * Priority
              * @default 0
@@ -3098,15 +3103,16 @@ export interface components {
             /** Tier */
             tier?: string | null;
             /**
-             * Num Gpus
-             * @default 1
-             */
-            num_gpus: number;
-            /**
              * Image
              * @default
              */
             image: string;
+            /** Command */
+            command?: string | null;
+            /** Walltime */
+            walltime?: string | null;
+            /** Nodelist */
+            nodelist?: string | null;
             /** Profile */
             profile?: string | null;
             /**
