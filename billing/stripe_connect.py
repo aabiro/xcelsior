@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Optional, cast
 
-from money import cad_to_micros
+from money import cad_to_micros, cad_to_minor
 from seller_identity import (
     SellerProfileRequired,
     normalize_seller_profile,
@@ -1041,7 +1041,7 @@ class StripeConnectManager:
         import secrets
 
         intent_id = f"pi_{secrets.token_hex(12)}"
-        credit_cents = int(round(float(amount_cad) * 100))
+        credit_cents = cad_to_minor(amount_cad)
         credit_cad = round(credit_cents / 100.0, 2)
         # Dashboard-facing description — keep human-readable like historical deposits.
         pi_description = (description or "").strip() or "Compute credits"
@@ -1059,9 +1059,9 @@ class StripeConnectManager:
         }
 
         if STRIPE_ENABLED and stripe:
-            try:
-                from stripe_tax import calculate_wallet_deposit_tax
+            from stripe_tax import calculate_wallet_deposit_tax, TaxCalculationUnavailable
 
+            try:
                 tax_info = calculate_wallet_deposit_tax(
                     amount_cents=credit_cents,
                     address=address,
@@ -1125,6 +1125,8 @@ class StripeConnectManager:
                 pi = stripe.PaymentIntent.create(**pi_kwargs)
                 stripe_intent_id = pi.id
                 client_secret = pi.client_secret
+            except TaxCalculationUnavailable:
+                raise
             except Exception as e:
                 log.error("Stripe PaymentIntent failed: %s", e)
                 raise RuntimeError(f"Failed to create payment intent: {e}") from e

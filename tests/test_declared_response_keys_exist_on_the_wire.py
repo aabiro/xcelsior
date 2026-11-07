@@ -38,6 +38,8 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import time
+import uuid
 
 import pytest
 
@@ -140,6 +142,51 @@ PROBEABLE = sorted(
 )
 
 
+@pytest.fixture
+def wire_identity(monkeypatch):
+    """Real persisted identities for the lifecycle a protected route requires."""
+    import api as api_module
+    import routes._deps as deps
+    import routes.auth as auth
+    from db import MfaStore, UserStore
+
+    for module in (api_module, deps, auth):
+        monkeypatch.setattr(module, "_USE_PERSISTENT_AUTH", True)
+    opened = []
+
+    def create(kind="user"):
+        signed_in = TestClient(app)
+        opened.append(signed_in)
+        email = f"wire-{uuid.uuid4().hex}@example.test"
+        password = "Wire-Contract-2026!"
+        registered = signed_in.post(
+            "/api/auth/register",
+            json={"email": email, "password": password, "name": "Wire Contract"},
+        )
+        assert registered.status_code == 200, registered.text
+        if kind == "admin":
+            # Administrative identity is fixture data in the disposable DB,
+            # never a public registration option or a patched runtime guard.
+            UserStore.update_user(email, {"is_admin": True, "role": "admin"})
+        login = signed_in.post("/api/auth/login", json={"email": email, "password": password})
+        assert login.status_code == 200, login.text
+        if kind == "pending_mfa":
+            MfaStore.create_method(
+                {"email": email, "method_type": "totp", "enabled": 1, "secret": "JBSWY3DPEHPK3PXP"}
+            )
+            challenge_id = uuid.uuid4().hex
+            MfaStore.create_challenge(
+                {"challenge_id": challenge_id, "email": email, "expires_at": time.time() + 120}
+            )
+            signed_in.cookies.clear()
+            signed_in.cookies.set(deps._MFA_CHALLENGE_COOKIE, challenge_id)
+        return signed_in
+
+    yield create
+    for signed_in in opened:
+        signed_in.close()
+
+
 def test_the_scan_finds_paths_to_probe():
     """Calibration — an empty list would satisfy every assertion below."""
     # 46 at the time of writing, from 51 declared parameterless GETs. A floor
@@ -150,16 +197,16 @@ def test_the_scan_finds_paths_to_probe():
 
 
 @pytest.mark.parametrize("path", PROBEABLE)
-def test_every_declared_top_level_key_exists_in_the_response(path):
+def test_every_declared_top_level_key_exists_in_the_response(path, wire_identity):
     response = client.get(path)
-    if response.status_code != 200:
-        pytest.skip(f"{path} answered {response.status_code} for an unauthenticated probe")
-    try:
-        body = response.json()
-    except ValueError:
-        pytest.skip(f"{path} is not JSON")
-    if not isinstance(body, dict):
-        pytest.skip(f"{path} returns a {type(body).__name__}, not an object")
+    if response.status_code in (401, 403):
+        kind = {"/api/auth/mfa/pending": "pending_mfa", "/api/telemetry/all": "admin"}.get(
+            path, "user"
+        )
+        response = wire_identity(kind).get(path)
+    assert response.status_code == 200, f"{path}: {response.status_code} {response.text[:300]}"
+    body = response.json()
+    assert isinstance(body, dict), f"{path} declares an object but returns {type(body).__name__}"
 
     missing = {
         key for key in DECLARED[path] if key not in body and (path, key) not in ALLOWED_ABSENT

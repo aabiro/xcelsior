@@ -89,7 +89,9 @@ PROVINCE_TAX_RATES = {
     "MB": (0.12, "GST 5% + RST 7%"),
     "NB": (0.15, "HST 15%"),
     "NL": (0.15, "HST 15%"),
-    "NS": (0.15, "HST 15%"),
+    # CRA: Nova Scotia HST decreased to 14% on April 1, 2025.
+    # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate/calculator.html
+    "NS": (0.14, "HST 14%"),
     "NT": (0.05, "GST 5% (no PST)"),
     "NU": (0.05, "GST 5% (no PST)"),
     "ON": (0.13, "HST 13%"),
@@ -704,8 +706,8 @@ class BillingEngine:
         customer_name: str,
         period_start: float,
         period_end: float,
-        tax_rate: Optional[float] = None,  # None = auto-detect by province
-        customer_province: str = "ON",  # Used for tax rate lookup
+        tax_rate: Optional[float] = 0.0,  # Usage spends pretax wallet credit.
+        customer_province: str = "",  # Only used for an explicit tax calculation.
         *,
         persist: bool = True,
     ) -> Invoice:
@@ -719,6 +721,10 @@ class BillingEngine:
         Read endpoints use persist=False to preview without issuing records.
         """
         if tax_rate is None:
+            if customer_province.strip().upper() not in PROVINCE_TAX_RATES:
+                raise ValueError(
+                    "A valid Canadian province is required for a provincial tax calculation"
+                )
             tax_rate, _desc = get_tax_rate_for_province(customer_province)
         if not (
             math.isfinite(period_start)
@@ -728,6 +734,9 @@ class BillingEngine:
             raise ValueError("Invoice period must have finite, increasing timestamps")
         if not math.isfinite(tax_rate) or not 0 <= tax_rate <= 1:
             raise ValueError("Invoice tax rate must be between zero and one")
+        # Numeric spellings (0, 0.0, -0.0) represent the same statement and
+        # must not produce different deterministic preview identifiers.
+        tax_rate = 0.0 if tax_rate == 0 else float(tax_rate)
 
         line_items: list[dict] = []
         subtotal_micros = 0

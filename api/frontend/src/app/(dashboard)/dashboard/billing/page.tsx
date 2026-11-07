@@ -540,7 +540,6 @@ export default function BillingPage() {
         customerId, "csv",
         inv.period_start,
         inv.period_end,
-        inv.tax_rate,
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -1476,7 +1475,7 @@ export default function BillingPage() {
                             {new Date(inv.period_start * 1000).toLocaleDateString("en-CA", { year: "numeric", month: "short", timeZone: "UTC" })}
                           </p>
                           <p className="text-xs text-text-muted">
-                            {inv.line_items} item{inv.line_items !== 1 ? "s" : ""} · Tax {(inv.tax_rate * 100).toFixed(1)}%
+                            {inv.line_items} item{inv.line_items !== 1 ? "s" : ""} · {t("dash.billing.pretax_credits")}
                           </p>
                         </div>
                       </div>

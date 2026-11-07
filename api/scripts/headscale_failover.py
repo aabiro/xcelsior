@@ -21,6 +21,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import urllib.error
@@ -169,10 +170,22 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _is_file(path: Path) -> bool:
+    """Only a missing file is absence; propagate permission failures.
+
+    Python 3.14's Path.is_file suppresses OSError, including EACCES. Critical
+    state cannot be treated as missing just because this caller cannot read it.
+    """
+    try:
+        return stat.S_ISREG(path.stat().st_mode)
+    except FileNotFoundError:
+        return False
+
+
 def read_dotenv_values(path: Path) -> dict[str, str]:
     """Parse KEY=VAL lines without executing the file."""
     values: dict[str, str] = {}
-    if not path.is_file():
+    if not _is_file(path):
         return values
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
@@ -245,7 +258,7 @@ def default_ssh_key(environ: Mapping[str, str] | None = None) -> str:
     candidates.append(Path.home() / ".ssh" / "id_ed25519")
     candidates.append(Path("/home/aaryn/.ssh/id_ed25519"))
     for candidate in candidates:
-        if candidate.is_file():
+        if _is_file(candidate):
             return str(candidate)
     return str(candidates[0])
 
@@ -306,7 +319,7 @@ def settings_from_env(
 
 
 def sqlite_counts(path: Path) -> tuple[int, int]:
-    if not path.is_file() or path.stat().st_size == 0:
+    if not _is_file(path) or path.stat().st_size == 0:
         return 0, 0
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
@@ -334,15 +347,15 @@ def inspect_replica(replica_dir: Path) -> ReplicaStatus:
     users, nodes = sqlite_counts(sqlite_path)
     replicated_at = None
     primary_headscale = ""
-    if meta_path.is_file():
+    if _is_file(meta_path):
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             replicated_at = meta.get("replicated_at")
             primary_headscale = meta.get("primary_headscale") or ""
         except (OSError, json.JSONDecodeError):
             replicated_at = None
-    has_noise = noise_key_path.is_file() and noise_key_path.stat().st_size > 0
-    if not sqlite_path.is_file():
+    has_noise = _is_file(noise_key_path) and noise_key_path.stat().st_size > 0
+    if not _is_file(sqlite_path):
         reason = "no replicated sqlite database"
         promotable = False
     elif users == 0 or nodes == 0:
@@ -374,13 +387,23 @@ def node_label(count: int) -> str:
 
 
 def load_state(path: Path) -> FailoverState:
-    if not path.is_file():
+    if not _is_file(path):
         return FailoverState()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return FailoverState()
+    except PermissionError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FailoverError(f"Cannot read valid failover state from {path}") from exc
+    if not isinstance(raw, dict) or raw.get("role") not in {"standby", "promoted"}:
+        raise FailoverError(f"Invalid failover state role in {path}")
     allowed = {f.name for f in FailoverState.__dataclass_fields__.values()}
+    defaults = FailoverState()
+    for key in allowed & raw.keys():
+        if type(raw[key]) is not type(getattr(defaults, key)):
+            raise FailoverError(f"Invalid failover state field {key} in {path}")
+    if any(raw.get(key, 0) < 0 for key in ("consecutive_failures", "consecutive_primary_ip_ok")):
+        raise FailoverError(f"Invalid failover counters in {path}")
     return FailoverState(**{k: v for k, v in raw.items() if k in allowed})
 
 
@@ -1667,8 +1690,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    settings = settings_from_env()
     try:
+        settings = settings_from_env()
         if args.command in {"health", "status", "decide"}:
             payload = status_payload(settings)
             if args.as_json or args.command != "decide":

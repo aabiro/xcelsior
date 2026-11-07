@@ -1147,14 +1147,12 @@ export async function downloadInvoice(
   format: "csv" | "txt",
   periodStart: number,
   periodEnd: number,
-  taxRate = 0.13,
   customerName = "",
 ) {
   const qs = new URLSearchParams({
     format,
     period_start: String(periodStart),
     period_end: String(periodEnd),
-    tax_rate: String(taxRate),
     customer_name: customerName,
   }).toString();
   const res = await fetch(
@@ -1491,7 +1489,7 @@ export async function searchMarketplace(params: Record<string, string>) {
 
 // ── Telemetry ─────────────────────────────────────────────────────────
 export async function fetchTelemetry() {
-  return apiFetch<{ ok: boolean; telemetry: Record<string, TelemetryData> }>(
+  return apiFetch<{ ok: boolean; hosts: Record<string, TelemetrySnapshot>; count: number }>(
     "/api/telemetry/all",
   );
 }
@@ -1939,7 +1937,6 @@ export async function fetchPricingRates(params: {
   mode?: string;
   priority?: string;
   num_gpus?: number;
-  province?: string;
   service_tier_price_id?: string;
   gpu_exclusive_price_id?: string;
   queue_bid_units?: number;
@@ -1953,7 +1950,6 @@ export async function fetchPricingRates(params: {
     priority: params.priority || "normal",
     num_gpus: String(params.num_gpus || 1),
   });
-  if (params.province) qs.set("province", params.province);
   if (params.vram_gb) qs.set("vram_gb", String(params.vram_gb));
   if (params.service_tier_price_id) qs.set("service_tier_price_id", params.service_tier_price_id);
   if (params.gpu_exclusive_price_id) qs.set("gpu_exclusive_price_id", params.gpu_exclusive_price_id);
@@ -1974,11 +1970,11 @@ export async function fetchPricingRates(params: {
     multi_gpu_discount: number;
     effective_rate_per_gpu: number;
     total_per_hour: number;
-    province: string;
-    tax_rate: number;
+    tax_collection: "credit_deposit";
+    tax_rate: null;
     tax_description: string;
-    tax_amount: number;
-    total_with_tax: number;
+    tax_amount: null;
+    total_with_tax: null;
   }>(`/api/pricing/rates?${qs.toString()}`);
 }
 
@@ -2185,21 +2181,6 @@ export async function regenerateBackupCodes() {
 
 export async function disableAllMfa() {
   return apiFetch<{ ok: boolean }>("/api/auth/mfa/all", { method: "DELETE" });
-}
-
-// ── API Keys ──────────────────────────────────────────────────────────
-export async function generateApiKey(name: string, scope: "full-access" | "read-only" = "full-access") {
-  return apiFetch<{ ok: boolean; key: string; name: string; scope: string; preview: string }>(
-    "/api/keys/generate", { method: "POST", body: JSON.stringify({ name, scope }) },
-  );
-}
-
-export async function fetchApiKeys() {
-  return apiFetch<{ ok: boolean; keys: ApiKeyInfo[] }>("/api/keys");
-}
-
-export async function revokeApiKey(keyPreview: string) {
-  return apiFetch<{ ok: boolean }>(`/api/keys/${encodeURIComponent(keyPreview)}`, { method: "DELETE" });
 }
 
 // ── OAuth Clients ─────────────────────────────────────────────────────
@@ -3264,23 +3245,25 @@ export interface MarketplaceListing {
   reputation_score?: number;
 }
 
+export interface TelemetrySnapshot {
+  timestamp: number;
+  received_at: number;
+  stale: boolean;
+  metrics: Record<string, unknown>;
+}
+
 export interface TelemetryData {
-  gpu_utilization_pct: number;
-  gpu_util?: number;
-  gpu_temp_c: number;
-  temperature?: number;
-  gpu_memory_used_mb: number;
-  mem_used_mb?: number;
-  gpu_memory_total_mb: number;
-  gpu_power_draw_w: number;
-  power_draw_w?: number;
-  ecc_errors: number;
-  timestamp: string;
-  // P2.4: network + disk bandwidth (optional, older agents won't ship these)
-  net_rx_mbps?: number;
-  net_tx_mbps?: number;
-  disk_read_mb_s?: number;
-  disk_write_mb_s?: number;
+  utilization: number | null;
+  temp: number | null;
+  memory_used_gb: number | null;
+  memory_total_gb: number | null;
+  power_draw_w: number | null;
+  active_jobs: number | null;
+  net_rx_mbps: number | null;
+  net_tx_mbps: number | null;
+  disk_read_mb_s: number | null;
+  disk_write_mb_s: number | null;
+  stale: boolean;
 }
 
 export interface PricingReference {
@@ -3396,13 +3379,6 @@ export interface Payout {
   stripe_transfer_id?: string;
   paypal_capture_id?: string;
   payment_rail?: string;
-  created_at: string;
-}
-
-export interface ApiKeyInfo {
-  name: string;
-  scope: string;
-  preview: string;
   created_at: string;
 }
 
@@ -4196,7 +4172,11 @@ export async function deletePaymentMethod(paymentMethodId: string) {
 // ── v2 Cloud Burst API ────────────────────────────────────────────────
 
 export async function fetchBurstStatus() {
-  return apiFetch<{ ok: boolean; active_instances: number; total_spending: number; budget_remaining: number }>(
+  return apiFetch<{
+    ok: boolean; enabled: boolean; budget_cad: number; total_spent_cad: number;
+    budget_remaining_cad: number; max_instances: number;
+    by_status: Record<string, { count: number; spent: number }>;
+  }>(
     "/api/v2/burst/status",
   );
 }

@@ -7,55 +7,40 @@ import { Button } from "@/components/ui/button";
 import { Thermometer, Cpu, Zap, MemoryStick, RefreshCw, Server } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
-import { toast } from "sonner";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
 import { cn } from "@/lib/utils";
+import { readTelemetry } from "@/lib/telemetry";
+import type { TelemetryData, TelemetrySnapshot } from "@/lib/api";
 
 // Normalised per-host telemetry entry
-interface HostMetrics {
+interface HostMetrics extends TelemetryData {
   host_id: string;
-  utilization: number;      // GPU util %
-  temp: number;             // °C
-  memory_used_gb: number;
-  memory_total_gb: number;
-  power_draw_w: number;
-  active_jobs: number;
-  stale: boolean;
-  timestamp: number;
 }
 
-function mapHost(host_id: string, raw: Record<string, unknown>): HostMetrics {
-  const m = (raw.metrics as Record<string, number>) || {};
-  return {
-    host_id,
-    utilization: Number(m.utilization ?? 0),
-    temp: Number(m.temp ?? 0),
-    memory_used_gb: Number(m.memory_used_gb ?? 0),
-    memory_total_gb: Number(m.memory_total_gb ?? 0),
-    power_draw_w: Number(m.power_draw_w ?? 0),
-    active_jobs: Number(m.active_jobs ?? 0),
-    stale: Boolean(raw.stale),
-    timestamp: Number(raw.timestamp ?? 0),
-  };
+function mapHost(host_id: string, raw: TelemetrySnapshot): HostMetrics {
+  return {host_id, ...readTelemetry(raw)};
 }
+
+const formatted = (value: number | null, digits: number, unit: string) => value === null ? "Unavailable" : `${value.toFixed(digits)}${unit}`;
+const memory = (used: number | null, total: number | null) => used === null || total === null ? "Unavailable" : `${used.toFixed(1)} / ${total.toFixed(0)}GB`;
 
 export default function TelemetryPage() {
   const [hosts, setHosts] = useState<HostMetrics[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const api = useApi();
   const { t } = useLocale();
 
   const load = useCallback((opts?: { refresh?: boolean }) => {
     if (opts?.refresh) setLoading(true);
+    setError(null);
     api.fetchTelemetry()
       .then((res) => {
-        // Backend returns { ok, hosts: { [host_id]: { timestamp, metrics: {...}, stale } } }
-        const raw = (res as unknown as { hosts?: Record<string, Record<string, unknown>> }).hosts || {};
-        setHosts(Object.entries(raw).map(([id, v]) => mapHost(id, v)));
+        setHosts(Object.entries(res.hosts).map(([id, v]) => mapHost(id, v)));
       })
-      .catch(() => toast.error("Failed to load telemetry"))
+      .catch(() => setError("Telemetry could not be loaded. Please retry."))
       .finally(() => setLoading(false));
   }, [api]);
 
@@ -64,36 +49,28 @@ export default function TelemetryPage() {
     api.fetchTelemetry()
       .then((res) => {
         if (!active) return;
-        const raw = (res as unknown as { hosts?: Record<string, Record<string, unknown>> }).hosts || {};
-        setHosts(Object.entries(raw).map(([id, v]) => mapHost(id, v)));
+        setHosts(Object.entries(res.hosts).map(([id, v]) => mapHost(id, v)));
       })
-      .catch(() => { if (active) toast.error("Failed to load telemetry"); })
+      .catch(() => { if (active) setError("Telemetry could not be loaded. Please retry."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [api]);
 
-  // Aggregate across all hosts (sum utilization, avg temp, sum memory/power)
+  // A fleet total is unavailable if any participating sensor is unknown.
   const count = hosts.length;
-  const agg = hosts.reduce(
-    (acc, h) => ({
-      utilization: acc.utilization + h.utilization,
-      temp: acc.temp + h.temp,
-      memory_used_gb: acc.memory_used_gb + h.memory_used_gb,
-      memory_total_gb: acc.memory_total_gb + h.memory_total_gb,
-      power_draw_w: acc.power_draw_w + h.power_draw_w,
-      active_jobs: acc.active_jobs + h.active_jobs,
-    }),
-    { utilization: 0, temp: 0, memory_used_gb: 0, memory_total_gb: 0, power_draw_w: 0, active_jobs: 0 },
-  );
-  const avgUtil = count ? Math.round(agg.utilization / count) : 0;
-  const avgTemp = count ? Math.round(agg.temp / count) : 0;
+  const aggregate = (key: Exclude<keyof TelemetryData, "stale">, average = false) => {
+    const values = hosts.map(host => host[key]).filter((value): value is number => value !== null);
+    return !count || values.length !== count ? null : values.reduce((sum, value) => sum + value, 0) / (average ? count : 1);
+  };
+  const avgUtil = aggregate("utilization", true);
+  const avgTemp = aggregate("temp", true);
 
   // Chart data: one bar per host for each metric
   const chartData = hosts.map((h) => ({
     host: h.host_id.slice(-8),
     "GPU Util %": h.utilization,
     "Temp °C": h.temp,
-    "Mem GB": parseFloat(h.memory_used_gb.toFixed(1)),
+    "Mem GB": h.memory_used_gb,
     "Power W": h.power_draw_w,
     stale: h.stale,
   }));
@@ -113,13 +90,18 @@ export default function TelemetryPage() {
             <div key={i} className="h-28 rounded-xl bg-surface skeleton-pulse" />
           ))}
         </div>
+      ) : error ? (
+        <Card><CardContent className="space-y-3 p-6" role="alert">
+          <p>{error}</p>
+          <Button variant="outline" onClick={() => load({refresh:true})}>Retry</Button>
+        </CardContent></Card>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label={t("dash.telemetry.gpu_util")} value={`${avgUtil}%`} icon={Cpu} glow="cyan" />
-            <StatCard label={t("dash.telemetry.temperature")} value={`${avgTemp}°C`} icon={Thermometer} glow="gold" />
-            <StatCard label={t("dash.telemetry.memory")} value={`${agg.memory_used_gb.toFixed(1)} / ${agg.memory_total_gb.toFixed(0)}GB`} icon={MemoryStick} glow="violet" />
-            <StatCard label={t("dash.telemetry.power")} value={`${agg.power_draw_w.toFixed(0)}W`} icon={Zap} glow="emerald" />
+            <StatCard label={t("dash.telemetry.gpu_util")} value={formatted(avgUtil, 0, "%")} icon={Cpu} glow="cyan" />
+            <StatCard label={t("dash.telemetry.temperature")} value={formatted(avgTemp, 0, "°C")} icon={Thermometer} glow="gold" />
+            <StatCard label={t("dash.telemetry.memory")} value={memory(aggregate("memory_used_gb"), aggregate("memory_total_gb"))} icon={MemoryStick} glow="violet" />
+            <StatCard label={t("dash.telemetry.power")} value={formatted(aggregate("power_draw_w"), 0, "W")} icon={Zap} glow="emerald" />
           </div>
 
           {count === 0 ? (
@@ -151,12 +133,12 @@ export default function TelemetryPage() {
                         {h.stale && <span className="text-[10px] bg-warning/15 text-warning px-1.5 py-0.5 rounded font-medium">STALE</span>}
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-text-muted text-xs">GPU</span><p className="font-semibold text-accent-cyan">{h.utilization}%</p></div>
-                        <div><span className="text-text-muted text-xs">Temp</span><p className="font-semibold text-accent-gold">{h.temp}°C</p></div>
-                        <div><span className="text-text-muted text-xs">VRAM</span><p className="font-semibold text-accent-violet">{h.memory_used_gb.toFixed(1)}/{h.memory_total_gb.toFixed(0)}GB</p></div>
-                        <div><span className="text-text-muted text-xs">Power</span><p className="font-semibold text-accent-red">{h.power_draw_w.toFixed(0)}W</p></div>
+                        <div><span className="text-text-muted text-xs">GPU</span><p className="font-semibold text-accent-cyan">{formatted(h.utilization, 0, "%")}</p></div>
+                        <div><span className="text-text-muted text-xs">Temp</span><p className="font-semibold text-accent-gold">{formatted(h.temp, 0, "°C")}</p></div>
+                        <div><span className="text-text-muted text-xs">VRAM</span><p className="font-semibold text-accent-violet">{memory(h.memory_used_gb, h.memory_total_gb)}</p></div>
+                        <div><span className="text-text-muted text-xs">Power</span><p className="font-semibold text-accent-red">{formatted(h.power_draw_w, 0, "W")}</p></div>
                       </div>
-                      {h.active_jobs > 0 && (
+                      {h.active_jobs !== null && h.active_jobs > 0 && (
                         <div className="flex items-center gap-1.5 pt-1 border-t border-border/40">
                           <span className="live-dot" />
                           <span className="text-xs text-emerald">{h.active_jobs} active job{h.active_jobs !== 1 ? "s" : ""}</span>

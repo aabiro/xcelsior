@@ -377,7 +377,7 @@ describe("BillingPage free credits flow", () => {
     const periodEnd = Date.UTC(2024, 2, 1) / 1000;
     apiMocks.fetchInvoices.mockResolvedValue({ ok: true, invoices: [{
       invoice_id: "DRAFT-february", period_start: periodStart, period_end: periodEnd,
-      subtotal_cad: 12.5, tax_cad: 1.63, total_cad: 14.13, tax_rate: 0.13,
+      subtotal_cad: 12.5, tax_cad: 0, total_cad: 12.5, tax_rate: 0,
       line_items: 1, status: "draft",
     }] });
     apiMocks.downloadInvoice.mockResolvedValue(new Blob(["invoice"], { type: "text/csv" }));
@@ -392,7 +392,7 @@ describe("BillingPage free credits flow", () => {
       expect(await screen.findByText(month, { exact: true })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Download invoice DRAFT-february" }));
       await waitFor(() => expect(apiMocks.downloadInvoice).toHaveBeenCalledWith(
-        "cust-1", "csv", periodStart, periodEnd, 0.13,
+        "cust-1", "csv", periodStart, periodEnd,
       ));
       await waitFor(() => expect(click).toHaveBeenCalledOnce());
       expect(revokeUrl).toHaveBeenCalledWith("blob:invoice");

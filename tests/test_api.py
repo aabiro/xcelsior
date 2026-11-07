@@ -824,6 +824,21 @@ class TestAuth:
 
 
 class TestTelemetry:
+    def _host(self, token, name):
+        response = client.post(
+            "/api/hosts/register",
+            headers=_bearer(token),
+            json={
+                "hostname": name,
+                "gpu_model": "RTX 4090",
+                "vram_gb": 24,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["host"]["host_id"]
+
     @pytest.fixture(autouse=True)
     def _isolate_telemetry(self):
         # Telemetry now persists to the shared telemetry_latest table
@@ -849,15 +864,16 @@ class TestTelemetry:
     def test_telemetry_push_pull(self):
         """POST telemetry → GET returns it."""
         token, _ = _register_user("telemetry-user@xcelsior.ca")
+        host_id = self._host(token, "Telemetry Push Fixture")
         client.post(
             "/agent/telemetry",
             json={
-                "host_id": "h1",
+                "host_id": host_id,
                 "timestamp": time.time(),
                 "metrics": {"utilization": 85, "temp": 72, "memory_errors": 0},
             },
         )
-        r = client.get("/agent/telemetry/h1", headers=_bearer(token))
+        r = client.get(f"/agent/telemetry/{host_id}", headers=_bearer(token))
         assert r.status_code == 200
         assert r.json()["metrics"]["utilization"] == 85
 
@@ -870,17 +886,19 @@ class TestTelemetry:
     def test_telemetry_all(self):
         """GET /api/telemetry/all returns all host telemetry."""
         admin_token, _ = _register_user("telemetry-admin@xcelsior.ca", is_admin=True)
+        first = self._host(admin_token, "Telemetry First Fixture")
+        second = self._host(admin_token, "Telemetry Second Fixture")
         client.post(
             "/agent/telemetry",
             json={
-                "host_id": "h1",
+                "host_id": first,
                 "metrics": {"utilization": 50},
             },
         )
         client.post(
             "/agent/telemetry",
             json={
-                "host_id": "h2",
+                "host_id": second,
                 "metrics": {"utilization": 90},
             },
         )
@@ -890,15 +908,26 @@ class TestTelemetry:
 
     def test_telemetry_stale_detection(self):
         """Telemetry older than 30s is marked stale."""
-        from routes.agent import _host_telemetry
+        from routes.agent import _persist_telemetry_latest
+        from db import _get_pg_pool
 
         token, _ = _register_user("telemetry-stale@xcelsior.ca")
-        _host_telemetry["h-stale"] = {
-            "timestamp": time.time() - 60,
-            "metrics": {"utilization": 10},
-            "received_at": time.time() - 60,
-        }
-        r = client.get("/agent/telemetry/h-stale", headers=_bearer(token))
+        host_id = self._host(token, "Telemetry Stale Fixture")
+        _persist_telemetry_latest(
+            host_id,
+            {
+                "timestamp": time.time() - 60,
+                "metrics": {"utilization": 10},
+                "received_at": time.time() - 60,
+            },
+        )
+        with _get_pg_pool().connection() as conn:
+            conn.execute(
+                "UPDATE telemetry_latest SET received_at=clock_timestamp()-interval '60 seconds' WHERE host_id=%s",
+                (host_id,),
+            )
+        r = client.get(f"/agent/telemetry/{host_id}", headers=_bearer(token))
+        assert r.status_code == 200, r.text
         assert r.json()["stale"] is True
 
     def test_telemetry_shared_across_replicas(self):
@@ -907,16 +936,14 @@ class TestTelemetry:
         (companion §2.6/§5.8)."""
         from db import _get_pg_pool
 
-        try:
-            with _get_pg_pool().connection() as conn:
-                conn.execute("SELECT to_regclass('telemetry_latest')")
-        except Exception:
-            pytest.skip("no postgres telemetry_latest")
+        with _get_pg_pool().connection() as conn:
+            assert conn.execute("SELECT to_regclass('telemetry_latest')").fetchone()[0] is not None
 
         token, _ = _register_user("telemetry-shared@xcelsior.ca")
+        host_id = self._host(token, "Telemetry Shared Fixture")
         client.post(
             "/agent/telemetry",
-            json={"host_id": "h-shared", "metrics": {"utilization": 77}},
+            json={"host_id": host_id, "metrics": {"utilization": 77}},
         )
         # Simulate a *different* API replica: it never received the POST, so
         # its process-local cache is empty — the read must come from the DB.
@@ -924,7 +951,7 @@ class TestTelemetry:
 
         _host_telemetry.clear()
 
-        r = client.get("/agent/telemetry/h-shared", headers=_bearer(token))
+        r = client.get(f"/agent/telemetry/{host_id}", headers=_bearer(token))
         assert r.status_code == 200
         assert r.json()["metrics"]["utilization"] == 77
         assert r.json()["stale"] is False
@@ -933,7 +960,8 @@ class TestTelemetry:
         with _get_pg_pool().connection() as conn:
             row = conn.execute(
                 "SELECT sample->'metrics'->>'utilization' FROM telemetry_latest "
-                "WHERE host_id = 'h-shared' AND gpu_uuid = ''"
+                "WHERE host_id = %s AND gpu_uuid = ''",
+                (host_id,),
             ).fetchone()
         assert row is not None
         assert (row[0] if not isinstance(row, dict) else list(row.values())[0]) == "77"
@@ -1057,7 +1085,6 @@ class TestPricing:
                 "gpu_model": "RTX 4090",
                 "commitment_type": "1_month",
                 "quantity": 1,
-                "province": "ON",
             },
             headers=headers,
         )

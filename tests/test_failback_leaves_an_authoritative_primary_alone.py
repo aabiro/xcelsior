@@ -303,6 +303,34 @@ def test_status_without_root_says_so_instead_of_tracing_back(
     assert "Traceback" not in err
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "[]",
+        "{}",
+        '{"role":"other"}',
+        '{"role":"promoted","consecutive_failures":-1}',
+        '{"role":"promoted","consecutive_failures":true}',
+        '{"role":"promoted","replicate_alert_active":"false"}',
+    ],
+)
+def test_corrupt_failover_state_cannot_become_a_fresh_standby(tmp_path, raw):
+    path = tmp_path / "state.json"
+    path.write_text(raw)
+    with pytest.raises(hf.FailoverError):
+        hf.load_state(path)
+
+
+def test_saved_failover_state_round_trips(tmp_path):
+    path = tmp_path / "state.json"
+    expected = hf.FailoverState(
+        role="promoted", consecutive_failures=3, replicate_alert_active=True
+    )
+    hf.save_state(path, expected)
+    assert hf.load_state(path) == expected
+
+
 def test_the_runbook_recovery_command_can_find_its_ssh_key(tmp_path: Path) -> None:
     """`sudo headscale-failover failback`, as the runbook says, must authenticate.
 

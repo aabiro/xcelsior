@@ -3078,6 +3078,7 @@
         "properties": {
           "amount_cad": {
             "type": "number",
+            "multipleOf": 0.01,
             "maximum": 10000.0,
             "exclusiveMinimum": 0.0,
             "title": "Amount Cad"
@@ -3331,7 +3332,7 @@
             "type": "string",
             "maxLength": 32,
             "title": "Region",
-            "default": "ca-east"
+            "default": ""
           },
           "spot_enabled": {
             "type": "boolean",
@@ -5055,6 +5056,7 @@
           },
           "amount_cad": {
             "type": "number",
+            "multipleOf": 0.01,
             "maximum": 10000.0,
             "exclusiveMinimum": 0.0,
             "title": "Amount Cad"
@@ -5938,10 +5940,16 @@
             "default": 1
           },
           "province": {
-            "type": "string",
-            "maxLength": 10,
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Province",
-            "default": "ON"
+            "deprecated": true
           }
         },
         "type": "object",
@@ -6273,7 +6281,7 @@
           "region": {
             "type": "string",
             "title": "Region",
-            "default": "ca-east"
+            "default": ""
           },
           "min_workers": {
             "type": "integer",
@@ -6934,18 +6942,20 @@
         "properties": {
           "host_id": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Host Id"
           },
           "timestamp": {
             "type": "number",
+            "minimum": 0.0,
             "title": "Timestamp",
             "default": 0
           },
           "metrics": {
             "additionalProperties": true,
             "type": "object",
-            "title": "Metrics",
-            "default": {}
+            "title": "Metrics"
           }
         },
         "type": "object",
@@ -7259,7 +7269,7 @@
           "region": {
             "type": "string",
             "title": "Region",
-            "default": "ca-east"
+            "default": ""
           },
           "encrypted": {
             "type": "boolean",

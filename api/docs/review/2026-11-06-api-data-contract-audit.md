@@ -58,16 +58,31 @@ Missing/zero/empty counts are observations. Optional values and lifecycle fields
 
 ## Open work and release gates
 
-1. Resolve the three named baseline failures and repeat the full audit after remaining semantic repairs.
-2. Verify the simplified host location form in the hosted release; the built local app passed. Account mailing address does not establish a machine's site.
-3. Audit remaining region defaults in serverless deployment, volume placement, marketplace offers, and autoscale enrollment. Distinguish physical compute geography from storage-provider region names.
+1. The terminal-meter fixture chronology and unreadable failback-state failures are repaired and covered by focused regression checks. The installer still pins wizard 0.1.7 while the source is 0.1.9 and the registry only contains releases through 0.1.8. Qualify a real wizard release rather than installing an unpublished version. Repeat the full audit after remaining semantic repairs.
+2. Onboarding, the simple host-location form and schema 150 are deployed at `4bfbed2363d3ced126e3aac5c3d0f8c5a8e768c2`; hosted discovery, schema, redirect-cache and service checks are recorded in `release-receipt-20261106.json`. Account mailing address does not establish a machine's site.
+3. Region defaults in serverless deployment, volumes, inference and marketplace offers are removed: an omitted region means any region (`f521f3be`, schema 151 clears the labels defaults had stamped). Autoscale enrollment and storage-provider region names still need review.
 4. Verify hosted billing-profile completion and Stripe address synchronization without moving live funds.
 5. Registration and email-change validation now use the same email rule as completion; retain the regression gate.
 6. Seller completion now checks recorded terms and country-specific address data; legacy incomplete profiles require user completion.
-7. Review reservation persistence and failure behavior; a response cannot claim an active commitment when its required durable record was not saved.
-8. Complete per-operation semantic/authorization review and the real MCP end-to-end journey. Source reachability and test counts are not substitutes.
+7. Pricing-commitment persistence now fails the request if its durable write fails. Separately review marketplace reservations: exact GPU/rate sourcing, removal of invented prices, count validation, concurrent cancellation and financial effects remain open.
+8. Complete per-operation semantic/authorization review. The initial real MCP end-to-end journey passed; repeat affected flows after further changes. Source reachability and test counts are not substitutes.
 9. Regenerate API/MCP contracts after further API changes; keep the route classification current.
 10. Configure a real Loqate key and verify a live search/retrieve transaction. Until then, describe and test manual entry accurately.
-11. Commit and deploy only qualified changes, preserve other work, apply schema 150 before the API reads its new fields, and verify the hosted onboarding and inventory behavior.
+11. Commit and deploy only qualified changes and preserve other work. Initial onboarding release gates are complete; the billing/telemetry batch below needs its own final build, browser and hosted receipts.
 
 These receipts establish local validation. Hosted release verification is recorded separately. The broad per-operation audit is not complete.
+
+## Billing and telemetry continuation
+
+The next batch is under verification and is not yet a hosted-release claim.
+
+- Credit deposits reject booleans, numeric strings, fractional cents and non-finite amounts. Decimal conversion produces integer cents. When enabled, tax must have a valid provider calculation before a payment intent can be created; errors cannot silently charge a pretax amount or echo a submitted address.
+- Usage spends pretax wallet credit. Launch quotes and usage statements no longer apply a second, guessed provincial tax. Tax is calculated on credit deposits using the saved billing address and appears on their payment receipts. Legacy usage tax overrides are rejected; unavailable tax fields are explicitly null. This does not establish country-aware provider payout-tax treatment, which remains open.
+- Pricing commitments require a durable record before returning success or publishing the success event. They are pricing agreements, not a Stripe charge or a physical-capacity reservation.
+- The wire-contract audit now authenticates real disposable users, administrators and pending-MFA identities. Unexpected statuses and response shapes fail rather than skipping protected operations. It found and corrected the telemetry `hosts` envelope and burst-budget response types. Unused legacy key helpers targeting permanently retired endpoints were removed.
+- Host telemetry reads require `hosts:read` and host ownership, including a provider's pending onboarding hosts; fleet operators retain their authorized view. PostgreSQL read/write failures return an error rather than acknowledging unsaved samples or serving process-local data.
+- Telemetry validates finite measurements, ranges, exact counts and used/total memory consistency. Shared frontend parsing follows the actual nested wire data; missing sensors display as unavailable, reported zero remains zero, memory is in GB and outages expose a retryable error. Full per-GPU worker aggregation is still open.
+- Validation responses include field location, type and message without raw input. Passwords and non-finite submitted values cannot turn a form error into a serialization failure.
+- Intermediate evidence: `financial-integrity-r3/` (261 passed), `wire-telemetry-integrity-r5/` (319 passed), `telemetry-input-validation-r1/` (148 passed), and `telemetry-frontend-tests-r2.log` (7 passed). These overlap and must not be summed into a unique test count. Final combined receipts are required before release.
+
+The 184-table snapshot and 581-operation inventory define the audit scope, not completed semantic coverage. Remaining work includes country-aware provider settlement taxes, autoscale region enrollment, marketplace financial correctness, worker telemetry aggregation and the remaining per-field/per-operation lifecycle checks.

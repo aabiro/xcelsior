@@ -801,7 +801,7 @@
           "Billing"
         ],
         "summary": "Generate Invoice",
-        "description": "Preview an itemized draft invoice without persisting a billing record.",
+        "description": "Preview an itemized pretax credit-usage statement without issuing an invoice.",
         "operationId": "api_generate_invoice_api_billing_invoice__customer_id__get",
         "parameters": [
           {
@@ -853,11 +853,13 @@
             "required": false,
             "schema": {
               "type": "number",
-              "maximum": 1,
+              "maximum": 0,
               "minimum": 0,
-              "default": 0.13,
+              "deprecated": true,
+              "default": 0,
               "title": "Tax Rate"
-            }
+            },
+            "deprecated": true
           }
         ],
         "responses": {
@@ -941,7 +943,7 @@
           "Billing"
         ],
         "summary": "Download Invoice",
-        "description": "Download a draft invoice as CSV or a plain-text receipt.\n\nFormats: csv (spreadsheet-ready), txt (printable receipt).",
+        "description": "Download a pretax credit-usage statement as CSV or plain text.\n\nFormats: csv (spreadsheet-ready), txt (printable receipt).",
         "operationId": "api_download_invoice_api_billing_invoice__customer_id__download_get",
         "parameters": [
           {
@@ -997,11 +999,13 @@
             "required": false,
             "schema": {
               "type": "number",
-              "maximum": 1,
+              "maximum": 0,
               "minimum": 0,
-              "default": 0.13,
+              "deprecated": true,
+              "default": 0,
               "title": "Tax Rate"
-            }
+            },
+            "deprecated": true
           },
           {
             "name": "customer_name",
@@ -3378,6 +3382,7 @@
         "properties": {
           "amount_cad": {
             "type": "number",
+            "multipleOf": 0.01,
             "maximum": 10000.0,
             "exclusiveMinimum": 0.0,
             "title": "Amount Cad"
@@ -3945,6 +3950,7 @@
           },
           "amount_cad": {
             "type": "number",
+            "multipleOf": 0.01,
             "maximum": 10000.0,
             "exclusiveMinimum": 0.0,
             "title": "Amount Cad"
@@ -4164,7 +4170,7 @@
           "region": {
             "type": "string",
             "title": "Region",
-            "default": "ca-east"
+            "default": ""
           },
           "min_workers": {
             "type": "integer",
@@ -4608,7 +4614,7 @@
           "region": {
             "type": "string",
             "title": "Region",
-            "default": "ca-east"
+            "default": ""
           },
           "encrypted": {
             "type": "boolean",
