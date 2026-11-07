@@ -1,6 +1,6 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-11-06 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-07 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
 **2 of 542 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
@@ -285,24 +285,24 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /_internal/legacy-auth/device` — `api_auth_verify_device`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/token` — `api_auth_verify_page`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/verify` — `_require_provider_or_admin`  ✓ test_health_endpoints_coverage.py
-- [x] `GET /_internal/legacy-auth/verify` — `api_slurm_submit`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /_internal/legacy-auth/verify` — `_sized`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /alerts/config` — `api_set_alert_config`  ✓ test_health_endpoints_coverage.py
 - [x] `PUT /alerts/config` — `api_generate_ssh_key`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/alerts/config` — `api_get_alert_config_alias`  ✓ test_health_endpoints_coverage.py
 - [x] `PUT /api/alerts/config` — `api_set_alert_config_alias`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/diagnostics/network-download` — `network_download`
-- [x] `GET /api/nfs/config` — `api_build_image`
+- [x] `GET /api/nfs/config` — `api_nfs_config`
 - [x] `GET /api/slurm/instances` — `api_slurm_list_instances`  ✓ test_health_endpoints_coverage.py
-- [x] `GET /api/slurm/profiles` — `api_nfs_config`
-- [x] `GET /api/slurm/status/{slurm_job_id}` — `api_slurm_cancel`
-- [x] `POST /api/slurm/submit` — `api_slurm_status`
-- [x] `DELETE /api/slurm/{slurm_job_id}` — `api_slurm_profiles`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /api/slurm/profiles` — `api_slurm_profiles`
+- [x] `GET /api/slurm/status/{slurm_job_id}` — `api_slurm_status`
+- [x] `POST /api/slurm/submit` — `api_slurm_submit`
+- [x] `DELETE /api/slurm/{slurm_job_id}` — `api_slurm_cancel`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/ssh/pubkey` — `api_auth_device_code`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/status` — `service_status`
 - [x] `GET /api/stream` — `sse_stream`
-- [x] `POST /build` — `api_list_builds`  ✓ test_health_endpoints_coverage.py
-- [x] `POST /build/{model}/dockerfile` — `_dashboard_event_visible`  ✓ test_health_endpoints_coverage.py
-- [x] `GET /builds` — `api_generate_dockerfile`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /build` — `api_build_image`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /build/{model}/dockerfile` — `api_generate_dockerfile`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /builds` — `api_list_builds`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /dashboard` — `dashboard`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /healthz` — `healthz`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /legacy` — `legacy_dashboard`  ✓ test_health_endpoints_coverage.py
