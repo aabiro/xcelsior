@@ -9,7 +9,6 @@ const apiMocks = vi.hoisted(() => ({
   fetchImageTemplates: vi.fn(),
   fetchSpotPrices: vi.fn(),
   listAvailableVolumes: vi.fn(),
-  fetchPricingRates: vi.fn(),
   fetchServiceTierCatalog: vi.fn(),
   fetchSpotFeatureStatus: vi.fn(),
   classifyLaunchError: vi.fn(),
@@ -100,17 +99,6 @@ describe("LaunchInstanceModal", () => {
     });
     apiMocks.fetchSpotFeatureStatus.mockResolvedValue({ enabled: true, message: null });
     apiMocks.listAvailableVolumes.mockResolvedValue({ volumes: [] });
-    apiMocks.fetchPricingRates.mockResolvedValue({
-      effective_rate_per_gpu: 0.22,
-      total_per_hour: 0.22,
-      tax_rate: 0.13,
-      tax_description: "HST",
-      tax_amount: 0.03,
-      total_with_tax: 0.25,
-      base_rate_cad: 0.22,
-      priority_multiplier: 1,
-      multi_gpu_discount: 0,
-    });
     apiMocks.launchInstance.mockResolvedValue({
       instance: { job_id: "job-spot-1", status: "queued", docker_image: "nvcr.io/nvidia/pytorch:24.12-py3" },
     });
@@ -141,6 +129,13 @@ describe("LaunchInstanceModal", () => {
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /^continue$/i })).not.toBeDisabled();
       }, { timeout: 5000 });
+
+      for (const summary of screen.getAllByTestId("launch-total")) {
+        expect(summary).toHaveTextContent("$0.22/hr");
+      }
+      expect(screen.queryByText(/estimated tax/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+      expect(screen.getByText(/Applicable tax is calculated when you add credit/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
 
@@ -176,18 +171,18 @@ describe("LaunchInstanceModal", () => {
     }] });
     render(<LaunchInstanceModal open onClose={() => {}} />);
 
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.6215/hr"));
-    const quoteCount = apiMocks.fetchPricingRates.mock.calls.length;
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
+    const quoteCount = apiMocks.fetchServiceTierCatalog.mock.calls.length;
     fireEvent.change(screen.getByLabelText("GPUs"), { target: { value: "2" } });
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.243/hr");
-    expect(apiMocks.fetchPricingRates).toHaveBeenCalledTimes(quoteCount);
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.10/hr");
+    expect(apiMocks.fetchServiceTierCatalog).toHaveBeenCalledTimes(quoteCount);
 
     fireEvent.click(screen.getByRole("button", { name: /Models/ }));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.2769/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.13/hr");
     expect(screen.getByText(/attaching adds no new fee/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.2769/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.13/hr");
     fireEvent.click(screen.getByRole("button", { name: /launch instance/i }));
     await waitFor(() => expect(apiMocks.launchInstance).toHaveBeenCalledWith(expect.objectContaining({
       num_gpus: 2, volume_ids: ["vol-models"], tier: "standard", service_tier_price_id: "price_standard_on_demand",
@@ -196,16 +191,16 @@ describe("LaunchInstanceModal", () => {
 
   it("offers an interruption tradeoff and recomputes the total when pricing mode changes", async () => {
     render(<LaunchInstanceModal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.6215/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
     expect(screen.getByText("Can your workload handle interruptions?")).toBeInTheDocument();
     expect(screen.getByText("Service Tier")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /critical/i })).not.toBeInTheDocument();
     expect(screen.queryByText("dash.team.banner_title")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^spot/i }));
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.2486/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.22/hr"));
     fireEvent.change(screen.getByLabelText("GPUs"), { target: { value: "3" } });
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.7458/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.66/hr");
   });
 
   it("shows unavailable storage prices rather than counting them as free", async () => {
@@ -220,24 +215,24 @@ describe("LaunchInstanceModal", () => {
 
   it("adds a Stripe queue bid immediately for every GPU and pins its Price", async () => {
     render(<LaunchInstanceModal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.6215/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
     const calls = apiMocks.fetchServiceTierCatalog.mock.calls.length;
     fireEvent.change(screen.getByLabelText(/additional queue bid/i), {target:{value:"0.20"}});
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.8475/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.75/hr");
     fireEvent.change(screen.getByLabelText("GPUs"), {target:{value:"2"}});
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.695/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$1.50/hr");
     fireEvent.click(screen.getByRole("button", {name:/^premium/i}));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$2.4408/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$2.16/hr");
     expect(apiMocks.fetchServiceTierCatalog.mock.calls).toHaveLength(calls);
     fireEvent.click(screen.getByRole("button", {name:"Continue"}));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$2.4408/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$2.16/hr");
     fireEvent.click(screen.getByRole("button",{name:/launch instance/i}));
     await waitFor(()=>expect(apiMocks.launchInstance).toHaveBeenCalledWith(expect.objectContaining({queue_bid_units:20,queue_bid_price_id:"price_queue_bid",tier:"premium",num_gpus:2})));
   });
 
   it("refuses fractional Stripe bid units and negative bids", async () => {
     render(<LaunchInstanceModal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.6215/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
     for(const value of ["0.201", "-0.10"]){
       fireEvent.change(screen.getByLabelText(/additional queue bid/i), {target:{value}});
       expect(screen.getByTestId("launch-total")).toHaveTextContent("Unavailable");
@@ -247,22 +242,22 @@ describe("LaunchInstanceModal", () => {
 
   it("adds the Stripe Premium price immediately and offers cheaper GPU-only exclusivity", async () => {
     render(<LaunchInstanceModal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.6215/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
     const calls = apiMocks.fetchServiceTierCatalog.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: /^premium/i }));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.9944/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.88/hr");
     expect(apiMocks.fetchServiceTierCatalog).toHaveBeenCalledTimes(calls);
     fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Exclusive allocated GPUs/i }));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.8701/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.77/hr");
   });
 
   it("Dedicated reserves and prices every GPU on a physical host without an extra GPU-only fee", async () => {
     render(<LaunchInstanceModal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.6215/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
     fireEvent.click(screen.getByRole("checkbox", { name: /Exclusive allocated GPUs/i }));
     fireEvent.click(screen.getByRole("button", { name: /^dedicated/i }));
-    expect(screen.getByTestId("launch-total")).toHaveTextContent("$3.4804/hr");
+    expect(screen.getByTestId("launch-total")).toHaveTextContent("$3.08/hr");
     expect(screen.getByLabelText("GPUs")).toHaveValue(2);
     expect(screen.getByLabelText("GPUs")).toBeDisabled();
     expect(screen.queryByRole("checkbox", { name: /Exclusive allocated GPUs/i })).not.toBeInTheDocument();

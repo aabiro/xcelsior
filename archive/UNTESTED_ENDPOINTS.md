@@ -2,7 +2,7 @@
 
 _Regenerated 2026-11-06 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**3 of 542 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**2 of 542 routes (0%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -14,7 +14,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 > Re-measure with `scripts/measure_route_execution.py` after a coverage run. Prefer it to the count above whenever the two are used to decide whether something is covered.
 
-## Routes (3 untested)
+## Routes (2 untested)
 
 ### `routes/action_plans.py` (0 untested)
 - [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
@@ -412,7 +412,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /marketplace/stats` — `api_marketplace_stats`  ✓ test_marketplace_endpoints_coverage.py
 - [x] `DELETE /marketplace/{host_id}` — `api_unlist_rig`  ✓ test_marketplace_endpoints_coverage.py
 
-### `routes/mfa.py` (1 untested)
+### `routes/mfa.py` (0 untested)
 - [x] `DELETE /api/auth/mfa/all` — `api_mfa_disable_all`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/backup-codes/regenerate` — `api_mfa_regenerate_backup_codes`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/mfa/methods` — `api_mfa_list_methods`
@@ -421,7 +421,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/auth/mfa/passkey/delete` — `api_mfa_passkey_delete`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/passkey/register-complete` — `api_mfa_passkey_register_complete`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/passkey/register-options` — `api_mfa_passkey_register_options`  ✓ test_auth_endpoints_coverage.py
-- [ ] `GET /api/auth/mfa/pending` — `api_mfa_pending`
+- [x] `GET /api/auth/mfa/pending` — `api_mfa_pending`
 - [x] `DELETE /api/auth/mfa/sms` — `api_mfa_sms_disable`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/sms/send` — `api_mfa_sms_send_login`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /api/auth/mfa/sms/setup` — `api_mfa_sms_setup`  ✓ test_auth_endpoints_coverage.py

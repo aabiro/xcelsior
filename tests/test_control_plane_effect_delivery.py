@@ -78,7 +78,9 @@ def test_scheduler_lease_expiry_survives_its_role_and_the_api_settles(
         job_id = native["job_id"]
         with _get_pg_pool().connection() as conn:
             conn.execute(
-                "UPDATE placement_leases SET expires_at=clock_timestamp()-interval '1 hour' "
+                # The attempt began two minutes ago; expiration must remain
+                # after that start to represent valid billable evidence.
+                "UPDATE placement_leases SET expires_at=clock_timestamp()-interval '1 minute' "
                 "WHERE job_id=%s AND status='active'",
                 (job_id,),
             )
@@ -116,6 +118,8 @@ def test_scheduler_lease_expiry_survives_its_role_and_the_api_settles(
         )
         with _get_pg_pool().connection() as conn:
             settled = conn.execute(
-                "SELECT completed_at FROM usage_meters WHERE job_id=%s", (job_id,)
+                "SELECT started_at, completed_at, total_cost_micros FROM usage_meters WHERE job_id=%s",
+                (job_id,),
             ).fetchone()
-        assert settled and settled[0]
+        assert settled and settled[1] > settled[0]
+        assert settled[2] > 0

@@ -117,8 +117,9 @@ class TestTelemetryEndpointAuth:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body.get("ok") is True
-        assert host_id in agent_mod._host_telemetry
-        assert agent_mod._host_telemetry[host_id]["metrics"]["gpu_util"] == 42.5
+        assert host_id not in agent_mod._host_telemetry
+        shared = agent_mod._read_telemetry_latest(host_id)
+        assert shared[host_id]["metrics"]["gpu_util"] == 42.5
 
         # Cleanup process-local cache
         agent_mod._host_telemetry.pop(host_id, None)
@@ -156,3 +157,113 @@ class TestTelemetryAuthHelper:
             with pytest.raises(HTTPException) as ei:
                 _require_agent_auth(req, host_id="any-host")
             assert ei.value.status_code == 401
+
+
+@pytest.fixture
+def telemetry_owners(client):
+    from routes import agent
+
+    owners = []
+    for index in range(2):
+        email = f"telemetry-owner-{uuid.uuid4().hex}@example.test"
+        result = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "Telemetry-Test-2026!", "name": "Telemetry Owner"},
+        )
+        assert result.status_code == 200, result.text
+        login = client.post(
+            "/api/auth/login", json={"email": email, "password": "Telemetry-Test-2026!"}
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+        result = client.post(
+            "/api/hosts/register",
+            headers=headers,
+            json={
+                "hostname": f"Telemetry Fixture {index}",
+                "gpu_model": "RTX 4090",
+                "vram_gb": 24,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
+        assert result.status_code == 200, result.text
+        host_id = result.json()["host"]["host_id"]
+        record = {
+            "timestamp": time.time(),
+            "received_at": time.time(),
+            "metrics": {"utilization": 37 + index, "temp": 56},
+        }
+        agent._persist_telemetry_latest(host_id, record)
+        owners.append((host_id, headers))
+    client.cookies.clear()
+    yield owners
+    for host_id, _ in owners:
+        agent._host_telemetry.pop(host_id, None)
+
+
+def test_host_owner_reads_only_their_own_telemetry(client, telemetry_owners):
+    own, foreign = telemetry_owners
+    result = client.get("/api/telemetry/all", headers=own[1])
+    assert result.status_code == 200, result.text
+    assert set(result.json()["hosts"]) == {own[0]}
+    assert result.json()["hosts"][own[0]]["metrics"]["utilization"] == 37
+    assert client.get("/agent/telemetry/" + own[0], headers=own[1]).status_code == 200
+    assert client.get("/agent/telemetry/" + foreign[0], headers=own[1]).status_code == 404
+
+
+def test_platform_admin_keeps_fleet_telemetry_access(client, telemetry_owners):
+    headers = {"Authorization": "Bearer " + os.environ["XCELSIOR_API_TOKEN"]}
+    result = client.get("/api/telemetry/all", headers=headers)
+    assert result.status_code == 200, result.text
+    assert {host_id for host_id, _ in telemetry_owners} <= set(result.json()["hosts"])
+
+
+def test_telemetry_database_outage_is_not_reported_as_empty_success(
+    client, telemetry_owners, monkeypatch
+):
+    from routes import agent
+
+    own = telemetry_owners[0]
+
+    def unavailable():
+        raise RuntimeError("private storage error")
+
+    monkeypatch.setattr(agent, "_get_pg_pool", unavailable)
+    response = client.get("/api/telemetry/all", headers=own[1])
+    assert response.status_code == 503, response.text
+    assert "private storage error" not in response.text
+    response = client.get("/agent/telemetry/" + own[0], headers=own[1])
+    assert response.status_code == 503, response.text
+    with pytest.raises(HTTPException) as error:
+        agent._persist_telemetry_latest(own[0], {"metrics": {"utilization": 37}})
+    assert error.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        {"utilization": 101},
+        {"utilization": -1},
+        {"utilization": "37"},
+        {"utilization": True},
+        {"memory_used_gb": 25, "memory_total_gb": 24},
+        {"active_jobs": 1.5},
+        {"gpu_count": -1},
+        {"nested": [{"value": float("nan")}]},
+        {"power_draw_w": float("inf")},
+    ],
+)
+def test_invalid_telemetry_is_rejected_before_any_durable_write(client, telemetry_owners, metrics):
+    import json
+    from routes.agent import _read_telemetry_latest
+
+    host_id = telemetry_owners[0][0]
+    response = client.post(
+        "/agent/telemetry",
+        content=json.dumps({"host_id": host_id, "metrics": metrics}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422, response.text
+    assert all("input" not in error for error in response.json()["error"]["details"])
+    assert _read_telemetry_latest(host_id)[host_id]["metrics"]["utilization"] == 37

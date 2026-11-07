@@ -96,7 +96,7 @@ def test_explicit_invoice_generation_still_persists(account):
         row = conn.execute(
             "SELECT total_micros FROM invoices WHERE invoice_id = %s", (invoice.invoice_id,)
         ).fetchone()
-    assert row["total_micros"] == 14_130_000
+    assert row["total_micros"] == 12_500_000
 
 
 def test_csv_uses_canonical_amounts_quantities_units_and_identity(account):
@@ -118,8 +118,8 @@ def test_csv_uses_canonical_amounts_quantities_units_and_identity(account):
     assert items[1]["Amount (CAD)"] == "2.000000"
     assert {row[0]: row[-1] for row in rows[-3:]} == {
         "Subtotal": "14.50",
-        "Tax": "1.89",
-        "Total (CAD)": "16.39",
+        "Tax": "0.00",
+        "Total (CAD)": "14.50",
     }
 
 
@@ -131,8 +131,9 @@ def test_text_receipt_uses_the_same_nonzero_totals_and_id(account):
     assert preview["invoice_id"] in response.text
     assert "GPU-hours" in response.text
     assert "$12.50" in response.text
-    assert "$1.63" in response.text
-    assert "$14.13" in response.text
+    assert "Tax (0%): $0.00" in response.text
+    assert "TOTAL (CAD): $12.50" in response.text
+    assert "payment receipt" in response.text
 
 
 @pytest.mark.parametrize("kind", ["gpu", "serverless_gpu", "serverless_gpu_cold_start", "volume"])
@@ -180,6 +181,7 @@ def test_failed_monthly_query_is_not_reported_as_empty_success(account, monkeypa
         {"tax_rate": -1},
         {"tax_rate": "nan"},
         {"tax_rate": 2},
+        {"tax_rate": 0.13},
     ],
 )
 @pytest.mark.parametrize("suffix", ["", "/download"])

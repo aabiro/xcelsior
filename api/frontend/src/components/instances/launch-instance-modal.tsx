@@ -16,7 +16,6 @@ import {
   fetchSpotPrices,
   classifyLaunchError,
   listAvailableVolumes,
-  fetchPricingRates,
   fetchServiceTierCatalog,
   fetchSpotFeatureStatus,
 } from "@/lib/api";
@@ -146,13 +145,6 @@ export function LaunchInstanceModal({
   const [queueBid, setQueueBid] = useState("0.00");
   const [tierCatalog, setTierCatalog] = useState<ServiceTierCatalog | null>(null);
   const [tierPricingError, setTierPricingError] = useState<string | null>(null);
-  // No province state, deliberately. Stripe Tax is the merchant-of-record
-  // calculation and reads the *account* country/province — `api_create_payment_intent`
-  // says so in as many words. `/api/pricing/rates` now follows the same source,
-  // so the estimate shown here and the amount charged agree. Sending a province
-  // from the client is what made them disagree: the old `detectProvince()` call
-  // hit a route that does not exist and its `.catch` hard-coded "ON", quoting
-  // 13% HST to every customer outside Ontario.
 
   // Volume picker state
   const [availableVolumes, setAvailableVolumes] = useState<Volume[]>([]);
@@ -169,21 +161,6 @@ export function LaunchInstanceModal({
   const [availableGpus, setAvailableGpus] = useState<GpuAvailability[]>([]);
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
   const [spotPrices, setSpotPrices] = useState<Record<string, number>>({});
-
-  // Dynamic pricing from backend
-  const [dynamicRate, setDynamicRate] = useState<{
-    gpu_model: string;
-    pricing_mode: string;
-    effective_rate_per_gpu: number;
-    total_per_hour: number;
-    tax_rate: number;
-    tax_description: string;
-    tax_amount: number;
-    total_with_tax: number;
-    base_rate_cad: number;
-    priority_multiplier: number;
-    multi_gpu_discount: number;
-  } | null>(null);
 
   // UI state
   const [submitting, setSubmitting] = useState(false);
@@ -277,9 +254,6 @@ export function LaunchInstanceModal({
     || pricing[0]?.gpu_model;
   const estimatedInventory = gpuModelOptions.find((entry) => entry.gpu_model === estimatedGpu);
   const estimatedPricing = pricing.find((entry) => entry.gpu_model === estimatedGpu);
-  const currentRate = dynamicRate && dynamicRate.gpu_model === estimatedGpu && dynamicRate.pricing_mode === effectivePricingMode
-    ? dynamicRate
-    : null;
   const currentCatalog = tierCatalog?.gpu_model === estimatedGpu && tierCatalog?.mode === effectivePricingMode && (!resolvedVramGb || tierCatalog.vram_gb === resolvedVramGb) ? tierCatalog : null;
   const selectedTierPrice = currentCatalog?.tiers.find((entry) => entry.tier === tier);
   const exclusiveAddon = gpuExclusive && tier !== "dedicated" ? currentCatalog?.gpu_exclusive_addon : null;
@@ -322,18 +296,13 @@ export function LaunchInstanceModal({
   const volumeMonthlyCost = volumePrices.reduce<number>((total, cost) => total + (cost ?? 0), 0);
   const volumePerHour = volumePricingKnown ? volumeMonthlyCost / HOURS_PER_MONTH : null;
   const totalPerHour = computePerHour != null && volumePerHour != null ? computePerHour + volumePerHour : null;
-  // `/api/pricing/rates` is the only source of a tax rate now; the removed
-  // fallback read a map that the 404ing fetch always left empty, so it only
-  // ever yielded 0.
-  const taxRate = currentRate?.tax_rate;
-  const totalWithTax = totalPerHour != null && taxRate != null ? totalPerHour * (1 + taxRate) : null;
 
   const priceSummary = (
     <div className="rounded-lg border border-border p-3 bg-surface space-y-2" aria-live="polite">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-text-secondary">Estimated total (CAD)</span>
+        <span className="text-sm text-text-secondary">Estimated credit usage (CAD)</span>
         <span className="text-lg font-bold font-mono" data-testid="launch-total">
-          {totalPerHour != null ? hourlyPrice(totalWithTax ?? totalPerHour) : "Unavailable"}
+          {totalPerHour != null ? hourlyPrice(totalPerHour) : "Unavailable"}
         </span>
       </div>
       <div className="flex justify-between gap-3 text-xs">
@@ -355,13 +324,9 @@ export function LaunchInstanceModal({
           {volumePricingKnown && <p className="text-[11px] text-text-muted">${volumeMonthlyCost.toFixed(2)}/month of existing storage. Already billed separately; attaching adds no new fee. Storage billing continues when compute stops.</p>}
         </>
       )}
-      <div className="flex justify-between gap-3 text-xs">
-        <span className="text-text-muted">Estimated tax{taxRate != null ? ` (${(taxRate * 100).toFixed(1)}%)` : ""}</span>
-        <span>{taxRate != null && totalPerHour != null ? hourlyPrice(totalPerHour * taxRate) : "Calculated when available"}</span>
-      </div>
       <p className="text-[11px] text-text-muted">
         Prices are locked when your launch is accepted. Usage is billed per second.{" "}
-        {taxRate == null ? "Total excludes tax until the estimate is available. " : ""}
+        Rates spend pretax credits. Applicable tax is calculated when you add credit.{" "}
         {effectivePricingMode === "spot" ? "Spot uses spare capacity and can be interrupted." : "On-demand protects your allocation from reclamation by another customer."}
       </p>
     </div>
@@ -441,40 +406,28 @@ export function LaunchInstanceModal({
     launchRegion.length > 0 &&
     selectedVolumes.some((v) => v.region && v.region.toLowerCase() !== launchRegion);
 
-  // Dynamic pricing, recompute when any pricing variable changes
+  // The selected mode's catalog supplies every price used in the summary.
   useEffect(() => {
     if (!open || !estimatedGpu) {
-      setDynamicRate(null);
       setSpotQuoteLoading(false);
       return;
     }
     const controller = new AbortController();
-    setDynamicRate(null);
     setTierCatalog(null);
     setTierPricingError(null);
-    fetchServiceTierCatalog(estimatedGpu, effectivePricingMode, resolvedVramGb)
-      .then((catalog) => { if (!controller.signal.aborted) setTierCatalog(catalog); })
-      .catch(() => { if (!controller.signal.aborted) setTierPricingError("Unable to load service-tier prices. Retry before launching."); });
     if (effectivePricingMode === "spot") {
       setSpotQuoteLoading(true);
       setSpotQuoteError(null);
     }
-    fetchPricingRates({
-      gpu_model: estimatedGpu,
-      vram_gb: resolvedVramGb,
-      tier: "standard",
-      mode: effectivePricingMode,
-      priority: "normal",
-      num_gpus: 1,
-    })
-      .then((r) => {
+    fetchServiceTierCatalog(estimatedGpu, effectivePricingMode, resolvedVramGb)
+      .then((catalog) => {
         if (controller.signal.aborted) return;
-        setDynamicRate({ ...r, gpu_model: estimatedGpu, pricing_mode: effectivePricingMode });
+        setTierCatalog(catalog);
         if (effectivePricingMode === "spot") setSpotQuoteError(null);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
-        setDynamicRate(null);
+        setTierPricingError("Unable to load service-tier prices. Retry before launching.");
         if (effectivePricingMode === "spot") {
           setSpotQuoteError("Unable to load spot rate. Check your connection and retry.");
         }
@@ -529,7 +482,6 @@ export function LaunchInstanceModal({
       setSelectedVolumeIds(preSelectedVolumeIds ?? []);
       setLaunchError(null);
       setInstanceId("");
-      setDynamicRate(null);
       setSpotQuoteError(null);
       setSpotQuoteLoading(false);
       if (!listing) setGpuModel(initialGpuModel ?? "");
@@ -630,7 +582,7 @@ export function LaunchInstanceModal({
                   : "Configure and launch a new GPU instance"}
               </CardDescription>
             </div>
-            <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
+            <button type="button" aria-label="Close" onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
               <X className="h-5 w-5" />
             </button>
           </CardHeader>

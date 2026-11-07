@@ -1616,7 +1616,7 @@ export interface components {
             ask_cents_per_hour: number;
             /**
              * Region
-             * @default ca-east
+             * @default
              */
             region: string;
             /**
@@ -1737,16 +1737,6 @@ export interface components {
              * @default
              */
             province: string;
-            /** Expected Version */
-            expected_version: number;
-        };
-        /** HostRelocationUpdate */
-        HostRelocationUpdate: {
-            /**
-             * Action
-             * @enum {string}
-             */
-            action: "pause" | "resume";
             /** Expected Version */
             expected_version: number;
         };
@@ -2760,9 +2750,9 @@ export interface components {
             quantity: number;
             /**
              * Province
-             * @default ON
+             * @deprecated
              */
-            province: string;
+            province?: string | null;
         };
         /** RigListing */
         RigListing: {
@@ -2946,7 +2936,7 @@ export interface components {
             gpu_count: number;
             /**
              * Region
-             * @default ca-east
+             * @default
              */
             region: string;
             /**
@@ -3215,11 +3205,8 @@ export interface components {
              * @default 0
              */
             timestamp: number;
-            /**
-             * Metrics
-             * @default {}
-             */
-            metrics: {
+            /** Metrics */
+            metrics?: {
                 [key: string]: unknown;
             };
         };
@@ -3370,7 +3357,7 @@ export interface components {
             size_gb: number;
             /**
              * Region
-             * @default ca-east
+             * @default
              */
             region: string;
             /**

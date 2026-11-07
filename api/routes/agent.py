@@ -2,6 +2,7 @@
 
 import asyncio
 import gzip
+import math
 import os
 import re
 import time
@@ -9,7 +10,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from routes._deps import (
     broadcast_sse,
@@ -940,9 +941,56 @@ def api_agent_popular_images(request: Request):
 
 
 class TelemetryPayload(BaseModel):
-    host_id: str
-    timestamp: float = 0
-    metrics: dict = {}
+    host_id: str = Field(min_length=1, max_length=64, strict=True)
+    timestamp: float = Field(default=0, ge=0, allow_inf_nan=False, strict=True)
+    metrics: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("metrics")
+    @classmethod
+    def validate_measurements(cls, metrics):
+        def finite_json(value):
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("Telemetry measurements must be finite")
+            if isinstance(value, dict):
+                for item in value.values():
+                    finite_json(item)
+            elif isinstance(value, list):
+                for item in value:
+                    finite_json(item)
+
+        finite_json(metrics)
+        ranges = {
+            "utilization": (0, 100),
+            "memory_util": (0, 100),
+            "temp": (-273.15, None),
+            "power_draw_w": (0, None),
+            "power_limit_w": (0, None),
+            "memory_used_gb": (0, None),
+            "memory_total_gb": (0, None),
+            "memory_free_gb": (0, None),
+            "net_rx_mbps": (0, None),
+            "net_tx_mbps": (0, None),
+            "disk_read_mb_s": (0, None),
+            "disk_write_mb_s": (0, None),
+        }
+        for key, (minimum, maximum) in ranges.items():
+            value = metrics.get(key)
+            if value is None:
+                continue
+            try:
+                numeric = type(value) in (int, float) and math.isfinite(float(value))
+            except OverflowError:
+                numeric = False
+            if not numeric or value < minimum or (maximum is not None and value > maximum):
+                raise ValueError(f"Invalid telemetry measurement: {key}")
+        for key in ("gpu_count", "active_jobs", "memory_errors"):
+            value = metrics.get(key)
+            if value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1):
+                raise ValueError(f"Invalid telemetry count: {key}")
+        used, total = metrics.get("memory_used_gb"), metrics.get("memory_total_gb")
+        if used is not None and total is not None and used > total:
+            raise ValueError("GPU memory used cannot exceed total GPU memory")
+        return metrics
 
 
 def _telemetry_pg_enabled() -> bool:
@@ -958,8 +1006,8 @@ def _persist_telemetry_latest(host_id: str, record: dict) -> None:
     keeping its own process-local dict — the fleet's live state stops
     living in one worker's memory (data-architecture companion §2.6/§5.8).
 
-    Best-effort: the process-local cache remains the dev/sqlite path, and a
-    DB blip never fails the agent's telemetry post. One row per host
+    PostgreSQL failures must fail the report so the agent can retry instead
+    of acknowledging data that other replicas cannot read. One row per host
     (``gpu_uuid=''``); the schema allows per-GPU rows for future detail.
     """
     if not _telemetry_pg_enabled():
@@ -982,14 +1030,17 @@ def _persist_telemetry_latest(host_id: str, record: dict) -> None:
                 """,
                 (host_id, Jsonb(sample)),
             )
-    except Exception as e:
-        log.debug("telemetry_latest upsert failed for %s: %s", host_id, e)
+    except Exception as exc:
+        log.warning("Telemetry storage write failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            503, "Telemetry storage is temporarily unavailable. Please retry."
+        ) from None
 
 
 def _read_telemetry_latest(host_id: str | None = None) -> dict[str, dict] | None:
     """Latest telemetry for one host (or the whole fleet) from the shared
-    ``telemetry_latest`` store, or ``None`` when it is unavailable so the
-    caller falls back to the process-local cache. ``received_at`` is the
+    ``telemetry_latest`` store. ``None`` selects the configured non-PostgreSQL
+    development path; a PostgreSQL outage is an error. ``received_at`` is the
     DB-clock epoch (authoritative freshness, §12.2)."""
     if not _telemetry_pg_enabled():
         return None
@@ -1008,9 +1059,11 @@ def _read_telemetry_latest(host_id: str | None = None) -> dict[str, dict] | None
                     "EXTRACT(EPOCH FROM received_at) AS recv_epoch "
                     "FROM telemetry_latest WHERE gpu_uuid = ''"
                 ).fetchall()
-    except Exception as e:
-        log.debug("telemetry_latest read failed: %s", e)
-        return None
+    except Exception as exc:
+        log.warning("Telemetry storage read failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            503, "Telemetry storage is temporarily unavailable. Please retry."
+        ) from None
     result: dict[str, dict] = {}
     for r in rows:
         hid = r["host_id"] if isinstance(r, dict) else r[0]
@@ -1033,21 +1086,27 @@ def api_agent_telemetry(payload: TelemetryPayload, request: Request):
         "metrics": payload.metrics,
         "received_at": time.time(),
     }
-    _host_telemetry[payload.host_id] = record  # fast local cache
     _persist_telemetry_latest(payload.host_id, record)  # shared across replicas
+    if not _telemetry_pg_enabled():
+        _host_telemetry[payload.host_id] = record
     return {"ok": True}
 
 
 @router.get("/agent/telemetry/{host_id}", tags=["Telemetry"])
 def api_get_telemetry(host_id: str, request: Request):
     """Get latest telemetry for a host (dashboard live gauges)."""
-    _require_user_grant(request, allow_api_key=True)
+    user = _require_user_grant(request, allow_api_key=True)
+    from routes._deps import _require_scope
+    from routes.hosts import visible_hosts
+
+    _require_scope(user, "hosts:read")
+    if host_id not in {
+        host["host_id"] for host in visible_hosts(user, list_hosts(active_only=False))
+    }:
+        raise HTTPException(404, "Host not found")
     shared = _read_telemetry_latest(host_id)
-    if shared is not None and host_id in shared:
-        data = shared[host_id]
-    elif host_id in _host_telemetry:
-        data = _host_telemetry[host_id]  # dev/sqlite or pre-persist fallback
-    else:
+    data = shared.get(host_id) if shared is not None else _host_telemetry.get(host_id)
+    if data is None:
         raise HTTPException(404, f"No telemetry for host {host_id}")
 
     stale = (time.time() - data.get("received_at", 0)) > 30  # >30s = stale
@@ -1058,13 +1117,18 @@ def api_get_telemetry(host_id: str, request: Request):
 def api_all_telemetry(request: Request):
     """Get latest telemetry for all hosts (dashboard overview)."""
     user = _require_user_grant(request, allow_api_key=True)
-    if not user.get("is_admin") and user.get("role") != "provider":
-        raise HTTPException(403, "Admin or provider role required")
+    from routes._deps import _require_scope
+    from routes.hosts import visible_hosts
+
+    _require_scope(user, "hosts:read")
+    visible_ids = {host["host_id"] for host in visible_hosts(user, list_hosts(active_only=False))}
     shared = _read_telemetry_latest()
     source = shared if shared is not None else _host_telemetry
     now = time.time()
     result = {}
     for host_id, data in source.items():
+        if host_id not in visible_ids:
+            continue
         result[host_id] = {
             **data,
             "stale": (now - data.get("received_at", 0)) > 30,

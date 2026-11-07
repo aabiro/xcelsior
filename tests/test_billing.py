@@ -70,9 +70,14 @@ class TestProvinceTaxRates:
         assert abs(rate - 0.12) < 0.001
 
     def test_atlantic_provinces_15pct(self):
-        for prov in ("NB", "NL", "NS", "PE"):
+        for prov in ("NB", "NL", "PE"):
             rate, _desc = PROVINCE_TAX_RATES[prov]
             assert abs(rate - 0.15) < 0.001, f"{prov} should be 15%"
+
+    def test_nova_scotia_hst_14pct(self):
+        rate, description = PROVINCE_TAX_RATES["NS"]
+        assert rate == pytest.approx(0.14)
+        assert description == "HST 14%"
 
     def test_territories_5pct(self):
         for terr in ("NT", "NU", "YT"):
@@ -220,7 +225,9 @@ class TestInvoicing:
 
     def test_invoice_has_tax_fields(self):
         eng = _engine()
-        inv = eng.generate_invoice("cust-inv-2", "Test", 0, time.time(), customer_province="ON")
+        inv = eng.generate_invoice(
+            "cust-inv-2", "Test", 0, time.time(), tax_rate=None, customer_province="ON"
+        )
         assert abs(inv.tax_rate - 0.13) < 0.001
 
 

@@ -21,6 +21,11 @@ log = logging.getLogger("xcelsior.stripe_tax")
 # Match catalog / Dashboard preset for compute credits (digital services).
 DEFAULT_TAX_CODE = "txcd_10000000"
 
+
+class TaxCalculationUnavailable(RuntimeError):
+    """Tax is enabled, but no valid calculation is available for a payment."""
+
+
 # Canadian province codes for validation / defaults.
 CA_PROVINCES = frozenset(
     {
@@ -42,11 +47,12 @@ CA_PROVINCES = frozenset(
 
 
 def tax_enabled() -> bool:
-    return os.environ.get("XCELSIOR_STRIPE_TAX_ENABLED", "1").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    value = os.environ.get("XCELSIOR_STRIPE_TAX_ENABLED", "1").strip().lower()
+    if value in {"1", "true", "yes"}:
+        return True
+    if value in {"0", "false", "no"}:
+        return False
+    raise TaxCalculationUnavailable("The tax configuration is invalid. Please contact support.")
 
 
 def normalize_customer_address(address: dict | None) -> dict[str, str] | None:
@@ -103,7 +109,9 @@ def calculate_wallet_deposit_tax(
     Tax location comes from the customer **account** (country/province), same
     idea as provider location — not a checkout province picker.
     """
-    credit = max(0, int(amount_cents))
+    if type(amount_cents) is not int or amount_cents <= 0:
+        raise ValueError("The credit amount must be a positive integer number of cents.")
+    credit = amount_cents
     base: dict[str, Any] = {
         "tax_calculation_id": "",
         "amount_total": credit,
@@ -115,15 +123,14 @@ def calculate_wallet_deposit_tax(
         "error": "",
         "location_source": "",
     }
-    if not tax_enabled() or credit <= 0:
+    if not tax_enabled():
         return base
 
     from stripe_connect import STRIPE_ENABLED, stripe as default_stripe
 
     client = stripe_mod if stripe_mod is not None else default_stripe
     if not (STRIPE_ENABLED and client):
-        base["error"] = "stripe_disabled"
-        return base
+        raise TaxCalculationUnavailable("Tax could not be calculated. Please try again shortly.")
 
     customer_details, location_source = resolve_tax_customer_details(
         address=address, ip_address=ip_address
@@ -144,8 +151,18 @@ def calculate_wallet_deposit_tax(
                 }
             ],
         )
-        tax_exclusive = int(getattr(calc, "tax_amount_exclusive", 0) or 0)
-        amount_total = int(getattr(calc, "amount_total", credit) or credit)
+        tax_exclusive = calc.tax_amount_exclusive
+        amount_total = calc.amount_total
+        if (
+            not isinstance(calc.id, str)
+            or not calc.id.startswith("taxcalc_")
+            or calc.currency != currency.lower()
+            or type(tax_exclusive) is not int
+            or tax_exclusive < 0
+            or type(amount_total) is not int
+            or amount_total != credit + tax_exclusive
+        ):
+            raise ValueError("Invalid tax calculation totals or currency")
         breakdown = []
         raw_bd = getattr(calc, "tax_breakdown", None) or []
         for b in raw_bd:
@@ -175,7 +192,9 @@ def calculate_wallet_deposit_tax(
             "customer_details": customer_details,
         }
     except Exception as exc:
-        log.warning("Stripe Tax calculation failed (charging pretax only): %s", exc)
-        base["error"] = str(exc)[:240]
-        base["location_source"] = location_source
-        return base
+        # Provider errors can contain submitted addresses. Keep that data out
+        # of logs and client responses; no PaymentIntent may use guessed tax.
+        log.warning("Stripe Tax calculation failed (%s)", type(exc).__name__)
+        raise TaxCalculationUnavailable(
+            "Tax could not be calculated. Please try again shortly."
+        ) from None

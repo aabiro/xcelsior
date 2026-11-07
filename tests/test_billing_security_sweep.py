@@ -94,7 +94,6 @@ _CUSTOMER_MUTATIONS = [
             "gpu_model": "RTX 4090",
             "commitment_type": "1_month",
             "quantity": 1,
-            "province": "ON",
         },
     ),
 ]

@@ -783,14 +783,14 @@ def test_rest_quote_and_submission_pin_the_same_funded_additive_price(paid_fleet
             "tier": "premium",
             "exclusive_gpu": True,
             "num_gpus": 2,
-            "province": "ON",
             "priority": "critical",
         },
     )
     assert response.status_code == 200, response.text
     rates = response.json()
     assert rates["total_per_hour"] == 1.96
-    assert rates["total_with_tax"] == 2.2148
+    assert rates["total_with_tax"] is None
+    assert rates["tax_collection"] == "credit_deposit"
     assert rates["priority"] == 2
     launch = client.post(
         "/instance",
