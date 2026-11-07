@@ -45,6 +45,7 @@ def test_calculate_uses_account_address_not_picker(monkeypatch):
     mock = MagicMock()
     calc = MagicMock()
     calc.id = "taxcalc_acct"
+    calc.currency = "cad"
     calc.tax_amount_exclusive = 325
     calc.amount_total = 2825
     calc.tax_breakdown = []
@@ -245,3 +246,88 @@ def test_customer_sync_rejects_missing_profile_before_contacting_stripe(monkeypa
         engine.ensure_stripe_customer("cust-missing")
     sdk.Customer.create.assert_not_called()
     sdk.Customer.modify.assert_not_called()
+
+
+@pytest.mark.parametrize("amount", [0, -1, True, 2500.5, "2500"])
+def test_tax_amount_must_be_positive_integer_cents(amount):
+    from stripe_tax import calculate_wallet_deposit_tax
+
+    with pytest.raises(ValueError, match="positive integer"):
+        calculate_wallet_deposit_tax(amount_cents=amount, address=_address())
+
+
+@pytest.mark.parametrize(
+    "bad_fields",
+    [
+        {"amount_total": 2500},
+        {"amount_total": 2825.5},
+        {"tax_amount_exclusive": -1},
+        {"tax_amount_exclusive": "325"},
+        {"currency": "usd"},
+        {"id": ""},
+    ],
+)
+def test_malformed_tax_response_never_becomes_a_payment(monkeypatch, bad_fields):
+    from types import SimpleNamespace
+    import stripe_connect
+    from stripe_tax import TaxCalculationUnavailable
+
+    sdk = MagicMock()
+    sdk.tax.Calculation.create.return_value = SimpleNamespace(
+        **{
+            **{
+                "id": "taxcalc_test",
+                "currency": "cad",
+                "amount_total": 2825,
+                "tax_amount_exclusive": 325,
+                "tax_breakdown": [],
+            },
+            **bad_fields,
+        }
+    )
+    monkeypatch.setattr(stripe_connect, "STRIPE_ENABLED", True)
+    monkeypatch.setattr(stripe_connect, "stripe", sdk)
+    manager = stripe_connect.StripeConnectManager.__new__(stripe_connect.StripeConnectManager)
+    write = MagicMock()
+    monkeypatch.setattr(manager, "_conn", write)
+    with pytest.raises(TaxCalculationUnavailable):
+        manager.create_credit_deposit("cust-test", 25, address=_address())
+    sdk.PaymentIntent.create.assert_not_called()
+    write.assert_not_called()
+
+
+def test_tax_provider_failure_blocks_payment_without_disclosing_address(monkeypatch, caplog):
+    import stripe_connect
+    from stripe_tax import TaxCalculationUnavailable
+
+    sdk = MagicMock()
+    sdk.tax.Calculation.create.side_effect = RuntimeError("private address from provider")
+    monkeypatch.setattr(stripe_connect, "STRIPE_ENABLED", True)
+    monkeypatch.setattr(stripe_connect, "stripe", sdk)
+    manager = stripe_connect.StripeConnectManager.__new__(stripe_connect.StripeConnectManager)
+    write = MagicMock()
+    monkeypatch.setattr(manager, "_conn", write)
+    with pytest.raises(TaxCalculationUnavailable, match="try again") as error:
+        manager.create_credit_deposit("cust-test", 25, address=_address())
+    assert "private address" not in str(error.value) + caplog.text
+    sdk.PaymentIntent.create.assert_not_called()
+    write.assert_not_called()
+
+
+def test_explicitly_disabled_tax_remains_a_configured_choice(monkeypatch):
+    from stripe_tax import calculate_wallet_deposit_tax
+
+    monkeypatch.setenv("XCELSIOR_STRIPE_TAX_ENABLED", "0")
+    result = calculate_wallet_deposit_tax(amount_cents=2500)
+    assert result["tax_enabled"] is False
+    assert result["amount_total"] == 2500
+    assert result["error"] == ""
+
+
+@pytest.mark.parametrize("value", ["", "tru", "disabled", "2"])
+def test_invalid_tax_configuration_cannot_silently_disable_tax(monkeypatch, value):
+    from stripe_tax import calculate_wallet_deposit_tax, TaxCalculationUnavailable
+
+    monkeypatch.setenv("XCELSIOR_STRIPE_TAX_ENABLED", value)
+    with pytest.raises(TaxCalculationUnavailable, match="configuration"):
+        calculate_wallet_deposit_tax(amount_cents=2500, address=_address())

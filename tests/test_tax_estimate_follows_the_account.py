@@ -1,26 +1,7 @@
-"""The quoted tax rate must come from the same place Stripe will charge from.
+"""Usage quotes spend pretax credits; tax is collected on credit deposits.
 
-Stripe Tax is the merchant-of-record calculation for real money and it reads the
-**account** country/province. `api_create_payment_intent` states this outright:
-
-    Stripe Tax uses the **account** country/province (settings/profile) — no
-    deposit province picker. IP is a fallback when the account has no location.
-
-`/api/pricing/rates` and `/api/pricing/spot-quote` are the estimates the launch
-UI shows, and they took `province` as a query parameter defaulting to `"ON"`.
-The launch modal sent `province || "ON"`, where that value came from
-`detectProvince()` — a call to `/api/compliance/detect-province`, a route that
-does not exist. The 404 landed in `.catch(() => setProvince("ON"))`.
-
-So every customer outside Ontario was quoted 13% HST and then charged their own
-province's rate. The estimate was not merely approximate, it was systematically
-wrong in a way no one could see, because the request that was supposed to set it
-had been failing since the endpoint was removed.
-
-Both endpoints now resolve the province the way Stripe does. An explicit query
-value still wins — a caller pricing a location other than their own is a real
-use — and with neither a value nor an account the rate falls back to
-"GST 5% (province unknown)" rather than silently picking a province.
+Neither endpoint can invent an hourly tax charge. The deposit endpoint uses
+the validated saved address and Stripe Tax for the actual payment instead.
 """
 
 from __future__ import annotations
@@ -71,31 +52,43 @@ def bc_customer() -> dict:
 
 
 @pytest.mark.parametrize("endpoint", RATE_ENDPOINTS)
-def test_the_quote_follows_the_account_province(endpoint, bc_customer):
+def test_usage_quote_is_pretax_for_a_signed_in_account(endpoint, bc_customer):
     r = client.get(f"{endpoint}?gpu_model=RTX%204090", headers=bc_customer)
     assert r.status_code == 200, r.text[:300]
     body = r.json()
-    assert body["province"] == "BC", (
-        f"quoted {body['province']!r} for a BC account — the estimate is not "
-        "reading the field Stripe Tax charges from"
-    )
-    assert body["tax_rate"] == pytest.approx(0.12), body
+    assert body["tax_collection"] == "credit_deposit"
+    assert body["tax_rate"] is None and body["tax_amount"] is None
+    assert body["total_with_tax"] is None
+    assert body["total_per_hour"] > 0
 
 
 @pytest.mark.parametrize("endpoint", RATE_ENDPOINTS)
-def test_an_explicit_province_still_wins(endpoint, bc_customer):
-    """Pricing a location other than your own stays possible."""
+def test_usage_quote_rejects_a_tax_province_override(endpoint, bc_customer):
     r = client.get(f"{endpoint}?gpu_model=RTX%204090&province=ON", headers=bc_customer)
-    assert r.status_code == 200, r.text[:300]
-    assert r.json()["tax_rate"] == pytest.approx(0.13)
+    assert r.status_code == 422, r.text[:300]
+    assert "saved billing address" in r.text
 
 
 @pytest.mark.parametrize("endpoint", RATE_ENDPOINTS)
-def test_no_account_and_no_value_says_unknown(endpoint):
-    """Anonymous callers get an honest fallback, not a guessed province."""
+def test_no_account_does_not_fabricate_a_tax_rate_or_location(endpoint):
     r = client.get(f"{endpoint}?gpu_model=RTX%204090")
     assert r.status_code == 200, r.text[:300]
     body = r.json()
-    assert body["province"] == ""
-    assert "unknown" in body["tax_description"].lower(), body
-    assert body["tax_rate"] == pytest.approx(0.05)
+    assert "province" not in body and "country" not in body
+    assert body["tax_collection"] == "credit_deposit"
+    assert body["tax_rate"] is None and body["tax_amount"] is None
+    assert body["total_with_tax"] is None
+    assert "saved billing address" in body["tax_description"]
+
+
+@pytest.mark.parametrize("endpoint", RATE_ENDPOINTS)
+@pytest.mark.parametrize(
+    "location", [{"country": "US", "province": "CA"}, {"country": "GB", "province": "ENG"}]
+)
+def test_international_account_never_receives_canadian_gst(endpoint, location, bc_customer):
+    update = client.put("/api/auth/me/profile", headers=bc_customer, json=location)
+    assert update.status_code == 200, update.text
+    result = client.get(f"{endpoint}?gpu_model=RTX%204090", headers=bc_customer)
+    assert result.status_code == 200, result.text
+    assert result.json()["tax_rate"] is None
+    assert result.json()["tax_collection"] == "credit_deposit"

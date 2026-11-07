@@ -114,7 +114,7 @@ def test_billing_spot_discount_half_price():
         ("ON", 0.13),
         ("AB", 0.05),
         ("QC", 0.14975),
-        ("NS", 0.15),
+        ("NS", 0.14),
         ("BC", 0.12),
     ],
 )

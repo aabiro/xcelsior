@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { HostLocationForm } from "@/components/ui/province-selector";
 import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
+import { readTelemetry } from "@/lib/telemetry";
 
 export default function HostDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +37,7 @@ function HostDetailContent({ id }: { id: string }) {
   const [sla, setSla] = useState<{ uptime_30d_pct: number } | null>(null);
   const [verification, setVerification] = useState<{ status: string } | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [reputation, setReputation] = useState<ReputationEntry | null>(null);
 
   useEffect(() => {
@@ -53,10 +55,10 @@ function HostDetailContent({ id }: { id: string }) {
     fetchTelemetry()
       .then((r) => {
         if (!active) return;
-        const data = r.telemetry?.[id];
-        if (data) setTelemetry(data);
+        const data = r.hosts[id];
+        if (data) setTelemetry(readTelemetry(data));
       })
-      .catch((e) => console.error("Failed to load telemetry", e));
+      .catch(() => { if (active) setTelemetryError("Telemetry could not be loaded. Please refresh to retry."); });
 
     return () => { active = false; };
   }, [id]);
@@ -257,13 +259,13 @@ function HostDetailContent({ id }: { id: string }) {
 
       {/* Telemetry */}
       <Card>
-        <h2 className="text-sm font-semibold text-text-secondary mb-4">{t("dash.hosts.live_telemetry")}</h2>
-        {telemetry ? (
+        <h2 className="text-sm font-semibold text-text-secondary mb-4">{t("dash.hosts.live_telemetry")}{telemetry?.stale && <span className="ml-2 text-xs text-accent-gold">Stale</span>}</h2>
+        {telemetryError ? <p role="alert" className="text-sm text-accent-red">{telemetryError}</p> : telemetry ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <TelemetryGauge
               icon={<Cpu className="h-4 w-4 text-ice-blue" />}
               label={t("dash.hosts.gpu_util")}
-              value={telemetry.gpu_utilization_pct ?? telemetry.gpu_util ?? 0}
+              value={telemetry.utilization}
               unit="%"
               max={100}
               color="bg-ice-blue"
@@ -271,32 +273,32 @@ function HostDetailContent({ id }: { id: string }) {
             <TelemetryGauge
               icon={<Thermometer className="h-4 w-4 text-accent-gold" />}
               label={t("dash.hosts.temperature")}
-              value={telemetry.gpu_temp_c ?? telemetry.temperature ?? 0}
+              value={telemetry.temp}
               unit="°C"
               max={100}
               color={
-                (telemetry.gpu_temp_c ?? telemetry.temperature ?? 0) > 85 ? "bg-accent-red" :
-                (telemetry.gpu_temp_c ?? telemetry.temperature ?? 0) > 70 ? "bg-accent-gold" : "bg-emerald"
+                telemetry.temp !== null && telemetry.temp > 85 ? "bg-accent-red" :
+                telemetry.temp !== null && telemetry.temp > 70 ? "bg-accent-gold" : "bg-emerald"
               }
             />
             <TelemetryGauge
               icon={<HardDrive className="h-4 w-4 text-emerald" />}
               label={t("dash.hosts.mem_used")}
-              value={telemetry.gpu_memory_used_mb ?? telemetry.mem_used_mb ?? 0}
-              unit="MB"
-              max={telemetry.gpu_memory_total_mb || 1}
+              value={telemetry.memory_used_gb}
+              unit="GB"
+              max={telemetry.memory_total_gb}
               color="bg-emerald"
             />
             <TelemetryGauge
               icon={<Zap className="h-4 w-4 text-accent-red" />}
               label={t("dash.hosts.power_draw")}
-              value={telemetry.gpu_power_draw_w ?? telemetry.power_draw_w ?? 0}
+              value={telemetry.power_draw_w}
               unit="W"
               max={400}
               color="bg-accent-red"
             />
             {/* P2.4: network + disk bandwidth, only render if the agent reports them. */}
-            {telemetry.net_rx_mbps !== undefined && (
+            {telemetry.net_rx_mbps !== null && (
               <TelemetryGauge
                 icon={<ArrowDownToLine className="h-4 w-4 text-ice-blue" />}
                 label={t("dash.hosts.net_rx")}
@@ -306,7 +308,7 @@ function HostDetailContent({ id }: { id: string }) {
                 color="bg-ice-blue"
               />
             )}
-            {telemetry.net_tx_mbps !== undefined && (
+            {telemetry.net_tx_mbps !== null && (
               <TelemetryGauge
                 icon={<ArrowUpFromLine className="h-4 w-4 text-ice-blue" />}
                 label={t("dash.hosts.net_tx")}
@@ -316,7 +318,7 @@ function HostDetailContent({ id }: { id: string }) {
                 color="bg-ice-blue"
               />
             )}
-            {telemetry.disk_read_mb_s !== undefined && (
+            {telemetry.disk_read_mb_s !== null && (
               <TelemetryGauge
                 icon={<Database className="h-4 w-4 text-emerald" />}
                 label={t("dash.hosts.disk_read")}
@@ -326,7 +328,7 @@ function HostDetailContent({ id }: { id: string }) {
                 color="bg-emerald"
               />
             )}
-            {telemetry.disk_write_mb_s !== undefined && (
+            {telemetry.disk_write_mb_s !== null && (
               <TelemetryGauge
                 icon={<Database className="h-4 w-4 text-accent-gold" />}
                 label={t("dash.hosts.disk_write")}
@@ -355,12 +357,12 @@ function TelemetryGauge({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: number;
+  value: number | null;
   unit: string;
-  max: number;
+  max: number | null;
   color: string;
 }) {
-  const pct = Math.min((value / max) * 100, 100);
+  const pct = value !== null && max !== null && max > 0 ? Math.max(0, Math.min((value / max) * 100, 100)) : null;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -368,10 +370,10 @@ function TelemetryGauge({
         <span className="text-xs text-text-muted">{label}</span>
       </div>
       <div className="text-lg font-bold font-mono">
-        {typeof value === "number" ? value.toLocaleString() : value}{unit}
+        {value !== null ? `${value.toLocaleString()}${unit}` : "Unavailable"}
       </div>
       <div className="h-1.5 rounded-full bg-navy overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+        {pct !== null && <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />}
       </div>
     </div>
   );

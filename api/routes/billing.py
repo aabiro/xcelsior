@@ -43,7 +43,7 @@ from routes._deps import (
 from scheduler import log
 from db import UserStore
 from stripe_connect import get_stripe_manager
-from billing import get_billing_engine, get_tax_rate_for_province
+from billing import get_billing_engine
 from pricing_reference import (
     build_gpu_pricing_reference,
     build_reference_list,
@@ -125,7 +125,7 @@ def api_get_wallet(customer_id: str, request: Request):
 
 
 class DepositRequest(BaseModel):
-    amount_cad: float = Field(gt=0, le=10000)
+    amount_cad: float = Field(gt=0, le=10000, strict=True, multiple_of=0.01, allow_inf_nan=False)
     description: str = Field(default="Credit deposit", max_length=500)
 
 
@@ -148,7 +148,7 @@ class AdminCreditRequest(BaseModel):
 
 class PaymentIntentRequest(BaseModel):
     customer_id: str = Field(min_length=1, max_length=128)
-    amount_cad: float = Field(gt=0, le=10000)
+    amount_cad: float = Field(gt=0, le=10000, strict=True, multiple_of=0.01, allow_inf_nan=False)
     description: str = Field(default="Compute credits", max_length=500)
 
 
@@ -247,15 +247,20 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     from meta_capi import ads_metadata, request_context, track_event
 
     ads = ads_metadata(request)
-    result = mgr.create_credit_deposit(
-        req.customer_id,
-        req.amount_cad,
-        req.description,
-        address=addr,
-        ip_address="",
-        email=email,
-        ads=ads,
-    )
+    from stripe_tax import TaxCalculationUnavailable
+
+    try:
+        result = mgr.create_credit_deposit(
+            req.customer_id,
+            req.amount_cad,
+            req.description,
+            address=addr,
+            ip_address="",
+            email=email,
+            ads=ads,
+        )
+    except TaxCalculationUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
     event_id = request_context(request).get("event_id") or result.get("stripe_intent_id")
     track_event(
         "InitiateCheckout",
@@ -1074,9 +1079,9 @@ def api_generate_invoice(
     customer_name: str = "",
     period_start: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
     period_end: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
-    tax_rate: float = Query(0.13, ge=0, le=1, allow_inf_nan=False),
+    tax_rate: float = Query(0, ge=0, le=0, allow_inf_nan=False, deprecated=True),
 ):
-    """Preview an itemized draft invoice without persisting a billing record."""
+    """Preview an itemized pretax credit-usage statement without issuing an invoice."""
     _require_customer_access(request, customer_id)
     period_start, period_end = _invoice_period(period_start, period_end)
     be = get_billing_engine()
@@ -1102,7 +1107,7 @@ def api_list_invoices(customer_id: str, request: Request, limit: int = Query(12,
             else month.replace(month=month.month + 1)
         )
         period_start, period_end = month.timestamp(), next_month.timestamp()
-        inv = be.generate_invoice(customer_id, "", period_start, period_end, 0.13, persist=False)
+        inv = be.generate_invoice(customer_id, "", period_start, period_end, 0, persist=False)
         if inv.line_items:
             invoices.append(
                 {
@@ -1132,10 +1137,10 @@ def api_download_invoice(
     format: Literal["csv", "txt"] = "csv",
     period_start: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
     period_end: float = Query(0, ge=0, le=253402300799, allow_inf_nan=False),
-    tax_rate: float = Query(0.13, ge=0, le=1, allow_inf_nan=False),
+    tax_rate: float = Query(0, ge=0, le=0, allow_inf_nan=False, deprecated=True),
     customer_name: str = "",
 ):
-    """Download a draft invoice as CSV or a plain-text receipt.
+    """Download a pretax credit-usage statement as CSV or plain text.
 
     Formats: csv (spreadsheet-ready), txt (printable receipt).
     """
@@ -1154,7 +1159,7 @@ def api_download_invoice(
     if format == "csv":
         output = io.StringIO()
         writer = csv_mod.writer(output)
-        writer.writerow(["Xcelsior Invoice", inv.invoice_id, date_str])
+        writer.writerow(["Xcelsior Usage Statement", inv.invoice_id, date_str])
         writer.writerow([])
         writer.writerow(
             ["Description", "GPU", "Quantity", "Unit", "Rate (CAD/unit)", "Amount (CAD)"]
@@ -1186,7 +1191,7 @@ def api_download_invoice(
     # Plain-text receipt format
     lines = [
         "=" * 60,
-        "XCELSIOR — GPU COMPUTE INVOICE",
+        "XCELSIOR — CREDIT USAGE STATEMENT",
         "=" * 60,
         f"Invoice ID:  {inv.invoice_id}",
         f"Status:      {inv.status}",
@@ -1208,6 +1213,7 @@ def api_download_invoice(
         f"Subtotal: ${inv.subtotal_cad:.2f}",
         f"Tax ({inv.tax_rate * 100:g}%): ${inv.tax_amount_cad:.2f}",
         f"TOTAL (CAD): ${inv.total_cad:.2f}",
+        "Tax is collected when adding credit and appears on the payment receipt.",
         "",
         "=" * 60,
         "Xcelsior Inc. | xcelsior.ca",
@@ -1495,34 +1501,20 @@ def api_reference_pricing():
     }
 
 
-def _estimate_province(request: Request, supplied: str) -> str:
-    """The province a tax *estimate* should use, matching what Stripe will charge.
+def _usage_tax_context() -> dict:
+    """Usage spends pretax credits; the deposit is the tax-collection event.
 
-    Stripe Tax is the merchant-of-record calculation for real money, and it reads
-    the **account** country/province — `api_create_payment_intent` says so, and
-    `_account_tax_address` above is where it gets it. These two endpoints are
-    only estimates for the launch UI, but an estimate that disagrees with the
-    charge is worse than no estimate.
-
-    They defaulted to `province="ON"`, and the launch modal sent `province || "ON"`
-    because `/api/compliance/detect-province` — a route that does not exist —
-    404ed into a `.catch` that hard-coded Ontario. So every customer outside
-    Ontario was quoted 13% HST and then charged their own rate.
-
-    An explicit query value still wins, for callers that are pricing a location
-    rather than their own next launch. Otherwise this follows the account, and
-    falls back to empty — which `get_tax_rate_for_province` renders as
-    "GST 5% (province unknown)" rather than quietly picking a province.
+    There is no hourly tax charge to estimate. In particular a Canadian rate
+    must not be applied to an international account or to an unknown location.
+    Legacy tax-total fields are explicitly unavailable, never zero or guessed.
     """
-    if supplied.strip():
-        return supplied.strip()
-    try:
-        user = _get_current_user(request)
-    except Exception:
-        return ""
-    if not user:
-        return ""
-    return str(_account_tax_address(user).get("province") or "")
+    return {
+        "tax_collection": "credit_deposit",
+        "tax_rate": None,
+        "tax_amount": None,
+        "total_with_tax": None,
+        "tax_description": "Applicable tax is calculated when adding credit using your saved billing address.",
+    }
 
 
 @router.get("/api/pricing/service-tiers", tags=["Billing"])
@@ -1575,11 +1567,18 @@ def api_pricing_rates(
     """Compute effective GPU rate with all pricing variables.
 
     Returns the selected Stripe Price, additive service tier and exclusivity
-    amounts, account tax estimate, and final per-hour total.
+    amounts, and the per-hour cost in pretax wallet credits. Taxes are
+    calculated on credit deposits, not deducted again from metered usage.
     Volume (storage) costs are calculated at runtime in billing — not here.
     """
     from service_tier_pricing import quote_tier, TierPricingUnavailable
     from money import micros_to_cad
+
+    if province.strip():
+        raise HTTPException(
+            422,
+            "Usage prices spend pretax credits. Tax uses your saved billing address when adding credit; omit the province override.",
+        )
 
     try:
         quote = quote_tier(
@@ -1598,10 +1597,7 @@ def api_pricing_rates(
         raise HTTPException(503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
-    province = _estimate_province(request, province)
-    tax_rate, tax_desc = get_tax_rate_for_province(province)
     total_per_hour = quote["total_per_hour_cad"]
-    tax_amount = round(total_per_hour * tax_rate, 6)
     return {
         "ok": True,
         "currency": "CAD",
@@ -1619,11 +1615,7 @@ def api_pricing_rates(
         "gpu_exclusive_addition_per_gpu_cad": micros_to_cad(quote["gpu_exclusive_rate_micros"]),
         "effective_rate_per_gpu": total_per_hour / num_gpus,
         "total_per_hour": total_per_hour,
-        "province": province,
-        "tax_rate": tax_rate,
-        "tax_description": tax_desc,
-        "tax_amount": tax_amount,
-        "total_with_tax": round(total_per_hour + tax_amount, 6),
+        **_usage_tax_context(),
         "service_tier_price_id": quote["stripe_price_id"],
         "service_tier_quote": quote,
     }
@@ -1685,8 +1677,17 @@ class ReservedCommitmentRequest(BaseModel):
     customer_id: str = Field(min_length=1, max_length=128)
     gpu_model: str = Field(default="RTX 4090", max_length=64)
     commitment_type: str = Field(default="1_month", pattern="^(1_month|3_month|1_year)$")
-    quantity: int = Field(default=1, ge=1, le=1000)  # number of GPU slots reserved
-    province: str = Field(default="ON", max_length=10)
+    quantity: int = Field(default=1, ge=1, le=1000, strict=True)  # number of GPU slots reserved
+    province: str | None = Field(default=None, deprecated=True)
+
+    @field_validator("province")
+    @classmethod
+    def no_usage_tax_override(cls, value):
+        if value is not None:
+            raise ValueError(
+                "Tax uses your saved billing address when adding credit; omit province from pricing commitments."
+            )
+        return None
 
 
 @router.get("/api/pricing/reserved-plans", tags=["Billing"])
@@ -1740,7 +1741,6 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
         raise HTTPException(
             400, f"No Stripe Price for {req.gpu_model} on a {req.commitment_type} commitment"
         )
-    tax_rate, tax_desc = get_tax_rate_for_province(req.province)
 
     now = time.time()
     term_days = _RESERVED_TERM_DAYS.get(req.commitment_type, 30)
@@ -1756,9 +1756,7 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
         "base_rate_cad": base_rate,
         "discounted_rate_cad": discounted_rate,
         "discount_pct": tier["discount_pct"],
-        "province": req.province,
-        "tax_rate": tax_rate,
-        "tax_description": tax_desc,
+        **_usage_tax_context(),
         "commitment_description": tier["description"],
         "min_hours_per_day": tier["min_hours_per_day"],
         "created_at": now,
@@ -1769,19 +1767,17 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
         "status": "active",
     }
 
-    # Charge upfront or set up recurring billing via Stripe
     billing = get_billing_engine()
     monthly_estimate = discounted_rate * req.quantity * 24 * 30
     commitment["monthly_estimate_cad"] = round(monthly_estimate, 2)
-    commitment["monthly_estimate_with_tax_cad"] = round(monthly_estimate * (1 + tax_rate), 2)
+    commitment["monthly_estimate_with_tax_cad"] = None
     # Total value of the commitment over its full term (at 24h/day utilization).
     commitment["total_commitment_value_cad"] = round(
         discounted_rate * req.quantity * 24 * term_days, 2
     )
 
-    # Persist so the customer can later see active commitments + realized
-    # savings (GET /api/pricing/reservations). Best-effort: a storage hiccup
-    # should not fail the reservation the customer just paid for.
+    # A pricing commitment exists only after its durable write succeeds. This
+    # endpoint does not charge Stripe or reserve physical GPU capacity.
     try:
         billing.record_reservation(
             {
@@ -1790,7 +1786,9 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
                 "commitment_type": commitment["commitment_type"],
                 "gpu_model": commitment["gpu_model"],
                 "quantity": commitment["quantity"],
-                "province": commitment["province"],
+                # Legacy nullable tax-location column is not applicable to a
+                # pretax pricing agreement. It cannot select deposit taxes.
+                "province": None,
                 "base_rate_cad": commitment["base_rate_cad"],
                 "discounted_rate_cad": commitment["discounted_rate_cad"],
                 "discount_pct": commitment["discount_pct"],
@@ -1801,12 +1799,11 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
                 "end_at": end_at,
             }
         )
-    except Exception as e:  # pragma: no cover - storage failure path
-        log.warning(
-            "reserve: failed to persist commitment %s: %s",
-            commitment["commitment_id"],
-            e,
-        )
+    except Exception:
+        log.exception("Could not persist pricing commitment %s", commitment["commitment_id"])
+        raise HTTPException(
+            503, "The commitment could not be saved. Please try again shortly."
+        ) from None
 
     broadcast_sse(
         "reservation_created",
