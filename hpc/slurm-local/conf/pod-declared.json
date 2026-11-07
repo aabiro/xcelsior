@@ -1,0 +1,12 @@
+{
+  "listing_title": "xcl-local reference pod (tower + asus)",
+  "facility": "Aaryn's home lab, London ON (test only; not a listing)",
+  "interconnect": {
+    "type": "ethernet",
+    "overlay": "wireguard (tailscale)",
+    "nic_speed_gbps": 1,
+    "switch_speed_gbps": null,
+    "switch_count": null
+  },
+  "notes": "Declared values a facility partner would state. nic_speed_gbps is checked against link speeds observed by probe jobs; switch fields are not observable from a job and stay declared-only."
+}

@@ -1,0 +1,95 @@
+#!/usr/bin/python3 -I
+"""Forced-command gate for the Xcelsior adapter's SSH key.
+
+Installed as /usr/local/libexec/xcl-slurm-gate and named in the key's
+authorized_keys entry:
+
+    restrict,from="100.64.0.6",command="/usr/local/libexec/xcl-slurm-gate" ssh-ed25519 AAAA... xcl-slurm-adapter
+
+sshd runs this instead of whatever the client asked for, and passes the
+request in SSH_ORIGINAL_COMMAND. Only the exact command shapes
+slurm_adapter sends are allowed; everything else is refused and logged.
+This is the same mechanism Alliance "robot" automation nodes use for
+MFA-exempt automated access, so the local test exercises the transport a
+real academic cluster would demand.
+"""
+
+import os
+import re
+import shlex
+import sys
+import syslog
+
+JOBS_PREFIX = "/var/lib/xcl-slurm-test/jobs/"
+ALLOWED_ENV = {"SLURM_TIME_FORMAT": re.compile(r"^%s$|^standard$")}
+DIGITS = re.compile(r"^\d{1,12}(?:_\d{1,9})?$")
+READ_ONLY = {"sinfo", "squeue", "sacct"}
+
+
+def deny(reason, cmd):
+    syslog.syslog(syslog.LOG_WARNING, f"xcl-slurm-gate DENY ({reason}): {cmd!r}")
+    print(f"xcl-slurm-gate: refused: {reason}", file=sys.stderr)
+    sys.exit(126)
+
+
+def main():
+    syslog.openlog("xcl-slurm-gate", syslog.LOG_PID, syslog.LOG_AUTH)
+    cmd = os.environ.get("SSH_ORIGINAL_COMMAND", "")
+    try:
+        argv = shlex.split(cmd)
+    except ValueError:
+        deny("unparseable", cmd)
+    env = {}
+    if argv and argv[0] == "env":
+        argv = argv[1:]
+        while argv and "=" in argv[0] and not argv[0].startswith("-"):
+            key, val = argv.pop(0).split("=", 1)
+            rule = ALLOWED_ENV.get(key)
+            if not rule or not rule.match(val):
+                deny(f"env {key} not allowed", cmd)
+            env[key] = val
+    if not argv:
+        deny("empty", cmd)
+    prog, args = argv[0], argv[1:]
+
+    if prog in READ_ONLY:
+        pass
+    elif prog == "scontrol":
+        positional = [a for a in args if not a.startswith("-")]
+        if not positional or positional[0] != "show":
+            if args != ["--version"]:
+                deny("scontrol: only 'show' is allowed", cmd)
+    elif prog == "sbatch":
+        # Script arrives on stdin; no --wrap, no script path, no overrides.
+        if args != ["--parsable"]:
+            deny("sbatch: only 'sbatch --parsable' with the script on stdin", cmd)
+    elif prog == "scancel":
+        if args[:1] == ["-v"]:
+            args_id = args[1:]
+        else:
+            args_id = args
+        if len(args_id) != 1 or not DIGITS.match(args_id[0]):
+            deny("scancel: exactly one numeric job id (optionally -v)", cmd)
+    elif prog == "tail":
+        if len(args) != 4 or args[0] != "-c" or not args[1].isdigit() or args[2] != "--":
+            deny("tail: only 'tail -c N -- PATH'", cmd)
+        path = os.path.realpath(args[3])
+        if not path.startswith(JOBS_PREFIX):
+            deny("tail: path outside the jobs directory", cmd)
+        args = ["-c", args[1], "--", path]
+    else:
+        deny(f"command {prog!r} not allowed", cmd)
+
+    syslog.syslog(syslog.LOG_INFO, f"xcl-slurm-gate ALLOW: {cmd!r}")
+    base_env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": os.environ.get("HOME", "/"),
+        "USER": os.environ.get("USER", ""),
+        "LOGNAME": os.environ.get("LOGNAME", ""),
+        "LANG": "C.UTF-8",
+    }
+    os.execvpe(prog, [prog, *args], {**base_env, **env})
+
+
+if __name__ == "__main__":
+    main()
