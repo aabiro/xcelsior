@@ -1,0 +1,55 @@
+name: CodeQL
+
+# Code scanning on the sandboxed self-hosted runner.
+#
+# CodeQL's *default* setup would run on `ubuntu-latest` (hosted Actions is
+# blocked for this account) or, pointed at a labelled runner, on
+# `pull_request` — which on a public repository lets a fork's branch reach
+# `[self-hosted, sandboxed]`. Both rule it out, so this is the advanced setup
+# with the same trigger discipline as gates-sandboxed.yml: `push` requires
+# write access, and a fork cannot push here. run-runner.sh refuses to start if a
+# `pull_request` trigger appears below, and
+# tests/test_no_fork_pr_can_reach_the_self_hosted_runner.py says so first.
+#
+# Every language uses `build-mode: none`: CodeQL extracts the source without
+# running a build, so no repository code executes on the runner.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: [self-hosted, sandboxed]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python, rust]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config: |
+            paths-ignore:
+              - archive/**
+              - "**/node_modules/**"
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
