@@ -33,13 +33,21 @@ ADAPTER_VERSION = "3.0.0"
 #
 # Profile keys:
 #   name, cluster_id         display name; id stored on slurm_job_mappings
-#   partition_gpu/_cpu       partition for GPU jobs / CPU-only jobs
-#   gpu_type                 GRES type ("h100"); None requests untyped gpu:N
+#   partition_gpu/_cpu       partition for GPU jobs / CPU-only jobs; None
+#                            omits --partition (Alliance routes jobs itself)
+#   gpu_type                 GPU model ("h100"); None requests untyped gpu:N
+#   gpu_request              "gres" (--gres=gpu:T:N) or "gpus"
+#                            (--gpus-per-node=T:N, --gpus=T:N across nodes)
+#   cpus_per_gpu             emit --cpus-per-gpu (site bundle size)
+#   account_required         refuse to submit without an account
+#   retired                  refuse new submissions
 #   gpus_per_node            for multi-node packing
 #   max_walltime             client-side ceiling, checked before sbatch
 #   default_walltime         used when the job gives none (else a heuristic)
-#   qos                      False: never emit --qos (most clusters reject
-#                            QoS names they do not define)
+#   qos                      True: emit --qos from priority (default False;
+#                            most clusters reject QoS names they don't define)
+#   accounting_time/timezone how sacct times are read (see _PROFILE_DEFAULTS)
+#   output_reader            "tail" or "cat" for get_slurm_job_output
 #   mem_base_gb, mem_per_gpu_gb  memory request = base + per_gpu * gpus
 #   modules, container_runtime ("apptainer" | "docker" | "none")
 #   scratch_dir, project_dir, output_dir ({user}/{account} templates)
@@ -47,35 +55,59 @@ ADAPTER_VERSION = "3.0.0"
 #   remote_user              cluster account name, when ssh_host is an alias
 
 CLUSTER_PROFILES = {
+    # Alliance profiles verified against docs.alliancecan.ca on 2026-11-07
+    # (Nibi, Narval, Using GPUs with Slurm, Job scheduling policies,
+    # Allocations and compute scheduling, Available software, Automation in
+    # the context of MFA). Facts that shaped them:
+    #   - partitions are assigned by the scheduler from the request (by-node /
+    #     by-core, walltime tiers); jobs must not name one
+    #   - GPUs: --gpus-per-node=<model>:N (or --gpus=<model>:N spread
+    #     anywhere); "--gres=gpu:... may not be supported in the future"
+    #   - --account=def-<pi> and --time are required; no user QoS
+    #   - per-GPU bundles: Nibi H100 14 cores / 250 GB, Narval A100 12 / 124 GB
+    #   - automation goes through robot.<cluster>.alliancecan.ca with a CCDB key
+    #     restricted by restrict,from=,command=; Alliance's slurm_commands.sh
+    #     runs $SSH_ORIGINAL_COMMAND unquoted (word-split, no env prefix), so
+    #     these profiles parse local-time accounting and read output with cat
+    #   - at most 1000 pending+running jobs per account (MaxSubmit)
     "nibi": {
-        # Nibi replaced Graham in 2025. Alliance lists 288 H100 GPUs; a
-        # SHARCNET migration webinar gives 8 per node and 400 Gb/s Ethernet
-        # on GPU nodes. Partition and module names are NOT verified against
-        # docs.alliancecan.ca (bot-protected to automated reads) — check
-        # them by hand before any real submission. hpc/IMPLEMENTATION_PLAN.md
-        # tracks this.
         "name": "SHARCNET Nibi",
-        "partition_gpu": "gpu",
-        "partition_cpu": "compute",
+        # 36 GPU nodes x 8 H100 SXM 80GB (NVLink); Nokia Ethernet, 200 Gb/s
+        # non-blocking between GPU nodes. Automation node:
+        # robot.nibi.alliancecan.ca (by request; not for AI-agent use).
+        "partition_gpu": None,
+        "partition_cpu": None,
         "account_env": "SLURM_ACCOUNT",
+        "account_required": True,
         "gpu_type": "h100",
         "gpus_per_node": 8,
+        "gpu_request": "gpus",
+        "cpus_per_gpu": 14,
         "max_walltime": "7-00:00:00",  # 7 days
-        "modules": ["cuda/12.2", "python/3.11"],
+        "qos": False,
+        "mem_base_gb": 4,
+        "mem_per_gpu_gb": 240,  # bundle is 250 GB per GPU
+        "modules": ["cuda/12.2", "python/3.11", "apptainer"],
         "container_runtime": "apptainer",
         "scratch_dir": "/scratch/{user}",
         "project_dir": "/project/{account}",
+        "accounting_time": "iso_local",
+        "timezone": "America/Toronto",
+        "output_reader": "cat",
     },
     "graham": {
-        # Retired in 2025; Nibi is its successor. Kept so existing callers
-        # and stored mappings that name it keep resolving.
+        # Retired in late 2025 ("service now ended"); Nibi replaced it. Kept
+        # so stored mappings that name it still resolve for status reads;
+        # new submissions are refused.
         "name": "Compute Canada Graham (retired)",
+        "retired": True,
         "partition_gpu": "gpu",
         "partition_cpu": "compute",
         "account_env": "SLURM_ACCOUNT",
         "gpu_type": "v100",
         "gpus_per_node": 2,
         "max_walltime": "3-00:00:00",
+        "qos": False,
         "modules": ["cuda/11.8", "python/3.10"],
         "container_runtime": "apptainer",
         "scratch_dir": "/scratch/{user}",
@@ -83,16 +115,27 @@ CLUSTER_PROFILES = {
     },
     "narval": {
         "name": "Calcul Québec Narval",
-        "partition_gpu": "gpu",
-        "partition_cpu": "compute",
+        # 4 x A100 SXM4 40GB per GPU node (NVLink); InfiniBand HDR.
+        # Automation node: robot.narval.alliancecan.ca.
+        "partition_gpu": None,
+        "partition_cpu": None,
         "account_env": "SLURM_ACCOUNT",
+        "account_required": True,
         "gpu_type": "a100",
         "gpus_per_node": 4,
+        "gpu_request": "gpus",
+        "cpus_per_gpu": 12,
         "max_walltime": "7-00:00:00",
-        "modules": ["cuda/12.2", "python/3.11"],
+        "qos": False,
+        "mem_base_gb": 4,
+        "mem_per_gpu_gb": 118,  # bundle is 124 GB per GPU
+        "modules": ["cuda/12.2", "python/3.11", "apptainer"],
         "container_runtime": "apptainer",
         "scratch_dir": "/scratch/{user}",
         "project_dir": "/project/{account}",
+        "accounting_time": "iso_local",
+        "timezone": "America/Montreal",
+        "output_reader": "cat",
     },
     "generic": {
         "name": "Generic Slurm Cluster",
@@ -104,6 +147,7 @@ CLUSTER_PROFILES = {
         "gpu_type": None,
         "gpus_per_node": 1,
         "max_walltime": "1-00:00:00",
+        "qos": False,
         "modules": [],
         "container_runtime": "docker",
         "scratch_dir": "/tmp",
@@ -113,11 +157,15 @@ CLUSTER_PROFILES = {
 
 _PROFILE_DEFAULTS = {
     "account_env": "SLURM_ACCOUNT",
+    "account_required": False,
     "gpu_type": None,
     "gpus_per_node": 1,
+    "gpu_request": "gres",
+    "cpus_per_gpu": None,
     "max_walltime": "1-00:00:00",
     "default_walltime": None,
-    "qos": True,
+    # Decision D6 (hpc/IMPLEMENTATION_PLAN.md): QoS is opt-in per cluster.
+    "qos": False,
     "mem_base_gb": 4,
     "mem_per_gpu_gb": 8,
     "modules": [],
@@ -128,9 +176,17 @@ _PROFILE_DEFAULTS = {
     "ssh_host": None,
     "ssh_options": [],
     "remote_user": None,
+    "retired": False,
+    # "epoch_env": SLURM_TIME_FORMAT=%s via an env prefix (exact).
+    # "iso_local": parse local-time ISO stamps in `timezone`, cross-checked
+    # against ElapsedRaw — for wrappers that refuse an env prefix.
+    "accounting_time": "epoch_env",
+    "timezone": "UTC",
+    "output_reader": "tail",  # or "cat" where the site wrapper lacks tail
 }
 
 _REQUIRED_PROFILE_KEYS = ("name", "partition_gpu", "partition_cpu")
+_GPU_REQUEST_STYLES = ("gres", "gpus")
 
 PROFILES_FILE_ENV = "XCELSIOR_SLURM_PROFILES_FILE"
 
@@ -226,6 +282,9 @@ def _get_profile(profile_name=None):
 # ── Command transport ────────────────────────────────────────────────
 
 
+_REMOTE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_%|,.:=/+@-]+$")
+
+
 @dataclass(frozen=True)
 class SlurmRunner:
     """Runs Slurm client commands locally, or on a submit host over SSH.
@@ -247,7 +306,18 @@ class SlurmRunner:
     def run(self, argv, *, input_text=None, timeout=30, env=None):
         if self.ssh_host:
             prefix = ["env", *[f"{k}={v}" for k, v in (env or {}).items()]] if env else []
-            remote_cmd = shlex.join([*prefix, *argv])
+            tokens = [*prefix, *argv]
+            # Remote commands are plain words joined by spaces, never quoted:
+            # site wrappers such as Alliance's slurm_commands.sh run
+            # $SSH_ORIGINAL_COMMAND unquoted, so quotes would arrive as
+            # literal characters. A token that a shell would split, glob or
+            # interpret is refused instead of sent.
+            bad = [t for t in tokens if not _REMOTE_TOKEN_RE.match(str(t))]
+            if bad:
+                raise SlurmAdapterError(
+                    "unsafe_remote_argument", f"refusing to send {bad!r} over SSH"
+                )
+            remote_cmd = " ".join(str(t) for t in tokens)
             cmd = [
                 "ssh",
                 "-o",
@@ -333,11 +403,11 @@ def get_cluster_info(runner=None):
 
     info = {}
     try:
-        r = runner.run(["sinfo", "-N", "--noheader", "-o", "%N %P %G %m"], timeout=15)
+        r = runner.run(["sinfo", "-N", "--noheader", "-o", "%N|%P|%G|%m"], timeout=15)
         if r.returncode == 0:
             nodes = []
             for line in r.stdout.strip().split("\n"):
-                parts = line.split()
+                parts = line.split("|")
                 if len(parts) >= 4:
                     nodes.append(
                         {
@@ -366,9 +436,13 @@ def get_cluster_inventory(profile_name=None, runner=None, partition=None):
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
     part = partition or profile["partition_gpu"]
-    argv = ["sinfo", "-N", "--noheader", "-p", part, "-o", "%N|%P|%c|%m|%G|%T"]
+    argv = ["sinfo", "-N", "--noheader", "-o", "%N|%P|%c|%m|%G|%T"]
+    if part:
+        argv[3:3] = ["-p", part]
     try:
         r = runner.run(argv, timeout=20)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
     except FileNotFoundError:
         return _error("slurm_unavailable", "Slurm not available on this system")
     except subprocess.TimeoutExpired:
@@ -551,7 +625,13 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     partition = job.get("partition") or (
         profile["partition_gpu"] if num_gpus > 0 else profile["partition_cpu"]
     )
-    _require(_SLURM_TOKEN_RE, partition, "partition")
+    if partition is not None:
+        _require(_SLURM_TOKEN_RE, partition, "partition")
+    gpu_request = profile.get("gpu_request") or "gres"
+    if gpu_request not in _GPU_REQUEST_STYLES:
+        raise SlurmAdapterError(
+            "invalid_profile", f"gpu_request must be one of {_GPU_REQUEST_STYLES}"
+        )
 
     if job.get("walltime"):
         walltime = str(job["walltime"])
@@ -582,14 +662,27 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     if cpus is not None and (isinstance(cpus, bool) or not isinstance(cpus, int) or cpus < 1):
         raise SlurmAdapterError("invalid_job_spec", f"invalid cpus: {cpus!r}")
 
+    if num_gpus > 0:
+        nodes_needed = max(1, -(-num_gpus // int(profile["gpus_per_node"])))
+    else:
+        nodes_needed = 1
+
     lines = [
         "#!/bin/bash",
         f"#SBATCH --job-name={job_name}",
-        f"#SBATCH --partition={partition}",
     ]
+    if partition is not None:
+        lines.append(f"#SBATCH --partition={partition}")
     if num_gpus > 0:
-        gres = f"gpu:{gpu_type}:{num_gpus}" if gpu_type else f"gpu:{num_gpus}"
-        lines.append(f"#SBATCH --gres={gres}")
+        spec = f"{gpu_type}:{num_gpus}" if gpu_type else str(num_gpus)
+        if gpu_request == "gpus":
+            # Alliance form: per node when it fits on one, else spread.
+            flag = "--gpus-per-node" if nodes_needed == 1 else "--gpus"
+            lines.append(f"#SBATCH {flag}={spec}")
+        else:
+            lines.append(f"#SBATCH --gres=gpu:{spec}")
+        if profile.get("cpus_per_gpu"):
+            lines.append(f"#SBATCH --cpus-per-gpu={int(profile['cpus_per_gpu'])}")
     lines += [
         f"#SBATCH --time={walltime}",
         # Output goes straight into a directory that already exists. Slurm
@@ -611,10 +704,6 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
         lines.append(f"#SBATCH --qos={qos}")
 
     # Nodes and tasks
-    if num_gpus > 0:
-        nodes_needed = max(1, -(-num_gpus // int(profile["gpus_per_node"])))
-    else:
-        nodes_needed = 1
     if nodes_needed > 1:
         lines.append(f"#SBATCH --nodes={nodes_needed}")
         lines.append("#SBATCH --ntasks-per-node=1")
@@ -723,6 +812,7 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
         "profile": profile["_key"],
         "cluster_id": profile["cluster_id"],
         "partition": partition,
+        "gpu_request": gpu_request,
         "num_gpus": num_gpus,
         "gpu_type": gpu_type,
         "walltime": walltime,
@@ -742,6 +832,10 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
 # sbatch stderr → machine-readable code. Order matters: first match wins.
 
 _SBATCH_ERROR_PATTERNS = (
+    (
+        re.compile(r"MaxSubmitJob|job submit limit|QOSMaxSubmitJobPerUserLimit", re.I),
+        "submit_limit_reached",
+    ),
     (re.compile(r"invalid partition", re.I), "invalid_partition"),
     (re.compile(r"Invalid generic resource|invalid gres", re.I), "invalid_gres"),
     (re.compile(r"Invalid qos", re.I), "invalid_qos"),
@@ -787,12 +881,22 @@ def submit_to_slurm(job, profile_name=None, extra_env=None, dry_run=False, runne
     """
     try:
         profile, runner = _resolve(profile_name, runner)
+        if profile.get("retired"):
+            raise SlurmAdapterError(
+                "cluster_retired", f"{profile['name']} is retired; choose another cluster"
+            )
         script, metadata = xcelsior_job_to_sbatch(job, profile_name, extra_env, runner=runner)
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
 
     if dry_run:
         return {"script": script, "metadata": metadata, "dry_run": True}
+
+    if profile.get("account_required") and not os.environ.get(profile["account_env"], ""):
+        return _error(
+            "missing_account",
+            f"{profile['name']} requires an allocation account; set {profile['account_env']}",
+        )
 
     if not _slurm_reachable(runner):
         return _error("slurm_unavailable", "Slurm not available on this system")
@@ -801,6 +905,8 @@ def submit_to_slurm(job, profile_name=None, extra_env=None, dry_run=False, runne
         # The script goes over stdin (no temp file left behind on the
         # submit host). --parsable prints "<jobid>[;<cluster>]".
         result = runner.run(["sbatch", "--parsable"], input_text=script, timeout=30)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
     except subprocess.TimeoutExpired:
         return _error("timeout", "sbatch timed out")
     except FileNotFoundError:
@@ -914,8 +1020,10 @@ def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
 
     try:
         # Try squeue first (for running/pending jobs)
+        # "|"-delimited: no spaces in the argument (site wrappers word-split
+        # the command), and %R — which can contain spaces — stays intact.
         r = runner.run(
-            ["squeue", "-j", str(slurm_job_id), "--noheader", "-o", "%i %T %M %l %D %R"],
+            ["squeue", "-j", str(slurm_job_id), "--noheader", "-o", "%i|%T|%M|%l|%D|%R"],
             timeout=10,
         )
         failure = _transport_failure(r, runner)
@@ -923,12 +1031,10 @@ def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
             return failure
 
         if r.returncode == 0 and r.stdout.strip():
-            # Format is "%i %T %M %l %D %R": the first five fields are
-            # single tokens, but %R (reason / nodelist) can contain spaces
-            # — e.g. "(launch failed requeued held)". Cap the split at 5 so
-            # the reason is preserved intact instead of truncated to its
-            # first word. squeue -j for a single id returns one line.
-            parts = r.stdout.strip().split(None, 5)
+            # Format is "%i|%T|%M|%l|%D|%R"; %R (reason / nodelist) can
+            # contain spaces — e.g. "(launch failed requeued held)" — so cap
+            # the split at 5. squeue -j for a single id returns one line.
+            parts = r.stdout.strip().splitlines()[0].split("|", 5)
             slurm_state = normalize_slurm_state(parts[1]) if len(parts) > 1 else "UNKNOWN"
             return {
                 "slurm_job_id": slurm_job_id,
@@ -982,6 +1088,8 @@ def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
             "error_code": "not_found",
         }
 
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
     except subprocess.TimeoutExpired:
         return _error("timeout", "Status poll timed out")
     except FileNotFoundError:
@@ -1010,6 +1118,49 @@ _ACCT_FIELDS = (
 def _epoch_or_none(value: str) -> float | None:
     v = (value or "").strip()
     return float(v) if v.isdigit() and int(v) > 0 else None
+
+
+def _iso_local_to_epoch(value: str, tz_name: str, fold: int = 0) -> float | None:
+    """'2026-11-01T01:30:00' in the cluster's zone → epoch; None if unset."""
+    v = (value or "").strip()
+    if not v or v in ("Unknown", "None") or "T" not in v:
+        return None
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    try:
+        naive = datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    return naive.replace(tzinfo=ZoneInfo(tz_name), fold=fold).timestamp()
+
+
+def _local_times(row: dict, tz_name: str, elapsed: int, terminal: bool) -> tuple:
+    """Submit/Start/End from local-time sacct output, DST-safe.
+
+    In the hour a fall-back transition repeats, a local stamp names two
+    instants. ElapsedRaw is exact, so pick the readings of Start and End
+    whose difference matches it; failing that, derive End from Start.
+    """
+    submitted = _iso_local_to_epoch(row["Submit"], tz_name)
+    s0 = _iso_local_to_epoch(row["Start"], tz_name, 0)
+    if s0 is None:
+        return submitted, None, (_iso_local_to_epoch(row["End"], tz_name) if terminal else None)
+    if not terminal:
+        return submitted, s0, None
+    best = None
+    for fs in (0, 1):
+        for fe in (0, 1):
+            st = _iso_local_to_epoch(row["Start"], tz_name, fs)
+            en = _iso_local_to_epoch(row["End"], tz_name, fe)
+            if st is not None and en is not None and abs((en - st) - elapsed) <= 1:
+                best = (st, en)
+                break
+        if best:
+            break
+    if best is None:
+        best = (s0, s0 + elapsed)
+    return submitted, best[0], best[1]
 
 
 def parse_alloc_tres(tres: str) -> dict:
@@ -1041,7 +1192,7 @@ def get_slurm_job_accounting(slurm_job_id, *, profile_name=None, runner=None):
     if not _SLURM_JOB_ID_RE.match(str(slurm_job_id)):
         return _error("invalid_job_id", f"invalid Slurm job id: {slurm_job_id!r}")
     try:
-        _profile, runner = _resolve(profile_name, runner)
+        profile, runner = _resolve(profile_name, runner)
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
     argv = [
@@ -1055,8 +1206,11 @@ def get_slurm_job_accounting(slurm_job_id, *, profile_name=None, runner=None):
         "-o",
         ",".join(_ACCT_FIELDS),
     ]
+    epoch_env = profile.get("accounting_time", "epoch_env") != "iso_local"
     try:
-        r = runner.run(argv, timeout=15, env={"SLURM_TIME_FORMAT": "%s"})
+        r = runner.run(argv, timeout=15, env={"SLURM_TIME_FORMAT": "%s"} if epoch_env else None)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
     except subprocess.TimeoutExpired:
         return _error("timeout", "sacct timed out")
     except FileNotFoundError:
@@ -1084,10 +1238,15 @@ def get_slurm_job_accounting(slurm_job_id, *, profile_name=None, runner=None):
     slurm_state = normalize_slurm_state(row["State"])
     xstate = SLURM_STATE_MAP.get(slurm_state, "unknown")
     terminal = xstate in SLURM_TERMINAL_STATES
-    submitted = _epoch_or_none(row["Submit"])
-    started = _epoch_or_none(row["Start"])
-    ended = _epoch_or_none(row["End"]) if terminal else None
     elapsed = int(row["ElapsedRaw"]) if row["ElapsedRaw"].isdigit() else 0
+    if epoch_env:
+        submitted = _epoch_or_none(row["Submit"])
+        started = _epoch_or_none(row["Start"])
+        ended = _epoch_or_none(row["End"]) if terminal else None
+    else:
+        submitted, started, ended = _local_times(
+            row, str(profile.get("timezone") or "UTC"), elapsed, terminal
+        )
     tres = parse_alloc_tres(row["AllocTRES"])
     return {
         "slurm_job_id": str(slurm_job_id),
@@ -1155,8 +1314,14 @@ def get_slurm_job_output(
         path = f"{_output_dir(profile, _remote_user(profile, runner), account)}/xcl-{xcelsior_job_id}-{slurm_job_id}.{stream}"
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
+    if profile.get("output_reader") == "cat":
+        argv = ["cat", path]  # site wrapper allows cat, not tail; trimmed below
+    else:
+        argv = ["tail", "-c", str(int(max_bytes)), "--", path]
     try:
-        r = runner.run(["tail", "-c", str(int(max_bytes)), "--", path], timeout=15)
+        r = runner.run(argv, timeout=30)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
     except subprocess.TimeoutExpired:
         return _error("timeout", "output read timed out")
     except FileNotFoundError:
@@ -1166,7 +1331,8 @@ def get_slurm_job_output(
         return failure
     if r.returncode != 0:
         return _error("output_unavailable", r.stderr.strip() or f"cannot read {path}", path=path)
-    return {"slurm_job_id": str(slurm_job_id), "path": path, "stream": stream, "content": r.stdout}
+    content = r.stdout[-int(max_bytes) :] if max_bytes else r.stdout
+    return {"slurm_job_id": str(slurm_job_id), "path": path, "stream": stream, "content": content}
 
 
 def cancel_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
@@ -1212,6 +1378,8 @@ def cancel_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
                 return _error("already_terminal", f"scancel failed: {detail}")
             return _error("not_found", f"scancel failed: {detail}")
         return _error("scancel_failed", f"scancel failed: {detail}")
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
     except subprocess.TimeoutExpired:
         return _error("timeout", "scancel timed out")
     except Exception as e:
@@ -1262,6 +1430,44 @@ def _load_slurm_map():
     # error does not blank a caller's view of the fleet.
     _slurm_job_map = fresh
     return _slurm_job_map
+
+
+def list_slurm_mappings(limit: int = 200) -> list[dict]:
+    """Recent mappings, open and terminal, newest first (for the admin UI).
+
+    Unlike _load_slurm_map this includes terminal rows, which are kept for
+    audit, and returns the state columns the UI shows.
+    """
+    from db import pg_connection
+
+    limit = max(1, min(int(limit), 1000))
+    with pg_connection() as conn:
+        rows = conn.execute(
+            """SELECT xcelsior_job_id, slurm_job_id, cluster_id, observed_state,
+                      desired_state,
+                      EXTRACT(EPOCH FROM submitted_at),
+                      EXTRACT(EPOCH FROM last_observed_at),
+                      EXTRACT(EPOCH FROM terminal_at)
+                 FROM slurm_job_mappings
+                ORDER BY submitted_at DESC NULLS LAST
+                LIMIT %s""",
+            (limit,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "job_id": r[0],
+                "slurm_job_id": r[1],
+                "cluster_id": r[2],
+                "observed_state": r[3],
+                "desired_state": r[4],
+                "submitted_at": float(r[5]) if r[5] is not None else None,
+                "last_observed_at": float(r[6]) if r[6] is not None else None,
+                "terminal_at": float(r[7]) if r[7] is not None else None,
+            }
+        )
+    return out
 
 
 def register_slurm_job(

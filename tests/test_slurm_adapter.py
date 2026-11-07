@@ -262,7 +262,9 @@ class TestJobTranslation:
         job = self._make_job(vram_needed_gb=100)  # Needs 2 H100s (80GB each)
         script, meta = xcelsior_job_to_sbatch(job, "nibi")
         assert meta["num_gpus"] == 2
-        assert "#SBATCH --gres=gpu:h100:2" in script
+        # Alliance form: --gpus-per-node, never the deprecated --gres
+        assert "#SBATCH --gpus-per-node=h100:2" in script
+        assert "--gres" not in script
 
     def test_explicit_num_gpus(self):
         job = self._make_job(num_gpus=4)
@@ -291,6 +293,7 @@ class TestJobTranslation:
         script, meta = xcelsior_job_to_sbatch(job, "nibi")
         assert meta["nodes"] == 2
         assert "#SBATCH --nodes=2" in script
+        assert "#SBATCH --gpus=h100:16" in script
 
     def test_memory_calculation(self):
         job = self._make_job(num_gpus=2)
@@ -298,10 +301,29 @@ class TestJobTranslation:
         # 4 + (8 * 2) = 20G
         assert "#SBATCH --mem=20G" in script
 
-    def test_premium_qos(self):
+    def test_premium_qos_is_opt_in(self, tmp_path, monkeypatch):
+        """Decision D6: no --qos unless the cluster's profile turns it on."""
         job = self._make_job(priority=95)
         script, meta = xcelsior_job_to_sbatch(job, "generic")
         assert meta["qos"] == "premium"
+        assert "--qos" not in script
+        path = tmp_path / "p.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "profiles": {
+                        "q": {
+                            "name": "q",
+                            "partition_gpu": "gpu",
+                            "partition_cpu": "c",
+                            "qos": True,
+                        }
+                    }
+                }
+            )
+        )
+        monkeypatch.setenv("XCELSIOR_SLURM_PROFILES_FILE", str(path))
+        script, _ = xcelsior_job_to_sbatch(job, "q")
         assert "#SBATCH --qos=premium" in script
 
     def test_no_image_uses_inference_script(self):
@@ -405,8 +427,8 @@ class TestSlurmJobStatus:
 
     def test_running_job_parsed_from_squeue(self, monkeypatch):
         monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
-        # %i %T %M %l %D %R  — running job, %R is a single-token nodelist
-        line = "12345 RUNNING 1:02:03 4:00:00 1 node007"
+        # %i|%T|%M|%l|%D|%R  — running job, %R is the nodelist
+        line = "12345|RUNNING|1:02:03|4:00:00|1|node007"
 
         def mock_run(argv, *a, **k):
             assert argv[0] == "squeue"
@@ -425,7 +447,7 @@ class TestSlurmJobStatus:
         """Regression: %R can contain spaces; it must not be split apart."""
         monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
         # Pending job whose reason is a multi-word parenthesised string.
-        line = "12346 PENDING 0:00 8:00:00 2 (launch failed requeued held)"
+        line = "12346|PENDING|0:00|8:00:00|2|(launch failed requeued held)"
 
         def mock_run(argv, *a, **k):
             return _completed(line + "\n")
@@ -788,7 +810,7 @@ class TestStatesV3:
     def test_unknown_state_is_unknown_not_running(self, monkeypatch):
         monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
         monkeypatch.setattr(
-            subprocess, "run", lambda *a, **k: _completed("5 WEIRD_NEW 0:01 1:00 1 n1\n")
+            subprocess, "run", lambda *a, **k: _completed("5|WEIRD_NEW|0:01|1:00|1|n1\n")
         )
         assert get_slurm_job_status("5")["xcelsior_state"] == "unknown"
 
@@ -952,3 +974,124 @@ def test_module_imports_without_the_db_stack():
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == _sa.ADAPTER_VERSION
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Alliance compatibility, verified against docs.alliancecan.ca and the
+# ComputeCanada/software-stack-custom slurm_commands.sh wrapper (2026-11-07)
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestAllianceProfiles:
+    def test_nibi_script_matches_alliance_rules(self):
+        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=1, command="nvidia-smi"), "nibi")
+        assert "--partition" not in script  # Alliance routes jobs to partitions itself
+        assert "#SBATCH --gpus-per-node=h100:1" in script
+        assert "#SBATCH --cpus-per-gpu=14" in script
+        assert "#SBATCH --mem=244G" in script  # within the 250 GB per-GPU bundle
+        assert "--qos" not in script
+        assert "module load apptainer" in script
+        assert meta["gpu_request"] == "gpus"
+
+    def test_narval_bundle(self):
+        script, _ = xcelsior_job_to_sbatch(_job(num_gpus=4), "narval")
+        assert "#SBATCH --gpus-per-node=a100:4" in script
+        assert "#SBATCH --cpus-per-gpu=12" in script
+        assert "#SBATCH --mem=476G" in script  # 4 + 118*4 <= 4 x 124 GB
+
+    def test_account_required_at_submit_not_preview(self, monkeypatch):
+        monkeypatch.delenv("SLURM_ACCOUNT", raising=False)
+        assert submit_to_slurm(_job(), profile_name="nibi")["error_code"] == "missing_account"
+        assert submit_to_slurm(_job(), profile_name="nibi", dry_run=True)["dry_run"] is True
+        monkeypatch.setenv("SLURM_ACCOUNT", "def-someprof")
+        script, _ = xcelsior_job_to_sbatch(_job(), "nibi")
+        assert "#SBATCH --account=def-someprof" in script
+
+    def test_graham_is_retired(self):
+        res = submit_to_slurm(_job(), profile_name="graham", dry_run=True)
+        assert res["error_code"] == "cluster_retired"
+
+    def test_submit_limit_code(self):
+        msg = (
+            "sbatch: error: QOSMaxSubmitJobPerUserLimit\n"
+            "sbatch: error: Batch job submission failed: Job violates accounting/QOS "
+            "policy (job submit limit, user's size and/or time limits)"
+        )
+        assert _sa.classify_slurm_error(msg) == "submit_limit_reached"
+
+
+class TestWordSplitSafeTransport:
+    """Alliance's wrapper runs $SSH_ORIGINAL_COMMAND unquoted: bash splits it
+    on whitespace and globs it, without honouring quotes. Every command the
+    adapter sends must mean the same thing under that and under shlex."""
+
+    def test_every_remote_command_survives_word_splitting(self, monkeypatch):
+        import shlex as _shlex
+
+        sent = []
+
+        def fake(argv, *a, **kw):
+            sent.append(argv[-1])
+            if argv[-1].startswith("sbatch"):
+                return subprocess.CompletedProcess(argv, 0, "7\n", "")
+            if argv[-1].startswith("squeue"):
+                return subprocess.CompletedProcess(argv, 0, "7|RUNNING|0:05|10:00|1|nb1\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        monkeypatch.setattr(subprocess, "run", fake)
+        monkeypatch.setenv("SLURM_ACCOUNT", "def-x")
+        r = _sa.SlurmRunner(ssh_host="robot")
+        submit_to_slurm(_job(num_gpus=1), profile_name="nibi", runner=r)
+        get_slurm_job_status("7", profile_name="nibi", runner=r)
+        _sa.get_slurm_job_accounting("7", profile_name="nibi", runner=r)
+        _sa.get_slurm_job_output("7", "t-1", profile_name="nibi", runner=r)
+        cancel_slurm_job("7", profile_name="nibi", runner=r)
+        _sa.get_cluster_inventory("nibi", runner=r)
+        assert len(sent) >= 6
+        for cmd in sent:
+            assert cmd.split() == _shlex.split(cmd), cmd
+            assert not set(cmd) & set("*?[]'\"$`;&<>(){}~!#\\"), cmd
+            assert not cmd.startswith("env "), "Alliance's wrapper rejects an env prefix"
+
+    def test_alliance_profiles_read_output_with_cat(self, monkeypatch):
+        rec = _Recorder((0, "x" * 100 + "TAIL", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        res = _sa.get_slurm_job_output("7", "t-1", profile_name="nibi", max_bytes=4)
+        assert rec.calls[0]["argv"][0] == "cat"
+        assert res["content"] == "TAIL"
+
+    def test_unsafe_token_is_refused_not_sent(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(subprocess, "run", rec)
+        with pytest.raises(_sa.SlurmAdapterError) as e:
+            _sa.SlurmRunner(ssh_host="h").run(["squeue", "-o", "%i %T"])
+        assert e.value.code == "unsafe_remote_argument"
+        assert rec.calls == []
+
+
+class TestLocalTimeAccounting:
+    """iso_local: no env prefix, so times arrive in the cluster's zone."""
+
+    def test_plain_conversion_and_no_env(self, monkeypatch):
+        row = (
+            "21|x|COMPLETED|2026-11-07T03:00:00|2026-11-07T03:00:10|2026-11-07T03:05:10"
+            "|300|0:0|cpu=14,gres/gpu=1,node=1|nb1|gpubase\n"
+        )
+        rec = _Recorder((0, row, ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        a = _sa.get_slurm_job_accounting("21", profile_name="nibi")
+        assert rec.calls[0].get("env") is None
+        assert a["started_at"] == 1794038410.0  # 03:00:10 EST = 08:00:10 UTC
+        assert a["completed_at"] - a["started_at"] == 300
+
+    def test_dst_fall_back_hour_is_disambiguated_by_elapsed(self, monkeypatch):
+        # 2026-11-01: clocks go 01:59:59 EDT -> 01:00:00 EST. Start 01:30 EDT,
+        # end at the second 01:10 (EST), 40 minutes of ElapsedRaw.
+        row = (
+            "22|x|COMPLETED|2026-11-01T01:29:00|2026-11-01T01:30:00|2026-11-01T01:10:00"
+            "|2400|0:0|cpu=14,gres/gpu=1,node=1|nb1|gpubase\n"
+        )
+        monkeypatch.setattr(subprocess, "run", _Recorder((0, row, "")))
+        a = _sa.get_slurm_job_accounting("22", profile_name="nibi")
+        assert a["started_at"] == 1793511000.0  # 05:30 UTC
+        assert a["completed_at"] - a["started_at"] == 2400
