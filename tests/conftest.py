@@ -80,6 +80,12 @@ _TEST_ENV_FORCE = {
     # https BASE_URL from .env makes session cookies secure+domain-scoped; TestClient won't store them.
     "XCELSIOR_BASE_URL": "http://localhost:9501",
     "XCELSIOR_SCHEDULER_URL": "http://localhost:9501",
+    # The test process is one in-process app, never a Gunicorn fleet. A local
+    # .env.test carrying the test stack's GUNICORN_WORKERS=2 made
+    # /metrics/prometheus demand start_api.sh's multiprocess setup and return
+    # 503 — locally only, since CI has no .env.test. Tests that exercise
+    # multi-worker behaviour set GUNICORN_WORKERS themselves.
+    "GUNICORN_WORKERS": "1",
 }
 for _key, _val in _TEST_ENV_FORCE.items():
     os.environ[_key] = _val
