@@ -1,0 +1,15 @@
+# slurmdbd for the xcl-local cluster. Installed as /etc/slurm/slurmdbd.conf,
+# mode 0600, owner slurm. @STORAGE_PASS@ is generated at install time and
+# never committed.
+AuthType=auth/munge
+DbdHost=tower
+DbdPort=6819
+SlurmUser=slurm
+LogFile=/var/log/slurm/slurmdbd.log
+DebugLevel=info
+StorageType=accounting_storage/mysql
+# "localhost" makes the client use the unix socket; MariaDB has no TCP port.
+StorageHost=localhost
+StorageUser=slurm
+StoragePass=@STORAGE_PASS@
+StorageLoc=slurm_acct_db

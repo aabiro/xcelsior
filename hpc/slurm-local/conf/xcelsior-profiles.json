@@ -1,0 +1,24 @@
+{
+  "profiles": {
+    "xcl-local": {
+      "name": "Xcelsior local test cluster (tower + asus)",
+      "cluster_id": "xcl-local",
+      "partition_gpu": "xcl",
+      "partition_cpu": "xcl",
+      "account_env": "SLURM_ACCOUNT",
+      "gpu_type": "rtx_3060",
+      "gpus_per_node": 1,
+      "max_walltime": "01:00:00",
+      "default_walltime": "00:10:00",
+      "qos": false,
+      "mem_base_gb": 1,
+      "mem_per_gpu_gb": 2,
+      "modules": [],
+      "container_runtime": "none",
+      "scratch_dir": "/var/lib/xcl-slurm-test/jobs",
+      "output_dir": "/var/lib/xcl-slurm-test/jobs",
+      "ssh_host": "xcl-tower",
+      "remote_user": "aaryn"
+    }
+  }
+}
