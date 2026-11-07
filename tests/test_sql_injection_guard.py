@@ -91,6 +91,7 @@ KNOWN_SAFE = {
     #   141: columns from the module-level COLUMNS tuple
     #   142: the module-level MISSING predicate, which interpolates nothing
     #   149: table names from the module-level TABLES tuple
+    #   151: table names from the module-level TABLES and DEFAULTED tuples
     "api/migrations/versions/128_backfill_recorded_control_plane_metadata.py",
     "api/migrations/versions/130_contract_job_projection_columns.py",
     "api/migrations/versions/133_durable_scheduling_policy.py",
@@ -100,6 +101,7 @@ KNOWN_SAFE = {
     "api/migrations/versions/141_archive_lightning_compatibility_columns.py",
     "api/migrations/versions/142_durable_host_observation_sessions.py",
     "api/migrations/versions/149_drop_tier_multiplier.py",
+    "api/migrations/versions/151_clear_stamped_regions.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real
