@@ -1,6 +1,6 @@
 # Slurm adapter and pod tier: production implementation plan
 
-Status as of 2026-11-07. Owner: Aaryn Biro. Audience: whoever implements it, human or agent.
+Status as of 2026-11-07 (updated the same day: Alliance facts verified against the official docs, decisions D1–D6 made, admin HPC dashboard fixed). Owner: Aaryn Biro. Audience: whoever implements it, human or agent.
 
 **The claim this plan makes true:** "Slurm schedules GPUs inside a cluster. Xcelsior schedules across clusters." Xcelsior is the meta-scheduler: one control plane that submits into Slurm-run clusters, Kubernetes facilities and independent hosts through one marketplace. Public wording stays "Slurm-native, integration-ready" until a partner route lands.
 
@@ -42,25 +42,21 @@ Done, unit-tested (111 adapter tests, 14 pod tests, 2 new database regression te
 - **Metering.** `get_slurm_job_accounting()` returns epoch `submitted_at`, `started_at` and `completed_at`, `duration_sec` (ElapsedRaw), `gpu_count`, `gpu_seconds` and `billable`. `accounting_to_meter_fields()` projects that onto `billing.UsageMeter`.
 - **Output.** `get_slurm_job_output()` reads the tail of stdout or stderr through the transport.
 - **Pod data model.** `workers/slurm_pod.py` builds a pod spec (`xcelsior.pod/v0`) from scheduler inventory, probe jobs and facility declarations. Each field carries provenance: observed or declared, the method, and the Slurm job id as evidence. `verify_pod_spec()` rejects overclaims.
+- **Alliance profiles, verified.** The `nibi` and `narval` profiles were checked against docs.alliancecan.ca and against Alliance's own automation wrapper (`slurm_commands.sh`). See §3 P3.1 for what that changed.
+- **Admin HPC dashboard fixed.** The page and its API contract now agree: submit, preview, cancel, refresh and the job list all work, and the page is admin-only like its routes.
 - **Wiring.** The API route and CLI file mappings under the profile's `cluster_id`. The CLI accepts file profiles. The module imports without the database stack.
 
 ### 1.3 Known gaps left open on purpose
 
-These need a decision or a larger piece of work. Each is placed in a phase below.
+Resolved since this plan was first written: the broken HPC dashboard, the QoS default (decision D6), the unverified Alliance profiles, and the two locally failing Prometheus tests. The tests failed because a local `.env.test` set `GUNICORN_WORKERS=2`; `tests/conftest.py` now pins 1.
 
-1. **The admin HPC dashboard page is broken.** These are pre-existing defects in `api/frontend/src/app/(dashboard)/dashboard/hpc/page.tsx`:
-   - Submit sends `priority: "normal"` (the API wants an int) and omits the required `vram_needed_gb`, so every submission gets a 422.
-   - Cancel and refresh pass the Xcelsior `job_id` where the endpoints take a Slurm id.
-   - The client type expects `state`, but the API returns `slurm_state` and `xcelsior_state`.
+Still open, each placed in a phase below:
 
-   This is the agent/human parity defect class: TypeScript enforced the wrong shape, so nothing ever failed loudly. → P2.6
-2. **`register_slurm_job` still re-points an open mapping.** `ON CONFLICT (xcelsior_job_id) DO UPDATE SET slurm_job_id = …` re-points a non-terminal mapping at a new Slurm id, which contradicts its own docstring. → P2.2
-3. **Polling cost.** Reconcile polls one `squeue` per job, which means N SSH round trips per tick. → P2.3
-4. **No `preempted` observed state.** The constraint lacks it, so a preempted job projects to `cancelled` (terminal). → decision D2
-5. **QoS on built-in profiles.** Built-in profiles still emit `--qos` for priority ≥ 10. Most clusters reject QoS names they don't define. → decision D6
-6. **Alliance profiles unverified.** Partitions, modules and QoS in the Alliance profiles have not been checked against docs.alliancecan.ca, which blocks automated reads. Alliance clusters assign partitions themselves. → P3.1
-7. **Untested container paths.** The Docker runtime path escapes the job cgroup, and the Apptainer path has never run. → P2.7
-8. **Unrelated failing tests.** Two Prometheus `/metrics` tests fail at HEAD with 503. They are unrelated to Slurm.
+1. **`register_slurm_job` still re-points an open mapping.** `ON CONFLICT (xcelsior_job_id) DO UPDATE SET slurm_job_id = …` re-points a non-terminal mapping at a new Slurm id, which contradicts its own docstring. → P2.2
+2. **Polling cost.** Reconcile polls one `squeue` per job, which means N SSH round trips per tick. Alliance also asks that scripts not poll `squeue` every few seconds. → P2.3
+3. **No `preempted` observed state.** The constraint lacks it, so a preempted job projects to `cancelled` (terminal). Decision D2 adds it in P2.1's migration.
+4. **Untested container paths.** The Docker runtime path escapes the job cgroup, and the Apptainer path has never run. → P2.7
+5. **Alliance automation is not for AI agents.** Alliance states its automation nodes "are not suitable for usage of AI agents". Agent-originated bookings must never be routed to an Alliance cluster. → P3.2
 
 ---
 
@@ -160,7 +156,8 @@ This turns the adapter from an admin tool into a placement target for real jobs.
 #### P2.3 Reconciler as a durable scheduled task (M)
 
 - Register it through `control_plane.scheduled_tasks.register_task(..., service=...)` under its own database identity. It runs every 15–30 s per active cluster.
-- **Batch per cluster:** one `squeue -h -j <id,id,…> -o "%i %T %R"` plus one `sacct -X -n --parsable2 -j <ids> -o JobID,State,…` per tick, instead of one call per job. Chunk at about 200 ids per call.
+- **Batch per cluster:** one `squeue -h -j <id,id,…> -o %i|%T|%R` plus one `sacct -X -n --parsable2 -j <ids> -o JobID,State,…` per tick, instead of one call per job. Chunk at about 200 ids per call. Keep every argument free of spaces and quotes, since site wrappers word-split the command.
+- **Interval per profile.** 15–30 s on clusters we run. On Alliance clusters, 60 s or more and sacct-first: their docs ask that scripts not run `squeue` "at high frequency (e.g. every few seconds)". Also respect `MaxSubmit`: 1000 pending or running jobs per account.
 - Persist `observed_state` and `last_observed_at` as today. Alert when `last_observed_at` is older than 3× the interval for any open mapping.
 - `not_found` handling: if the job is in neither squeue nor sacct for N consecutive ticks, mark the mapping `unknown` and raise an operator event. Never assume it completed.
 - Desired → cluster: `desired_state = cancelled` sends `cancel_slurm_job`. Treat `already_terminal` as success.
@@ -200,7 +197,7 @@ This turns the adapter from an admin tool into a placement target for real jobs.
   - `GET /api/v1/hpc/clusters`.
 - These are scoped to the tenant, not admin-only. Map `error_code` onto HTTP status: 400 `invalid_*`, 409 `already_terminal`, 422 `unsatisfiable_request` or `walltime_exceeds_limit`, 503 `transport_error` or `controller_unreachable`.
 - MCP tools `submit_hpc_job`, `get_hpc_job`, `cancel_hpc_job`, `get_hpc_job_output` and `list_hpc_clusters`. They return `error_code` verbatim so agents can branch. Regenerate `mcp/openapi-v1.json` and run `npm run generate:api`.
-- Rebuild the HPC dashboard page on the v1 endpoints; this fixes the three defects in §1.3. Add a contract test that the frontend type and the response schema share fields.
+- Move the HPC dashboard page onto the v1 endpoints. The page itself was fixed on 2026-11-07 against the legacy routes, with a component test (`hpc-page.test.tsx`) and backend contract tests (`TestHpcDashboardContract`) pinning the shared shapes.
 - Keep the old `/api/slurm/*` admin routes until the UI moves, then remove them.
 - Acceptance: an agent books, polls, cancels and fetches output through MCP alone, and the UI shows the same states as the API.
 
@@ -239,15 +236,21 @@ The rollback switch is the flag; mappings stay for audit.
 
 Nothing here starts until a sponsoring PI exists. Research use only; no commercial workloads on the cluster.
 
-- **P3.1 Profile truth (S).** By hand, read the Nibi pages on docs.alliancecan.ca for these and correct the `nibi` profile:
-  - partitions (Alliance assigns them automatically, so the profile should probably *omit* `--partition`);
-  - GPU request syntax (`--gpus-per-node=h100:N`) and MIG names;
-  - modules and QoS;
-  - output locations (`/scratch/$USER`);
-  - account flags (`--account=def-<pi>`).
+- **P3.1 Profile truth (done 2026-11-07, from the official docs).** These changed the profiles:
+  - **Partitions:** Alliance routes each job to a partition from its resources and walltime (by-node or by-core, 3 h to 7 day tiers). The `nibi` and `narval` profiles now omit `--partition`.
+  - **GPU requests:** `--gpus-per-node=h100:N`, or `--gpus=h100:N` across nodes. The docs say `--gres=gpu:…` "may not be supported in the future". Profiles gained `gpu_request: "gpus"`. Nibi's MIG names are `h100_1g.10gb`, `h100_2g.20gb` and `h100_3g.40gb`; MIG isn't modelled yet.
+  - **Accounts and time:** `--account=def-<pi>` and `--time` are required, and there is no user QoS. Profiles gained `account_required`, and submits without an account return `missing_account`.
+  - **Bundles:** Nibi gives each H100 14 cores and 250 GB; Narval gives each A100 12 cores and 124 GB. Profiles set `--cpus-per-gpu` and size memory under the bundle.
+  - **Modules:** `cuda/12.2` and `python/3.11` (3.11.2 and 3.11.5) exist; Apptainer is a module, now loaded.
+  - **Hardware:** Nibi has 36 nodes of 8 × H100 SXM 80 GB with NVLink, and Nokia Ethernet at 200 Gb/s non-blocking between GPU nodes. Narval has 4 × A100 40 GB per node on InfiniBand HDR. Graham is retired, and submissions to it are refused.
+  - **Remaining:** confirm all of this on a real run (P3.3). Model MIG instances, and `--switches=1` for tightly coupled jobs.
+- **P3.2 Automation access (S, needs the PI).** The rules, from Alliance's automation page:
+  - Access is by request, explaining the exact commands and tools.
+  - The key must be uploaded to CCDB, not `authorized_keys`, and carry all three of `restrict`, `from=` and `command=`.
+  - `from=` must be a public IP pattern at least as specific as `x.y.z.*`. Prod's egress (46.225.20.97) qualifies.
+  - The node is `robot.nibi.alliancecan.ca`.
 
-  Add a profile option to omit the partition, and `gpus_per_node` syntax support. Retire `graham`.
-- **P3.2 Automation access (S, needs the PI).** Request robot-node access with the exact command list (the gate's allowlist). Alliance asks for the commands and tooling up front. Use the site's `command=` wrapper or ours, as they prefer.
+  Alliance's own `slurm_commands.sh` allows `squeue`, `scancel`, `sbatch`, `scontrol`, `sq`, `sinfo` and `sacct`, plus `cat` and `ls`. It runs `$SSH_ORIGINAL_COMMAND` unquoted, so the adapter now sends only word-split-safe tokens, with no env prefix and output read with `cat`. `TestWordSplitSafeTransport` pins this. **Alliance states that automation nodes "are designed for predictable workloads. They are not suitable for usage of AI agents."** So the research project uses deterministic, scripted adapter traffic only. No MCP or agent-originated submission is ever routed to an Alliance cluster, and the access request must say so.
 - **P3.3 Validation runs (M).** Run the same suite with a `nibi` profile at small scale: CPU, 1 GPU and 1 node × 8 GPUs. Add cases for multi-node jobs, requeue/preemption accounting and the NCCL all-reduce probe (P4.2).
 - **P3.4 Write-up (S).** The results report is the research output and the proposal's evidence.
 
@@ -299,16 +302,18 @@ CI note: GitHub Actions has been billing-locked since about 2026-07-21. Until it
 
 ---
 
-## 5. Decisions that are yours
+## 5. Decisions (made 2026-11-07)
 
-| # | Decision | Options | Recommendation |
-|---|---|---|---|
-| D1 | Whose account runs tenant code on a partner cluster | (a) one Xcelsior service account per cluster; (b) per-tenant cluster accounts | (a) for partner pods, with strict payload policy and per-tenant Unix groups for output separation. (b) is how academic sites work and is what P3 uses |
-| D2 | `preempted` as an observed state | add it to the constraint (migration) vs keep projecting to `cancelled` | Add it in P2.1's migration: spot and preemptible capacity will want it |
-| D3 | Billing source of truth for Slurm jobs | slurmdbd accounting vs Xcelsior's observation clock | slurmdbd (§2 principle); polling lag must not move money |
-| D4 | Tenant `command` payloads | open, allowlisted images only, or templates only | Apptainer images from an allowlist plus free-form command inside the container |
-| D5 | Pod booking mechanism | Slurm reservation vs dedicated partition | Reservation: time-boxed, native to Slurm, and leaves the partner's partitions alone |
-| D6 | Built-in profiles' `--qos` | keep, or default `qos: false` | Default false; enable per cluster from P3.1's observed behaviour |
+These were open questions. Each is now decided on the recommendation below. Any can be revisited; the "Status" column says what is already built on it.
+
+| # | Decision | Chosen | Why | Status |
+|---|---|---|---|---|
+| D1 | Whose account runs tenant code on a partner cluster | **One Xcelsior service account per partner cluster**, with per-tenant Unix groups for output separation and the strict payload policy of D4. Academic clusters are the exception: there the PI's allocation runs research jobs only, never tenant work | Partners sign one contract with one accountable party. Per-tenant accounts on a partner's cluster would make Xcelsior an identity provider for someone else's site | Shapes P2.1 (`credential_ref` per cluster) and P2.7 |
+| D2 | `preempted` as an observed state | **Add it to the constraint** in P2.1's migration | Spot and preemptible capacity need to tell preemption from cancellation. Until then a preempted job projects to `cancelled` and stays terminal | Pending: P2.1 migration |
+| D3 | Billing source of truth for Slurm jobs | **slurmdbd accounting** (Start, End, ElapsedRaw) | Polling lag must never move money; ElapsedRaw is exact to the second | Built: `get_slurm_job_accounting`, METER-1..3 |
+| D4 | Tenant `command` payloads | **Free-form command inside an allowlisted Apptainer image** on clusters we don't own. On our own clusters, a bare command is allowed for operators | A partner's login and compute nodes run only what their policy allows; the image allowlist is that policy | Shapes P2.6 and P2.7 |
+| D5 | Pod booking mechanism | **Slurm reservations** (`scontrol create reservation`) | Time-boxed, native to Slurm, and they leave the partner's partitions alone | Shapes P4.3 |
+| D6 | `--qos` on built-in profiles | **Off by default**, on per cluster where the site defines QoS | Clusters reject QoS names they don't define; Alliance has no user QoS | Built: `qos: False` default; `qos: True` opt-in |
 
 ---
 
@@ -344,8 +349,8 @@ The adapter is production-ready when all of these hold:
 | 12 | Temp sbatch scripts leaked on the submit host | fixed (stdin) | unit test |
 | 13 | Unknown profile silently became `generic` | fixed → `unknown_profile` | unit test |
 | 14 | `generic` requested `gpu:gpu:N` | fixed → untyped | unit test |
-| 15 | `nibi` described 4 × A100; Nibi is 8 × H100 | corrected; partitions/modules still unverified | P3.1 |
-| 16 | `--qos` always emitted for priority ≥ 10 | profile switch added; built-ins unchanged | D6 |
+| 15 | `nibi` described 4 × A100; Nibi is 8 × H100 | corrected and verified against the official docs; partitions omitted, `--gpus-per-node`, account required | P3.1, unit tests |
+| 16 | `--qos` always emitted for priority ≥ 10 | off by default, opt-in per profile | D6, unit test |
 | 17 | Fixed memory formula (12 GB for one GPU) | profile-scaled | unit test |
 | 18 | Walltime never checked against the profile maximum | fixed (client and Slurm side) | FAIL-4 |
 | 19 | Every mapping filed under cluster `unknown` → cross-cluster id collisions | fixed in route and CLI | unit test |
@@ -358,6 +363,15 @@ The adapter is production-ready when all of these hold:
 
 ## Appendix B: sources for the Alliance facts above
 
-- Nibi: 288 H100 GPUs, successor to Graham. Alliance's Nibi service page, https://www.alliancecan.ca/en/services/compute/nibi
-- 8 H100 per node and 400 Gb/s Ethernet on GPU nodes: SHARCNET's 2025 migration webinar, https://helpwiki.sharcnet.ca/wiki/images/a/ac/Migration_webinar_2025.pdf. Read through a search summary; the PDF is bot-protected. Verify by hand.
-- Automation nodes: restricted keys (`restrict,from=…,command=…`), approval through Alliance support, and hostnames like `robot.<cluster>.alliancecan.ca`. https://docs.alliancecan.ca/wiki/AiiDA, which points to the "Automation in the context of multifactor authentication" page.
+All read on 2026-11-07. docs.alliancecan.ca serves these pages to a plain HTTP client; only some automated fetchers are challenged.
+
+- Nibi: https://docs.alliancecan.ca/wiki/Nibi (hardware, interconnect, GPU instance names, robot node, scratch policy)
+- Narval: https://docs.alliancecan.ca/wiki/Narval
+- Graham, retired: https://docs.alliancecan.ca/wiki/Graham
+- GPU requests: https://docs.alliancecan.ca/wiki/Using_GPUs_with_Slurm
+- Partitions, 7-day limit, 1000-job cap: https://docs.alliancecan.ca/wiki/Job_scheduling_policies
+- Accounts and polling guidance: https://docs.alliancecan.ca/wiki/Running_jobs
+- Per-GPU bundles: https://docs.alliancecan.ca/wiki/Allocations_and_compute_scheduling
+- Modules: https://docs.alliancecan.ca/wiki/Available_software
+- Automation nodes, key rules, the AI-agent statement: https://docs.alliancecan.ca/wiki/Automation_in_the_context_of_multifactor_authentication
+- The wrapper source: https://github.com/ComputeCanada/software-stack-custom/tree/main/bin/computecanada/allowed_commands
