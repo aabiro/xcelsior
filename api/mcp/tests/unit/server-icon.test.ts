@@ -44,7 +44,7 @@ describe("server icon", () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     const info = client.getServerVersion()!;
-    expect(info).toMatchObject({ name: "xcelsior-mcp", title: "Xcelsior", websiteUrl: "https://xcelsior.ca/mcp" });
+    expect(info).toMatchObject({ name: "xcelsior-mcp", title: "Xcelsior MCP", websiteUrl: "https://xcelsior.ca/mcp" });
     expect(info.description).toBeTruthy();
     // VS Code: "mcp_" + title lowercased, cut to 13 chars, + "_" (MaxPrefixLen 18).
     expect(info.title!.toLowerCase().replace(/[^a-z0-9_.-]+/g, "_").length).toBeLessThanOrEqual(13);
