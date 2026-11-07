@@ -106,9 +106,9 @@ See §1.2. Exit gate: done.
 - Rehearsal: 24/24 cases, SYNC-1 included.
 - Pyright gate at 0.
 
-### P1: local two-node validation (S, ready to run)
+### P1: local two-node validation (done 2026-11-07)
 
-Run `slurm-local/` on the tower and the ASUS: Steps 1–6 of its README. Nothing here needs new code.
+Ran `slurm-local/` on the real tower and ASUS. V-1 to V-12 passed, and all 24 suite cases passed, SYNC-1 included. Docker and the runners were unchanged. The results are in `slurm-local/RESULTS_2026-11-07.md` and the evidence in `slurm-local/evidence/r1107050537/`. The cluster stays installed, with services disabled at boot. The real run found three kit defects that the containers had hidden, all fixed: a SIGPIPE false failure in preflight, an empty untouchables snapshot, and an `~/.ssh/config` alias whose `Host *` key bypassed the restricted key.
 
 Exit gate:
 - `CHECKLIST.md` sections A–C all PASS (SYNC-1 optional);
@@ -131,7 +131,7 @@ This turns the adapter from an admin tool into a placement target for real jobs.
   - `credential_ref` (a Vaultwarden / secret-store reference, never the key itself);
   - `remote_user`, `status` (`active | paused | retired`), `owner_org`, `created_at` and `updated_at`.
 - `available_profiles()` reads the registry. Built-ins and the JSON file become seed data and a dev override.
-- `get_runner()` builds SSH options from the registry: `-o UserKnownHostsFile=<tmp pinned file> -o StrictHostKeyChecking=yes -i <materialised key>`. The key is materialised to a 0600 tmpfs file for the call's lifetime.
+- `get_runner()` builds SSH options from the registry: `-F <generated config> -o UserKnownHostsFile=<tmp pinned file> -o StrictHostKeyChecking=yes -i <materialised key> -o IdentitiesOnly=yes -o IdentityAgent=none`. The key is materialised to a 0600 tmpfs file for the call's lifetime. Never let the service user's `~/.ssh/config` apply. IdentityFile entries accumulate across Host blocks, so a `Host *` key gets offered first. On the local run that let an unrestricted key in.
 - Admin API for CRUD, plus a "test connection" action that runs `sinfo --version` and `scontrol show config` through the gate.
 - Bookkeeping per `CONTRIBUTING`/memory rules: a domain claim in `control_plane/db_roles.py`, `EXPECTED_HEAD` bumps, and the migration applied to both the dev and pytest databases.
 - Acceptance: the adapter never reads a profile from code in production, and `cluster_id` on every mapping is a foreign key to `slurm_clusters`.

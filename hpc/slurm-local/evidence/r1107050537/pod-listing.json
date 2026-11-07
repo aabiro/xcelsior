@@ -1,0 +1,209 @@
+{
+  "spec_version": "xcelsior.pod/v0",
+  "pod_id": "pod-xcl-local-xcl",
+  "listing_title": "xcl-local reference pod (tower + asus)",
+  "facility": {
+    "value": "Aaryn's home lab, London ON (test only; not a listing)",
+    "source": "declared",
+    "method": "facility statement",
+    "evidence": null
+  },
+  "cluster": {
+    "cluster_id": "xcl-local",
+    "scheduler": "slurm",
+    "scheduler_version": "slurm-wlm 25.11.2",
+    "partition": "xcl"
+  },
+  "node_count": {
+    "value": 2,
+    "source": "observed",
+    "method": "slurm:sinfo -N",
+    "evidence": "sinfo -N -p xcl"
+  },
+  "gpu": {
+    "count": {
+      "value": 1,
+      "source": "observed",
+      "method": "slurm:GRES total",
+      "evidence": "sinfo -N -p xcl"
+    },
+    "count_probe": {
+      "value": 1,
+      "source": "observed",
+      "method": "nvml:probe jobs",
+      "evidence": "slurm jobs 22"
+    },
+    "model": {
+      "value": "NVIDIA GeForce RTX 3060",
+      "source": "observed",
+      "method": "nvml:probe jobs",
+      "evidence": "slurm jobs 22"
+    },
+    "memory_gb": {
+      "value": 12.0,
+      "source": "observed",
+      "method": "nvml:probe jobs",
+      "evidence": "slurm jobs 22"
+    },
+    "nvlink_domain_size": {
+      "value": 1,
+      "source": "observed",
+      "method": "nvml:nvidia-smi nvlink --status",
+      "evidence": "slurm jobs 22"
+    }
+  },
+  "interconnect": {
+    "type": {
+      "value": "ethernet",
+      "source": "declared",
+      "method": "facility statement",
+      "evidence": null
+    },
+    "overlay": {
+      "value": "wireguard (tailscale)",
+      "source": "declared",
+      "method": "facility statement",
+      "evidence": null
+    },
+    "nic_speed_gbps": {
+      "value": 1.0,
+      "source": "observed",
+      "method": "sysfs link speed, minimum across nodes",
+      "evidence": "slurm jobs 21, 23"
+    },
+    "nic_speed_gbps_declared": {
+      "value": 1,
+      "source": "declared",
+      "method": "facility statement",
+      "evidence": null
+    },
+    "switch_speed_gbps": {
+      "value": null,
+      "source": "declared",
+      "method": "facility statement",
+      "evidence": null
+    },
+    "switch_count": {
+      "value": null,
+      "source": "declared",
+      "method": "facility statement",
+      "evidence": null
+    }
+  },
+  "nodes": [
+    {
+      "name": "asus",
+      "state": "idle",
+      "cpus": {
+        "value": 16,
+        "source": "observed",
+        "method": "slurm:sinfo %c",
+        "evidence": "sinfo -N -p xcl"
+      },
+      "memory_mb": {
+        "value": 4096,
+        "source": "observed",
+        "method": "slurm:sinfo %m",
+        "evidence": "sinfo -N -p xcl"
+      },
+      "gres": "(null)",
+      "gpus_scheduler": {
+        "value": 0,
+        "source": "observed",
+        "method": "slurm:sinfo %G",
+        "evidence": "sinfo -N -p xcl"
+      },
+      "gpus_probe": {
+        "value": [],
+        "source": "observed",
+        "method": "nvml:nvidia-smi in allocated job",
+        "evidence": null
+      },
+      "nic": {
+        "value": {
+          "interface": "enp2s0",
+          "speed_gbps": 1.0
+        },
+        "source": "observed",
+        "method": "sysfs:/sys/class/net/<dev>/speed in a job on the node",
+        "evidence": "slurm job 21"
+      }
+    },
+    {
+      "name": "tower",
+      "state": "idle",
+      "cpus": {
+        "value": 32,
+        "source": "observed",
+        "method": "slurm:sinfo %c",
+        "evidence": "sinfo -N -p xcl"
+      },
+      "memory_mb": {
+        "value": 8192,
+        "source": "observed",
+        "method": "slurm:sinfo %m",
+        "evidence": "sinfo -N -p xcl"
+      },
+      "gres": "gpu:rtx_3060:1(S:0)",
+      "gpus_scheduler": {
+        "value": 1,
+        "source": "observed",
+        "method": "slurm:sinfo %G",
+        "evidence": "sinfo -N -p xcl"
+      },
+      "gpus_probe": {
+        "value": [
+          {
+            "index": 0,
+            "model": "NVIDIA GeForce RTX 3060",
+            "memory_mib": 12288,
+            "uuid": "GPU-20f5190f-f5f5-2e3e-a3e7-9cf85c5c1460"
+          }
+        ],
+        "source": "observed",
+        "method": "nvml:nvidia-smi in allocated job",
+        "evidence": "slurm job 22"
+      },
+      "nic": {
+        "value": {
+          "interface": "enp38s0",
+          "speed_gbps": 1.0
+        },
+        "source": "observed",
+        "method": "sysfs:/sys/class/net/<dev>/speed in a job on the node",
+        "evidence": "slurm job 23"
+      }
+    }
+  ],
+  "verification": {
+    "status": "verified",
+    "checked_at": "2026-11-07T10:08:20Z",
+    "checks": [
+      {
+        "check": "has_nodes",
+        "ok": true,
+        "detail": "2 node(s) in partition"
+      },
+      {
+        "check": "nodes_schedulable",
+        "ok": true,
+        "detail": "all nodes up"
+      },
+      {
+        "check": "gpu_count_matches_probes",
+        "ok": true,
+        "detail": "scheduler GRES=1, NVML probes=1"
+      },
+      {
+        "check": "gpu_model_homogeneous",
+        "ok": true,
+        "detail": "model='NVIDIA GeForce RTX 3060'"
+      },
+      {
+        "check": "nic_speed_declared_not_above_observed",
+        "ok": true,
+        "detail": "declared 1 Gb/s vs observed min 1.0 Gb/s"
+      }
+    ]
+  }
+}
