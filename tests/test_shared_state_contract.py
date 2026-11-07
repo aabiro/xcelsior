@@ -296,7 +296,7 @@ def test_observed_state_check_rejects_an_invented_state(slurm_rows):
 
 
 def _fake_status(state: str):
-    def _get(slurm_job_id):
+    def _get(slurm_job_id, **_kw):
         return {"slurm_job_id": slurm_job_id, "xcelsior_state": state}
 
     return _get
@@ -356,7 +356,7 @@ def test_terminal_mappings_are_not_polled_again(slurm_rows, monkeypatch):
 
     polled: list[str] = []
 
-    def _tracking(slurm_job_id):
+    def _tracking(slurm_job_id, **_kw):
         polled.append(slurm_job_id)
         return {"xcelsior_state": "failed"}
 
@@ -413,7 +413,7 @@ def test_poll_failure_on_one_mapping_does_not_stop_the_rest(slurm_rows, monkeypa
     slurm_adapter.register_slurm_job(bad, "9800", cluster_id="nibi")
     slurm_adapter.register_slurm_job(good, "9801", cluster_id="nibi")
 
-    def _flaky(slurm_job_id):
+    def _flaky(slurm_job_id, **_kw):
         if slurm_job_id == "9800":
             raise RuntimeError("cluster unreachable")
         return {"xcelsior_state": "running"}
@@ -452,3 +452,55 @@ def test_no_json_file_authority_remains():
         "SLURM_MAP_FILE is dead file-authority configuration; the mapping is "
         "owned by PostgreSQL (migration 060)"
     )
+
+
+def test_sync_records_a_pending_job_without_check_violation(slurm_rows, monkeypatch):
+    """Regression: a real PENDING job aborted the whole sync pass.
+
+    The adapter maps Slurm PENDING to the Xcelsior job state "queued", and
+    the sync wrote that straight into observed_state, whose CHECK
+    constraint (migration 067) only allows pending/running/completed/
+    failed/cancelled/unknown. The first pending job raised CheckViolation
+    out of sync_slurm_statuses. Observed states are now projected onto the
+    constraint's vocabulary; the callback still gets the job state.
+    """
+    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
+    other = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
+    slurm_adapter.register_slurm_job(job_id, "9950", cluster_id="nibi")
+    slurm_adapter.register_slurm_job(other, "9951", cluster_id="nibi")
+    states = {"9950": "queued", "9951": "running"}
+    monkeypatch.setattr(
+        slurm_adapter,
+        "get_slurm_job_status",
+        lambda sid, **_kw: {"slurm_job_id": sid, "xcelsior_state": states[sid]},
+    )
+    seen: list = []
+
+    slurm_adapter.sync_slurm_statuses(update_callback=lambda x, s: seen.append((x, s)))
+
+    pending = _row(
+        "SELECT observed_state FROM slurm_job_mappings WHERE xcelsior_job_id = %s", (job_id,)
+    )
+    running = _row(
+        "SELECT observed_state FROM slurm_job_mappings WHERE xcelsior_job_id = %s", (other,)
+    )
+    assert pending == ("pending",)
+    assert running == ("running",), "a pending job must not stop the rest of the pass"
+    assert (other, "running") in seen
+
+
+def test_preempted_job_is_terminal(slurm_rows, monkeypatch):
+    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
+    slurm_adapter.register_slurm_job(job_id, "9960", cluster_id="nibi")
+    monkeypatch.setattr(
+        slurm_adapter,
+        "get_slurm_job_status",
+        lambda sid, **_kw: {"slurm_job_id": sid, "xcelsior_state": "preempted"},
+    )
+    slurm_adapter.sync_slurm_statuses()
+    row = _row(
+        "SELECT observed_state, terminal_at IS NOT NULL FROM slurm_job_mappings "
+        "WHERE xcelsior_job_id = %s",
+        (job_id,),
+    )
+    assert row == ("cancelled", True)

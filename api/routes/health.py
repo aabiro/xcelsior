@@ -523,7 +523,13 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
         raise HTTPException(status_code=400, detail=result["error"])
 
     if not body.dry_run and "slurm_job_id" in result:
-        register_slurm_job(job_dict["job_id"], result["slurm_job_id"])
+        # Slurm job ids are unique per cluster only; file the mapping under
+        # the profile's cluster so two clusters' job 42 cannot collide.
+        register_slurm_job(
+            job_dict["job_id"],
+            result["slurm_job_id"],
+            cluster_id=result.get("cluster_id") or "unknown",
+        )
 
     return result
 
@@ -554,11 +560,15 @@ def api_slurm_cancel(slurm_job_id: str, request: Request):
 
 @router.get("/api/slurm/profiles", tags=["Infrastructure"])
 def api_slurm_profiles(request: Request):
-    """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
+    """List available Slurm cluster profiles (built-ins plus any operator file)."""
     _require_admin(request)
-    from slurm_adapter import CLUSTER_PROFILES
+    from slurm_adapter import CLUSTER_PROFILES, SlurmAdapterError, available_profiles
 
-    return {"profiles": {k: v["name"] for k, v in CLUSTER_PROFILES.items()}}
+    try:
+        profiles = available_profiles()
+    except SlurmAdapterError:
+        profiles = CLUSTER_PROFILES
+    return {"profiles": {k: v["name"] for k, v in profiles.items()}}
 
 
 @router.get("/api/nfs/config", tags=["Infrastructure"])

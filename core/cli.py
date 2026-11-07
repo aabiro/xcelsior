@@ -1460,8 +1460,7 @@ def main():
     p_slurm_sub.add_argument(
         "--profile",
         default=None,
-        choices=["nibi", "graham", "narval", "generic"],
-        help="Cluster profile",
+        help="Cluster profile: nibi, narval, generic, or one from XCELSIOR_SLURM_PROFILES_FILE",
     )
     p_slurm_sub.add_argument("--image", default="", help="Docker/Apptainer image")
     p_slurm_sub.add_argument("--gpus", type=int, default=None, help="Number of GPUs")
