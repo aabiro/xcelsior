@@ -59,7 +59,7 @@ Evidence: per-case job IDs, state traces, accounting rows and outputs are in the
 4. **Verified specs on a real fabric.** Can scheduler-run probe jobs verify NVLink domains and fabric bandwidth (NCCL all-reduce)? This is the pod data model's hard case.
 5. **Reconcile behaviour.** Does state reconciliation stay correct and cheap under thousands of jobs and controller restarts?
 
-Use would be research and integration testing only, under the sponsoring PI's allocation. No commercial workloads would run on the cluster.
+Use would be research and integration testing only, under the sponsoring PI's allocation. No commercial workloads would run on the cluster. Automation would be deterministic, scripted adapter traffic only: the fixed command set above, through the site's automation node and wrapper. Following Alliance's automation-node policy, no AI-agent-originated submissions would reach the cluster.
 
 ## Reproducibility
 
