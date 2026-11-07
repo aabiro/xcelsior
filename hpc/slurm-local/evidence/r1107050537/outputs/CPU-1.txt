@@ -1,0 +1,4 @@
+HOST=aaryn-ASUS-TUF-Gaming-A15-FA506IV-TUF506IV
+NPROC=2
+NODELIST=asus
+Xcelsior job r1107050537-cpu1 completed at Sat Nov  7 05:05:51 EST 2026

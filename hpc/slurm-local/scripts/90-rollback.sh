@@ -41,6 +41,15 @@ while read -r ak; do
     else sed -i '/ xcl-slurm-adapter$/d' "$ak"; xcl_log "removed adapter key from $ak"; fi
 done < <(kind authkey)
 
+while read -r cfg; do
+    [[ -f "$cfg" ]] || continue
+    if [[ $DRY == 1 ]]; then echo "would: remove the xcl-slurm-test alias block from $cfg"
+    else
+        sed -i '/^# >>> xcl-slurm-test adapter alias >>>$/,/^# <<< xcl-slurm-test adapter alias <<<$/d' "$cfg"
+        xcl_log "removed adapter alias from $cfg"
+    fi
+done < <(kind sshconfig)
+
 while read -r rule; do
     [[ -n "$rule" ]] || continue
     # shellcheck disable=SC2086

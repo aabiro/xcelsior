@@ -1,0 +1,3 @@
+NAME=x"; touch /tmp/xcl-pwned-r1107050537; echo "$(id)`id`
+CLEAN
+Xcelsior job r1107050537-fail6 completed at Sat Nov  7 05:07:59 EST 2026
