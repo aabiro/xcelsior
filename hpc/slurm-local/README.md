@@ -35,7 +35,7 @@ It proves that the adapter can do the following against a real Slurm 25.11 contr
 
 It does this over the transport a real academic cluster demands: one restricted SSH key whose forced command allows only the adapter's command shapes. That is how Alliance automation ("robot") nodes admit MFA-exempt automated access.
 
-It does not prove scale, multi-node MPI, a real fabric (InfiniBand or RoCE), a shared filesystem, or Alliance-specific policy. Alliance-specific policy means automatic partition assignment, allocation accounts and robot-node approval. Those are the open questions for scale validation.
+It does not prove scale, multi-node MPI, a real fabric (InfiniBand or RoCE), a shared filesystem, or Alliance-specific policy. Alliance-specific policy means automatic partition assignment, allocation accounts and robot-node approval. Those are the open questions for scale validation. One policy constraint is already known: Alliance automation nodes "are not suitable for usage of AI agents", so a scale test would carry scripted adapter traffic only.
 
 ## Topology
 
