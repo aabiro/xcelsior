@@ -19,7 +19,7 @@ from fastapi.responses import (
     StreamingResponse,
     Response,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -488,13 +488,47 @@ def _require_provider_or_admin(request: Request) -> dict:
 
 class SlurmSubmitIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    vram_needed_gb: float = Field(gt=0)
+    # Give num_gpus (0 = CPU-only job), or vram_needed_gb and let the
+    # adapter size the request from the cluster's GPU model.
+    vram_needed_gb: float = Field(default=0, ge=0)
+    num_gpus: int | None = Field(default=None, ge=0, le=64)
     priority: int = 0
     tier: str | None = None
-    num_gpus: int = 1
     image: str = ""
+    command: str | None = Field(default=None, max_length=8192)
+    walltime: str | None = Field(default=None, max_length=32)
+    nodelist: str | None = Field(default=None, max_length=512)
     profile: str | None = None
     dry_run: bool = False
+
+    @model_validator(mode="after")
+    def _sized(self):
+        if self.num_gpus is None and self.vram_needed_gb <= 0:
+            raise ValueError("give num_gpus, or vram_needed_gb > 0")
+        return self
+
+
+def _slurm_profile_for(cluster_id: str | None) -> str | None:
+    """Profile that polls a mapping's cluster (None → the default profile)."""
+    if not cluster_id:
+        return None
+    from slurm_adapter import _profile_key_for_cluster
+
+    return _profile_key_for_cluster(cluster_id)
+
+
+def _slurm_http_error(result: dict, default_status: int = 400):
+    """Adapter error → HTTP error carrying the machine-readable code."""
+    code = result.get("error_code", "")
+    status = {
+        "not_found": 404,
+        "already_terminal": 409,
+        "transport_error": 503,
+        "controller_unreachable": 503,
+        "slurm_unavailable": 503,
+        "timeout": 504,
+    }.get(code, default_status)
+    return HTTPException(status_code=status, detail=f"{result['error']} [{code or 'error'}]")
 
 
 @router.post("/api/slurm/submit", tags=["Infrastructure"])
@@ -513,14 +547,17 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
         "vram_needed_gb": body.vram_needed_gb,
         "priority": body.priority,
         "tier": body.tier or "free",
-        "num_gpus": body.num_gpus,
         "image": body.image,
     }
+    for key in ("num_gpus", "command", "walltime", "nodelist"):
+        value = getattr(body, key)
+        if value is not None and value != "":
+            job_dict[key] = value
 
     result = submit_to_slurm(job_dict, profile_name=body.profile, dry_run=body.dry_run)
 
     if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
+        raise _slurm_http_error(result)
 
     if not body.dry_run and "slurm_job_id" in result:
         # Slurm job ids are unique per cluster only; file the mapping under
@@ -535,40 +572,66 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
 
 
 @router.get("/api/slurm/status/{slurm_job_id}", tags=["Infrastructure"])
-def api_slurm_status(slurm_job_id: str, request: Request):
-    """Check the status of a Slurm job."""
+def api_slurm_status(slurm_job_id: str, request: Request, cluster_id: str | None = None):
+    """Check the status of a Slurm job (on cluster_id's profile, if given)."""
     _require_admin(request)
     from slurm_adapter import get_slurm_job_status
 
-    status = get_slurm_job_status(slurm_job_id)
+    profile = _slurm_profile_for(cluster_id)
+    status = (
+        get_slurm_job_status(slurm_job_id, profile_name=profile)
+        if profile
+        else get_slurm_job_status(slurm_job_id)
+    )
     if "error" in status:
-        raise HTTPException(status_code=400, detail=status["error"])
+        raise _slurm_http_error(status)
     return status
 
 
 @router.delete("/api/slurm/{slurm_job_id}", tags=["Infrastructure"])
-def api_slurm_cancel(slurm_job_id: str, request: Request):
-    """Cancel a Slurm job."""
+def api_slurm_cancel(slurm_job_id: str, request: Request, cluster_id: str | None = None):
+    """Cancel a Slurm job (on cluster_id's profile, if given)."""
     _require_admin(request)
     from slurm_adapter import cancel_slurm_job
 
-    result = cancel_slurm_job(slurm_job_id)
+    profile = _slurm_profile_for(cluster_id)
+    result = (
+        cancel_slurm_job(slurm_job_id, profile_name=profile)
+        if profile
+        else cancel_slurm_job(slurm_job_id)
+    )
     if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
+        raise _slurm_http_error(result)
     return result
 
 
 @router.get("/api/slurm/profiles", tags=["Infrastructure"])
 def api_slurm_profiles(request: Request):
-    """List available Slurm cluster profiles (built-ins plus any operator file)."""
+    """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
     _require_admin(request)
-    from slurm_adapter import CLUSTER_PROFILES, SlurmAdapterError, available_profiles
+    from slurm_adapter import CLUSTER_PROFILES, SlurmAdapterError, _get_profile, available_profiles
 
     try:
         profiles = available_profiles()
     except SlurmAdapterError:
         profiles = CLUSTER_PROFILES
-    return {"profiles": {k: v["name"] for k, v in profiles.items()}}
+    details = {}
+    for key in profiles:
+        p = _get_profile(key)
+        details[key] = {
+            "name": p["name"],
+            "cluster_id": p["cluster_id"],
+            "gpu_type": p.get("gpu_type"),
+            "gpus_per_node": p.get("gpus_per_node"),
+            "partition_gpu": p.get("partition_gpu"),
+            "partition_cpu": p.get("partition_cpu"),
+            "max_walltime": p.get("max_walltime"),
+            "default_walltime": p.get("default_walltime"),
+            "container_runtime": p.get("container_runtime"),
+            "retired": bool(p.get("retired")),
+        }
+    # "profiles" keeps its original {key: name} shape for existing clients.
+    return {"profiles": {k: v["name"] for k, v in profiles.items()}, "details": details}
 
 
 @router.get("/api/nfs/config", tags=["Infrastructure"])
@@ -1669,10 +1732,6 @@ def api_set_alert_config_alias(cfg: AlertConfig, request: Request):
 def api_slurm_list_instances(request: Request):
     """List all tracked Slurm jobs."""
     _require_admin(request)
-    from slurm_adapter import _load_slurm_map, get_slurm_job_status
+    from slurm_adapter import list_slurm_mappings
 
-    job_map = _load_slurm_map()
-    jobs = []
-    for xcelsior_id, slurm_id in job_map.items():
-        jobs.append({"job_id": xcelsior_id, "slurm_job_id": slurm_id})
-    return {"ok": True, "jobs": jobs}
+    return {"ok": True, "jobs": list_slurm_mappings(limit=200)}

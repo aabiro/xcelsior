@@ -445,3 +445,93 @@ class TestDashboardHTML:
 
     def test_slurm_in_refresh(self):
         assert "fetchSlurmProfiles()" in self.html
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HPC dashboard contract (2026-11-07): the page sent priority "normal" and
+# no vram (422 on every submit), cancelled by Xcelsior id, and read profile
+# fields the API never returned. These pin the shapes the page now uses.
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestHpcDashboardContract:
+    def test_profiles_carry_details_for_the_cards(self):
+        d = client.get("/api/slurm/profiles").json()
+        assert d["profiles"]["nibi"] == d["details"]["nibi"]["name"]
+        nibi = d["details"]["nibi"]
+        assert nibi["gpu_type"] == "h100" and nibi["gpus_per_node"] == 8
+        assert nibi["partition_gpu"] is None  # Alliance assigns partitions
+        assert d["details"]["graham"]["retired"] is True
+
+    def test_dashboard_payload_is_accepted(self):
+        """Exactly what the page sends: GPU count, walltime, command; no vram."""
+        r = client.post(
+            "/api/slurm/submit",
+            json={
+                "name": "dash-job",
+                "priority": 0,
+                "profile": "generic",
+                "num_gpus": 2,
+                "walltime": "01:00:00",
+                "command": "python train.py",
+                "dry_run": True,
+            },
+        )
+        assert r.status_code == 200, r.text
+        script = r.json()["script"]
+        assert "#SBATCH --gres=gpu:2" in script
+        assert "#SBATCH --time=01:00:00" in script
+        assert "python train.py" in script
+
+    def test_cpu_only_job(self):
+        r = client.post(
+            "/api/slurm/submit",
+            json={"name": "cpu", "num_gpus": 0, "command": "hostname", "dry_run": True},
+        )
+        assert r.status_code == 200, r.text
+        assert "--gres" not in r.json()["script"]
+
+    def test_string_priority_is_rejected(self):
+        r = client.post(
+            "/api/slurm/submit",
+            json={"name": "x", "priority": "normal", "num_gpus": 1, "dry_run": True},
+        )
+        assert r.status_code == 422
+
+    def test_adapter_errors_keep_their_code(self):
+        r = client.post(
+            "/api/slurm/submit",
+            json={"name": "x", "num_gpus": 1, "profile": "nibbi", "dry_run": True},
+        )
+        assert r.status_code == 400
+        assert "[unknown_profile]" in r.json()["error"]["message"]
+
+    def test_status_rejects_an_xcelsior_id(self):
+        r = client.get("/api/slurm/status/a1b2c3d4")
+        assert r.status_code == 400
+        assert "[invalid_job_id]" in r.json()["error"]["message"]
+
+    def test_instances_include_terminal_rows_and_state(self):
+        import uuid
+
+        import slurm_adapter
+        from db import pg_transaction
+
+        job_id = f"dash-{uuid.uuid4().hex[:8]}"
+        slurm_adapter.register_slurm_job(job_id, "424242", cluster_id="nibi")
+        try:
+            with pg_transaction() as conn:
+                conn.execute(
+                    "UPDATE slurm_job_mappings SET observed_state='completed', "
+                    "terminal_at=clock_timestamp() WHERE xcelsior_job_id=%s",
+                    (job_id,),
+                )
+            jobs = client.get("/api/slurm/instances").json()["jobs"]
+            row = next(j for j in jobs if j["job_id"] == job_id)
+            assert row["slurm_job_id"] == "424242"
+            assert row["cluster_id"] == "nibi"
+            assert row["observed_state"] == "completed"
+            assert row["terminal_at"] is not None and row["submitted_at"] is not None
+        finally:
+            with pg_transaction() as conn:
+                conn.execute("DELETE FROM slurm_job_mappings WHERE xcelsior_job_id=%s", (job_id,))

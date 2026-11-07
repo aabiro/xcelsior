@@ -2913,34 +2913,107 @@ export async function adminRemoveTeamMember(teamId: string, email: string) {
 }
 
 // ── HPC / Slurm ──────────────────────────────────────────────────────
+// Admin-only routes (api/routes/health.py). Shapes mirror the backend
+// exactly; tests/test_slurm_ui.py::TestHpcDashboardContract pins them.
+
+export interface SlurmProfileDetail {
+  name: string;
+  cluster_id: string;
+  gpu_type: string | null;
+  gpus_per_node: number | null;
+  /** null: the cluster assigns partitions itself (Alliance clusters). */
+  partition_gpu: string | null;
+  partition_cpu: string | null;
+  max_walltime: string | null;
+  default_walltime: string | null;
+  container_runtime: string | null;
+  retired: boolean;
+}
+
 export async function fetchSlurmProfiles() {
   // No `ok` envelope: this legacy top-level route returns its payload
-  // directly. Declaring one made `res.ok` `undefined` — harmless only
-  // because nothing gates on it, which is not a reason to keep it wrong.
-  return apiFetch<{ profiles: Record<string, { description: string; gpus: string[]; partitions: string[] }> }>(
+  // directly. `profiles` is {key: display name}; `details` has the specs.
+  return apiFetch<{ profiles: Record<string, string>; details?: Record<string, SlurmProfileDetail> }>(
     "/api/slurm/profiles",
   );
 }
 
-export async function submitSlurmInstance(data: {
-  name: string; vram_needed_gb?: number; priority: string;
-  tier?: string; num_gpus?: number; image?: string; profile?: string; dry_run?: boolean;
-}) {
-  return apiFetch<{ ok: boolean; slurm_job_id: string; instance_id?: string }>(
-    "/api/slurm/submit", { method: "POST", body: JSON.stringify(data) },
+export interface SlurmSubmitRequest {
+  name: string;
+  profile?: string;
+  /** Integer priority. The page used to send "normal", which 422'd. */
+  priority?: number;
+  tier?: string;
+  /** 0 = CPU-only. Give this or vram_needed_gb. */
+  num_gpus?: number;
+  vram_needed_gb?: number;
+  walltime?: string;
+  command?: string;
+  image?: string;
+  nodelist?: string;
+  dry_run?: boolean;
+}
+
+export interface SlurmSubmitResponse {
+  slurm_job_id?: string;
+  xcelsior_job_id?: string;
+  cluster_id?: string;
+  script?: string;
+  dry_run?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export async function submitSlurmInstance(data: SlurmSubmitRequest) {
+  return apiFetch<SlurmSubmitResponse>("/api/slurm/submit", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export interface SlurmJobStatus {
+  slurm_job_id: string;
+  slurm_state: string;
+  /** queued | running | completed | failed | cancelled | preempted | unknown */
+  xcelsior_state: string;
+  elapsed?: string;
+  reason?: string;
+  exit_code?: string;
+  source?: "squeue" | "sacct";
+}
+
+function clusterQuery(clusterId?: string | null) {
+  return clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : "";
+}
+
+/** Takes the Slurm job id, never the Xcelsior job id. */
+export async function fetchSlurmJobStatus(slurmJobId: string, clusterId?: string | null) {
+  return apiFetch<SlurmJobStatus>(
+    `/api/slurm/status/${encodeURIComponent(slurmJobId)}${clusterQuery(clusterId)}`,
   );
 }
 
-export async function fetchSlurmJobStatus(slurmJobId: string) {
-  return apiFetch<{ ok: boolean; slurm_job_id: string; state: string }>(
-    `/api/slurm/status/${encodeURIComponent(slurmJobId)}`,
+/** Takes the Slurm job id, never the Xcelsior job id. */
+export async function cancelSlurmJob(slurmJobId: string, clusterId?: string | null) {
+  return apiFetch<{ cancelled: boolean; slurm_job_id: string }>(
+    `/api/slurm/${encodeURIComponent(slurmJobId)}${clusterQuery(clusterId)}`,
+    { method: "DELETE" },
   );
 }
 
-export async function cancelSlurmJob(slurmJobId: string) {
-  return apiFetch<{ ok: boolean; cancelled: boolean }>(
-    `/api/slurm/${encodeURIComponent(slurmJobId)}`, { method: "DELETE" },
-  );
+export interface SlurmMapping {
+  job_id: string;
+  slurm_job_id: string;
+  cluster_id: string | null;
+  /** pending | running | completed | failed | cancelled | unknown */
+  observed_state: string | null;
+  desired_state: string | null;
+  submitted_at: number | null;
+  last_observed_at: number | null;
+  terminal_at: number | null;
+}
+
+export async function fetchSlurmInstances() {
+  return apiFetch<{ ok: boolean; jobs: SlurmMapping[] }>("/api/slurm/instances");
 }
 
 // ── Events SSE ────────────────────────────────────────────────────────

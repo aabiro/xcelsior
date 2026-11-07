@@ -6645,8 +6645,22 @@
           },
           "vram_needed_gb": {
             "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Vram Needed Gb"
+            "minimum": 0.0,
+            "title": "Vram Needed Gb",
+            "default": 0
+          },
+          "num_gpus": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 64.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Gpus"
           },
           "priority": {
             "type": "integer",
@@ -6664,15 +6678,46 @@
             ],
             "title": "Tier"
           },
-          "num_gpus": {
-            "type": "integer",
-            "title": "Num Gpus",
-            "default": 1
-          },
           "image": {
             "type": "string",
             "title": "Image",
             "default": ""
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8192
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "walltime": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Walltime"
+          },
+          "nodelist": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodelist"
           },
           "profile": {
             "anyOf": [
@@ -6693,8 +6738,7 @@
         },
         "type": "object",
         "required": [
-          "name",
-          "vram_needed_gb"
+          "name"
         ],
         "title": "SlurmSubmitIn"
       },
