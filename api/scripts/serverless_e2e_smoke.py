@@ -28,7 +28,7 @@ ENV_AUDIT = PROJECT / ".env.audit"
 
 POLL_INTERVAL_SEC = 2
 POLL_MAX_WAIT_SEC = 30
-SMOKE_IMAGE = "xcelsior/serverless-base:cuda12.4-py3.12"
+SMOKE_IMAGE = "ghcr.io/xcelsior-gpu/serverless-base:py3.12"
 
 
 def _load_cfg() -> dict[str, str]:
