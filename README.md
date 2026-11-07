@@ -226,9 +226,7 @@ See [docs.xcelsior.ca](https://docs.xcelsior.ca) for full API reference and inte
 
 <div align="center">
 
-[![Xcelsior Compute MCP server](https://mcprush.com/badge/xcelsior-compute-mcp/card.svg)](https://mcprush.com/to/xcelsior-compute-mcp?ref=badge)
-
-
+[![Xcelsior Compute MCP on mcprush](https://mcprush.com/badge/xcelsior-compute-mcp/score.svg)](https://mcprush.com/to/xcelsior-compute-mcp?ref=badge)
 [![mcptry](https://mcptry.com/badge/io.github.aabiro/xcelsior)](https://mcptry.com/servers/io.github.aabiro/xcelsior)
 
     
