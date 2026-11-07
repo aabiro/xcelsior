@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM xcelsior/serverless-base:cuda12.4-py3.12
+FROM ghcr.io/xcelsior-gpu/serverless-base:py3.12
 
 WORKDIR /app
 COPY handler.py .
