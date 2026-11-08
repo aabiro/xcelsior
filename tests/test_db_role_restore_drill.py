@@ -59,6 +59,10 @@ def test_real_strict_role_restore_is_disposable_and_never_migrates_the_source(
         PGHOST=source_url.query.get("host", source_url.host or "localhost"),
         PGPORT=str(source_url.port or 5432),
         PGUSER=source_url.query.get("user", source_url.username or "security_test"),
+        # Without it the drill's createdb asked for a password on stdin and
+        # waited forever wherever the server wants one (it looked like a slow
+        # restore: the 60 s timeout fired, every time).
+        PGPASSWORD=source_url.password or os.environ.get("PGPASSWORD", ""),
         XCELSIOR_DB_ROLES_REQUIRED="1",
         XCELSIOR_POSTGRES_DSN_MIGRATOR=migrate_url.render_as_string(hide_password=False),
         XCELSIOR_PROJECT_DIR=str(ROOT),
