@@ -1683,7 +1683,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Hpc Job",
-        "description": "One Slurm job as the reconciler last observed it.\n\nSomeone else's job is not-found, not forbidden: ids can't be probed.\nRead-only; never contacts a cluster.",
+        "description": "One Slurm job as the reconciler last observed it.\n\nAdds `reported_progress`, the job's own progress report if it writes one\n(cached like output: a stale copy queues one fetch). Someone else's job\nis not-found, not forbidden: ids can't be probed. Read-only; never\ncontacts a cluster.",
         "operationId": "api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get",
         "parameters": [
           {

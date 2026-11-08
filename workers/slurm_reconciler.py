@@ -47,12 +47,14 @@ outage costs one connection attempt per interval, not one per pass.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import random
 import time
 from dataclasses import dataclass, field
 
 import slurm_adapter as sa
+import slurm_transport as st
 
 log = logging.getLogger("xcelsior-slurm-reconciler")
 
@@ -67,7 +69,12 @@ ADAPTER_JOB_PREFIX = "xcl-"
 #: Output tails fetched per pass over one cluster; the rest wait their turn.
 OUTPUT_FETCHES_PER_PASS = 10
 
-_TRANSPORT_ERRORS = {"transport_error", "insecure_ssh_config", "unsafe_remote_argument"}
+_TRANSPORT_ERRORS = {
+    "transport_error",
+    "host_key_mismatch",
+    "insecure_ssh_config",
+    "unsafe_remote_argument",
+}
 
 
 @dataclass
@@ -88,6 +95,7 @@ class PassResult:
     outputs_fetched: list = field(default_factory=list)  # (xcelsior_job_id, stream)
     output_errors: list = field(default_factory=list)  # (xcelsior_job_id, stream, error_code)
     accounting_error: str | None = None
+    accounting_error_code: str | None = None
     accounting_checked: bool = False  # sacct ran this pass (it only runs when needed)
     duration_ms: int = 0
 
@@ -98,24 +106,44 @@ class PassResult:
 # ── Registry ─────────────────────────────────────────────────────────
 
 
-def register_cluster(profile_key: str, *, enabled: bool = True) -> dict:
+def register_cluster(
+    profile_key: str,
+    *,
+    enabled: bool = True,
+    cluster_id: str | None = None,
+    ssh_host: str | None = None,
+    ssh_port: int | None = None,
+    remote_user: str | None = None,
+    known_hosts_line: str | None = None,
+    credential_ref: str | None = None,
+) -> dict:
     """Add (or refresh) a cluster from its adapter profile.
 
     The legitimacy flags come from the profile, never from the caller: an
     Alliance profile is research-only, and the table's CHECK refuses any row
     that is research-only and also marketplace or agent-reachable.
+
+    With ``ssh_host`` the cluster is reached through the registry
+    (slurm_transport): pass the host key to pin, as a known_hosts or
+    ssh-keyscan line verified out of band, and where the key is kept
+    (``env:NAME`` or ``file:/path``). Without it the profile's own transport
+    is used, as before. Run ``check_cluster_connection`` afterwards to prove
+    the connection and capture the cluster's config facts.
     """
     from db import pg_transaction
 
     profile = sa._get_profile(profile_key)
     research_only = bool(profile.get("research_only"))
+    if ssh_host:
+        st.pinned_key(known_hosts_line or "")  # refuse an unusable pin now, not at first poll
     with pg_transaction() as conn:
         conn.execute(
             """
             INSERT INTO slurm_clusters
                 (cluster_id, profile_key, display_name, enabled, research_only,
-                 marketplace, agent_access, poll_interval_seconds)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 marketplace, agent_access, poll_interval_seconds,
+                 ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cluster_id) DO UPDATE
                SET profile_key = EXCLUDED.profile_key,
                    display_name = EXCLUDED.display_name,
@@ -124,10 +152,15 @@ def register_cluster(profile_key: str, *, enabled: bool = True) -> dict:
                    marketplace = EXCLUDED.marketplace,
                    agent_access = EXCLUDED.agent_access,
                    poll_interval_seconds = EXCLUDED.poll_interval_seconds,
+                   ssh_host = EXCLUDED.ssh_host,
+                   ssh_port = EXCLUDED.ssh_port,
+                   remote_user = EXCLUDED.remote_user,
+                   known_hosts_line = EXCLUDED.known_hosts_line,
+                   credential_ref = EXCLUDED.credential_ref,
                    updated_at = clock_timestamp()
             """,
             (
-                profile["cluster_id"],
+                cluster_id or profile["cluster_id"],
                 profile_key,
                 profile["name"],
                 enabled,
@@ -135,12 +168,88 @@ def register_cluster(profile_key: str, *, enabled: bool = True) -> dict:
                 bool(profile.get("marketplace")) and not research_only,
                 bool(profile.get("agent_access")) and not research_only,
                 int(profile.get("poll_interval_seconds") or 60),
+                ssh_host or None,
+                ssh_port if ssh_host else None,
+                remote_user if ssh_host else None,
+                known_hosts_line if ssh_host else None,
+                credential_ref if ssh_host else None,
             ),
         )
     return {
-        "cluster_id": profile["cluster_id"],
+        "cluster_id": cluster_id or profile["cluster_id"],
         "profile_key": profile_key,
         "research_only": research_only,
+        "transport": "registry" if ssh_host else "profile",
+    }
+
+
+def _cluster_row(cluster_id: str) -> dict | None:
+    from psycopg.rows import dict_row
+
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        cur = conn.cursor(row_factory=dict_row)
+        return cur.execute(
+            "SELECT * FROM slurm_clusters WHERE cluster_id = %s", (cluster_id,)
+        ).fetchone()
+
+
+@contextlib.contextmanager
+def _runner_for(cluster: dict | None):
+    """The registry's transport when the row has one, else None (the profile's)."""
+    if cluster and cluster.get("ssh_host"):
+        with st.cluster_runner(cluster) as runner:
+            yield runner
+    else:
+        yield None
+
+
+def check_cluster_connection(cluster_id: str) -> dict:
+    """Connect to a registered cluster, ask its controller, keep its config.
+
+    Uses the same transport the reconciler will (the registry's, or the
+    profile's), runs ``scontrol ping`` and ``scontrol show config``, and
+    stores the CONFIG_FACTS settings in ``facts['config']`` with the time.
+    Returns what it found; a failure is returned, not raised.
+    """
+    from psycopg.types.json import Jsonb
+
+    from db import pg_transaction
+
+    cluster = _cluster_row(cluster_id)
+    if cluster is None:
+        return {"ok": False, "error_code": "not_found", "error": f"no cluster {cluster_id!r}"}
+    try:
+        with _runner_for(cluster) as runner:
+            ping = sa.controller_health(profile_name=cluster["profile_key"], runner=runner)
+            config = (
+                sa.cluster_config_facts(profile_name=cluster["profile_key"], runner=runner)
+                if "error" not in ping
+                else ping
+            )
+    except sa.SlurmAdapterError as e:
+        return {"ok": False, "error_code": e.code, "error": str(e)}
+    if "error" in config:
+        return {"ok": False, "error_code": config.get("error_code"), "error": config["error"]}
+    with pg_transaction() as conn:
+        conn.execute(
+            """
+            UPDATE slurm_clusters
+               SET facts = facts || jsonb_build_object(
+                       'config', %s::jsonb, 'config_captured_at', clock_timestamp()),
+                   transport_ok_at = clock_timestamp(),
+                   controller_ok_at = CASE WHEN %s THEN clock_timestamp() ELSE controller_ok_at END,
+                   updated_at = clock_timestamp()
+             WHERE cluster_id = %s
+            """,
+            (Jsonb(config["facts"]), ping["controller"] == "up", cluster_id),
+        )
+    return {
+        "ok": ping["controller"] == "up" and not config["missing"],
+        "controller": ping,
+        "facts": config["facts"],
+        "missing": config["missing"],
     }
 
 
@@ -163,7 +272,8 @@ def _due_clusters() -> list[dict]:
         cur = conn.cursor(row_factory=dict_row)
         return cur.execute(
             """
-            SELECT cluster_id, profile_key, poll_interval_seconds, consecutive_failures
+            SELECT cluster_id, profile_key, poll_interval_seconds, consecutive_failures,
+                   ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref
               FROM slurm_clusters
              WHERE enabled
                AND (breaker_open_until IS NULL OR breaker_open_until <= clock_timestamp())
@@ -188,7 +298,24 @@ def _record_health(cluster_id: str, result: PassResult, interval: int, failures:
         breaker = backoff * random.uniform(0.8, 1.2)
     transport_ok = result.ok or result.error_code not in _TRANSPORT_ERRORS
     error_code = result.error_code or ("accounting_error" if result.accounting_error else None)
+    # Durable counts by stage and error code, for the metrics (a counter in
+    # this process would vanish with it, and the API exports them).
+    counts: dict[str, int] = {}
+    if not result.ok:
+        counts[f"poll:{result.error_code or 'unknown'}"] = 1
+    if result.accounting_error:
+        key = f"accounting:{result.accounting_error_code or 'unknown'}"
+        counts[key] = counts.get(key, 0) + 1
+    for _xid, _stream, code in result.output_errors:
+        key = f"output:{code or 'unknown'}"
+        counts[key] = counts.get(key, 0) + 1
     with pg_transaction() as conn:
+        for key, n in counts.items():
+            conn.execute(
+                "UPDATE slurm_clusters SET failure_counts = jsonb_set(failure_counts, ARRAY[%s], "
+                "to_jsonb(COALESCE((failure_counts->>%s)::bigint, 0) + %s)) WHERE cluster_id = %s",
+                (key, key, n, cluster_id),
+            )
         conn.execute(
             """
             UPDATE slurm_clusters
@@ -233,7 +360,8 @@ def _open_mappings(cluster_id: str) -> list[dict]:
         return cur.execute(
             """
             SELECT xcelsior_job_id, slurm_job_id, observed_state, desired_state,
-                   slurm_state, state_reason, exit_code, version,
+                   slurm_state, state_reason, exit_code, derived_exit_code,
+                   time_limit_seconds, version,
                    EXTRACT(EPOCH FROM missing_since) AS missing_since,
                    EXTRACT(EPOCH FROM COALESCE(submitted_at, to_timestamp(created_at)))
                        AS submitted_epoch
@@ -277,12 +405,22 @@ def _observation(row: dict, squeue_jobs: dict, records: dict, now: float) -> dic
     sid = row["slurm_job_id"]
     seen = _in_controller(row, squeue_jobs)
     if seen is not None:
+        observed = sa.SLURM_OBSERVED_STATE.get(seen["state"], "unknown")
+        started = None
+        if observed == "running" and row["observed_state"] != "running":
+            # Entering RUNNING (again, after a requeue): its start is now
+            # minus what squeue says it has run, for scheduler progress.
+            elapsed = sa.duration_seconds(seen.get("elapsed"))
+            started = now - elapsed if elapsed is not None else now
         return {
-            "observed_state": sa.SLURM_OBSERVED_STATE.get(seen["state"], "unknown"),
+            "observed_state": observed,
             "slurm_state": seen["state"],
             "state_reason": seen["reason"] if seen["reason"] not in ("", "None") else None,
             "exit_code": row["exit_code"],
-            "started_at": None,
+            "derived_exit_code": row.get("derived_exit_code"),
+            "time_limit_seconds": sa.duration_seconds(seen.get("time_limit"))
+            or row.get("time_limit_seconds"),
+            "started_at": started,
             "ended_at": None,
             "missing_since": None,
             "settled": False,
@@ -296,6 +434,8 @@ def _observation(row: dict, squeue_jobs: dict, records: dict, now: float) -> dic
             "slurm_state": latest["state"],
             "state_reason": None,
             "exit_code": latest["exit_code"] or row["exit_code"],
+            "derived_exit_code": latest.get("derived_exit_code") or row.get("derived_exit_code"),
+            "time_limit_seconds": row.get("time_limit_seconds"),
             "started_at": latest["started_at"],
             "ended_at": latest["ended_at"],
             "missing_since": None,
@@ -313,6 +453,8 @@ def _observation(row: dict, squeue_jobs: dict, records: dict, now: float) -> dic
         "slurm_state": row["slurm_state"],
         "state_reason": row["state_reason"],
         "exit_code": row["exit_code"],
+        "derived_exit_code": row.get("derived_exit_code"),
+        "time_limit_seconds": row.get("time_limit_seconds"),
         "started_at": None,
         "ended_at": None,
         "missing_since": missing_since,
@@ -323,9 +465,51 @@ def _observation(row: dict, squeue_jobs: dict, records: dict, now: float) -> dic
 def _changed(row: dict, obs: dict) -> bool:
     if obs["settled"]:
         return True
-    before = (row["observed_state"], row["slurm_state"], row["state_reason"], row["exit_code"])
-    after = (obs["observed_state"], obs["slurm_state"], obs["state_reason"], obs["exit_code"])
+    before = (
+        row["observed_state"],
+        row["slurm_state"],
+        row["state_reason"],
+        row["exit_code"],
+        row.get("derived_exit_code"),
+        row.get("time_limit_seconds"),
+    )
+    after = (
+        obs["observed_state"],
+        obs["slurm_state"],
+        obs["state_reason"],
+        obs["exit_code"],
+        obs["derived_exit_code"],
+        obs["time_limit_seconds"],
+    )
     return before != after or (row["missing_since"] is None) != (obs["missing_since"] is None)
+
+
+def _mark_controller_presence(in_controller: list[str], gone: list[str]) -> None:
+    """Stamp ``left_controller_at`` the first pass a job is gone from the
+    controller, and clear it if the job comes back.
+
+    Separate from the observation writes on purpose: when accounting fails,
+    the gone jobs' observations aren't written, and those are exactly the
+    jobs the ``ending_awaiting_accounting`` alert must see.
+    """
+    from db import pg_transaction
+
+    if not in_controller and not gone:
+        return
+    with pg_transaction() as conn:
+        if gone:
+            conn.execute(
+                "UPDATE slurm_job_mappings SET left_controller_at = clock_timestamp() "
+                "WHERE xcelsior_job_id = ANY(%s) AND left_controller_at IS NULL "
+                "AND terminal_at IS NULL",
+                (gone,),
+            )
+        if in_controller:
+            conn.execute(
+                "UPDATE slurm_job_mappings SET left_controller_at = NULL "
+                "WHERE xcelsior_job_id = ANY(%s) AND left_controller_at IS NOT NULL",
+                (in_controller,),
+            )
 
 
 def _write(rows_and_obs: list, unchanged_ids: list[str]) -> list[str]:
@@ -345,6 +529,8 @@ def _write(rows_and_obs: list, unchanged_ids: list[str]) -> list[str]:
                        slurm_state = %s,
                        state_reason = %s,
                        exit_code = %s,
+                       derived_exit_code = %s,
+                       time_limit_seconds = %s,
                        started_at = COALESCE(to_timestamp(%s::float8), started_at),
                        ended_at = COALESCE(to_timestamp(%s::float8), ended_at),
                        missing_since = to_timestamp(%s::float8),
@@ -359,6 +545,8 @@ def _write(rows_and_obs: list, unchanged_ids: list[str]) -> list[str]:
                     obs["slurm_state"],
                     obs["state_reason"],
                     obs["exit_code"],
+                    obs["derived_exit_code"],
+                    obs["time_limit_seconds"],
                     obs["started_at"],
                     obs["ended_at"],
                     obs["missing_since"],
@@ -412,6 +600,10 @@ def reconcile_cluster(
 
     now = time.time()
     gone = [r for r in rows if not _in_controller(r, squeue_jobs)]
+    _mark_controller_presence(
+        [r["xcelsior_job_id"] for r in rows if _in_controller(r, squeue_jobs)],
+        [r["xcelsior_job_id"] for r in gone],
+    )
     records: dict = {}
     if gone:
         oldest = min(float(r["submitted_epoch"] or now) for r in gone)
@@ -425,6 +617,7 @@ def reconcile_cluster(
                 # squeue answered, so jobs still in the controller are applied;
                 # the rest keep their last observation until accounting answers.
                 result.accounting_error = acct["error"]
+                result.accounting_error_code = acct.get("error_code")
                 records = {}
                 gone_ids = {r["slurm_job_id"] for r in gone}
                 rows = [r for r in rows if r["slurm_job_id"] not in gone_ids]
@@ -541,7 +734,7 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
             profile_name=profile_key,
             runner=runner,
             stream=stream,
-            max_bytes=sa.OUTPUT_TAIL_BYTES,
+            max_bytes=sa.PROGRESS_MAX_BYTES if stream == "progress" else sa.OUTPUT_TAIL_BYTES,
         )
         with pg_transaction() as conn:
             if "error" in got:
@@ -583,8 +776,9 @@ def reconcile_due_clusters() -> list[dict]:
     results = []
     for cluster in _due_clusters():
         try:
-            result = reconcile_cluster(cluster["cluster_id"], cluster["profile_key"])
-        except sa.SlurmAdapterError as e:  # a profile that no longer resolves
+            with _runner_for(cluster) as runner:
+                result = reconcile_cluster(cluster["cluster_id"], cluster["profile_key"], runner=runner)
+        except sa.SlurmAdapterError as e:  # a profile or registry row that doesn't resolve
             result = PassResult(
                 cluster_id=cluster["cluster_id"], ok=False, error_code=e.code, error=str(e)
             )
@@ -623,12 +817,18 @@ def reconcile_open_mappings(update_callback=None, cancel_callback=None) -> list:
                 cluster_id,
             )
             continue
-        result = reconcile_cluster(
-            cluster_id,
-            profile_key,
-            cancel=False,
-            cancel_callback=cancel_callback,
-            update_callback=update_callback,
-        )
+        try:
+            with _runner_for(_cluster_row(cluster_id)) as runner:
+                result = reconcile_cluster(
+                    cluster_id,
+                    profile_key,
+                    runner=runner,
+                    cancel=False,
+                    cancel_callback=cancel_callback,
+                    update_callback=update_callback,
+                )
+        except sa.SlurmAdapterError as e:
+            log.warning("slurm reconcile %s: %s (%s)", cluster_id, e, e.code)
+            continue
         changes.extend(result.changed)
     return changes

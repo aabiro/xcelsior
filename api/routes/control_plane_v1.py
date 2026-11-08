@@ -1278,7 +1278,9 @@ _HPC_JOB_SELECT = """
            m.submitted_at, m.started_at, m.ended_at, m.terminal_at,
            m.last_observed_at, m.last_changed_at, m.missing_since,
            EXTRACT(EPOCH FROM clock_timestamp() - m.last_observed_at) AS observed_age,
-           COALESCE(c.poll_interval_seconds, 60) AS poll_interval
+           COALESCE(c.poll_interval_seconds, 60) AS poll_interval,
+           m.derived_exit_code, m.time_limit_seconds, m.left_controller_at,
+           EXTRACT(EPOCH FROM COALESCE(m.ended_at, clock_timestamp()) - m.started_at) AS ran
       FROM slurm_job_mappings m
       LEFT JOIN slurm_clusters c ON c.cluster_id = m.cluster_id
 """
@@ -1297,6 +1299,8 @@ def _hpc_reader(request: Request) -> tuple[bool, set[str]]:
 
 
 def _hpc_job(row) -> dict:
+    from slurm_adapter import success_verdict
+
     (
         xid,
         cluster,
@@ -1315,9 +1319,14 @@ def _hpc_job(row) -> dict:
         missing,
         age,
         interval,
+        derived_exit_code,
+        time_limit,
+        left_controller,
+        ran,
     ) = row
     settled = terminal is not None
     age_s = None if age is None else round(float(age), 1)
+    elapsed = None if ran is None or started is None else max(0, int(float(ran)))
     return {
         "xcelsior_job_id": xid,
         "cluster_id": cluster,
@@ -1326,8 +1335,25 @@ def _hpc_job(row) -> dict:
         "slurm_state": slurm_state,
         "state_reason": reason,
         "exit_code": exit_code,
+        "derived_exit_code": derived_exit_code,
+        # succeeded only for COMPLETED with ExitCode and DerivedExitCode 0:0;
+        # None until the job is settled.
+        "verdict": success_verdict(observed, exit_code, derived_exit_code, settled),
         "desired_state": desired,
         "settled": settled,
+        # Elapsed time against the time limit, from the scheduler. A job's
+        # own progress report, when it writes one, is reported_progress.
+        "scheduler_progress": {
+            "elapsed_seconds": elapsed,
+            "time_limit_seconds": time_limit,
+            "fraction": (
+                round(min(1.0, elapsed / time_limit), 4)
+                if elapsed is not None and time_limit
+                else None
+            ),
+        },
+        # Gone from the controller but not yet settled by accounting.
+        "awaiting_accounting_since": None if settled else _iso(left_controller),
         "submitted_at": _iso(submitted),
         "started_at": _iso(started),
         "ended_at": _iso(ended),
@@ -1457,10 +1483,13 @@ def api_v1_hpc_jobs(
 def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
     """One Slurm job as the reconciler last observed it.
 
-    Someone else's job is not-found, not forbidden: ids can't be probed.
-    Read-only; never contacts a cluster.
+    Adds `reported_progress`, the job's own progress report if it writes one
+    (cached like output: a stale copy queues one fetch). Someone else's job
+    is not-found, not forbidden: ids can't be probed. Read-only; never
+    contacts a cluster.
     """
     from db import _get_pg_pool
+    from slurm_adapter import read_reported_progress
 
     global_access, owners = _hpc_reader(request)
     query = _HPC_JOB_SELECT + " WHERE m.xcelsior_job_id = %s"
@@ -1474,7 +1503,9 @@ def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
         raise ProblemException(
             status=404, code="hpc_job_not_found", detail=f"HPC job {xcelsior_job_id} not found"
         )
-    return {"ok": True, "job": _hpc_job(row)}
+    job = _hpc_job(row)
+    job["reported_progress"] = read_reported_progress(xcelsior_job_id)
+    return {"ok": True, "job": job}
 
 
 @router.get("/api/v1/hpc/jobs/{xcelsior_job_id}/output")

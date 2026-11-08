@@ -1,0 +1,3 @@
+iface=enp2s0
+speed=1000
+Xcelsior job r1108170818-podn-asus completed at Sun Nov  8 17:10:40 EST 2026

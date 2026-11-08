@@ -14,6 +14,7 @@ The rules under test (workers/slurm_reconciler.py, plan §5a):
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import uuid
 
@@ -48,6 +49,10 @@ class FakeCluster:
             out, rc_ = "\n".join(self.squeue) + "\n", self.squeue_rc
         elif prog == "sacct":
             out, rc_ = "\n".join(self.sacct) + "\n", self.sacct_rc
+        elif prog == "scontrol" and argv[1:] == ["ping"]:
+            out, rc_ = "Slurmctld(primary) at tower is UP\n", 0
+        elif prog == "scontrol" and argv[1:] == ["show", "config"]:
+            out, rc_ = CONFIG_TEXT, 0
         elif prog == "tail":
             sid, stream = argv[-1].rsplit("-", 1)[1].split(".")
             text = self.outputs.get((sid, stream))
@@ -60,6 +65,14 @@ class FakeCluster:
 
     def count(self, prog):
         return sum(1 for c in self.calls if c[0] == prog)
+
+
+#: What `scontrol show config` prints, trimmed to the facts kept and one more.
+CONFIG_TEXT = (
+    "Configuration data as of 2026-11-08T12:00:00\n"
+    + "".join(f"{k:<24}= v-{k}\n" for k in sa.CONFIG_FACTS)
+    + "SlurmUser               = slurm(64030)\n"
+)
 
 
 def q(sid, state, name=None, reason="None"):
@@ -76,11 +89,12 @@ def a(
     elapsed=60,
     exit_code="0:0",
     name=None,
+    derived="0:0",
 ):
-    """One sacct -D -X line: JobIDRaw|JobName|State|Submit|Start|End|ElapsedRaw|ExitCode|AllocTRES|NodeList."""
+    """One sacct -D -X line: JobIDRaw|JobName|State|Submit|Start|End|ElapsedRaw|ExitCode|AllocTRES|NodeList|DerivedExitCode."""
     return (
         f"{sid}|{name or 'xcl-' + sid}|{state}|{submit}|{start}|{end}|{elapsed}|{exit_code}"
-        "|cpu=1,node=1|tower"
+        f"|cpu=1,node=1|tower|{derived}"
     )
 
 
@@ -411,6 +425,33 @@ class TestJobIdReuse:
         r = row(old)
         assert r["observed"] == "running" and r["missing"] and not r["terminal"]
 
+    def test_registering_onto_a_lost_open_mapping_closes_it(self, cluster):
+        # The controller lost its state while accounting had no outcome for
+        # 806, so its mapping is still open; then sbatch hands 806 out again.
+        old = cluster(806, observed_state="running")
+        new = f"{cluster.cid}-806-new"
+        # Without proof the id is fresh from sbatch, it is refused as before.
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            sa.register_slurm_job(new, "806", cluster_id=cluster.cid)
+        assert row(old)["observed"] == "running" and not row(old)["terminal"]
+        assert sa.register_slurm_job(new, "806", cluster_id=cluster.cid, just_submitted=True) == [
+            old
+        ]
+        with pg_connection() as conn:
+            reason, superseded_by = conn.execute(
+                "SELECT state_reason, metadata->>'superseded_by' FROM slurm_job_mappings "
+                "WHERE xcelsior_job_id = %s",
+                (old,),
+            ).fetchone()
+        r = row(old)
+        assert r["observed"] == "unknown" and r["terminal"]
+        assert reason == "slurm_job_id_reused" and superseded_by == new
+        # A retried registration of the same job closes nothing.
+        assert sa.register_slurm_job(new, "806", cluster_id=cluster.cid, just_submitted=True) == []
+        result = run_pass(cluster, FakeCluster(squeue=[cluster.q("806", "RUNNING", xid=new)]))
+        assert row(new)["observed"] == "running" and not row(new)["terminal"]
+        assert result.orphans == []
+
     def test_a_job_the_adapter_did_not_submit_is_matched_by_id(self, cluster):
         # Registered for a job submitted some other way: its name says nothing
         # about Xcelsior, so the id is all there is to go on.
@@ -523,6 +564,248 @@ class TestOutputCache:
             assert sa.read_cached_output(xid, stream)["source"] == "reconciler"
         assert sa.read_cached_output(xid, "both")["error_code"] == "invalid_request"
         assert sa.read_cached_output("no-such-job")["error_code"] == "not_found"
+
+
+class TestSuccessVerdict:
+    @pytest.mark.parametrize(
+        "state,exit_code,derived,settled,verdict",
+        [
+            ("completed", "0:0", "0:0", True, "succeeded"),
+            ("completed", "0:0", "1:0", True, "failed"),  # a step failed, the script exited 0
+            ("completed", "1:0", "0:0", True, "failed"),
+            ("completed", "0:0", None, True, "unknown"),
+            ("failed", "1:0", "1:0", True, "failed"),
+            ("preempted", "0:0", "0:0", True, "failed"),
+            ("cancelled", "0:15", "0:0", True, "cancelled"),
+            ("unknown", None, None, True, "unknown"),
+            ("completed", "0:0", "0:0", False, None),  # open: no verdict yet
+        ],
+    )
+    def test_the_rule(self, state, exit_code, derived, settled, verdict):
+        assert sa.success_verdict(state, exit_code, derived, settled) == verdict
+
+    def test_the_derived_exit_code_is_recorded_at_settle(self, cluster):
+        xid = cluster(950, observed_state="running")
+        run_pass(cluster, FakeCluster(sacct=[cluster.a("950", "COMPLETED", derived="2:0")]))
+        with pg_connection() as conn:
+            got = conn.execute(
+                "SELECT observed_state, exit_code, derived_exit_code, terminal_at IS NOT NULL "
+                "FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+                (xid,),
+            ).fetchone()
+        assert got == ("completed", "0:0", "2:0", True)
+        assert sa.success_verdict(*got) == "failed"
+
+
+class TestSchedulerProgress:
+    def test_time_limit_and_start_come_from_squeue(self, cluster):
+        xid = cluster(951)
+        run_pass(cluster, FakeCluster(squeue=[cluster.q("951", "PENDING", reason="Priority")]))
+        line = "951|xcl-{}|RUNNING|None|1:30|1:00:00|1|tower".format(xid)
+        run_pass(cluster, FakeCluster(squeue=[line]))
+        with pg_connection() as conn:
+            limit, ran = conn.execute(
+                "SELECT time_limit_seconds, EXTRACT(EPOCH FROM clock_timestamp() - started_at) "
+                "FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+                (xid,),
+            ).fetchone()
+        assert limit == 3600
+        assert 90 <= float(ran) < 120  # started 1:30 before it was seen running
+
+
+class TestAwaitingAccounting:
+    def _left(self, xid):
+        with pg_connection() as conn:
+            return conn.execute(
+                "SELECT left_controller_at IS NOT NULL FROM slurm_job_mappings "
+                "WHERE xcelsior_job_id = %s",
+                (xid,),
+            ).fetchone()[0]
+
+    def test_stamped_when_gone_even_if_accounting_fails(self, cluster):
+        xid = cluster(960, observed_state="running")
+        run_pass(cluster, FakeCluster(squeue=[cluster.q("960", "RUNNING")]))
+        assert not self._left(xid)
+        down = FakeCluster(squeue=[], sacct_rc=1, stderr="sacct: error: slurmdbd unreachable")
+        result = run_pass(cluster, down)
+        assert result.accounting_error and result.accounting_error_code == "sacct_failed"
+        assert self._left(xid) and not row(xid)["terminal"]
+
+    def test_cleared_if_the_job_comes_back(self, cluster):
+        xid = cluster(961, observed_state="running")
+        run_pass(cluster, FakeCluster(squeue=[], sacct=[]))
+        assert self._left(xid)
+        run_pass(cluster, FakeCluster(squeue=[cluster.q("961", "PENDING")]))
+        assert not self._left(xid)
+
+
+class TestFailureCounts:
+    def test_counted_by_stage_and_code(self, cluster):
+        with pg_transaction() as conn:
+            conn.execute(
+                "INSERT INTO slurm_clusters (cluster_id, profile_key, display_name) "
+                "VALUES (%s, 'generic', 'x')",
+                (cluster.cid,),
+            )
+        down = rc.PassResult(cluster_id=cluster.cid, ok=False, error_code="host_key_mismatch")
+        rc._record_health(cluster.cid, down, 30, 0)
+        rc._record_health(cluster.cid, down, 30, 1)
+        partial = rc.PassResult(
+            cluster_id=cluster.cid,
+            accounting_error="slurmdbd unreachable",
+            accounting_error_code="sacct_failed",
+            output_errors=[("j", "out", "output_unavailable")],
+        )
+        rc._record_health(cluster.cid, partial, 30, 2)
+        with pg_connection() as conn:
+            counts = conn.execute(
+                "SELECT failure_counts FROM slurm_clusters WHERE cluster_id = %s", (cluster.cid,)
+            ).fetchone()[0]
+        assert counts == {
+            "poll:host_key_mismatch": 2,
+            "accounting:sacct_failed": 1,
+            "output:output_unavailable": 1,
+        }
+
+
+class TestReportedProgress:
+    def test_none_until_the_job_has_written_one(self, cluster):
+        xid = cluster(970, observed_state="running")
+        assert sa.read_reported_progress(xid) is None  # files the request
+        run_pass(cluster, FakeCluster(squeue=[cluster.q("970", "RUNNING")]))  # no file yet
+        assert sa.read_reported_progress(xid) is None
+
+    def test_a_report_per_the_contract(self, cluster):
+        xid = cluster(971, observed_state="running")
+        sa.read_reported_progress(xid)
+        import time as _t
+
+        report = '{"fraction": 0.5, "message": "epoch 5 of 10", "updated_at": %d}' % _t.time()
+        fake = FakeCluster(
+            squeue=[cluster.q("971", "RUNNING")], outputs={("971", "progress"): report}
+        )
+        run_pass(cluster, fake)
+        tail = next(c for c in fake.calls if c[0] == "tail")
+        assert tail[2] == str(sa.PROGRESS_MAX_BYTES) and tail[-1].endswith(".progress")
+        got = sa.read_reported_progress(xid)
+        assert got["valid"] and got["source"] == "job" and got["fraction"] == 0.5
+        assert got["message"] == "epoch 5 of 10" and not got["stale"]
+
+    @pytest.mark.parametrize(
+        "content",
+        ['{"fraction": 0.5}', '{"fraction": 2, "updated_at": 1}', "not json", "[1, 2]"],
+    )
+    def test_a_file_that_breaks_the_contract_says_so(self, cluster, content):
+        xid = cluster(972, observed_state="running")
+        sa.read_reported_progress(xid)
+        run_pass(
+            cluster,
+            FakeCluster(
+                squeue=[cluster.q("972", "RUNNING")], outputs={("972", "progress"): content}
+            ),
+        )
+        got = sa.read_reported_progress(xid)
+        assert got["valid"] is False and "contract" in got["error"]
+
+    def test_an_old_report_on_a_running_job_is_stale(self, cluster):
+        xid = cluster(973, observed_state="running")
+        sa.read_reported_progress(xid)
+        old = '{"updated_at": 1794000000}'
+        run_pass(
+            cluster,
+            FakeCluster(squeue=[cluster.q("973", "RUNNING")], outputs={("973", "progress"): old}),
+        )
+        assert sa.read_reported_progress(xid)["stale"]
+
+    def test_the_script_tells_the_job_where(self):
+        script, _meta = sa.xcelsior_job_to_sbatch(
+            {"job_id": "p-1", "name": "train", "num_gpus": 0, "command": "true"}, "generic"
+        )
+        assert 'export XCELSIOR_PROGRESS_FILE="' in script
+        assert (
+            script.split("XCELSIOR_PROGRESS_FILE=")[1]
+            .split("\n")[0]
+            .endswith('/xcl-p-1-${SLURM_JOB_ID}.progress"')
+        )
+
+
+class TestRegistryTransport:
+    def _register(self, cluster, **kw):
+        with pg_transaction() as conn:
+            conn.execute(
+                "INSERT INTO slurm_clusters (cluster_id, profile_key, display_name, "
+                "poll_interval_seconds, ssh_host, known_hosts_line, credential_ref) "
+                "VALUES (%s, 'generic', 'x', 30, %s, %s, %s)",
+                (
+                    cluster.cid,
+                    kw.get("ssh_host", "203.0.113.7"),
+                    kw.get("known_hosts_line", "h ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"),
+                    kw.get("credential_ref", "file:/etc/xcelsior/slurm/lab.key"),
+                ),
+            )
+
+    def test_the_schema_refuses_an_unpinned_or_keyless_host(self, cluster):
+        for missing in ("known_hosts_line", "credential_ref"):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with pg_transaction() as conn:
+                    conn.execute(
+                        f"INSERT INTO slurm_clusters (cluster_id, profile_key, display_name, "
+                        f"ssh_host, {'credential_ref' if missing == 'known_hosts_line' else 'known_hosts_line'}) "
+                        "VALUES (%s, 'generic', 'x', 'lab', 'file:/k')",
+                        (cluster.cid,),
+                    )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            self._register(cluster, credential_ref="vault:lab")
+
+    def test_registration_refuses_an_unusable_pin(self, cluster):
+        with pytest.raises(sa.SlurmAdapterError) as e:
+            rc.register_cluster(
+                "generic",
+                cluster_id=cluster.cid,
+                ssh_host="203.0.113.7",
+                known_hosts_line="@cert-authority * ssh-ed25519 AAAA",
+                credential_ref="file:/k",
+            )
+        assert e.value.code == "invalid_host_key"
+
+    def test_a_registered_cluster_is_polled_over_its_registry_transport(self, cluster, monkeypatch):
+        self._register(cluster)
+        xid = cluster(980)
+        fake = FakeCluster(squeue=[cluster.q("980", "RUNNING")])
+        used = []
+
+        @contextlib.contextmanager
+        def runner_from_registry(row):
+            used.append(row["ssh_host"])
+            yield fake
+
+        monkeypatch.setattr(rc.st, "cluster_runner", runner_from_registry)
+        monkeypatch.setattr(rc, "_due_clusters", lambda: [rc._cluster_row(cluster.cid)])
+        [result] = rc.reconcile_due_clusters()
+        assert used == ["203.0.113.7"] and result["ok"] and fake.count("squeue") == 1
+        assert row(xid)["observed"] == "running"
+
+    def test_a_connection_check_stores_the_config_facts(self, cluster, monkeypatch):
+        self._register(cluster)
+        fake = FakeCluster()
+
+        @contextlib.contextmanager
+        def runner_from_registry(row):
+            yield fake
+
+        monkeypatch.setattr(rc.st, "cluster_runner", runner_from_registry)
+        got = rc.check_cluster_connection(cluster.cid)
+        assert got["ok"] and got["missing"] == [] and got["controller"]["controller"] == "up"
+        with pg_connection() as conn:
+            facts = conn.execute(
+                "SELECT facts FROM slurm_clusters WHERE cluster_id = %s", (cluster.cid,)
+            ).fetchone()[0]
+        assert set(facts["config"]) == set(sa.CONFIG_FACTS)
+        assert facts["config"]["MinJobAge"] == "v-MinJobAge" and facts["config_captured_at"]
+        assert "SlurmUser" not in facts["config"]
+
+    def test_a_check_of_an_unknown_cluster_reports_it(self):
+        assert rc.check_cluster_connection("no-such-cluster")["error_code"] == "not_found"
 
 
 class TestRunnerDecoding:

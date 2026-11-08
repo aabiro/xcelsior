@@ -842,8 +842,10 @@ export interface paths {
          * Api V1 Hpc Job
          * @description One Slurm job as the reconciler last observed it.
          *
-         *     Someone else's job is not-found, not forbidden: ids can't be probed.
-         *     Read-only; never contacts a cluster.
+         *     Adds `reported_progress`, the job's own progress report if it writes one
+         *     (cached like output: a stale copy queues one fetch). Someone else's job
+         *     is not-found, not forbidden: ids can't be probed. Read-only; never
+         *     contacts a cluster.
          */
         get: operations["api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get"];
         put?: never;

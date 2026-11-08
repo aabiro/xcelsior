@@ -237,3 +237,29 @@ What keeps `/` in check without anyone cleaning by hand:
 - `api/infra/docker/daemon.json` caps container logs (`local` driver, 5 × 20 MB) and turns on BuildKit GC. It takes effect only when dockerd restarts, which restarts every container, so install it in a maintenance window: validate with `dockerd --validate --config-file=...` first, then `systemctl restart docker`.
 
 When an alert fires: `docker system df`, `du -xh / --max-depth=2 | sort -h | tail`, and `du -h --apparent-size /exports/volumes/*.img` for the sparse volume backing files.
+
+## Slurm reconciler
+
+The reconciler (`workers/slurm_reconciler.py`, the `slurm_reconcile` task in
+the background worker) is the only code that talks to a Slurm cluster. Its
+metrics come from what it records in `slurm_clusters` and
+`slurm_job_mappings` (`control_plane/slurm_metrics.py`), labelled by cluster.
+
+- `XcelsiorSlurmReconcileStale`: no pass has had an answer from the cluster's
+  controller for three poll intervals. Look at
+  `xcelsior_slurm_failures_total{cluster=...}` for the stage and error code,
+  and at `GET /api/v1/hpc/clusters` for the last error. `transport_error` is
+  SSH; `squeue_failed` is the controller; the breaker
+  (`xcelsior_slurm_breaker_open`) spaces retries out to at most 15 minutes,
+  so a recovered cluster may take that long to be polled again.
+- `XcelsiorSlurmEndingAwaitingAccounting`: a job left the controller 15
+  minutes ago and sacct has no finished record for it. slurmdbd is down or
+  backlogged (`accounting:*` failures), or the record was lost. Its mapping
+  stays open by design: silence is never a verdict.
+- `XcelsiorSlurmHostKeyRefused`: the cluster presented a key that isn't the
+  one pinned in `slurm_clusters.known_hosts_line`. Do not re-pin from the
+  connection. Get the new key out of band (the cluster's admins, or the
+  console), then `register_cluster(..., known_hosts_line=...)` and
+  `check_cluster_connection`.
+- `XcelsiorSlurmMetricsUnavailable`: the API couldn't read those tables, so
+  the other three can't fire. Check database connectivity first.

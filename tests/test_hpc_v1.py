@@ -8,6 +8,7 @@ anyone else sees their own tenant's, and someone else's job is not-found.
 
 from __future__ import annotations
 
+import time
 import uuid
 
 import pytest
@@ -87,7 +88,8 @@ def world():
         )
         conn.execute(
             "UPDATE slurm_job_mappings SET observed_state = 'completed', slurm_state = 'COMPLETED', "
-            "exit_code = '0:0', terminal_at = clock_timestamp() WHERE xcelsior_job_id = %s",
+            "exit_code = '0:0', derived_exit_code = '0:0', terminal_at = clock_timestamp() "
+            "WHERE xcelsior_job_id = %s",
             (ids["a_done"],),
         )
     yield {"cid": cid, "admin": admin, "a": tenant_a, "b": tenant_b, "ids": ids}
@@ -175,6 +177,58 @@ class TestJobs:
         assert by_id[world["ids"]["b_open"]]["stale"] is True  # 600 s > 3 x 30 s
         assert by_id[world["ids"]["a_open"]]["stale"] is False
         assert by_id[world["ids"]["a_done"]]["stale"] is False  # settled is final
+
+
+class TestVerdictAndProgress:
+    def test_a_settled_job_carries_its_verdict(self, world):
+        jobs = {
+            j["xcelsior_job_id"]: j
+            for j in _jobs(world["admin"], cluster_id=world["cid"], state="all")["jobs"]
+        }
+        done, running = jobs[world["ids"]["a_done"]], jobs[world["ids"]["a_open"]]
+        assert done["verdict"] == "succeeded" and done["derived_exit_code"] == "0:0"
+        assert running["verdict"] is None  # open: no verdict yet
+
+    def test_scheduler_progress_is_elapsed_against_the_limit(self, world):
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_job_mappings SET time_limit_seconds = 600, "
+                "started_at = clock_timestamp() - interval '60 seconds' WHERE xcelsior_job_id = %s",
+                (world["ids"]["a_open"],),
+            )
+        job = client.get(f"/api/v1/hpc/jobs/{world['ids']['a_open']}", headers=world["a"]).json()[
+            "job"
+        ]
+        progress = job["scheduler_progress"]
+        assert progress["time_limit_seconds"] == 600 and 60 <= progress["elapsed_seconds"] < 90
+        assert 0.1 <= progress["fraction"] < 0.15
+
+    def test_a_job_that_left_the_controller_says_it_awaits_accounting(self, world):
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_job_mappings SET left_controller_at = clock_timestamp() "
+                "WHERE xcelsior_job_id = %s",
+                (world["ids"]["b_open"],),
+            )
+        job = client.get(f"/api/v1/hpc/jobs/{world['ids']['b_open']}", headers=world["b"]).json()[
+            "job"
+        ]
+        assert job["awaiting_accounting_since"]
+
+    def test_the_jobs_own_report_appears_once_fetched(self, world):
+        url = f"/api/v1/hpc/jobs/{world['ids']['a_open']}"
+        assert client.get(url, headers=world["a"]).json()["job"]["reported_progress"] is None
+        with pg_transaction() as conn:  # what the reconciler's pass writes
+            conn.execute(
+                "UPDATE slurm_job_outputs SET content = %s, attempted_at = clock_timestamp(), "
+                "fetched_at = clock_timestamp() WHERE xcelsior_job_id = %s AND stream = 'progress'",
+                (
+                    '{"fraction": 0.25, "message": "step 250", "updated_at": %d}' % time.time(),
+                    world["ids"]["a_open"],
+                ),
+            )
+        report = client.get(url, headers=world["a"]).json()["job"]["reported_progress"]
+        assert report["valid"] and report["fraction"] == 0.25 and report["source"] == "job"
 
 
 class TestOneJob:

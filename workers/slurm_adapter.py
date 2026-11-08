@@ -426,7 +426,12 @@ def _transport_failure(r, runner) -> dict | None:
     if not runner.remote:
         return None
     if r.returncode == 255:
-        return _error("transport_error", f"ssh to submit host failed: {r.stderr.strip()}")
+        stderr = r.stderr.strip()
+        if "Host key verification failed" in stderr or "IDENTIFICATION HAS CHANGED" in stderr:
+            # The cluster's key isn't the pinned one: a re-keyed host, or not
+            # the host at all. Never retried into acceptance.
+            return _error("host_key_mismatch", f"ssh refused the submit host's key: {stderr}")
+        return _error("transport_error", f"ssh to submit host failed: {stderr}")
     if r.returncode == 127 or "command not found" in (r.stderr or ""):
         return _error("slurm_unavailable", "Slurm client commands not found on the submit host")
     return None
@@ -490,6 +495,62 @@ def controller_health(*, profile_name=None, runner=None):
             {"role": c["role"], "host": c["host"], "state": c["state"].lower()} for c in found
         ],
     }
+
+
+#: What a cluster's ``scontrol show config`` is kept for: the settings the
+#: reconciler and the scheduler depend on. Captured at registration and on
+#: every connection check, into ``slurm_clusters.facts['config']``.
+CONFIG_FACTS = (
+    "SLURM_VERSION",
+    "ClusterName",
+    "MinJobAge",
+    "FirstJobId",
+    "MaxJobId",
+    "JobRequeue",
+    "PreemptMode",
+    "PreemptType",
+    "AccountingStorageType",
+    "AccountingStoreFlags",
+    "TrackWCKey",
+    "PrivateData",
+    "SelectType",
+    "SelectTypeParameters",
+    "GresTypes",
+    "ProctrackType",
+    "TaskPlugin",
+    "SlurmctldParameters",
+    "MessageTimeout",
+)
+
+
+def cluster_config_facts(*, profile_name=None, runner=None) -> dict:
+    """The CONFIG_FACTS settings from ``scontrol show config``.
+
+    Returns {"facts": {name: value}, "missing": [names not printed]} or an
+    error. Values are kept as Slurm prints them (``(null)`` included).
+    """
+    try:
+        _profile, runner = _resolve(profile_name, runner)
+        r = runner.run(["scontrol", "show", "config"], timeout=30)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return _error("timeout", "scontrol show config timed out")
+    except FileNotFoundError:
+        return _error("slurm_unavailable", "Slurm not available on this system")
+    failure = _transport_failure(r, runner)
+    if failure:
+        return failure
+    if r.returncode != 0:
+        msg = (r.stderr or "").strip()
+        return _error(classify_slurm_error(msg, default="scontrol_failed"), msg)
+    printed = {}
+    for line in (r.stdout or "").splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            printed.setdefault(key.strip(), value.strip())
+    facts = {name: printed[name] for name in CONFIG_FACTS if name in printed}
+    return {"facts": facts, "missing": [n for n in CONFIG_FACTS if n not in printed]}
 
 
 def get_cluster_info(runner=None):
@@ -620,6 +681,14 @@ def _walltime_seconds(spec: str) -> int:
     if len(nums) == 2:
         return nums[0] * 60 + nums[1]
     return nums[0] * 3600 + nums[1] * 60 + nums[2]
+
+
+def duration_seconds(spec) -> int | None:
+    """Seconds in a squeue or sacct duration, or None for UNLIMITED and the like."""
+    try:
+        return _walltime_seconds(spec)
+    except SlurmAdapterError:
+        return None
 
 
 def _estimate_gpus_needed(vram_needed_gb, gpu_type):
@@ -859,6 +928,10 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     lines.append(f"export XCELSIOR_JOB_NAME={_shell_value(job.get('name', ''))}")
     lines.append(f"export XCELSIOR_TIER={_shell_value(job.get('tier', 'free'))}")
     lines.append(f"export XCELSIOR_NUM_GPUS={num_gpus}")
+    # Where the job may report its own progress (PROGRESS_CONTRACT): a small
+    # JSON object it rewrites atomically, by writing a temporary file and
+    # renaming it over this one.
+    lines.append(f'export XCELSIOR_PROGRESS_FILE="{out_dir}/{job_name}-${{SLURM_JOB_ID}}.progress"')
 
     if extra_env:
         lines.append("")
@@ -1136,6 +1209,30 @@ SLURM_OBSERVED_STATE = {
 FINISHED_OBSERVED_STATES = ("completed", "failed", "cancelled", "preempted")
 
 
+def success_verdict(observed_state, exit_code, derived_exit_code, settled) -> str | None:
+    """Whether a settled job succeeded: None while it is open.
+
+    ``succeeded`` needs COMPLETED with ExitCode 0:0 *and* DerivedExitCode
+    0:0. DerivedExitCode is the highest exit code of the job's steps, so it
+    catches a script that exits 0 after a step failed. A COMPLETED job with
+    no DerivedExitCode on record (accounting that predates it) is
+    ``unknown``, not a guess.
+    """
+    if not settled:
+        return None
+    if observed_state == "completed":
+        if exit_code != "0:0":
+            return "failed"
+        if derived_exit_code is None:
+            return "unknown"
+        return "succeeded" if derived_exit_code == "0:0" else "failed"
+    if observed_state in ("failed", "preempted"):
+        return "failed"
+    if observed_state == "cancelled":
+        return "cancelled"
+    return "unknown"
+
+
 def normalize_slurm_state(raw: str) -> str:
     """'CANCELLED by 1000' → 'CANCELLED'; 'CANCELLED+' → 'CANCELLED'."""
     token = (raw or "").strip().split(" ", 1)[0].rstrip("+")
@@ -1270,6 +1367,7 @@ _WINDOW_FIELDS = (
     "ExitCode",
     "AllocTRES",
     "NodeList",
+    "DerivedExitCode",
 )
 #: Ids per sacct call; the gate admits at most this many.
 MAX_IDS_PER_SACCT = 200
@@ -1396,6 +1494,7 @@ def accounting_window(job_ids, *, since_minutes: int, profile_name=None, runner=
                 "ended_at": ended,
                 "elapsed_sec": elapsed,
                 "exit_code": row["ExitCode"],
+                "derived_exit_code": row["DerivedExitCode"],
                 "alloc_tres": row["AllocTRES"],
                 "node_list": row["NodeList"],
             }
@@ -1594,6 +1693,30 @@ def accounting_to_meter_fields(acct: dict) -> dict:
 
 # ── Output retrieval ─────────────────────────────────────────────────
 
+#: The files the reconciler may read for a job, by stream name.
+OUTPUT_STREAMS = ("out", "err", "progress")
+
+#: How a job reports its own progress. Slurm has no notion of it, and
+#: ``sstat`` costs a controller RPC, so the job writes a small file and the
+#: reconciler reads it the way it reads output, at most once per interval.
+PROGRESS_CONTRACT = """
+The batch script exports XCELSIOR_PROGRESS_FILE. A job that wants to report
+progress writes one JSON object there, at most 4 KiB, replacing the file
+atomically (write a temporary file in the same directory, then rename it):
+
+    {"fraction": 0.42, "message": "epoch 3 of 10", "updated_at": 1794000000}
+
+fraction    optional, 0 to 1
+message     optional, at most 200 characters
+updated_at  required, Unix seconds when the job wrote it
+
+Readers show it as reported by the job, and as stale once updated_at is more
+than PROGRESS_STALE_SEC old while the job runs.
+"""
+
+#: Job-reported progress older than this, on a running job, is stale.
+PROGRESS_STALE_SEC = 600
+
 
 def get_slurm_job_output(
     slurm_job_id,
@@ -1604,16 +1727,17 @@ def get_slurm_job_output(
     stream="out",
     max_bytes=65536,
 ):
-    """Read the tail of a job's stdout/stderr file from the submit host.
+    """Read the tail of a job's stdout, stderr or progress file.
 
-    Works where the profile's output_dir is visible from the submit host:
-    a shared filesystem on real clusters (/scratch), or the submit node
-    itself on a cluster without one.
+    ``stream`` is ``out``, ``err`` or ``progress`` (PROGRESS_CONTRACT). Works
+    where the profile's output_dir is visible from the submit host: a shared
+    filesystem on real clusters (/scratch), or the submit node itself on a
+    cluster without one.
     """
     if not _SLURM_JOB_ID_RE.match(str(slurm_job_id)):
         return _error("invalid_job_id", f"invalid Slurm job id: {slurm_job_id!r}")
-    if stream not in ("out", "err"):
-        return _error("invalid_request", "stream must be 'out' or 'err'")
+    if stream not in OUTPUT_STREAMS:
+        return _error("invalid_request", "stream must be 'out', 'err' or 'progress'")
     try:
         _require(_JOB_ID_RE, str(xcelsior_job_id), "job_id")
         profile, runner = _resolve(profile_name, runner)
@@ -1797,7 +1921,7 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
         return _error("invalid_job_id", f"invalid Slurm job id: {slurm_job_id!r}")
     query = (
         "SELECT xcelsior_job_id, cluster_id, observed_state, slurm_state, state_reason, "
-        "exit_code, terminal_at IS NOT NULL, EXTRACT(EPOCH FROM last_observed_at), "
+        "exit_code, derived_exit_code, terminal_at IS NOT NULL, EXTRACT(EPOCH FROM last_observed_at), "
         "EXTRACT(EPOCH FROM clock_timestamp() - last_observed_at) "
         "FROM slurm_job_mappings WHERE slurm_job_id = %s"
     )
@@ -1816,7 +1940,7 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
             "ambiguous_job_id",
             f"Slurm job {slurm_job_id} is mapped on {len(clusters)} clusters; pass cluster_id",
         )
-    xid, cid, observed, slurm_state, reason, exit_code, settled, seen_at, age = rows[0]
+    xid, cid, observed, slurm_state, reason, exit_code, derived, settled, seen_at, age = rows[0]
     return {
         "slurm_job_id": str(slurm_job_id),
         "cluster_id": cid,
@@ -1828,6 +1952,8 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
         "observed_state": observed or "unknown",
         "reason": reason,
         "exit_code": exit_code,
+        "derived_exit_code": derived,
+        "verdict": success_verdict(observed, exit_code, derived, bool(settled)),
         "settled": bool(settled),
         "last_observed_at": float(seen_at) if seen_at is not None else None,
         "observed_age_seconds": round(float(age), 1) if age is not None else None,
@@ -1837,6 +1963,8 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
 
 #: How much of each stream the output cache keeps, from the end of the file.
 OUTPUT_TAIL_BYTES = 65536
+#: The progress file is small by contract; anything longer isn't read.
+PROGRESS_MAX_BYTES = 4096
 
 
 def read_cached_output(xcelsior_job_id, stream="out") -> dict:
@@ -1855,8 +1983,8 @@ def read_cached_output(xcelsior_job_id, stream="out") -> dict:
     """
     from db import pg_transaction
 
-    if stream not in ("out", "err"):
-        return _error("invalid_request", "stream must be 'out' or 'err'")
+    if stream not in OUTPUT_STREAMS:
+        return _error("invalid_request", "stream must be 'out', 'err' or 'progress'")
     with pg_transaction() as conn:
         mapping = conn.execute(
             "SELECT m.slurm_job_id, m.cluster_id, m.terminal_at IS NOT NULL, "
@@ -1912,6 +2040,46 @@ def read_cached_output(xcelsior_job_id, stream="out") -> dict:
     }
 
 
+def read_reported_progress(xcelsior_job_id) -> dict | None:
+    """The job's own progress report, per PROGRESS_CONTRACT, from the cache.
+
+    Files a refresh request like any cached read (never polls Slurm).
+    Returns None when the job has never written a report the reconciler has
+    fetched; otherwise the parsed report, or ``{"valid": False, ...}`` when
+    the file breaks the contract.
+    """
+    cached = read_cached_output(xcelsior_job_id, "progress")
+    if "error" in cached or cached["fetched_at"] is None or not cached["content"].strip():
+        return None
+    report = {
+        "source": "job",
+        "fetched_at": cached["fetched_at"],
+        "refresh_pending": cached["refresh_pending"],
+    }
+    try:
+        data = json.loads(cached["content"])
+        updated = float(data["updated_at"])
+        fraction = data.get("fraction")
+        if fraction is not None:
+            fraction = float(fraction)
+            if not 0.0 <= fraction <= 1.0:
+                raise ValueError("fraction must be between 0 and 1")
+        message = data.get("message")
+        if message is not None and not isinstance(message, str):
+            raise ValueError("message must be a string")
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
+        return {**report, "valid": False, "error": f"progress file breaks the contract: {e}"}
+    age = time.time() - updated
+    return {
+        **report,
+        "valid": True,
+        "fraction": fraction,
+        "message": (message or "")[:200] or None,
+        "updated_at": updated,
+        "stale": (not cached["settled"]) and age > PROGRESS_STALE_SEC,
+    }
+
+
 def register_slurm_job(
     xcelsior_job_id,
     slurm_job_id,
@@ -1920,6 +2088,7 @@ def register_slurm_job(
     tenant_id: str | None = None,
     attempt_id: str | None = None,
     submit_idempotency_key: str | None = None,
+    just_submitted: bool = False,
 ):
     """Register a mapping between an Xcelsior job and an external Slurm job.
 
@@ -1933,6 +2102,18 @@ def register_slurm_job(
     from the start again, and the new job must still be registrable
     (migration 153).
 
+    An *open* mapping for another job under the same id is refused (a unique
+    violation): both jobs would act on its status and bill for it. The one
+    exception is ``just_submitted=True``, which the submit paths pass because
+    ``slurm_job_id`` is the id ``sbatch`` has only just returned. Slurm never
+    hands out an id its controller still holds, so that open mapping belongs
+    to a job the controller has lost (its state was wiped while accounting
+    had no outcome). That job can never come back under this id, so its
+    mapping is closed as ``unknown``, with the reason and its successor
+    recorded, rather than refusing the job Slurm is already running. A
+    caller registering an existing job has no such proof and gets the
+    refusal. Returns the ids of any mappings closed that way.
+
     The previous implementation was ``ON CONFLICT (xcelsior_job_id) DO
     UPDATE SET slurm_job_id`` — last-writer-wins, which silently
     re-pointed a job at a different external id and orphaned the first.
@@ -1941,7 +2122,31 @@ def register_slurm_job(
 
     now = time.time()
     key = submit_idempotency_key or f"submit:{xcelsior_job_id}"
+    cluster = cluster_id or DEFAULT_CLUSTER_ID
     with pg_transaction() as conn:
+        superseded = (
+            []
+            if not just_submitted
+            else [
+                r[0]
+                for r in conn.execute(
+                    """
+                UPDATE slurm_job_mappings
+                   SET observed_state = 'unknown',
+                       state_reason = 'slurm_job_id_reused',
+                       terminal_at = clock_timestamp(),
+                       last_changed_at = clock_timestamp(),
+                       metadata = metadata || jsonb_build_object(
+                           'superseded_by', %s::text, 'superseded_at', clock_timestamp()),
+                       version = version + 1
+                 WHERE cluster_id = %s AND slurm_job_id = %s
+                   AND terminal_at IS NULL AND xcelsior_job_id <> %s
+             RETURNING xcelsior_job_id
+                """,
+                    (xcelsior_job_id, cluster, str(slurm_job_id), xcelsior_job_id),
+                ).fetchall()
+            ]
+        )
         conn.execute(
             """
             INSERT INTO slurm_job_mappings
@@ -1960,13 +2165,22 @@ def register_slurm_job(
                 xcelsior_job_id,
                 str(slurm_job_id),
                 now,
-                cluster_id or DEFAULT_CLUSTER_ID,
+                cluster,
                 tenant_id,
                 attempt_id,
                 key,
                 now,
             ),
         )
+    if superseded:
+        log.warning(
+            "Slurm job %s on %s was handed to %s while %s still held it; closed as unknown",
+            slurm_job_id,
+            cluster,
+            xcelsior_job_id,
+            superseded,
+        )
+    return superseded
 
 
 def set_slurm_desired_state(xcelsior_job_id, desired_state: str) -> bool:
@@ -2050,7 +2264,10 @@ def slurm_submit_cli(job_dict, profile=None, dry_run=False):
     xcelsior_id = result.get("xcelsior_job_id", "?")
     meta: dict = result.get("metadata", {})
     register_slurm_job(
-        xcelsior_id, slurm_id, cluster_id=meta.get("cluster_id") or DEFAULT_CLUSTER_ID
+        xcelsior_id,
+        slurm_id,
+        cluster_id=meta.get("cluster_id") or DEFAULT_CLUSTER_ID,
+        just_submitted=True,
     )
 
     return (
