@@ -319,7 +319,28 @@ RSYNC_EXCLUDES=(
     --exclude='checkpoints'
     --exclude='.cursor'
     --exclude='terminals'
+    # Local-only material that git ignores or doesn't track, but rsync would
+    # ship: research notes and reports written into the checkout, and the
+    # Slurm kit's site values (tailnet addresses), built packages, run results
+    # and rehearsal work dir, which holds a throwaway SSH private key. The
+    # repository is public; none of this belongs on the production host.
+    # Keep in step with sync_code_tarball and .dockerignore (tested).
+    --exclude='/reports'
+    --exclude='/research_notes'
+    --exclude='/hpc/slurm-local/site.env'
+    --exclude='/hpc/slurm-local/debs'
+    --exclude='/hpc/slurm-local/results'
+    --exclude='/hpc/slurm-local/rehearsal/.work'
 )
+
+# Every .env* file under DIR except the templates, one ./path per line: the
+# tar transport's equivalent of RSYNC_EXCLUDES' --include/--exclude pair. tar
+# can't re-include, and excluding only `.env` shipped `.env.bak.*` backups of
+# production's env whenever a deploy fell back to the tarball.
+_tar_env_excludes() {
+    (cd "$1" && find . \( -name .git -o -name node_modules -o -name .venv -o -name venv \) -prune \
+        -o -name '.env*' ! -name '*.example' -print)
+}
 
 _remote_target() {
     local host="${1:-$REMOTE_HOST}"
@@ -1040,7 +1061,11 @@ done
     local tarball="/tmp/xcelsior_deploy.tar.${tar_ext}"
     log "Tarball compression: ${tar_compress[*]} (.${tar_ext})"
 
+    local env_excludes
+    env_excludes="$(mktemp)"
+    _tar_env_excludes "$PROJECT_DIR" >"$env_excludes"
     tar -cf - \
+        --exclude-from="$env_excludes" \
         --exclude='.git' \
         --exclude='._*' \
         --exclude='__pycache__' \
@@ -1061,7 +1086,14 @@ done
         --exclude='./desktop' \
         --exclude='./api/desktop' \
         --exclude='checkpoints' \
+        --exclude='./reports' \
+        --exclude='./research_notes' \
+        --exclude='./hpc/slurm-local/site.env' \
+        --exclude='./hpc/slurm-local/debs' \
+        --exclude='./hpc/slurm-local/results' \
+        --exclude='./hpc/slurm-local/rehearsal/.work' \
         -C "$PROJECT_DIR" . | "${tar_compress[@]}" >"$tarball"
+    rm -f "$env_excludes"
 
     remote_tarball=""
     local candidate probe_target

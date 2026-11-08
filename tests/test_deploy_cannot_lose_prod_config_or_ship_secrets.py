@@ -247,6 +247,94 @@ def test_worker_signing_private_key_stays_on_the_signing_machine(
     assert not _dockerignored("scripts/agent-signing.pub")
 
 
+# ── Local-only material stays on the machine it was written on ───────────
+#
+# Research notes and reports written into the checkout, and the Slurm kit's
+# git-ignored site values, built packages, run results and rehearsal work dir
+# (which holds a throwaway SSH private key), were all inside the tree deploy
+# ships with rsync. git ignoring them meant nothing to rsync.
+
+LOCAL_ONLY = [
+    "reports/Slurm setup blueprint for Xcelsior.md",
+    "research_notes/Slurm setup blueprint for Xcelsior/notes.md",
+    "hpc/slurm-local/site.env",
+    "hpc/slurm-local/debs/slurm-smd_25.11.8-1_amd64.deb",
+    "hpc/slurm-local/results/r1/results.json",
+    "hpc/slurm-local/rehearsal/.work/adapter_key",
+]
+STILL_SHIPPED = [
+    "api.py",
+    "hpc/slurm-local/README.md",
+    "hpc/slurm-local/site.env.example",
+    "hpc/slurm-local/evidence/r1/results.json",
+    "hpc/slurm-local/rehearsal/run-rehearsal.sh",
+]
+
+
+def _ship(transport: str, src: Path, dst: Path) -> subprocess.CompletedProcess:
+    """Copy src to dst with deploy.sh's own filters for that transport."""
+    if transport == "rsync":
+        options = re.search(r"^RSYNC_EXCLUDES=\((.*?)^\)", DEPLOY.read_text(), re.M | re.S).group(1)
+        filters = re.findall(r"--(?:include|exclude)='[^']*'", options)
+        return _bash(f"rsync -a {' '.join(filters)} '{src}/' '{dst}/'")
+    filters = re.findall(r"--exclude='[^']*'", _function("sync_code_tarball"))
+    env_list = src.parent / "env-excludes"
+    script = (
+        _function("_tar_env_excludes")
+        + f"_tar_env_excludes '{src}' >'{env_list}'\n"
+        + f"tar -cf - --exclude-from='{env_list}' {' '.join(filters)} -C '{src}' . | tar -xf - -C '{dst}'"
+    )
+    return _bash(script)
+
+
+@pytest.mark.parametrize("transport", ["rsync", "tar"])
+def test_local_only_material_never_ships(tmp_path: Path, transport: str) -> None:
+    if transport == "rsync" and shutil.which("rsync") is None:
+        pytest.skip("rsync not installed")
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    dst.mkdir()
+    for rel in LOCAL_ONLY + STILL_SHIPPED:
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        (src / rel).write_text("fixture")
+    result = _ship(transport, src, dst)
+    assert result.returncode == 0, result.stderr
+    leaked = [rel for rel in LOCAL_ONLY if (dst / rel).exists()]
+    assert not leaked, f"{transport} would ship {leaked}"
+    missing = [rel for rel in STILL_SHIPPED if not (dst / rel).exists()]
+    assert not missing, f"{transport} no longer ships {missing}"
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "reports",
+        "research_notes",
+        "hpc/slurm-local/site.env",
+        "hpc/slurm-local/debs",
+        "hpc/slurm-local/results",
+        "hpc/slurm-local/rehearsal/.work",
+    ],
+)
+def test_local_only_material_stays_out_of_images(rel: str) -> None:
+    assert _dockerignored(rel), f"{rel} would be baked into an image built from a working checkout"
+
+
+def test_the_tarball_fallback_ships_only_env_templates(tmp_path: Path) -> None:
+    """rsync re-includes the templates; tar can't, so it gets the explicit list."""
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "api").mkdir(parents=True)
+    dst.mkdir()
+    for name in ENV_FILES + ["api.py"]:
+        (src / name).write_text("x")
+    (src / "api" / ".env.bak.20261027").write_text("x")
+    (src / "api" / ".env.example").write_text("x")
+    result = _ship("tar", src, dst)
+    assert result.returncode == 0, result.stderr
+    shipped = sorted(p.name for p in dst.iterdir() if p.is_file())
+    assert shipped == sorted([".env.example", ".env.paypal-live.example", "api.py"]), shipped
+    assert sorted(p.name for p in (dst / "api").iterdir()) == [".env.example"]
+
+
 # ── Nothing on the production path starts the bundled redis ───────────────
 #
 # The redeploy that followed stopped at the migration: `docker compose run --rm
