@@ -11,7 +11,10 @@
 # XCL_MUNGE_KEY_SRC in the rehearsal). Site values come from ../site.env.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-ASUS_PKGS=(munge slurmd slurm-client)
+ASUS_PKGS=(munge)
+# From debs/ (05-build-slurm-debs.sh). The NVML plugin comes too; with
+# AutoDetect=off the RTX 2060 is still never offered.
+ASUS_SLURM_DEBS=(slurm-smd slurm-smd-client slurm-smd-slurmd)
 # Your own (unrestricted) login on the tower: munge key, adapter key setup.
 TOWER_SSH="${TOWER_SSH:-${OPERATOR_USER:-}@${TOWER_ADDR:-}}"
 
@@ -20,6 +23,7 @@ step_preflight() {
     chk() { if eval "$2"; then xcl_log "ok   $1"; else xcl_log "FAIL $1"; fail=1; fi; }
     chk "hostname is ASUS_HOSTNAME from site.env" '[[ "$(hostname -s)" == "$ASUS_HOSTNAME" ]]'
     chk "ASUS_MEM_MB ($ASUS_MEM_MB) fits the installed RAM" 'xcl_mem_fits "$ASUS_MEM_MB"'
+    chk "SchedMD Slurm debs in $XCL_DEBS_DIR" '(xcl_slurm_debs "${ASUS_SLURM_DEBS[@]}") >/dev/null'
     chk "Ubuntu 26.04" 'grep -q "VERSION_ID=\"26.04\"" /etc/os-release'
     chk "tailnet address $ASUS_ADDR present" 'ip -4 -o addr | grep " $ASUS_ADDR/" >/dev/null'
     chk "cgroup v2" '[[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]]'
@@ -53,7 +57,8 @@ step_packages() {
     apt-get update -qq
     local had_key=0
     [[ -e /etc/munge/munge.key ]] && had_key=1
-    xcl_apt_install "${ASUS_PKGS[@]}"
+    mapfile -t debs < <(xcl_slurm_debs "${ASUS_SLURM_DEBS[@]}")
+    xcl_apt_install "${ASUS_PKGS[@]}" "${debs[@]}"
     # munge's postinst generates a key; it is ours to remove on rollback.
     if [[ $had_key == 0 && -e /etc/munge/munge.key ]]; then
         xcl_record file /etc/munge/munge.key

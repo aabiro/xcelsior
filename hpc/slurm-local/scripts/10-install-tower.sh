@@ -11,7 +11,9 @@
 # Site values (addresses, your account) come from ../site.env.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-TOWER_PKGS=(munge slurmctld slurmd slurmdbd slurm-client slurm-wlm-nvml-plugin slurm-wlm-mysql-plugin mariadb-server)
+TOWER_PKGS=(munge mariadb-server)
+# From debs/ (05-build-slurm-debs.sh); slurm-smd carries the NVML and MySQL plugins.
+TOWER_SLURM_DEBS=(slurm-smd slurm-smd-client slurm-smd-slurmctld slurm-smd-slurmd slurm-smd-slurmdbd)
 
 step_preflight() {
     local fail=0
@@ -21,6 +23,7 @@ step_preflight() {
     # 6817-6819 to the tailnet. Refuse to install where it isn't up.
     chk "ufw active, default deny incoming" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || ufw status verbose | grep -q "Default: deny (incoming)"'
     chk "sshd present (adapter login)" '[[ -x /usr/sbin/sshd ]]'
+    chk "SchedMD Slurm debs in $XCL_DEBS_DIR" '(xcl_slurm_debs "${TOWER_SLURM_DEBS[@]}") >/dev/null'
     chk "TOWER_MEM_MB ($TOWER_MEM_MB) fits the installed RAM" 'xcl_mem_fits "$TOWER_MEM_MB"'
     chk "Ubuntu 26.04" 'grep -q "VERSION_ID=\"26.04\"" /etc/os-release'
     chk "tailnet address $TOWER_ADDR present" 'ip -4 -o addr | grep " $TOWER_ADDR/" >/dev/null'
@@ -56,7 +59,8 @@ step_packages() {
     apt-get update -qq
     local had_key=0
     [[ -e /etc/munge/munge.key ]] && had_key=1
-    xcl_apt_install "${TOWER_PKGS[@]}"
+    mapfile -t debs < <(xcl_slurm_debs "${TOWER_SLURM_DEBS[@]}")
+    xcl_apt_install "${TOWER_PKGS[@]}" "${debs[@]}"
     # munge's postinst generates a key; it is ours to remove on rollback.
     if [[ $had_key == 0 && -e /etc/munge/munge.key ]]; then
         xcl_record file /etc/munge/munge.key

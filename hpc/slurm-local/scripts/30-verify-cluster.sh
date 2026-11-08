@@ -56,6 +56,9 @@ check "V-10 sacctmgr: cluster xcl-local registered" \
 check "V-11 sacct records jobs with epoch times" \
     "SLURM_TIME_FORMAT=%s sacct -X -n -S now-1hour -o JobID,State,Start,End,AllocTRES --parsable2 | tail -3 | tee /dev/stderr | grep -Eq '\|[0-9]{10}\|[0-9]{10}\|'"
 
+check "V-13 Slurm is SchedMD's ${XCL_MIN_SLURM:-25.11.8} or later" \
+    "v=\$(sinfo --version); echo \"\$v\"; [[ \"\$v\" == 'slurm '* ]] && [[ \"\$(printf '%s\\n' ${XCL_MIN_SLURM:-25.11.8} \"\${v#slurm }\" | sort -V | head -1)\" == ${XCL_MIN_SLURM:-25.11.8} ]]"
+
 if [[ -r "${XCL_STATE:-/var/lib/xcl-slurm-test}/untouchables.before" ]] && command -v docker >/dev/null; then
     # root creates the file it writes: with fs.protected_regular (Ubuntu's
     # default) root may not write a file another user owns in /tmp, and the

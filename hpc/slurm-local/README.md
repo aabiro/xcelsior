@@ -18,6 +18,7 @@ This kit builds a two-node Slurm cluster on hardware you already own. It then dr
 | `conf/sshd-xcl-slurm-test.conf` | sshd Match block for the adapter's service account (tower) |
 | `conf/xcelsior-profiles.json` | The adapter profile `xcl-local` |
 | `conf/pod-declared.json` | What a facility would declare for the pod listing |
+| `scripts/05-build-slurm-debs.sh` | Builds SchedMD's Slurm packages (`slurm-smd-*`, pinned tarball) into `debs/` in a throwaway container |
 | `scripts/10-install-tower.sh`, `20-install-asus.sh` | Installers; every change is recorded in a manifest |
 | `scripts/30-verify-cluster.sh` | Raw-Slurm health checks (V-1 … V-12) |
 | `scripts/90-rollback.sh` | Undoes exactly what the manifest recorded |
@@ -54,7 +55,7 @@ The 2026-11-07 run proved the adapter, but jobs ran as your own account and the 
 - **Site values moved out of the repository** into `site.env` (git-ignored): the repository is public.
 - **Two new suite cases**, SEC-1 and SEC-2, prove the service account and the script check on the real cluster.
 
-Still open from Phase 0: Slurm itself. Ubuntu 26.04 ships 25.11.2, which lacks the eight CVE fixes in SchedMD's 25.11.8 (2026-09-02), and Ubuntu has published no update. That is acceptable for this single-operator lab on the tailnet and not for anything with tenants.
+- **Slurm from SchedMD, not Ubuntu.** Ubuntu 26.04 ships 25.11.2, which lacks the eight CVE fixes in 25.11.8 (2026-09-02), and SchedMD "does not maintain or recommend" distro packages. `05-build-slurm-debs.sh` builds SchedMD's own packages from the pinned 25.11.8 tarball, and the installers take Slurm only from those. V-13 checks the running version.
 
 ## Topology
 
@@ -77,7 +78,7 @@ Partition `xcl` spans both nodes. MaxTime is 1 hour, and the GRES type is `rtx_3
 Every item below is written to `/var/lib/xcl-slurm-test/manifest` as it happens. `90-rollback.sh` reads that file in reverse.
 
 **tower**
-- Packages: munge, slurmctld, slurmd, slurmdbd, slurm-client, slurm-wlm-nvml-plugin, slurm-wlm-mysql-plugin and mariadb-server, plus their dependencies. That is about 60 packages. A simulated install on 2026-11-07 touched no NVIDIA package and removed nothing.
+- Packages: munge and mariadb-server from Ubuntu, and SchedMD's slurm-smd, slurm-smd-client, slurm-smd-slurmctld, slurm-smd-slurmd and slurm-smd-slurmdbd from `debs/` (slurm-smd carries the NVML and MySQL plugins), plus their dependencies. A simulated install on 2026-11-07 touched no NVIDIA package and removed nothing.
 - Users: `slurm` (uid/gid 970), `munge` (971) and the service account `xclslurm` (972) are created first, with fixed IDs so both nodes agree. The package also creates `mysql`.
 - Files: `/etc/slurm/{slurm,gres,cgroup,slurmdbd}.conf`, `/etc/munge/munge.key`, `/etc/mysql/mariadb.conf.d/90-xcl-slurm.cnf`, `/usr/local/libexec/xcl-slurm-gate`, `/usr/local/libexec/xcl-node-health` and `/etc/ssh/sshd_config.d/50-xcl-slurm-test.conf` (sshd is reloaded after `sshd -t` accepts it; the Match block ends with that file, so no other account is affected).
 - Directories: `/var/spool/slurmctld`, `/var/spool/slurmd`, `/var/log/slurm`, `/var/lib/xcl-slurm-test/jobs` (job output: `xclslurm`, your group, mode 2750), `/var/lib/xcl-slurm-test/svc-home` (root-owned) and MariaDB's `/var/lib/mariadb`.
@@ -88,7 +89,7 @@ Every item below is written to `/var/lib/xcl-slurm-test/manifest` as it happens.
 - Not changed: Docker and its containers, the GitHub Actions runners, the NVIDIA driver and ufw. MariaDB opens no TCP port; `skip-networking` is set because mempool-db already uses 3306 inside Docker. Preflight snapshots every container's ID, state, restart count and start time, plus the runner units. V-12 proves they are unchanged.
 
 **asus**
-- Packages: munge, slurmd and slurm-client, about 30 with dependencies. The NVML plugin is not installed, so the RTX 2060 is never offered.
+- Packages: munge from Ubuntu, and slurm-smd, slurm-smd-client and slurm-smd-slurmd from `debs/`, with dependencies. The NVML plugin comes with slurm-smd, but `AutoDetect=off` and no GRES line mean the RTX 2060 is never offered.
 - Users: `slurm` (970), `munge` (971) and `xclslurm` (972).
 - Files: `/etc/munge/munge.key` (copied from the tower), `/etc/default/slurmd` (`--conf-server <tower>:6817`) and `/usr/local/libexec/xcl-node-health`.
 - Directories: `/var/spool/slurmd`, `/var/log/slurm`, `/var/lib/xcl-slurm-test/jobs` and `/var/lib/xcl-slurm-test/svc-home`.
@@ -130,12 +131,18 @@ The cluster was left running, with services disabled at boot. Results are in `RE
 
 ## Step 1: install the tower
 
+Build SchedMD's packages first (on the ASUS, about 15 minutes; Docker required):
+
+```bash
+hpc/slurm-local/scripts/05-build-slurm-debs.sh
+```
+
 ```bash
 # on the ASUS, once: your site values (git-ignored)
 cp hpc/slurm-local/site.env.example hpc/slurm-local/site.env && $EDITOR hpc/slurm-local/site.env
 
 # from the ASUS: the tower has no repo checkout, so copy the kit over (site.env included)
-rsync -a --exclude rehearsal/.work --exclude results hpc/slurm-local/ <you>@<tower-addr>:~/xcl-slurm-kit/
+rsync -a --exclude rehearsal/.work --exclude results hpc/slurm-local/ <you>@<tower-addr>:~/xcl-slurm-kit/   # debs/ included
 
 # on the tower
 cd ~/xcl-slurm-kit/scripts
@@ -163,13 +170,14 @@ The munge key is fetched over SSH with your normal key, as `OPERATOR_USER@TOWER_
 cd ~/xcl-slurm-kit/scripts && ./30-verify-cluster.sh
 ```
 
-All of V-1 to V-12 must pass. Together they show:
+All of V-1 to V-13 must pass. Together they show:
 - both nodes are idle in `xcl`;
 - the tower's GRES is `gpu:rtx_3060:1`, and NVML detected it on `/dev/nvidia0`;
 - an `srun` with GRES sees exactly one RTX 3060, and an `srun` without GRES sees none;
 - the ASUS runs jobs;
 - accounting records epoch timestamps;
-- Docker containers and runners are unchanged.
+- Docker containers and runners are unchanged;
+- Slurm is SchedMD's 25.11.8 or later (V-13).
 
 The adapter is not involved yet, so a later adapter failure is the adapter's.
 
@@ -178,7 +186,7 @@ The adapter is not involved yet, so a later adapter failure is the adapter's.
 ```bash
 # on the ASUS
 sudo ./20-install-asus.sh adapter-client
-ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower sinfo --version   # allowed: "slurm-wlm 25.11.2"
+ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower sinfo --version   # allowed: "slurm 25.11.8"
 ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower id                # refused: "xcl-slurm-gate: refused: command 'id' not allowed"
 ```
 
@@ -255,7 +263,7 @@ The tower goes to at least 32 GB in late November 2026. Slurm can't be told befo
 
 1. In `site.env`, set `TOWER_MEM_MB=16384`, half the RAM as today (the rest stays with Docker, the runners and the GPU services). Then rsync the kit to the tower.
 2. On the tower: `sudo ./10-install-tower.sh preflight` (it refuses a value above the installed RAM), then `sudo ./10-install-tower.sh configure`.
-3. Restart rather than `scontrol reconfigure`, which can fail with cgroup v2 on 25.11.2: `sudo systemctl restart slurmctld slurmd` on the tower, then `sudo systemctl restart slurmd` on the asus.
+3. Restart the daemons so every one reads the new node definition: `sudo systemctl restart slurmctld slurmd` on the tower, then `sudo systemctl restart slurmd` on the asus.
 4. `scontrol show node tower` shows the new `RealMemory`; re-run `30-verify-cluster.sh`.
 
 ## Backups
@@ -271,7 +279,6 @@ The archive holds a consistent dump of the accounting database, slurmctld's stat
 
 - **The tower runs production-adjacent services.** Slurm may allocate at most 8 GB and 8 CPUs on it in total, and 1 hour per job. Job steps are cgroup-confined, so cores, RAM, swap and devices are all limited. Jobs run as `xclslurm`, which has no sudo and can't read your home. MariaDB has no TCP port. Services don't start at boot. Docker and the runners are snapshotted and compared.
 - **The GPU is shared** with services outside Slurm (see Topology). Slurm's device fencing keeps jobs without GRES off it; it can't keep those services off it.
-- **Slurm 25.11.2 is behind on security fixes** (see the Phase 0 notes above). Don't give anyone else a way to submit jobs here.
 - **The tower's disk is 93% full** (130 GB free). The install adds about 300 MB, and logs are small. Preflight requires 3 GB free.
 - **The ASUS crashes several times a day** (pstore panics; failing RAM or CPU), and it runs with heavy swap. With `ReturnToService=2` it rejoins once slurmd re-registers. Don't read a case that failed because the node went DOWN as an adapter failure. Check `sinfo -R`, then re-run that case with `--only`. RealMemory is set to 4 GB.
 - **Munge is clock-sensitive** (5-minute TTL). Preflight requires NTP sync on both nodes.
