@@ -56,14 +56,25 @@ SLURM_OBSERVED = (
 #: Migration 067's constraint, restored by downgrade.
 SLURM_OBSERVED_067 = ("pending", "running", "completed", "failed", "cancelled", "unknown")
 
-MAPPING_COLUMNS = (
-    ("slurm_state", "TEXT"),
-    ("state_reason", "TEXT"),
-    ("exit_code", "TEXT"),
-    ("started_at", "TIMESTAMPTZ"),
-    ("ended_at", "TIMESTAMPTZ"),
-    ("missing_since", "TIMESTAMPTZ"),
-    ("last_changed_at", "TIMESTAMPTZ"),
+# Written out in full, not built from a list of names: no identifier is
+# interpolated into DDL (tests/test_sql_injection_guard.py).
+ADD_MAPPING_COLUMNS = (
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS slurm_state TEXT",
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS state_reason TEXT",
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS exit_code TEXT",
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ",
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS missing_since TIMESTAMPTZ",
+    "ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS last_changed_at TIMESTAMPTZ",
+)
+DROP_MAPPING_COLUMNS = (
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS slurm_state",
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS state_reason",
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS exit_code",
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS started_at",
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS ended_at",
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS missing_since",
+    "ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS last_changed_at",
 )
 
 
@@ -102,8 +113,8 @@ def _create_clusters(conn):
 
 
 def _add_mapping_columns(conn):
-    for name, kind in MAPPING_COLUMNS:
-        conn.execute(text(f"ALTER TABLE slurm_job_mappings ADD COLUMN IF NOT EXISTS {name} {kind}"))
+    for statement in ADD_MAPPING_COLUMNS:
+        conn.execute(text(statement))
 
 
 def _observed_constraint(states):
@@ -130,8 +141,8 @@ def _unknown_for_new_states(conn):
 
 
 def _drop_mapping_columns(conn):
-    for name, _kind in MAPPING_COLUMNS:
-        conn.execute(text(f"ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS {name}"))
+    for statement in DROP_MAPPING_COLUMNS:
+        conn.execute(text(statement))
 
 
 def upgrade():
