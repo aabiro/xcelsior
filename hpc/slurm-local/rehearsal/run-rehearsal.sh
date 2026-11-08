@@ -85,8 +85,11 @@ echo "== cluster verification (raw Slurm, inside the tower container)"
 docker exec -u aaryn xcl-rh-tower bash -c "cd /kit/scripts && ./30-verify-cluster.sh --expect-gpu '${GPU_NAME:-RTX}' --expect-type '$GRES_TYPE'" || true
 
 echo "== adapter suite (this host → ssh → gate → slurmctld)"
+# The overrides apply only to the profile named here, and are appended to its
+# ssh options; ssh uses the last -F, so the -F /dev/null below wins over the profile's.
+export XCELSIOR_SLURM_SSH_PROFILE=xcl-local
 export XCELSIOR_SLURM_SSH_HOST=aaryn@127.0.0.1
-export XCELSIOR_SLURM_SSH_OPTIONS="-p 22022 -i $WORK/adapter_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+export XCELSIOR_SLURM_SSH_OPTIONS="-F /dev/null -p 22022 -i $WORK/adapter_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 set +e
 # shellcheck disable=SC2086
 "${PYTHON:-python3}" "$KIT/tests/validate_adapter.py" --expect-gpu "${GPU_NAME:-RTX}" --profiles-file "$WORK/profiles.json" \

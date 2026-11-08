@@ -288,18 +288,28 @@ class TestJobTranslation:
         assert 'NUM_WORKERS="4"' in script
 
     def test_multi_node_allocation(self):
-        # 16 GPUs on a cluster with 8 per node → 2 nodes
+        # 16 GPUs on a cluster with 8 per node → 2 nodes of 8. GPU and
+        # memory requests are per node, so each node asks for its share.
         job = self._make_job(num_gpus=16)
         script, meta = xcelsior_job_to_sbatch(job, "nibi")
         assert meta["nodes"] == 2
+        assert meta["gpus_per_node"] == 8
         assert "#SBATCH --nodes=2" in script
-        assert "#SBATCH --gpus=h100:16" in script
+        assert "#SBATCH --gpus-per-node=h100:8" in script
+        assert "--gpus=" not in script
+        # 4 + 240 * 8 per node, not 4 + 240 * 16 (3,844 GB) on every node
+        assert "#SBATCH --mem=1924G" in script
+
+    def test_uneven_multi_node_split_is_refused(self):
+        res = submit_to_slurm(self._make_job(num_gpus=9), profile_name="nibi", dry_run=True)
+        assert res["error_code"] == "invalid_job_spec"
+        assert "evenly" in res["error"]
 
     def test_memory_calculation(self):
-        job = self._make_job(num_gpus=2)
-        script, _ = xcelsior_job_to_sbatch(job, "generic")
-        # 4 + (8 * 2) = 20G
-        assert "#SBATCH --mem=20G" in script
+        job = self._make_job(num_gpus=4)
+        script, _ = xcelsior_job_to_sbatch(job, "nibi")
+        # one node: 4 + (240 * 4) = 964G
+        assert "#SBATCH --mem=964G" in script
 
     def test_premium_qos_is_opt_in(self, tmp_path, monkeypatch):
         """Decision D6: no --qos unless the cluster's profile turns it on."""
@@ -422,7 +432,9 @@ class TestSlurmJobStatus:
 
         monkeypatch.setattr(subprocess, "run", mock_run)
         result = get_slurm_job_status("12345")
-        assert result["xcelsior_state"] == "failed"
+        # Absence is not a verdict (accounting can lag): unknown, not failed.
+        assert result["xcelsior_state"] == "unknown"
+        assert result["error_code"] == "not_found"
         assert "not found" in result["error"]
 
     def test_running_job_parsed_from_squeue(self, monkeypatch):
@@ -587,10 +599,19 @@ class TestProfilesV3:
         assert e.value.code == "invalid_profile_file"
 
     def test_generic_requests_untyped_gres(self):
-        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=2), "generic")
-        assert "#SBATCH --gres=gpu:2" in script
+        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=1), "generic")
+        assert "#SBATCH --gres=gpu:1" in script
         assert "gpu:gpu:" not in script
         assert meta["gpu_type"] is None
+
+    def test_gres_is_per_node_on_multi_node_jobs(self):
+        # generic has 1 GPU per node: 2 GPUs is 2 nodes of gpu:1, not gpu:2
+        # on each node (which asked for 4 GPUs in total).
+        script, meta = xcelsior_job_to_sbatch(_job(num_gpus=2), "generic")
+        assert "#SBATCH --nodes=2" in script
+        assert "#SBATCH --gres=gpu:1" in script
+        assert "#SBATCH --mem=12G" in script
+        assert meta["gpus_per_node"] == 1
 
 
 class TestJobSpecV3:
@@ -682,6 +703,23 @@ class TestJobSpecV3:
         assert "bash -c 'echo '\"'\"'hi'\"'\"'; nvidia-smi -L'" in script
         assert subprocess.run(["bash", "-n"], input=script, text=True).returncode == 0
 
+    def test_multi_node_payload_runs_under_srun(self, local_profile):
+        script, _ = xcelsior_job_to_sbatch(_job(num_gpus=2, command="hostname"), local_profile)
+        assert "srun bash -c hostname" in script
+        single, _ = xcelsior_job_to_sbatch(_job(num_gpus=1, command="hostname"), local_profile)
+        assert "srun " not in single
+
+    def test_qos_stays_off_when_the_profile_does_not_mention_it(self, tmp_path, monkeypatch):
+        path = tmp_path / "p.json"
+        path.write_text(
+            json.dumps(
+                {"profiles": {"n": {"name": "n", "partition_gpu": "g", "partition_cpu": "c"}}}
+            )
+        )
+        monkeypatch.setenv(_sa.PROFILES_FILE_ENV, str(path))
+        script, _ = xcelsior_job_to_sbatch(_job(priority=95), "n")
+        assert "--qos" not in script
+
     def test_comment_carries_xcelsior_id(self, local_profile):
         script, _ = xcelsior_job_to_sbatch(_job(), local_profile)
         assert "#SBATCH --comment=xcelsior:t-1" in script
@@ -707,7 +745,7 @@ class TestTransportV3:
     def test_ssh_runner_shape(self, local_profile, monkeypatch):
         rec = _Recorder((0, "43\n", ""))
         monkeypatch.setattr(subprocess, "run", rec)
-        runner = _sa.SlurmRunner(ssh_host="aaryn@tower", ssh_options=("-p", "22"))
+        runner = _sa.SlurmRunner(ssh_host="aaryn@tower", ssh_options=("-F", "/k.conf", "-p", "22"))
         res = submit_to_slurm(_job(), profile_name=local_profile, runner=runner)
         argv = rec.calls[0]["argv"]
         assert argv[:5] == ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
@@ -717,7 +755,9 @@ class TestTransportV3:
     def test_ssh_env_prefix_is_quoted(self, monkeypatch):
         rec = _Recorder((0, "", ""))
         monkeypatch.setattr(subprocess, "run", rec)
-        _sa.SlurmRunner(ssh_host="h").run(["sacct", "-j", "1"], env={"SLURM_TIME_FORMAT": "%s"})
+        _sa.SlurmRunner(ssh_host="h", ssh_options=("-F", "/k.conf")).run(
+            ["sacct", "-j", "1"], env={"SLURM_TIME_FORMAT": "%s"}
+        )
         assert rec.calls[0]["argv"][-1] == "env SLURM_TIME_FORMAT=%s sacct -j 1"
 
     def test_ssh_connect_failure_is_transport_error(self, local_profile, monkeypatch):
@@ -725,16 +765,61 @@ class TestTransportV3:
             subprocess, "run", _Recorder((255, "", "ssh: connect to host x: timed out"))
         )
         res = submit_to_slurm(
-            _job(), profile_name=local_profile, runner=_sa.SlurmRunner(ssh_host="x")
+            _job(),
+            profile_name=local_profile,
+            runner=_sa.SlurmRunner(ssh_host="x", ssh_options=("-F", "/k.conf")),
         )
         assert res["error_code"] == "transport_error"
 
-    def test_env_overrides_profile_ssh_host(self, monkeypatch):
+    def test_remote_run_without_its_own_ssh_config_is_refused(self, monkeypatch):
+        rec = _Recorder()
+        monkeypatch.setattr(subprocess, "run", rec)
+        with pytest.raises(_sa.SlurmAdapterError) as e:
+            _sa.SlurmRunner(ssh_host="h", ssh_options=("-i", "/k")).run(["sinfo", "--version"])
+        assert e.value.code == "insecure_ssh_config"
+        assert rec.calls == []  # nothing reached ssh
+
+    def test_env_overrides_only_the_named_profile_and_keep_its_config(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_SLURM_SSH_HOST", "aaryn@127.0.0.1")
         monkeypatch.setenv("XCELSIOR_SLURM_SSH_OPTIONS", "-p 22022 -i /k")
-        r = _sa.get_runner({"ssh_host": "xcl-tower"})
+        monkeypatch.setenv("XCELSIOR_SLURM_SSH_PROFILE", "xcl-local")
+        lab = {"_key": "xcl-local", "ssh_host": "xcl-tower", "ssh_options": ["-F", "/a.conf"]}
+        r = _sa.get_runner(lab)
         assert r.ssh_host == "aaryn@127.0.0.1"
-        assert r.ssh_options == ("-p", "22022", "-i", "/k")
+        # appended, so the profile's -F survives (replacing it dropped -F)
+        assert r.ssh_options == ("-F", "/a.conf", "-p", "22022", "-i", "/k")
+        nibi = {"_key": "nibi", "ssh_host": "robot.nibi", "ssh_options": ["-F", "/n.conf"]}
+        r = _sa.get_runner(nibi)
+        assert (r.ssh_host, r.ssh_options) == ("robot.nibi", ("-F", "/n.conf"))
+
+    def test_env_override_without_a_named_profile_is_refused(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SLURM_SSH_HOST", "aaryn@127.0.0.1")
+        monkeypatch.delenv("XCELSIOR_SLURM_SSH_PROFILE", raising=False)
+        with pytest.raises(_sa.SlurmAdapterError) as e:
+            _sa.get_runner({"_key": "nibi"})
+        assert e.value.code == "ambiguous_ssh_override"
+
+
+class TestControllerHealth:
+    @pytest.mark.parametrize(
+        "stdout,state",
+        [
+            ("Slurmctld(primary) at tower is UP\n", "up"),
+            ("Slurmctld(primary) at a is DOWN\nSlurmctld(backup) at b is UP\n", "up"),
+            ("Slurmctld(primary) at tower is DOWN\n", "down"),
+        ],
+    )
+    def test_scontrol_ping_is_parsed(self, local_profile, monkeypatch, stdout, state):
+        rec = _Recorder((0, stdout, ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        res = _sa.controller_health(profile_name=local_profile)
+        assert rec.calls[0]["argv"] == ["scontrol", "ping"]
+        assert res["controller"] == state
+        assert res["controllers"][0]["role"] == "primary"
+
+    def test_unrecognised_output_is_an_error_not_a_guess(self, local_profile, monkeypatch):
+        monkeypatch.setattr(subprocess, "run", _Recorder((1, "", "scontrol: error: x")))
+        assert _sa.controller_health(profile_name=local_profile)["error_code"] == "unparseable_ping"
 
 
 class TestErrorClassificationV3:
@@ -1040,7 +1125,7 @@ class TestWordSplitSafeTransport:
 
         monkeypatch.setattr(subprocess, "run", fake)
         monkeypatch.setenv("SLURM_ACCOUNT", "def-x")
-        r = _sa.SlurmRunner(ssh_host="robot")
+        r = _sa.SlurmRunner(ssh_host="robot", ssh_options=("-F", "/k.conf"))
         submit_to_slurm(_job(num_gpus=1), profile_name="nibi", runner=r)
         get_slurm_job_status("7", profile_name="nibi", runner=r)
         _sa.get_slurm_job_accounting("7", profile_name="nibi", runner=r)
