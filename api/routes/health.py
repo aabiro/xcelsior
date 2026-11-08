@@ -567,6 +567,7 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
             job_dict["job_id"],
             result["slurm_job_id"],
             cluster_id=result.get("cluster_id") or "unknown",
+            just_submitted=True,  # the id sbatch just returned
         )
 
     return result
@@ -1387,6 +1388,21 @@ def metrics_prometheus():
         lines.extend(render_security(security_snapshot))
     except Exception:
         lines.extend(render_security(None))
+
+    # The Slurm reconciler runs in the background worker; its health and
+    # failure counts are read from what it recorded, never from this process.
+    from control_plane.slurm_metrics import collect as collect_slurm, render as render_slurm
+
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            conn.execute("SET LOCAL statement_timeout = '5s'")
+            slurm_clusters = collect_slurm(conn)
+        lines.extend(render_slurm(slurm_clusters))
+    except Exception as e:
+        log.warning("slurm metrics failed: %s", e)
+        lines.extend(render_slurm(None))
 
     volumes = snap.get("volumes", {})
     lines.extend(

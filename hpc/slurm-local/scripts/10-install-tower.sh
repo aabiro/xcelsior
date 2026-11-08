@@ -2,7 +2,8 @@
 # Install the controller + GPU node of the xcl-local test cluster on the tower.
 #
 #   sudo ./10-install-tower.sh all            preflight users packages configure db services
-#   sudo ./10-install-tower.sh <step>...      run named steps only (qos: the spot QoS)
+#   sudo ./10-install-tower.sh <step>...      run named steps only (qos: the spot QoS;
+#                                             gate: just the forced-command gate)
 #   sudo ./10-install-tower.sh authorize-adapter-key /path/to/key.pub [FROM]
 #
 # Test/research only. Every change is recorded in /var/lib/xcl-slurm-test/
@@ -110,6 +111,14 @@ step_configure() {
     fi
 }
 
+# Only the gate, for a kit change that admits a new adapter command. The
+# configure step installs it too, but also re-renders every Slurm config and
+# reloads sshd; this touches one recorded file.
+step_gate() {
+    xcl_init_state
+    xcl_put_file "$KIT_DIR/scripts/xcl-slurm-gate" "$XCL_GATE" 0755 root:root
+}
+
 storage_pass() { sed -n 's/^StoragePass=//p' /etc/slurm/slurmdbd.conf; }
 
 mariadb_running() { mariadb-admin --protocol=socket ping >/dev/null 2>&1; }
@@ -210,7 +219,7 @@ main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             all) step_preflight; step_users; step_packages; step_configure; step_db; step_services ;;
-            preflight | users | packages | configure | db | services | qos) "step_$1" ;;
+            preflight | users | packages | configure | db | services | qos | gate) "step_$1" ;;
             authorize-adapter-key) shift; step_authorize_adapter_key "$@"; return ;;
             *) xcl_die "unknown step: $1" ;;
         esac

@@ -228,6 +228,10 @@ It takes about 5 minutes. Results go to `hpc/slurm-local/results/<run-id>/`:
 - `pod-listing.json`, the reference pod spec;
 - `outputs/*.txt`.
 
+`--with-db` also runs REG-1 (the cluster registry's transport: it registers the tower with the host key your own `~/.ssh/known_hosts` already trusts and the adapter's key, captures `scontrol show config` facts, checks that passes share one ControlMaster, and that a wrong pin is refused), PROG-1 (a job's progress file, fetched through the gate) and VERDICT-1 (a job that exits 0 after a failed step reads `failed`).
+
+After a kit change that only adds a gate shape, install just the gate on the tower: rsync the kit, then `sudo ./10-install-tower.sh gate`.
+
 Add `--scenarios` (with `--with-db`) for SCEN-1 to SCEN-6: requeue, spot preemption, out-of-memory, a SPECIAL_EXIT hold, suspend/resume, and a node failure. The node failure kills slurmd on this machine and starts it again. They drive Slurm events with `sudo -n scontrol` on the tower over your own login (`--admin-ssh`, default `OPERATOR_USER@TOWER_ADDR` from site.env) and take about 20 minutes.
 
 The exit status is 0 only if every executed case passed. SYNC-1 and SYNC-2 refuse to run unless `.env` loading is off and the database name contains `test` or `dev`. SYNC-1 waits out MinJobAge, because a finished job settles only once it has left the controller; SYNC-2 checks that a reconcile pass over five jobs sends one squeue and one sacct.

@@ -87,6 +87,8 @@ class TestAdapterAndGateAgree:
         _sa.get_slurm_job_accounting("41", profile_name=lab_profile)
         _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile)
         _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile, stream="err")
+        _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile, stream="progress")
+        _sa.cluster_config_facts(profile_name=lab_profile)
         _sa.cancel_slurm_job("41", profile_name=lab_profile)
         _sa.poll_cluster_jobs(profile_name=lab_profile)
         _sa.accounting_window(["41", "42"], since_minutes=90, profile_name=lab_profile)
@@ -128,11 +130,12 @@ class TestRefusedCommands:
             "sinfo $(id)",
             "sinfo  --version",
             "squeue -j 1 --noheader -o '%i'",
-            # scontrol: only ping and --version; option values can't smuggle verbs
+            # scontrol: ping, --version and show config; option values can't smuggle verbs
             "scontrol -M show update NodeName=tower State=DOWN",
             "scontrol -u show update",
             "scontrol show job 1",
-            "scontrol show config",
+            "scontrol show config extra",
+            "scontrol show config --all",
             "scontrol update NodeName=tower State=DOWN",
             # read commands: exact shapes only
             "squeue",
@@ -173,6 +176,9 @@ class TestRefusedCommands:
             f"tail -c 10 -- {JOBS}/../../../etc/passwd",
             f"tail -c 10 -- {JOBS}/notes.txt",
             f"tail -c 10 -- {JOBS}/xcl-a-1.out extra",
+            f"tail -c 10 -- {JOBS}/xcl-a-1.progress.tmp",
+            f"tail -c 10 -- {JOBS}/xcl-a-1.json",
+            f"tail -c 10 -- {JOBS}/xcl-progress-a.json",
             f"tail -n 10 -- {JOBS}/xcl-a-1.out",
             f"cat {JOBS}/xcl-a-1.out",
         ],

@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `154_slurm_job_outputs.py`.**
+**Repository head: `155_slurm_registry_transport_and_progress.py`.**
+
+155 lets a Slurm cluster be reached from the registry (plan item 1.2): `slurm_clusters` gains `ssh_host`, `ssh_port`, `remote_user`, a pinned `known_hosts_line` and a `credential_ref` (`env:NAME` or `file:/path`, never the key), and a CHECK requires the last two whenever `ssh_host` is set; rows without it keep their profile's transport. `failure_counts` keeps failed passes, accounting calls and output fetches by stage and error code for the metrics. `slurm_job_mappings` gains `derived_exit_code` (for the success verdict), `time_limit_seconds` (scheduler progress) and `left_controller_at` (what the `ending_awaiting_accounting` alert watches), and `slurm_job_outputs` accepts a `progress` stream (plan item 1.7). Three idempotent units through `lock_safe`. Downgrade deletes cached progress rows, restores 154's stream constraint and drops the columns. The runtime floor is unchanged.
 
 154 adds `slurm_job_outputs`, the cached tail of each Slurm job's stdout and stderr (plan item 1.7). Readers (the v1 API and MCP) read only this table; a stale read records `requested_at`, and the reconciler fetches requested tails on its pass over the cluster, so output is read at most once per poll interval per job however many readers there are. `final` marks a copy taken after the job settled, which is never fetched again. Rows cascade with their mapping. One idempotent unit through `lock_safe`; downgrade drops the table. The runtime floor is unchanged.
 

@@ -1,0 +1,4 @@
+HOST=<asus-hostname>
+NPROC=2
+NODELIST=asus
+Xcelsior job r1108170818-cpu1 completed at Sun Nov  8 17:08:31 EST 2026

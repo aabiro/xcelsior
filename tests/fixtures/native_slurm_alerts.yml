@@ -1,0 +1,138 @@
+rule_files:
+- ../../api/infra/observability/prometheus/native-control-plane-rules.yml
+evaluation_interval: 1m
+tests:
+- name: a healthy cluster raises no Slurm alerts
+  interval: 1m
+  input_series:
+  - series: xcelsior_slurm_metrics_available{job="xcelsior-api",instance="api"}
+    values: 1x30
+  - series: xcelsior_slurm_poll_interval_seconds{job="xcelsior-api",instance="api",cluster="xcl-local"}
+    values: 30x30
+  # Reconciled every 30 s: the lag never passes one interval.
+  - series: xcelsior_slurm_reconcile_lag_seconds{job="xcelsior-api",instance="api",cluster="xcl-local"}
+    values: 12 25 3 18 29 7x25
+  - series: xcelsior_slurm_awaiting_accounting_oldest_seconds{job="xcelsior-api",instance="api",cluster="xcl-local"}
+    values: 0 40 0 0x27
+  - series: xcelsior_slurm_failures_total{job="xcelsior-api",instance="api",cluster="xcl-local",stage="poll",error_code="transport_error"}
+    values: 3x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: XcelsiorSlurmMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: XcelsiorSlurmReconcileStale
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: XcelsiorSlurmEndingAwaitingAccounting
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: XcelsiorSlurmHostKeyRefused
+    exp_alerts: []
+- name: an outage raises stale, then awaiting-accounting
+  interval: 1m
+  input_series:
+  - series: xcelsior_slurm_metrics_available{job="xcelsior-api",instance="api"}
+    values: 1x30
+  - series: xcelsior_slurm_poll_interval_seconds{job="xcelsior-api",instance="api",cluster="xcl-local"}
+    values: 30x30
+  # The controller stops answering at t=0; the lag grows a minute a minute.
+  - series: xcelsior_slurm_reconcile_lag_seconds{job="xcelsior-api",instance="api",cluster="xcl-local"}
+    values: 0+60x30
+  # A job left the controller at t=0 and accounting never settles it.
+  - series: xcelsior_slurm_awaiting_accounting_oldest_seconds{job="xcelsior-api",instance="api",cluster="xcl-local"}
+    values: 0+60x30
+  - series: xcelsior_slurm_failures_total{job="xcelsior-api",instance="api",cluster="xcl-local",stage="poll",error_code="transport_error"}
+    values: 0+1x30
+  alert_rule_test:
+  # 60 s at 1m is under 90 s (three 30 s intervals); 120 s at 2m is over,
+  # and has held for the rule's 1m by 3m.
+  - eval_time: 2m
+    alertname: XcelsiorSlurmReconcileStale
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: XcelsiorSlurmReconcileStale
+    exp_alerts:
+    - exp_labels:
+        job: xcelsior-api
+        instance: api
+        cluster: xcl-local
+        severity: warning
+        owner: platform
+        platform: xcelsior
+        component: slurm
+      exp_annotations:
+        summary: Slurm cluster xcl-local has not been reconciled for three poll intervals
+        description: No reconcile pass has had an answer from its controller for 300 s. Every job state shown for it is stale. Check xcelsior_slurm_failures_total for the cause (transport, host key, controller).
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
+  # 15 minutes waiting on accounting is not yet past 900 s; 16 is, held by 17.
+  - eval_time: 15m
+    alertname: XcelsiorSlurmEndingAwaitingAccounting
+    exp_alerts: []
+  - eval_time: 18m
+    alertname: XcelsiorSlurmEndingAwaitingAccounting
+    exp_alerts:
+    - exp_labels:
+        job: xcelsior-api
+        instance: api
+        cluster: xcl-local
+        severity: warning
+        owner: platform
+        platform: xcelsior
+        component: slurm
+      exp_annotations:
+        summary: A job on xcl-local left the controller 15 minutes ago and accounting has not settled it
+        description: The job is no longer in squeue, but sacct has no finished record for it, so its mapping cannot settle. slurmdbd may be down or backlogged.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
+  # Transport failures are not a host key problem.
+  - eval_time: 18m
+    alertname: XcelsiorSlurmHostKeyRefused
+    exp_alerts: []
+- name: a refused host key pages at once
+  interval: 1m
+  input_series:
+  - series: xcelsior_slurm_metrics_available{job="xcelsior-api",instance="api"}
+    values: 1x30
+  - series: xcelsior_slurm_failures_total{job="xcelsior-api",instance="api",cluster="xcl-local",stage="poll",error_code="host_key_mismatch"}
+    values: 0x5 1+1x20
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: XcelsiorSlurmHostKeyRefused
+    exp_alerts: []
+  - eval_time: 8m
+    alertname: XcelsiorSlurmHostKeyRefused
+    exp_alerts:
+    - exp_labels:
+        job: xcelsior-api
+        instance: api
+        cluster: xcl-local
+        stage: poll
+        error_code: host_key_mismatch
+        severity: critical
+        owner: platform
+        platform: xcelsior
+        component: slurm
+      exp_annotations:
+        summary: Slurm cluster xcl-local presented a host key that is not the pinned one
+        description: The reconciler refused the connection. Either the cluster was re-keyed (verify the new key out of band, then re-register it) or something else answered at its address. Do not re-pin from the connection itself.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
+- name: metrics that cannot be read are reported, not taken for health
+  interval: 1m
+  input_series:
+  - series: xcelsior_slurm_metrics_available{job="xcelsior-api",instance="api"}
+    values: 0x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: XcelsiorSlurmMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: xcelsior-api
+        instance: api
+        severity: warning
+        owner: platform
+        platform: xcelsior
+        component: slurm
+      exp_annotations:
+        summary: The Slurm reconciler's state cannot be read
+        description: The API could not read slurm_clusters or slurm_job_mappings, so cluster health and job staleness are unknown, not healthy.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler

@@ -553,8 +553,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "its job states, or when job states look stale. Read-only and free; it never contacts a cluster.",
 
   list_hpc_jobs:
-    "List Slurm jobs as the reconciler last observed them: Slurm state, reason, exit code, and " +
-    "whether the job is settled (left the controller with a finished accounting record). Filter " +
+    "List Slurm jobs as the reconciler last observed them: Slurm state, reason, exit code, " +
+    "whether the job is settled (left the controller with a finished accounting record), its " +
+    "verdict once settled, and elapsed time against its time limit. Filter " +
     "by cluster and by open, settled or all. Each job says how old its observation is and " +
     "whether it is stale. Operator tool. Use when following Slurm jobs or looking for ones that " +
     "failed or stopped reporting. Read-only and free; it never contacts a cluster, so call it as " +
@@ -563,8 +564,11 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   get_hpc_job:
     "Get one Slurm job as the reconciler last observed it, by its Xcelsior job id (from " +
     "list_hpc_jobs). A job still in the controller is never settled, because Slurm can requeue " +
-    "it under the same id. Operator tool. Use when watching one job to completion or explaining " +
-    "its outcome. Read-only and free; it never contacts a cluster.",
+    "it under the same id. verdict is succeeded only for COMPLETED with ExitCode and " +
+    "DerivedExitCode 0:0, so a script that exits 0 after a failed step reads failed. " +
+    "reported_progress is the job's own progress report, when it writes one. Operator tool. " +
+    "Use when watching one job to completion or explaining its outcome. Read-only and free; " +
+    "it never contacts a cluster.",
 
   get_hpc_job_output:
     "Get the tail of a Slurm job's stdout (out) or stderr (err), by its Xcelsior job id, from " +

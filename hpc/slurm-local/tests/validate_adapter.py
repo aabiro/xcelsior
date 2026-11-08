@@ -30,6 +30,10 @@ Cases (see CHECKLIST.md for the acceptance criteria of each):
           scripts with directives outside the adapter's set
   SYNC-1..2  (optional, --with-db) reconcile loop against real jobs; a
           pass costs one squeue and one sacct however many jobs are open
+  REG-1      (optional, --with-db) the registry transport: pinned host key,
+          config facts, one ControlMaster, a wrong pin refused
+  PROG-1     (optional, --with-db) a job's own progress file, fetched once
+  VERDICT-1  (optional, --with-db) success needs DerivedExitCode 0:0
   SCEN-1..6  (optional, --scenarios) requeue, spot preemption, OOM, hold,
           suspend/resume and node failure against the reconciler
 """
@@ -41,6 +45,7 @@ import atexit
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import time
@@ -1114,6 +1119,199 @@ def sync_2(ctx: Ctx):
     )
 
 
+def _adapter_ssh(ctx: Ctx) -> dict:
+    """HostName, User and IdentityFile from the profile's own -F config."""
+    conf = None
+    opts = list(ctx.runner.ssh_options)
+    if "-F" in opts:
+        conf = pathlib.Path(opts[opts.index("-F") + 1])
+    found = {}
+    for line in (conf.read_text().splitlines() if conf and conf.exists() else []):
+        key, _, val = line.strip().partition(" ")
+        if key in ("HostName", "User", "IdentityFile"):
+            found[key] = val.strip()
+    return found
+
+
+def _known_host_line(host: str) -> str | None:
+    """The host's key as this account already trusts it (~/.ssh/known_hosts)."""
+    out = subprocess.run(["ssh-keygen", "-F", host], capture_output=True, text=True).stdout
+    lines = [ln for ln in out.splitlines() if ln and not ln.startswith("#")]
+    for preferred in ("ssh-ed25519", ""):
+        for ln in lines:
+            if preferred in ln:
+                return ln
+    return None
+
+
+@case(
+    "REG-1",
+    "Reconciling through the cluster registry (optional)",
+    "A registered cluster with a pinned host key: the connection check stores every config fact, passes share one ControlMaster, and a wrong pin is refused as host_key_mismatch",
+)
+def reg_1(ctx: Ctx):
+    refused = _test_db_guard(ctx)
+    if refused:
+        return refused
+    import base64
+    from db import pg_transaction  # type: ignore
+    import slurm_reconciler as rc  # noqa: E402
+    import slurm_transport as st  # noqa: E402
+
+    ssh = _adapter_ssh(ctx)
+    pin = _known_host_line(ssh.get("HostName", ""))
+    if not ssh.get("IdentityFile") or not pin:
+        return FAIL, {"adapter_ssh": sorted(ssh)}, "no adapter ssh config or no known_hosts entry"
+    cid, bad = f"{ctx.run_id}-reg", f"{ctx.run_id}-badpin"
+    wrong = "h ssh-ed25519 " + base64.b64encode(b"\x00\x00\x00\x0bssh-ed25519" + os.urandom(32)).decode()
+    common = {"ssh_host": ssh["HostName"], "remote_user": ssh.get("User")}
+    ev: dict = {}
+    job = ctx.submit("reg-a", num_gpus=0, command="sleep 20")
+    if "error" in job:
+        return FAIL, {"submit": job}, "submit failed"
+    try:
+        rc.register_cluster(
+            ctx.profile, cluster_id=cid, known_hosts_line=pin,
+            credential_ref=f"file:{ssh['IdentityFile']}", **common,
+        )
+        ev["check"] = rc.check_cluster_connection(cid)
+        sa.register_slurm_job(job["xcelsior_job_id"], job["slurm_job_id"], cluster_id=cid)
+        ctx.wait(job["slurm_job_id"], {"RUNNING"}, 60)
+        row = rc._cluster_row(cid)
+        if row is None:
+            return FAIL, ev, "the registered cluster row is missing"
+        with st.cluster_runner(row) as runner:
+            counting = _CountingRunner(runner)
+            first = rc.reconcile_cluster(cid, ctx.profile, runner=counting)
+            ev["master_after_first_pass"] = st.master_running(runner)
+        with st.cluster_runner(row) as runner:
+            # A later use finds the master already up, before sending anything.
+            ev["master_before_second_pass"] = st.master_running(runner)
+            second = rc.reconcile_cluster(cid, ctx.profile, runner=runner)
+        ev["passes"] = [first.as_dict(), second.as_dict()]
+        ev["commands_first_pass"] = counting.sent
+        rc.register_cluster(
+            ctx.profile, cluster_id=bad, known_hosts_line=wrong,
+            credential_ref=f"file:{ssh['IdentityFile']}", **common,
+        )
+        ev["wrong_pin"] = rc.check_cluster_connection(bad)
+        with st.cluster_runner(row) as runner:
+            st.close_master(runner)
+    finally:
+        sa.cancel_slurm_job(job["slurm_job_id"], profile_name=ctx.profile, runner=ctx.runner)
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cid,))
+            conn.execute("DELETE FROM slurm_clusters WHERE cluster_id = ANY(%s)", ([cid, bad],))
+    check = ev["check"]
+    ev["check"] = {k: check.get(k) for k in ("ok", "missing", "error_code")} | {
+        "facts": sorted(check.get("facts", {}))
+    }
+    return ok(
+        check.get("ok") is True
+        and check.get("missing") == []
+        and ev["master_after_first_pass"]
+        and ev["master_before_second_pass"]
+        and first.ok and second.ok
+        and ev["passes"][0]["in_controller"] == 1
+        and ev["wrong_pin"].get("error_code") == "host_key_mismatch",
+        ev,
+    )
+
+
+@case(
+    "PROG-1",
+    "A job reports its own progress (optional)",
+    "The job writes XCELSIOR_PROGRESS_FILE per the contract; one reconcile pass fetches it through the gate and the read shows it, reported by the job",
+)
+def prog_1(ctx: Ctx):
+    refused = _test_db_guard(ctx)
+    if refused:
+        return refused
+    from db import pg_transaction  # type: ignore
+    import slurm_reconciler as rc  # noqa: E402
+
+    # Written as the contract says: a temporary file, then a rename.
+    command = (
+        'printf \'{"fraction": 0.5, "message": "half way", "updated_at": %s}\' "$(date +%s)" '
+        '> "$XCELSIOR_PROGRESS_FILE.tmp" && mv "$XCELSIOR_PROGRESS_FILE.tmp" '
+        '"$XCELSIOR_PROGRESS_FILE" && sleep 40'
+    )
+    # On the controller host: the gate reads files there (no shared filesystem).
+    job = ctx.submit("prog", num_gpus=0, nodelist=ctx.gpu_node, command=command)
+    if "error" in job:
+        return FAIL, {"submit": job}, "submit failed"
+    cid, xid = f"{ctx.run_id}-prog", job["xcelsior_job_id"]
+    try:
+        sa.register_slurm_job(xid, job["slurm_job_id"], cluster_id=cid)
+        ctx.wait(job["slurm_job_id"], {"RUNNING"}, 60)
+        time.sleep(5)  # let the job write it
+        before = sa.read_reported_progress(xid)  # files the request
+        result = rc.reconcile_cluster(cid, ctx.profile, runner=ctx.runner)
+        after = sa.read_reported_progress(xid)
+    finally:
+        sa.cancel_slurm_job(job["slurm_job_id"], profile_name=ctx.profile, runner=ctx.runner)
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cid,))
+    ev = {"before": before, "fetched": result.outputs_fetched, "errors": result.output_errors, "after": after}
+    return ok(
+        before is None
+        and (xid, "progress") in [tuple(f) for f in result.outputs_fetched]
+        and bool(after)
+        and after.get("valid") is True
+        and after.get("fraction") == 0.5
+        and after.get("message") == "half way"
+        and after.get("source") == "job"
+        and after.get("stale") is False,
+        ev,
+    )
+
+
+@case(
+    "VERDICT-1",
+    "The success verdict reads DerivedExitCode (optional)",
+    "Two jobs exit 0; in one a step failed first. Settled: the first succeeded, the second failed on DerivedExitCode 1:0",
+)
+def verdict_1(ctx: Ctx):
+    refused = _test_db_guard(ctx)
+    if refused:
+        return refused
+    from db import pg_connection, pg_transaction  # type: ignore
+    import slurm_reconciler as rc  # noqa: E402
+
+    good = ctx.submit("v-ok", num_gpus=0, command="srun true")
+    hidden = ctx.submit("v-step", num_gpus=0, command="srun false; exit 0")
+    if "error" in good or "error" in hidden:
+        return FAIL, {"submits": [good, hidden]}, "submit failed"
+    cid = f"{ctx.run_id}-verdict"
+    xids = [good["xcelsior_job_id"], hidden["xcelsior_job_id"]]
+    try:
+        for j in (good, hidden):
+            sa.register_slurm_job(j["xcelsior_job_id"], j["slurm_job_id"], cluster_id=cid)
+        _wait_gone_from_controller(ctx, [good["slurm_job_id"], hidden["slurm_job_id"]])
+        rc.reconcile_cluster(cid, ctx.profile, runner=ctx.runner)
+        with pg_connection() as conn:
+            rows = {
+                r[0]: r[1:]
+                for r in conn.execute(
+                    "SELECT xcelsior_job_id, observed_state, exit_code, derived_exit_code, "
+                    "terminal_at IS NOT NULL FROM slurm_job_mappings WHERE xcelsior_job_id = ANY(%s)",
+                    (xids,),
+                ).fetchall()
+            }
+    finally:
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cid,))
+    verdicts = {x: sa.success_verdict(*rows[x]) for x in xids if x in rows}
+    ev = {"rows": rows, "verdicts": verdicts}
+    return ok(
+        verdicts.get(xids[0]) == "succeeded"
+        and verdicts.get(xids[1]) == "failed"
+        and rows[xids[1]][1] == "0:0"
+        and rows[xids[1]][2] not in (None, "0:0"),
+        ev,
+    )
+
+
 # ── Scenarios: real Slurm events against the reconciler ───────────
 #
 # Opt-in (--scenarios, with --with-db): each case submits through the adapter
@@ -1122,8 +1320,8 @@ def sync_2(ctx: Ctx):
 # SSH login, --admin-ssh), and checks what the reconciler records at each
 # step. The rule they all test: a mapping settles only when its job has left
 # the controller and its latest accounting run is finished. Job-id reuse is
-# not staged here; the reconciler's bounded sacct window and cluster-scoped
-# keys cover it by construction.
+# staged with a scripted cluster instead (tests/test_slurm_reconciler.py,
+# TestJobIdReuse): renumbering needs a controller state wipe.
 
 
 class _Scenario:
