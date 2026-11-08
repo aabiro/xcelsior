@@ -147,7 +147,7 @@ def test_promotion_refuses_when_headscale_cannot_read_its_config(
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     with pytest.raises(hf.FailoverError) as excinfo:
-        hf.promote(settings, replica=status, public_ip="207.219.125.161", runner=runner)
+        hf.promote(settings, replica=status, public_ip="203.0.113.30", runner=runner)
 
     assert "cannot read" in str(excinfo.value) and "config.yaml" in str(excinfo.value)
     assert not [c for c in commands if c[:2] == ["systemctl", "restart"]], "restarted anyway"

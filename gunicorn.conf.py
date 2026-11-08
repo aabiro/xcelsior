@@ -97,7 +97,7 @@ worker_class = "uvicorn.workers.UvicornWorker"
 # (fa37079), but with only loopback trusted it stopped one hop too early:
 # every request reaches nginx *from Cloudflare*, so nginx appends a Cloudflare
 # edge address, and that edge became "the client" for everyone behind it.
-# Measured on production on 2026-10-06: a request from 207.219.90.237 was
+# Measured on production on 2026-10-06: a request from a home address (shown here as 203.0.113.10) was
 # logged as 172.69.130.143. Every per-IP control was then shared by all
 # visitors on an edge — the login brute-force limit, the flood limit, the
 # WebSocket ticket's IP pin, audit addresses, the demo-account gate.
