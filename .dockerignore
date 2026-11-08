@@ -19,6 +19,14 @@ artifacts/
 !.env*.example
 /desktop
 /api/desktop
+# Local-only material deploy.sh's RSYNC_EXCLUDES keeps off production; a
+# build from a working checkout must not bake it into an image either.
+reports
+research_notes
+hpc/slurm-local/site.env
+hpc/slurm-local/debs
+hpc/slurm-local/results
+hpc/slurm-local/rehearsal/.work
 checkpoints/
 .vscode/
 .github/
