@@ -25,15 +25,30 @@ for svc in slurmd slurmctld slurmdbd mariadb munge; do
         systemctl is-active --quiet "$svc" 2>/dev/null && run systemctl stop "$svc"
     fi
 done
+# own_pids NAME — this machine's own NAME processes, never a container's.
+# pkill -x matched by name across every PID namespace: on the tower that
+# included mempool's mariadbd inside Docker (found by the 2026-11-08 dry run,
+# before any rollback ran there).
+own_pids() {
+    local host p
+    host="$(readlink /proc/1/ns/pid)"
+    for p in $(pgrep -x "$1"); do
+        [[ "$(readlink "/proc/$p/ns/pid" 2>/dev/null)" == "$host" ]] || continue
+        grep -qE 'docker-|containerd|libpod|kubepods' "/proc/$p/cgroup" 2>/dev/null && continue
+        echo "$p"
+    done
+}
+
 # Stray daemons (rehearsal / manual starts), only those our packages own.
 for d in slurmd slurmctld slurmdbd mariadbd munged; do
     case $d in
         mariadbd) kind pkg | grep -qx mariadb-server || continue ;;
         munged) kind pkg | grep -qx munge || continue ;;
     esac
-    if pgrep -x "$d" >/dev/null; then
-        run pkill -x "$d"
-        [[ $DRY == 1 ]] || for _ in $(seq 20); do pgrep -x "$d" >/dev/null || break; sleep 1; done
+    mapfile -t pids < <(own_pids "$d")
+    if [[ ${#pids[@]} -gt 0 ]]; then
+        run kill "${pids[@]}"
+        [[ $DRY == 1 ]] || for _ in $(seq 20); do kill -0 "${pids[@]}" 2>/dev/null || break; sleep 1; done
     fi
 done
 
