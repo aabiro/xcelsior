@@ -166,6 +166,9 @@ CONTROL_TABLES = frozenset(
         # The Slurm reconciler's cluster registry: polled and written by the
         # same control-plane writer that owns slurm_job_mappings.
         "slurm_clusters",
+        # Cached output tails: the reconciler fetches them, API reads file
+        # refresh requests. Same writer as the mappings they hang off.
+        "slurm_job_outputs",
         # Unified launch service (Track B B2): the launch/action-plan spine
         # is control-plane state the API writer owns.
         "action_plans",

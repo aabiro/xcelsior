@@ -188,5 +188,11 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
     state: String(a.state), cursor: a.cursor ? String(a.cursor) : undefined, limit: Number(a.limit),
   }));
   registerRead(server, client, user, "get_hpc_job", z.object({ xcelsior_job_id: id }), a => client.get(`/api/v1/hpc/jobs/${encodeURIComponent(String(a.xcelsior_job_id))}`));
+  registerRead(server, client, user, "get_hpc_job_output", z.object({
+    xcelsior_job_id: id,
+    stream: z.enum(["out", "err"]).default("out"),
+  }), a => client.get(`/api/v1/hpc/jobs/${encodeURIComponent(String(a.xcelsior_job_id))}/output`, {
+    stream: String(a.stream),
+  }));
   registerRead(server, client, user, "get_mcp_action_status", z.object({ plan_id: id }), a => client.get(`/api/v1/launch-plans/${encodeURIComponent(String(a.plan_id))}`));
 }
