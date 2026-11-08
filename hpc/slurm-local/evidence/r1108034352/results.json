@@ -1,0 +1,902 @@
+{
+  "run_id": "r1108034352",
+  "profile": "xcl-local",
+  "adapter_version": "3.0.0",
+  "results": [
+    {
+      "id": "ENV-1",
+      "title": "Cluster shape seen through the adapter",
+      "requirement": "One partition spans both nodes; GPU GRES on the GPU node only",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.3,
+      "evidence": {
+        "partition": "xcl",
+        "nodes": [
+          {
+            "name": "asus",
+            "partitions": [
+              "xcl"
+            ],
+            "cpus": 16,
+            "memory_mb": 4096,
+            "gres": "(null)",
+            "state": "idle"
+          },
+          {
+            "name": "tower",
+            "partitions": [
+              "xcl"
+            ],
+            "cpus": 32,
+            "memory_mb": 8192,
+            "gres": "gpu:rtx_3060:1(S:0)",
+            "state": "idle"
+          }
+        ],
+        "gpu_gres": [
+          {
+            "type": "rtx_3060",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "GPU-1",
+      "title": "GPU job through the adapter runs nvidia-smi; GRES honoured",
+      "requirement": "Not pinned: Slurm must place it on the GPU node by GRES alone",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 7.1,
+      "evidence": {
+        "slurm_job_id": "5",
+        "metadata": {
+          "job_id": "r1108034352-gpu1",
+          "slurm_job_name": "xcl-r1108034352-gpu1",
+          "profile": "xcl-local",
+          "cluster_id": "xcl-local",
+          "partition": "xcl",
+          "gpu_request": "gres",
+          "num_gpus": 1,
+          "gpu_type": "rtx_3060",
+          "walltime": "00:10:00",
+          "qos": "default",
+          "nodes": 1,
+          "gpus_per_node": 1,
+          "nodelist": null,
+          "mem_gb": 3,
+          "output_path": "/var/lib/xcl-slurm-test/jobs/xcl-r1108034352-gpu1-%j.out",
+          "error_path": "/var/lib/xcl-slurm-test/jobs/xcl-r1108034352-gpu1-%j.err",
+          "adapter_version": "3.0.0"
+        },
+        "state_trace": [
+          [
+            0.3,
+            "PENDING",
+            "queued",
+            "squeue"
+          ],
+          [
+            1.7,
+            "RUNNING",
+            "running",
+            "squeue"
+          ],
+          [
+            6.1,
+            "COMPLETED",
+            "completed",
+            "sacct"
+          ]
+        ],
+        "accounting": {
+          "slurm_job_id": "5",
+          "job_name": "xcl-r1108034352-gpu1",
+          "slurm_state": "COMPLETED",
+          "raw_state": "COMPLETED",
+          "xcelsior_state": "completed",
+          "terminal": true,
+          "submitted_at": 1794127433.0,
+          "started_at": 1794127433.0,
+          "completed_at": 1794127439.0,
+          "duration_sec": 6,
+          "gpu_count": 1,
+          "cpu_count": 2,
+          "gpu_seconds": 6,
+          "node_list": "tower",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "billing=2,cpu=2,gres/gpu=1,mem=3072M,node=1",
+          "billable": true
+        },
+        "output_source": "submit-host",
+        "nvidia_smi_L": [
+          "GPU 0: NVIDIA GeForce RTX 3060 (UUID: GPU-<redacted>)"
+        ]
+      }
+    },
+    {
+      "id": "GPU-2",
+      "title": "CPU-only job on the GPU node cannot see the GPU",
+      "requirement": "ConstrainDevices: GRES is enforced, not advisory",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 2.7,
+      "evidence": {
+        "slurm_job_id": "6",
+        "state_trace": [
+          [
+            0.3,
+            "PENDING",
+            "queued",
+            "squeue"
+          ],
+          [
+            2.0,
+            "COMPLETED",
+            "completed",
+            "sacct"
+          ]
+        ],
+        "output": "No devices found.\nDONE\nXcelsior job r1108034352-gpu2 completed at Sun Nov  8 03:44:02 EST 2026\n",
+        "output_source": "submit-host"
+      }
+    },
+    {
+      "id": "CPU-1",
+      "title": "CPU job targeted at the CPU node",
+      "requirement": "nodelist honoured; no GPU allocated",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 4.3,
+      "evidence": {
+        "slurm_job_id": "7",
+        "state_trace": [
+          [
+            0.3,
+            "PENDING",
+            "queued",
+            "squeue"
+          ],
+          [
+            3.3,
+            "COMPLETED",
+            "completed",
+            "sacct"
+          ]
+        ],
+        "accounting": {
+          "slurm_job_id": "7",
+          "job_name": "xcl-r1108034352-cpu1",
+          "slurm_state": "COMPLETED",
+          "raw_state": "COMPLETED",
+          "xcelsior_state": "completed",
+          "terminal": true,
+          "submitted_at": 1794127443.0,
+          "started_at": 1794127445.0,
+          "completed_at": 1794127445.0,
+          "duration_sec": 0,
+          "gpu_count": 0,
+          "cpu_count": 2,
+          "gpu_seconds": 0,
+          "node_list": "asus",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "billing=2,cpu=2,mem=1024M,node=1",
+          "billable": false
+        },
+        "output": "HOST=<asus-hostname>\nNPROC=2\nNODELIST=asus\nXcelsior job r1108034352-cpu1 completed at Sun Nov  8 03:44:05 EST 2026\n",
+        "output_source": "local-node"
+      }
+    },
+    {
+      "id": "LIFE-1",
+      "title": "Lifecycle: pending / running / completed / cancelled-while-pending",
+      "requirement": "Adapter states match squeue/sacct at each step",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 26.4,
+      "evidence": {
+        "mapping": [
+          {
+            "step": "pending",
+            "job": "9",
+            "slurm": "PENDING",
+            "adapter": "queued",
+            "expect": [
+              "PENDING",
+              "queued"
+            ],
+            "reason": "(Resources)",
+            "ok": true
+          },
+          {
+            "step": "running",
+            "job": "8",
+            "slurm": "RUNNING",
+            "adapter": "running",
+            "expect": [
+              "RUNNING",
+              "running"
+            ],
+            "ok": true
+          },
+          {
+            "step": "cancelled (pending)",
+            "job": "9",
+            "slurm": "CANCELLED",
+            "adapter": "cancelled",
+            "expect": [
+              "CANCELLED",
+              "cancelled"
+            ],
+            "ok": true
+          },
+          {
+            "step": "completed",
+            "job": "8",
+            "slurm": "COMPLETED",
+            "adapter": "completed",
+            "expect": [
+              "COMPLETED",
+              "completed"
+            ],
+            "ok": true
+          }
+        ],
+        "cancel_B": {
+          "cancelled": true,
+          "slurm_job_id": "9"
+        },
+        "traces": {
+          "A": [
+            [
+              0.3,
+              "PENDING",
+              "queued",
+              "squeue"
+            ],
+            [
+              1.7,
+              "RUNNING",
+              "running",
+              "squeue"
+            ],
+            [
+              0.3,
+              "RUNNING",
+              "running",
+              "squeue"
+            ],
+            [
+              19.4,
+              "COMPLETED",
+              "completed",
+              "sacct"
+            ]
+          ],
+          "B": [
+            [
+              0.7,
+              "CANCELLED",
+              "cancelled",
+              "sacct"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "LIFE-2",
+      "title": "Lifecycle: failed (non-zero exit)",
+      "requirement": "exit 3 \u2192 FAILED \u2192 failed, exit code 3:0",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 4.0,
+      "evidence": {
+        "slurm_job_id": "10",
+        "state_trace": [
+          [
+            0.4,
+            "PENDING",
+            "queued",
+            "squeue"
+          ],
+          [
+            3.4,
+            "FAILED",
+            "failed",
+            "sacct"
+          ]
+        ],
+        "status": {
+          "slurm_job_id": "10",
+          "slurm_state": "FAILED",
+          "xcelsior_state": "failed",
+          "elapsed": "00:00:00",
+          "exit_code": "3:0",
+          "max_rss": "",
+          "max_vmsize": "",
+          "source": "sacct"
+        },
+        "exit_code": "3:0"
+      }
+    },
+    {
+      "id": "LIFE-3",
+      "title": "Lifecycle: cancelled while running",
+      "requirement": "scancel through the adapter \u2192 CANCELLED \u2192 cancelled",
+      "status": "PASS",
+      "note": "second cancel \u2192 already_terminal",
+      "duration_s": 7.7,
+      "evidence": {
+        "slurm_job_id": "11",
+        "cancel": {
+          "cancelled": true,
+          "slurm_job_id": "11"
+        },
+        "state_trace": [
+          [
+            0.7,
+            "CANCELLED",
+            "cancelled",
+            "sacct"
+          ]
+        ],
+        "second_cancel": {
+          "error": "job 11 already ended (CANCELLED)",
+          "error_code": "already_terminal",
+          "slurm_state": "CANCELLED",
+          "xcelsior_state": "cancelled"
+        }
+      }
+    },
+    {
+      "id": "LIFE-4",
+      "title": "Lifecycle: walltime exceeded",
+      "requirement": "time limit 1 min, sleep 300 \u2192 TIMEOUT \u2192 failed",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 65.3,
+      "evidence": {
+        "slurm_job_id": "12",
+        "state_trace": [
+          [
+            0.3,
+            "RUNNING",
+            "running",
+            "squeue"
+          ],
+          [
+            64.9,
+            "TIMEOUT",
+            "failed",
+            "sacct"
+          ]
+        ],
+        "status": {
+          "slurm_job_id": "12",
+          "slurm_state": "TIMEOUT",
+          "xcelsior_state": "failed",
+          "elapsed": "00:01:05",
+          "exit_code": "0:0",
+          "max_rss": "",
+          "max_vmsize": "",
+          "source": "sacct"
+        }
+      }
+    },
+    {
+      "id": "LIFE-5",
+      "title": "sacct fallback after the controller forgets the job",
+      "requirement": "After MinJobAge, status comes from sacct with the same mapping; 'CANCELLED by <uid>' normalised",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 2.4,
+      "evidence": {
+        "statuses": {
+          "completed": {
+            "slurm_job_id": "8",
+            "slurm_state": "COMPLETED",
+            "xcelsior_state": "completed",
+            "elapsed": "00:00:25",
+            "exit_code": "0:0",
+            "max_rss": "",
+            "max_vmsize": "",
+            "source": "sacct"
+          },
+          "cancelled": {
+            "slurm_job_id": "9",
+            "slurm_state": "CANCELLED",
+            "xcelsior_state": "cancelled",
+            "elapsed": "00:00:00",
+            "exit_code": "0:0",
+            "max_rss": "",
+            "max_vmsize": "",
+            "source": "sacct"
+          },
+          "failed": {
+            "slurm_job_id": "10",
+            "slurm_state": "FAILED",
+            "xcelsior_state": "failed",
+            "elapsed": "00:00:00",
+            "exit_code": "3:0",
+            "max_rss": "",
+            "max_vmsize": "",
+            "source": "sacct"
+          }
+        },
+        "sacct_raw_state_for_cancelled": "CANCELLED by 972"
+      }
+    },
+    {
+      "id": "FAIL-1",
+      "title": "Unsatisfiable GPU count",
+      "requirement": "2 GPUs on a 1-GPU cluster \u2192 clean error at submit, no job",
+      "status": "PASS",
+      "note": "error_code=unsatisfiable_request in 0.36s",
+      "duration_s": 0.4,
+      "evidence": {
+        "error": "sbatch failed: sbatch: error: Batch job submission failed: Requested node configuration is not available",
+        "error_code": "unsatisfiable_request",
+        "_elapsed_s": 0.36,
+        "_job": {
+          "job_id": "r1108034352-fail1",
+          "name": "validate-fail1",
+          "vram_needed_gb": 0,
+          "priority": 0,
+          "tier": "validation",
+          "num_gpus": 2,
+          "command": "true"
+        }
+      }
+    },
+    {
+      "id": "FAIL-2",
+      "title": "Bad partition",
+      "requirement": "partition 'nosuchpart' \u2192 invalid_partition",
+      "status": "PASS",
+      "note": "error_code=invalid_partition in 0.36s",
+      "duration_s": 0.4,
+      "evidence": {
+        "error": "sbatch failed: sbatch: error: invalid partition specified: nosuchpart\nsbatch: error: Batch job submission failed: Invalid partition name specified",
+        "error_code": "invalid_partition",
+        "_elapsed_s": 0.36,
+        "_job": {
+          "job_id": "r1108034352-fail2",
+          "name": "validate-fail2",
+          "vram_needed_gb": 0,
+          "priority": 0,
+          "tier": "validation",
+          "num_gpus": 0,
+          "partition": "nosuchpart",
+          "command": "true"
+        }
+      }
+    },
+    {
+      "id": "FAIL-3",
+      "title": "Unsatisfiable memory",
+      "requirement": "64 GB on nodes offering 8/4 GB \u2192 unsatisfiable_request",
+      "status": "PASS",
+      "note": "error_code=unsatisfiable_request in 0.37s",
+      "duration_s": 0.4,
+      "evidence": {
+        "error": "sbatch failed: sbatch: error: Memory specification can not be satisfied\nsbatch: error: Batch job submission failed: Requested node configuration is not available",
+        "error_code": "unsatisfiable_request",
+        "_elapsed_s": 0.37,
+        "_job": {
+          "job_id": "r1108034352-fail3",
+          "name": "validate-fail3",
+          "vram_needed_gb": 0,
+          "priority": 0,
+          "tier": "validation",
+          "num_gpus": 0,
+          "mem_gb": 64,
+          "command": "true"
+        }
+      }
+    },
+    {
+      "id": "FAIL-4",
+      "title": "Walltime over the limit",
+      "requirement": "client-side (profile max) and Slurm-side (partition MaxTime, EnforcePartLimits=ALL)",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.4,
+      "evidence": {
+        "client_side": {
+          "error": "walltime 02:00:00 exceeds profile max 01:00:00",
+          "error_code": "walltime_exceeds_limit",
+          "_elapsed_s": 0.0,
+          "_job": {
+            "job_id": "r1108034352-fail4a",
+            "name": "validate-fail4a",
+            "vram_needed_gb": 0,
+            "priority": 0,
+            "tier": "validation",
+            "num_gpus": 0,
+            "walltime": "02:00:00",
+            "command": "true"
+          }
+        },
+        "slurm_side": {
+          "error": "sbatch failed: sbatch: error: Batch job submission failed: Requested time limit is invalid (missing or exceeds some limit)",
+          "error_code": "walltime_exceeds_limit",
+          "_elapsed_s": 0.35
+        }
+      }
+    },
+    {
+      "id": "FAIL-5",
+      "title": "Unknown node",
+      "requirement": "nodelist 'nosuchnode' \u2192 invalid_nodelist",
+      "status": "PASS",
+      "note": "error_code=invalid_nodelist in 0.34s",
+      "duration_s": 0.3,
+      "evidence": {
+        "error": "sbatch failed: sbatch: error: Batch job submission failed: Invalid node name specified",
+        "error_code": "invalid_nodelist",
+        "_elapsed_s": 0.34,
+        "_job": {
+          "job_id": "r1108034352-fail5",
+          "name": "validate-fail5",
+          "vram_needed_gb": 0,
+          "priority": 0,
+          "tier": "validation",
+          "num_gpus": 0,
+          "nodelist": "nosuchnode",
+          "command": "true"
+        }
+      }
+    },
+    {
+      "id": "FAIL-6",
+      "title": "Hostile job metadata is inert",
+      "requirement": "A job name with quotes, $(), backticks reaches the job as a literal string",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 2.7,
+      "evidence": {
+        "slurm_job_id": "15",
+        "output": "NAME=x\"; touch /tmp/xcl-pwned-r1108034352; echo \"$(id)`id`\nCLEAN\nXcelsior job r1108034352-fail6 completed at Sun Nov  8 03:45:56 EST 2026\n",
+        "expected_name": "x\"; touch /tmp/xcl-pwned-r1108034352; echo \"$(id)`id`"
+      }
+    },
+    {
+      "id": "FAIL-7",
+      "title": "Dead transport fails fast",
+      "requirement": "SSH to an unreachable submit host \u2192 transport_error in seconds",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 4.0,
+      "evidence": {
+        "error": "ssh to submit host failed: ssh: connect to host 192.0.2.1 port 22: Connection timed out",
+        "error_code": "transport_error",
+        "_elapsed_s": 4.02
+      }
+    },
+    {
+      "id": "FAIL-8",
+      "title": "GPU type the cluster does not have",
+      "requirement": "Profile asks for gpu:h100 on an RTX cluster \u2192 clean GRES error at submit (the old Nibi-profile failure mode)",
+      "status": "PASS",
+      "note": "error_code=unsatisfiable_request",
+      "duration_s": 0.3,
+      "evidence": {
+        "error": "sbatch failed: sbatch: error: Batch job submission failed: Requested node configuration is not available",
+        "error_code": "unsatisfiable_request",
+        "_elapsed_s": 0.33
+      }
+    },
+    {
+      "id": "FAIL-9",
+      "title": "Cancel an id Slurm has never seen",
+      "requirement": "scancel exits 0 silently for unknown ids; the adapter must still say not_found",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.7,
+      "evidence": {
+        "error": "scancel failed: scancel: error: Kill job error on job id 987654321: Invalid job id specified",
+        "error_code": "not_found",
+        "_elapsed_s": 0.68
+      }
+    },
+    {
+      "id": "SEC-1",
+      "title": "A job can't widen the adapter's key",
+      "requirement": "Jobs run as the service account, can't write its ~/.ssh or ~/.bashrc, and the key still runs only the gate",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 1.7,
+      "evidence": {
+        "slurm_job_id": "17",
+        "state_trace": [
+          [
+            0.6,
+            "COMPLETED",
+            "completed",
+            "sacct"
+          ]
+        ],
+        "output": "USER=xclslurm\nmkdir: Permission denied\nXcelsior job r1108034352-sec1 completed at Sun Nov  8 03:46:03 EST 2026\n",
+        "output_source": "submit-host",
+        "id_probe": {
+          "returncode": 126,
+          "stderr": "xcl-slurm-gate: refused: command 'id' not allowed"
+        }
+      }
+    },
+    {
+      "id": "SEC-2",
+      "title": "The gate checks batch scripts",
+      "requirement": "Scripts with --output aimed at ~/.ssh, or with --chdir, are refused before sbatch runs",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.7,
+      "evidence": {
+        "chdir": {
+          "returncode": 126,
+          "stdout": "",
+          "stderr": "xcl-slurm-gate: refused: directive --chdir not allowed"
+        },
+        "output_to_ssh": {
+          "returncode": 126,
+          "stdout": "",
+          "stderr": "xcl-slurm-gate: refused: directive --output value not allowed: '/var/lib/xcl-slurm-test/svc-home/.ssh/authorized_keys'"
+        }
+      }
+    },
+    {
+      "id": "METER-1",
+      "title": "Accounting timestamps in billing's shape",
+      "requirement": "Epoch start/end, duration = end-start = ElapsedRaw, gpu_seconds = duration \u00d7 GPUs, job's own clock inside [start, end]",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.0,
+      "evidence": {
+        "accounting": {
+          "slurm_job_id": "5",
+          "job_name": "xcl-r1108034352-gpu1",
+          "slurm_state": "COMPLETED",
+          "raw_state": "COMPLETED",
+          "xcelsior_state": "completed",
+          "terminal": true,
+          "submitted_at": 1794127433.0,
+          "started_at": 1794127433.0,
+          "completed_at": 1794127439.0,
+          "duration_sec": 6,
+          "gpu_count": 1,
+          "cpu_count": 2,
+          "gpu_seconds": 6,
+          "node_list": "tower",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "billing=2,cpu=2,gres/gpu=1,mem=3072M,node=1",
+          "billable": true
+        },
+        "meter_fields": {
+          "started_at": 1794127433.0,
+          "completed_at": 1794127439.0,
+          "duration_sec": 6.0,
+          "gpu_seconds": 6.0
+        },
+        "in_job_clock": {
+          "start": 1794127434,
+          "end": 1794127439
+        },
+        "checks": {
+          "epoch_floats": true,
+          "start_lt_end": true,
+          "duration_eq_end_minus_start": true,
+          "gpu_seconds_eq_duration_x_gpus": true,
+          "job_clock_inside_window": true,
+          "submitted_le_started": true
+        },
+        "example_charge": {
+          "rate_per_hour": 0.5,
+          "formula": "duration_sec / 3600 * rate (billing.UsageMeter path)",
+          "amount": 0.000833
+        }
+      }
+    },
+    {
+      "id": "METER-2",
+      "title": "Non-billable and edge cases",
+      "requirement": "cancelled-while-pending \u2192 not billable; timeout \u2248 walltime; cancelled-running billed to cancel time",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 1.0,
+      "evidence": {
+        "cancelled_pending": {
+          "slurm_job_id": "9",
+          "job_name": "xcl-r1108034352-lifeB",
+          "slurm_state": "CANCELLED",
+          "raw_state": "CANCELLED by 972",
+          "xcelsior_state": "cancelled",
+          "terminal": true,
+          "submitted_at": 1794127449.0,
+          "started_at": null,
+          "completed_at": 1794127453.0,
+          "duration_sec": 0,
+          "gpu_count": 0,
+          "cpu_count": 0,
+          "gpu_seconds": 0,
+          "node_list": "None assigned",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "",
+          "billable": false
+        },
+        "timeout": {
+          "slurm_job_id": "12",
+          "job_name": "xcl-r1108034352-lifeT",
+          "slurm_state": "TIMEOUT",
+          "raw_state": "TIMEOUT",
+          "xcelsior_state": "failed",
+          "terminal": true,
+          "submitted_at": 1794127485.0,
+          "started_at": 1794127485.0,
+          "completed_at": 1794127550.0,
+          "duration_sec": 65,
+          "gpu_count": 0,
+          "cpu_count": 2,
+          "gpu_seconds": 0,
+          "node_list": "asus",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "billing=2,cpu=2,mem=1024M,node=1",
+          "billable": true
+        },
+        "cancelled_running": {
+          "slurm_job_id": "11",
+          "job_name": "xcl-r1108034352-lifeC",
+          "slurm_state": "CANCELLED",
+          "raw_state": "CANCELLED by 972",
+          "xcelsior_state": "cancelled",
+          "terminal": true,
+          "submitted_at": 1794127478.0,
+          "started_at": 1794127479.0,
+          "completed_at": 1794127484.0,
+          "duration_sec": 5,
+          "gpu_count": 0,
+          "cpu_count": 2,
+          "gpu_seconds": 0,
+          "node_list": "asus",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "billing=2,cpu=2,mem=1024M,node=1",
+          "billable": true
+        },
+        "checks": {
+          "pending_cancel_not_billable": true,
+          "timeout_billed_about_walltime": true,
+          "running_cancel_billed": true
+        }
+      }
+    },
+    {
+      "id": "METER-3",
+      "title": "Active metering of a running job",
+      "requirement": "started_at set, completed_at unset; meter completed_at = 0.0",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.0,
+      "evidence": {
+        "accounting": {
+          "slurm_job_id": "8",
+          "job_name": "xcl-r1108034352-lifeA",
+          "slurm_state": "RUNNING",
+          "raw_state": "RUNNING",
+          "xcelsior_state": "running",
+          "terminal": false,
+          "submitted_at": 1794127447.0,
+          "started_at": 1794127448.0,
+          "completed_at": null,
+          "duration_sec": 5,
+          "gpu_count": 1,
+          "cpu_count": 2,
+          "gpu_seconds": 5,
+          "node_list": "tower",
+          "partition": "xcl",
+          "exit_code": "0:0",
+          "alloc_tres": "billing=2,cpu=2,gres/gpu=1,mem=3072M,node=1",
+          "billable": true
+        },
+        "meter_fields": {
+          "started_at": 1794127448.0,
+          "completed_at": 0.0,
+          "duration_sec": 5.0,
+          "gpu_seconds": 5.0
+        }
+      }
+    },
+    {
+      "id": "POD-1",
+      "title": "Pod listing backed by the real cluster",
+      "requirement": "Spec built from sinfo + probe jobs + declarations; validates; verification passes",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 9.8,
+      "evidence": {
+        "summary": {
+          "node_count": 2,
+          "gpu_count": 1,
+          "gpu_model": "NVIDIA GeForce RTX 3060",
+          "gpu_memory_gb": 12.0,
+          "nvlink_domain_size": 1,
+          "nic_speed_gbps_observed": 1.0,
+          "interconnect_type": "ethernet",
+          "verification": "verified",
+          "failed_checks": []
+        },
+        "schema_errors": [],
+        "file": "pod-listing.json"
+      }
+    },
+    {
+      "id": "POD-2",
+      "title": "An overclaimed listing is rejected",
+      "requirement": "Same cluster, facility declares 800 Gb/s NICs \u2192 verification fails",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 0.0,
+      "evidence": {
+        "failed_checks": [
+          {
+            "check": "nic_speed_declared_not_above_observed",
+            "ok": false,
+            "detail": "declared 800 Gb/s vs observed min 1.0 Gb/s"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SYNC-1",
+      "title": "Reconcile loop against real jobs (optional)",
+      "requirement": "Pending job \u2192 observed 'pending' (no CheckViolation); completed \u2192 terminal_at stamped",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 24.1,
+      "evidence": {
+        "first_pass": [
+          [
+            "r1108034352-sync-syncA",
+            "21",
+            "pending",
+            "running"
+          ]
+        ],
+        "after_first": {
+          "r1108034352-sync-syncA": "running",
+          "r1108034352-sync-syncB": "pending"
+        },
+        "second_pass": [
+          [
+            "r1108034352-sync-syncA",
+            "21",
+            "running",
+            "completed"
+          ],
+          [
+            "r1108034352-sync-syncB",
+            "22",
+            "pending",
+            "completed"
+          ]
+        ],
+        "after_second": {
+          "r1108034352-sync-syncA": [
+            "completed",
+            true
+          ],
+          "r1108034352-sync-syncB": [
+            "completed",
+            true
+          ]
+        }
+      }
+    }
+  ]
+}
