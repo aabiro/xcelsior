@@ -10,7 +10,8 @@
 # through xcl-slurm-gate — the same path as the real run.
 #
 # Deviations from the real cluster (and only these):
-#   addresses 172.31.251.4/.6 instead of the tailnet; tower node CPUs=16;
+#   addresses 172.31.251.4/.6 instead of the tailnet, asus hostname
+#   xcl-rh-asus (site values come from env, not site.env); tower node CPUs=16;
 #   cgroup.conf IgnoreSystemd=yes; daemons started without systemd; the GPU
 #   is whatever this host has; SSH on 127.0.0.1:22022.
 set -euo pipefail
@@ -21,7 +22,7 @@ NET=xcl-slurm-rh
 SUBNET=172.31.251.0/24
 T_IP=172.31.251.4
 A_IP=172.31.251.6
-ASUS_HOST=aaryn-ASUS-TUF-Gaming-A15-FA506IV-TUF506IV
+ASUS_HOST=xcl-rh-asus
 KEEP=0
 SUITE_ARGS=""
 while [[ $# -gt 0 ]]; do
@@ -62,7 +63,7 @@ GPU_FLAGS=()
 if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
     GPU_FLAGS=(--gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility)
 fi
-COMMON=(--privileged --cgroupns=private -e TOWER_ADDR=$T_IP -e ASUS_ADDR=$A_IP -e GRES_TYPE=$GRES_TYPE -v "$WORK/shared:/shared" --memory 1500m)
+COMMON=(--privileged --cgroupns=private -e TOWER_ADDR=$T_IP -e ASUS_ADDR=$A_IP -e ASUS_HOSTNAME=$ASUS_HOST -e OPERATOR_USER=aaryn -e GRES_TYPE=$GRES_TYPE -v "$WORK/shared:/shared" --memory 1500m)
 docker run -d --name xcl-rh-tower --hostname tower --network "$NET" --ip $T_IP \
     -p 127.0.0.1:22022:22 "${GPU_FLAGS[@]}" "${COMMON[@]}" xcl-slurm-rh:tower tower >/dev/null
 docker run -d --name xcl-rh-asus --hostname "$ASUS_HOST" --network "$NET" --ip $A_IP \
@@ -88,7 +89,7 @@ echo "== adapter suite (this host → ssh → gate → slurmctld)"
 # The overrides apply only to the profile named here, and are appended to its
 # ssh options; ssh uses the last -F, so the -F /dev/null below wins over the profile's.
 export XCELSIOR_SLURM_SSH_PROFILE=xcl-local
-export XCELSIOR_SLURM_SSH_HOST=aaryn@127.0.0.1
+export XCELSIOR_SLURM_SSH_HOST=xclslurm@127.0.0.1
 export XCELSIOR_SLURM_SSH_OPTIONS="-F /dev/null -p 22022 -i $WORK/adapter_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 set +e
 # shellcheck disable=SC2086

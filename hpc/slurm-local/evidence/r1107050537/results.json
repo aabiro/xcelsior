@@ -111,7 +111,7 @@
         },
         "output_source": "submit-host",
         "nvidia_smi_L": [
-          "GPU 0: NVIDIA GeForce RTX 3060 (UUID: GPU-20f5190f-f5f5-2e3e-a3e7-9cf85c5c1460)"
+          "GPU 0: NVIDIA GeForce RTX 3060 (UUID: GPU-<redacted>)"
         ]
       }
     },
@@ -191,7 +191,7 @@
           "alloc_tres": "billing=2,cpu=2,mem=1024M,node=1",
           "billable": true
         },
-        "output": "HOST=aaryn-ASUS-TUF-Gaming-A15-FA506IV-TUF506IV\nNPROC=2\nNODELIST=asus\nXcelsior job r1107050537-cpu1 completed at Sat Nov  7 05:05:51 EST 2026\n",
+        "output": "HOST=<asus-hostname>\nNPROC=2\nNODELIST=asus\nXcelsior job r1107050537-cpu1 completed at Sat Nov  7 05:05:51 EST 2026\n",
         "output_source": "local-node"
       }
     },

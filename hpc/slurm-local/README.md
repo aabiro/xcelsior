@@ -12,15 +12,19 @@ This kit builds a two-node Slurm cluster on hardware you already own. It then dr
 | `RESULTS_2026-11-07.md`, `CHECKLIST_RESULTS_2026-11-07.md` | The filled report and checklist from the real run |
 | `evidence/r1107050537/` | That run's results.json, pod listing and job outputs |
 | `conf/slurm.conf`, `gres.conf`, `cgroup.conf` | The cluster configuration |
+| `site.env.example` | Your addresses, the asus hostname and your account; copy to `site.env` (git-ignored) |
 | `conf/slurmdbd.conf.template`, `mariadb-xcl-slurm.cnf` | Accounting (needed for metering) |
+| `conf/sshd-xcl-slurm-test.conf` | sshd Match block for the adapter's service account (tower) |
 | `conf/xcelsior-profiles.json` | The adapter profile `xcl-local` |
 | `conf/pod-declared.json` | What a facility would declare for the pod listing |
 | `scripts/10-install-tower.sh`, `20-install-asus.sh` | Installers; every change is recorded in a manifest |
 | `scripts/30-verify-cluster.sh` | Raw-Slurm health checks (V-1 … V-12) |
 | `scripts/90-rollback.sh` | Undoes exactly what the manifest recorded |
 | `scripts/40-start.sh`, `45-stop.sh` | Start or stop the test services (nothing starts at boot) |
-| `scripts/xcl-slurm-gate` | Forced-command gate for the adapter's SSH key |
-| `tests/validate_adapter.py` | The adapter validation suite (ENV, GPU, CPU, LIFE, FAIL, METER, POD, SYNC) |
+| `scripts/xcl-slurm-gate` | Forced-command gate for the adapter's SSH key (tests: `tests/test_slurm_gate.py`) |
+| `scripts/xcl-node-health` | Slurm HealthCheckProgram on both nodes |
+| `scripts/50-backup.sh` | Backs up the accounting DB, slurmctld state, `/etc/slurm` and the munge key |
+| `tests/validate_adapter.py` | The adapter validation suite (ENV, GPU, CPU, LIFE, FAIL, SEC, METER, POD, SYNC) |
 | `rehearsal/` | Runs the whole kit in two containers first, on one machine |
 
 The production roadmap that follows this kit is in [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
@@ -39,15 +43,31 @@ It does this over the transport a real academic cluster demands: one restricted 
 
 It does not prove scale, multi-node MPI, a real fabric (InfiniBand or RoCE), a shared filesystem, or Alliance-specific policy. Alliance-specific policy means automatic partition assignment, allocation accounts and robot-node approval. Those are the open questions for scale validation. One policy constraint is already known: Alliance automation nodes "are not suitable for usage of AI agents", so a scale test would carry scripted adapter traffic only.
 
+## Changes since the 2026-11-07 run (Phase 0 of the blueprint)
+
+The 2026-11-07 run proved the adapter, but jobs ran as your own account and the gate passed batch scripts through unread. These kit changes have **not yet been run on the real machines**; the cluster there is still the 2026-11-07 install until it is rolled back and reinstalled (Step 0 onwards).
+
+- **A service account, `xclslurm` (uid 972).** Jobs submitted through the gate run as it on both nodes, never as you. Its shell is `/bin/sh`, which reads no startup files when sshd runs the gate, and its home is root-owned. The adapter's key sits in a root-owned file outside any home, with an `expiry-time`, and an sshd Match block forces the gate for that account whatever the client asks. Before, one job could append to `~/.ssh/authorized_keys` or `~/.bashrc` and turn the restricted key into a login, as an account with sudo.
+- **The gate checks exact command shapes and reads batch scripts.** It refuses `squeue -a`, `-i`, `scontrol` beyond `ping`, any `#SBATCH` directive outside the adapter's set (so `--output` can't target `~/.ssh`), and reads output files with `O_NOFOLLOW`. It logs every admitted script's sha256, and slurmdbd now keeps the scripts (`AccountingStoreFlags=job_script`).
+- **Config fixes:** `innodb_snapshot_isolation=OFF` (SchedMD requires it; MariaDB 11.8's default would let slurmdbd stop), a health check, `SrunPortRange` with the asus firewall rule for it, retention limits in slurmdbd, `job_comment` so sacct can find the adapter's tags, and a `spot` QoS that normal jobs preempt (`PreemptMode=REQUEUE`), so the requeue paths can be tested.
+- **Site values moved out of the repository** into `site.env` (git-ignored): the repository is public.
+- **Two new suite cases**, SEC-1 and SEC-2, prove the service account and the script check on the real cluster.
+
+Still open from Phase 0: Slurm itself. Ubuntu 26.04 ships 25.11.2, which lacks the eight CVE fixes in SchedMD's 25.11.8 (2026-09-02), and Ubuntu has published no update. That is acceptable for this single-operator lab on the tailnet and not for anything with tenants.
+
 ## Topology
 
 | | tower | asus |
 |---|---|---|
 | Role | slurmctld, slurmdbd, MariaDB, slurmd | slurmd (config-less) |
 | Hardware | Ryzen 9 5950X (16C/32T), 15 GB, RTX 3060 12 GB | Ryzen 9 4900H (8C/16T), 15 GB; CPU-only here |
-| Tailnet | 100.64.0.4 | 100.64.0.6 |
-| Offered to Slurm | 8 GB RAM, 8 CPUs per job, 1 GPU | 4 GB RAM, 8 CPUs per job |
-| Firewall change | none (tailscale0 already allowed) | allow 6818/tcp from 100.64.0.4 on tailscale0 |
+| Tailnet | `TOWER_ADDR` in `site.env` | `ASUS_ADDR` in `site.env` |
+| Offered to Slurm | 8 GB RAM, 8 CPUs, 1 GPU (shared, see below) | 4 GB RAM, 8 CPUs |
+| Firewall change | none: ufw already denies incoming except on tailscale0 (preflight checks it) | allow 6818/tcp and 60001-60100/tcp (srun) from the tower on tailscale0 |
+
+The 8 CPUs are a cap on all of the partition's jobs together on that node (`MaxCPUsPerNode`), not a per-job limit. A second partition would get its own 8, so switch to `CoreSpecCount` on the node lines before adding one.
+
+**The tower's RTX 3060 is not Slurm's alone.** On 2026-11-08 it was in use by `nvidia-cuda-mps-server`, `pxl-publisher` (ffmpeg), `pe-test-gpu-worker` and a Docker container, all outside Slurm. Slurm can't see or fence them. GPU jobs here share the device, so treat GPU timings from this node as shared-GPU numbers. The health check logs these processes; it doesn't drain on them, because the node would never come back (`XCL_GPU_CONTENTION=drain` at install changes that).
 
 Partition `xcl` spans both nodes. MaxTime is 1 hour, and the GRES type is `rtx_3060`, typed the way Alliance clusters type theirs (`h100`). All Slurm and Munge traffic uses the tailnet addresses. MagicDNS is not relied on.
 
@@ -57,22 +77,23 @@ Every item below is written to `/var/lib/xcl-slurm-test/manifest` as it happens.
 
 **tower**
 - Packages: munge, slurmctld, slurmd, slurmdbd, slurm-client, slurm-wlm-nvml-plugin, slurm-wlm-mysql-plugin and mariadb-server, plus their dependencies. That is about 60 packages. A simulated install on 2026-11-07 touched no NVIDIA package and removed nothing.
-- Users: `slurm` (uid/gid 970) and `munge` (971) are created first, with fixed IDs so both nodes agree. The package also creates `mysql`.
-- Files: `/etc/slurm/{slurm,gres,cgroup,slurmdbd}.conf`, `/etc/munge/munge.key`, `/etc/mysql/mariadb.conf.d/90-xcl-slurm.cnf` and `/usr/local/libexec/xcl-slurm-gate`.
-- Directories: `/var/spool/slurmctld`, `/var/spool/slurmd`, `/var/log/slurm`, `/var/lib/xcl-slurm-test/jobs` (job output) and MariaDB's `/var/lib/mariadb`.
-- One line in `~aaryn/.ssh/authorized_keys`, marked `xcl-slurm-adapter`. That key can only run the gate, and only from 100.64.0.6.
+- Users: `slurm` (uid/gid 970), `munge` (971) and the service account `xclslurm` (972) are created first, with fixed IDs so both nodes agree. The package also creates `mysql`.
+- Files: `/etc/slurm/{slurm,gres,cgroup,slurmdbd}.conf`, `/etc/munge/munge.key`, `/etc/mysql/mariadb.conf.d/90-xcl-slurm.cnf`, `/usr/local/libexec/xcl-slurm-gate`, `/usr/local/libexec/xcl-node-health` and `/etc/ssh/sshd_config.d/50-xcl-slurm-test.conf` (sshd is reloaded after `sshd -t` accepts it; the Match block ends with that file, so no other account is affected).
+- Directories: `/var/spool/slurmctld`, `/var/spool/slurmd`, `/var/log/slurm`, `/var/lib/xcl-slurm-test/jobs` (job output: `xclslurm`, your group, mode 2750), `/var/lib/xcl-slurm-test/svc-home` (root-owned) and MariaDB's `/var/lib/mariadb`.
+- `/etc/ssh/xcl-slurm-test/authorized_keys`, root-owned, holding the adapter's key for `xclslurm`. That key can only run the gate, only from the asus, and expires after 90 days.
+- In the accounting DB: QoS `spot`, which `normal` may preempt.
 - A copy of this kit at `~/xcl-slurm-kit`, because the tower has no repo checkout. It is not in the manifest; delete it after rollback.
 - Services: munge, mariadb, slurmdbd, slurmctld and slurmd. They are **disabled at boot** by default, so a reboot returns the tower to its pre-cluster state. `40-start.sh tower` brings them back.
 - Not changed: Docker and its containers, the GitHub Actions runners, the NVIDIA driver and ufw. MariaDB opens no TCP port; `skip-networking` is set because mempool-db already uses 3306 inside Docker. Preflight snapshots every container's ID, state, restart count and start time, plus the runner units. V-12 proves they are unchanged.
 
 **asus**
 - Packages: munge, slurmd and slurm-client, about 30 with dependencies. The NVML plugin is not installed, so the RTX 2060 is never offered.
-- Users: `slurm` (970) and `munge` (971).
-- Files: `/etc/munge/munge.key` (copied from the tower) and `/etc/default/slurmd` (`--conf-server 100.64.0.4:6817`).
-- Directories: `/var/spool/slurmd`, `/var/log/slurm` and `/var/lib/xcl-slurm-test/jobs`.
-- One ufw rule: `allow in on tailscale0 from 100.64.0.4 to any port 6818 proto tcp`.
+- Users: `slurm` (970), `munge` (971) and `xclslurm` (972).
+- Files: `/etc/munge/munge.key` (copied from the tower), `/etc/default/slurmd` (`--conf-server <tower>:6817`) and `/usr/local/libexec/xcl-node-health`.
+- Directories: `/var/spool/slurmd`, `/var/log/slurm`, `/var/lib/xcl-slurm-test/jobs` and `/var/lib/xcl-slurm-test/svc-home`.
+- Two ufw rules, from the tower on tailscale0: port 6818 (slurmd) and 60001-60100 (srun).
 - Services: munge and slurmd, disabled at boot.
-- The adapter's client side (`adapter-client` step): `~/.ssh/xcl_slurm_adapter` and its `.pub`, plus `~/.ssh/xcl_slurm_adapter.conf`, an ssh config used only by the adapter through `-F`. Your `~/.ssh/config` is never edited.
+- The adapter's client side (`adapter-client` step): `~/.ssh/xcl_slurm_adapter` and its `.pub`, plus `~/.ssh/xcl_slurm_adapter.conf`, an ssh config used only by the adapter through `-F`, logging in as `xclslurm`. Your `~/.ssh/config` is never edited. Your home must stay closed to other users (preflight checks it): jobs run on this machine too.
 
 ## Step 0: rehearse in containers (on the ASUS, ~6 minutes)
 
@@ -86,7 +107,7 @@ The rehearsal runs two privileged containers on a private network, `172.31.251.0
 
 Deviations from the real cluster, and only these:
 
-- container addresses instead of the tailnet;
+- container addresses instead of the tailnet, and the asus container is named `xcl-rh-asus` (site values come from the environment, not `site.env`);
 - the tower node is declared with the host's 16 CPUs;
 - `IgnoreSystemd=yes` in cgroup.conf, and daemons start without systemd;
 - the GPU is the host's (RTX 2060 on the ASUS), so its type token replaces `rtx_3060`;
@@ -107,8 +128,11 @@ The cluster was left running, with services disabled at boot. Results are in `RE
 ## Step 1: install the tower
 
 ```bash
-# from the ASUS: the tower has no repo checkout, so copy the kit over
-rsync -a --exclude rehearsal/.work --exclude results hpc/slurm-local/ aaryn@100.64.0.4:~/xcl-slurm-kit/
+# on the ASUS, once: your site values (git-ignored)
+cp hpc/slurm-local/site.env.example hpc/slurm-local/site.env && $EDITOR hpc/slurm-local/site.env
+
+# from the ASUS: the tower has no repo checkout, so copy the kit over (site.env included)
+rsync -a --exclude rehearsal/.work --exclude results hpc/slurm-local/ <you>@<tower-addr>:~/xcl-slurm-kit/
 
 # on the tower
 cd ~/xcl-slurm-kit/scripts
@@ -123,16 +147,16 @@ Expect `tower services up; boot autostart: off`. If any step fails, fix the caus
 ```bash
 # on the ASUS
 cd hpc/slurm-local/scripts
-sudo ./20-install-asus.sh preflight       # includes: can it reach slurmctld on 100.64.0.4:6817?
+sudo ./20-install-asus.sh preflight       # includes: can it reach slurmctld on <tower>:6817?
 sudo ./20-install-asus.sh all
 ```
 
-The munge key is fetched over SSH with your normal key, as `aaryn@100.64.0.4`, using `sudo -n cat`.
+The munge key is fetched over SSH with your normal key, as `OPERATOR_USER@TOWER_ADDR`, using `sudo -n cat`.
 
 ## Step 3: verify the cluster with raw Slurm
 
 ```bash
-# on the tower, as aaryn (not root)
+# on the tower, as yourself (not root)
 cd ~/xcl-slurm-kit/scripts && ./30-verify-cluster.sh
 ```
 
@@ -157,21 +181,22 @@ ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower id                # refused: "xcl
 
 The step does four things, all recorded:
 1. It creates a key used for nothing else.
-2. It writes a dedicated ssh config, used through `-F`.
-3. It authorises the key on the tower as `restrict,from="100.64.0.6",command="/usr/local/libexec/xcl-slurm-gate"`.
+2. It writes a dedicated ssh config, used through `-F`, that logs in as `xclslurm`.
+3. It authorises the key on the tower in the root-owned `/etc/ssh/xcl-slurm-test/authorized_keys` as `restrict,from="<asus>",expiry-time="<+90 days>",command="/usr/local/libexec/xcl-slurm-gate"`. Re-run the step to renew it.
 4. It refuses to finish unless `sinfo` works and `id` is refused.
 
-The adapter profile passes the same `-F` file. **Do not add an alias to `~/.ssh/config` instead.** IdentityFile entries accumulate across every matching Host block, so a `Host *` key is offered first. On the real run, the tower accepted that unrestricted key and `id` ran.
+The adapter profile passes the same `-F` file, and the adapter refuses any remote run without one. **Do not add an alias to `~/.ssh/config` instead.** IdentityFile entries accumulate across every matching Host block, so a `Host *` key is offered first. On the 2026-11-07 run, the tower accepted that unrestricted key and `id` ran.
 
-The gate allows only these command shapes:
-- `sinfo`, `squeue` and `sacct`;
-- `scontrol show …`;
-- `sbatch --parsable`, with the script on stdin;
+The gate admits only the exact argv shapes the adapter sends, options and order included:
+- `sinfo --version`, and `sinfo -N --noheader [-p <partition>] -o <format>`;
+- `squeue -j <id> --noheader -o <format>`;
+- `sacct -j <id> [-X] --noheader --parsable2 [--noconvert] -o <fields>`, optionally after `env SLURM_TIME_FORMAT=%s`;
+- `scontrol ping` and `scontrol --version`;
+- `sbatch --parsable`, with the script on stdin. Every `#SBATCH` line must be one the adapter writes, `--output`/`--error` must be the job's own files in the jobs directory, and sbatch runs from that directory;
 - `scancel [-v] <id>`;
-- `tail -c N -- <path under /var/lib/xcl-slurm-test/jobs/>`;
-- `SLURM_TIME_FORMAT` as the only allowed environment variable.
+- `tail -c N -- /var/lib/xcl-slurm-test/jobs/xcl-<job>-<id>.out|err`, read by the gate itself with `O_NOFOLLOW`.
 
-It logs every allow and deny to the journal under the tag `xcl-slurm-gate`.
+Quotes and shell metacharacters are refused, not interpreted. It logs every allow and deny to the journal under the tag `xcl-slurm-gate`, with each admitted script's sha256. Jobs run as `xclslurm`, so a script's body still runs arbitrary code as that account; isolating it is Phase 3 of the plan.
 
 ## Step 5: run the adapter validation suite
 
@@ -184,7 +209,7 @@ python3 hpc/slurm-local/tests/validate_adapter.py
   .venv/bin/python hpc/slurm-local/tests/validate_adapter.py --with-db )
 ```
 
-It takes about 4 minutes. Results go to `hpc/slurm-local/results/<run-id>/`:
+It takes about 5 minutes. Results go to `hpc/slurm-local/results/<run-id>/`:
 - `checklist.md`, a filled pass/fail table;
 - `results.json`, with evidence for every case: job ids, state traces, accounting rows and outputs;
 - `pod-listing.json`, the reference pod spec;
@@ -208,34 +233,47 @@ sudo ./90-rollback.sh
 
 Rollback runs in this order:
 1. stop the services;
-2. remove the adapter's authorized_keys line;
-3. delete the ufw rule;
-4. remove recorded files and directories;
+2. remove adapter key lines an older kit wrote into your `authorized_keys`;
+3. delete the ufw rules;
+4. remove recorded files and directories (the gate, the health check, the sshd drop-in, the adapter's authorized_keys), then reload sshd;
 5. purge exactly the recorded packages (never `autoremove`);
 6. restore any backed-up file;
 7. remove package directories that did not exist before (`/var/lib/mariadb`, `/etc/mysql`, munge's state);
-8. delete the `slurm`, `munge` and `mysql` users;
-9. remove `/var/lib/xcl-slurm-test`.
+8. delete the `slurm`, `munge`, `xclslurm` and `mysql` users;
+9. remove `/var/lib/xcl-slurm-test`, including any backups under it.
 
 A copy of the manifest is kept in `/root`. The rehearsal checked this end to end: the package set after rollback was identical to the one before install.
 
 To pause without uninstalling: `sudo ./45-stop.sh tower` and `sudo ./45-stop.sh asus`.
 
+## Backups
+
+```bash
+# on the tower
+sudo ./50-backup.sh    # → /var/lib/xcl-slurm-test/backups/<UTC time>.tar.gz, mode 0600
+```
+
+The archive holds a consistent dump of the accounting database, slurmctld's state, `/etc/slurm` and the munge key, so treat it as a secret. Rollback deletes `/var/lib/xcl-slurm-test`: copy archives off the machine first. Retention inside the database is set in `slurmdbd.conf` (job records 24 months, steps 6 months).
+
 ## Risks and how the kit handles them
 
-- **The tower runs production-adjacent services.** Slurm may allocate at most 8 GB, 8 CPUs per job and 1 hour per job. Job steps are cgroup-confined, so cores, RAM, swap and devices are all limited. MariaDB has no TCP port. Services don't start at boot. Docker and the runners are snapshotted and compared.
+- **The tower runs production-adjacent services.** Slurm may allocate at most 8 GB and 8 CPUs on it in total, and 1 hour per job. Job steps are cgroup-confined, so cores, RAM, swap and devices are all limited. Jobs run as `xclslurm`, which has no sudo and can't read your home. MariaDB has no TCP port. Services don't start at boot. Docker and the runners are snapshotted and compared.
+- **The GPU is shared** with services outside Slurm (see Topology). Slurm's device fencing keeps jobs without GRES off it; it can't keep those services off it.
+- **Slurm 25.11.2 is behind on security fixes** (see the Phase 0 notes above). Don't give anyone else a way to submit jobs here.
 - **The tower's disk is 93% full** (130 GB free). The install adds about 300 MB, and logs are small. Preflight requires 3 GB free.
 - **The ASUS crashes several times a day** (pstore panics; failing RAM or CPU), and it runs with heavy swap. With `ReturnToService=2` it rejoins once slurmd re-registers. Don't read a case that failed because the node went DOWN as an adapter failure. Check `sinfo -R`, then re-run that case with `--only`. RealMemory is set to 4 GB.
 - **Munge is clock-sensitive** (5-minute TTL). Preflight requires NTP sync on both nodes.
 - **On the ASUS, Slurm jobs can still open the RTX 2060.** Slurm only fences devices it manages as GRES. That's harmless for the CPU tests, but don't treat the ASUS as GPU-isolated.
+- **The ASUS is a laptop.** Preflight refuses to install unless the sleep, suspend and hibernate targets are masked.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| `asus` is `down*` / `unknown` | `sudo systemctl status slurmd` on the ASUS; ufw rule present; `munge -n \| ssh aaryn@100.64.0.4 unmunge` |
+| `asus` is `down*` / `unknown` | `sudo systemctl status slurmd` on the ASUS; ufw rule present; `munge -n \| ssh <you>@<tower-addr> unmunge` |
+| a node `drain`ed with `xcl-health:` | the reason names the check; `journalctl -t xcl-node-health`; it resumes on its own once the check passes |
 | tower `drain` with `gres/gpu count` | `sudo slurmd -G` on the tower; `nvidia-smi`; the NVML plugin installed |
 | `Invalid account or account/partition combination` | not expected (no `AccountingStorageEnforce`); check slurm.conf was not edited |
 | `sacct` says accounting is disabled | `systemctl status slurmdbd`; `sacctmgr show cluster` lists `xcl-local` |
 | `Security violation` in slurmd log | the `slurm` uid differs between nodes (`id slurm` on both must be 970) |
-| suite: `transport_error` | `ssh xcl-tower sinfo --version`; the key line has `from="100.64.0.6"` |
+| suite: `transport_error` | `ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower sinfo --version`; `/etc/ssh/xcl-slurm-test/authorized_keys` on the tower has the asus's `from=` and an `expiry-time` not yet passed |

@@ -9,12 +9,12 @@ Mark each row PASS or FAIL. Automated rows come from `results/<run-id>/checklist
 | ID | Check | Pass criteria | Result | Evidence / notes |
 |---|---|---|---|---|
 | I-1 | Tower preflight | `10-install-tower.sh preflight` prints no FAIL lines | ☐ PASS ☐ FAIL | |
-| I-2 | ASUS preflight | `20-install-asus.sh preflight` prints no FAIL lines, including reaching 100.64.0.4:6817 | ☐ PASS ☐ FAIL | |
+| I-2 | ASUS preflight | `20-install-asus.sh preflight` prints no FAIL lines, including reaching slurmctld on the tower's port 6817 | ☐ PASS ☐ FAIL | |
 | I-3 | Tower install | `10-install-tower.sh all` ends with "tower services up; boot autostart: off" | ☐ PASS ☐ FAIL | |
 | I-4 | ASUS install | `20-install-asus.sh all` ends with "asus services up" | ☐ PASS ☐ FAIL | |
-| I-5 | Same IDs on both nodes | `id slurm` → 970 and `id munge` → 971 on both | ☐ PASS ☐ FAIL | |
+| I-5 | Same IDs on both nodes | `id slurm` → 970, `id munge` → 971 and `id xclslurm` → 972 on both | ☐ PASS ☐ FAIL | |
 | I-6 | Manifest complete | `/var/lib/xcl-slurm-test/manifest` on each node lists every package, file, dir, user, ufw rule and key line the install added | ☐ PASS ☐ FAIL | |
-| I-7 | Adapter key restricted | `ssh xcl-tower sinfo --version` works; `ssh xcl-tower id` is refused by the gate | ☐ PASS ☐ FAIL | |
+| I-7 | Adapter key restricted | `ssh -F ~/.ssh/xcl_slurm_adapter.conf xcl-tower sinfo --version` works; `… xcl-tower id` is refused by the gate; the key is in the root-owned `/etc/ssh/xcl-slurm-test/authorized_keys` with an `expiry-time` | ☐ PASS ☐ FAIL | |
 
 ## B. Cluster verification (raw Slurm, `30-verify-cluster.sh`)
 
@@ -57,6 +57,8 @@ Everything below goes through `workers/slurm_adapter.py` over the restricted SSH
 | FAIL-7 | Dead transport fails fast | SSH to an unreachable host → `transport_error` in < 20 s | ☐ PASS ☐ FAIL | |
 | FAIL-8 | GPU type the cluster lacks | profile asks for `gpu:h100` → GRES error at submit, no job | ☐ PASS ☐ FAIL | |
 | FAIL-9 | Cancel an unknown id | `not_found`, although plain `scancel` exits 0 | ☐ PASS ☐ FAIL | |
+| SEC-1 | A job can't widen the adapter's key | a job on the tower runs as `xclslurm`, can't write its `~/.ssh/authorized_keys` or `~/.bashrc`, and `id` is still refused afterwards | ☐ PASS ☐ FAIL | |
+| SEC-2 | The gate checks batch scripts | scripts with `--chdir`, or `--output` aimed at `~/.ssh`, exit 126 with no job id | ☐ PASS ☐ FAIL | |
 | METER-1 | Start/end timestamps in the form per-second billing needs | epoch floats; start < end; duration = end − start = ElapsedRaw (±1 s); gpu_seconds = duration × GPUs; the job's own clock lies inside [start, end]; fields match `billing.UsageMeter` | ☐ PASS ☐ FAIL | |
 | METER-2 | Edge cases | cancelled while pending: not billable, 0 s; timeout: billed ≈ walltime; cancelled while running: billed to cancel time | ☐ PASS ☐ FAIL | |
 | METER-3 | Active metering | running job: started_at set, completed_at unset; meter completed_at = 0.0 | ☐ PASS ☐ FAIL | |
@@ -70,8 +72,8 @@ Everything below goes through `workers/slurm_adapter.py` over the restricted SSH
 |---|---|---|---|---|
 | R-1 | Dry run | `90-rollback.sh --dry-run` lists only manifest items | ☐ PASS ☐ FAIL | |
 | R-2 | Packages | after rollback, `dpkg -l` matches the set before install | ☐ PASS ☐ FAIL | |
-| R-3 | Users, files, dirs | no `slurm`, `munge` or `mysql` user; no `/etc/slurm`, `/var/lib/mariadb` or `/var/lib/xcl-slurm-test` | ☐ PASS ☐ FAIL | |
-| R-4 | Access | the `xcl-slurm-adapter` line is gone from authorized_keys; the ufw rule is gone (ASUS) | ☐ PASS ☐ FAIL | |
+| R-3 | Users, files, dirs | no `slurm`, `munge`, `xclslurm` or `mysql` user; no sshd drop-in; no `/etc/slurm`, `/var/lib/mariadb` or `/var/lib/xcl-slurm-test` | ☐ PASS ☐ FAIL | |
+| R-4 | Access | `/etc/ssh/xcl-slurm-test` is gone and sshd was reloaded (tower); both ufw rules are gone (ASUS) | ☐ PASS ☐ FAIL | |
 | R-5 | Untouchables | Docker containers and runners are still as in the preflight snapshot | ☐ PASS ☐ FAIL | |
 
 Sign-off: all of A–C PASS (SYNC-1 may be skipped) = local validation complete.

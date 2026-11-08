@@ -3,8 +3,9 @@
 #
 # Every change to the machine is appended to $XCL_MANIFEST as one line,
 # "<kind> <value>", so 90-rollback.sh can undo exactly what was done and
-# nothing else. Kinds: user, pkg, file, dir, backup, ufw, authkey, service,
-# leftover (package-created paths removed after the purge), sshconfig.
+# nothing else. Kinds: user, pkg, file, dir, backup, ufw, service, leftover
+# (package-created paths removed after the purge), sshd (reload sshd after
+# removing files), and authkey / sshconfig (written by older kit versions).
 
 set -euo pipefail
 # NB: never pipe a long output into "grep -q" here: grep exits at the first
@@ -18,10 +19,52 @@ XCL_MANIFEST="$XCL_STATE/manifest"
 XCL_BACKUP="$XCL_STATE/backup"
 XCL_JOBS_DIR="$XCL_STATE/jobs"
 
-TOWER_ADDR="${TOWER_ADDR:-100.64.0.4}"
-ASUS_ADDR="${ASUS_ADDR:-100.64.0.6}"
+# Site-specific values (tailnet addresses, the asus hostname, your own
+# account) live in site.env beside this kit, which git ignores: the
+# repository is public. See site.env.example. Values already in the
+# environment win, so the rehearsal can set its own.
+XCL_SITE_ENV="${XCL_SITE_ENV:-$KIT_DIR/site.env}"
+XCL_SITE_KEYS=(TOWER_ADDR ASUS_ADDR ASUS_HOSTNAME OPERATOR_USER)
+if [[ -r "$XCL_SITE_ENV" ]]; then
+    while IFS='=' read -r _k _v; do
+        [[ " ${XCL_SITE_KEYS[*]} " == *" $_k "* ]] || continue
+        _v="${_v%%#*}"
+        _v="${_v//[[:space:]]/}"
+        [[ -n "${!_k:-}" ]] || printf -v "$_k" '%s' "$_v"
+    done <"$XCL_SITE_ENV"
+    unset _k _v
+fi
+
+# xcl_require_site — die unless every site value is present and well formed.
+xcl_require_site() {
+    local ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+    [[ "${TOWER_ADDR:-}" =~ $ipv4 ]] || xcl_die "TOWER_ADDR missing or not an IPv4 address (set it in $XCL_SITE_ENV)"
+    [[ "${ASUS_ADDR:-}" =~ $ipv4 ]] || xcl_die "ASUS_ADDR missing or not an IPv4 address (set it in $XCL_SITE_ENV)"
+    [[ "${ASUS_HOSTNAME:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ ]] || xcl_die "ASUS_HOSTNAME missing or invalid (set it in $XCL_SITE_ENV)"
+    [[ "${OPERATOR_USER:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || xcl_die "OPERATOR_USER missing or invalid (set it in $XCL_SITE_ENV)"
+}
+
 SLURM_UID="${SLURM_UID:-970}"
 MUNGE_UID="${MUNGE_UID:-971}"
+# The adapter's service account: jobs submitted through the gate run as it,
+# on both nodes. Never the operator's own account, which has sudo.
+SVC_USER="${SVC_USER:-xclslurm}"
+SVC_UID="${SVC_UID:-972}"
+# Root-owned and not writable by the service account, so a job can't plant
+# ~/.bashrc, ~/.ssh or ~/.ssh/rc there.
+SVC_HOME="$XCL_STATE/svc-home"
+XCL_GATE=/usr/local/libexec/xcl-slurm-gate
+XCL_HEALTH=/usr/local/libexec/xcl-node-health
+# The adapter key's authorized_keys file: root-owned, outside any home.
+XCL_AUTHKEYS_DIR=/etc/ssh/xcl-slurm-test
+XCL_AUTHKEYS="$XCL_AUTHKEYS_DIR/authorized_keys"
+XCL_SSHD_DROPIN=/etc/ssh/sshd_config.d/50-xcl-slurm-test.conf
+# What xcl-node-health does about GPU processes Slurm can't see: "log"
+# (default; the tower's GPU is shared by design) or "drain".
+XCL_GPU_CONTENTION="${XCL_GPU_CONTENTION:-log}"
+[[ "$XCL_GPU_CONTENTION" =~ ^(log|drain)$ ]] || { echo "XCL_GPU_CONTENTION must be log or drain" >&2; exit 1; }
+# srun listens on these; the asus firewall admits them from the tower.
+XCL_SRUN_PORTS=60001:60100
 # Set by the container rehearsal only: no systemd, daemons started by hand.
 XCL_NO_SYSTEMD="${XCL_NO_SYSTEMD:-0}"
 # Default: test services do NOT start at boot. A reboot leaves the box as
@@ -46,10 +89,20 @@ xcl_record() {
     grep -qxF -- "$line" "$XCL_MANIFEST" 2>/dev/null || printf '%s\n' "$line" >>"$XCL_MANIFEST"
 }
 
-# Rewrite the committed addresses when the rehearsal (or a changed tailnet)
-# needs different ones. A no-op with the defaults.
+# Fill the @PLACEHOLDERS@ in a committed config from site.env. Refuses to
+# leave any behind: a literal "@TOWER_ADDR@" in slurm.conf fails late and
+# confusingly.
 xcl_render() {
-    sed -e "s/100\.64\.0\.4/${TOWER_ADDR}/g" -e "s/100\.64\.0\.6/${ASUS_ADDR}/g" "$1"
+    xcl_require_site
+    local out
+    out="$(sed -e "s/@TOWER_ADDR@/${TOWER_ADDR}/g" -e "s/@ASUS_ADDR@/${ASUS_ADDR}/g" \
+        -e "s/@ASUS_HOSTNAME@/${ASUS_HOSTNAME}/g" -e "s/@SVC_USER@/${SVC_USER}/g" \
+        -e "s/@GPU_CONTENTION@/${XCL_GPU_CONTENTION}/g" \
+        -e "s/@GATE@/${XCL_GATE//\//\\/}/g" -e "s/@AUTHKEYS@/${XCL_AUTHKEYS//\//\\/}/g" "$1")"
+    if grep -oE '@[A-Z_]+@' <<<"$out" >/dev/null; then
+        xcl_die "unfilled placeholder in $1: $(grep -oE '@[A-Z_]+@' <<<"$out" | sort -u | tr '\n' ' ')"
+    fi
+    printf '%s\n' "$out"
 }
 
 # xcl_put_file SRC DEST MODE OWNER[:GROUP] — install a rendered copy.
@@ -101,6 +154,32 @@ xcl_create_system_user() {
         --shell /usr/sbin/nologin --comment "xcl-slurm-test $name" "$name"
     xcl_record user "$name"
     xcl_log "created system user $name ($uid)"
+}
+
+# The service account. /bin/sh (dash) reads no startup files when sshd runs
+# the forced command; bash would read ~/.bashrc first. Password "*" means no
+# password, not "locked" ("!"), which sshd refuses for key logins too.
+xcl_create_service_user() {
+    if getent passwd "$SVC_USER" >/dev/null; then
+        [[ "$(id -u "$SVC_USER")" == "$SVC_UID" ]] || xcl_die "user $SVC_USER exists with uid $(id -u "$SVC_USER"), expected $SVC_UID"
+        return 0
+    fi
+    getent passwd "$SVC_UID" >/dev/null && xcl_die "uid $SVC_UID already taken by $(getent passwd "$SVC_UID" | cut -d: -f1)"
+    getent group "$SVC_UID" >/dev/null && xcl_die "gid $SVC_UID already taken by $(getent group "$SVC_UID" | cut -d: -f1)"
+    groupadd --system --gid "$SVC_UID" "$SVC_USER"
+    useradd --system --uid "$SVC_UID" --gid "$SVC_UID" --home-dir "$SVC_HOME" --no-create-home \
+        --shell /bin/sh --password '*' --comment "xcl-slurm-test adapter service account" "$SVC_USER"
+    xcl_record user "$SVC_USER"
+    xcl_log "created service account $SVC_USER ($SVC_UID)"
+}
+
+# Directories every node needs for jobs run as the service account. The
+# jobs dir belongs to it, readable by your group (setgid, so job output
+# inherits the group) and by no one else: the validation suite reads the
+# asus's job output directly.
+xcl_service_dirs() {
+    xcl_put_dir "$SVC_HOME" 0755 root:root
+    xcl_put_dir "$XCL_JOBS_DIR" 2750 "$SVC_USER:$(id -gn "$OPERATOR_USER")"
 }
 
 xcl_installed_packages() {

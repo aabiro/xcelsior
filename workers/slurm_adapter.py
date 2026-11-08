@@ -381,6 +381,9 @@ def get_runner(profile=None) -> SlurmRunner:
         if target == profile.get("_key"):
             host = env_host or host
             opts += shlex.split(env_opts)
+    # "~/" in an option (the -F file, a key) is the adapter's own home, so a
+    # committed profile needn't name an account.
+    opts = [os.path.expanduser(o) if str(o).startswith("~/") else o for o in opts]
     return SlurmRunner(ssh_host=host or None, ssh_options=tuple(opts))
 
 

@@ -9,7 +9,7 @@ Mark each row PASS or FAIL. Automated rows come from `results/<run-id>/checklist
 | ID | Check | Pass criteria | Result | Evidence / notes |
 |---|---|---|---|---|
 | I-1 | Tower preflight | `10-install-tower.sh preflight` prints no FAIL lines | ☒ PASS | all 12 checks ok (after fixing a SIGPIPE false failure on the libnvidia-ml check) |
-| I-2 | ASUS preflight | `20-install-asus.sh preflight` prints no FAIL lines, including reaching 100.64.0.4:6817 | ☒ PASS | all 10 checks ok |
+| I-2 | ASUS preflight | `20-install-asus.sh preflight` prints no FAIL lines, including reaching slurmctld on the tower's port 6817 | ☒ PASS | all 10 checks ok |
 | I-3 | Tower install | `10-install-tower.sh all` ends with "tower services up; boot autostart: off" | ☒ PASS | 23 packages, users 970/971, services up, boot autostart off |
 | I-4 | ASUS install | `20-install-asus.sh all` ends with "asus services up" | ☒ PASS | ufw rule added on tailscale0; services up, boot autostart off |
 | I-5 | Same IDs on both nodes | `id slurm` → 970 and `id munge` → 971 on both | ☒ PASS | slurm 970 and munge 971 on both |
