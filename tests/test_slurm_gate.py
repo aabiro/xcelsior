@@ -276,3 +276,57 @@ class TestGateProcess:
     def test_profile_file_matches_the_gate_paths(self):
         prof = json.loads((KIT / "conf" / "xcelsior-profiles.json").read_text())["profiles"]
         assert prof["xcl-local"]["output_dir"] == gate.JOBS_DIR
+
+
+class TestKitConfigsRender:
+    """Every file the installers render must fill all its placeholders from
+    site values; a stray @NAME@ (even in a comment) stops the install."""
+
+    @pytest.mark.parametrize(
+        "rel",
+        [
+            "conf/slurm.conf",
+            "conf/gres.conf",
+            "conf/cgroup.conf",
+            "conf/mariadb-xcl-slurm.cnf",
+            "conf/sshd-xcl-slurm-test.conf",
+            "conf/slurmdbd.conf.template",
+            "scripts/xcl-slurm-gate",
+            "scripts/xcl-node-health",
+        ],
+    )
+    def test_renders_with_site_values(self, rel, tmp_path):
+        src = KIT / rel
+        if rel.endswith(".template"):  # the installer fills the password first
+            filled = tmp_path / "slurmdbd.conf"
+            filled.write_text(src.read_text().replace("@STORAGE_PASS@", "x"))
+            src = filled
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "XCL_SITE_ENV": "/nonexistent",
+            "TOWER_ADDR": "192.0.2.4",
+            "ASUS_ADDR": "192.0.2.6",
+            "ASUS_HOSTNAME": "asus-host",
+            "OPERATOR_USER": "op",
+        }
+        r = subprocess.run(
+            ["bash", "-c", f'source "{KIT}/scripts/lib.sh"; xcl_render "$1"', "_", str(src)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert r.returncode == 0, r.stderr  # xcl_render refuses any unfilled @NAME@
+        if rel == "conf/slurm.conf":
+            assert "NodeAddr=192.0.2.4" in r.stdout and "NodeHostname=asus-host" in r.stdout
+
+    def test_missing_site_values_stop_the_render(self):
+        r = subprocess.run(
+            ["bash", "-c", f'source "{KIT}/scripts/lib.sh"; xcl_render "{KIT}/conf/slurm.conf"'],
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "XCL_SITE_ENV": "/nonexistent"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert r.returncode != 0
+        assert "TOWER_ADDR" in r.stderr
