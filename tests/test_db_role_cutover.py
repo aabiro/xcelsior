@@ -157,6 +157,13 @@ def test_transfer_supports_real_migrations_partitions_backups_and_owner_rollback
                         sql.Identifier(schema), sql.Identifier(table), sql.Identifier(old)
                     )
                 )
+                # The migrator's ACL entry, which has no TRUNCATE, came along
+                # with ownership; give the owner its own privileges back.
+                admin.execute(
+                    sql.SQL("GRANT ALL ON TABLE {}.{} TO {}").format(
+                        sql.Identifier(schema), sql.Identifier(table), sql.Identifier(old)
+                    )
+                )
             for step in reversed(plan):
                 admin.execute(step["rollback"])
             admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN PASSWORD NULL")

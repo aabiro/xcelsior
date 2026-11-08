@@ -687,6 +687,13 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
                 )
             )
         admin.execute("ALTER SEQUENCE placement_fencing_token_seq OWNER TO xcelsior_migrator")
+        # A sample from a month with no partition, as if maintenance had lapsed:
+        # it lands in DEFAULT, and the migrator's run has to move it out.
+        admin.execute(
+            "INSERT INTO telemetry_samples (host_id, sample, received_at) "
+            "VALUES ('lapsed-window', '{}'::jsonb, '2033-04-10 12:00:00+00')"
+        )
+        default_grants = admin.execute(_DEFAULT_GRANTS).fetchone()
     try:
         with psycopg.connect(make_conninfo(dsn, user="xcelsior_migrator")) as conn:
             maintain(conn)
@@ -699,6 +706,11 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
                 "SELECT has_table_privilege('xcelsior_reconciler', 'telemetry_samples', 'INSERT'), "
                 "has_table_privilege('xcelsior_readonly', 'telemetry_samples', 'INSERT')"
             ).fetchone() == (True, False)
+            assert conn.execute(
+                "SELECT tableoid::regclass::text FROM telemetry_samples WHERE host_id='lapsed-window'"
+            ).fetchall() == [("telemetry_samples_203304",)]
+            # The DEFAULT partition is a new table now; it got the old one's grants.
+            assert conn.execute(_DEFAULT_GRANTS).fetchone() == default_grants
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             for schema, table in admin.execute(
@@ -706,6 +718,17 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
             ).fetchall():
                 admin.execute(
                     sql.SQL("ALTER TABLE {}.{} OWNER TO {}").format(
+                        sql.Identifier(schema),
+                        sql.Identifier(table),
+                        sql.Identifier(original_owner),
+                    )
+                )
+                # A new owner inherits the old owner's ACL entry, and the
+                # migrator's has no TRUNCATE, so put the owner's own back.
+                # Without this the shared test database's owner loses
+                # TRUNCATE everywhere, and suites that reset with it fail.
+                admin.execute(
+                    sql.SQL("GRANT ALL ON TABLE {}.{} TO {}").format(
                         sql.Identifier(schema),
                         sql.Identifier(table),
                         sql.Identifier(original_owner),
@@ -723,6 +746,18 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
                 )
             )
             admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN PASSWORD NULL")
+            admin.execute("DROP TABLE IF EXISTS telemetry_samples_203304")
+            admin.execute("DELETE FROM telemetry_samples WHERE host_id='lapsed-window'")
+
+
+#: What each runtime role may do with telemetry_samples' DEFAULT partition.
+_DEFAULT_GRANTS = (
+    "SELECT has_table_privilege('xcelsior_reconciler', 'telemetry_samples_default', 'INSERT'), "
+    "has_table_privilege('xcelsior_reconciler', 'telemetry_samples_default', 'SELECT'), "
+    "has_table_privilege('xcelsior_readonly', 'telemetry_samples_default', 'SELECT'), "
+    "has_table_privilege('xcelsior_readonly', 'telemetry_samples_default', 'INSERT'), "
+    "has_table_privilege('xcelsior_api', 'telemetry_samples_default', 'INSERT')"
+)
 
 
 def test_only_control_writers_can_advance_the_placement_fence(provisioned_roles):
