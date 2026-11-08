@@ -21,6 +21,10 @@ wait_port() { for _ in $(seq 60); do timeout 1 bash -c "</dev/tcp/$1/$2" 2>/dev/
 
 case "$ROLE" in
 tower)
+    # configure validates the sshd drop-in with sshd -t, which needs host
+    # keys and the privilege-separation dir.
+    ssh-keygen -A >/dev/null
+    install -d -m 0755 /run/sshd
     /kit/scripts/10-install-tower.sh configure db
     # ── rehearsal-only deviations (documented in README §Rehearsal) ──
     # 1. Both containers share this host's 16 CPUs, not the tower's 32.
@@ -35,6 +39,7 @@ tower)
     /usr/sbin/slurmdbd
     wait_port 127.0.0.1 6819
     sacctmgr -n show cluster format=cluster | grep -qw xcl-local || sacctmgr -i add cluster xcl-local
+    /kit/scripts/10-install-tower.sh qos
     /usr/sbin/slurmctld
     wait_port 127.0.0.1 6817
     install -d /run/slurm
@@ -43,8 +48,6 @@ tower)
     if [[ -s /shared/adapter_key.pub ]]; then
         /kit/scripts/10-install-tower.sh authorize-adapter-key /shared/adapter_key.pub "${ADAPTER_FROM:-172.31.251.1,127.0.0.1}"
     fi
-    ssh-keygen -A >/dev/null
-    install -d -m 0755 /run/sshd
     /usr/sbin/sshd
     ;;
 asus)

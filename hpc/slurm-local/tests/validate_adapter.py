@@ -17,7 +17,7 @@ Cases (see CHECKLIST.md for the acceptance criteria of each):
   GPU-1   GPU job via adapter runs nvidia-smi; GRES honoured
   GPU-2   CPU-only job on the GPU node cannot see the GPU
   CPU-1   CPU job pinned to the CPU node
-  LIFE-1..7  pending / running / completed / failed / cancelled (pending
+  LIFE-1..5  pending / running / completed / failed / cancelled (pending
           and running) / timeout, squeue and sacct paths
   FAIL-1..9  unsatisfiable GPU, bad partition, unsatisfiable memory,
           walltime (client + Slurm side), bad node, hostile metadata,
@@ -26,6 +26,8 @@ Cases (see CHECKLIST.md for the acceptance criteria of each):
   METER-1..3 accounting timestamps in billing's UsageMeter shape
   POD-1..2   pod listing spec built from the live cluster, and an overclaim
           rejected
+  SEC-1..2   a job can't widen the adapter's key; the gate refuses
+          scripts with directives outside the adapter's set
   SYNC-1  (optional, --with-db) reconcile loop against real jobs
 """
 
@@ -656,6 +658,89 @@ def fail_9(ctx: Ctx):
     return ok(
         res.get("error_code") == "not_found" and not res.get("cancelled") and el < 30,
         {**res, "_elapsed_s": el},
+    )
+
+
+# ── Security ────────────────────────────────────────────────────────
+
+
+@case(
+    "SEC-1",
+    "A job can't widen the adapter's key",
+    "Jobs run as the service account, can't write its ~/.ssh or ~/.bashrc, and the key still runs only the gate",
+)
+def sec_1(ctx: Ctx):
+    want_user = sa._get_profile(ctx.profile).get("remote_user") or ""
+    cmd = (
+        'echo "USER=$(id -un)"; '
+        'mkdir -p "$HOME/.ssh" 2>&1 && echo key >>"$HOME/.ssh/authorized_keys" 2>&1 && echo WROTE_KEYS; '
+        'echo id >>"$HOME/.bashrc" 2>&1 && echo WROTE_BASHRC; true'
+    )
+    # On the gate's own node: that is where sshd would read those files.
+    res = ctx.submit("sec1", num_gpus=0, nodelist=ctx.gpu_node, command=cmd)
+    if "error" in res:
+        return FAIL, res, "submit failed"
+    sid = res["slurm_job_id"]
+    last, trace = ctx.wait(sid, terminal_states(), 120)
+    out, where = ctx.output(sid, res["_job"]["job_id"])
+    ctx.save_output("SEC-1", out)
+    probe: dict = {}
+    if ctx.runner.remote:
+        r = ctx.runner.run(["id"], timeout=15)
+        probe = {"returncode": r.returncode, "stderr": r.stderr.strip()[:200]}
+    out = out or ""
+    ev = {
+        "slurm_job_id": sid,
+        "state_trace": trace,
+        "output": out,
+        "output_source": where,
+        "id_probe": probe,
+    }
+    return ok(
+        last.get("slurm_state") == "COMPLETED"
+        and f"USER={want_user}" in out
+        and "WROTE_KEYS" not in out
+        and "WROTE_BASHRC" not in out
+        and (not ctx.runner.remote or "xcl-slurm-gate: refused" in probe.get("stderr", "")),
+        ev,
+    )
+
+
+@case(
+    "SEC-2",
+    "The gate checks batch scripts",
+    "Scripts with --output aimed at ~/.ssh, or with --chdir, are refused before sbatch runs",
+)
+def sec_2(ctx: Ctx):
+    if not ctx.runner.remote:
+        return SKIP, {}, "suite is running on the submit host (local transport, no gate)"
+    script, _ = sa.xcelsior_job_to_sbatch(
+        ctx.job("sec2", command="true"), ctx.profile, runner=ctx.runner
+    )
+    head, _, body = script.partition("\n")
+    variants = {
+        "chdir": f"{head}\n#SBATCH --chdir=/tmp\n{body}",
+        "output_to_ssh": "\n".join(
+            "#SBATCH --output=/var/lib/xcl-slurm-test/svc-home/.ssh/authorized_keys"
+            if line.startswith("#SBATCH --output=")
+            else line
+            for line in script.splitlines()
+        ),
+    }
+    ev = {}
+    for name, text in variants.items():
+        r = ctx.runner.run(["sbatch", "--parsable"], input_text=text, timeout=20)
+        ev[name] = {
+            "returncode": r.returncode,
+            "stdout": r.stdout.strip(),
+            "stderr": r.stderr.strip()[:200],
+        }
+    return ok(
+        all(
+            v["returncode"] == 126 and not v["stdout"] and "refused" in v["stderr"]
+            for v in ev.values()
+        ),
+        ev,
     )
 
 

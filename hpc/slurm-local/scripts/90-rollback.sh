@@ -4,10 +4,12 @@
 #   sudo ./90-rollback.sh --dry-run     print the plan, change nothing
 #   sudo ./90-rollback.sh               do it
 #
-# Order: stop services → remove the adapter's authorized_keys line → delete
-# the ufw rule → remove created files and dirs → purge exactly the packages
-# the install added → restore backed-up files → delete the users → remove
-# /var/lib/xcl-slurm-test. Package directories (MariaDB's data dir,
+# Order: stop services → remove adapter key lines older kits wrote into a
+# home → delete the ufw rules → remove created files and dirs (the gate,
+# the sshd drop-in, the adapter's authorized_keys) and reload sshd → purge
+# exactly the packages the install added → restore backed-up files →
+# delete the users (slurm, munge, the xclslurm service account) → remove
+# /var/lib/xcl-slurm-test (backups under it included: copy them off first). Package directories (MariaDB's data dir,
 # /etc/mysql, munge's state) are removed only if they did not exist before.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 xcl_require_root
@@ -65,6 +67,12 @@ done < <(kind file)
 while read -r d; do
     [[ -d "$d" ]] && run rm -rf "$d"
 done < <(kind dir)
+
+# The sshd drop-in is gone now; have sshd drop the service account's block.
+if [[ -n "$(kind sshd)" ]] && xcl_have_systemd && systemctl is-active --quiet ssh; then
+    if [[ $DRY == 1 ]]; then echo "would: sshd -t && systemctl reload ssh"
+    else /usr/sbin/sshd -t && systemctl reload ssh && xcl_log "sshd reloaded without the xcl-slurm-test block"; fi
+fi
 
 mapfile -t PKGS < <(kind pkg)
 if [[ ${#PKGS[@]} -gt 0 ]]; then

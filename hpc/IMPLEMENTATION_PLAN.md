@@ -1,6 +1,6 @@
 # Slurm adapter and pod tier: production implementation plan
 
-Status as of 2026-11-07 (updated the same day: Alliance facts verified against the official docs, decisions D1–D6 made, admin HPC dashboard fixed). Owner: Aaryn Biro. Audience: whoever implements it, human or agent.
+Status as of 2026-11-07 (updated the same day: Alliance facts verified against the official docs, decisions D1–D6 made, admin HPC dashboard fixed; updated 2026-11-08: Phase 0 hardening and the research corrections in §5a). Owner: Aaryn Biro. Audience: whoever implements it, human or agent.
 
 **The claim this plan makes true:** "Slurm schedules GPUs inside a cluster. Xcelsior schedules across clusters." Xcelsior is the meta-scheduler: one control plane that submits into Slurm-run clusters, Kubernetes facilities and independent hosts through one marketplace. Public wording stays "Slurm-native, integration-ready" until a partner route lands.
 
@@ -117,7 +117,7 @@ Exit gate:
 
 Watch-outs:
 - The ASUS's hardware crashes can take a node DOWN mid-run. Re-run the affected case with `--only` before calling it an adapter failure.
-- The tower is production-adjacent. The kit caps Slurm at 8 GB and 8 CPUs per job, starts nothing at boot and proves Docker and the runners unchanged (V-12).
+- The tower is production-adjacent. The kit caps Slurm at 8 GB and 8 CPUs on it in total, starts nothing at boot and proves Docker and the runners unchanged (V-12). Its GPU is shared with services outside Slurm (MPS, pxl-publisher, a GPU test worker, a Docker container), found 2026-11-08.
 
 ### P2: control-plane integration (the production path)
 
@@ -314,6 +314,29 @@ These were open questions. Each is now decided on the recommendation below. Any 
 | D4 | Tenant `command` payloads | **Free-form command inside an allowlisted Apptainer image** on clusters we don't own. On our own clusters, a bare command is allowed for operators | A partner's login and compute nodes run only what their policy allows; the image allowlist is that policy | Shapes P2.6 and P2.7 |
 | D5 | Pod booking mechanism | **Slurm reservations** (`scontrol create reservation`) | Time-boxed, native to Slurm, and they leave the partner's partitions alone | Shapes P4.3 |
 | D6 | `--qos` on built-in profiles | **Off by default**, on per cluster where the site defines QoS | Clusters reject QoS names they don't define; Alliance has no user QoS | Built: `qos: False` default; `qos: True` opt-in |
+
+## 5a. Corrections from the 2026-11-08 research, and Phase 0
+
+A sourced review of this plan against SchedMD's documentation and source, Alliance policy, and how other systems drive Slurm found the following. **Phase 0** (no new features) is done in the repository: public claims corrected, the adapter defects below marked *fixed*, the gate rewritten, and the kit reworked around a service account. The kit changes are not yet on the real machines; the cluster there is still the 2026-11-07 install.
+
+**Fixed in Phase 0**
+- Multi-node GPU and memory requests put the job's total on every node (`--gres` and `--mem` are per node): 16 GPUs on Nibi asked for 3,844 GB per node. Now per node, with `srun` so the payload runs on every node.
+- A remote runner refuses to run without its own `-F` ssh config; `XCELSIOR_SLURM_SSH_OPTIONS` no longer drops it; the SSH env overrides apply only to the profile named in `XCELSIOR_SLURM_SSH_PROFILE`.
+- The script builder's QoS fallback was True; a job missing from squeue and sacct reported `failed` (now `unknown`); `controller_health()` uses `scontrol ping`, since `sinfo --version` never reaches the controller.
+- The gate admitted any flags on read commands and passed `sbatch` scripts unread. It now admits exact argv shapes and refuses `#SBATCH` directives outside the adapter's set. Jobs ran as the operator's account, whose `~/.ssh` and `~/.bashrc` a job could write; they now run as `xclslurm`, with the key in a root-owned file and an sshd `ForceCommand`.
+- MariaDB lacked `innodb_snapshot_isolation=OFF`, which SchedMD requires (MariaDB 11.8's default can stop slurmdbd).
+
+**Changes to P2 before it is built**
+- **P2.3 command set.** `squeue -j a,b,c` with more than one id makes squeue load the whole job table and filter client-side (Slurm 25.11 source). Poll with one `squeue --me -h -t all -o …` per cluster per tick; without `-t all`, squeue hides jobs that just finished. Run `sacct` only for jobs that left squeue, plus a periodic sweep, always with `-S` (without it sacct searches from epoch 0 and, after job ids wrap, can return another job's record). Intervals: 30 s owned, 60 s partners, 120 s Alliance (Alliance publishes no number, only "not every few seconds").
+- **P2.3 state map.** PREEMPTED and NODE_FAIL are not terminal when Slurm requeues: the same id returns to PENDING. SPECIAL_EXIT and REQUEUE_HOLD are holds awaiting release, not failures; SUSPENDED keeps its memory and GPUs, so it is not "queued". These need the P2.1 migration (D2's `preempted`, plus `held` and `suspended`).
+- **P2.2 idempotency tag.** `--comment` reaches sacct only where the site sets `AccountingStoreFlags=job_comment` (xcl-local does now; Alliance is unknown). Look up by `--job-name=xcl-<attempt>` first, via squeue then a bounded sacct, before any resubmit.
+- **P2.3 leadership.** Run one reconciler per cluster under a lease with fencing, so blue and green deploys never both reconcile. Remove the live-polling `/api/slurm/status/{id}` route, or "only the reconciler polls" isn't true. Serve output reads from a cache: on Alliance every read is a full `cat`.
+- **P2.4 billing.** `sacct -j ID -X` without `-D` shows only the latest record, so a requeued job's earlier runs are never billed. Build per-segment records from `sacct -D -X -S …`. Cap a TIMEOUT job's tenant charge at its requested limit (the lab billed 78 s on a 60 s limit, from enforcement lag). Cross-check `Suspended`. Treat "not in accounting yet" as non-final.
+- **D1.** Per-tenant Unix groups give no separation when every tenant runs as one UID (signals, `/proc/<pid>/environ`, `scontrol write batch_script`). On partner clusters, use per-tenant Slurm sub-accounts under an `xcelsior` parent; on owned clusters, per-tenant UIDs with `PrivateData=jobs`. Keep secrets out of batch scripts.
+- **D4.** The image allowlist is enforced only in client code, and Apptainer's own image controls don't work where unprivileged user namespaces are on. The gate must build the script from a structured request: digest-pinned, pre-staged SIFs, `--containall --cleanenv`, no `docker://` pull at run time (compute nodes on Narval, Rorqual and Trillium have no internet).
+- **D5.** Creating a reservation needs Operator, which also lets the holder modify every user's jobs. Partners should create one standing reservation or partition that Xcelsior sub-allocates. No GPU cloud surveyed sells reservation slices of a shared cluster; build P4 only after a partner commits.
+- **P3 (Alliance).** The Terms of Service (TOS-01, 3.1) limit use to academic research under a PI and forbid account sharing, so no Alliance allocation can ever be marketplace capacity. Whether integration testing of this adapter counts as research is for the PI and research office; otherwise use paid non-academic access. Mitacs funds an intern, not compute. Nibi details to model: about half the GPU nodes are MIG (one instance per job); a GPU model has been mandatory since 2026-04-06; `--account` is optional with one allocation and may be `def-`, `rrg-` or `rpp-`; `sinfo` and `sacct` were added to the robot wrapper only on 2026-10-15, so check them on first connection and keep a squeue-only fallback.
+- **Slurm version.** 25.11.8 (2026-09-02) fixed eight CVEs, including an Operator-to-Administrator escalation; Ubuntu 26.04 still ships 25.11.2. Partners must run a fixed release, checked at registration. Rebuilding xcl-local on SchedMD-built packages is the remaining Phase 0 item.
 
 ---
 
