@@ -1571,6 +1571,153 @@
         }
       }
     },
+    "/api/v1/hpc/clusters": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Hpc Clusters",
+        "description": "Registered Slurm clusters with the reconciler's view of their health.\n\nOperator surface: platform admin, or a machine principal with\n`control_plane:read`. Read-only; never contacts a cluster.",
+        "operationId": "api_v1_hpc_clusters_api_v1_hpc_clusters_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hpc/jobs": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Hpc Jobs",
+        "description": "Slurm jobs as the reconciler last observed them, newest change first.\n\n`state`: `open` (not yet settled), `settled`, or `all`. Operators see\nevery job; anyone else sees their own. Read-only; never contacts a cluster.",
+        "operationId": "api_v1_hpc_jobs_api_v1_hpc_jobs_get",
+        "parameters": [
+          {
+            "name": "cluster_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cluster Id"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "open",
+              "title": "State"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hpc/jobs/{xcelsior_job_id}": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Hpc Job",
+        "description": "One Slurm job as the reconciler last observed it.\n\nSomeone else's job is not-found, not forbidden: ids can't be probed.\nRead-only; never contacts a cluster.",
+        "operationId": "api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get",
+        "parameters": [
+          {
+            "name": "xcelsior_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Xcelsior Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
       "post": {
         "tags": [

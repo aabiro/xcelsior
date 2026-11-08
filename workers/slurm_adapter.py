@@ -1745,7 +1745,8 @@ def list_slurm_mappings(limit: int = 200) -> list[dict]:
                       desired_state,
                       EXTRACT(EPOCH FROM submitted_at),
                       EXTRACT(EPOCH FROM last_observed_at),
-                      EXTRACT(EPOCH FROM terminal_at)
+                      EXTRACT(EPOCH FROM terminal_at),
+                      slurm_state, state_reason, exit_code
                  FROM slurm_job_mappings
                 ORDER BY submitted_at DESC NULLS LAST
                 LIMIT %s""",
@@ -1763,9 +1764,62 @@ def list_slurm_mappings(limit: int = 200) -> list[dict]:
                 "submitted_at": float(r[5]) if r[5] is not None else None,
                 "last_observed_at": float(r[6]) if r[6] is not None else None,
                 "terminal_at": float(r[7]) if r[7] is not None else None,
+                "slurm_state": r[8],
+                "state_reason": r[9],
+                "exit_code": r[10],
             }
         )
     return out
+
+
+def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
+    """A job's state as the reconciler last observed it; never polls Slurm.
+
+    The reconciler (slurm_reconciler) is the only code that polls a cluster;
+    the admin dashboard's refresh reads this instead, so refreshing costs the
+    cluster nothing. A Slurm id can exist on several clusters, so without
+    ``cluster_id`` an id mapped on more than one is an error, not a guess.
+    """
+    from db import pg_connection
+
+    if not _SLURM_JOB_ID_RE.match(str(slurm_job_id)):
+        return _error("invalid_job_id", f"invalid Slurm job id: {slurm_job_id!r}")
+    query = (
+        "SELECT xcelsior_job_id, cluster_id, observed_state, slurm_state, state_reason, "
+        "exit_code, terminal_at IS NOT NULL, EXTRACT(EPOCH FROM last_observed_at), "
+        "EXTRACT(EPOCH FROM clock_timestamp() - last_observed_at) "
+        "FROM slurm_job_mappings WHERE slurm_job_id = %s"
+    )
+    params: list = [str(slurm_job_id)]
+    if cluster_id:
+        query += " AND cluster_id = %s"
+        params.append(cluster_id)
+    with pg_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+    if not rows:
+        return _error("not_found", f"Slurm job {slurm_job_id} is not tracked by Xcelsior")
+    if len(rows) > 1:
+        return _error(
+            "ambiguous_job_id",
+            f"Slurm job {slurm_job_id} is mapped on {len(rows)} clusters; pass cluster_id",
+        )
+    xid, cid, observed, slurm_state, reason, exit_code, settled, seen_at, age = rows[0]
+    return {
+        "slurm_job_id": str(slurm_job_id),
+        "cluster_id": cid,
+        "xcelsior_job_id": xid,
+        "slurm_state": slurm_state or "UNKNOWN",
+        # The mapping vocabulary (pending, held, suspended, ...), which the
+        # dashboard labels directly.
+        "xcelsior_state": observed or "unknown",
+        "observed_state": observed or "unknown",
+        "reason": reason,
+        "exit_code": exit_code,
+        "settled": bool(settled),
+        "last_observed_at": float(seen_at) if seen_at is not None else None,
+        "observed_age_seconds": round(float(age), 1) if age is not None else None,
+        "source": "reconciler",
+    }
 
 
 def register_slurm_job(

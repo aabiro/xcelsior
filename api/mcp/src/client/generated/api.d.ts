@@ -785,6 +785,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hpc/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Hpc Clusters
+         * @description Registered Slurm clusters with the reconciler's view of their health.
+         *
+         *     Operator surface: platform admin, or a machine principal with
+         *     `control_plane:read`. Read-only; never contacts a cluster.
+         */
+        get: operations["api_v1_hpc_clusters_api_v1_hpc_clusters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hpc/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Hpc Jobs
+         * @description Slurm jobs as the reconciler last observed them, newest change first.
+         *
+         *     `state`: `open` (not yet settled), `settled`, or `all`. Operators see
+         *     every job; anyone else sees their own. Read-only; never contacts a cluster.
+         */
+        get: operations["api_v1_hpc_jobs_api_v1_hpc_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hpc/jobs/{xcelsior_job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Hpc Job
+         * @description One Slurm job as the reconciler last observed it.
+         *
+         *     Someone else's job is not-found, not forbidden: ids can't be probed.
+         *     Read-only; never contacts a cluster.
+         */
+        get: operations["api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
         parameters: {
             query?: never;
@@ -4703,6 +4772,91 @@ export interface operations {
                 "application/json": components["schemas"]["_OpIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_hpc_clusters_api_v1_hpc_clusters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    api_v1_hpc_jobs_api_v1_hpc_jobs_get: {
+        parameters: {
+            query?: {
+                cluster_id?: string | null;
+                state?: string;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                xcelsior_job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

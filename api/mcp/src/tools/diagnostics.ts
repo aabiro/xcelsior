@@ -174,5 +174,19 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
   }), a => client.get("/api/v1/control-plane/reconciliation-findings", {
     status: String(a.status), cursor: a.cursor ? String(a.cursor) : undefined, limit: Number(a.limit),
   }));
+  // Slurm: read the reconciler's copy. These never reach a cluster, which is
+  // the point: agents can watch without adding load (Alliance's automation
+  // nodes are "not suitable for usage of AI agents").
+  registerRead(server, client, user, "list_hpc_clusters", z.object({}), () => client.get("/api/v1/hpc/clusters"));
+  registerRead(server, client, user, "list_hpc_jobs", z.object({
+    cluster_id: id.optional(),
+    state: z.enum(["open", "settled", "all"]).default("open"),
+    cursor: z.string().max(512).optional(),
+    limit: z.number().int().min(1).max(200).default(100),
+  }), a => client.get("/api/v1/hpc/jobs", {
+    cluster_id: a.cluster_id ? String(a.cluster_id) : undefined,
+    state: String(a.state), cursor: a.cursor ? String(a.cursor) : undefined, limit: Number(a.limit),
+  }));
+  registerRead(server, client, user, "get_hpc_job", z.object({ xcelsior_job_id: id }), a => client.get(`/api/v1/hpc/jobs/${encodeURIComponent(String(a.xcelsior_job_id))}`));
   registerRead(server, client, user, "get_mcp_action_status", z.object({ plan_id: id }), a => client.get(`/api/v1/launch-plans/${encodeURIComponent(String(a.plan_id))}`));
 }

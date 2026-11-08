@@ -546,6 +546,26 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "observed reality disagree. Operator tool. Use when auditing fleet consistency or before " +
     "acting on a host. Read-only and free; listing a finding does not resolve it.",
 
+  list_hpc_clusters:
+    "List the Slurm clusters Xcelsior reconciles, with each one's health as the reconciler last " +
+    "saw it (SSH transport, controller, accounting) and any adapter jobs it found with no " +
+    "mapping. Operator tool. Use when checking whether a cluster is reachable before trusting " +
+    "its job states, or when job states look stale. Read-only and free; it never contacts a cluster.",
+
+  list_hpc_jobs:
+    "List Slurm jobs as the reconciler last observed them: Slurm state, reason, exit code, and " +
+    "whether the job is settled (left the controller with a finished accounting record). Filter " +
+    "by cluster and by open, settled or all. Each job says how old its observation is and " +
+    "whether it is stale. Operator tool. Use when following Slurm jobs or looking for ones that " +
+    "failed or stopped reporting. Read-only and free; it never contacts a cluster, so call it as " +
+    "often as you like.",
+
+  get_hpc_job:
+    "Get one Slurm job as the reconciler last observed it, by its Xcelsior job id (from " +
+    "list_hpc_jobs). A job still in the controller is never settled, because Slurm can requeue " +
+    "it under the same id. Operator tool. Use when watching one job to completion or explaining " +
+    "its outcome. Read-only and free; it never contacts a cluster.",
+
   // ── Operations ──────────────────────────────────────────────────────────
   retry_instance:
     "Retry a failed instance, creating a fresh fenced attempt while preserving the job's " +
