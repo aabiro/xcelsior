@@ -479,7 +479,9 @@ class TestHpcDashboardContract:
         )
         assert r.status_code == 200, r.text
         script = r.json()["script"]
-        assert "#SBATCH --gres=gpu:2" in script
+        # generic has one GPU per node, and --gres is per node: 2 nodes of 1
+        assert "#SBATCH --gres=gpu:1" in script
+        assert "#SBATCH --nodes=2" in script
         assert "#SBATCH --time=01:00:00" in script
         assert "python train.py" in script
 
