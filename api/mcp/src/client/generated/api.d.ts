@@ -854,6 +854,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hpc/jobs/{xcelsior_job_id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Hpc Job Output
+         * @description The tail of a Slurm job's stdout (`out`) or stderr (`err`), from cache.
+         *
+         *     Never contacts a cluster. A copy older than the cluster's poll interval
+         *     queues one fetch for the reconciler's next pass (`refresh_pending`); read
+         *     again after `poll_interval_seconds`. However many readers ask, the
+         *     cluster is read at most once per interval per job and stream. A settled
+         *     job's copy is `final`. Someone else's job is not-found.
+         */
+        get: operations["api_v1_hpc_job_output_api_v1_hpc_jobs__xcelsior_job_id__output_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
         parameters: {
             query?: never;
@@ -4850,6 +4876,39 @@ export interface operations {
     api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                xcelsior_job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_hpc_job_output_api_v1_hpc_jobs__xcelsior_job_id__output_get: {
+        parameters: {
+            query?: {
+                stream?: string;
+            };
             header?: never;
             path: {
                 xcelsior_job_id: string;

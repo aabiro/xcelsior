@@ -313,7 +313,11 @@ def own_cluster(tmp_path, monkeypatch, slurm_rows):
         _json.dumps({"profiles": {cid: {"name": cid, "partition_gpu": "g", "partition_cpu": "c"}}})
     )
     monkeypatch.setenv(slurm_adapter.PROFILES_FILE_ENV, str(profiles))
-    data = {"squeue": {}, "sacct": {}, "fail": False, "sacct_ids": []}
+    data = {"squeue": {}, "sacct": {}, "fail": False, "sacct_ids": [], "xids": {}}
+
+    def name(sid):
+        # As the adapter names jobs: by the Xcelsior job id, not the Slurm one.
+        return f"xcl-{data['xids'].get(sid, sid)}"
 
     def poll(*, profile_name=None, runner=None):
         if profile_name != cid or data["fail"]:
@@ -321,7 +325,7 @@ def own_cluster(tmp_path, monkeypatch, slurm_rows):
         return {
             "jobs": {
                 sid: {
-                    "name": f"xcl-{sid}",
+                    "name": name(sid),
                     "state": st,
                     "reason": "None",
                     "elapsed": "0:01",
@@ -340,7 +344,7 @@ def own_cluster(tmp_path, monkeypatch, slurm_rows):
             for i, st in enumerate(data["sacct"].get(sid, [])):
                 records.setdefault(sid, []).append(
                     {
-                        "name": f"xcl-{sid}",
+                        "name": name(sid),
                         "state": st,
                         "raw_state": st,
                         "observed_state": slurm_adapter.SLURM_OBSERVED_STATE[st],
@@ -361,6 +365,7 @@ def own_cluster(tmp_path, monkeypatch, slurm_rows):
     def register(slurm_id):
         job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
         slurm_adapter.register_slurm_job(job_id, slurm_id, cluster_id=cid)
+        data["xids"][str(slurm_id)] = job_id
         return job_id
 
     return cid, register, data
