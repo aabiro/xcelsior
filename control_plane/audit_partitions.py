@@ -8,6 +8,11 @@ the partition-lag alert stays quiet.
 Mirrors Track A's telemetry partition pattern; idempotent (`CREATE TABLE IF NOT
 EXISTS … PARTITION OF`), so a task that runs every day is a no-op once the window
 is full.
+
+If the window did lapse and rows reached DEFAULT, the next run moves them back
+out before extending the window (`recover_default_partition`). Without that, a
+lapse long enough to put one row in DEFAULT failed the task on that month every
+day, permanently.
 """
 
 from __future__ import annotations
@@ -15,6 +20,8 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 from typing import Any
+
+from psycopg import sql
 
 log = logging.getLogger("xcelsior")
 
@@ -80,11 +87,14 @@ def ensure_monthly_partitions(
 
     Returns the partition suffixes that now exist for the window. Idempotent.
     Takes an open connection so the caller owns the transaction boundary.
+    Rows sitting in DEFAULT are moved to their months first, since they would
+    otherwise block creating those months.
     """
     if table not in _MAINTAINED_TABLES:
         # The name is interpolated into DDL, so it is never taken from a caller
         # unchecked.
         raise ValueError(f"{table!r} is not a known partitioned table")
+    recover_default_partition(conn, table)
     base = (today or _dt.date.today()).replace(day=1)
     ensured: list[str] = []
     for offset in range(months_ahead + 1):
@@ -95,6 +105,134 @@ def ensure_monthly_partitions(
         )
         ensured.append(suffix)
     return ensured
+
+
+def _first(row: Any) -> Any:
+    """Column 0 of a row, whether the connection returns tuples or dicts."""
+    return next(iter(row.values())) if isinstance(row, dict) else row[0]
+
+
+def recover_default_partition(conn: Any, table: str) -> list[str]:
+    """Move every row out of `table`'s DEFAULT partition into a monthly one.
+
+    Returns the suffixes of the months it created; empty, after one cheap read,
+    when DEFAULT is empty, which is every run where the window never lapsed.
+
+    **Why DEFAULT must be emptied, not just tolerated.** Once DEFAULT holds a
+    row for a month, PostgreSQL refuses to create that month's partition
+    ("updated partition constraint for default partition … would be
+    violated"), so the window can never advance past it. And a row in DEFAULT
+    is out of retention's reach: retention drops months, and DEFAULT is not a
+    month, so the row would be kept forever, longer than the stated period.
+
+    **Why the whole partition is swapped rather than its rows moved.** The
+    usual repair moves the month's rows out of DEFAULT with a DELETE. The
+    append-only trigger on the audit tables refuses DELETE, rightly. So the
+    DEFAULT partition is detached whole, the table gets a fresh empty one, the
+    months the old one covered are created, and its rows are copied back in
+    through the parent before the detached table is dropped. No row is ever
+    UPDATEd or DELETEd: the copy is the same rows, byte for byte, and the drop
+    is DDL. Migration 106 carried `placement_decisions` across the same way.
+
+    All in the caller's transaction, so a failure anywhere (a month that cannot
+    be created, a count that does not match) rolls back to exactly where it
+    started: DEFAULT attached, every row in place.
+
+    The cost is time under ACCESS EXCLUSIVE on the parent: from the detach to
+    commit, writes to the table wait. That is bounded by what DEFAULT holds,
+    which is only ever what arrived while the window was lapsed, and the lock is
+    given up after 5 s rather than queued for, as in `drop_expired_partitions`.
+
+    A row from a month already past retention gets its partition back and is
+    then dropped by the retention sweep that follows: the policy applied late,
+    not a row lost.
+    """
+    if table not in _MAINTAINED_TABLES:
+        raise ValueError(f"{table!r} is not a known partitioned table")
+    layout = conn.execute(
+        """
+        SELECT NULLIF(p.partdefid, 0)::regclass::text, a.attname
+          FROM pg_partitioned_table p
+          JOIN pg_attribute a ON a.attrelid = p.partrelid AND a.attnum = p.partattrs[0]
+         WHERE p.partrelid = %s::regclass AND p.partnatts = 1
+        """,
+        (table,),
+    ).fetchone()
+    if layout is None:
+        raise ValueError(f"{table!r} is not partitioned on a single column")
+    default, key = tuple(layout.values()) if isinstance(layout, dict) else layout
+    if default is None:
+        return []
+    if default != f"{table}_default":
+        # A DEFAULT partition this code did not name is not one it rebuilds.
+        raise ValueError(f"refusing to recover {default!r} as {table}'s DEFAULT partition")
+
+    parent = sql.Identifier(table)
+    default_ident = sql.Identifier(default)
+    if not _first(
+        conn.execute(sql.SQL("SELECT EXISTS (SELECT 1 FROM {})").format(default_ident)).fetchone()
+    ):
+        return []
+
+    detached = sql.Identifier(f"{table}_default_repair")
+    conn.execute("SET LOCAL lock_timeout = '5s'")
+    conn.execute(sql.SQL("ALTER TABLE {} DETACH PARTITION {}").format(parent, default_ident))
+    conn.execute(sql.SQL("ALTER TABLE {} RENAME TO {}").format(default_ident, detached))
+    conn.execute(sql.SQL("CREATE TABLE {} PARTITION OF {} DEFAULT").format(default_ident, parent))
+
+    months = conn.execute(
+        sql.SQL("SELECT DISTINCT date_trunc('month', {})::date FROM {} ORDER BY 1").format(
+            sql.Identifier(key), detached
+        )
+    ).fetchall()
+    created: list[str] = []
+    for month in months:
+        suffix, frm, to = _month_bounds(_first(month), 0)
+        # Not IF NOT EXISTS: a table of this name that is not already the
+        # month's partition is something a human made, and it is not adopted.
+        conn.execute(
+            sql.SQL("CREATE TABLE {} PARTITION OF {} FOR VALUES FROM ({}) TO ({})").format(
+                sql.Identifier(f"{table}_{suffix}"), parent, sql.Literal(frm), sql.Literal(to)
+            )
+        )
+        created.append(suffix)
+
+    # Named columns rather than `*`, so a column order that differs between
+    # the parent and the old partition cannot shift values.
+    columns = sql.SQL(", ").join(
+        sql.Identifier(_first(r))
+        for r in conn.execute(
+            """
+            SELECT attname FROM pg_attribute
+             WHERE attrelid = %s::regclass AND attnum > 0
+               AND NOT attisdropped AND attgenerated = ''
+             ORDER BY attnum
+            """,
+            (table,),
+        ).fetchall()
+    )
+    held = _first(conn.execute(sql.SQL("SELECT count(*) FROM {}").format(detached)).fetchone())
+    # OVERRIDING SYSTEM VALUE keeps identity values (telemetry_samples.id) as
+    # they were instead of drawing new ones.
+    moved = conn.execute(
+        sql.SQL("INSERT INTO {} ({}) OVERRIDING SYSTEM VALUE SELECT {} FROM {}").format(
+            parent, columns, columns, detached
+        )
+    ).rowcount
+    if moved != held:
+        raise RuntimeError(f"{table}: copied {moved} of {held} rows out of DEFAULT; rolled back")
+    if _first(
+        conn.execute(sql.SQL("SELECT EXISTS (SELECT 1 FROM {})").format(default_ident)).fetchone()
+    ):
+        raise RuntimeError(f"{table}: rows routed back into DEFAULT; rolled back")
+    conn.execute(sql.SQL("DROP TABLE {}").format(detached))
+    log.warning(
+        "PARTITION RECOVERY %s: moved %d rows out of DEFAULT into %s",
+        table,
+        moved,
+        ", ".join(f"{table}_{s}" for s in created),
+    )
+    return created
 
 
 def ensure_audit_partitions(
@@ -313,10 +451,9 @@ def telemetry_partition_maintenance_task() -> None:
     so there is nothing to isolate it from, and a swallowed exception is exactly
     how a dead maintainer stays invisible.
 
-    If it ever does fail with "updated partition constraint for default
-    partition … would be violated", rows for that month are already in DEFAULT.
-    The repair is deliberate, not automatic: create the month as a standalone
-    table, move its rows out of DEFAULT, and ATTACH it, in one transaction.
+    If rows do reach DEFAULT, `ensure_monthly_partitions` now moves them to
+    their months before extending the window (`recover_default_partition`),
+    so a lapse no longer becomes a permanent failure.
     """
     from control_plane.db import control_plane_transaction
 
