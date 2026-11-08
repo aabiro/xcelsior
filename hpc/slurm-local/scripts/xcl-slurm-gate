@@ -1,94 +1,268 @@
 #!/usr/bin/python3 -I
 """Forced-command gate for the Xcelsior adapter's SSH key.
 
-Installed as /usr/local/libexec/xcl-slurm-gate and named in the key's
-authorized_keys entry:
+Installed as /usr/local/libexec/xcl-slurm-gate and named twice: in the
+key's authorized_keys line, which lives in a root-owned file the service
+account cannot write,
 
-    restrict,from="100.64.0.6",command="/usr/local/libexec/xcl-slurm-gate" ssh-ed25519 AAAA... xcl-slurm-adapter
+    restrict,from="<adapter address>",expiry-time="<date>",command="/usr/local/libexec/xcl-slurm-gate" ssh-ed25519 AAAA... xcl-slurm-adapter
 
-sshd runs this instead of whatever the client asked for, and passes the
-request in SSH_ORIGINAL_COMMAND. Only the exact command shapes
-slurm_adapter sends are allowed; everything else is refused and logged.
-This is the same mechanism Alliance "robot" automation nodes use for
-MFA-exempt automated access, so the local test exercises the transport a
-real academic cluster would demand.
+and as ForceCommand in the sshd Match block for the service account. sshd
+runs this instead of whatever the client asked for and passes the request
+in SSH_ORIGINAL_COMMAND. This is the same mechanism Alliance "robot"
+automation nodes use for MFA-exempt automated access, so the local test
+exercises the transport a real academic cluster would demand.
+
+Every request must match one of the exact argv shapes slurm_adapter sends
+(SHAPES below); options, order and values are all checked, so flags such
+as `squeue -a` (every user) or `-i` (repeat forever) never reach Slurm.
+The command line is split on whitespace like Alliance's wrapper does, and
+any shell metacharacter or quote is refused rather than interpreted.
+
+`sbatch` takes its script on stdin. The gate reads it, refuses any #SBATCH
+directive outside the set the adapter writes (so --output can't aim at
+~/.ssh or --chdir anywhere), logs its sha256, and runs sbatch from the jobs
+directory. The script body itself is still arbitrary code run as the
+service account; isolating it is the gate-built-script work in Phase 3.
+
+`tail` is implemented here, not exec'd: the file is opened relative to the
+jobs directory with O_NOFOLLOW, so a symlink swapped in after the name was
+checked can't redirect the read.
 """
 
+import hashlib
 import os
 import re
-import shlex
+import stat
+import subprocess
 import sys
 import syslog
 
-JOBS_PREFIX = "/var/lib/xcl-slurm-test/jobs/"
-ALLOWED_ENV = {"SLURM_TIME_FORMAT": re.compile(r"^%s$|^standard$")}
-DIGITS = re.compile(r"^\d{1,12}(?:_\d{1,9})?$")
-READ_ONLY = {"sinfo", "squeue", "sacct"}
+JOBS_DIR = "/var/lib/xcl-slurm-test/jobs"
+MAX_SCRIPT_BYTES = 256 * 1024
+MAX_TAIL_BYTES = 4 * 1024 * 1024
+
+DENY_EXIT = 126
+# Anything a shell would interpret, plus quotes: the adapter never sends them.
+UNSAFE_CHARS = set("'\"\\$`;&<>(){}*?[]~!#\n\r\t\0")
+
+JOB_ID = re.compile(r"\d{1,12}(?:_\d{1,9})?")
+TOKEN = re.compile(r"[A-Za-z0-9_.:+-]{1,128}")
+FORMAT = re.compile(r"(?:%[0-9.]*[A-Za-z]|\|){1,64}")
+FIELDS = re.compile(r"[A-Za-z]{1,32}(?:,[A-Za-z]{1,32}){0,63}")
+BYTES = re.compile(r"\d{1,9}")
+JOBS_FILE = re.compile(
+    re.escape(JOBS_DIR) + r"/xcl-[A-Za-z0-9][A-Za-z0-9_.-]{0,63}-\d{1,12}(?:_\d{1,9})?\.(?:out|err)"
+)
+
+# prog → allowed argv shapes after the program name. A str must match
+# exactly; a compiled pattern must fullmatch that position.
+SHAPES = {
+    "sinfo": (
+        ("--version",),
+        ("-N", "--noheader", "-o", FORMAT),
+        ("-N", "--noheader", "-p", TOKEN, "-o", FORMAT),
+    ),
+    "squeue": (("-j", JOB_ID, "--noheader", "-o", FORMAT),),
+    "sacct": (
+        ("-j", JOB_ID, "--noheader", "--parsable2", "-o", FIELDS),
+        ("-j", JOB_ID, "-X", "--noheader", "--parsable2", "--noconvert", "-o", FIELDS),
+    ),
+    "scontrol": (("--version",), ("ping",)),
+    "scancel": (("-v", JOB_ID), (JOB_ID,)),
+    "sbatch": (("--parsable",),),
+    "tail": (("-c", BYTES, "--", JOBS_FILE),),
+}
+# The only environment a request may set, and only for these programs.
+ALLOWED_ENV = {"SLURM_TIME_FORMAT": (re.compile(r"%s|standard"), {"sacct"})}
+
+# #SBATCH directives the adapter writes, with the values it may write.
+NAME = r"xcl-[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
+DIRECTIVES = {
+    "--job-name": re.compile(NAME),
+    "--partition": TOKEN,
+    "--gres": re.compile(r"gpu:(?:[A-Za-z0-9_.-]{1,64}:)?\d{1,3}"),
+    "--gpus-per-node": re.compile(r"(?:[A-Za-z0-9_.-]{1,64}:)?\d{1,3}"),
+    "--cpus-per-gpu": re.compile(r"\d{1,4}"),
+    "--cpus-per-task": re.compile(r"\d{1,4}"),
+    "--nodes": re.compile(r"\d{1,4}"),
+    "--ntasks": re.compile(r"\d{1,4}"),
+    "--ntasks-per-node": re.compile(r"\d{1,4}"),
+    "--time": re.compile(r"[0-9:-]{1,16}"),
+    "--mem": re.compile(r"\d{1,7}G"),
+    "--output": re.compile(re.escape(JOBS_DIR) + "/" + NAME + r"-%j\.out"),
+    "--error": re.compile(re.escape(JOBS_DIR) + "/" + NAME + r"-%j\.err"),
+    "--comment": re.compile(r"xcelsior:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"),
+    "--account": TOKEN,
+    "--qos": TOKEN,
+    "--nodelist": re.compile(r"[A-Za-z0-9_.,\[\]-]{1,512}"),
+}
+REQUIRED_DIRECTIVES = ("--job-name", "--output", "--error")
+DIRECTIVE_LINE = re.compile(r"#SBATCH (--[a-z-]{1,32})=(\S{1,512})")
+LOOKS_LIKE_DIRECTIVE = re.compile(r"\s*#\s*SBATCH", re.IGNORECASE)
 
 
-def deny(reason, cmd):
+class Deny(Exception):
+    pass
+
+
+def parse(cmd):
+    """SSH_ORIGINAL_COMMAND → (prog, args, env). Raises Deny."""
+    if not cmd or set(cmd) & UNSAFE_CHARS:
+        raise Deny("empty, or contains quotes or shell metacharacters")
+    argv = cmd.split(" ")
+    if "" in argv:
+        raise Deny("words must be separated by single spaces")
+    env = {}
+    if argv[0] == "env":
+        argv = argv[1:]
+        while argv and "=" in argv[0]:
+            key, val = argv.pop(0).split("=", 1)
+            rule = ALLOWED_ENV.get(key)
+            if not rule or not rule[0].fullmatch(val):
+                raise Deny(f"env {key} not allowed")
+            env[key] = val
+    if not argv:
+        raise Deny("no command")
+    prog, args = argv[0], argv[1:]
+    if prog not in SHAPES:
+        raise Deny(f"command {prog!r} not allowed")
+    for key in env:
+        if prog not in ALLOWED_ENV[key][1]:
+            raise Deny(f"env {key} not allowed for {prog}")
+    if not any(_matches(args, shape) for shape in SHAPES[prog]):
+        raise Deny(f"{prog}: arguments are not a shape the adapter sends")
+    return prog, args, env
+
+
+def _matches(args, shape):
+    if len(args) != len(shape):
+        return False
+    for arg, want in zip(args, shape):
+        if isinstance(want, str):
+            if arg != want:
+                return False
+        elif not want.fullmatch(arg):
+            return False
+    return True
+
+
+def check_script(text):
+    """Refuse a batch script with any #SBATCH directive the adapter doesn't
+    write. Stricter than sbatch, which stops reading directives at the first
+    command: every directive-looking line in the file is checked."""
+    if not text.startswith("#!"):
+        raise Deny("script must start with #!")
+    seen = {}
+    for line in text.splitlines():
+        if not LOOKS_LIKE_DIRECTIVE.match(line):
+            continue
+        m = DIRECTIVE_LINE.fullmatch(line)
+        if not m:
+            raise Deny(f"directive not in '#SBATCH --opt=value' form: {line[:80]!r}")
+        opt, val = m.groups()
+        rule = DIRECTIVES.get(opt)
+        if rule is None:
+            raise Deny(f"directive {opt} not allowed")
+        if opt in seen:
+            raise Deny(f"directive {opt} repeated")
+        if not rule.fullmatch(val):
+            raise Deny(f"directive {opt} value not allowed: {val[:80]!r}")
+        seen[opt] = val
+    for opt in REQUIRED_DIRECTIVES:
+        if opt not in seen:
+            raise Deny(f"directive {opt} missing")
+    name = seen["--job-name"]
+    for opt, ext in (("--output", "out"), ("--error", "err")):
+        if seen[opt] != f"{JOBS_DIR}/{name}-%j.{ext}":
+            raise Deny(f"{opt} must be {JOBS_DIR}/{name}-%j.{ext}")
+
+
+def read_tail(path, nbytes):
+    """Last `nbytes` of a job output file, with no symlink anywhere in reach."""
+    name = path[len(JOBS_DIR) + 1 :]
+    dfd = os.open(JOBS_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dfd)
+    finally:
+        os.close(dfd)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise Deny("not a regular file")
+        if st.st_uid != os.getuid():
+            raise Deny("file not owned by the service account")
+        os.lseek(fd, max(0, st.st_size - nbytes), os.SEEK_SET)
+        chunks, left = [], nbytes
+        while left > 0:
+            chunk = os.read(fd, min(left, 65536))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _deny(reason, cmd):
     syslog.syslog(syslog.LOG_WARNING, f"xcl-slurm-gate DENY ({reason}): {cmd!r}")
     print(f"xcl-slurm-gate: refused: {reason}", file=sys.stderr)
-    sys.exit(126)
+    sys.exit(DENY_EXIT)
 
 
 def main():
     syslog.openlog("xcl-slurm-gate", syslog.LOG_PID, syslog.LOG_AUTH)
     cmd = os.environ.get("SSH_ORIGINAL_COMMAND", "")
     try:
-        argv = shlex.split(cmd)
-    except ValueError:
-        deny("unparseable", cmd)
-    env = {}
-    if argv and argv[0] == "env":
-        argv = argv[1:]
-        while argv and "=" in argv[0] and not argv[0].startswith("-"):
-            key, val = argv.pop(0).split("=", 1)
-            rule = ALLOWED_ENV.get(key)
-            if not rule or not rule.match(val):
-                deny(f"env {key} not allowed", cmd)
-            env[key] = val
-    if not argv:
-        deny("empty", cmd)
-    prog, args = argv[0], argv[1:]
+        prog, args, env = parse(cmd)
+    except Deny as e:
+        _deny(str(e), cmd)
+        return
 
-    if prog in READ_ONLY:
-        pass
-    elif prog == "scontrol":
-        positional = [a for a in args if not a.startswith("-")]
-        if not positional or positional[0] != "show":
-            if args != ["--version"]:
-                deny("scontrol: only 'show' is allowed", cmd)
-    elif prog == "sbatch":
-        # Script arrives on stdin; no --wrap, no script path, no overrides.
-        if args != ["--parsable"]:
-            deny("sbatch: only 'sbatch --parsable' with the script on stdin", cmd)
-    elif prog == "scancel":
-        if args[:1] == ["-v"]:
-            args_id = args[1:]
-        else:
-            args_id = args
-        if len(args_id) != 1 or not DIGITS.match(args_id[0]):
-            deny("scancel: exactly one numeric job id (optionally -v)", cmd)
-    elif prog == "tail":
-        if len(args) != 4 or args[0] != "-c" or not args[1].isdigit() or args[2] != "--":
-            deny("tail: only 'tail -c N -- PATH'", cmd)
-        path = os.path.realpath(args[3])
-        if not path.startswith(JOBS_PREFIX):
-            deny("tail: path outside the jobs directory", cmd)
-        args = ["-c", args[1], "--", path]
-    else:
-        deny(f"command {prog!r} not allowed", cmd)
+    if prog == "tail":
+        nbytes = min(int(args[1]), MAX_TAIL_BYTES)
+        try:
+            data = read_tail(args[3], nbytes)
+        except Deny as e:
+            _deny(str(e), cmd)
+            return
+        except OSError as e:
+            print(f"xcl-slurm-gate: cannot open {args[3]!r}: {e.strerror}", file=sys.stderr)
+            sys.exit(1)
+        syslog.syslog(syslog.LOG_INFO, f"xcl-slurm-gate ALLOW: {cmd!r}")
+        sys.stdout.buffer.write(data)
+        return
+
+    script = None
+    if prog == "sbatch":
+        script = sys.stdin.buffer.read(MAX_SCRIPT_BYTES + 1)
+        if len(script) > MAX_SCRIPT_BYTES:
+            _deny(f"script over {MAX_SCRIPT_BYTES} bytes", cmd)
+        try:
+            check_script(script.decode("utf-8"))
+        except UnicodeDecodeError:
+            _deny("script is not UTF-8", cmd)
+        except Deny as e:
+            _deny(str(e), cmd)
+        digest = hashlib.sha256(script).hexdigest()
+        cmd = f"{cmd} [script sha256={digest} bytes={len(script)}]"
 
     syslog.syslog(syslog.LOG_INFO, f"xcl-slurm-gate ALLOW: {cmd!r}")
-    base_env = {
+    run_env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "HOME": os.environ.get("HOME", "/"),
         "USER": os.environ.get("USER", ""),
         "LOGNAME": os.environ.get("LOGNAME", ""),
         "LANG": "C.UTF-8",
+        **env,
     }
-    os.execvpe(prog, [prog, *args], {**base_env, **env})
+    if script is None:
+        os.execvpe(prog, [prog, *args], run_env)
+    # Jobs start in sbatch's working directory: the jobs dir, the one place
+    # the service account may write.
+    done = subprocess.run([prog, *args], input=script, env=run_env, cwd=JOBS_DIR)
+    sys.exit(done.returncode)
 
 
 if __name__ == "__main__":
