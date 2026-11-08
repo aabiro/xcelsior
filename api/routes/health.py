@@ -607,7 +607,7 @@ def api_slurm_cancel(slurm_job_id: str, request: Request, cluster_id: str | None
 
 @router.get("/api/slurm/profiles", tags=["Infrastructure"])
 def api_slurm_profiles(request: Request):
-    """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
+    """List Slurm cluster profiles (Nibi, Narval, generic; Graham is retired)."""
     _require_admin(request)
     from slurm_adapter import CLUSTER_PROFILES, SlurmAdapterError, _get_profile, available_profiles
 
