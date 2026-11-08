@@ -24,7 +24,7 @@ XCL_JOBS_DIR="$XCL_STATE/jobs"
 # repository is public. See site.env.example. Values already in the
 # environment win, so the rehearsal can set its own.
 XCL_SITE_ENV="${XCL_SITE_ENV:-$KIT_DIR/site.env}"
-XCL_SITE_KEYS=(TOWER_ADDR ASUS_ADDR ASUS_HOSTNAME OPERATOR_USER)
+XCL_SITE_KEYS=(TOWER_ADDR ASUS_ADDR ASUS_HOSTNAME OPERATOR_USER TOWER_MEM_MB ASUS_MEM_MB)
 if [[ -r "$XCL_SITE_ENV" ]]; then
     while IFS='=' read -r _k _v; do
         [[ " ${XCL_SITE_KEYS[*]} " == *" $_k "* ]] || continue
@@ -34,6 +34,11 @@ if [[ -r "$XCL_SITE_ENV" ]]; then
     done <"$XCL_SITE_ENV"
     unset _k _v
 fi
+# Memory each node offers Slurm (slurm.conf RealMemory, MB): deliberately far
+# below the hardware, so jobs can't crowd out what already runs there. Never
+# above the installed RAM: slurmd would register short and the node drains.
+TOWER_MEM_MB="${TOWER_MEM_MB:-8192}"
+ASUS_MEM_MB="${ASUS_MEM_MB:-4096}"
 
 # xcl_require_site — die unless every site value is present and well formed.
 xcl_require_site() {
@@ -42,6 +47,13 @@ xcl_require_site() {
     [[ "${ASUS_ADDR:-}" =~ $ipv4 ]] || xcl_die "ASUS_ADDR missing or not an IPv4 address (set it in $XCL_SITE_ENV)"
     [[ "${ASUS_HOSTNAME:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ ]] || xcl_die "ASUS_HOSTNAME missing or invalid (set it in $XCL_SITE_ENV)"
     [[ "${OPERATOR_USER:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || xcl_die "OPERATOR_USER missing or invalid (set it in $XCL_SITE_ENV)"
+    [[ "$TOWER_MEM_MB" =~ ^[1-9][0-9]{2,6}$ ]] || xcl_die "TOWER_MEM_MB must be a whole number of MB"
+    [[ "$ASUS_MEM_MB" =~ ^[1-9][0-9]{2,6}$ ]] || xcl_die "ASUS_MEM_MB must be a whole number of MB"
+}
+
+# xcl_mem_fits MB — true when this machine has at least MB of RAM.
+xcl_mem_fits() {
+    (($1 <= $(awk '/^MemTotal:/ {print int($2 / 1024)}' /proc/meminfo)))
 }
 
 SLURM_UID="${SLURM_UID:-970}"
@@ -98,6 +110,7 @@ xcl_render() {
     out="$(sed -e "s/@TOWER_ADDR@/${TOWER_ADDR}/g" -e "s/@ASUS_ADDR@/${ASUS_ADDR}/g" \
         -e "s/@ASUS_HOSTNAME@/${ASUS_HOSTNAME}/g" -e "s/@SVC_USER@/${SVC_USER}/g" \
         -e "s/@GPU_CONTENTION@/${XCL_GPU_CONTENTION}/g" \
+        -e "s/@TOWER_MEM_MB@/${TOWER_MEM_MB}/g" -e "s/@ASUS_MEM_MB@/${ASUS_MEM_MB}/g" \
         -e "s/@GATE@/${XCL_GATE//\//\\/}/g" -e "s/@AUTHKEYS@/${XCL_AUTHKEYS//\//\\/}/g" "$1")"
     if grep -oE '@[A-Z_]+@' <<<"$out" >/dev/null; then
         xcl_die "unfilled placeholder in $1: $(grep -oE '@[A-Z_]+@' <<<"$out" | sort -u | tr '\n' ' ')"
