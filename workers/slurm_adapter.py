@@ -69,7 +69,7 @@ CLUSTER_PROFILES = {
     #     restricted by restrict,from=,command=; Alliance's slurm_commands.sh
     #     runs $SSH_ORIGINAL_COMMAND unquoted (word-split, no env prefix), so
     #     these profiles parse local-time accounting and read output with cat
-    #   - at most 1000 pending+running jobs per account (MaxSubmit)
+    #   - at most 1000 pending+running jobs per user (MaxSubmit)
     "nibi": {
         "name": "SHARCNET Nibi",
         # 36 GPU nodes x 8 H100 SXM 80GB (NVLink); Nokia Ethernet, 200 Gb/s
@@ -96,7 +96,7 @@ CLUSTER_PROFILES = {
         "output_reader": "cat",
     },
     "graham": {
-        # Retired in late 2025 ("service now ended"); Nibi replaced it. Kept
+        # Retired 1 September 2025 ("service now ended"); Nibi replaced it. Kept
         # so stored mappings that name it still resolve for status reads;
         # new submissions are refused.
         "name": "Compute Canada Graham (retired)",
@@ -289,10 +289,15 @@ _REMOTE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_%|,.:=/+@-]+$")
 class SlurmRunner:
     """Runs Slurm client commands locally, or on a submit host over SSH.
 
-    The SSH form sends one argv per connection, shell-quoted, with the
+    The SSH form sends one argv per connection as plain words, with the
     batch script on stdin. That is the shape a forced-command wrapper on a
     restricted key can validate (hpc/slurm-local/scripts/xcl-slurm-gate),
     which is how Alliance "robot" automation nodes admit automated access.
+
+    A remote run must name its own ssh config file (``-F FILE``). Without
+    one, ssh reads ~/.ssh/config, where IdentityFile entries accumulate
+    across Host blocks: a ``Host *`` key is offered before the restricted
+    one, and the cluster accepts it unrestricted (found on the real tower).
     """
 
     ssh_host: str | None = None
@@ -316,6 +321,12 @@ class SlurmRunner:
             if bad:
                 raise SlurmAdapterError(
                     "unsafe_remote_argument", f"refusing to send {bad!r} over SSH"
+                )
+            if "-F" not in self.ssh_options:
+                raise SlurmAdapterError(
+                    "insecure_ssh_config",
+                    "remote Slurm runs need their own ssh config (-F FILE in ssh_options); "
+                    "without it ~/.ssh/config can offer an unrestricted key first",
                 )
             remote_cmd = " ".join(str(t) for t in tokens)
             cmd = [
@@ -342,12 +353,34 @@ class SlurmRunner:
         )
 
 
+SSH_OVERRIDE_PROFILE_ENV = "XCELSIOR_SLURM_SSH_PROFILE"
+
+
 def get_runner(profile=None) -> SlurmRunner:
-    """Pick the transport: env overrides the profile; default is local."""
+    """Pick the transport from the profile; default is local.
+
+    XCELSIOR_SLURM_SSH_HOST / XCELSIOR_SLURM_SSH_OPTIONS override it only for
+    the profile named in XCELSIOR_SLURM_SSH_PROFILE. They used to apply to
+    every profile, so a host meant for the lab cluster would also have
+    received Nibi submissions. Env options are appended to the profile's,
+    never substituted: replacing them dropped the profile's ``-F``.
+    """
     profile = profile or {}
-    host = os.environ.get("XCELSIOR_SLURM_SSH_HOST", "").strip() or profile.get("ssh_host")
+    host = profile.get("ssh_host")
+    opts = list(profile.get("ssh_options") or [])
+    env_host = os.environ.get("XCELSIOR_SLURM_SSH_HOST", "").strip()
     env_opts = os.environ.get("XCELSIOR_SLURM_SSH_OPTIONS", "").strip()
-    opts = shlex.split(env_opts) if env_opts else list(profile.get("ssh_options") or [])
+    if env_host or env_opts:
+        target = os.environ.get(SSH_OVERRIDE_PROFILE_ENV, "").strip()
+        if not target:
+            raise SlurmAdapterError(
+                "ambiguous_ssh_override",
+                f"XCELSIOR_SLURM_SSH_HOST/_OPTIONS are set; name the profile they "
+                f"override in {SSH_OVERRIDE_PROFILE_ENV}",
+            )
+        if target == profile.get("_key"):
+            host = env_host or host
+            opts += shlex.split(env_opts)
     return SlurmRunner(ssh_host=host or None, ssh_options=tuple(opts))
 
 
@@ -393,6 +426,42 @@ def _slurm_reachable(runner):
     if runner.remote:
         return True
     return is_slurm_available()
+
+
+_PING_RE = re.compile(r"Slurmctld\((?P<role>[^)]+)\) at (?P<host>\S+) is (?P<state>UP|DOWN)")
+
+
+def controller_health(*, profile_name=None, runner=None):
+    """Whether the cluster's slurmctld answers, from ``scontrol ping``.
+
+    ``sinfo --version`` (is_slurm_available) proves only that SSH works and
+    the client is installed; it never contacts the controller. Slurm 25.11
+    prints one line per controller: ``Slurmctld(primary) at tower is UP``.
+
+    Returns {"controller": "up"|"down", "controllers": [...]} or an error.
+    """
+    try:
+        _profile, runner = _resolve(profile_name, runner)
+        r = runner.run(["scontrol", "ping"], timeout=15)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return _error("timeout", "scontrol ping timed out")
+    except FileNotFoundError:
+        return _error("slurm_unavailable", "Slurm not available on this system")
+    failure = _transport_failure(r, runner)
+    if failure:
+        return failure
+    found = [m.groupdict() for m in _PING_RE.finditer(r.stdout or "")]
+    if not found:
+        detail = (r.stdout or r.stderr or "").strip()[:200]
+        return _error("unparseable_ping", f"scontrol ping printed {detail!r}")
+    return {
+        "controller": "up" if any(c["state"] == "UP" for c in found) else "down",
+        "controllers": [
+            {"role": c["role"], "host": c["host"], "state": c["state"].lower()} for c in found
+        ],
+    }
 
 
 def get_cluster_info(runner=None):
@@ -593,7 +662,7 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
               nodelist   pin to node(s), e.g. "asus"
               partition  override the profile's partition
               cpus       --cpus-per-task
-              mem_gb     override the memory formula
+              mem_gb     override the memory formula (per node, as --mem is)
               walltime   Slurm time limit, checked against max_walltime
         profile_name: Cluster profile name
         extra_env: Additional environment variables dict
@@ -662,10 +731,26 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     if cpus is not None and (isinstance(cpus, bool) or not isinstance(cpus, int) or cpus < 1):
         raise SlurmAdapterError("invalid_job_spec", f"invalid cpus: {cpus!r}")
 
+    # GPU and memory requests are per node in Slurm (--gres, --gpus-per-node,
+    # --mem), so a multi-node job asks for an even share on every node. The
+    # old code put the job's *total* on each node: 16 GPUs on Nibi asked
+    # for --gres=gpu:16 and 3,844 GB per node, which no node has.
+    gpus_per_node_cap = int(profile["gpus_per_node"])
     if num_gpus > 0:
-        nodes_needed = max(1, -(-num_gpus // int(profile["gpus_per_node"])))
+        nodes_needed = max(1, -(-num_gpus // gpus_per_node_cap))
+        if num_gpus % nodes_needed:
+            raise SlurmAdapterError(
+                "invalid_job_spec",
+                f"{num_gpus} GPUs don't split evenly over {nodes_needed} nodes of "
+                f"{gpus_per_node_cap}; request a multiple of {nodes_needed}",
+            )
+        gpus_per_node = num_gpus // nodes_needed
     else:
         nodes_needed = 1
+        gpus_per_node = 0
+    # One task per node; srun runs the payload on every node of a multi-node
+    # job. Without it the payload ran on the first node only.
+    launch = "srun " if nodes_needed > 1 else ""
 
     lines = [
         "#!/bin/bash",
@@ -674,11 +759,9 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     if partition is not None:
         lines.append(f"#SBATCH --partition={partition}")
     if num_gpus > 0:
-        spec = f"{gpu_type}:{num_gpus}" if gpu_type else str(num_gpus)
+        spec = f"{gpu_type}:{gpus_per_node}" if gpu_type else str(gpus_per_node)
         if gpu_request == "gpus":
-            # Alliance form: per node when it fits on one, else spread.
-            flag = "--gpus-per-node" if nodes_needed == 1 else "--gpus"
-            lines.append(f"#SBATCH {flag}={spec}")
+            lines.append(f"#SBATCH --gpus-per-node={spec}")  # Alliance form
         else:
             lines.append(f"#SBATCH --gres=gpu:{spec}")
         if profile.get("cpus_per_gpu"):
@@ -699,8 +782,9 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     if account:
         lines.append(f"#SBATCH --account={account}")
 
-    # Attempt to set QoS (may not be available on all clusters)
-    if profile.get("qos", True) and qos != "default":
+    # Decision D6: only where the profile says the site defines these QoS
+    # names. The old fallback here was True, the opposite of the default.
+    if profile["qos"] and qos != "default":
         lines.append(f"#SBATCH --qos={qos}")
 
     # Nodes and tasks
@@ -715,13 +799,14 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
     if cpus:
         lines.append(f"#SBATCH --cpus-per-task={cpus}")
 
-    # Memory (default: 8GB per GPU + 4GB base; profiles can scale it down)
+    # Memory per node (default: 4GB base + 8GB per GPU on the node; profiles
+    # can scale it). A job's mem_gb is per node too, as --mem is.
     if job.get("mem_gb") is not None:
         mem_gb = job["mem_gb"]
         if isinstance(mem_gb, bool) or not isinstance(mem_gb, int) or mem_gb < 1:
             raise SlurmAdapterError("invalid_job_spec", f"invalid mem_gb: {mem_gb!r}")
     else:
-        mem_gb = int(profile["mem_base_gb"]) + int(profile["mem_per_gpu_gb"]) * num_gpus
+        mem_gb = int(profile["mem_base_gb"]) + int(profile["mem_per_gpu_gb"]) * gpus_per_node
     lines.append(f"#SBATCH --mem={mem_gb}G")
 
     # Email notifications (optional)
@@ -772,7 +857,7 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
         lines.append(f'mkdir -p "{work}"')
         lines.append(f"apptainer pull --force {sif_path} {shlex.quote('docker://' + image)}")
         if payload:
-            lines.append(f"apptainer exec --nv {sif_path} {payload}")
+            lines.append(f"{launch}apptainer exec --nv {sif_path} {payload}")
         else:
             lines.append(
                 f"apptainer exec --nv {sif_path} python -c 'print(\"Xcelsior job {job_id} running\")'"
@@ -783,18 +868,18 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
         # uses the job's *physical* GPU ids (SLURM_JOB_GPUS). Prefer
         # apptainer or a bare command on shared clusters.
         lines.append("# ── Container Execution (Docker) ──")
-        lines.append(f"docker pull {shlex.quote(image)}")
+        lines.append(f"{launch}docker pull {shlex.quote(image)}")
         gpu_flag = (
             '--gpus "\\"device=${SLURM_JOB_GPUS:-${CUDA_VISIBLE_DEVICES:-0}}\\"" '
             if num_gpus > 0
             else ""
         )
         lines.append(
-            f"docker run --rm {gpu_flag}{shlex.quote(image)}{' ' + payload if payload else ''}"
+            f"{launch}docker run --rm {gpu_flag}{shlex.quote(image)}{' ' + payload if payload else ''}"
         )
     elif payload:
         lines.append("# ── Payload ──")
-        lines.append(payload)
+        lines.append(f"{launch}{payload}")
     else:
         lines.append("# ── Inference Script ──")
         lines.append('echo "Running Xcelsior job ${XCELSIOR_JOB_ID}: ${XCELSIOR_JOB_NAME}"')
@@ -818,6 +903,7 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
         "walltime": walltime,
         "qos": qos,
         "nodes": nodes_needed,
+        "gpus_per_node": gpus_per_node,
         "nodelist": nodelist or None,
         "mem_gb": mem_gb,
         "output_path": f"{out_dir}/{job_name}-%j.out",
@@ -1080,10 +1166,13 @@ def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
                         "source": "sacct",
                     }
 
+        # Absence is not a verdict: accounting may lag (slurmdbd down or
+        # backlogged), or the id may belong to another cluster. Never
+        # infer a job's fate from silence.
         return {
             "slurm_job_id": slurm_job_id,
             "slurm_state": "UNKNOWN",
-            "xcelsior_state": "failed",
+            "xcelsior_state": "unknown",
             "error": "Job not found in squeue or sacct",
             "error_code": "not_found",
         }
