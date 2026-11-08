@@ -11,7 +11,7 @@ This kit builds a two-node Slurm cluster on hardware you already own. It then dr
 | `RESULTS_TEMPLATE.md` | Short results report to attach to the SHARCNET proposal |
 | `RESULTS_2026-11-07.md`, `CHECKLIST_RESULTS_2026-11-07.md` | The filled report and checklist from the first real run |
 | `evidence/r1107050537/` | That run's results.json, pod listing and job outputs |
-| `RESULTS_2026-11-08.md`, `evidence/r1108024006/` | The Phase 0 kit's rollback, reinstall and run on the real machines |
+| `RESULTS_2026-11-08.md`, `evidence/r1108024006/`, `evidence/r1108034352/` | The Phase 0 kit's rollback, reinstall and runs on the real machines (Ubuntu 25.11.2, then SchedMD 25.11.8) |
 | `conf/slurm.conf`, `gres.conf`, `cgroup.conf` | The cluster configuration |
 | `site.env.example` | Your addresses, the asus hostname and your account; copy to `site.env` (git-ignored) |
 | `conf/slurmdbd.conf.template`, `mariadb-xcl-slurm.cnf` | Accounting (needed for metering) |
@@ -114,6 +114,8 @@ Deviations from the real cluster, and only these:
 - `IgnoreSystemd=yes` in cgroup.conf, and daemons start without systemd;
 - the GPU is the host's (RTX 2060 on the ASUS), so its type token replaces `rtx_3060`;
 - SSH arrives on 127.0.0.1:22022.
+
+**Real-hardware record, 2026-11-08, on SchedMD's 25.11.8 (run `r1108034352`):** rolled back the Phase 0 install on Ubuntu's 25.11.2 and reinstalled from SchedMD's packages. V-1 to V-13 passed, as did 26 of 26 suite cases with SYNC-1; rollback left nothing behind on either machine. Details in `RESULTS_2026-11-08.md`.
 
 **Rehearsal record, 2026-11-08 (the Phase 0 kit, run `r1108022520`):** V-1 to V-11 passed (V-6 skipped: sudo inside the container). 26 of 26 suite cases passed, SEC-1 and SEC-2 included: the job ran as `xclslurm` and got `Permission denied` writing its own `~/.ssh`, `id` was still refused afterwards, and scripts with `--chdir` or `--output` aimed at `~/.ssh` were refused before sbatch. SYNC-1 was skipped (no `--with-db`). The first attempt stopped on a placeholder written in a slurm.conf comment, now caught by `tests/test_slurm_gate.py`.
 
