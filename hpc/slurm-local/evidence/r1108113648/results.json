@@ -1,0 +1,336 @@
+{
+  "run_id": "r1108113648",
+  "profile": "xcl-local",
+  "adapter_version": "3.0.0",
+  "results": [
+    {
+      "id": "SCEN-1",
+      "title": "Requeue keeps the mapping open",
+      "requirement": "scontrol requeue on a running job: pending again, not settled; it runs again and settles completed with two runs in accounting",
+      "status": "PASS",
+      "note": "accounting runs: ['REQUEUED', 'COMPLETED']",
+      "duration_s": 245.3,
+      "evidence": {
+        "trace": [
+          [
+            "running",
+            true,
+            {
+              "req": [
+                "running",
+                "RUNNING",
+                false
+              ]
+            }
+          ],
+          [
+            "admin",
+            "requeue 46",
+            0,
+            ""
+          ],
+          [
+            "requeued",
+            true,
+            {
+              "req": [
+                "pending",
+                "PENDING",
+                false
+              ]
+            }
+          ],
+          [
+            "settled",
+            true,
+            {
+              "req": [
+                "completed",
+                "COMPLETED",
+                true
+              ]
+            }
+          ],
+          [
+            "accounting runs",
+            [
+              "REQUEUED",
+              "COMPLETED"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "SCEN-2",
+      "title": "Spot preemption requeues, never settles early",
+      "requirement": "a spot (QoS) GPU job preempted by a normal one goes back to pending, not settled; it reruns and settles with a PREEMPTED run before the final one",
+      "status": "PASS",
+      "note": "accounting runs: ['PREEMPTED', 'COMPLETED']",
+      "duration_s": 240.8,
+      "evidence": {
+        "trace": [
+          [
+            "admin",
+            "update jobid=48 qos=spot",
+            0,
+            ""
+          ],
+          [
+            "spot running",
+            true,
+            {
+              "hog": [
+                "cancelled",
+                "CANCELLED",
+                false
+              ],
+              "spot": [
+                "running",
+                "RUNNING",
+                false
+              ]
+            }
+          ],
+          [
+            "spot preempted",
+            true,
+            {
+              "spot": [
+                "pending",
+                "PENDING",
+                false
+              ],
+              "normal": [
+                "running",
+                "RUNNING",
+                false
+              ],
+              "hog": [
+                "cancelled",
+                "CANCELLED",
+                false
+              ]
+            }
+          ],
+          [
+            "settled",
+            true,
+            {
+              "spot": [
+                "completed",
+                "COMPLETED",
+                true
+              ],
+              "normal": [
+                "completed",
+                "COMPLETED",
+                true
+              ],
+              "hog": [
+                "cancelled",
+                "CANCELLED",
+                true
+              ]
+            }
+          ],
+          [
+            "accounting runs",
+            [
+              "PREEMPTED",
+              "COMPLETED"
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "SCEN-3",
+      "title": "Out of memory settles as failed",
+      "requirement": "a job allocating past its --mem is killed by the cgroup: settled failed, OUT_OF_MEMORY",
+      "status": "PASS",
+      "note": "settled as ('failed', 'OUT_OF_MEMORY', True)",
+      "duration_s": 118.9,
+      "evidence": {
+        "trace": [
+          [
+            "settled",
+            true,
+            {
+              "oom": [
+                "failed",
+                "OUT_OF_MEMORY",
+                true
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": "SCEN-4",
+      "title": "A hold is held, not failed",
+      "requirement": "requeuehold State=SpecialExit: held and open; released, it runs again",
+      "status": "PASS",
+      "note": "held ('held', 'SPECIAL_EXIT', False), released running, settled ('cancelled', 'CANCELLED', True)",
+      "duration_s": 237.9,
+      "evidence": {
+        "trace": [
+          [
+            "admin",
+            "requeuehold State=SpecialExit 51",
+            0,
+            ""
+          ],
+          [
+            "held",
+            true,
+            {
+              "hold": [
+                "held",
+                "SPECIAL_EXIT",
+                false
+              ]
+            }
+          ],
+          [
+            "admin",
+            "release 51",
+            0,
+            ""
+          ],
+          [
+            "released",
+            true,
+            {
+              "hold": [
+                "running",
+                "RUNNING",
+                false
+              ]
+            }
+          ],
+          [
+            "settled",
+            true,
+            {
+              "hold": [
+                "cancelled",
+                "CANCELLED",
+                true
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": "SCEN-5",
+      "title": "Suspension is suspended, not pending",
+      "requirement": "scontrol suspend: suspended and open; resumed, it is running again",
+      "status": "PASS",
+      "note": "suspended ('suspended', 'SUSPENDED', False), resumed running, settled ('cancelled', 'CANCELLED', True)",
+      "duration_s": 121.3,
+      "evidence": {
+        "trace": [
+          [
+            "admin",
+            "suspend 52",
+            0,
+            ""
+          ],
+          [
+            "suspended",
+            true,
+            {
+              "susp": [
+                "suspended",
+                "SUSPENDED",
+                false
+              ]
+            }
+          ],
+          [
+            "admin",
+            "resume 52",
+            0,
+            ""
+          ],
+          [
+            "resumed",
+            true,
+            {
+              "susp": [
+                "running",
+                "RUNNING",
+                false
+              ]
+            }
+          ],
+          [
+            "settled",
+            true,
+            {
+              "susp": [
+                "cancelled",
+                "CANCELLED",
+                true
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "id": "SCEN-6",
+      "title": "A node failure never settles the job early",
+      "requirement": "slurmd on the CPU node killed under a running job: while the node is down the mapping stays open; accounting records NODE_FAIL",
+      "status": "PASS",
+      "note": "state PENDING, mapping ('pending', 'PENDING', False), runs ['NODE_FAIL', 'PENDING']",
+      "duration_s": 162.6,
+      "evidence": {
+        "trace": [
+          [
+            "running",
+            true,
+            {
+              "nf": [
+                "running",
+                "RUNNING",
+                false
+              ]
+            }
+          ],
+          [
+            "kill slurmd on this node",
+            0,
+            ""
+          ],
+          [
+            "node down",
+            true,
+            {
+              "nf": [
+                "pending",
+                "PENDING",
+                false
+              ]
+            }
+          ],
+          [
+            "start slurmd",
+            0,
+            ""
+          ],
+          [
+            "accounting runs",
+            [
+              "NODE_FAIL",
+              "PENDING"
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
