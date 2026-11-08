@@ -1,0 +1,5 @@
+0, NVIDIA GeForce RTX 3060, 12288, GPU-<redacted>
+---nvlink
+GPU 0: NVIDIA GeForce RTX 3060 (UUID: GPU-<redacted>)
+Device does not have or support Nvlink
+Xcelsior job r1108034352-podg-tower completed at Sun Nov  8 03:46:11 EST 2026
