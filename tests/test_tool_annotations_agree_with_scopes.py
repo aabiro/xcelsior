@@ -51,8 +51,9 @@ DESCRIPTIONS_TS = ROOT / "api" / "mcp" / "src" / "tools" / "descriptions.ts"
 
 #: Scope suffixes that mutate. `read` is the only one that does not, and
 #: `connect` is deliberately here: issuing connection material is a write in
-#: every sense that matters, even though nothing is "modified".
-MUTATING_SUFFIXES = ("write", "operate", "evict", "connect", "approve")
+#: every sense that matters, even though nothing is "modified". `topup` charges
+#: a saved card — the part of `billing:write` an OAuth connector may hold.
+MUTATING_SUFFIXES = ("write", "operate", "evict", "connect", "approve", "topup")
 
 
 def _tool_scopes() -> dict[str, str]:

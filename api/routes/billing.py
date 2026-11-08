@@ -1295,8 +1295,8 @@ class CryptoDepositRequest(BaseModel):
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
 def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
     """Create a BTC deposit request. Returns address, amount, and QR data."""
-    user = _require_customer_access(request, req.customer_id, billing_write=True)
-    _require_scope(user, "billing:write")
+    user = _require_customer_access(request, req.customer_id, funds_wallet=True)
+    _require_scope(user, "billing:topup")
     _check_billing_payment_rate_limit(req.customer_id, "crypto-deposit")
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
@@ -1361,7 +1361,7 @@ def api_crypto_refresh(deposit_id: str, request: Request):
     existing = _btc_mod.get_deposit(deposit_id)
     if not existing:
         raise HTTPException(404, "Deposit not found")
-    _require_customer_access(request, existing["customer_id"], billing_write=True)
+    _require_customer_access(request, existing["customer_id"], funds_wallet=True)
     dep = _btc_mod.refresh_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
@@ -1405,8 +1405,8 @@ def api_ln_enabled():
 @router.post("/api/billing/lightning/deposit", tags=["Billing"])
 def api_ln_create_deposit(req: LnDepositRequest, request: Request):
     """Create a Lightning invoice for depositing CAD credits."""
-    user = _require_customer_access(request, req.customer_id, billing_write=True)
-    _require_scope(user, "billing:write")
+    user = _require_customer_access(request, req.customer_id, funds_wallet=True)
+    _require_scope(user, "billing:topup")
     _check_billing_payment_rate_limit(req.customer_id, "lightning-deposit")
     if not _ln_mod or not _ln_mod.LN_ENABLED:
         raise HTTPException(503, "Lightning deposits are not enabled")
@@ -2572,7 +2572,7 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    _require_scope(user, "billing:write")
+    _require_scope(user, "billing:topup")
 
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
@@ -2839,7 +2839,7 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    _require_scope(user, "billing:write")
+    _require_scope(user, "billing:topup")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
 
@@ -2898,7 +2898,7 @@ def api_billing_auto_topup_plan(body: AutoTopupConfig, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    _require_scope(user, "billing:write")
+    _require_scope(user, "billing:topup")
 
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
@@ -2942,7 +2942,7 @@ def api_billing_auto_topup_plan(body: AutoTopupConfig, request: Request):
             estimate_micros=estimate_micros,
             currency="CAD",
             price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
-            required_scopes=["billing:write"],
+            required_scopes=["billing:topup"],
             approval_mode="human",
             ttl_sec=plan_ttl_sec(),
         )
@@ -2976,7 +2976,7 @@ def api_billing_execute_auto_topup_plan(plan_id: str, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    _require_scope(user, "billing:write")
+    _require_scope(user, "billing:topup")
 
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)

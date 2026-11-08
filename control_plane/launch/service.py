@@ -46,9 +46,12 @@ ACTION_REQUIRED_SCOPES: dict[str, list[str]] = {
     "create_serverless_endpoint": ["inference:write"],
     "evict_host_workloads": ["hosts:evict"],
     # Widening auto-top-up. Gate P1: "raising a spend cap requires approval;
-    # lowering one does not." The scope is the same `billing:write` the direct
+    # lowering one does not." The scope is the same `billing:topup` the direct
     # route already demands — the plan adds approval, it does not add authority.
-    "configure_auto_topup": ["billing:write"],
+    # It is `billing:topup` rather than `billing:write` so the connector that
+    # created a plan can also revoke it; `billing:write` contains it, and
+    # approval stays human-only whatever scope the plan records.
+    "configure_auto_topup": ["billing:topup"],
     # A pipeline's required scopes are the **union of its stages'**, computed
     # per graph rather than fixed here — `required_scopes` on the row carries
     # them. This entry exists so the action type is known; an empty list would

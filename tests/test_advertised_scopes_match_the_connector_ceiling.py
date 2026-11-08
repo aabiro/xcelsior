@@ -19,6 +19,13 @@ tools refused it afterwards. Plan §8.3 (Headmesh) settled each one:
     badges, stay off connectors and left the advertisement. Their tools still
     exist for credentials that carry them.
 
+Topping up then came back as its own scope. `billing:topup` covers only what
+puts money into the user's own wallet (`top_up_wallet`, the Bitcoin and
+Lightning deposits, auto-top-up), joined the ceiling as an optional consent
+permission, and is advertised again. `billing:write` contains it and stays off
+connectors, because it also opens the billing portal and adds and removes
+cards.
+
 The resource metadata is served by the TypeScript MCP service, so this reads
 the copy that `npm run surface:update` records in `api/mcp/tool-surface.json`.
 `api/mcp/tests/unit/surface.test.ts` fails if that copy is stale.
@@ -52,13 +59,10 @@ NOT_RESOURCE_SCOPES = {"offline_access", "mcp_actions:approve"}
 #: exercises end to end.
 AUTHORIZATION_SERVER_ONLY = {"billing:write", "hosts:read", "hosts:write"}
 
-#: Tenant scopes connectors never hold, and the tools that need them.
+#: Tenant scopes connectors never hold, and the tools that need them. No tool
+#: needs `billing:write` any more: the four that top up need `billing:topup`.
 CONNECTOR_WITHHELD = {"billing:write", "providers:write", "reputation:write"}
 TOOLS_NEEDING_ANOTHER_CREDENTIAL = {
-    "configure_auto_topup",
-    "create_crypto_deposit",
-    "create_lightning_deposit",
-    "top_up_wallet",
     "register_provider",
     "request_provider_payout",
     "claim_reputation_milestones",
@@ -125,7 +129,7 @@ def test_ssh_read_is_reachable_by_a_connector_and_consent_names_it():
     assert not any("SSH" in line for line in without), without
 
 
-def test_only_the_money_moving_tools_need_a_credential_other_than_a_connector():
+def test_only_the_payout_and_badge_tools_need_a_credential_other_than_a_connector():
     tools = {tool["name"]: set(tool["requiredScopes"]) for tool in _surface()["tools"]}
     blocked = {name for name, scopes in tools.items() if scopes & CONNECTOR_WITHHELD}
     assert blocked == TOOLS_NEEDING_ANOTHER_CREDENTIAL

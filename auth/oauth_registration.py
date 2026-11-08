@@ -88,12 +88,27 @@ CONNECTOR_ALLOWED_SCOPES: tuple[str, ...] = (
     # (`summarize_consent_scopes`). Not in the default set below, and still not
     # on the Quick Connect key, which the dashboard issues without that page.
     #
-    # The money- and badge-moving writes stay off connectors: `billing:write`,
-    # `providers:write` and `reputation:write`. The resource metadata no longer
-    # advertises them either, so a connector is never told to ask for a scope
-    # it cannot be granted —
+    # The payout- and badge-moving writes stay off connectors:
+    # `providers:write` and `reputation:write`, and `billing:write` as a whole.
+    # The resource metadata does not advertise them, so a connector is never
+    # told to ask for a scope it cannot be granted —
     # `tests/test_advertised_scopes_match_the_connector_ceiling.py`.
     "ssh:read",
+    # Topping up the user's own wallet: a saved card (`top_up_wallet`), a
+    # Bitcoin or Lightning deposit, and auto-top-up, whose widening still waits
+    # for a human (Gate P1 clause 6). This is the August design (`5c7b8d5d`):
+    # the card was added in the dashboard, the user grants this on a consent
+    # page that says what it does, and Stripe enforces the rest — money moves
+    # *into* the user's own wallet and nowhere else.
+    #
+    # It is a scope of its own, not `billing:write`, because `billing:write`
+    # also opens the Stripe billing portal, mints the credential that attaches
+    # a card, and detaches cards; none of that belongs to a third-party
+    # connector. `billing:write` contains it (`IMPLIED_SCOPES` in
+    # routes/_deps.py), so nothing that already tops up has to be reissued.
+    # Optional on the consent page, never in the default set, and never on the
+    # Quick Connect key, which is issued without that page.
+    "billing:topup",
 )
 
 #: What a client that asks for nothing in particular gets. Read-biased on
