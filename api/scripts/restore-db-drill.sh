@@ -5,6 +5,10 @@
 
 set -euo pipefail
 umask 077
+# Unattended by design (a timer runs it): with no terminal, a missing
+# database password made createdb prompt on stdin and hang for good. Any
+# prompt now fails at once, and the drill reports why.
+exec </dev/null
 
 BACKUP_DIR="${XCELSIOR_BACKUP_DIR:-/var/backups/xcelsior}"
 EVIDENCE_DIR="${XCELSIOR_RESTORE_EVIDENCE_DIR:-${BACKUP_DIR}/restore-evidence}"

@@ -70,4 +70,27 @@ psql -h "$PGHOST" -U "$PGUSER" -d "$TARGET_DB" -q -c \
                \"retention_months\": 6}'::jsonb)
      ON CONFLICT (task_name) DO NOTHING;" >/dev/null
 
+# What the role and bootstrap tests need from the connecting role, granted by
+# the postgres superuser over peer auth (as the createdb fallback above).
+# - tests/test_db_service_roles.py and test_db_role_workflows.py run
+#   provision_db_roles.py as ${PGUSER}, which alters default privileges FOR
+#   ROLE xcelsior_migrator. PostgreSQL 16 gives a CREATEROLE role only ADMIN
+#   OPTION on the roles it manages, and ALTER DEFAULT PRIVILEGES FOR ROLE needs
+#   membership with INHERIT and SET ("permission denied to change default
+#   privileges"). createrole_self_grant covers roles ${PGUSER} creates later;
+#   the GRANT covers the migrator role if it already exists.
+# - tests/test_from_empty_bootstrap.py creates a scratch database: CREATEDB.
+echo "Granting ${PGUSER} what the role and bootstrap tests need…"
+sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d postgres <<SQL >/dev/null
+ALTER ROLE "${PGUSER}" CREATEDB;
+ALTER ROLE "${PGUSER}" SET createrole_self_grant = 'set, inherit';
+DO \$\$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'xcelsior_migrator') THEN
+    GRANT xcelsior_migrator TO "${PGUSER}" WITH INHERIT TRUE, SET TRUE;
+  END IF;
+END
+\$\$;
+SQL
+
 echo "Done. ${TARGET_DB} is ready and isolated from ${SOURCE_DB}."
