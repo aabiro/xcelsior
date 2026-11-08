@@ -163,6 +163,9 @@ CONTROL_TABLES = frozenset(
         "benchmarks",
         "cloud_burst_instances",
         "slurm_job_mappings",
+        # The Slurm reconciler's cluster registry: polled and written by the
+        # same control-plane writer that owns slurm_job_mappings.
+        "slurm_clusters",
         # Unified launch service (Track B B2): the launch/action-plan spine
         # is control-plane state the API writer owns.
         "action_plans",
