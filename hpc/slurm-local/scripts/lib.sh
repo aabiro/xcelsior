@@ -77,6 +77,20 @@ XCL_GPU_CONTENTION="${XCL_GPU_CONTENTION:-log}"
 [[ "$XCL_GPU_CONTENTION" =~ ^(log|drain)$ ]] || { echo "XCL_GPU_CONTENTION must be log or drain" >&2; exit 1; }
 # srun listens on these; the asus firewall admits them from the tower.
 XCL_SRUN_PORTS=60001:60100
+# SchedMD's Slurm packages, built by 05-build-slurm-debs.sh. The installers
+# take Slurm from here only, never from Ubuntu's archive (25.11.2 there).
+XCL_DEBS_DIR="${XCL_DEBS_DIR:-$KIT_DIR/debs}"
+XCL_MIN_SLURM=25.11.8
+
+# xcl_slurm_debs NAME... — the .deb file of each named slurm-smd package.
+xcl_slurm_debs() {
+    local name f
+    for name in "$@"; do
+        f="$(compgen -G "$XCL_DEBS_DIR/${name}_*_amd64.deb" | head -1)"
+        [[ -n "$f" ]] || xcl_die "no ${name} package in $XCL_DEBS_DIR: run scripts/05-build-slurm-debs.sh"
+        printf '%s\n' "$f"
+    done
+}
 # Set by the container rehearsal only: no systemd, daemons started by hand.
 XCL_NO_SYSTEMD="${XCL_NO_SYSTEMD:-0}"
 # Default: test services do NOT start at boot. A reboot leaves the box as

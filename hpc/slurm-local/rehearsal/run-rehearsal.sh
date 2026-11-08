@@ -39,6 +39,8 @@ teardown() {
 }
 if [[ $KEEP == 0 ]]; then trap teardown EXIT; fi
 
+compgen -G "$KIT/debs/slurm-smd_*.deb" >/dev/null ||
+    { echo "no SchedMD Slurm debs in $KIT/debs: run scripts/05-build-slurm-debs.sh first" >&2; exit 1; }
 teardown
 # Fresh per-run state; earlier results/ are kept. Containers write some of
 # this as root, so fall back to a throwaway container to delete it.
@@ -50,7 +52,7 @@ mkdir -p "$WORK/shared" "$WORK/asus-jobs" "$WORK/results"
 ssh-keygen -q -t ed25519 -N '' -C xcl-slurm-adapter -f "$WORK/adapter_key"
 cp "$WORK/adapter_key.pub" "$WORK/shared/adapter_key.pub"
 
-echo "== building images (Ubuntu 26.04, Slurm from the archive)"
+echo "== building images (Ubuntu 26.04, Slurm from debs/)"
 docker build -q -f "$KIT/rehearsal/Dockerfile" --build-arg ROLE=tower -t xcl-slurm-rh:tower "$KIT" >/dev/null
 docker build -q -f "$KIT/rehearsal/Dockerfile" --build-arg ROLE=asus -t xcl-slurm-rh:asus "$KIT" >/dev/null
 

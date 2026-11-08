@@ -13,6 +13,7 @@ RUN userdel -r ubuntu 2>/dev/null || true \
  && useradd -u 1000 -m -s /bin/bash aaryn
 COPY scripts /kit/scripts
 COPY conf /kit/conf
+COPY debs /kit/debs
 # Site values the build steps require; the containers get the same at run.
 ENV TOWER_ADDR=172.31.251.4 ASUS_ADDR=172.31.251.6 ASUS_HOSTNAME=xcl-rh-asus OPERATOR_USER=aaryn
 RUN if [ "$ROLE" = tower ]; then /kit/scripts/10-install-tower.sh users packages; \
