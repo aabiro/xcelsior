@@ -110,8 +110,25 @@ storage_pass() { sed -n 's/^StoragePass=//p' /etc/slurm/slurmdbd.conf; }
 
 mariadb_running() { mariadb-admin --protocol=socket ping >/dev/null 2>&1; }
 
+# The package's postinst creates the system tables with mariadb-install-db,
+# run as root and dropping to mysql. MariaDB's own AppArmor profile denies
+# that uid change once the profile is loaded, which it still is after a
+# purge, so a reinstall left the data dir without them (2026-11-08). Run
+# as mysql there is no uid change to deny.
+mariadb_system_tables() {
+    local datadir
+    datadir="$(my_print_defaults --mysqld 2>/dev/null | sed -n 's/^--datadir=//p' | tail -1)"
+    datadir="${datadir:-/var/lib/mariadb}"
+    [[ -d "$datadir/mysql" ]] && return 0
+    xcl_log "MariaDB system tables missing in $datadir; creating them as mysql"
+    runuser -u mysql -- mariadb-install-db --datadir="$datadir" --skip-test-db \
+        --auth-root-authentication-method=socket >"$XCL_STATE/mariadb-install-db.log" 2>&1 ||
+        xcl_die "mariadb-install-db failed: see $XCL_STATE/mariadb-install-db.log"
+}
+
 step_db() {
     xcl_init_state
+    mariadb_system_tables
     if xcl_have_systemd; then
         xcl_service_start mariadb
     elif ! mariadb_running; then
