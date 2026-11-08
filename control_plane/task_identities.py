@@ -48,6 +48,7 @@ TASK_SERVICES = {
     "lightning_reconcile": "billing",
     "artifact_catalog_janitor": "api",
     "artifact_inventory_reconcile": "api",
+    "slurm_reconcile": "api",  # writes slurm_job_mappings and slurm_clusters
 }
 
 DDL_TASKS = frozenset({"audit_partition_maintenance", "telemetry_partition_maintenance"})

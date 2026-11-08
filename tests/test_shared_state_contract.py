@@ -293,35 +293,101 @@ def test_observed_state_check_rejects_an_invented_state(slurm_rows):
 
 
 # ───────────── slurm: bidirectional reconcile ─────────────
+#
+# sync_slurm_statuses is now a batched pass (workers/slurm_reconciler.py):
+# one squeue per cluster, sacct only for jobs that left the controller. These
+# tests give each case its own cluster (a profile file names it) and answer
+# poll_cluster_jobs / accounting_window for that cluster only; any other
+# cluster with open rows in the shared database sees a transport error,
+# which by contract changes nothing.
 
 
-def _fake_status(state: str):
-    def _get(slurm_job_id, **_kw):
-        return {"slurm_job_id": slurm_job_id, "xcelsior_state": state}
+@pytest.fixture
+def own_cluster(tmp_path, monkeypatch, slurm_rows):
+    """A cluster only this test polls; returns (cluster_id, register, answer)."""
+    import json as _json
 
-    return _get
+    cid = f"ct-{uuid.uuid4().hex[:8]}"
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(
+        _json.dumps({"profiles": {cid: {"name": cid, "partition_gpu": "g", "partition_cpu": "c"}}})
+    )
+    monkeypatch.setenv(slurm_adapter.PROFILES_FILE_ENV, str(profiles))
+    data = {"squeue": {}, "sacct": {}, "fail": False, "sacct_ids": []}
+
+    def poll(*, profile_name=None, runner=None):
+        if profile_name != cid or data["fail"]:
+            return {"error": "not this test's cluster", "error_code": "transport_error"}
+        return {
+            "jobs": {
+                sid: {
+                    "name": f"xcl-{sid}",
+                    "state": st,
+                    "reason": "None",
+                    "elapsed": "0:01",
+                    "time_limit": "1:00",
+                    "nodes": "1",
+                    "nodelist": "n1",
+                }
+                for sid, st in data["squeue"].items()
+            }
+        }
+
+    def window(job_ids, *, since_minutes, profile_name=None, runner=None):
+        data["sacct_ids"].extend(job_ids)
+        records = {}
+        for sid in job_ids:
+            for i, st in enumerate(data["sacct"].get(sid, [])):
+                records.setdefault(sid, []).append(
+                    {
+                        "name": f"xcl-{sid}",
+                        "state": st,
+                        "raw_state": st,
+                        "observed_state": slurm_adapter.SLURM_OBSERVED_STATE[st],
+                        "submitted_at": 1794000000.0 + i,
+                        "started_at": 1794000005.0 + i,
+                        "ended_at": 1794000065.0 + i,
+                        "elapsed_sec": 60,
+                        "exit_code": "0:0",
+                        "alloc_tres": "cpu=1",
+                        "node_list": "n1",
+                    }
+                )
+        return {"records": records}
+
+    monkeypatch.setattr(slurm_adapter, "poll_cluster_jobs", poll)
+    monkeypatch.setattr(slurm_adapter, "accounting_window", window)
+
+    def register(slurm_id):
+        job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
+        slurm_adapter.register_slurm_job(job_id, slurm_id, cluster_id=cid)
+        return job_id
+
+    return cid, register, data
 
 
-def test_sync_persists_the_observation(slurm_rows, monkeypatch):
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9200", cluster_id="nibi")
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("running"))
+def _state(job_id):
+    return _row(
+        "SELECT observed_state, terminal_at IS NOT NULL, last_observed_at IS NOT NULL "
+        "FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+        (job_id,),
+    )
+
+
+def test_sync_persists_the_observation(own_cluster):
+    _cid, register, data = own_cluster
+    job_id = register("9200")
+    data["squeue"] = {"9200": "RUNNING"}
 
     changes = slurm_adapter.sync_slurm_statuses()
 
     assert (job_id, "9200", "pending", "running") in changes
-    row = _row(
-        "SELECT observed_state, last_observed_at IS NOT NULL, terminal_at "
-        "FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
-        (job_id,),
+    assert _state(job_id) == ("running", False, True), (
+        "persisted, not terminal, and last_observed_at reflects real freshness"
     )
-    assert row is not None
-    assert row[0] == "running"
-    assert row[1] is True, "last_observed_at must reflect real freshness"
-    assert row[2] is None, "a running job is not terminal"
 
 
-def test_terminal_mapping_is_retained_not_deleted(slurm_rows, monkeypatch):
+def test_terminal_mapping_is_retained_not_deleted(own_cluster):
     """The regression that destroyed audit history.
 
     The previous sync loop ran `DELETE FROM slurm_job_mappings` when a job
@@ -329,54 +395,51 @@ def test_terminal_mapping_is_retained_not_deleted(slurm_rows, monkeypatch):
     ever ran for a tenant. Companion §10.1: "Historical mappings remain
     queryable and auditable."
     """
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9300", cluster_id="nibi")
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("completed"))
+    _cid, register, data = own_cluster
+    job_id = register("9300")
+    data["sacct"] = {"9300": ["COMPLETED"]}  # gone from the controller, finished
 
     slurm_adapter.sync_slurm_statuses()
 
-    row = _row(
-        "SELECT observed_state, terminal_at IS NOT NULL FROM slurm_job_mappings "
-        "WHERE xcelsior_job_id = %s",
-        (job_id,),
-    )
-    assert row is not None, (
-        "the mapping was deleted on completion; terminal history must be "
-        "retained and marked, not destroyed"
-    )
-    assert row[0] == "completed"
-    assert row[1] is True
+    row = _state(job_id)
+    assert row is not None, "terminal history must be retained and marked, not destroyed"
+    assert row[:2] == ("completed", True)
 
 
-def test_terminal_mappings_are_not_polled_again(slurm_rows, monkeypatch):
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9400", cluster_id="nibi")
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("failed"))
+def test_a_finished_state_in_squeue_alone_does_not_close_the_mapping(own_cluster):
+    """A requeued job returns to PENDING under the same id; only leaving the
+    controller with a finished accounting record settles a mapping."""
+    _cid, register, data = own_cluster
+    job_id = register("9310")
+    data["squeue"] = {"9310": "COMPLETED"}
+
     slurm_adapter.sync_slurm_statuses()
 
-    polled: list[str] = []
+    assert _state(job_id)[:2] == ("completed", False)
 
-    def _tracking(slurm_job_id, **_kw):
-        polled.append(slurm_job_id)
-        return {"xcelsior_state": "failed"}
 
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _tracking)
+def test_terminal_mappings_are_not_polled_again(own_cluster):
+    _cid, register, data = own_cluster
+    register("9400")
+    data["sacct"] = {"9400": ["FAILED"]}
+    slurm_adapter.sync_slurm_statuses()
+    data["sacct_ids"].clear()
+
     slurm_adapter.sync_slurm_statuses()
 
-    assert "9400" not in polled, "a settled mapping must drop out of the poll set"
+    assert "9400" not in data["sacct_ids"], "a settled mapping must drop out of the poll set"
 
 
-def test_desired_cancelled_drives_a_cancel_request(slurm_rows, monkeypatch):
+def test_desired_cancelled_drives_a_cancel_request(own_cluster):
     """desired → cluster, the direction that did not exist before.
 
     Previously a cancellation could only be expressed by deleting the row
     and hoping the external job noticed.
     """
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9500", cluster_id="nibi")
+    _cid, register, data = own_cluster
+    job_id = register("9500")
     assert slurm_adapter.set_slurm_desired_state(job_id, "cancelled") is True
-
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("running"))
+    data["squeue"] = {"9500": "RUNNING"}
     cancelled: list[str] = []
 
     slurm_adapter.sync_slurm_statuses(cancel_callback=cancelled.append)
@@ -387,11 +450,11 @@ def test_desired_cancelled_drives_a_cancel_request(slurm_rows, monkeypatch):
     )
 
 
-def test_no_cancel_request_for_a_job_already_terminal(slurm_rows, monkeypatch):
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9600", cluster_id="nibi")
+def test_no_cancel_request_for_a_job_already_terminal(own_cluster):
+    _cid, register, data = own_cluster
+    job_id = register("9600")
     slurm_adapter.set_slurm_desired_state(job_id, "cancelled")
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _fake_status("completed"))
+    data["squeue"] = {"9600": "COMPLETED"}
     cancelled: list[str] = []
 
     slurm_adapter.sync_slurm_statuses(cancel_callback=cancelled.append)
@@ -399,33 +462,63 @@ def test_no_cancel_request_for_a_job_already_terminal(slurm_rows, monkeypatch):
     assert cancelled == [], "a finished job does not need cancelling"
 
 
+def test_a_failing_cluster_does_not_stop_the_rest(own_cluster):
+    """Isolation is per cluster now: one unreachable cluster costs only its
+    own mappings a pass, and changes none of them."""
+    _cid, register, data = own_cluster
+    good = register("9801")
+    data["squeue"] = {"9801": "RUNNING"}
+    # Every cluster but this test's answers with a transport error (see the
+    # fixture), so any other open rows in the shared database are that
+    # failing cluster; the healthy one must still be reconciled.
+    slurm_adapter.sync_slurm_statuses()
+    assert _state(good)[0] == "running", "a healthy cluster was starved by a failing one"
+
+    data["fail"] = True
+    data["squeue"] = {"9801": "COMPLETED"}
+    slurm_adapter.sync_slurm_statuses()
+    assert _state(good)[0] == "running", "a failed poll must change nothing"
+
+
+def test_sync_records_a_pending_job_without_check_violation(own_cluster):
+    """Regression: a real PENDING job aborted the whole sync pass.
+
+    The adapter maps Slurm PENDING to the Xcelsior job state "queued", and
+    the sync wrote that straight into observed_state, whose CHECK
+    constraint only allows the mapping vocabulary. The first pending job
+    raised CheckViolation out of sync_slurm_statuses. The callback still
+    gets the job state.
+    """
+    _cid, register, data = own_cluster
+    job_id = register("9950")
+    other = register("9951")
+    data["squeue"] = {"9950": "PENDING", "9951": "RUNNING"}
+    seen: list = []
+
+    slurm_adapter.sync_slurm_statuses(update_callback=lambda x, s: seen.append((x, s)))
+
+    assert _state(job_id)[0] == "pending"
+    assert _state(other)[0] == "running", "a pending job must not stop the rest of the pass"
+    assert (other, "running") in seen
+
+
+def test_preempted_job_settles_as_preempted(own_cluster):
+    """Decision D2: preemption is its own observation, not a cancellation,
+    and it settles once the job has left the controller unrequeued."""
+    _cid, register, data = own_cluster
+    job_id = register("9960")
+    data["sacct"] = {"9960": ["PREEMPTED"]}
+
+    slurm_adapter.sync_slurm_statuses()
+
+    assert _state(job_id)[:2] == ("preempted", True)
+
+
 def test_set_desired_state_rejects_unknown_values(slurm_rows):
     job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
     slurm_adapter.register_slurm_job(job_id, "9700", cluster_id="nibi")
     with pytest.raises(ValueError):
         slurm_adapter.set_slurm_desired_state(job_id, "paused")
-
-
-def test_poll_failure_on_one_mapping_does_not_stop_the_rest(slurm_rows, monkeypatch):
-    """Per-mapping isolation, same rule as the Lightning sweep."""
-    bad = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    good = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(bad, "9800", cluster_id="nibi")
-    slurm_adapter.register_slurm_job(good, "9801", cluster_id="nibi")
-
-    def _flaky(slurm_job_id, **_kw):
-        if slurm_job_id == "9800":
-            raise RuntimeError("cluster unreachable")
-        return {"xcelsior_state": "running"}
-
-    monkeypatch.setattr(slurm_adapter, "get_slurm_job_status", _flaky)
-    slurm_adapter.sync_slurm_statuses()
-
-    row = _row(
-        "SELECT observed_state FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
-        (good,),
-    )
-    assert row == ("running",), "a healthy mapping was starved by a failing one"
 
 
 def test_load_map_excludes_terminal_and_survives_db_error(slurm_rows, monkeypatch):
@@ -452,55 +545,3 @@ def test_no_json_file_authority_remains():
         "SLURM_MAP_FILE is dead file-authority configuration; the mapping is "
         "owned by PostgreSQL (migration 060)"
     )
-
-
-def test_sync_records_a_pending_job_without_check_violation(slurm_rows, monkeypatch):
-    """Regression: a real PENDING job aborted the whole sync pass.
-
-    The adapter maps Slurm PENDING to the Xcelsior job state "queued", and
-    the sync wrote that straight into observed_state, whose CHECK
-    constraint (migration 067) only allows pending/running/completed/
-    failed/cancelled/unknown. The first pending job raised CheckViolation
-    out of sync_slurm_statuses. Observed states are now projected onto the
-    constraint's vocabulary; the callback still gets the job state.
-    """
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    other = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9950", cluster_id="nibi")
-    slurm_adapter.register_slurm_job(other, "9951", cluster_id="nibi")
-    states = {"9950": "queued", "9951": "running"}
-    monkeypatch.setattr(
-        slurm_adapter,
-        "get_slurm_job_status",
-        lambda sid, **_kw: {"slurm_job_id": sid, "xcelsior_state": states[sid]},
-    )
-    seen: list = []
-
-    slurm_adapter.sync_slurm_statuses(update_callback=lambda x, s: seen.append((x, s)))
-
-    pending = _row(
-        "SELECT observed_state FROM slurm_job_mappings WHERE xcelsior_job_id = %s", (job_id,)
-    )
-    running = _row(
-        "SELECT observed_state FROM slurm_job_mappings WHERE xcelsior_job_id = %s", (other,)
-    )
-    assert pending == ("pending",)
-    assert running == ("running",), "a pending job must not stop the rest of the pass"
-    assert (other, "running") in seen
-
-
-def test_preempted_job_is_terminal(slurm_rows, monkeypatch):
-    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
-    slurm_adapter.register_slurm_job(job_id, "9960", cluster_id="nibi")
-    monkeypatch.setattr(
-        slurm_adapter,
-        "get_slurm_job_status",
-        lambda sid, **_kw: {"slurm_job_id": sid, "xcelsior_state": "preempted"},
-    )
-    slurm_adapter.sync_slurm_statuses()
-    row = _row(
-        "SELECT observed_state, terminal_at IS NOT NULL FROM slurm_job_mappings "
-        "WHERE xcelsior_job_id = %s",
-        (job_id,),
-    )
-    assert row == ("cancelled", True)
