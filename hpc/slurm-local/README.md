@@ -62,7 +62,7 @@ Still open from Phase 0: Slurm itself. Ubuntu 26.04 ships 25.11.2, which lacks t
 | Role | slurmctld, slurmdbd, MariaDB, slurmd | slurmd (config-less) |
 | Hardware | Ryzen 9 5950X (16C/32T), 15 GB, RTX 3060 12 GB | Ryzen 9 4900H (8C/16T), 15 GB; CPU-only here |
 | Tailnet | `TOWER_ADDR` in `site.env` | `ASUS_ADDR` in `site.env` |
-| Offered to Slurm | 8 GB RAM, 8 CPUs, 1 GPU (shared, see below) | 4 GB RAM, 8 CPUs |
+| Offered to Slurm | 8 GB RAM (`TOWER_MEM_MB`; 16 GB after the RAM upgrade), 8 CPUs, 1 GPU (shared, see below) | 4 GB RAM (`ASUS_MEM_MB`), 8 CPUs |
 | Firewall change | none: ufw already denies incoming except on tailscale0 (preflight checks it) | allow 6818/tcp and 60001-60100/tcp (srun) from the tower on tailscale0 |
 
 The 8 CPUs are a cap on all of the partition's jobs together on that node (`MaxCPUsPerNode`), not a per-job limit. A second partition would get its own 8, so switch to `CoreSpecCount` on the node lines before adding one.
@@ -247,6 +247,15 @@ Rollback runs in this order:
 A copy of the manifest is kept in `/root`. The rehearsal checked this end to end: the package set after rollback was identical to the one before install.
 
 To pause without uninstalling: `sudo ./45-stop.sh tower` and `sudo ./45-stop.sh asus`.
+
+## After the tower's RAM upgrade
+
+The tower goes to at least 32 GB in late November 2026. Slurm can't be told before the RAM is in: a node with less memory than its `RealMemory` registers short and is drained. Afterwards:
+
+1. In `site.env`, set `TOWER_MEM_MB=16384`, half the RAM as today (the rest stays with Docker, the runners and the GPU services). Then rsync the kit to the tower.
+2. On the tower: `sudo ./10-install-tower.sh preflight` (it refuses a value above the installed RAM), then `sudo ./10-install-tower.sh configure`.
+3. Restart rather than `scontrol reconfigure`, which can fail with cgroup v2 on 25.11.2: `sudo systemctl restart slurmctld slurmd` on the tower, then `sudo systemctl restart slurmd` on the asus.
+4. `scontrol show node tower` shows the new `RealMemory`; re-run `30-verify-cluster.sh`.
 
 ## Backups
 

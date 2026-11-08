@@ -21,6 +21,7 @@ step_preflight() {
     # 6817-6819 to the tailnet. Refuse to install where it isn't up.
     chk "ufw active, default deny incoming" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || ufw status verbose | grep -q "Default: deny (incoming)"'
     chk "sshd present (adapter login)" '[[ -x /usr/sbin/sshd ]]'
+    chk "TOWER_MEM_MB ($TOWER_MEM_MB) fits the installed RAM" 'xcl_mem_fits "$TOWER_MEM_MB"'
     chk "Ubuntu 26.04" 'grep -q "VERSION_ID=\"26.04\"" /etc/os-release'
     chk "tailnet address $TOWER_ADDR present" 'ip -4 -o addr | grep " $TOWER_ADDR/" >/dev/null'
     chk "cgroup v2" '[[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]]'
