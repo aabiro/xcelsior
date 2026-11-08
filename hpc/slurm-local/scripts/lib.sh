@@ -118,11 +118,24 @@ xcl_render() {
     printf '%s\n' "$out"
 }
 
+# xcl_kit_made PATH — true when PATH, or a directory above it, didn't exist
+# before the kit installed its packages (recorded as a leftover).
+xcl_kit_made() {
+    local p="$1"
+    while [[ "$p" != / && -n "$p" ]]; do
+        grep -qxF -- "leftover $p" "$XCL_MANIFEST" 2>/dev/null && return 0
+        p="$(dirname "$p")"
+    done
+    return 1
+}
+
 # xcl_put_file SRC DEST MODE OWNER[:GROUP] — install a rendered copy.
-# An existing DEST is backed up first and restored by rollback.
+# An existing DEST is backed up first and restored by rollback, unless the
+# kit's own packages created it: restoring that after the purge would bring
+# it back (the asus's /etc/default/slurmd, found by the 2026-11-08 rollback).
 xcl_put_file() {
     local src="$1" dest="$2" mode="$3" owner="$4"
-    if [[ -e "$dest" ]] && ! grep -qxF -- "file $dest" "$XCL_MANIFEST"; then
+    if [[ -e "$dest" ]] && ! grep -qxF -- "file $dest" "$XCL_MANIFEST" && ! xcl_kit_made "$dest"; then
         local bk="$XCL_BACKUP$dest"
         install -d "$(dirname "$bk")"
         cp -a "$dest" "$bk"
@@ -202,7 +215,8 @@ xcl_installed_packages() {
 # Directories the packages may create and leave behind after a purge
 # (MariaDB 11.8 on Ubuntu 26.04 keeps data in /var/lib/mariadb, not mysql).
 XCL_PKG_LEFTOVERS=(/etc/mysql /var/lib/mariadb /var/lib/mysql /var/log/mysql /run/mysqld
-    /etc/munge /var/lib/munge /var/log/munge /run/munge /var/lib/slurm /var/log/slurm /etc/slurm)
+    /etc/munge /var/lib/munge /var/log/munge /run/munge /var/lib/slurm /var/log/slurm /etc/slurm
+    /etc/default/slurmd)
 
 # Record which of XCL_PKG_LEFTOVERS do not exist yet. Call before writing
 # anything into them (the tower writes /etc/mysql/... before apt runs).
