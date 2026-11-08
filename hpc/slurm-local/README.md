@@ -113,6 +113,8 @@ Deviations from the real cluster, and only these:
 - the GPU is the host's (RTX 2060 on the ASUS), so its type token replaces `rtx_3060`;
 - SSH arrives on 127.0.0.1:22022.
 
+**Rehearsal record, 2026-11-08 (the Phase 0 kit, run `r1108022520`):** V-1 to V-11 passed (V-6 skipped: sudo inside the container). 26 of 26 suite cases passed, SEC-1 and SEC-2 included: the job ran as `xclslurm` and got `Permission denied` writing its own `~/.ssh`, `id` was still refused afterwards, and scripts with `--chdir` or `--output` aimed at `~/.ssh` were refused before sbatch. SYNC-1 was skipped (no `--with-db`). The first attempt stopped on a placeholder written in a slurm.conf comment, now caught by `tests/test_slurm_gate.py`.
+
 **Real-hardware record, 2026-11-07 (run `r1107050537`):** V-1 to V-12 all passed, V-6 and V-12 included. All 24 suite cases passed, SYNC-1 included. Docker containers and runners were unchanged after install and again after the suite. The real run found three kit defects, all fixed:
 - `ldconfig -p | grep -q` failed under pipefail through SIGPIPE;
 - V-12's snapshot came out empty because of `fs.protected_regular`;
