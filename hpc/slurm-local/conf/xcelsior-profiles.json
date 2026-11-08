@@ -18,8 +18,8 @@
       "scratch_dir": "/var/lib/xcl-slurm-test/jobs",
       "output_dir": "/var/lib/xcl-slurm-test/jobs",
       "ssh_host": "xcl-tower",
-      "ssh_options": ["-F", "/home/aaryn/.ssh/xcl_slurm_adapter.conf"],
-      "remote_user": "aaryn"
+      "ssh_options": ["-F", "~/.ssh/xcl_slurm_adapter.conf"],
+      "remote_user": "xclslurm"
     }
   }
 }

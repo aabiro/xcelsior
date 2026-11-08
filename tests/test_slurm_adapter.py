@@ -792,6 +792,11 @@ class TestTransportV3:
         r = _sa.get_runner(nibi)
         assert (r.ssh_host, r.ssh_options) == ("robot.nibi", ("-F", "/n.conf"))
 
+    def test_home_relative_options_expand(self, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/op")
+        r = _sa.get_runner({"ssh_host": "h", "ssh_options": ["-F", "~/.ssh/x.conf"]})
+        assert r.ssh_options == ("-F", "/home/op/.ssh/x.conf")
+
     def test_env_override_without_a_named_profile_is_refused(self, monkeypatch):
         monkeypatch.setenv("XCELSIOR_SLURM_SSH_HOST", "aaryn@127.0.0.1")
         monkeypatch.delenv("XCELSIOR_SLURM_SSH_PROFILE", raising=False)

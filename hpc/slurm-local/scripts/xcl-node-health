@@ -1,0 +1,61 @@
+#!/bin/bash
+# Slurm HealthCheckProgram for the xcl-local test cluster. slurmd runs it as
+# root on every node, at start and every HealthCheckInterval.
+#
+# Drains this node when a check fails, and resumes it only when the drain
+# was its own (reason starts with "xcl-health:"), so it never undoes an
+# operator's drain. GPU processes outside Slurm are logged, not drained on:
+# the tower's GPU is shared by design (MPS, pxl-publisher, a GPU test worker
+# and a Docker container use it), so draining would take the node out for
+# good. Set XCL_GPU_CONTENTION=drain at install to change that.
+set -uo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+TAG="xcl-health:"
+JOBS_DIR=/var/lib/xcl-slurm-test/jobs
+SVC_USER=@SVC_USER@
+GPU_CONTENTION=@GPU_CONTENTION@
+
+# This node's NodeName: the asus's hostname is not its NodeName.
+node="$(scontrol show node -o 2>/dev/null | awk -v h="$(hostname -s)" '{
+    name = ""; host = ""
+    for (i = 1; i <= NF; i++) {
+        if ($i ~ /^NodeName=/) name = substr($i, 10)
+        if ($i ~ /^NodeHostName=/) host = substr($i, 14)
+    }
+    if (host == h) print name
+}')"
+[[ -n "$node" ]] || exit 0
+
+problem=""
+have="$(stat -c '%U:%a' "$JOBS_DIR" 2>/dev/null)"
+[[ "$have" == "$SVC_USER:2750" ]] || problem="jobs dir $JOBS_DIR is ${have:-missing}, want $SVC_USER:2750"
+
+# GPU processes outside every Slurm job's cgroup share the device with
+# whatever Slurm placed there, and Slurm can't see them. Only on nodes that
+# give Slurm a GPU: the asus's GPU belongs to the xcelsior worker.
+if scontrol show node "$node" -o 2>/dev/null | grep -q ' Gres=gpu' && command -v nvidia-smi >/dev/null; then
+    foreign=()
+    while read -r pid; do
+        pid="${pid//[[:space:]]/}"
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        cg="$(cat "/proc/$pid/cgroup" 2>/dev/null)" || continue
+        [[ "$cg" == *slurmstepd.scope/job_* ]] || foreign+=("$pid")
+    done < <(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null)
+    if [[ ${#foreign[@]} -gt 0 ]]; then
+        msg="GPU in use outside Slurm by ${#foreign[@]} process(es): ${foreign[*]}"
+        logger -t xcl-node-health -p daemon.warning "$node: $msg"
+        [[ "$GPU_CONTENTION" == drain && -z "$problem" ]] && problem="$msg"
+    fi
+fi
+
+reason="$(sinfo -h -n "$node" -o '%E' 2>/dev/null | head -1)"
+if [[ -n "$problem" ]]; then
+    if [[ "$reason" != "$TAG $problem" ]]; then
+        logger -t xcl-node-health -p daemon.err "$node: draining: $problem"
+        scontrol update NodeName="$node" State=DRAIN Reason="$TAG $problem"
+    fi
+elif [[ "$reason" == "$TAG"* ]]; then
+    logger -t xcl-node-health -p daemon.notice "$node: checks pass again; resuming"
+    scontrol update NodeName="$node" State=RESUME
+fi
+exit 0
