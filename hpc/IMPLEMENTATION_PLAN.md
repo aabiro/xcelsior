@@ -317,7 +317,7 @@ These were open questions. Each is now decided on the recommendation below. Any 
 
 ## 5a. Corrections from the 2026-11-08 research, and Phase 0
 
-A sourced review of this plan against SchedMD's documentation and source, Alliance policy, and how other systems drive Slurm found the following. **Phase 0** (no new features) is done in the repository: public claims corrected, the adapter defects below marked *fixed*, the gate rewritten, and the kit reworked around a service account. The kit changes are not yet on the real machines; the cluster there is still the 2026-11-07 install.
+A sourced review of this plan against SchedMD's documentation and source, Alliance policy, and how other systems drive Slurm found the following. **Phase 0** (no new features) is done in the repository: public claims corrected, the adapter defects below marked *fixed*, the gate rewritten, and the kit reworked around a service account. The kit changes were installed on the real machines the same day, after a rollback of the 2026-11-07 install: V-1 to V-12 and 26 of 26 suite cases passed, SEC-1 and SEC-2 included (`slurm-local/RESULTS_2026-11-08.md`).
 
 **Fixed in Phase 0**
 - Multi-node GPU and memory requests put the job's total on every node (`--gres` and `--mem` are per node): 16 GPUs on Nibi asked for 3,844 GB per node. Now per node, with `srun` so the payload runs on every node.
@@ -336,7 +336,7 @@ A sourced review of this plan against SchedMD's documentation and source, Allian
 - **D4.** The image allowlist is enforced only in client code, and Apptainer's own image controls don't work where unprivileged user namespaces are on. The gate must build the script from a structured request: digest-pinned, pre-staged SIFs, `--containall --cleanenv`, no `docker://` pull at run time (compute nodes on Narval, Rorqual and Trillium have no internet).
 - **D5.** Creating a reservation needs Operator, which also lets the holder modify every user's jobs. Partners should create one standing reservation or partition that Xcelsior sub-allocates. No GPU cloud surveyed sells reservation slices of a shared cluster; build P4 only after a partner commits.
 - **P3 (Alliance).** The Terms of Service (TOS-01, 3.1) limit use to academic research under a PI and forbid account sharing, so no Alliance allocation can ever be marketplace capacity. Whether integration testing of this adapter counts as research is for the PI and research office; otherwise use paid non-academic access. Mitacs funds an intern, not compute. Nibi details to model: about half the GPU nodes are MIG (one instance per job); a GPU model has been mandatory since 2026-04-06; `--account` is optional with one allocation and may be `def-`, `rrg-` or `rpp-`; `sinfo` and `sacct` were added to the robot wrapper only on 2026-10-15, so check them on first connection and keep a squeue-only fallback.
-- **Slurm version.** 25.11.8 (2026-09-02) fixed eight CVEs, including an Operator-to-Administrator escalation; Ubuntu 26.04 still ships 25.11.2. Partners must run a fixed release, checked at registration. Rebuilding xcl-local on SchedMD-built packages is the remaining Phase 0 item.
+- **Slurm version.** 25.11.8 (2026-09-02) fixed eight CVEs, including an Operator-to-Administrator escalation; Ubuntu 26.04 still ships 25.11.2. Partners must run a fixed release, checked at registration. Rebuilding xcl-local on SchedMD-built packages is the remaining Phase 0 item; rollback R-1 to R-5 has now run on both machines.
 
 ---
 
