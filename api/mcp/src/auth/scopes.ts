@@ -154,6 +154,11 @@ const TOOL_SCOPE_REGISTRY = {
   get_scheduler_health: { allOf: ["control_plane:read"] },
   get_host_capacity: { allOf: ["hosts:read"] },
   list_reconciliation_findings: { allOf: ["instances:read", "control_plane:read"] },
+  // Slurm: the reconciler's copy of cluster and job state. Operator surface
+  // for now (no tenant submits Slurm jobs yet); never reaches a cluster.
+  list_hpc_clusters: { allOf: ["control_plane:read"] },
+  list_hpc_jobs: { allOf: ["instances:read", "control_plane:read"] },
+  get_hpc_job: { allOf: ["instances:read", "control_plane:read"] },
   get_mcp_action_status: { anyOf: ["instances:read", "inference:read", "hosts:read"] },
   retry_instance: { allOf: ["instances:operate"] },
   reconcile_instance: { allOf: ["instances:operate"] },

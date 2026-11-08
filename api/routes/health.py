@@ -523,6 +523,7 @@ def _slurm_http_error(result: dict, default_status: int = 400):
     status = {
         "not_found": 404,
         "already_terminal": 409,
+        "ambiguous_job_id": 409,
         "transport_error": 503,
         "controller_unreachable": 503,
         "slurm_unavailable": 503,
@@ -573,16 +574,16 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
 
 @router.get("/api/slurm/status/{slurm_job_id}", tags=["Infrastructure"])
 def api_slurm_status(slurm_job_id: str, request: Request, cluster_id: str | None = None):
-    """Check the status of a Slurm job (on cluster_id's profile, if given)."""
-    _require_admin(request)
-    from slurm_adapter import get_slurm_job_status
+    """A Slurm job's state as the reconciler last observed it.
 
-    profile = _slurm_profile_for(cluster_id)
-    status = (
-        get_slurm_job_status(slurm_job_id, profile_name=profile)
-        if profile
-        else get_slurm_job_status(slurm_job_id)
-    )
+    Reads slurm_job_mappings and never contacts the cluster: the reconciler
+    (workers/slurm_reconciler.py) is the only code that polls Slurm, so a
+    dashboard refresh costs the cluster nothing.
+    """
+    _require_admin(request)
+    from slurm_adapter import read_observed_status
+
+    status = read_observed_status(slurm_job_id, cluster_id=cluster_id)
     if "error" in status:
         raise _slurm_http_error(status)
     return status

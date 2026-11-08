@@ -17,11 +17,10 @@ interface ProfileCard extends SlurmProfileDetail {
   id: string;
 }
 
-/** A row in the jobs list: the stored mapping plus any status refreshed live. */
+/** A row in the jobs list: the mapping as the Slurm reconciler last observed it. */
 interface JobRow extends SlurmMapping {
   status: string;
-  slurm_state?: string;
-  reason?: string;
+  reason?: string | null;
 }
 
 // slurm_job_mappings.observed_state and the adapter's job states → one label.
@@ -32,7 +31,9 @@ const STATUS_LABEL: Record<string, string> = {
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",
-  preempted: "cancelled",
+  preempted: "preempted",
+  held: "held",
+  suspended: "suspended",
   unknown: "unknown",
 };
 
@@ -86,7 +87,11 @@ function HpcContent() {
       }
       if (j.status === "fulfilled") {
         const rows = Array.isArray(j.value.jobs) ? j.value.jobs : [];
-        setJobs(rows.map((m) => ({ ...m, status: STATUS_LABEL[m.observed_state || "unknown"] || "unknown" })));
+        setJobs(rows.map((m) => ({
+          ...m,
+          status: STATUS_LABEL[m.observed_state || "unknown"] || "unknown",
+          reason: m.state_reason,
+        })));
       }
       setLoading(false);
     });
@@ -154,8 +159,15 @@ function HpcContent() {
   const handleRefreshStatus = async (job: JobRow) => {
     try {
       const res = await api.fetchSlurmJobStatus(job.slurm_job_id, job.cluster_id);
+      // The reconciler's copy, not a live poll: refreshing costs the cluster nothing.
       setJobs((prev) => prev.map((j) => j.job_id === job.job_id
-        ? { ...j, status: STATUS_LABEL[res.xcelsior_state] || "unknown", slurm_state: res.slurm_state, reason: res.reason }
+        ? {
+            ...j,
+            status: STATUS_LABEL[res.xcelsior_state] || "unknown",
+            slurm_state: res.slurm_state,
+            reason: res.reason,
+            last_observed_at: res.last_observed_at ?? j.last_observed_at,
+          }
         : j));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to refresh status");
@@ -328,6 +340,7 @@ function HpcContent() {
                           <span>Cluster: {job.cluster_id || "unknown"}</span>
                           <span>Submitted: {formatEpoch(job.submitted_at)}</span>
                           {job.terminal_at && <span>Ended: {formatEpoch(job.terminal_at)}</span>}
+                          {job.last_observed_at && <span>Observed: {formatEpoch(job.last_observed_at)}</span>}
                           {job.reason && <span>Reason: {job.reason}</span>}
                         </div>
                       </div>

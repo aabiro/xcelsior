@@ -227,6 +227,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_scheduler_health: { readOnly: true, destructive: false, audience: "operator" },
   get_host_capacity: { readOnly: true, destructive: false, audience: "operator" },
   list_reconciliation_findings: { readOnly: true, destructive: false, audience: "operator" },
+  list_hpc_clusters: { readOnly: true, destructive: false, audience: "operator" },
+  list_hpc_jobs: { readOnly: true, destructive: false, audience: "operator" },
+  get_hpc_job: { readOnly: true, destructive: false, audience: "operator" },
   // `customer`, not `operator`, and stated rather than derived. A derived
   // version classified this as operator because `hosts:read` appears in its
   // *alternatives* (an action plan may concern an instance, an endpoint or a
