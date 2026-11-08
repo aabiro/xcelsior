@@ -257,3 +257,52 @@ groups:
       summary: Customer volume {{ $labels.mountpoint }} is over 90% full
       description: '{{ $value | printf "%.1f" }}% used on a volume exported from prod-hetzner.'
       runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+- name: xcelsior.slurm
+  rules:
+  - alert: XcelsiorSlurmMetricsUnavailable
+    expr: xcelsior_slurm_metrics_available{job="xcelsior-api"} == 0
+    for: 5m
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: slurm
+    annotations:
+      summary: The Slurm reconciler's state cannot be read
+      description: The API could not read slurm_clusters or slurm_job_mappings, so cluster health and job staleness are unknown, not healthy.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
+  - alert: XcelsiorSlurmReconcileStale
+    expr: xcelsior_slurm_reconcile_lag_seconds{job="xcelsior-api"} > 3 * xcelsior_slurm_poll_interval_seconds{job="xcelsior-api"}
+    for: 1m
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: slurm
+    annotations:
+      summary: Slurm cluster {{ $labels.cluster }} has not been reconciled for three poll intervals
+      description: No reconcile pass has had an answer from its controller for {{ $value | printf "%.0f" }} s. Every job state shown for it is stale. Check xcelsior_slurm_failures_total for the cause (transport, host key, controller).
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
+  - alert: XcelsiorSlurmEndingAwaitingAccounting
+    expr: xcelsior_slurm_awaiting_accounting_oldest_seconds{job="xcelsior-api"} > 900
+    for: 1m
+    labels:
+      severity: warning
+      owner: platform
+      platform: xcelsior
+      component: slurm
+    annotations:
+      summary: A job on {{ $labels.cluster }} left the controller 15 minutes ago and accounting has not settled it
+      description: The job is no longer in squeue, but sacct has no finished record for it, so its mapping cannot settle. slurmdbd may be down or backlogged.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
+  - alert: XcelsiorSlurmHostKeyRefused
+    expr: increase(xcelsior_slurm_failures_total{job="xcelsior-api",error_code="host_key_mismatch"}[15m]) > 0
+    labels:
+      severity: critical
+      owner: platform
+      platform: xcelsior
+      component: slurm
+    annotations:
+      summary: Slurm cluster {{ $labels.cluster }} presented a host key that is not the pinned one
+      description: The reconciler refused the connection. Either the cluster was re-keyed (verify the new key out of band, then re-register it) or something else answered at its address. Do not re-pin from the connection itself.
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slurm-reconciler
