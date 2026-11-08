@@ -93,6 +93,16 @@ mapfile -t PKGS < <(kind pkg)
 if [[ ${#PKGS[@]} -gt 0 ]]; then
     run env DEBIAN_FRONTEND=noninteractive apt-get purge -y "${PKGS[@]}"
 fi
+# Purging mariadb-server leaves its AppArmor profile loaded in the kernel,
+# where it breaks the next install's system-table setup. Unload it once the
+# binary it confined is gone (a Docker container's mariadbd runs under
+# docker-default, not this profile).
+AA=/sys/kernel/security/apparmor
+if kind pkg | grep -qx mariadb-server && [[ ! -e /usr/sbin/mariadbd ]] &&
+    grep -q '^mariadbd ' "$AA/profiles" 2>/dev/null; then
+    if [[ $DRY == 1 ]]; then echo "would: unload the stale AppArmor profile mariadbd"
+    else printf '%s' mariadbd >"$AA/.remove" && xcl_log "unloaded the stale AppArmor profile mariadbd"; fi
+fi
 # Package directories that did not exist before the install (MariaDB's data
 # dir, /etc/mysql, munge's state) — dpkg leaves them when they are not empty.
 while read -r d; do
