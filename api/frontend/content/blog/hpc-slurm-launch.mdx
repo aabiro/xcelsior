@@ -1,42 +1,35 @@
 ---
-title: "Introducing HPC & Slurm Integration"
-description: "Run traditional HPC workloads on Xcelsior's GPU marketplace, with full Slurm compatibility."
+title: "HPC & Slurm Integration: Where It Stands"
+description: "Xcelsior's Slurm adapter is Slurm-native and integration-ready, validated on a lab cluster. It is not yet open to customer accounts."
 date: "2026-02-15"
 author: "Xcelsior Team"
-tags: ["HPC", "Slurm", "compute", "new feature"]
+tags: ["HPC", "Slurm", "compute"]
 image: "/blog/hpc-slurm.jpg"
 ---
 
-## HPC Meets the GPU Marketplace
+> **Correction, 7 November 2026.** An earlier version of this post said Slurm support was "available now for all Xcelsior accounts", with full Slurm compatibility, scheduler placement and live telemetry. That overstated it. The Slurm integration is restricted to Xcelsior operators and is not yet open to customers. This version describes what actually exists.
 
-High-performance computing workflows, molecular dynamics, climate modelling, large-scale training, have traditionally required dedicated cluster access. That often means hyperscaler cloud HPC services or months-long procurement for on-prem hardware.
+## What exists today
 
-Today we're launching **HPC / Slurm integration** on Xcelsior, bringing familiar cluster computing workflows to our GPU marketplace.
+- **A Slurm adapter.** It writes a batch script from a job description, submits it with `sbatch`, follows the job through `squeue` and `sacct`, cancels it with `scancel`, and reads the job's output.
+- **Cluster profiles.** Each profile describes one cluster: its partitions, its GPU model, how it expects GPUs to be requested, and its walltime limits.
+- **Usage read from Slurm's own accounting.** The adapter reads start time, end time and elapsed seconds from the cluster's accounting database, not from a polling clock. Billing doesn't use these figures yet; when it does, a delay in checking a job won't be able to change its bill.
+- **A lab validation.** On 7 November 2026 the adapter passed its full test suite on a two-node lab cluster: one GPU node and one CPU node.
 
-## What's New
+## What it is not, yet
 
-- **Cluster Profiles**, Choose from pre-configured cluster profiles optimised for different workload types (ML training, inference, simulation, general HPC).
-- **Slurm-Compatible Job Submission**, Submit jobs using familiar Slurm parameters: nodes, GPUs per node, walltime, partitions.
-- **Real-Time Status**, Track job status from pending through running to completion, with live telemetry.
-- **Cancel & Resubmit**, Full job lifecycle management from the dashboard.
+- **Not open to customer accounts.** The HPC dashboard and the Slurm API are restricted to Xcelsior operators.
+- **No partner cluster is connected.** Jobs run only on Xcelsior's own lab cluster today.
+- **No script upload.** The adapter takes a job description (command, GPUs, walltime) and writes the batch script itself. You can't paste an `sbatch` script.
+- **No placement across clusters yet.** Xcelsior's scheduler does not route jobs into Slurm today.
 
-## How It Works
+## What comes next
 
-1. Navigate to **Dashboard → HPC / Slurm**
-2. Select a cluster profile that matches your workload
-3. Fill in job parameters (name, nodes, GPUs, walltime)
-4. Paste your job script
-5. Submit, Xcelsior's scheduler matches your job to available hardware
+1. A reconciler that keeps every job's state current without adding load to the cluster, so dashboards and agents read Xcelsior's copy instead of asking the cluster.
+2. Submission that is safe to retry, and billing from Slurm accounting, first run in shadow mode next to the existing meters.
+3. Partner Slurm clusters, once a partner route is live.
 
-Behind the scenes, our scheduler communicates with a Slurm adapter that translates between Xcelsior's marketplace model and standard Slurm job management. This means you get the flexibility of a shared marketplace with the familiarity of Slurm.
-
-## Compliant by Default
-
-Every HPC job runs on admitted, verified hardware. Simulation data, model checkpoints, and job artifacts are recorded in an exportable audit trail, so you can always show where a run executed and what it cost.
-
-## Get Started
-
-HPC / Slurm is available now for all Xcelsior accounts. Visit your [dashboard](/dashboard/hpc) to submit your first job.
+We'll update this post when Slurm jobs open to customers.
 
 ---
 
