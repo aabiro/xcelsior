@@ -2970,15 +2970,22 @@ export async function submitSlurmInstance(data: SlurmSubmitRequest) {
   });
 }
 
+/** A job's state as the Slurm reconciler last observed it (never a live poll). */
 export interface SlurmJobStatus {
   slurm_job_id: string;
+  cluster_id?: string | null;
+  xcelsior_job_id?: string;
   slurm_state: string;
-  /** queued | running | completed | failed | cancelled | preempted | unknown */
+  /** pending | running | held | suspended | completed | failed | cancelled | preempted | unknown */
   xcelsior_state: string;
-  elapsed?: string;
-  reason?: string;
-  exit_code?: string;
-  source?: "squeue" | "sacct";
+  observed_state?: string;
+  reason?: string | null;
+  exit_code?: string | null;
+  /** Left the controller with a finished accounting record: final. */
+  settled?: boolean;
+  last_observed_at?: number | null;
+  observed_age_seconds?: number | null;
+  source?: "reconciler";
 }
 
 function clusterQuery(clusterId?: string | null) {
@@ -3004,12 +3011,15 @@ export interface SlurmMapping {
   job_id: string;
   slurm_job_id: string;
   cluster_id: string | null;
-  /** pending | running | completed | failed | cancelled | unknown */
+  /** pending | running | held | suspended | completed | failed | cancelled | preempted | unknown */
   observed_state: string | null;
   desired_state: string | null;
   submitted_at: number | null;
   last_observed_at: number | null;
   terminal_at: number | null;
+  slurm_state: string | null;
+  state_reason: string | null;
+  exit_code: string | null;
 }
 
 export async function fetchSlurmInstances() {

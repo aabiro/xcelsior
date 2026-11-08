@@ -21,6 +21,7 @@ import base64
 
 from routes._deps import (
     _is_platform_admin,
+    _job_access_owner_ids,
     _require_auth,
     _require_scope,
     _user_owns_job,
@@ -1261,3 +1262,216 @@ def api_v1_retry_agent_command(command_id: UUID, request: Request, body: _OpIn):
         "idempotency_key": idempotency_key,
         "audit_preserved": True,
     }
+
+
+# ── HPC (Slurm) read model ───────────────────────────────────────────
+# The Slurm reconciler (workers/slurm_reconciler.py) is the only code that
+# polls a cluster. These endpoints read its copy, so a dashboard or an agent
+# can watch as often as it likes without adding a single call to the
+# cluster (hpc/IMPLEMENTATION_PLAN.md §5a).
+
+#: An open job unconfirmed for this many poll intervals is stale.
+HPC_STALE_INTERVALS = 3
+_HPC_JOB_SELECT = """
+    SELECT m.xcelsior_job_id, m.cluster_id, m.slurm_job_id, m.observed_state,
+           m.slurm_state, m.state_reason, m.exit_code, m.desired_state,
+           m.submitted_at, m.started_at, m.ended_at, m.terminal_at,
+           m.last_observed_at, m.last_changed_at, m.missing_since,
+           EXTRACT(EPOCH FROM clock_timestamp() - m.last_observed_at) AS observed_age,
+           COALESCE(c.poll_interval_seconds, 60) AS poll_interval
+      FROM slurm_job_mappings m
+      LEFT JOIN slurm_clusters c ON c.cluster_id = m.cluster_id
+"""
+
+
+def _hpc_reader(request: Request) -> tuple[bool, set[str]]:
+    """(global_access, owner_ids): operators read every job, others their own."""
+    user = _require_auth(request)
+    scopes = set(user.get("scopes") or ())
+    machine = str(user.get("grant_type", "")) == "client_credentials"
+    if _is_platform_admin(user) or (machine and "control_plane:read" in scopes):
+        return True, set()
+    if machine:
+        _require_scope(user, "instances:read")
+    return False, _job_access_owner_ids(user)
+
+
+def _hpc_job(row) -> dict:
+    (
+        xid,
+        cluster,
+        sid,
+        observed,
+        slurm_state,
+        reason,
+        exit_code,
+        desired,
+        submitted,
+        started,
+        ended,
+        terminal,
+        observed_at,
+        changed_at,
+        missing,
+        age,
+        interval,
+    ) = row
+    settled = terminal is not None
+    age_s = None if age is None else round(float(age), 1)
+    return {
+        "xcelsior_job_id": xid,
+        "cluster_id": cluster,
+        "slurm_job_id": sid,
+        "observed_state": observed,
+        "slurm_state": slurm_state,
+        "state_reason": reason,
+        "exit_code": exit_code,
+        "desired_state": desired,
+        "settled": settled,
+        "submitted_at": _iso(submitted),
+        "started_at": _iso(started),
+        "ended_at": _iso(ended),
+        "settled_at": _iso(terminal),
+        "last_observed_at": _iso(observed_at),
+        "last_changed_at": _iso(changed_at),
+        "missing_since": _iso(missing),
+        "observed_age_seconds": age_s,
+        # A settled job is final; an open one goes stale when the reconciler
+        # hasn't confirmed it for several of its cluster's poll intervals.
+        "stale": (not settled) and (age_s is None or age_s > HPC_STALE_INTERVALS * int(interval)),
+    }
+
+
+@router.get("/api/v1/hpc/clusters")
+def api_v1_hpc_clusters(request: Request):
+    """Registered Slurm clusters with the reconciler's view of their health.
+
+    Operator surface: platform admin, or a machine principal with
+    `control_plane:read`. Read-only; never contacts a cluster.
+    """
+    from db import _get_pg_pool
+
+    global_access, _owners = _hpc_reader(request)
+    if not global_access:
+        raise ProblemException(
+            status=403,
+            code="forbidden",
+            detail="platform admin or a scoped machine principal is required",
+        )
+    with _get_pg_pool().connection() as conn:
+        cur = conn.execute(
+            """
+            SELECT cluster_id, display_name, profile_key, enabled, research_only,
+                   marketplace, agent_access, poll_interval_seconds, last_poll_at,
+                   transport_ok_at, controller_ok_at, accounting_ok_at,
+                   consecutive_failures, breaker_open_until, last_error_code,
+                   COALESCE(facts->'orphans', '[]'::jsonb)
+              FROM slurm_clusters ORDER BY cluster_id
+            """
+        )
+        rows = cur.fetchall()
+    clusters = []
+    for r in rows:
+        clusters.append(
+            {
+                "cluster_id": r[0],
+                "display_name": r[1],
+                "profile": r[2],
+                "enabled": r[3],
+                "research_only": r[4],
+                "marketplace": r[5],
+                "agent_access": r[6],
+                "poll_interval_seconds": r[7],
+                "health": {
+                    "last_poll_at": _iso(r[8]),
+                    "transport_ok_at": _iso(r[9]),
+                    "controller_ok_at": _iso(r[10]),
+                    "accounting_ok_at": _iso(r[11]),
+                    "consecutive_failures": r[12],
+                    "backing_off_until": _iso(r[13]),
+                    "last_error_code": r[14],
+                },
+                "orphan_slurm_job_ids": list(r[15] or []),
+            }
+        )
+    return {"ok": True, "clusters": clusters}
+
+
+@router.get("/api/v1/hpc/jobs")
+def api_v1_hpc_jobs(
+    request: Request,
+    cluster_id: str | None = None,
+    state: str = "open",
+    cursor: str | None = None,
+    limit: int = Query(100, ge=1, le=200),
+):
+    """Slurm jobs as the reconciler last observed them, newest change first.
+
+    `state`: `open` (not yet settled), `settled`, or `all`. Operators see
+    every job; anyone else sees their own. Read-only; never contacts a cluster.
+    """
+    from db import _get_pg_pool
+
+    global_access, owners = _hpc_reader(request)
+    where, params = [], []
+    if state == "open":
+        where.append("m.terminal_at IS NULL")
+    elif state == "settled":
+        where.append("m.terminal_at IS NOT NULL")
+    elif state != "all":
+        raise ProblemException(
+            status=422, code="invalid_state", detail="state must be open|settled|all"
+        )
+    if cluster_id:
+        where.append("m.cluster_id = %s")
+        params.append(cluster_id)
+    if not global_access:
+        where.append("m.tenant_id = ANY(%s)")
+        params.append(sorted(owners))
+    try:
+        raw_cursor = cursor or "MA"
+        offset = int(
+            base64.urlsafe_b64decode(raw_cursor + "=" * ((4 - len(raw_cursor) % 4) % 4)).decode()
+        )
+    except (ValueError, TypeError):
+        raise ProblemException(status=422, code="invalid_cursor", detail="cursor is invalid")
+    query = (
+        _HPC_JOB_SELECT
+        + (" WHERE " + " AND ".join(where) if where else "")
+        + " ORDER BY COALESCE(m.last_changed_at, m.submitted_at, to_timestamp(m.created_at)) DESC,"
+        " m.xcelsior_job_id LIMIT %s OFFSET %s"
+    )
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(query, (*params, limit + 1, offset)).fetchall()
+    more = len(rows) > limit
+    jobs = [_hpc_job(r) for r in rows[:limit]]
+    next_cursor = (
+        base64.urlsafe_b64encode(str(offset + limit).encode()).decode().rstrip("=")
+        if more
+        else None
+    )
+    return {"ok": True, "jobs": jobs, "next_cursor": next_cursor}
+
+
+@router.get("/api/v1/hpc/jobs/{xcelsior_job_id}")
+def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
+    """One Slurm job as the reconciler last observed it.
+
+    Someone else's job is not-found, not forbidden: ids can't be probed.
+    Read-only; never contacts a cluster.
+    """
+    from db import _get_pg_pool
+
+    global_access, owners = _hpc_reader(request)
+    query = _HPC_JOB_SELECT + " WHERE m.xcelsior_job_id = %s"
+    params: list = [xcelsior_job_id]
+    if not global_access:
+        query += " AND m.tenant_id = ANY(%s)"
+        params.append(sorted(owners))
+    with _get_pg_pool().connection() as conn:
+        row = conn.execute(query, params).fetchone()
+    if row is None:
+        raise ProblemException(
+            status=404, code="hpc_job_not_found", detail=f"HPC job {xcelsior_job_id} not found"
+        )
+    return {"ok": True, "job": _hpc_job(row)}
