@@ -21,6 +21,18 @@ A pass over one cluster:
    verdict; after an hour it reads ``unknown``, still open.
 4. A mapping whose ``desired_state`` is ``cancelled`` and that isn't
    finished gets a ``scancel``.
+5. Output tails readers asked for (slurm_job_outputs), at most
+   ``OUTPUT_FETCHES_PER_PASS`` of them, and one final copy of each after its
+   job settles. Readers never fetch output themselves, so however many are
+   watching, a job's output is read at most once per pass.
+
+A Slurm id is unique on one cluster only for a while: a controller that loses
+its state numbers from FirstJobId again, and ids wrap at MaxJobId. So a job
+under a mapping's id is that mapping's job only if its name agrees. The
+adapter names every job ``xcl-<xcelsior job id>``; a job carrying another
+Xcelsior job's name is someone else's, in squeue and in accounting alike. A
+name without the prefix says nothing either way (the job wasn't submitted by
+the adapter), and the id is all there is to go on.
 
 Rows are written only when the observation changes, each guarded by its
 ``version``, so two reconcilers (a blue and a green worker, should the
@@ -52,6 +64,8 @@ BREAKER_MAX_SEC = 900
 WINDOW_MARGIN_MIN = 60
 #: Job names the adapter gives its jobs (``xcl-<xcelsior id>``).
 ADAPTER_JOB_PREFIX = "xcl-"
+#: Output tails fetched per pass over one cluster; the rest wait their turn.
+OUTPUT_FETCHES_PER_PASS = 10
 
 _TRANSPORT_ERRORS = {"transport_error", "insecure_ssh_config", "unsafe_remote_argument"}
 
@@ -71,6 +85,8 @@ class PassResult:
     missing: list = field(default_factory=list)  # slurm_job_ids in neither source
     orphans: list = field(default_factory=list)  # adapter-named jobs with no mapping
     cancel_requested: list = field(default_factory=list)
+    outputs_fetched: list = field(default_factory=list)  # (xcelsior_job_id, stream)
+    output_errors: list = field(default_factory=list)  # (xcelsior_job_id, stream, error_code)
     accounting_error: str | None = None
     accounting_checked: bool = False  # sacct ran this pass (it only runs when needed)
     duration_ms: int = 0
@@ -228,23 +244,38 @@ def _open_mappings(cluster_id: str) -> list[dict]:
         ).fetchall()
 
 
-def _mapped_ids(cluster_id: str, slurm_ids: list[str]) -> set[str]:
+def _open_names(cluster_id: str, slurm_ids: list[str]) -> set[tuple[str, str]]:
+    """(slurm id, adapter job name) for each open mapping among these ids."""
     from db import pg_connection
 
     if not slurm_ids:
         return set()
     with pg_connection() as conn:
         rows = conn.execute(
-            "SELECT slurm_job_id FROM slurm_job_mappings WHERE cluster_id = %s AND slurm_job_id = ANY(%s)",
+            "SELECT slurm_job_id, xcelsior_job_id FROM slurm_job_mappings "
+            "WHERE cluster_id = %s AND slurm_job_id = ANY(%s) AND terminal_at IS NULL",
             (cluster_id, slurm_ids),
         ).fetchall()
-    return {r[0] for r in rows}
+    return {(r[0], ADAPTER_JOB_PREFIX + r[1]) for r in rows}
+
+
+def _owns(row: dict, job_name: str | None) -> bool:
+    """Whether a job seen under this mapping's Slurm id is this mapping's job."""
+    name = job_name or ""
+    return not name.startswith(ADAPTER_JOB_PREFIX) or name == (
+        ADAPTER_JOB_PREFIX + row["xcelsior_job_id"]
+    )
+
+
+def _in_controller(row: dict, squeue_jobs: dict) -> dict | None:
+    seen = squeue_jobs.get(row["slurm_job_id"])
+    return seen if seen is not None and _owns(row, seen["name"]) else None
 
 
 def _observation(row: dict, squeue_jobs: dict, records: dict, now: float) -> dict:
     """The observation this pass makes of one open mapping."""
     sid = row["slurm_job_id"]
-    seen = squeue_jobs.get(sid)
+    seen = _in_controller(row, squeue_jobs)
     if seen is not None:
         return {
             "observed_state": sa.SLURM_OBSERVED_STATE.get(seen["state"], "unknown"),
@@ -256,7 +287,7 @@ def _observation(row: dict, squeue_jobs: dict, records: dict, now: float) -> dic
             "missing_since": None,
             "settled": False,
         }
-    runs = records.get(sid)
+    runs = [run for run in records.get(sid, ()) if _owns(row, run["name"])]
     if runs:
         latest = runs[-1]
         finished = latest["observed_state"] in sa.FINISHED_OBSERVED_STATES
@@ -377,10 +408,10 @@ def reconcile_cluster(
         log.warning("slurm reconcile %s: %s (%s)", cluster_id, result.error, result.error_code)
         return result
     squeue_jobs = polled["jobs"]
-    result.in_controller = sum(1 for r in rows if r["slurm_job_id"] in squeue_jobs)
+    result.in_controller = sum(1 for r in rows if _in_controller(r, squeue_jobs))
 
     now = time.time()
-    gone = [r for r in rows if r["slurm_job_id"] not in squeue_jobs]
+    gone = [r for r in rows if not _in_controller(r, squeue_jobs)]
     records: dict = {}
     if gone:
         oldest = min(float(r["submitted_epoch"] or now) for r in gone)
@@ -454,17 +485,97 @@ def reconcile_cluster(
                         "slurm cancel failed for %s on %s: %s", row["slurm_job_id"], cluster_id, e
                     )
 
-    # Adapter-named jobs with no mapping: a crash between sbatch and the
-    # mapping insert leaves one. Reported, never cancelled from here.
-    named = [sid for sid, j in squeue_jobs.items() if j["name"].startswith(ADAPTER_JOB_PREFIX)]
-    result.orphans = sorted(set(named) - _mapped_ids(cluster_id, named))
+    # Adapter-named jobs no open mapping accounts for: a crash between sbatch
+    # and the mapping insert leaves one, and so does a registration refused
+    # because an old mapping still holds the id. Matched by name as well as
+    # id, since the id alone may be an old mapping's. Reported, never
+    # cancelled from here.
+    named = {
+        sid: j["name"] for sid, j in squeue_jobs.items() if j["name"].startswith(ADAPTER_JOB_PREFIX)
+    }
+    accounted = _open_names(cluster_id, list(named))
+    result.orphans = sorted(sid for sid, name in named.items() if (sid, name) not in accounted)
     if result.orphans:
         log.warning(
             "slurm reconcile %s: adapter jobs with no mapping: %s", cluster_id, result.orphans
         )
 
+    _refresh_outputs(cluster_id, profile_key, runner, result)
+
     result.duration_ms = int((time.monotonic() - started) * 1000)
     return result
+
+
+# ── Output cache ─────────────────────────────────────────────────────
+
+
+def _due_outputs(cluster_id: str, limit: int) -> list[tuple]:
+    """Tails to fetch this pass: asked for since the last attempt, or settled
+    since it (one final copy). Oldest request first."""
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        return conn.execute(
+            """
+            SELECT o.xcelsior_job_id, o.stream, m.slurm_job_id, m.terminal_at IS NOT NULL
+              FROM slurm_job_outputs o
+              JOIN slurm_job_mappings m ON m.xcelsior_job_id = o.xcelsior_job_id
+             WHERE m.cluster_id = %s AND NOT o.final
+               AND (o.requested_at > COALESCE(o.attempted_at, '-infinity'::timestamptz)
+                    OR (m.terminal_at IS NOT NULL
+                        AND COALESCE(o.attempted_at, '-infinity'::timestamptz) < m.terminal_at))
+             ORDER BY o.requested_at NULLS LAST, o.xcelsior_job_id, o.stream
+             LIMIT %s
+            """,
+            (cluster_id, limit),
+        ).fetchall()
+
+
+def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResult) -> None:
+    from db import pg_transaction
+
+    for xid, stream, sid, settled in _due_outputs(cluster_id, OUTPUT_FETCHES_PER_PASS):
+        got = sa.get_slurm_job_output(
+            sid,
+            xid,
+            profile_name=profile_key,
+            runner=runner,
+            stream=stream,
+            max_bytes=sa.OUTPUT_TAIL_BYTES,
+        )
+        with pg_transaction() as conn:
+            if "error" in got:
+                conn.execute(
+                    "UPDATE slurm_job_outputs SET attempted_at = clock_timestamp(), "
+                    "error_code = %s, error = %s WHERE xcelsior_job_id = %s AND stream = %s",
+                    (got.get("error_code"), got["error"][:500], xid, stream),
+                )
+            else:
+                # PostgreSQL text can't hold NUL, and a job may print one.
+                content = got["content"].replace("\x00", "")
+                conn.execute(
+                    """
+                    UPDATE slurm_job_outputs
+                       SET content = %s, truncated = %s, slurm_job_id = %s,
+                           attempted_at = clock_timestamp(), fetched_at = clock_timestamp(),
+                           final = %s, error_code = NULL, error = NULL
+                     WHERE xcelsior_job_id = %s AND stream = %s
+                    """,
+                    (
+                        content,
+                        len(content.encode()) >= sa.OUTPUT_TAIL_BYTES,
+                        sid,
+                        settled,
+                        xid,
+                        stream,
+                    ),
+                )
+        if "error" in got:
+            result.output_errors.append((xid, stream, got.get("error_code")))
+            if got.get("error_code") in _TRANSPORT_ERRORS:
+                break  # the cluster stopped answering; the rest wait for the next pass
+        else:
+            result.outputs_fetched.append((xid, stream))
 
 
 def reconcile_due_clusters() -> list[dict]:

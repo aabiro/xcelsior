@@ -1,0 +1,3 @@
+USER=xclslurm
+mkdir: Permission denied
+Xcelsior job r1108142218-sec1 completed at Sun Nov  8 14:24:34 EST 2026

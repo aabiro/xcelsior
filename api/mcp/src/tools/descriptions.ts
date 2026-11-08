@@ -566,6 +566,13 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "it under the same id. Operator tool. Use when watching one job to completion or explaining " +
     "its outcome. Read-only and free; it never contacts a cluster.",
 
+  get_hpc_job_output:
+    "Get the tail of a Slurm job's stdout (out) or stderr (err), by its Xcelsior job id, from " +
+    "the copy the reconciler keeps. A copy older than the cluster's poll interval queues one " +
+    "fetch (refresh_pending); read again after poll_interval_seconds. A settled job's copy is " +
+    "final. Operator tool. Use when following a job's progress or finding why it failed. " +
+    "Read-only and free; it never contacts a cluster, however often you call it.",
+
   // ── Operations ──────────────────────────────────────────────────────────
   retry_instance:
     "Retry a failed instance, creating a fresh fenced attempt while preserving the job's " +

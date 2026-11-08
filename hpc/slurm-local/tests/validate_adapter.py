@@ -980,7 +980,9 @@ def sync_1(ctx: Ctx):
     ctx.wait(a["slurm_job_id"], {"RUNNING"}, 60)
     b = ctx.submit("syncB", num_gpus=1, command="true")
     ids = {"syncA": a["slurm_job_id"], "syncB": b["slurm_job_id"]}
-    xids = [f"{ctx.run_id}-sync-{k}" for k in ids]
+    # Registered under the id the adapter named the job by (xcl-<id>), as
+    # production registers it; the reconciler matches jobs by that name.
+    xids = [a["xcelsior_job_id"], b["xcelsior_job_id"]]
     try:
         for (k, sid), xid in zip(ids.items(), xids):
             sa.register_slurm_job(xid, sid, cluster_id="xcl-local")
@@ -1090,7 +1092,7 @@ def sync_2(ctx: Ctx):
     if any("error" in j for j in jobs):
         return FAIL, {"submits": jobs}, "submit failed"
     cid = f"{ctx.run_id}-rec"
-    xids = [f"{ctx.run_id}-rec-{i}" for i in range(len(jobs))]
+    xids = [j["xcelsior_job_id"] for j in jobs]  # the ids the jobs are named by
     try:
         for xid, j in zip(xids, jobs):
             sa.register_slurm_job(xid, j["slurm_job_id"], cluster_id=cid)
@@ -1152,7 +1154,7 @@ class _Scenario:
         if "slurm_job_id" not in res:
             raise RuntimeError(f"submit {tag} failed: {res}")
         sid = res["slurm_job_id"]
-        xid = f"{self.cluster}-{tag}"
+        xid = res["xcelsior_job_id"]  # the id the adapter named the job by
         sa.register_slurm_job(xid, sid, cluster_id=self.cluster)
         self.jobs.append(sid)
         return sid, xid

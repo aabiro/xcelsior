@@ -1475,3 +1475,54 @@ def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
             status=404, code="hpc_job_not_found", detail=f"HPC job {xcelsior_job_id} not found"
         )
     return {"ok": True, "job": _hpc_job(row)}
+
+
+@router.get("/api/v1/hpc/jobs/{xcelsior_job_id}/output")
+def api_v1_hpc_job_output(xcelsior_job_id: str, request: Request, stream: str = "out"):
+    """The tail of a Slurm job's stdout (`out`) or stderr (`err`), from cache.
+
+    Never contacts a cluster. A copy older than the cluster's poll interval
+    queues one fetch for the reconciler's next pass (`refresh_pending`); read
+    again after `poll_interval_seconds`. However many readers ask, the
+    cluster is read at most once per interval per job and stream. A settled
+    job's copy is `final`. Someone else's job is not-found.
+    """
+    from datetime import datetime, timezone
+
+    from db import _get_pg_pool
+    from slurm_adapter import read_cached_output
+
+    if stream not in ("out", "err"):
+        raise ProblemException(status=422, code="invalid_stream", detail="stream must be out|err")
+    global_access, owners = _hpc_reader(request)
+    query = "SELECT 1 FROM slurm_job_mappings m WHERE m.xcelsior_job_id = %s"
+    params: list = [xcelsior_job_id]
+    if not global_access:
+        query += " AND m.tenant_id = ANY(%s)"
+        params.append(sorted(owners))
+    with _get_pg_pool().connection() as conn:
+        visible = conn.execute(query, params).fetchone()
+    output = read_cached_output(xcelsior_job_id, stream) if visible else None
+    if output is None or "error" in output:
+        raise ProblemException(
+            status=404, code="hpc_job_not_found", detail=f"HPC job {xcelsior_job_id} not found"
+        )
+    fetched = output["fetched_at"]
+    return {
+        "ok": True,
+        "output": {
+            "xcelsior_job_id": output["xcelsior_job_id"],
+            "cluster_id": output["cluster_id"],
+            "slurm_job_id": output["slurm_job_id"],
+            "stream": stream,
+            "content": output["content"],
+            "truncated": output["truncated"],
+            "final": output["final"],
+            "settled": output["settled"],
+            "fetched_at": _iso(datetime.fromtimestamp(fetched, timezone.utc)) if fetched else None,
+            "fetched_age_seconds": output["fetched_age_seconds"],
+            "refresh_pending": output["refresh_pending"],
+            "poll_interval_seconds": output["poll_interval_seconds"],
+            "fetch_error_code": output["fetch_error_code"],
+        },
+    }

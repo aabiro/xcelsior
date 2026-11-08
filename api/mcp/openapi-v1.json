@@ -1718,6 +1718,57 @@
         }
       }
     },
+    "/api/v1/hpc/jobs/{xcelsior_job_id}/output": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Hpc Job Output",
+        "description": "The tail of a Slurm job's stdout (`out`) or stderr (`err`), from cache.\n\nNever contacts a cluster. A copy older than the cluster's poll interval\nqueues one fetch for the reconciler's next pass (`refresh_pending`); read\nagain after `poll_interval_seconds`. However many readers ask, the\ncluster is read at most once per interval per job and stream. A settled\njob's copy is `final`. Someone else's job is not-found.",
+        "operationId": "api_v1_hpc_job_output_api_v1_hpc_jobs__xcelsior_job_id__output_get",
+        "parameters": [
+          {
+            "name": "xcelsior_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Xcelsior Job Id"
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "out",
+              "title": "Stream"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
       "post": {
         "tags": [

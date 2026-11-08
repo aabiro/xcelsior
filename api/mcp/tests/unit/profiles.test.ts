@@ -18,7 +18,7 @@ describe("trust-surface profiles", () => {
     for (const name of [
       "drain_host", "undrain_host", "evict_host_workloads", "retry_agent_command",
       "get_scheduler_health", "get_host_capacity", "list_reconciliation_findings",
-      "list_hpc_clusters", "list_hpc_jobs", "get_hpc_job",
+      "list_hpc_clusters", "list_hpc_jobs", "get_hpc_job", "get_hpc_job_output",
     ]) {
       expect(customer, `${name} must not appear in a public directory listing`)
         .not.toContain(name);

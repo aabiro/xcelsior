@@ -356,14 +356,23 @@ class SlurmRunner:
                 remote_cmd,
             ]
             return subprocess.run(
-                cmd, input=input_text, capture_output=True, text=True, timeout=timeout
+                cmd,
+                input=input_text,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
             )
         full_env = {**os.environ, **env} if env else None
+        # errors="replace": a job's output is whatever the job printed, and
+        # `tail -c` usually starts inside a multi-byte character. Strict
+        # decoding raised UnicodeDecodeError out of the read.
         return subprocess.run(
             argv,
             input=input_text,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout,
             env=full_env,
         )
@@ -1779,6 +1788,8 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
     the admin dashboard's refresh reads this instead, so refreshing costs the
     cluster nothing. A Slurm id can exist on several clusters, so without
     ``cluster_id`` an id mapped on more than one is an error, not a guess.
+    On one cluster an id can come back once its first job settles; the open
+    mapping is the job now holding it, and failing that, the latest.
     """
     from db import pg_connection
 
@@ -1794,14 +1805,16 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
     if cluster_id:
         query += " AND cluster_id = %s"
         params.append(cluster_id)
+    query += " ORDER BY terminal_at IS NULL DESC, submitted_at DESC NULLS LAST"
     with pg_connection() as conn:
         rows = conn.execute(query, params).fetchall()
     if not rows:
         return _error("not_found", f"Slurm job {slurm_job_id} is not tracked by Xcelsior")
-    if len(rows) > 1:
+    clusters = {r[1] for r in rows}
+    if len(clusters) > 1:
         return _error(
             "ambiguous_job_id",
-            f"Slurm job {slurm_job_id} is mapped on {len(rows)} clusters; pass cluster_id",
+            f"Slurm job {slurm_job_id} is mapped on {len(clusters)} clusters; pass cluster_id",
         )
     xid, cid, observed, slurm_state, reason, exit_code, settled, seen_at, age = rows[0]
     return {
@@ -1822,6 +1835,83 @@ def read_observed_status(slurm_job_id, *, cluster_id=None) -> dict:
     }
 
 
+#: How much of each stream the output cache keeps, from the end of the file.
+OUTPUT_TAIL_BYTES = 65536
+
+
+def read_cached_output(xcelsior_job_id, stream="out") -> dict:
+    """A job's output tail from the cache (slurm_job_outputs); never polls Slurm.
+
+    Readers never reach the cluster: the reconciler fetches output on its
+    pass. A read that finds the copy older than the cluster's poll interval
+    files a refresh request, and the next pass serves it, so the cluster
+    sees at most one fetch per job and stream per interval however many
+    readers there are. Only the first read after a fetch writes the request.
+    Once the job has settled and its output was fetched, the copy is final
+    and is never fetched again.
+
+    ``refresh_pending`` tells the caller a fetch is queued: read again after
+    ``poll_interval_seconds``.
+    """
+    from db import pg_transaction
+
+    if stream not in ("out", "err"):
+        return _error("invalid_request", "stream must be 'out' or 'err'")
+    with pg_transaction() as conn:
+        mapping = conn.execute(
+            "SELECT m.slurm_job_id, m.cluster_id, m.terminal_at IS NOT NULL, "
+            "COALESCE(c.poll_interval_seconds, 60) "
+            "FROM slurm_job_mappings m LEFT JOIN slurm_clusters c ON c.cluster_id = m.cluster_id "
+            "WHERE m.xcelsior_job_id = %s",
+            (str(xcelsior_job_id),),
+        ).fetchone()
+        if mapping is None:
+            return _error("not_found", f"job {xcelsior_job_id} has no Slurm mapping")
+        slurm_job_id, cluster_id, settled, interval = mapping
+        # A request is filed only when none is outstanding, the copy is older
+        # than one poll interval, and it isn't final.
+        conn.execute(
+            """
+            INSERT INTO slurm_job_outputs (xcelsior_job_id, stream, slurm_job_id, requested_at)
+            VALUES (%s, %s, %s, clock_timestamp())
+            ON CONFLICT (xcelsior_job_id, stream) DO UPDATE
+               SET requested_at = clock_timestamp()
+             WHERE NOT slurm_job_outputs.final
+               AND COALESCE(slurm_job_outputs.fetched_at, '-infinity'::timestamptz)
+                   < clock_timestamp() - make_interval(secs => %s)
+               AND COALESCE(slurm_job_outputs.requested_at, '-infinity'::timestamptz)
+                   <= COALESCE(slurm_job_outputs.attempted_at, '-infinity'::timestamptz)
+            """,
+            (str(xcelsior_job_id), stream, slurm_job_id, int(interval)),
+        )
+        row = conn.execute(
+            "SELECT content, truncated, final, error_code, error, "
+            "EXTRACT(EPOCH FROM fetched_at), "
+            "EXTRACT(EPOCH FROM clock_timestamp() - fetched_at), "
+            "requested_at > COALESCE(attempted_at, '-infinity'::timestamptz) "
+            "FROM slurm_job_outputs WHERE xcelsior_job_id = %s AND stream = %s",
+            (str(xcelsior_job_id), stream),
+        ).fetchone()
+    content, truncated, final, error_code, error, fetched_at, age, pending = row
+    return {
+        "xcelsior_job_id": str(xcelsior_job_id),
+        "slurm_job_id": slurm_job_id,
+        "cluster_id": cluster_id,
+        "stream": stream,
+        "content": content,
+        "truncated": bool(truncated),
+        "final": bool(final),
+        "settled": bool(settled),
+        "fetched_at": float(fetched_at) if fetched_at is not None else None,
+        "fetched_age_seconds": round(float(age), 1) if age is not None else None,
+        "refresh_pending": bool(pending),
+        "poll_interval_seconds": int(interval),
+        "fetch_error_code": error_code,
+        "fetch_error": error,
+        "source": "reconciler",
+    }
+
+
 def register_slurm_job(
     xcelsior_job_id,
     slurm_job_id,
@@ -1834,11 +1924,14 @@ def register_slurm_job(
     """Register a mapping between an Xcelsior job and an external Slurm job.
 
     Idempotent on ``(tenant_id, submit_idempotency_key)`` and unique on
-    ``(cluster_id, slurm_job_id)``, so a retried submit cannot create a
-    second external job or let two Xcelsior jobs act on one Slurm job
-    (companion §10.1). Pass the profile's ``cluster_id``: Slurm job ids
-    are only unique per cluster, so every mapping filed under "unknown"
-    would collide as soon as a second cluster is connected.
+    ``(cluster_id, slurm_job_id)`` among open mappings, so a retried submit
+    cannot create a second external job or let two Xcelsior jobs act on one
+    Slurm job (companion §10.1). Pass the profile's ``cluster_id``: Slurm
+    job ids are only unique per cluster, so every mapping filed under
+    "unknown" would collide as soon as a second cluster is connected. A
+    settled mapping does not hold its id: a rebuilt controller numbers jobs
+    from the start again, and the new job must still be registrable
+    (migration 153).
 
     The previous implementation was ``ON CONFLICT (xcelsior_job_id) DO
     UPDATE SET slurm_job_id`` — last-writer-wins, which silently

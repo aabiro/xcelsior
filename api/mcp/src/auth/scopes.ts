@@ -159,6 +159,7 @@ const TOOL_SCOPE_REGISTRY = {
   list_hpc_clusters: { allOf: ["control_plane:read"] },
   list_hpc_jobs: { allOf: ["instances:read", "control_plane:read"] },
   get_hpc_job: { allOf: ["instances:read", "control_plane:read"] },
+  get_hpc_job_output: { allOf: ["instances:read", "control_plane:read"] },
   get_mcp_action_status: { anyOf: ["instances:read", "inference:read", "hosts:read"] },
   retry_instance: { allOf: ["instances:operate"] },
   reconcile_instance: { allOf: ["instances:operate"] },

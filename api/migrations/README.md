@@ -97,7 +97,13 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `152_slurm_cluster_registry.py`.**
+**Repository head: `154_slurm_job_outputs.py`.**
+
+154 adds `slurm_job_outputs`, the cached tail of each Slurm job's stdout and stderr (plan item 1.7). Readers (the v1 API and MCP) read only this table; a stale read records `requested_at`, and the reconciler fetches requested tails on its pass over the cluster, so output is read at most once per poll interval per job however many readers there are. `final` marks a copy taken after the job settled, which is never fetched again. Rows cascade with their mapping. One idempotent unit through `lock_safe`; downgrade drops the table. The runtime floor is unchanged.
+
+153 makes a Slurm job id unique among open mappings only (`uq_slurm_open_cluster_job`, `WHERE terminal_at IS NULL`) instead of across every mapping ever written. A controller that loses its state numbers jobs from FirstJobId again, and ids wrap at MaxJobId, so a new job could draw the id of a settled mapping; under 067's index it could not be registered after `sbatch` had already started it. The reconciler tells jobs under one id apart by the adapter's `xcl-<xcelsior job id>` job name. Two idempotent units through `lock_safe`, the new index first. Downgrade restores 067's index and refuses while any id is mapped twice on one cluster. The runtime floor is unchanged.
+
+152 adds the `slurm_clusters` registry the batched reconciler polls (research-only clusters can never be marketplace capacity or agent-reachable, by CHECK), the reconciler's columns on `slurm_job_mappings` (raw Slurm state and reason, exit code, start and end, `missing_since`, `last_changed_at`), and the `preempted`, `held` and `suspended` observed states. Downgrade maps those states to `unknown` and drops the table and columns.
 
 151 clears region labels that defaults stamped rather than a person choosing them (`ca-east`, `ca-central` and the other retired picker values) from `serverless_endpoints`, `inference_endpoints`, `volumes` and `gpu_offers`, and drops the `ca-east` column default from the first two. An empty region means any region. ISO subdivision regions such as `ca-on` are kept, and hosts are untouched: their owners confirm their location. One table per transaction through `lock_safe`; every statement is idempotent. Downgrade restores the column defaults but not the cleared labels. The runtime floor stays 150.
 

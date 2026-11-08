@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 import slurm_adapter as sa
 from api import app
-from db import pg_transaction
+from db import pg_connection, pg_transaction
 from routes.problem import PROBLEM_MEDIA_TYPE
 
 client = TestClient(app)
@@ -47,6 +47,7 @@ def _no_cluster_contact(monkeypatch):
     monkeypatch.setattr(sa.SlurmRunner, "run", _refuse)
     monkeypatch.setattr(sa, "poll_cluster_jobs", _refuse)
     monkeypatch.setattr(sa, "accounting_window", _refuse)
+    monkeypatch.setattr(sa, "get_slurm_job_output", _refuse)
 
 
 def _register(admin: bool) -> tuple[dict, str]:
@@ -188,6 +189,50 @@ class TestOneJob:
         r = client.get(f"/api/v1/hpc/jobs/{world['ids']['a_open']}", headers=world["b"])
         assert r.status_code == 404
         assert r.json()["code"] == "hpc_job_not_found"
+        assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+
+
+class TestJobOutput:
+    """/api/v1/hpc/jobs/{id}/output reads the cache the reconciler fills."""
+
+    def test_the_first_read_queues_a_fetch_and_later_reads_see_it(self, world):
+        url = f"/api/v1/hpc/jobs/{world['ids']['a_open']}/output"
+        r = client.get(url, headers=world["a"])
+        assert r.status_code == 200, r.text
+        out = r.json()["output"]
+        assert out["content"] == "" and out["refresh_pending"] and out["fetched_at"] is None
+        assert out["poll_interval_seconds"] == 30
+
+        # What the reconciler's pass writes once it has read the file.
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_job_outputs SET content = 'step 10 loss 0.4', attempted_at = "
+                "clock_timestamp(), fetched_at = clock_timestamp() WHERE xcelsior_job_id = %s",
+                (world["ids"]["a_open"],),
+            )
+        out = client.get(url, headers=world["admin"]).json()["output"]
+        assert out["content"] == "step 10 loss 0.4" and not out["refresh_pending"]
+        assert out["fetched_at"] and out["stream"] == "out" and not out["final"]
+
+    def test_someone_elses_output_is_not_found(self, world):
+        r = client.get(f"/api/v1/hpc/jobs/{world['ids']['a_open']}/output", headers=world["b"])
+        assert r.status_code == 404 and r.json()["code"] == "hpc_job_not_found"
+        with pg_connection() as conn:  # and the refused read filed no request
+            assert (
+                conn.execute(
+                    "SELECT count(*) FROM slurm_job_outputs WHERE xcelsior_job_id = %s",
+                    (world["ids"]["a_open"],),
+                ).fetchone()[0]
+                == 0
+            )
+
+    def test_stream_must_be_out_or_err(self, world):
+        r = client.get(
+            f"/api/v1/hpc/jobs/{world['ids']['a_open']}/output",
+            headers=world["a"],
+            params={"stream": "both"},
+        )
+        assert r.status_code == 422
         assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
 
 
