@@ -29,6 +29,7 @@ from routes._deps import (
     _require_auth,
     _require_scope,
     _user_team_id,
+    effective_scopes,
 )
 from routes.instances import JobIn
 from routes.problem import problem_response
@@ -239,7 +240,9 @@ def api_get_launch_plan(plan_id: str, request: Request):
     user, principal = _resolve_principal(request)
     result = get_owned_plan(plan_id, principal=principal)
     if str(user.get("grant_type", "")) == "client_credentials":
-        held = set(user.get("scopes") or ())
+        # Through `IMPLIED_SCOPES`, so a `billing:write` credential can read
+        # the auto-top-up plans that now record `billing:topup`.
+        held = effective_scopes(user.get("scopes"))
         required = set(result["plan"].get("required_scopes") or ())
         read_equivalents = {
             "instances:operate": "instances:read",

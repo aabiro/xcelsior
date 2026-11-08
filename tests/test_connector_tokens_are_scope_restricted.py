@@ -219,8 +219,9 @@ def test_the_default_mode_is_enforce():
     union rather than from tool requirements, and it read `anyOf` as `allOf`.
 
     Measured properly, exactly two published tools cannot be satisfied by a
-    Quick Connect token, both needing `billing:write`, and both are already
-    refused at the MCP layer. So enforcement removes no working capability — it
+    Quick Connect token, both needing `billing:write` (now `billing:topup`,
+    which Quick Connect does not carry either), and both are already refused at
+    the MCP layer. So enforcement removes no working capability — it
     closes the direct-REST path that route scoping never reached.
 
     A regression to `shadow` would be silent: every request would still succeed,
@@ -281,8 +282,10 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
     # decision rather than as a refusal in production.
     assert unsatisfiable == {
         "top_up_wallet",
-        # `billing:write` too. A deposit request moves no money, but it locks a
-        # rate and belongs to the same lever as topping up.
+        # `billing:topup` too. A deposit request moves no money, but it locks a
+        # rate and belongs to the same lever as topping up. An OAuth connector
+        # may be granted `billing:topup` on its consent page; this token, issued
+        # without one, is not.
         "create_crypto_deposit",
         "create_lightning_deposit",
         "configure_auto_topup",

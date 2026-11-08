@@ -11,6 +11,7 @@ import time
 import threading as _threading
 import urllib.parse
 from collections import defaultdict, deque
+from collections.abc import Iterable
 from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket
@@ -870,6 +871,7 @@ def _require_customer_access(
     customer_id: str,
     *,
     billing_write: bool = False,
+    funds_wallet: bool = False,
 ) -> dict:
     """Authn, scope, and ownership guard for customer-scoped billing routes.
 
@@ -897,16 +899,25 @@ def _require_customer_access(
     `billing_write` already marks the routes that move or commit money, so the
     scope follows it rather than being restated per route — a list of route
     names to keep in sync is how the original gap survived.
+
+    `funds_wallet` marks the narrower class inside it: routes that only put
+    money *into* the caller's own wallet (a Bitcoin or Lightning deposit). They
+    ask for `billing:topup`, which `billing:write` contains, so an OAuth
+    connector granted the top-up permission reaches them and nothing else of
+    `billing:write`. For team rules they are billing writes all the same.
     """
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    _require_scope(user, "billing:write" if billing_write else "billing:read")
+    if funds_wallet:
+        _require_scope(user, "billing:topup")
+    else:
+        _require_scope(user, "billing:write" if billing_write else "billing:read")
     if _is_platform_admin(user):
         return user
     if customer_id not in _customer_ids_accessible_by_user(user):
         raise HTTPException(403, "Forbidden")
-    if billing_write:
+    if billing_write or funds_wallet:
         _require_team_billing_write(user, customer_id)
     return user
 
@@ -1652,6 +1663,36 @@ def _is_interactive_human(user: dict) -> bool:
     return not _is_delegated_connector_token(user)
 
 
+#: Scopes a broader scope already contains. Exactly one entry, and it is narrow
+#: on purpose: `billing:topup` is the part of `billing:write` that puts money
+#: *into* the caller's own wallet — top up from a saved card, a Bitcoin or
+#: Lightning deposit, auto-top-up changes (widening still needs a human). It
+#: exists so an OAuth connector can be granted that and nothing else of
+#: `billing:write`, which also opens the Stripe billing portal, mints the
+#: credential that attaches a card, and detaches cards.
+#:
+#: The implication is what keeps every credential already holding
+#: `billing:write` — first-party apps, provisioned clients, existing tokens —
+#: able to top up without being reissued. It runs one way only: holding
+#: `billing:topup` satisfies nothing that asks for `billing:write`.
+#:
+#: This is not the `api` wildcard coming back. That meant "everything"; this
+#: means "a strict subset of one named scope". The MCP server applies the same
+#: table in `grants()` (api/mcp/src/auth/scopes.ts), and
+#: `tests/test_connector_wallet_topup_scope.py` fails if the two differ.
+IMPLIED_SCOPES: dict[str, frozenset[str]] = {
+    "billing:write": frozenset({"billing:topup"}),
+}
+
+
+def effective_scopes(scopes: Iterable[str] | None) -> set[str]:
+    """The scopes a credential holds, plus every scope those already contain."""
+    held = set(scopes or ())
+    for scope in tuple(held):
+        held |= IMPLIED_SCOPES.get(scope, frozenset())
+    return held
+
+
 def _record_connector_scope_shadow(user: dict, required: tuple[str, ...]) -> None:
     """Log what `enforce` mode would have refused. Never raises.
 
@@ -1660,7 +1701,7 @@ def _record_connector_scope_shadow(user: dict, required: tuple[str, ...]) -> Non
     to the mode being off.
     """
     try:
-        granted = set(user.get("scopes") or ())
+        granted = effective_scopes(user.get("scopes"))
         if not granted:
             return  # Pre-scope credential; `enforce` would let it through too.
         missing = [s for s in required if s not in granted]
@@ -1741,17 +1782,18 @@ def _require_scope(user: dict, *required: str) -> None:
     # would lock out existing keys for a bug that is not theirs.
     if not scopes:
         return
-    granted = set(scopes)
     # No wildcard. `api` used to short-circuit this check entirely, which made
     # every narrowed credential — including Quick Connect keys — able to do
     # anything. It is removed from the scope vocabulary rather than narrowed, so
-    # there is no value a caller can hold that means "everything".
+    # there is no value a caller can hold that means "everything". The one
+    # implication left is `IMPLIED_SCOPES`, a named subset of a named scope.
+    granted = effective_scopes(scopes)
     missing = [s for s in required if s not in granted]
     if missing:
         raise HTTPException(
             403,
             f"Insufficient scope — required: {', '.join(required)}; "
-            f"granted: {', '.join(sorted(granted))}",
+            f"granted: {', '.join(sorted(set(scopes)))}",
         )
 
 

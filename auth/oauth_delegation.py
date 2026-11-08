@@ -142,6 +142,13 @@ SYSTEM_ALLOWED_SCOPES = frozenset(
         # every Quick Connect mint 403 at client creation. That is exactly what
         # happened when `providers:read` was added to one and not the other.
         "reputation:read",
+        # The connector ceiling's top-up permission. A self-registered connector
+        # is created by the system principal, so a scope in
+        # `CONNECTOR_ALLOWED_SCOPES` that is missing here refuses that connector
+        # at registration. Narrower than `billing:write`, already above, which
+        # contains it. Being grantable here does not put it on the Quick Connect
+        # key — that is `MCP_QUICK_CONNECT_SCOPES`, which leaves it out.
+        "billing:topup",
         "openid",
         "profile",
         "email",

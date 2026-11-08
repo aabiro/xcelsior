@@ -47,6 +47,21 @@ describe("scope enforcement", () => {
     expect(satisfiesScope(["instances:read"], TOOL_SCOPES.list_instances)).toBe(true);
   });
 
+  it("lets billing:write top up, and billing:topup do nothing more", () => {
+    // `IMPLIED_SCOPES`: a connector may hold `billing:topup`; first-party
+    // credentials hold `billing:write`, which contains it.
+    const topUps = ["top_up_wallet", "configure_auto_topup", "create_crypto_deposit", "create_lightning_deposit"];
+    for (const name of topUps) {
+      expect(satisfiesScope(["billing:topup"], TOOL_SCOPES[name]), name).toBe(true);
+      expect(satisfiesScope(["billing:write"], TOOL_SCOPES[name]), name).toBe(true);
+      expect(satisfiesScope(["billing:read"], TOOL_SCOPES[name]), name).toBe(false);
+    }
+    // One way only: the narrow scope never satisfies the broad one.
+    expect(satisfiesScope(["billing:topup"], { allOf: ["billing:write"] })).toBe(false);
+    // And it is not a read scope in disguise.
+    expect(satisfiesScope(["billing:topup"], TOOL_SCOPES.get_wallet_balance)).toBe(false);
+  });
+
   it("treats anyOf as genuine alternatives", () => {
     // An action plan may concern an instance, an endpoint, or a host.
     expect(satisfiesScope(["instances:read"], TOOL_SCOPES.get_mcp_action_status)).toBe(true);
@@ -88,12 +103,14 @@ describe("scope enforcement", () => {
   /**
    * Tools a Quick Connect token deliberately cannot reach.
    *
-   * The default connector credential carries `billing:read` and not
-   * `billing:write`, so it can read the funding configuration and not change
-   * it. `top_up_wallet` charges a real card, and the plan of record is explicit
-   * that it "is `billing:write` from the start — it charges a real card, so it
-   * is never reachable by a read-scoped credential"
-   * (docs/mcp-agent-native-implementation-plan.md, P0).
+   * The default connector credential carries `billing:read` and neither
+   * `billing:topup` nor `billing:write`, so it can read the funding
+   * configuration and not change it. `top_up_wallet` charges a real card, and
+   * the plan of record is explicit that it "is `billing:write` from the start —
+   * it charges a real card, so it is never reachable by a read-scoped
+   * credential" (docs/mcp-agent-native-implementation-plan.md, P0). It now
+   * needs `billing:topup`, which `billing:write` contains and which an OAuth
+   * connector is granted only on its consent page — never on this token.
    *
    * Listed by name rather than skipped by scope, so adding a second
    * money-moving tool is a decision someone records here instead of an
@@ -101,7 +118,7 @@ describe("scope enforcement", () => {
    */
   const NOT_REACHABLE_BY_QUICK_CONNECT = new Set([
     "top_up_wallet",
-    // Same rail, same scope: `billing:write`. Creating a deposit spends nothing
+    // Same rail, same scope: `billing:topup`. Creating a deposit spends nothing
     // — it returns an address to send *to* — but it commits a rate-locked quote,
     // and the connector this product tells people to paste must not be able to.
     "create_crypto_deposit",
@@ -152,8 +169,9 @@ describe("scope enforcement", () => {
 
   it("refuses the money-moving tools to the Quick Connect scope set", () => {
     // The other half, so the exemption above cannot become a blanket skip. A
-    // tool named here must actually be out of reach — if `billing:write` were
-    // added to the connector default, this fails and the decision surfaces.
+    // tool named here must actually be out of reach — if `billing:topup` or
+    // `billing:write` were added to the Quick Connect token, this fails and the
+    // decision surfaces.
     // Pinned to MCP_QUICK_CONNECT_SCOPES by
     // tests/test_quick_connect_can_reach_what_it_promises.py — vitest cannot
     // import a Python constant, and this copy had already drifted once.
