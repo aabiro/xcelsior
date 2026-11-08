@@ -1,6 +1,6 @@
 # Pass/fail checklist: local Slurm validation
 
-Run date: ____________  Run id: ____________  Adapter version: 3.0.0  Slurm: 25.11.2
+Run date: ____________  Run id: ____________  Adapter version: 3.0.0  Slurm: 25.11.8 (SchedMD debs)
 
 Mark each row PASS or FAIL. Automated rows come from `results/<run-id>/checklist.md` (suite) and `30-verify-cluster.sh` (V-rows). Evidence for every suite case is in `results.json` under the same id.
 
