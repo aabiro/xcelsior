@@ -136,7 +136,7 @@ def test_promotion_refuses_when_the_standby_binary_differs_from_the_primary(
         hf.promote(
             settings,
             replica=status,
-            public_ip="207.219.125.161",
+            public_ip="203.0.113.30",
             runner=_standby(STANDBY_V028, commands),
         )
 
@@ -160,11 +160,11 @@ def test_promotion_proceeds_on_the_primarys_build(
     hf.promote(
         settings,
         replica=status,
-        public_ip="207.219.125.161",
+        public_ip="203.0.113.30",
         runner=_standby(PRIMARY_VERSION, commands),
     )
 
-    assert moved == ["207.219.125.161"]
+    assert moved == ["203.0.113.30"]
     systemctl = [c[1] for c in commands if c[0] == "systemctl"]
     # Stopped before the swap, enabled so a reboot keeps the control plane, then started.
     assert systemctl == ["stop", "enable", "restart"], systemctl

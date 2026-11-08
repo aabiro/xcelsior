@@ -1,7 +1,7 @@
 GX0 connector conformance against https://mcp.xcelsior.ca/mcp
 
 [  ok  ] external vantage point
-          egress 207.219.90.237
+          egress <home address, redacted>
 [  ok  ] TLS version is 1.2 or 1.3
           negotiated TLSv1.3
 [  ok  ] TLS certificate chain validates

@@ -256,7 +256,7 @@ def test_promotion_refuses_when_the_standby_cannot_serve_the_name(
         hf.promote(
             _settings(tmp_path, "45.76.3.128"),
             replica=status,
-            public_ip="66.222.170.140",
+            public_ip="203.0.113.20",
             runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
         )
 
@@ -301,10 +301,10 @@ def test_promotion_proceeds_when_the_standby_does_serve_the_name(
     hf.promote(
         settings,
         replica=status,
-        public_ip="66.222.170.140",
+        public_ip="203.0.113.20",
         runner=lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
     )
-    assert moved == ["66.222.170.140"], f"a ready standby did not take the record: {moved}"
+    assert moved == ["203.0.113.20"], f"a ready standby did not take the record: {moved}"
 
 
 def _failback_fixture(tmp_path: Path):
