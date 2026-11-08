@@ -19,6 +19,7 @@ step_preflight() {
     local fail=0
     chk() { if eval "$2"; then xcl_log "ok   $1"; else xcl_log "FAIL $1"; fail=1; fi; }
     chk "hostname is ASUS_HOSTNAME from site.env" '[[ "$(hostname -s)" == "$ASUS_HOSTNAME" ]]'
+    chk "ASUS_MEM_MB ($ASUS_MEM_MB) fits the installed RAM" 'xcl_mem_fits "$ASUS_MEM_MB"'
     chk "Ubuntu 26.04" 'grep -q "VERSION_ID=\"26.04\"" /etc/os-release'
     chk "tailnet address $ASUS_ADDR present" 'ip -4 -o addr | grep " $ASUS_ADDR/" >/dev/null'
     chk "cgroup v2" '[[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]]'
