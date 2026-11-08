@@ -3,7 +3,7 @@
 fa37079 made `_get_real_client_ip` read only `request.client.host`, as uvicorn
 resolves it from X-Forwarded-For — right for spoofing, but with only loopback
 trusted, the walk stopped at the Cloudflare edge nginx appends. Measured on
-production on 2026-10-06: a request from 207.219.90.237 was logged as
+production on 2026-10-06: a request from a home address (203.0.113.10 here) was logged as
 172.69.130.143. Every per-IP control was shared by all visitors on an edge:
 the login brute-force limit, the flood limit, the WebSocket ticket pin, the
 demo gate.
@@ -62,7 +62,7 @@ def _resolve(peer: str, xff: str) -> str:
 
 def test_a_visitor_behind_cloudflare_is_the_client() -> None:
     """The production chain: CF wrote the visitor, nginx appended the CF edge."""
-    assert _resolve("127.0.0.1", "207.219.90.237, 172.69.130.143") == "207.219.90.237"
+    assert _resolve("127.0.0.1", "203.0.113.10, 172.69.130.143") == "203.0.113.10"
 
 
 def test_an_ipv6_edge_is_walked_past_too() -> None:
@@ -71,7 +71,7 @@ def test_an_ipv6_edge_is_walked_past_too() -> None:
 
 def test_a_forger_bypassing_cloudflare_gets_their_own_address() -> None:
     """They can write anything on the left; nginx appends who they really are."""
-    assert _resolve("127.0.0.1", "207.219.90.237, 198.51.100.7") == "198.51.100.7"
+    assert _resolve("127.0.0.1", "203.0.113.10, 198.51.100.7") == "198.51.100.7"
 
 
 def test_a_forged_cloudflare_hop_does_not_skip_the_real_peer() -> None:
@@ -81,7 +81,7 @@ def test_a_forged_cloudflare_hop_does_not_skip_the_real_peer() -> None:
 
 def test_a_direct_untrusted_peer_cannot_be_overridden() -> None:
     """Not behind nginx at all: the header is ignored outright."""
-    assert _resolve("198.51.100.7", "207.219.90.237") == "198.51.100.7"
+    assert _resolve("198.51.100.7", "203.0.113.10") == "198.51.100.7"
 
 
 @pytest.mark.parametrize("edge", ["172.69.130.143", "104.16.0.1", "162.158.1.1"])
