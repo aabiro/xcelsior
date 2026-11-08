@@ -88,6 +88,8 @@ class TestAdapterAndGateAgree:
         _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile)
         _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile, stream="err")
         _sa.cancel_slurm_job("41", profile_name=lab_profile)
+        _sa.poll_cluster_jobs(profile_name=lab_profile)
+        _sa.accounting_window(["41", "42"], since_minutes=90, profile_name=lab_profile)
 
         progs = {
             cmd.split()[0] if not cmd.startswith("env ") else cmd.split()[2]
@@ -144,6 +146,14 @@ class TestRefusedCommands:
             "sacct -a",
             "sacct -j 1 --noheader --parsable2 -o JobID -a",
             "sacct -j 1 --noheader --parsable2 -o JobID,User,Comment%999",
+            # the reconciler's batched shapes: exactly as sent, and bounded
+            "squeue --me -h -t all -o %i -a",
+            "squeue -u root -h -t all -o %i",
+            "sacct -D -X -n --parsable2 --noconvert -j 1,2 -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S 2000-01-01 -j 1 -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S now-5minutes -j "
+            + ",".join(str(i) for i in range(201))
+            + " -o JobIDRaw",
             # env prefix: one variable, one program
             "env SLURM_TIME_FORMAT=%s sbatch --parsable",
             "env FOO=1 sacct -j 1 --noheader --parsable2 -o JobID",

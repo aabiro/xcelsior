@@ -738,6 +738,18 @@ def main():
 
     register_task("artifact_inventory_reconcile", _artifact_inventory_reconcile, 600)
 
+    # 22c. Slurm reconciler (hpc/IMPLEMENTATION_PLAN.md §5a): the only code
+    # that polls Slurm for job state. Each registered cluster is polled at
+    # its own interval (poll_interval_seconds, 30 s at the least) with one
+    # squeue and at most one bounded sacct; dashboards, the API and agents
+    # read slurm_job_mappings instead. Idle until a cluster is registered.
+    def _slurm_reconcile():
+        from slurm_reconciler import reconcile_due_clusters
+
+        reconcile_due_clusters()
+
+    register_task("slurm_reconcile", _slurm_reconcile, 30)
+
     # ── Launch executor thread ───────────────────────────────────────
     def _executor_loop():
         log.info("Durable scheduled task executor started (worker_id=%s)", WORKER_ID)

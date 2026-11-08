@@ -53,6 +53,11 @@ ADAPTER_VERSION = "3.0.0"
 #   scratch_dir, project_dir, output_dir ({user}/{account} templates)
 #   ssh_host, ssh_options    run Slurm commands on this host over SSH
 #   remote_user              cluster account name, when ssh_host is an alias
+#   research_only            an academic allocation (Alliance): research jobs
+#                            under its PI only, never marketplace capacity or
+#                            agent traffic (slurm_clusters enforces it)
+#   marketplace, agent_access  may sell capacity / take agent-originated work
+#   poll_interval_seconds    how often the reconciler polls it (30-3600)
 
 CLUSTER_PROFILES = {
     # Alliance profiles verified against docs.alliancecan.ca on 2026-11-07
@@ -72,6 +77,10 @@ CLUSTER_PROFILES = {
     #   - at most 1000 pending+running jobs per user (MaxSubmit)
     "nibi": {
         "name": "SHARCNET Nibi",
+        # Alliance Terms of Service 3.1: academic research under a PI only.
+        "research_only": True,
+        # Alliance asks scripts not to poll "at high frequency".
+        "poll_interval_seconds": 120,
         # 36 GPU nodes x 8 H100 SXM 80GB (NVLink); Nokia Ethernet, 200 Gb/s
         # non-blocking between GPU nodes. Automation node:
         # robot.nibi.alliancecan.ca (by request; not for AI-agent use).
@@ -101,6 +110,7 @@ CLUSTER_PROFILES = {
         # new submissions are refused.
         "name": "Compute Canada Graham (retired)",
         "retired": True,
+        "research_only": True,
         "partition_gpu": "gpu",
         "partition_cpu": "compute",
         "account_env": "SLURM_ACCOUNT",
@@ -115,6 +125,8 @@ CLUSTER_PROFILES = {
     },
     "narval": {
         "name": "Calcul Québec Narval",
+        "research_only": True,
+        "poll_interval_seconds": 120,
         # 4 x A100 SXM4 40GB per GPU node (NVLink); InfiniBand HDR.
         # Automation node: robot.narval.alliancecan.ca.
         "partition_gpu": None,
@@ -177,6 +189,10 @@ _PROFILE_DEFAULTS = {
     "ssh_options": [],
     "remote_user": None,
     "retired": False,
+    "research_only": False,
+    "marketplace": False,
+    "agent_access": False,
+    "poll_interval_seconds": 60,
     # "epoch_env": SLURM_TIME_FORMAT=%s via an env prefix (exact).
     # "iso_local": parse local-time ISO stamps in `timezone`, cross-checked
     # against ElapsedRaw — for wrappers that refuse an env prefix.
@@ -1062,21 +1078,53 @@ SLURM_STATE_MAP = {
     "PREEMPTED": "preempted",
 }
 
-# Xcelsior job state → slurm_job_mappings.observed_state, whose CHECK
-# constraint (migration 067) allows only pending/running/completed/failed/
-# cancelled/unknown. Writing "queued" there raised CheckViolation and
-# aborted the whole sync pass the first time a real job was pending.
+# Xcelsior job state → slurm_job_mappings.observed_state. Writing "queued"
+# there raised CheckViolation and aborted the whole sync pass the first time
+# a real job was pending. Migration 152 added preempted, held and suspended.
 OBSERVED_STATE_MAP = {
     "queued": "pending",
     "running": "running",
     "completed": "completed",
     "failed": "failed",
     "cancelled": "cancelled",
-    # No 'preempted' in the constraint yet (plan item); a preempted Slurm
-    # job is terminal and was stopped by the cluster, not the job.
-    "preempted": "cancelled",
+    "preempted": "preempted",
     "unknown": "unknown",
 }
+
+# Slurm job state → slurm_job_mappings.observed_state, for the reconciler.
+# Finer than SLURM_STATE_MAP's job vocabulary: a hold (REQUEUE_HOLD,
+# SPECIAL_EXIT) waits for a release and is not a failure, and SUSPENDED
+# keeps its memory and GPUs, so it is not "pending". Whether a job is
+# finished is decided by the reconciler (it has left the controller and
+# accounting agrees), never by one of these states alone: a requeued
+# NODE_FAIL or PREEMPTED job comes back with the same id.
+SLURM_OBSERVED_STATE = {
+    "PENDING": "pending",
+    "REQUEUED": "pending",
+    "REQUEUE_FED": "pending",
+    "CONFIGURING": "running",
+    "RUNNING": "running",
+    "COMPLETING": "running",
+    "RESIZING": "running",
+    "SIGNALING": "running",
+    "STAGE_OUT": "running",
+    "REQUEUE_HOLD": "held",
+    "SPECIAL_EXIT": "held",
+    "RESV_DEL_HOLD": "held",
+    "SUSPENDED": "suspended",
+    "STOPPED": "suspended",
+    "COMPLETED": "completed",
+    "FAILED": "failed",
+    "BOOT_FAIL": "failed",
+    "DEADLINE": "failed",
+    "NODE_FAIL": "failed",
+    "OUT_OF_MEMORY": "failed",
+    "TIMEOUT": "failed",
+    "CANCELLED": "cancelled",
+    "REVOKED": "cancelled",
+    "PREEMPTED": "preempted",
+}
+FINISHED_OBSERVED_STATES = ("completed", "failed", "cancelled", "preempted")
 
 
 def normalize_slurm_state(raw: str) -> str:
@@ -1188,6 +1236,164 @@ def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
         return _error("slurm_unavailable", "Slurm not available")
     except Exception as e:
         return _error("adapter_exception", str(e))
+
+
+# ── Batched polling (the reconciler's command set) ───────────────────
+# One squeue per cluster per pass, not one per job. With more than one id,
+# `squeue -j a,b,c` makes squeue load the whole job table and filter it
+# client-side (Slurm 25.11 source); `--me` asks only for this account's jobs,
+# and `-t all` keeps the ones that finished within MinJobAge. sacct runs
+# only for jobs that have left the controller, always bounded by -S: with
+# -j and no -S it searches from epoch 0, and after job ids wrap the record
+# it returns can belong to another job.
+
+_SQUEUE_FIELDS = ("job_id", "name", "state", "reason", "elapsed", "time_limit", "nodes", "nodelist")
+# "|"-delimited, no spaces: site wrappers word-split the command line.
+_SQUEUE_FORMAT = "%i|%j|%T|%r|%M|%l|%D|%N"
+_WINDOW_FIELDS = (
+    "JobIDRaw",
+    "JobName",
+    "State",
+    "Submit",
+    "Start",
+    "End",
+    "ElapsedRaw",
+    "ExitCode",
+    "AllocTRES",
+    "NodeList",
+)
+#: Ids per sacct call; the gate admits at most this many.
+MAX_IDS_PER_SACCT = 200
+
+
+def poll_cluster_jobs(*, profile_name=None, runner=None) -> dict:
+    """Every job of this account the controller still holds, in one call.
+
+    Returns {"jobs": {slurm_job_id: {name, state, reason, elapsed,
+    time_limit, nodes, nodelist}}} with ``state`` normalised, or an error.
+    A job missing here has left the controller (MinJobAge) or never
+    belonged to this account; only accounting can say which.
+    """
+    try:
+        _profile, runner = _resolve(profile_name, runner)
+        r = runner.run(["squeue", "--me", "-h", "-t", "all", "-o", _SQUEUE_FORMAT], timeout=30)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return _error("timeout", "squeue timed out")
+    except FileNotFoundError:
+        return _error("slurm_unavailable", "Slurm not available on this system")
+    failure = _transport_failure(r, runner)
+    if failure:
+        return failure
+    if r.returncode != 0:
+        msg = r.stderr.strip()
+        return _error(classify_slurm_error(msg, default="squeue_failed"), msg)
+    jobs = {}
+    for line in r.stdout.splitlines():
+        parts = line.split("|", len(_SQUEUE_FIELDS) - 1)
+        if len(parts) != len(_SQUEUE_FIELDS) or not _SLURM_JOB_ID_RE.match(parts[0]):
+            continue
+        row = dict(zip(_SQUEUE_FIELDS, parts))
+        row["state"] = normalize_slurm_state(row["state"])
+        jobs[row.pop("job_id")] = row
+    return {"jobs": jobs}
+
+
+def accounting_window(job_ids, *, since_minutes: int, profile_name=None, runner=None) -> dict:
+    """Accounting for these jobs, every run of each, in one sacct call.
+
+    ``-D`` returns one allocation record per run: a requeued or preempted
+    job has several under the same id, and without -D only the latest shows.
+    ``since_minutes`` bounds the search (-S); pass the age of the oldest
+    open mapping plus a margin.
+
+    Returns {"records": {slurm_job_id: [record, ...]}} with each list in
+    submit order (latest last), or an error. A job with no record is absent
+    from the dict: not yet in accounting, outside the window, or unknown.
+    """
+    ids = [str(j) for j in job_ids]
+    if not ids:
+        return {"records": {}}
+    if len(ids) > MAX_IDS_PER_SACCT:
+        return _error("invalid_request", f"at most {MAX_IDS_PER_SACCT} ids per sacct call")
+    bad = [j for j in ids if not _SLURM_JOB_ID_RE.match(j)]
+    if bad:
+        return _error("invalid_job_id", f"invalid Slurm job ids: {bad!r}")
+    since = max(1, int(since_minutes))
+    try:
+        profile, runner = _resolve(profile_name, runner)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    epoch_env = profile.get("accounting_time", "epoch_env") != "iso_local"
+    argv = [
+        "sacct",
+        "-D",
+        "-X",
+        "-n",
+        "--parsable2",
+        "--noconvert",
+        "-S",
+        f"now-{since}minutes",
+        "-j",
+        ",".join(ids),
+        "-o",
+        ",".join(_WINDOW_FIELDS),
+    ]
+    try:
+        r = runner.run(argv, timeout=30, env={"SLURM_TIME_FORMAT": "%s"} if epoch_env else None)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return _error("timeout", "sacct timed out")
+    except FileNotFoundError:
+        return _error("slurm_unavailable", "Slurm not available")
+    failure = _transport_failure(r, runner)
+    if failure:
+        return failure
+    if r.returncode != 0:
+        msg = r.stderr.strip()
+        code = (
+            "accounting_disabled"
+            if "accounting storage is disabled" in msg.lower()
+            else "sacct_failed"
+        )
+        return _error(code, msg)
+    tz_name = str(profile.get("timezone") or "UTC")
+    records: dict = {}
+    for line in r.stdout.splitlines():
+        parts = line.split("|")
+        if len(parts) != len(_WINDOW_FIELDS) or parts[0] not in ids:
+            continue
+        row = dict(zip(_WINDOW_FIELDS, parts))
+        state = normalize_slurm_state(row["State"])
+        observed = SLURM_OBSERVED_STATE.get(state, "unknown")
+        elapsed = int(row["ElapsedRaw"]) if row["ElapsedRaw"].isdigit() else 0
+        finished = observed in FINISHED_OBSERVED_STATES
+        if epoch_env:
+            submitted = _epoch_or_none(row["Submit"])
+            started = _epoch_or_none(row["Start"])
+            ended = _epoch_or_none(row["End"]) if finished else None
+        else:
+            submitted, started, ended = _local_times(row, tz_name, elapsed, finished)
+        records.setdefault(row["JobIDRaw"], []).append(
+            {
+                "name": row["JobName"],
+                "state": state,
+                "raw_state": row["State"],
+                "observed_state": observed,
+                "submitted_at": submitted,
+                "started_at": started,
+                "ended_at": ended,
+                "elapsed_sec": elapsed,
+                "exit_code": row["ExitCode"],
+                "alloc_tres": row["AllocTRES"],
+                "node_list": row["NodeList"],
+            }
+        )
+    for runs in records.values():
+        runs.sort(key=lambda rec: rec["submitted_at"] or 0.0)
+    return {"records": records}
 
 
 # ── Accounting (metering) ────────────────────────────────────────────
@@ -1652,97 +1858,27 @@ def _profile_key_for_cluster(cluster_id) -> str | None:
 
 
 def sync_slurm_statuses(update_callback=None, cancel_callback=None):
-    """Reconcile desired and observed state for every open Slurm mapping.
+    """Reconcile every open Slurm mapping now, batched per cluster.
 
-    Bidirectional, as companion §10.1 requires:
-
-    - **observed → Xcelsior**: poll the cluster, persist ``observed_state``
-      and ``last_observed_at``, and report transitions through
-      ``update_callback``;
-    - **desired → cluster**: a mapping whose ``desired_state`` is
-      ``cancelled`` while the external job is still live gets a cancel
-      request through ``cancel_callback``. Previously there was no desired
-      state at all, so a cancellation could only be expressed by deleting
-      the row and hoping the external job noticed.
-
-    Terminal mappings are **stamped, not deleted** — the old code removed
-    the row on completion, destroying the only record that the external
-    job ever ran. They are excluded from future polls by ``terminal_at``.
-
-    Each mapping is polled through the profile its ``cluster_id`` names,
-    so one pass can cover several clusters. A failure on one row is
-    logged and the pass continues.
+    A thin entry point over slurm_reconciler.reconcile_open_mappings, which
+    holds the rules: one squeue and at most one bounded sacct per cluster,
+    a mapping closed only when its job has left the controller and
+    accounting says it finished, never from silence. The old per-job loop
+    ran up to two SSH calls per open mapping and closed a mapping the moment
+    squeue showed a finished state, which loses requeued jobs.
 
     Args:
-        update_callback: fn(xcelsior_job_id, new_xcelsior_state) for
-            observed transitions (Xcelsior job vocabulary, e.g. "queued").
-        cancel_callback: fn(slurm_job_id) invoked when Xcelsior wants the
-            external job stopped and it is not yet terminal.
+        update_callback: fn(xcelsior_job_id, job_state) for each changed
+            observation, in SLURM_STATE_MAP's job vocabulary.
+        cancel_callback: fn(slurm_job_id) for a mapping whose desired_state
+            is ``cancelled`` and whose job isn't finished.
 
     Returns:
-        list of (xcelsior_job_id, slurm_job_id, old_observed, new_observed)
-        in the slurm_job_mappings.observed_state vocabulary.
+        list of (xcelsior_job_id, slurm_job_id, old_observed, new_observed).
     """
-    from db import pg_connection, pg_transaction
+    from slurm_reconciler import reconcile_open_mappings
 
-    changes = []
-    with pg_connection() as conn:
-        mappings = conn.execute(
-            "SELECT xcelsior_job_id, slurm_job_id, observed_state, desired_state, cluster_id "
-            "FROM slurm_job_mappings WHERE terminal_at IS NULL"
-        ).fetchall()
-
-    for row in mappings:
-        xcelsior_id, slurm_id, prev_state, desired = row[0], row[1], row[2], row[3]
-        cluster_id = row[4] if len(row) > 4 else None
-        profile_key = _profile_key_for_cluster(cluster_id)
-        try:
-            if profile_key:
-                status = get_slurm_job_status(slurm_id, profile_name=profile_key)
-            else:
-                status = get_slurm_job_status(slurm_id)
-        except Exception as e:
-            log.error("slurm status poll failed for %s: %s", slurm_id, e)
-            continue
-        if "error" in status:
-            continue
-
-        xstate = status.get("xcelsior_state", "") or "unknown"
-        new_state = OBSERVED_STATE_MAP.get(xstate, "unknown")
-        is_terminal = xstate in SLURM_TERMINAL_STATES
-
-        # Persist the observation regardless of whether it changed, so
-        # last_observed_at reflects real freshness (blueprint §12.2: API
-        # receipt time is what determines staleness).
-        try:
-            with pg_transaction() as conn:
-                conn.execute(
-                    """UPDATE slurm_job_mappings
-                          SET observed_state = %s,
-                              last_observed_at = clock_timestamp(),
-                              terminal_at = CASE WHEN %s THEN clock_timestamp()
-                                                 ELSE terminal_at END,
-                              version = version + 1
-                        WHERE xcelsior_job_id = %s""",
-                    (new_state, is_terminal, xcelsior_id),
-                )
-        except Exception as e:
-            log.error("slurm observation write failed for %s: %s", xcelsior_id, e)
-            continue
-
-        if new_state != prev_state:
-            if update_callback:
-                update_callback(xcelsior_id, xstate)
-            changes.append((xcelsior_id, slurm_id, prev_state, new_state))
-
-        # desired → cluster: Xcelsior wants this stopped and it is not.
-        if desired == "cancelled" and not is_terminal and cancel_callback:
-            try:
-                cancel_callback(slurm_id)
-            except Exception as e:
-                log.error("slurm cancel failed for %s: %s", slurm_id, e)
-
-    return changes
+    return reconcile_open_mappings(update_callback=update_callback, cancel_callback=cancel_callback)
 
 
 # ── CLI Integration ──────────────────────────────────────────────────

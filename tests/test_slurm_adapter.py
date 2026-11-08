@@ -881,6 +881,23 @@ class TestErrorClassificationV3:
         assert "slurm_job_id" not in res
 
 
+def _migration_152():
+    """The migration that defines slurm_job_mappings' observed_state constraint."""
+    import importlib.util
+    import pathlib
+
+    path = next(
+        (pathlib.Path(__file__).resolve().parents[1] / "api" / "migrations" / "versions").glob(
+            "152_*.py"
+        )
+    )
+    spec = importlib.util.spec_from_file_location("migration_152", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class TestStatesV3:
     def test_cancelled_by_uid_from_sacct_is_cancelled(self, monkeypatch):
         """Regression: sacct prints 'CANCELLED by 1000'; it used to map to failed."""
@@ -919,9 +936,20 @@ class TestStatesV3:
         assert SLURM_STATE_MAP[state] == expected
 
     def test_every_job_state_projects_onto_the_db_constraint(self):
-        allowed = {"pending", "running", "completed", "failed", "cancelled", "unknown"}
+        allowed = set(_migration_152().SLURM_OBSERVED)
         for xstate in set(SLURM_STATE_MAP.values()) | {"unknown"}:
             assert _sa.OBSERVED_STATE_MAP[xstate] in allowed
+        assert set(_sa.SLURM_OBSERVED_STATE.values()) <= allowed
+        assert set(_sa.FINISHED_OBSERVED_STATES) <= allowed
+
+    def test_reconciler_map_covers_every_slurm_state(self):
+        # Same states SLURM_STATE_MAP documents; holds and suspension are
+        # their own observations, not failures or pending.
+        assert set(_sa.SLURM_OBSERVED_STATE) == set(SLURM_STATE_MAP)
+        assert _sa.SLURM_OBSERVED_STATE["SPECIAL_EXIT"] == "held"
+        assert _sa.SLURM_OBSERVED_STATE["REQUEUE_HOLD"] == "held"
+        assert _sa.SLURM_OBSERVED_STATE["SUSPENDED"] == "suspended"
+        assert _sa.SLURM_OBSERVED_STATE["PREEMPTED"] == "preempted"
 
     def test_invalid_job_id_rejected_before_any_command(self, monkeypatch):
         rec = _Recorder()

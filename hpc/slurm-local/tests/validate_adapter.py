@@ -28,12 +28,14 @@ Cases (see CHECKLIST.md for the acceptance criteria of each):
           rejected
   SEC-1..2   a job can't widen the adapter's key; the gate refuses
           scripts with directives outside the adapter's set
-  SYNC-1  (optional, --with-db) reconcile loop against real jobs
+  SYNC-1..2  (optional, --with-db) reconcile loop against real jobs; a
+          pass costs one squeue and one sacct however many jobs are open
 """
 
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import pathlib
@@ -927,12 +929,8 @@ def pod_2(ctx: Ctx):
 # ── Reconcile loop (optional) ───────────────────────────────────────
 
 
-@case(
-    "SYNC-1",
-    "Reconcile loop against real jobs (optional)",
-    "Pending job → observed 'pending' (no CheckViolation); completed → terminal_at stamped",
-)
-def sync_1(ctx: Ctx):
+def _test_db_guard(ctx: Ctx):
+    """None when a dev/test database is safely configured, else a SKIP result."""
     if not ctx.args.with_db:
         return SKIP, {}, "run with --with-db against a dev/test database (never prod)"
     # Never touch a real database: .env must not load, and the DSN's
@@ -953,6 +951,27 @@ def sync_1(ctx: Ctx):
     sys.path[:0] = [str(REPO)] + [
         str(REPO / p) for p in ("core", "api", "auth", "billing", "hosts", "privacy")
     ]
+    atexit.register(_close_db_pool)
+    return None
+
+
+def _close_db_pool():
+    """Close the pool the DB cases opened, else psycopg_pool complains at exit."""
+    db = sys.modules.get("db")
+    pool = getattr(db, "_pg_pool", None)
+    if pool is not None:
+        pool.close()
+
+
+@case(
+    "SYNC-1",
+    "Reconcile loop against real jobs (optional)",
+    "Pending job → observed 'pending' (no CheckViolation); completed → terminal_at stamped",
+)
+def sync_1(ctx: Ctx):
+    refused = _test_db_guard(ctx)
+    if refused:
+        return refused
     from db import pg_connection, pg_transaction  # type: ignore
 
     a = ctx.submit("syncA", num_gpus=1, command="sleep 20")
@@ -971,24 +990,111 @@ def sync_1(ctx: Ctx):
             ).fetchall()
         ctx.wait(ids["syncB"], terminal_states(), 120)
         second = sa.sync_slurm_statuses()
-        with pg_connection() as conn:
-            rows2 = conn.execute(
-                "SELECT xcelsior_job_id, observed_state, terminal_at IS NOT NULL FROM slurm_job_mappings WHERE xcelsior_job_id = ANY(%s)",
-                (xids,),
-            ).fetchall()
+        rows2 = _mapping_rows(pg_connection, xids)
+        # A finished job settles only once it has left the controller
+        # (MinJobAge) and accounting agrees; until then it is open.
+        _wait_gone_from_controller(ctx, [ids["syncB"]])
+        third = sa.sync_slurm_statuses()
+        rows3 = _mapping_rows(pg_connection, xids)
     finally:
         with pg_transaction() as conn:
             conn.execute("DELETE FROM slurm_job_mappings WHERE xcelsior_job_id = ANY(%s)", (xids,))
-        import db as _db  # type: ignore
-
-        pool = getattr(_db, "_pg_pool", None)
-        if pool is not None:
-            pool.close()  # else psycopg_pool complains at interpreter exit
     obs1 = {r[0]: r[1] for r in rows1}
     obs2 = {r[0]: (r[1], r[2]) for r in rows2}
+    obs3 = {r[0]: (r[1], r[2]) for r in rows3}
     return ok(
-        obs1.get(xids[1]) == "pending" and obs2.get(xids[1]) == ("completed", True),
-        {"first_pass": first, "after_first": obs1, "second_pass": second, "after_second": obs2},
+        obs1.get(xids[0]) == "running"
+        and obs1.get(xids[1]) == "pending"
+        and obs2.get(xids[1], ("",))[0] == "completed"
+        and obs3.get(xids[1]) == ("completed", True),
+        {
+            "first_pass": first,
+            "after_first": obs1,
+            "second_pass": second,
+            "after_second": obs2,
+            "third_pass": third,
+            "after_third": obs3,
+        },
+        ""
+        if obs2.get(xids[1], ("", True))[1] is False
+        else "B had already left the controller at the second pass",
+    )
+
+
+def _wait_gone_from_controller(ctx: Ctx, slurm_ids: list[str]) -> None:
+    """Wait until squeue -t all no longer lists these jobs (MinJobAge).
+
+    Not ctx.status(): its `squeue -j <id>` hides a finished job at once,
+    while the controller still holds it, which is what -t all shows.
+    """
+    deadline = time.monotonic() + ctx.args.minjobage_wait
+    while time.monotonic() < deadline:
+        held = sa.poll_cluster_jobs(profile_name=ctx.profile, runner=ctx.runner).get("jobs", {})
+        if not any(sid in held for sid in slurm_ids):
+            return
+        time.sleep(5)
+
+
+def _mapping_rows(pg_connection, xids):
+    with pg_connection() as conn:
+        return conn.execute(
+            "SELECT xcelsior_job_id, observed_state, terminal_at IS NOT NULL "
+            "FROM slurm_job_mappings WHERE xcelsior_job_id = ANY(%s)",
+            (xids,),
+        ).fetchall()
+
+
+class _CountingRunner:
+    """Wraps the suite's runner to count the commands a reconcile pass sends."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.remote = inner.remote
+        self.ssh_host = inner.ssh_host
+        self.sent: list[str] = []
+
+    def run(self, argv, **kw):
+        self.sent.append(argv[0])
+        return self.inner.run(argv, **kw)
+
+
+@case(
+    "SYNC-2",
+    "A reconcile pass is batched (optional)",
+    "Five open jobs, one running and four finished and gone: one squeue and one sacct for the whole pass, every finished job settled",
+)
+def sync_2(ctx: Ctx):
+    refused = _test_db_guard(ctx)
+    if refused:
+        return refused
+    from db import pg_connection, pg_transaction  # type: ignore
+    import slurm_reconciler as rc  # noqa: E402
+
+    run = ctx.submit("rec-run", num_gpus=0, command="sleep 600")  # cancelled at the end
+    done = [ctx.submit(f"rec-done{i}", num_gpus=0, command="true") for i in range(4)]
+    jobs = [run, *done]
+    if any("error" in j for j in jobs):
+        return FAIL, {"submits": jobs}, "submit failed"
+    cid = f"{ctx.run_id}-rec"
+    xids = [f"{ctx.run_id}-rec-{i}" for i in range(len(jobs))]
+    try:
+        for xid, j in zip(xids, jobs):
+            sa.register_slurm_job(xid, j["slurm_job_id"], cluster_id=cid)
+        ctx.wait(run["slurm_job_id"], {"RUNNING"}, 60)
+        _wait_gone_from_controller(ctx, [j["slurm_job_id"] for j in done])
+        counting = _CountingRunner(ctx.runner)
+        result = rc.reconcile_cluster(cid, ctx.profile, runner=counting)
+        rows = {r[0]: (r[1], r[2]) for r in _mapping_rows(pg_connection, xids)}
+        sa.cancel_slurm_job(run["slurm_job_id"], profile_name=ctx.profile, runner=ctx.runner)
+    finally:
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cid,))
+    ev = {"commands_sent": counting.sent, "pass": result.as_dict(), "rows": rows}
+    return ok(
+        counting.sent == ["squeue", "sacct"]
+        and rows[xids[0]] == ("running", False)
+        and all(rows[x] == ("completed", True) for x in xids[1:]),
+        ev,
     )
 
 
