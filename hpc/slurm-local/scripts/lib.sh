@@ -279,13 +279,18 @@ xcl_service_start() {
 }
 
 # Snapshot of things this kit must never change, compared by 30-verify.
+# Containers that churn by design are left out: the tower's per-job CI
+# runner container is created and destroyed every few seconds (63 cycles an
+# hour on 2026-11-08), so it never matches between two snapshots.
+XCL_UNTOUCHABLE_IGNORE="${XCL_UNTOUCHABLE_IGNORE:-^xcelsior-ci-runner-}"
 xcl_snapshot_untouchables() {
     local out="$1"
     {
-        echo "# docker containers: id name status restart-count"
+        echo "# docker containers: id name status restart-count (ignoring /$XCL_UNTOUCHABLE_IGNORE/)"
         if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
             docker ps -a --format '{{.ID}} {{.Names}} {{.State}}' | sort | while read -r id name state; do
-                echo "$id $name $state $(docker inspect -f '{{.RestartCount}} {{.State.StartedAt}}' "$id")"
+                [[ "$name" =~ $XCL_UNTOUCHABLE_IGNORE ]] && continue
+                echo "$id $name $state $(docker inspect -f '{{.RestartCount}} {{.State.StartedAt}}' "$id" 2>/dev/null)"
             done
         fi
         echo "# runner services"
